@@ -24,3 +24,8 @@ class Organization(Base):
     notes = relationship("Note", back_populates="organization", cascade="all, delete-orphan")
     projections = relationship("Projection", back_populates="organization", cascade="all, delete-orphan")
     budgets = relationship("Budget", back_populates="organization", cascade="all, delete-orphan")
+    financial_statement_mappings = relationship("FinancialStatementMapping", back_populates="organization", cascade="all, delete-orphan")
+    exchange_rates = relationship("ExchangeRate", back_populates="organization", cascade="all, delete-orphan")
+    business_risks = relationship("BusinessRisk", back_populates="organization", cascade="all, delete-orphan")
+    forecast_configs = relationship("ForecastConfig", back_populates="organization", cascade="all, delete-orphan")
+    ebitda_multiple_notes = relationship("EbitdaMultipleNote", back_populates="organization", cascade="all, delete-orphan")

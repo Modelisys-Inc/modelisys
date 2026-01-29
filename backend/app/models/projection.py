@@ -55,12 +55,11 @@ class Loan(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     projection_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projections.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    initial_amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
-    rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False)  # Interest rate %
-    term: Mapped[int] = mapped_column(Integer, nullable=False)  # Years
-    amortization: Mapped[int] = mapped_column(Integer, nullable=False)  # Months
-    start_year: Mapped[int] = mapped_column(Integer, nullable=False)
-    end_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    principal: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False)
+    interest_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False)  # Annual %
+    remaining_payments: Mapped[int] = mapped_column(Integer, nullable=False)
+    payment_amount: Mapped[float | None] = mapped_column(Numeric(15, 2), nullable=True)
+    start_month: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 0-based from projection start
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Relationships

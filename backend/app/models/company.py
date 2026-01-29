@@ -24,6 +24,9 @@ class Company(Base):
     divisions = relationship("Division", back_populates="company", cascade="all, delete-orphan")
     chart_of_accounts = relationship("ChartOfAccount", back_populates="company", cascade="all, delete-orphan")
     trial_balance_entries = relationship("TrialBalanceEntry", back_populates="company", cascade="all, delete-orphan")
+    account_mappings = relationship("AccountMapping", back_populates="company", foreign_keys="AccountMapping.company_id", cascade="all, delete-orphan")
+    products = relationship("Product", back_populates="company", cascade="all, delete-orphan")
+    statement_structures = relationship("CompanyStatementStructure", back_populates="company", cascade="all, delete-orphan")
 
 
 class Division(Base):
