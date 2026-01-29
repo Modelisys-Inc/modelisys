@@ -6,6 +6,7 @@ import { LayoutDashboard, TrendingUp, BarChart3, Scale, Waves, ChevronDown, Line
 import { cn } from "@/lib/utils"
 import { useState, useEffect } from "react"
 import { useSidebar } from "@/contexts/sidebar-context"
+import { clearTokens } from "@/lib/api"
 
 const setupMenuItems = [
   {
@@ -125,15 +126,9 @@ export function Sidebar() {
   const { isOpen } = useSidebar()
 
   const handleLogout = () => {
-    // Supprimer les données de session
-    if (typeof window !== "undefined") {
-      // Supprimer les tokens et données de session
-      localStorage.removeItem("token")
-      sessionStorage.clear()
-      
-      // Rediriger vers la landing page
-      router.push("/landing")
-    }
+    clearTokens()
+    sessionStorage.clear()
+    router.push("/landing")
   }
   
   // Auto-expand submenu if active page is inside it

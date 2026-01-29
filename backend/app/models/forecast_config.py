@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, ForeignKey, func
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import String, DateTime, ForeignKey, JSON, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -11,7 +11,7 @@ from app.database import Base
 class ForecastConfig(Base):
     """Per-entity forecast configuration. Stores expense types (variable/fixe),
     inflation rates, variable rates, seasonality configs, etc.
-    Uses JSONB for flexible key-value storage since the data is keyed by rowId."""
+    Uses JSON for flexible key-value storage since the data is keyed by rowId."""
     __tablename__ = "forecast_configs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -29,7 +29,7 @@ class ForecastConfig(Base):
     #   seasonality_adj      - {"rowId": [{id, monthIndex, percentage, note}]}
     #   capex_depreciation   - {"rowId": 8.0}
     #   fdr_types            - {"rowId": "percentRevenue" | "percentCost" | "manual"}
-    data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -47,7 +47,7 @@ class EbitdaMultipleNote(Base):
     division_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("divisions.id", ondelete="CASCADE"), nullable=True)
     sub_division_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sub_divisions.id", ondelete="CASCADE"), nullable=True)
     note_type: Mapped[str] = mapped_column(String(30), nullable=False)  # adjustment, weight, range, multiple
-    data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    data: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

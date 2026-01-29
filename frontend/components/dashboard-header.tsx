@@ -4,6 +4,7 @@ import { User, Book, Settings, LogOut, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
+import { clearTokens } from "@/lib/api"
 
 interface DashboardHeaderProps {
   title?: string
@@ -108,6 +109,8 @@ export function DashboardHeader({ title = "Gestion Comptable", description }: Da
               size="icon"
               className="w-9 h-9 rounded-lg hover:bg-slate-800 text-slate-300 group"
               onClick={() => {
+                clearTokens()
+                sessionStorage.clear()
                 router.push("/landing")
               }}
               aria-label="Déconnexion"
