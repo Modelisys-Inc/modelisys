@@ -3,7 +3,8 @@
 import { User, Book, Settings, LogOut, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
+import { useAuth } from "@/contexts/auth-context"
 
 interface DashboardHeaderProps {
   title?: string
@@ -21,9 +22,9 @@ interface DashboardHeaderProps {
   ]
 
 export function DashboardHeader({ title = "Gestion Comptable", description }: DashboardHeaderProps) {
-  const userName = "Tristan Bellerose"
+  const { user, logout } = useAuth()
+  const userName = user?.full_name || ""
   const pathname = usePathname()
-  const router = useRouter()
 
   return (
     <header className="border-b border-slate-700 bg-slate-900 w-full shadow-sm">
@@ -107,9 +108,7 @@ export function DashboardHeader({ title = "Gestion Comptable", description }: Da
               variant="ghost"
               size="icon"
               className="w-9 h-9 rounded-lg hover:bg-slate-800 text-slate-300 group"
-              onClick={() => {
-                router.push("/landing")
-              }}
+              onClick={logout}
               aria-label="Déconnexion"
             >
               <LogOut className="w-5 h-5 group-hover:text-red-500" />
