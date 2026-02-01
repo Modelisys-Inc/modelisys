@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import React, { useState } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
@@ -940,8 +940,8 @@ export function CapexDetail({
                 : false
 
               return (
-                <>
-                <tr key={idx} className={cn(
+                <React.Fragment key={idx}>
+                <tr className={cn(
                   "border-b",
                   row.label === "" ? "h-2 border-slate-200" : "",
                   (nextRowIsSubtotal || nextRowIsResult) ? "border-slate-900 border-b-2" : "border-slate-200",
@@ -1222,7 +1222,7 @@ export function CapexDetail({
                       })}
                     </>
                   )}
-                </>
+                </React.Fragment>
               )
             })}
             {/* Capex Summary Sections */}

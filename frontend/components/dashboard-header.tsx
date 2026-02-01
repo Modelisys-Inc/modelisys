@@ -1,10 +1,11 @@
 "use client"
 
+import React from "react"
 import { User, Book, Settings, LogOut, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
-import { clearTokens } from "@/lib/api"
+import { usePathname } from "next/navigation"
+import { useAuth } from "@/contexts/auth-context"
 
 interface DashboardHeaderProps {
   title?: string
@@ -22,9 +23,9 @@ interface DashboardHeaderProps {
   ]
 
 export function DashboardHeader({ title = "Gestion Comptable", description }: DashboardHeaderProps) {
-  const userName = "Tristan Bellerose"
+  const { user, logout } = useAuth()
+  const userName = user?.full_name || ""
   const pathname = usePathname()
-  const router = useRouter()
 
   return (
     <header className="border-b border-slate-700 bg-slate-900 w-full shadow-sm">
@@ -65,9 +66,8 @@ export function DashboardHeader({ title = "Gestion Comptable", description }: Da
                 }
                 const isLastBeforeConfig = item.label === "Fin d'année CPA"
                 return (
-                  <>
+                  <React.Fragment key={item.href}>
                     <Link
-                      key={item.href}
                       href={item.href}
                       className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                         isActive
@@ -80,7 +80,7 @@ export function DashboardHeader({ title = "Gestion Comptable", description }: Da
                     {isLastBeforeConfig && (
                       <div className="h-6 w-px bg-slate-700 mx-2"></div>
                     )}
-                  </>
+                  </React.Fragment>
                 )
               })}
             </nav>
@@ -108,11 +108,7 @@ export function DashboardHeader({ title = "Gestion Comptable", description }: Da
               variant="ghost"
               size="icon"
               className="w-9 h-9 rounded-lg hover:bg-slate-800 text-slate-300 group"
-              onClick={() => {
-                clearTokens()
-                sessionStorage.clear()
-                router.push("/landing")
-              }}
+              onClick={logout}
               aria-label="Déconnexion"
             >
               <LogOut className="w-5 h-5 group-hover:text-red-500" />

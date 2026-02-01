@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Building2, ArrowLeft, Edit2, X, Check, Plus, ChevronUp, ChevronDown, Trash2, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
+import { listCompanies } from "@/lib/api"
 
 interface Company {
   id: string
@@ -60,25 +61,25 @@ export default function FinancialStatementsMappingPage() {
   const [editingLinkCodeIndex, setEditingLinkCodeIndex] = useState<number | null>(null)
   const [editingLinkCode, setEditingLinkCode] = useState("")
 
-  // Load company and financial statement rows from localStorage
+  // Load company from API and financial statement rows from localStorage
   useEffect(() => {
     if (typeof window !== "undefined" && companyId) {
-      const loadCompany = () => {
-        const saved = localStorage.getItem("modelisys_companies")
-        if (saved) {
-          try {
-            const companies: Company[] = JSON.parse(saved)
-            const foundCompany = companies.find((c) => c.id === companyId)
-            if (foundCompany) {
-              setCompany(foundCompany)
-            } else {
-              router.push(`/settings/companies/${companyId}`)
-            }
-          } catch (e) {
-            console.error("Error loading company:", e)
+      const loadCompany = async () => {
+        try {
+          const companies = await listCompanies()
+          const found = companies.find((c) => c.id === companyId)
+          if (found) {
+            setCompany({
+              id: found.id,
+              name: found.name,
+              fiscalYearEnd: found.fiscal_year_end,
+              currency: found.currency,
+            })
+          } else {
             router.push(`/settings/companies/${companyId}`)
           }
-        } else {
+        } catch (e) {
+          console.error("Error loading company:", e)
           router.push(`/settings/companies/${companyId}`)
         }
       }
@@ -1330,9 +1331,9 @@ export default function FinancialStatementsMappingPage() {
                                      !isProtectedInDetail
 
                     return (
-                      <>
+                      <React.Fragment key={index}>
                         {shouldAddSpacerBefore && (
-                          <tr key={`spacer-before-${index}`} className="h-12 border-b border-slate-200">
+                          <tr className="h-12 border-b border-slate-200">
                             <td className="px-6 py-3 text-sm h-12"></td>
                             <td className="px-6 py-3 text-sm h-12"></td>
                             <td className="px-6 py-3 text-sm h-12"></td>
@@ -1656,7 +1657,7 @@ export default function FinancialStatementsMappingPage() {
                             <td className="px-6 py-3 text-sm text-slate-600">-</td>
                           </tr>
                         )}
-                      </>
+                      </React.Fragment>
                     )
                   })}
                 </tbody>

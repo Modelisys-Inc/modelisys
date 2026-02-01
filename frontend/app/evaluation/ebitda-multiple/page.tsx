@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
+import { useCompanies } from "@/hooks/use-companies"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -20,22 +21,6 @@ const evaluationNav = [
   { label: "Multiple du BAIIA", href: "/evaluation/ebitda-multiple" },
 ]
 
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Société Principale",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division A",
-        subDivisions: [
-          { id: "subdiv-1", name: "Sous-division 1" },
-          { id: "subdiv-2", name: "Sous-division 2" },
-        ],
-      },
-    ],
-  },
-]
 
 interface Adjustment {
   id: string
@@ -52,6 +37,8 @@ interface EBITDAYear {
 }
 
 export default function EBITDAMultiplePage() {
+  const { companies: companiesData } = useCompanies()
+  const pathname = usePathname()
   const [hasAcceptedDisclaimer, setHasAcceptedDisclaimer] = useState<boolean>(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
@@ -80,13 +67,7 @@ export default function EBITDAMultiplePage() {
     // Annual: 3300000 (current year) - from income-statement-detail.tsx line 456
     // Prior: 2864000 (from income-statement-detail.tsx line 456)
     // Using historical pattern: 3300000, 2864000, 2550000, 2300000, 2100000
-    const revenueValues = [
-      2100000, // Year -4
-      2300000, // Year -3
-      2550000, // Year -2
-      2864000, // Year -1 (prior in income-statement-detail)
-      3300000, // Year 0 (current in income-statement-detail)
-    ]
+    const revenueValues: number[] = []
     
     if (yearOffset >= 0 && yearOffset < revenueValues.length) {
       return revenueValues[yearOffset]
@@ -108,13 +89,7 @@ export default function EBITDAMultiplePage() {
     // Annual: 768000 (current year)
     // Prior: 626000 (from income-statement-summary.tsx line 268)
     // Using historical pattern: 768000, 626000, 555000, 520000, 490000
-    const ebitdaValues = [
-      490000, // Year -4
-      520000, // Year -3
-      555000, // Year -2
-      626000, // Year -1 (prior in income-statement-summary)
-      768000, // Year 0 (current in income-statement-summary)
-    ]
+    const ebitdaValues: number[] = []
     
     if (yearOffset >= 0 && yearOffset < ebitdaValues.length) {
       return ebitdaValues[yearOffset]
@@ -657,8 +632,6 @@ export default function EBITDAMultiplePage() {
       </div>
     )
   }
-
-  const pathname = usePathname()
 
   return (
     <div className="min-h-screen bg-slate-50">
