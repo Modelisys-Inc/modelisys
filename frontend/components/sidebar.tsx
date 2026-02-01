@@ -124,7 +124,7 @@ export function Sidebar() {
   const pathname = usePathname()
   const { isOpen } = useSidebar()
   const { logout } = useAuth()
-  
+
   // Auto-expand submenu if active page is inside it
   const getInitialExpanded = () => {
     const expanded: string[] = []
@@ -138,7 +138,7 @@ export function Sidebar() {
     })
     return expanded
   }
-  
+
   const [expandedItems, setExpandedItems] = useState<string[]>(() => getInitialExpanded())
 
   // Update expanded items when pathname changes

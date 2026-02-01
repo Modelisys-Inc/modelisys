@@ -1,20 +1,19 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Building2, ArrowLeft, Upload, X } from "lucide-react"
+import { ArrowLeft, Upload, X } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-
-interface Company {
-  id: string
-  name: string
-  fiscalYearEnd: string
-  currency: string
-}
+import {
+  getCompany,
+  getTrialBalance,
+  upsertTrialBalance,
+  type Company,
+  type TrialBalanceData,
+} from "@/lib/api"
 
 interface TrialBalanceAccount {
   accountNumber: string
@@ -23,19 +22,17 @@ interface TrialBalanceAccount {
 }
 
 const months = [
-  "Janvier",
-  "Février",
-  "Mars",
-  "Avril",
-  "Mai",
-  "Juin",
-  "Juillet",
-  "Août",
-  "Septembre",
-  "Octobre",
-  "Novembre",
-  "Décembre"
+  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"
 ]
+
+function apiToView(data: TrialBalanceData): TrialBalanceAccount[] {
+  return data.accounts.map((a) => ({
+    accountNumber: a.account_number,
+    description: a.description,
+    monthlyAmounts: a.monthly_amounts,
+  }))
+}
 
 export default function TrialBalancePage() {
   const params = useParams()
@@ -47,77 +44,40 @@ export default function TrialBalancePage() {
   const [selectedMonth, setSelectedMonth] = useState<string>("")
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString())
   const [importFile, setImportFile] = useState<File | null>(null)
+  const [loading, setLoading] = useState(true)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Load company and accounts from localStorage
-  useEffect(() => {
-    if (typeof window !== "undefined" && companyId) {
-      const loadCompany = () => {
-        const saved = localStorage.getItem("modelisys_companies")
-        if (saved) {
-          try {
-            const companies: Company[] = JSON.parse(saved)
-            const foundCompany = companies.find((c) => c.id === companyId)
-            if (foundCompany) {
-              setCompany(foundCompany)
-            } else {
-              router.push(`/settings/companies/${companyId}`)
-            }
-          } catch (e) {
-            console.error("Error loading company:", e)
-            router.push(`/settings/companies/${companyId}`)
-          }
-        } else {
-          router.push(`/settings/companies/${companyId}`)
-        }
-      }
-
-      const loadAccounts = () => {
-        const saved = localStorage.getItem(`modelisys_trial_balance_${companyId}`)
-        if (saved) {
-          try {
-            const loadedAccounts: TrialBalanceAccount[] = JSON.parse(saved)
-            setAccounts(loadedAccounts)
-          } catch (e) {
-            console.error("Error loading trial balance accounts:", e)
-            setAccounts([])
-          }
-        } else {
-          setAccounts([])
-        }
-      }
-
-      loadCompany()
-      loadAccounts()
-
-      // Listen for storage changes
-      const handleStorageChange = () => {
-        loadCompany()
-        loadAccounts()
-      }
-
-      window.addEventListener("storage", handleStorageChange)
-      const interval = setInterval(handleStorageChange, 1000)
-
-      return () => {
-        window.removeEventListener("storage", handleStorageChange)
-        clearInterval(interval)
-      }
+  const loadData = useCallback(async () => {
+    try {
+      const [companyData, tbData] = await Promise.all([
+        getCompany(companyId),
+        getTrialBalance(companyId),
+      ])
+      setCompany(companyData)
+      setAccounts(apiToView(tbData))
+    } catch (e) {
+      console.error("Error loading data:", e)
+      router.push(`/settings/companies/${companyId}`)
+    } finally {
+      setLoading(false)
     }
   }, [companyId, router])
 
-  if (!company) {
-    return null
+  useEffect(() => {
+    loadData()
+  }, [loadData])
+
+  if (loading || !company) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <DashboardHeader title="Modelisys" />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <p className="text-slate-500">Chargement...</p>
+        </div>
+      </div>
+    )
   }
 
-  // Save accounts to localStorage
-  const saveAccounts = (updatedAccounts: TrialBalanceAccount[]) => {
-    if (typeof window !== "undefined" && companyId) {
-      localStorage.setItem(`modelisys_trial_balance_${companyId}`, JSON.stringify(updatedAccounts))
-    }
-  }
-
-  // Format number for display
   const formatAmount = (amount: number | undefined): string => {
     if (amount === undefined || amount === null) return "-"
     return new Intl.NumberFormat("fr-CA", {
@@ -126,7 +86,6 @@ export default function TrialBalancePage() {
     }).format(amount)
   }
 
-  // Handle file selection
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
@@ -134,7 +93,6 @@ export default function TrialBalancePage() {
     }
   }
 
-  // Handle Excel import
   const handleImport = async () => {
     if (!importFile || !selectedMonth) {
       alert("Veuillez sélectionner un fichier et un mois")
@@ -142,7 +100,6 @@ export default function TrialBalancePage() {
     }
 
     try {
-      // Dynamically import xlsx
       let XLSX
       try {
         XLSX = await import("xlsx")
@@ -150,14 +107,14 @@ export default function TrialBalancePage() {
         alert("La bibliothèque xlsx n'est pas installée. Veuillez exécuter : npm install xlsx --legacy-peer-deps")
         return
       }
-      
+
       const arrayBuffer = await importFile.arrayBuffer()
       const workbook = XLSX.read(arrayBuffer, { type: "array" })
       const firstSheetName = workbook.SheetNames[0]
       const worksheet = workbook.Sheets[firstSheetName]
       const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
 
-      // Find header row (look for "# de compte", "Description", "montant" or similar)
+      // Find header row
       let headerRowIndex = -1
       for (let i = 0; i < Math.min(10, data.length); i++) {
         const row = data[i]
@@ -165,7 +122,7 @@ export default function TrialBalancePage() {
           const firstCell = String(row[0] || "").toLowerCase().trim()
           const secondCell = String(row[1] || "").toLowerCase().trim()
           const thirdCell = String(row[2] || "").toLowerCase().trim()
-          
+
           if (
             (firstCell.includes("compte") || firstCell.includes("#")) &&
             (secondCell.includes("description") || secondCell.includes("desc")) &&
@@ -182,19 +139,21 @@ export default function TrialBalancePage() {
         return
       }
 
-      // Parse data rows
-      const updatedAccounts = [...accounts]
-      const accountMap = new Map<string, TrialBalanceAccount>()
-      
-      // Create map from existing accounts
-      updatedAccounts.forEach(acc => {
-        accountMap.set(acc.accountNumber, acc)
-      })
+      // Parse data rows and build entries for API
+      const accountMap = new Map<string, { account_number: string; description: string; monthly_amounts: Record<string, number> }>()
+
+      // Start from existing accounts
+      for (const acc of accounts) {
+        accountMap.set(acc.accountNumber, {
+          account_number: acc.accountNumber,
+          description: acc.description,
+          monthly_amounts: { ...acc.monthlyAmounts },
+        })
+      }
 
       let totalSum = 0
       let importedCount = 0
 
-      // Process data rows (skip header row)
       for (let i = headerRowIndex + 1; i < data.length; i++) {
         const row = data[i]
         if (!row || row.length < 3) continue
@@ -206,31 +165,32 @@ export default function TrialBalancePage() {
 
         if (!accountNumber || isNaN(amount)) continue
 
-        // Get or create account
-        let account = accountMap.get(accountNumber)
-        if (!account) {
-          account = {
-            accountNumber,
+        let entry = accountMap.get(accountNumber)
+        if (!entry) {
+          entry = {
+            account_number: accountNumber,
             description: description || accountNumber,
-            monthlyAmounts: {}
+            monthly_amounts: {},
           }
-          accountMap.set(accountNumber, account)
-        } else if (description && !account.description) {
-          // Update description if missing
-          account.description = description
+          accountMap.set(accountNumber, entry)
+        } else if (description && !entry.description) {
+          entry.description = description
         }
 
-        // Update amount for selected month
-        account.monthlyAmounts[selectedMonth] = amount
+        entry.monthly_amounts[selectedMonth] = amount
         totalSum += amount
         importedCount++
       }
 
-      // Convert map back to array
-      const finalAccounts = Array.from(accountMap.values())
-      setAccounts(finalAccounts)
-      saveAccounts(finalAccounts)
-      
+      // Save to API
+      const entries = Array.from(accountMap.values())
+      const fiscalYear = parseInt(selectedYear)
+      await upsertTrialBalance(companyId, entries, fiscalYear)
+
+      // Refresh data from API
+      const tbData = await getTrialBalance(companyId, fiscalYear)
+      setAccounts(apiToView(tbData))
+
       // Reset import state
       setShowImportModal(false)
       setImportFile(null)
@@ -238,29 +198,25 @@ export default function TrialBalancePage() {
       if (fileInputRef.current) {
         fileInputRef.current.value = ""
       }
-      
-      // Format total sum
+
       const formattedSum = formatAmount(totalSum)
-      const isBalanced = Math.abs(totalSum) < 0.01 // Allow for small rounding errors
-      
-      // Show result message
+      const isBalanced = Math.abs(totalSum) < 0.01
+
       let message = `Import réussi ! ${importedCount} compte(s) importé(s) pour ${selectedMonth} ${selectedYear}.\n\n`
       message += `Somme totale des montants : ${formattedSum}`
-      
+
       if (isBalanced) {
         message += `\n\n✓ La balance est équilibrée (somme = 0)`
-        alert(message)
       } else {
         message += `\n\n⚠ ATTENTION : La balance n'est pas équilibrée (somme ≠ 0)`
-        alert(message)
       }
+      alert(message)
     } catch (error) {
       console.error("Error importing file:", error)
       alert("Erreur lors de l'importation du fichier. Veuillez vérifier le format du fichier.")
     }
   }
 
-  // Generate years list (current year ± 5 years)
   const generateYears = () => {
     const currentYear = new Date().getFullYear()
     const years = []
@@ -273,7 +229,7 @@ export default function TrialBalancePage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
-      
+
       {/* Dark Header Section */}
       <div className="w-full bg-slate-900 pt-15 pb-40">
         <div className="max-w-[1920px] mx-auto px-6">
@@ -293,39 +249,22 @@ export default function TrialBalancePage() {
                 Configuration et paramètres de la société
               </p>
               <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres 
+                Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres
                 comptables et accédez aux différents modules de configuration pour cette entité.
               </p>
               {/* Navigation Menu */}
               <div className="flex items-end gap-8 mb-2">
-                <Link
-                  href={`/settings/companies/${companyId}`}
-                  className="relative pb-4 border-b border-slate-600/30"
-                >
-                  <span className="text-sm font-normal transition-colors text-slate-300 hover:text-white">
-                    Information de base
-                  </span>
+                <Link href={`/settings/companies/${companyId}`} className="relative pb-4 border-b border-slate-600/30">
+                  <span className="text-sm font-normal transition-colors text-slate-300 hover:text-white">Information de base</span>
                 </Link>
-                <Link
-                  href={`/settings/companies/${companyId}/mapping`}
-                  className="relative pb-4 border-b border-slate-600/30"
-                >
-                  <span className="text-sm font-normal transition-colors text-slate-300 hover:text-white">
-                    Mapping comptable
-                  </span>
+                <Link href={`/settings/companies/${companyId}/mapping`} className="relative pb-4 border-b border-slate-600/30">
+                  <span className="text-sm font-normal transition-colors text-slate-300 hover:text-white">Mapping comptable</span>
                 </Link>
-                <Link
-                  href={`/settings/companies/${companyId}/financial-statements-mapping`}
-                  className="relative pb-4 border-b border-slate-600/30"
-                >
-                  <span className="text-sm font-normal transition-colors text-slate-300 hover:text-white">
-                    Mapping états financiers
-                  </span>
+                <Link href={`/settings/companies/${companyId}/financial-statements-mapping`} className="relative pb-4 border-b border-slate-600/30">
+                  <span className="text-sm font-normal transition-colors text-slate-300 hover:text-white">Mapping états financiers</span>
                 </Link>
                 <div className="relative pb-4 border-b border-slate-600/30">
-                  <span className="text-sm font-normal transition-colors text-white">
-                    Balance de vérification
-                  </span>
+                  <span className="text-sm font-normal transition-colors text-white">Balance de vérification</span>
                   <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
                 </div>
               </div>
@@ -414,9 +353,7 @@ export default function TrialBalancePage() {
                   setShowImportModal(false)
                   setImportFile(null)
                   setSelectedMonth("")
-                  if (fileInputRef.current) {
-                    fileInputRef.current.value = ""
-                  }
+                  if (fileInputRef.current) fileInputRef.current.value = ""
                 }}
                 className="h-8 w-8 p-0"
               >
@@ -425,9 +362,7 @@ export default function TrialBalancePage() {
             </div>
             <div className="px-6 py-6 space-y-4">
               <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 block">
-                  Fichier Excel
-                </label>
+                <label className="text-sm font-medium text-slate-700 mb-2 block">Fichier Excel</label>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -440,35 +375,27 @@ export default function TrialBalancePage() {
                 </p>
               </div>
               <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 block">
-                  Mois
-                </label>
+                <label className="text-sm font-medium text-slate-700 mb-2 block">Mois</label>
                 <Select value={selectedMonth} onValueChange={setSelectedMonth}>
                   <SelectTrigger>
                     <SelectValue placeholder="Sélectionner un mois" />
                   </SelectTrigger>
                   <SelectContent>
                     {months.map((month) => (
-                      <SelectItem key={month} value={month}>
-                        {month}
-                      </SelectItem>
+                      <SelectItem key={month} value={month}>{month}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium text-slate-700 mb-2 block">
-                  Année
-                </label>
+                <label className="text-sm font-medium text-slate-700 mb-2 block">Année</label>
                 <Select value={selectedYear} onValueChange={setSelectedYear}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {generateYears().map((year) => (
-                      <SelectItem key={year} value={year}>
-                        {year}
-                      </SelectItem>
+                      <SelectItem key={year} value={year}>{year}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -481,9 +408,7 @@ export default function TrialBalancePage() {
                   setShowImportModal(false)
                   setImportFile(null)
                   setSelectedMonth("")
-                  if (fileInputRef.current) {
-                    fileInputRef.current.value = ""
-                  }
+                  if (fileInputRef.current) fileInputRef.current.value = ""
                 }}
               >
                 Annuler
@@ -502,4 +427,3 @@ export default function TrialBalancePage() {
     </div>
   )
 }
-

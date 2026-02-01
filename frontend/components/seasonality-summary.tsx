@@ -109,18 +109,24 @@ export function SeasonalitySummary({
     }
   }
 
+  // Deterministic pseudo-random to avoid SSR/client hydration mismatch
+  const seededRandom = (seed: number): number => {
+    const x = Math.sin(seed * 9301 + 49297) * 233280
+    return (x - Math.floor(x)) * 0.1 + 0.95 // Returns 0.95 to 1.05
+  }
+
   // Helper function to generate seasonality data with patterns
   const generateSeasonalityData = (base: number, seasonalPattern: number[]): number[] => {
     const currentDate = new Date()
     const data: number[] = []
-    
+
     if (view === "12months") {
       for (let i = 11; i >= 0; i--) {
         const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
         const monthIndex = date.getMonth()
         const seasonalMultiplier = seasonalPattern[monthIndex] || 1
         const trend = 1 + (0.02 * (11 - i))
-        data.push(Math.round(base * seasonalMultiplier * trend * (0.95 + Math.random() * 0.1)))
+        data.push(Math.round(base * seasonalMultiplier * trend * seededRandom(base + i)))
       }
     } else if (view === "24months") {
       for (let i = 23; i >= 0; i--) {
@@ -128,15 +134,15 @@ export function SeasonalitySummary({
         const monthIndex = date.getMonth()
         const seasonalMultiplier = seasonalPattern[monthIndex] || 1
         const trend = 1 + (0.02 * (23 - i) / 12)
-        data.push(Math.round(base * seasonalMultiplier * trend * (0.95 + Math.random() * 0.1)))
+        data.push(Math.round(base * seasonalMultiplier * trend * seededRandom(base + i)))
       }
     } else if (view === "years") {
       for (let i = 5; i >= 0; i--) {
-        const yearValue = base * (1 + 0.05 * (5 - i)) * (0.95 + Math.random() * 0.1)
+        const yearValue = base * (1 + 0.05 * (5 - i)) * seededRandom(base + i)
         data.push(Math.round(yearValue))
       }
     }
-    
+
     return data
   }
 

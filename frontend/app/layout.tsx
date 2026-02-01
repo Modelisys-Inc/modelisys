@@ -3,8 +3,8 @@ import type { Metadata } from "next"
 import { GeistSans } from "geist/font/sans"
 import { GeistMono } from "geist/font/mono"
 import { Analytics } from "@vercel/analytics/next"
-import { AuthProvider } from "@/contexts/auth-context"
 import "./globals.css"
+import { Providers } from "./providers"
 
 export const metadata: Metadata = {
   title: "Financial Dashboard",
@@ -20,9 +20,9 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body className={`font-sans antialiased ${GeistSans.variable} ${GeistMono.variable}`}>
-        <AuthProvider>
+        <Providers>
           <main className="min-h-screen bg-background">{children}</main>
-        </AuthProvider>
+        </Providers>
         <Analytics />
       </body>
     </html>

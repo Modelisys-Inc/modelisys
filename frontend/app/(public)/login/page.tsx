@@ -131,8 +131,8 @@ export default function LoginPage() {
                     Mot de passe oublié ?
                   </Link>
                 </div>
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   disabled={isLoading}
                   className="w-full h-12 bg-slate-800 text-white hover:bg-slate-700 text-base font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >

@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Boolean, Text, DateTime, ForeignKey, func
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import String, Integer, Boolean, Text, DateTime, ForeignKey, JSON, func
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -18,7 +18,7 @@ class FinancialStatementMapping(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     mapping_type: Mapped[str] = mapped_column(String(30), nullable=False)  # bilan, resultats, capex, baiia
-    structure: Mapped[dict] = mapped_column(JSONB, nullable=False, default=list)  # Array of Category/Poste objects
+    structure: Mapped[dict] = mapped_column(JSON, nullable=False, default=list)  # Array of Category/Poste objects
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -34,7 +34,7 @@ class CompanyStatementStructure(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
     statement_type: Mapped[str] = mapped_column(String(30), nullable=False)  # income-statement, balance-sheet
-    structure: Mapped[dict] = mapped_column(JSONB, nullable=False, default=list)  # Array of row definition objects
+    structure: Mapped[dict] = mapped_column(JSON, nullable=False, default=list)  # Array of row definition objects
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,25 +9,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Building2, Calendar, DollarSign, ArrowLeft, Folder, FolderTree, ChevronDown, ChevronRight, Plus, Edit2, Trash2, X, Check, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter, usePathname } from "next/navigation"
-
-interface SubDivision {
-  id: string
-  name: string
-}
-
-interface Division {
-  id: string
-  name: string
-  subDivisions: SubDivision[]
-}
-
-interface Company {
-  id: string
-  name: string
-  fiscalYearEnd: string
-  currency: string
-  divisions: Division[]
-}
+import {
+  getCompany,
+  updateCompany,
+  deleteCompany as deleteCompanyApi,
+  createDivision,
+  updateDivision,
+  deleteDivision as deleteDivisionApi,
+  createSubDivision,
+  updateSubDivision,
+  deleteSubDivision as deleteSubDivisionApi,
+  type Company,
+  type Division,
+  type SubDivision,
+} from "@/lib/api"
 
 const fiscalYearEndOptions = [
   { value: "12-31", label: "31 décembre" },
@@ -74,61 +69,19 @@ export default function CompanySettingsPage() {
   const [editingCompanyName, setEditingCompanyName] = useState(false)
   const [editingName, setEditingName] = useState("")
 
-  // Save company to localStorage
-  const saveCompany = (updatedCompany: Company) => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("modelisys_companies")
-      if (saved) {
-        try {
-          const companies: Company[] = JSON.parse(saved)
-          const updatedCompanies = companies.map((c) => (c.id === companyId ? updatedCompany : c))
-          localStorage.setItem("modelisys_companies", JSON.stringify(updatedCompanies))
-        } catch (e) {
-          console.error("Error saving company:", e)
-        }
-      }
-    }
-  }
-
-  // Load company from localStorage
-  useEffect(() => {
-    if (typeof window !== "undefined" && companyId) {
-      const loadCompany = () => {
-        const saved = localStorage.getItem("modelisys_companies")
-        if (saved) {
-          try {
-            const companies: Company[] = JSON.parse(saved)
-            const foundCompany = companies.find((c) => c.id === companyId)
-            if (foundCompany) {
-              setCompany(foundCompany)
-            } else {
-              router.push("/")
-            }
-          } catch (e) {
-            console.error("Error loading company:", e)
-            router.push("/")
-          }
-        } else {
-          router.push("/")
-        }
-      }
-
-      loadCompany()
-
-      // Listen for storage changes
-      const handleStorageChange = () => {
-        loadCompany()
-      }
-
-      window.addEventListener("storage", handleStorageChange)
-      const interval = setInterval(handleStorageChange, 1000)
-
-      return () => {
-        window.removeEventListener("storage", handleStorageChange)
-        clearInterval(interval)
-      }
+  const refreshCompany = useCallback(async () => {
+    try {
+      const data = await getCompany(companyId)
+      setCompany(data)
+    } catch (e) {
+      console.error("Error loading company:", e)
+      router.push("/")
     }
   }, [companyId, router])
+
+  useEffect(() => {
+    refreshCompany()
+  }, [refreshCompany])
 
   const toggleDivisionExpanded = (divisionId: string) => {
     setExpandedDivisions((prev) => {
@@ -142,21 +95,16 @@ export default function CompanySettingsPage() {
     })
   }
 
-  const handleAddDivision = () => {
+  const handleAddDivision = async () => {
     if (newDivisionName.trim() && company) {
-      const newDivision: Division = {
-        id: Date.now().toString(),
-        name: newDivisionName.trim(),
-        subDivisions: [],
+      try {
+        await createDivision(companyId, { name: newDivisionName.trim() })
+        await refreshCompany()
+        setNewDivisionName("")
+        setAddingDivisionTo(false)
+      } catch (e) {
+        console.error("Error adding division:", e)
       }
-      const updatedCompany = {
-        ...company,
-        divisions: [...company.divisions, newDivision],
-      }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setNewDivisionName("")
-      setAddingDivisionTo(false)
     }
   }
 
@@ -165,18 +113,16 @@ export default function CompanySettingsPage() {
     setEditingDivisionName(division.name)
   }
 
-  const handleSaveEditDivision = (divisionId: string) => {
+  const handleSaveEditDivision = async (divisionId: string) => {
     if (editingDivisionName.trim() && company) {
-      const updatedCompany = {
-        ...company,
-        divisions: company.divisions.map((d) =>
-          d.id === divisionId ? { ...d, name: editingDivisionName.trim() } : d
-        ),
+      try {
+        await updateDivision(divisionId, { name: editingDivisionName.trim() })
+        await refreshCompany()
+        setEditingDivisionId(null)
+        setEditingDivisionName("")
+      } catch (e) {
+        console.error("Error updating division:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setEditingDivisionId(null)
-      setEditingDivisionName("")
     }
   }
 
@@ -185,40 +131,34 @@ export default function CompanySettingsPage() {
     setEditingDivisionName("")
   }
 
-  const handleDeleteDivision = (divisionId: string) => {
+  const handleDeleteDivision = async (divisionId: string) => {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette division et toutes ses sous-divisions ?") && company) {
-      const updatedCompany = {
-        ...company,
-        divisions: company.divisions.filter((d) => d.id !== divisionId),
+      try {
+        await deleteDivisionApi(divisionId)
+        await refreshCompany()
+        setExpandedDivisions((prev) => {
+          const newSet = new Set(prev)
+          newSet.delete(divisionId)
+          return newSet
+        })
+      } catch (e) {
+        console.error("Error deleting division:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setExpandedDivisions((prev) => {
-        const newSet = new Set(prev)
-        newSet.delete(divisionId)
-        return newSet
-      })
     }
   }
 
-  const handleAddSubDivision = (divisionId: string) => {
+  const handleAddSubDivision = async (divisionId: string) => {
     if (newSubDivisionName.trim() && company) {
-      const newSubDivision: SubDivision = {
-        id: Date.now().toString(),
-        name: newSubDivisionName.trim(),
-      }
-      const updatedCompany = {
-        ...company,
-        divisions: company.divisions.map((d) =>
-          d.id === divisionId ? { ...d, subDivisions: [...d.subDivisions, newSubDivision] } : d
-        ),
-      }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setNewSubDivisionName("")
-      setAddingSubDivisionTo(null)
-      if (!expandedDivisions.has(divisionId)) {
-        setExpandedDivisions((prev) => new Set(prev).add(divisionId))
+      try {
+        await createSubDivision(divisionId, { name: newSubDivisionName.trim() })
+        await refreshCompany()
+        setNewSubDivisionName("")
+        setAddingSubDivisionTo(null)
+        if (!expandedDivisions.has(divisionId)) {
+          setExpandedDivisions((prev) => new Set(prev).add(divisionId))
+        }
+      } catch (e) {
+        console.error("Error adding sub-division:", e)
       }
     }
   }
@@ -228,25 +168,16 @@ export default function CompanySettingsPage() {
     setEditingSubDivisionName(subDivision.name)
   }
 
-  const handleSaveEditSubDivision = (divisionId: string, subDivisionId: string) => {
+  const handleSaveEditSubDivision = async (divisionId: string, subDivisionId: string) => {
     if (editingSubDivisionName.trim() && company) {
-      const updatedCompany = {
-        ...company,
-        divisions: company.divisions.map((d) =>
-          d.id === divisionId
-            ? {
-                ...d,
-                subDivisions: d.subDivisions.map((sd) =>
-                  sd.id === subDivisionId ? { ...sd, name: editingSubDivisionName.trim() } : sd
-                ),
-              }
-            : d
-        ),
+      try {
+        await updateSubDivision(subDivisionId, { name: editingSubDivisionName.trim() })
+        await refreshCompany()
+        setEditingSubDivisionId(null)
+        setEditingSubDivisionName("")
+      } catch (e) {
+        console.error("Error updating sub-division:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setEditingSubDivisionId(null)
-      setEditingSubDivisionName("")
     }
   }
 
@@ -255,36 +186,32 @@ export default function CompanySettingsPage() {
     setEditingSubDivisionName("")
   }
 
-  const handleDeleteSubDivision = (divisionId: string, subDivisionId: string) => {
+  const handleDeleteSubDivision = async (divisionId: string, subDivisionId: string) => {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette sous-division ?") && company) {
-      const updatedCompany = {
-        ...company,
-        divisions: company.divisions.map((d) =>
-          d.id === divisionId
-            ? { ...d, subDivisions: d.subDivisions.filter((sd) => sd.id !== subDivisionId) }
-            : d
-        ),
+      try {
+        await deleteSubDivisionApi(subDivisionId)
+        await refreshCompany()
+      } catch (e) {
+        console.error("Error deleting sub-division:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
     }
   }
 
   const handleStartEditFiscalYearEnd = () => {
     if (company) {
-      setEditingFiscalYearEnd(company.fiscalYearEnd)
+      setEditingFiscalYearEnd(company.fiscal_year_end)
     }
   }
 
-  const handleSaveFiscalYearEnd = () => {
+  const handleSaveFiscalYearEnd = async () => {
     if (editingFiscalYearEnd && company) {
-      const updatedCompany = {
-        ...company,
-        fiscalYearEnd: editingFiscalYearEnd,
+      try {
+        const updated = await updateCompany(companyId, { fiscal_year_end: editingFiscalYearEnd })
+        setCompany(updated)
+        setEditingFiscalYearEnd(null)
+      } catch (e) {
+        console.error("Error updating fiscal year end:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setEditingFiscalYearEnd(null)
     }
   }
 
@@ -298,15 +225,15 @@ export default function CompanySettingsPage() {
     }
   }
 
-  const handleSaveCurrency = () => {
+  const handleSaveCurrency = async () => {
     if (editingCurrency && company) {
-      const updatedCompany = {
-        ...company,
-        currency: editingCurrency,
+      try {
+        const updated = await updateCompany(companyId, { currency: editingCurrency })
+        setCompany(updated)
+        setEditingCurrency(null)
+      } catch (e) {
+        console.error("Error updating currency:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setEditingCurrency(null)
     }
   }
 
@@ -321,16 +248,16 @@ export default function CompanySettingsPage() {
     }
   }
 
-  const handleSaveCompanyName = () => {
+  const handleSaveCompanyName = async () => {
     if (editingName.trim() && company) {
-      const updatedCompany = {
-        ...company,
-        name: editingName.trim(),
+      try {
+        const updated = await updateCompany(companyId, { name: editingName.trim() })
+        setCompany(updated)
+        setEditingCompanyName(false)
+        setEditingName("")
+      } catch (e) {
+        console.error("Error updating company name:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setEditingCompanyName(false)
-      setEditingName("")
     }
   }
 
@@ -339,21 +266,13 @@ export default function CompanySettingsPage() {
     setEditingName("")
   }
 
-  const handleDeleteCompany = () => {
+  const handleDeleteCompany = async () => {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette société et toutes ses divisions ? Cette action est irréversible.")) {
-      if (typeof window !== "undefined") {
-        const saved = localStorage.getItem("modelisys_companies")
-        if (saved) {
-          try {
-            const companies: Company[] = JSON.parse(saved)
-            const updatedCompanies = companies.filter((c) => c.id !== companyId)
-            localStorage.setItem("modelisys_companies", JSON.stringify(updatedCompanies))
-            // Redirect to home page
-            router.push("/")
-          } catch (e) {
-            console.error("Error deleting company:", e)
-          }
-        }
+      try {
+        await deleteCompanyApi(companyId)
+        router.push("/")
+      } catch (e) {
+        console.error("Error deleting company:", e)
       }
     }
   }
@@ -369,7 +288,7 @@ export default function CompanySettingsPage() {
     )
   }
 
-  const fiscalYearEndLabel = fiscalYearEndOptions.find((opt) => opt.value === company.fiscalYearEnd)?.label || "31 décembre"
+  const fiscalYearEndLabel = fiscalYearEndOptions.find((opt) => opt.value === company.fiscal_year_end)?.label || "31 décembre"
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -438,10 +357,10 @@ export default function CompanySettingsPage() {
                 Configuration et paramètres de la société
               </p>
               <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres 
+                Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres
                 comptables et accédez aux différents modules de configuration pour cette entité.
               </p>
-              {/* Navigation Menu - Information de base, Mapping comptable et Mapping états financiers */}
+              {/* Navigation Menu */}
               <div className="flex items-end gap-8 mb-2">
                 <Link
                   href={`/settings/companies/${companyId}`}
@@ -540,7 +459,7 @@ export default function CompanySettingsPage() {
                     <div className="flex items-center gap-3 mb-2">
                       <Calendar className="w-5 h-5 text-slate-400 flex-shrink-0" />
                       <div className="flex-1">
-                        <p className="text-xs text-slate-500 mb-1">Fin d'année comptable</p>
+                        <p className="text-xs text-slate-500 mb-1">Fin d&apos;année comptable</p>
                         {editingFiscalYearEnd !== null ? (
                           <div className="flex items-center gap-2">
                             <Select value={editingFiscalYearEnd} onValueChange={setEditingFiscalYearEnd}>
@@ -555,31 +474,17 @@ export default function CompanySettingsPage() {
                                 ))}
                               </SelectContent>
                             </Select>
-                            <Button
-                              onClick={handleSaveFiscalYearEnd}
-                              size="sm"
-                              className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 w-8 p-0"
-                            >
+                            <Button onClick={handleSaveFiscalYearEnd} size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 w-8 p-0">
                               <Check className="w-4 h-4" />
                             </Button>
-                            <Button
-                              onClick={handleCancelEditFiscalYearEnd}
-                              size="sm"
-                              variant="ghost"
-                              className="h-8 w-8 p-0"
-                            >
+                            <Button onClick={handleCancelEditFiscalYearEnd} size="sm" variant="ghost" className="h-8 w-8 p-0">
                               <X className="w-4 h-4" />
                             </Button>
                           </div>
                         ) : (
                           <div className="flex items-center justify-between">
                             <p className="text-sm font-medium text-slate-900">{fiscalYearEndLabel}</p>
-                            <Button
-                              onClick={handleStartEditFiscalYearEnd}
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0"
-                            >
+                            <Button onClick={handleStartEditFiscalYearEnd} size="sm" variant="ghost" className="h-6 w-6 p-0">
                               <Edit2 className="w-3.5 h-3.5 text-slate-500" />
                             </Button>
                           </div>
@@ -608,31 +513,17 @@ export default function CompanySettingsPage() {
                                 ))}
                               </SelectContent>
                             </Select>
-                            <Button
-                              onClick={handleSaveCurrency}
-                              size="sm"
-                              className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 w-8 p-0"
-                            >
+                            <Button onClick={handleSaveCurrency} size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 w-8 p-0">
                               <Check className="w-4 h-4" />
                             </Button>
-                            <Button
-                              onClick={handleCancelEditCurrency}
-                              size="sm"
-                              variant="ghost"
-                              className="h-8 w-8 p-0"
-                            >
+                            <Button onClick={handleCancelEditCurrency} size="sm" variant="ghost" className="h-8 w-8 p-0">
                               <X className="w-4 h-4" />
                             </Button>
                           </div>
                         ) : (
                           <div className="flex items-center justify-between">
                             <p className="text-sm font-medium text-slate-900">{company.currency || "CAD"}</p>
-                            <Button
-                              onClick={handleStartEditCurrency}
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0"
-                            >
+                            <Button onClick={handleStartEditCurrency} size="sm" variant="ghost" className="h-6 w-6 p-0">
                               <Edit2 className="w-3.5 h-3.5 text-slate-500" />
                             </Button>
                           </div>
@@ -669,11 +560,7 @@ export default function CompanySettingsPage() {
                     </div>
                   </div>
                   {!addingDivisionTo && (
-                    <Button
-                      onClick={() => setAddingDivisionTo(true)}
-                      size="sm"
-                      className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                    >
+                    <Button onClick={() => setAddingDivisionTo(true)} size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-white">
                       <Plus className="w-4 h-4 mr-2" />
                       Ajouter une division
                     </Button>
@@ -690,32 +577,16 @@ export default function CompanySettingsPage() {
                         value={newDivisionName}
                         onChange={(e) => setNewDivisionName(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            handleAddDivision()
-                          } else if (e.key === "Escape") {
-                            setAddingDivisionTo(false)
-                            setNewDivisionName("")
-                          }
+                          if (e.key === "Enter") handleAddDivision()
+                          else if (e.key === "Escape") { setAddingDivisionTo(false); setNewDivisionName("") }
                         }}
                         className="flex-1"
                         autoFocus
                       />
-                      <Button
-                        onClick={handleAddDivision}
-                        disabled={!newDivisionName.trim()}
-                        size="sm"
-                        className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                      >
+                      <Button onClick={handleAddDivision} disabled={!newDivisionName.trim()} size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-white">
                         <Check className="w-4 h-4" />
                       </Button>
-                      <Button
-                        onClick={() => {
-                          setAddingDivisionTo(false)
-                          setNewDivisionName("")
-                        }}
-                        size="sm"
-                        variant="ghost"
-                      >
+                      <Button onClick={() => { setAddingDivisionTo(false); setNewDivisionName("") }} size="sm" variant="ghost">
                         <X className="w-4 h-4" />
                       </Button>
                     </div>
@@ -732,17 +603,8 @@ export default function CompanySettingsPage() {
                         <div key={division.id} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
                           {/* Division Header */}
                           <div className="flex items-center gap-3 p-4 bg-slate-50 hover:bg-slate-100 transition-colors">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => toggleDivisionExpanded(division.id)}
-                              className="h-6 w-6 p-0"
-                            >
-                              {isDivisionExpanded ? (
-                                <ChevronDown className="w-4 h-4 text-slate-600" />
-                              ) : (
-                                <ChevronRight className="w-4 h-4 text-slate-600" />
-                              )}
+                            <Button variant="ghost" size="sm" onClick={() => toggleDivisionExpanded(division.id)} className="h-6 w-6 p-0">
+                              {isDivisionExpanded ? <ChevronDown className="w-4 h-4 text-slate-600" /> : <ChevronRight className="w-4 h-4 text-slate-600" />}
                             </Button>
                             <Folder className="w-5 h-5 text-slate-500 flex-shrink-0" />
                             {editingDivisionId === division.id ? (
@@ -751,28 +613,16 @@ export default function CompanySettingsPage() {
                                   value={editingDivisionName}
                                   onChange={(e) => setEditingDivisionName(e.target.value)}
                                   onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      handleSaveEditDivision(division.id)
-                                    } else if (e.key === "Escape") {
-                                      handleCancelEditDivision()
-                                    }
+                                    if (e.key === "Enter") handleSaveEditDivision(division.id)
+                                    else if (e.key === "Escape") handleCancelEditDivision()
                                   }}
                                   className="flex-1"
                                   autoFocus
                                 />
-                                <Button
-                                  onClick={() => handleSaveEditDivision(division.id)}
-                                  disabled={!editingDivisionName.trim()}
-                                  size="sm"
-                                  className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                                >
+                                <Button onClick={() => handleSaveEditDivision(division.id)} disabled={!editingDivisionName.trim()} size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-white">
                                   <Check className="w-4 h-4" />
                                 </Button>
-                                <Button
-                                  onClick={handleCancelEditDivision}
-                                  size="sm"
-                                  variant="ghost"
-                                >
+                                <Button onClick={handleCancelEditDivision} size="sm" variant="ghost">
                                   <X className="w-4 h-4" />
                                 </Button>
                               </>
@@ -782,31 +632,17 @@ export default function CompanySettingsPage() {
                                 <Button
                                   onClick={() => {
                                     setAddingSubDivisionTo(division.id)
-                                    if (!isDivisionExpanded) {
-                                      setExpandedDivisions((prev) => new Set(prev).add(division.id))
-                                    }
+                                    if (!isDivisionExpanded) setExpandedDivisions((prev) => new Set(prev).add(division.id))
                                   }}
-                                  size="sm"
-                                  variant="ghost"
-                                  className="text-slate-600 hover:text-slate-900 h-7 px-2"
+                                  size="sm" variant="ghost" className="text-slate-600 hover:text-slate-900 h-7 px-2"
                                 >
                                   <Plus className="w-3 h-3 mr-1" />
                                   Sous-div.
                                 </Button>
-                                <Button
-                                  onClick={() => handleStartEditDivision(division)}
-                                  size="sm"
-                                  variant="ghost"
-                                  className="text-slate-600 hover:text-slate-900 h-7 w-7 p-0"
-                                >
+                                <Button onClick={() => handleStartEditDivision(division)} size="sm" variant="ghost" className="text-slate-600 hover:text-slate-900 h-7 w-7 p-0">
                                   <Edit2 className="w-3.5 h-3.5" />
                                 </Button>
-                                <Button
-                                  onClick={() => handleDeleteDivision(division.id)}
-                                  size="sm"
-                                  variant="ghost"
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0"
-                                >
+                                <Button onClick={() => handleDeleteDivision(division.id)} size="sm" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0">
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </Button>
                               </>
@@ -816,7 +652,6 @@ export default function CompanySettingsPage() {
                           {/* Sub-Divisions Section */}
                           {isDivisionExpanded && (
                             <div className="bg-white border-t border-slate-200">
-                              {/* Add Sub-Division Form */}
                               {isAddingSubDivision && (
                                 <div className="p-2 bg-slate-50 border-b border-slate-200">
                                   <div className="flex items-center gap-3">
@@ -826,51 +661,31 @@ export default function CompanySettingsPage() {
                                       value={newSubDivisionName}
                                       onChange={(e) => setNewSubDivisionName(e.target.value)}
                                       onKeyDown={(e) => {
-                                        if (e.key === "Enter") {
-                                          handleAddSubDivision(division.id)
-                                        } else if (e.key === "Escape") {
-                                          setAddingSubDivisionTo(null)
-                                          setNewSubDivisionName("")
-                                        }
+                                        if (e.key === "Enter") handleAddSubDivision(division.id)
+                                        else if (e.key === "Escape") { setAddingSubDivisionTo(null); setNewSubDivisionName("") }
                                       }}
                                       className="flex-1"
                                       autoFocus
                                     />
-                                    <Button
-                                      onClick={() => handleAddSubDivision(division.id)}
-                                      disabled={!newSubDivisionName.trim()}
-                                      size="sm"
-                                      className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                                    >
+                                    <Button onClick={() => handleAddSubDivision(division.id)} disabled={!newSubDivisionName.trim()} size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-white">
                                       <Check className="w-3.5 h-3.5" />
                                     </Button>
-                                    <Button
-                                      onClick={() => {
-                                        setAddingSubDivisionTo(null)
-                                        setNewSubDivisionName("")
-                                      }}
-                                      size="sm"
-                                      variant="ghost"
-                                    >
+                                    <Button onClick={() => { setAddingSubDivisionTo(null); setNewSubDivisionName("") }} size="sm" variant="ghost">
                                       <X className="w-3.5 h-3.5" />
                                     </Button>
                                   </div>
                                 </div>
                               )}
 
-                              {/* Sub-Divisions List */}
                               <div className="p-2 space-y-1.5">
-                                {division.subDivisions.length === 0 && !isAddingSubDivision ? (
+                                {division.sub_divisions.length === 0 && !isAddingSubDivision ? (
                                   <div className="text-center py-4 text-slate-400">
                                     <FolderTree className="w-6 h-6 mx-auto mb-1 opacity-50" />
                                     <p className="text-xs">Aucune sous-division</p>
                                   </div>
                                 ) : (
-                                  division.subDivisions.map((subDivision) => (
-                                    <div
-                                      key={subDivision.id}
-                                      className="flex items-center gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors ml-7"
-                                    >
+                                  division.sub_divisions.map((subDivision) => (
+                                    <div key={subDivision.id} className="flex items-center gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors ml-7">
                                       <FolderTree className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
                                       {editingSubDivisionId === subDivision.id ? (
                                         <>
@@ -878,48 +693,26 @@ export default function CompanySettingsPage() {
                                             value={editingSubDivisionName}
                                             onChange={(e) => setEditingSubDivisionName(e.target.value)}
                                             onKeyDown={(e) => {
-                                              if (e.key === "Enter") {
-                                                handleSaveEditSubDivision(division.id, subDivision.id)
-                                              } else if (e.key === "Escape") {
-                                                handleCancelEditSubDivision()
-                                              }
+                                              if (e.key === "Enter") handleSaveEditSubDivision(division.id, subDivision.id)
+                                              else if (e.key === "Escape") handleCancelEditSubDivision()
                                             }}
                                             className="flex-1"
                                             autoFocus
                                           />
-                                          <Button
-                                            onClick={() => handleSaveEditSubDivision(division.id, subDivision.id)}
-                                            disabled={!editingSubDivisionName.trim()}
-                                            size="sm"
-                                            className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                                          >
+                                          <Button onClick={() => handleSaveEditSubDivision(division.id, subDivision.id)} disabled={!editingSubDivisionName.trim()} size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-white">
                                             <Check className="w-3.5 h-3.5" />
                                           </Button>
-                                          <Button
-                                            onClick={handleCancelEditSubDivision}
-                                            size="sm"
-                                            variant="ghost"
-                                          >
+                                          <Button onClick={handleCancelEditSubDivision} size="sm" variant="ghost">
                                             <X className="w-3.5 h-3.5" />
                                           </Button>
                                         </>
                                       ) : (
                                         <>
                                           <span className="flex-1 text-slate-600 text-xs">{subDivision.name}</span>
-                                          <Button
-                                            onClick={() => handleStartEditSubDivision(subDivision)}
-                                            size="sm"
-                                            variant="ghost"
-                                            className="text-slate-600 hover:text-slate-900 h-6 w-6 p-0"
-                                          >
+                                          <Button onClick={() => handleStartEditSubDivision(subDivision)} size="sm" variant="ghost" className="text-slate-600 hover:text-slate-900 h-6 w-6 p-0">
                                             <Edit2 className="w-3 h-3" />
                                           </Button>
-                                          <Button
-                                            onClick={() => handleDeleteSubDivision(division.id, subDivision.id)}
-                                            size="sm"
-                                            variant="ghost"
-                                            className="text-red-600 hover:text-red-700 hover:bg-red-50 h-6 w-6 p-0"
-                                          >
+                                          <Button onClick={() => handleDeleteSubDivision(division.id, subDivision.id)} size="sm" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50 h-6 w-6 p-0">
                                             <Trash2 className="w-3 h-3" />
                                           </Button>
                                         </>
@@ -939,7 +732,7 @@ export default function CompanySettingsPage() {
                     <Folder className="w-12 h-12 mx-auto mb-4 text-slate-400" />
                     <p className="text-sm font-medium">Aucune division configurée</p>
                     <p className="text-xs mt-1 text-slate-400">
-                      Cliquez sur "Ajouter une division" pour commencer
+                      Cliquez sur &quot;Ajouter une division&quot; pour commencer
                     </p>
                   </div>
                 )}

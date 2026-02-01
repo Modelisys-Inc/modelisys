@@ -10,14 +10,7 @@ import { Building2, Calendar, DollarSign, ArrowRight, Plus, Check, X, Network, T
 import Link from "next/link"
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-
-interface Company {
-  id: string
-  name: string
-  fiscalYearEnd: string
-  currency: string
-  divisions: any[]
-}
+import { listCompanies, createCompany, type Company } from "@/lib/api"
 
 const fiscalYearEndOptions = [
   { value: "12-31", label: "31 décembre" },
@@ -52,73 +45,42 @@ export default function DashboardPage() {
   const [newCompanyName, setNewCompanyName] = useState("")
   const [newCompanyFiscalYearEnd, setNewCompanyFiscalYearEnd] = useState("12-31")
   const [newCompanyCurrency, setNewCompanyCurrency] = useState("CAD")
+  const [loading, setLoading] = useState(true)
 
-  // Load companies from localStorage
+  // Load companies from API
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("modelisys_companies")
-      if (saved) {
-        try {
-          setCompanies(JSON.parse(saved))
-        } catch (e) {
-          console.error("Error loading companies:", e)
-        }
-      }
-    }
-
-    // Listen for storage changes (when companies are updated in entities page)
-    const handleStorageChange = () => {
-      const saved = localStorage.getItem("modelisys_companies")
-      if (saved) {
-        try {
-          setCompanies(JSON.parse(saved))
-        } catch (e) {
-          console.error("Error loading companies:", e)
-        }
-      }
-    }
-
-    window.addEventListener("storage", handleStorageChange)
-    
-    // Also check periodically for changes (since storage event only fires in other tabs)
-    const interval = setInterval(() => {
-      handleStorageChange()
-    }, 1000)
-
-    return () => {
-      window.removeEventListener("storage", handleStorageChange)
-      clearInterval(interval)
-    }
+    listCompanies()
+      .then(setCompanies)
+      .catch((e) => console.error("Error loading companies:", e))
+      .finally(() => setLoading(false))
   }, [])
 
-  const handleAddCompany = () => {
+  const handleAddCompany = async () => {
     if (newCompanyName.trim()) {
-      const newCompany: Company = {
-        id: Date.now().toString(),
-        name: newCompanyName.trim(),
-        fiscalYearEnd: newCompanyFiscalYearEnd,
-        currency: newCompanyCurrency,
-        divisions: [],
+      try {
+        const newCompany = await createCompany({
+          name: newCompanyName.trim(),
+          fiscal_year_end: newCompanyFiscalYearEnd,
+          currency: newCompanyCurrency,
+        })
+        setCompanies((prev) => [...prev, newCompany])
+        // Reset form and close dialog
+        setNewCompanyName("")
+        setNewCompanyFiscalYearEnd("12-31")
+        setNewCompanyCurrency("CAD")
+        setIsDialogOpen(false)
+        // Redirect to the new company page
+        router.push(`/settings/companies/${newCompany.id}`)
+      } catch (e) {
+        console.error("Error creating company:", e)
       }
-      const updatedCompanies = [...companies, newCompany]
-      setCompanies(updatedCompanies)
-      if (typeof window !== "undefined") {
-        localStorage.setItem("modelisys_companies", JSON.stringify(updatedCompanies))
-      }
-      // Reset form and close dialog
-      setNewCompanyName("")
-      setNewCompanyFiscalYearEnd("12-31")
-      setNewCompanyCurrency("CAD")
-      setIsDialogOpen(false)
-      // Redirect to the new company page
-      router.push(`/settings/companies/${newCompany.id}`)
     }
   }
 
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
-      
+
       {/* Dark Header Section */}
       <div className="w-full bg-slate-900 pt-15 pb-40">
         <div className="max-w-[1920px] mx-auto px-6">
@@ -130,8 +92,8 @@ export default function DashboardPage() {
                 Gérez vos mappings comptables et importez vos balances de vérification
               </p>
               <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Configurez votre plateforme pour commencer à utiliser toutes les fonctionnalités. Gérez vos mappings comptables, 
-                importez vos balances de vérification en toute simplicité et définissez les correspondances entre vos comptes 
+                Configurez votre plateforme pour commencer à utiliser toutes les fonctionnalités. Gérez vos mappings comptables,
+                importez vos balances de vérification en toute simplicité et définissez les correspondances entre vos comptes
                 comptables et vos états financiers.
               </p>
               <Button
@@ -150,7 +112,15 @@ export default function DashboardPage() {
       <div className="relative -mt-32 mb-12">
         <div className="max-w-[1920px] mx-auto px-6">
           <h3 className="text-lg font-medium text-white mb-4 ml-2">Sociétés</h3>
-          {companies.length === 0 ? (
+          {loading ? (
+            <Card className="bg-white border border-slate-200 shadow-sm">
+              <CardContent className="p-8">
+                <div className="text-center py-12 text-slate-500">
+                  <p className="text-sm">Chargement...</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : companies.length === 0 ? (
             <Card className="bg-white border border-slate-200 shadow-sm">
               <CardContent className="p-8">
                 <div className="text-center py-12 text-slate-500">
@@ -173,7 +143,7 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {companies.map((company) => {
                 const isHovered = hoveredCompany === company.id
-                const fiscalYearEndLabel = fiscalYearEndOptions.find(opt => opt.value === company.fiscalYearEnd)?.label || "31 décembre"
+                const fiscalYearEndLabel = fiscalYearEndOptions.find(opt => opt.value === company.fiscal_year_end)?.label || "31 décembre"
 
                 return (
                   <Link key={company.id} href={`/settings/companies/${company.id}`}>
@@ -197,7 +167,7 @@ export default function DashboardPage() {
                           <div className="space-y-2 mb-4 flex-grow">
                             <div className="flex items-center gap-2 text-sm text-slate-600">
                               <Calendar className="w-4 h-4 text-slate-400" />
-                              <span>Fin d'année: {fiscalYearEndLabel}</span>
+                              <span>Fin d&apos;année: {fiscalYearEndLabel}</span>
                             </div>
                             <div className="flex items-center gap-2 text-sm text-slate-600">
                               <DollarSign className="w-4 h-4 text-slate-400" />
@@ -308,7 +278,7 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="text-sm font-semibold text-slate-700 mb-2 block">
-                  Fin d'année comptable
+                  Fin d&apos;année comptable
                 </label>
                 <Select value={newCompanyFiscalYearEnd} onValueChange={setNewCompanyFiscalYearEnd}>
                   <SelectTrigger>

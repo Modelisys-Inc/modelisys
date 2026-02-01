@@ -1,0 +1,266 @@
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session, joinedload
+
+from app.database import get_db
+from app.dependencies import get_current_user
+from app.models.company import Company, Division, SubDivision
+from app.models.user import User, UserOrganization
+from app.schemas.company import (
+    CompanyCreate,
+    CompanyListResponse,
+    CompanyResponse,
+    CompanyUpdate,
+    DivisionCreate,
+    DivisionResponse,
+    SubDivisionCreate,
+    SubDivisionResponse,
+)
+
+router = APIRouter(prefix="/api/companies", tags=["companies"])
+
+
+def _get_user_org_id(user: User, db: Session, org_id: uuid.UUID | None = None) -> uuid.UUID:
+    """Get the organization ID for the current user. If org_id is provided, verify membership."""
+    memberships = db.query(UserOrganization).filter(UserOrganization.user_id == user.id).all()
+    if not memberships:
+        raise HTTPException(status_code=403, detail="User has no organization memberships")
+
+    if org_id:
+        for m in memberships:
+            if m.organization_id == org_id:
+                return org_id
+        raise HTTPException(status_code=403, detail="User is not a member of this organization")
+
+    # Default to first org
+    return memberships[0].organization_id
+
+
+def _get_company_or_404(db: Session, company_id: uuid.UUID, org_id: uuid.UUID) -> Company:
+    company = (
+        db.query(Company)
+        .options(joinedload(Company.divisions).joinedload(Division.sub_divisions))
+        .filter(Company.id == company_id, Company.organization_id == org_id)
+        .first()
+    )
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return company
+
+
+@router.get("", response_model=CompanyListResponse)
+def list_companies(
+    org_id: uuid.UUID | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    organization_id = _get_user_org_id(current_user, db, org_id)
+    companies = (
+        db.query(Company)
+        .options(joinedload(Company.divisions).joinedload(Division.sub_divisions))
+        .filter(Company.organization_id == organization_id)
+        .order_by(Company.created_at)
+        .all()
+    )
+    # Deduplicate due to joinedload
+    seen = set()
+    unique = []
+    for c in companies:
+        if c.id not in seen:
+            seen.add(c.id)
+            unique.append(c)
+    return CompanyListResponse(companies=unique)
+
+
+@router.post("", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
+def create_company(
+    request: CompanyCreate,
+    org_id: uuid.UUID | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    organization_id = _get_user_org_id(current_user, db, org_id)
+
+    company = Company(
+        organization_id=organization_id,
+        name=request.name,
+        fiscal_year_end=request.fiscal_year_end,
+        currency=request.currency,
+    )
+    db.add(company)
+    db.flush()
+
+    for div_data in request.divisions:
+        division = Division(company_id=company.id, name=div_data.name)
+        db.add(division)
+        db.flush()
+        for sub_data in div_data.sub_divisions:
+            sub = SubDivision(division_id=division.id, name=sub_data.name)
+            db.add(sub)
+
+    db.commit()
+    db.refresh(company)
+    return _get_company_or_404(db, company.id, organization_id)
+
+
+@router.get("/{company_id}", response_model=CompanyResponse)
+def get_company(
+    company_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    org_id = _get_user_org_id(current_user, db)
+    return _get_company_or_404(db, company_id, org_id)
+
+
+@router.patch("/{company_id}", response_model=CompanyResponse)
+def update_company(
+    company_id: uuid.UUID,
+    request: CompanyUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    org_id = _get_user_org_id(current_user, db)
+    company = _get_company_or_404(db, company_id, org_id)
+
+    if request.name is not None:
+        company.name = request.name
+    if request.fiscal_year_end is not None:
+        company.fiscal_year_end = request.fiscal_year_end
+    if request.currency is not None:
+        company.currency = request.currency
+
+    db.commit()
+    return _get_company_or_404(db, company_id, org_id)
+
+
+@router.delete("/{company_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_company(
+    company_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    org_id = _get_user_org_id(current_user, db)
+    company = _get_company_or_404(db, company_id, org_id)
+    db.delete(company)
+    db.commit()
+
+
+# --- Division endpoints ---
+
+@router.post("/{company_id}/divisions", response_model=DivisionResponse, status_code=status.HTTP_201_CREATED)
+def create_division(
+    company_id: uuid.UUID,
+    request: DivisionCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    org_id = _get_user_org_id(current_user, db)
+    _get_company_or_404(db, company_id, org_id)
+
+    division = Division(company_id=company_id, name=request.name)
+    db.add(division)
+    db.flush()
+
+    for sub_data in request.sub_divisions:
+        sub = SubDivision(division_id=division.id, name=sub_data.name)
+        db.add(sub)
+
+    db.commit()
+    db.refresh(division)
+    return division
+
+
+@router.patch("/divisions/{division_id}", response_model=DivisionResponse)
+def update_division(
+    division_id: uuid.UUID,
+    request: DivisionCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    org_id = _get_user_org_id(current_user, db)
+    division = db.query(Division).filter(Division.id == division_id).first()
+    if not division:
+        raise HTTPException(status_code=404, detail="Division not found")
+    _get_company_or_404(db, division.company_id, org_id)
+
+    division.name = request.name
+    db.commit()
+    db.refresh(division)
+    return division
+
+
+@router.delete("/divisions/{division_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_division(
+    division_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    org_id = _get_user_org_id(current_user, db)
+    division = db.query(Division).filter(Division.id == division_id).first()
+    if not division:
+        raise HTTPException(status_code=404, detail="Division not found")
+    _get_company_or_404(db, division.company_id, org_id)
+
+    db.delete(division)
+    db.commit()
+
+
+# --- Sub-Division endpoints ---
+
+@router.post("/divisions/{division_id}/sub-divisions", response_model=SubDivisionResponse, status_code=status.HTTP_201_CREATED)
+def create_sub_division(
+    division_id: uuid.UUID,
+    request: SubDivisionCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    org_id = _get_user_org_id(current_user, db)
+    division = db.query(Division).filter(Division.id == division_id).first()
+    if not division:
+        raise HTTPException(status_code=404, detail="Division not found")
+    _get_company_or_404(db, division.company_id, org_id)
+
+    sub = SubDivision(division_id=division_id, name=request.name)
+    db.add(sub)
+    db.commit()
+    db.refresh(sub)
+    return sub
+
+
+@router.patch("/sub-divisions/{sub_division_id}", response_model=SubDivisionResponse)
+def update_sub_division(
+    sub_division_id: uuid.UUID,
+    request: SubDivisionCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    org_id = _get_user_org_id(current_user, db)
+    sub = db.query(SubDivision).filter(SubDivision.id == sub_division_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Sub-division not found")
+    division = db.query(Division).filter(Division.id == sub.division_id).first()
+    _get_company_or_404(db, division.company_id, org_id)
+
+    sub.name = request.name
+    db.commit()
+    db.refresh(sub)
+    return sub
+
+
+@router.delete("/sub-divisions/{sub_division_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_sub_division(
+    sub_division_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    org_id = _get_user_org_id(current_user, db)
+    sub = db.query(SubDivision).filter(SubDivision.id == sub_division_id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Sub-division not found")
+    division = db.query(Division).filter(Division.id == sub.division_id).first()
+    _get_company_or_404(db, division.company_id, org_id)
+
+    db.delete(sub)
+    db.commit()

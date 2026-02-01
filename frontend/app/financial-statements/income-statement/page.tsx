@@ -6,10 +6,10 @@ import { IncomeStatementDetail } from "@/components/income-statement-detail"
 import { IncomeStatementChart } from "@/components/income-statement-chart"
 import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
+import { useCompanies } from "@/hooks/use-companies"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Filter, Calendar, TrendingUp, TrendingDown, ChevronRight } from "lucide-react"
-import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
+import { Filter, Calendar, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
@@ -19,77 +19,6 @@ type Section = "summary" | "detail"
 type ColumnMode = "variations" | "percentage" | "comparison"
 type ComparisonType = "lastMonth" | "pastMonth" | "budget"
 
-// Données d'exemple pour les sociétés, divisions et sous-divisions
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Modelisys Inc.",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division Technologie",
-        subDivisions: [
-          { id: "sub-1", name: "Développement Logiciel" },
-          { id: "sub-2", name: "Infrastructure IT" },
-          { id: "sub-3", name: "Support Technique" },
-        ],
-      },
-      {
-        id: "div-2",
-        name: "Division Conseil",
-        subDivisions: [
-          { id: "sub-4", name: "Conseil Stratégique" },
-          { id: "sub-5", name: "Conseil Opérationnel" },
-        ],
-      },
-      {
-        id: "div-3",
-        name: "Division Ventes",
-        subDivisions: [
-          { id: "sub-6", name: "Ventes B2B" },
-          { id: "sub-7", name: "Ventes B2C" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-2",
-    name: "TechSolutions SA",
-    divisions: [
-      {
-        id: "div-4",
-        name: "Division Produits",
-        subDivisions: [
-          { id: "sub-8", name: "Produits Cloud" },
-          { id: "sub-9", name: "Produits On-Premise" },
-        ],
-      },
-      {
-        id: "div-5",
-        name: "Division Services",
-        subDivisions: [
-          { id: "sub-10", name: "Services Professionnels" },
-          { id: "sub-11", name: "Services Gérés" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-3",
-    name: "InnovateCorp",
-    divisions: [
-      {
-        id: "div-6",
-        name: "Division R&D",
-        subDivisions: [
-          { id: "sub-12", name: "Recherche" },
-          { id: "sub-13", name: "Développement" },
-        ],
-      },
-    ],
-  },
-]
-
 const financialStatementsNav = [
   { label: "Résultats", href: "/financial-statements/income-statement" },
   { label: "Bilan", href: "/financial-statements/balance-sheet" },
@@ -97,6 +26,7 @@ const financialStatementsNav = [
 ]
 
 export default function IncomeStatementPage() {
+  const { companies: companiesData } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("comparison")
   const [section, setSection] = useState<Section>("summary")
@@ -133,15 +63,7 @@ export default function IncomeStatementPage() {
             setBudgets([])
           }
         } else {
-          // Create default budgets if none exist
-          const defaultBudgets = [
-            { id: "budget-optimiste", name: "Optimiste" },
-            { id: "budget-realiste", name: "Réaliste" },
-            { id: "budget-pessimiste", name: "Pessimiste" },
-          ]
-          localStorage.setItem("modelisys_budgets", JSON.stringify(defaultBudgets))
-          setBudgets(defaultBudgets)
-          setSelectedBudgetId(defaultBudgets[0].id)
+          setBudgets([])
         }
       }
       loadBudgets()
@@ -221,31 +143,6 @@ export default function IncomeStatementPage() {
         setView("comparison")
     }
   }
-
-  // Calculate summary metrics (mock data for now)
-  const calculateMetrics = () => {
-    const totalRevenue = 275000
-    const priorRevenue = 242000
-    const revenueVariation = calculateVariation(totalRevenue, priorRevenue)
-    const netIncome = 43660
-    const priorNetIncome = 37370
-    const netIncomeVariation = calculateVariation(netIncome, priorNetIncome)
-    const grossProfit = 150000
-    const grossMargin = (grossProfit / totalRevenue) * 100
-    
-    return {
-      totalRevenue,
-      priorRevenue,
-      revenueVariation,
-      netIncome,
-      priorNetIncome,
-      netIncomeVariation,
-      grossProfit,
-      grossMargin
-    }
-  }
-
-  const metrics = calculateMetrics()
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
@@ -549,7 +446,7 @@ export default function IncomeStatementPage() {
                 <div className="flex items-center gap-4 ml-8">
                   <div className="text-right">
                     <div className="text-sm text-slate-400 mb-1">Notes documentées</div>
-                    <div className="text-3xl font-semibold text-white">12</div>
+                    <div className="text-3xl font-semibold text-white">—</div>
                   </div>
                 </div>
               </div>
@@ -558,29 +455,23 @@ export default function IncomeStatementPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-4">
                   <div className="text-xs text-slate-400 mb-1">Variation la plus importante</div>
-                  <div className="text-lg font-semibold text-white mb-1">Revenus</div>
+                  <div className="text-lg font-semibold text-white mb-1">—</div>
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-500" />
-                    <span className="text-sm font-medium text-emerald-500">+18.4%</span>
-                    <span className="text-xs text-slate-400">vs période précédente</span>
+                    <span className="text-sm text-slate-500">Aucune donnée</span>
                   </div>
                 </div>
                 <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-4">
                   <div className="text-xs text-slate-400 mb-1">2e variation importante</div>
-                  <div className="text-lg font-semibold text-white mb-1">BAIIA</div>
+                  <div className="text-lg font-semibold text-white mb-1">—</div>
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-500" />
-                    <span className="text-sm font-medium text-emerald-500">+12.3%</span>
-                    <span className="text-xs text-slate-400">vs période précédente</span>
+                    <span className="text-sm text-slate-500">Aucune donnée</span>
                   </div>
                 </div>
                 <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-4">
                   <div className="text-xs text-slate-400 mb-1">3e variation importante</div>
-                  <div className="text-lg font-semibold text-white mb-1">Charges d'exploitation</div>
+                  <div className="text-lg font-semibold text-white mb-1">—</div>
                   <div className="flex items-center gap-2">
-                    <TrendingDown className="w-4 h-4 text-red-500" />
-                    <span className="text-sm font-medium text-red-500">-8.7%</span>
-                    <span className="text-xs text-slate-400">vs période précédente</span>
+                    <span className="text-sm text-slate-500">Aucune donnée</span>
                   </div>
                 </div>
               </div>
