@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -1293,9 +1293,9 @@ export default function FinancialStatementsMappingPage() {
                                      !isProtectedInDetail
 
                     return (
-                      <>
+                      <React.Fragment key={index}>
                         {shouldAddSpacerBefore && (
-                          <tr key={`spacer-before-${index}`} className="h-12 border-b border-slate-200">
+                          <tr className="h-12 border-b border-slate-200">
                             <td className="px-6 py-3 text-sm h-12"></td>
                             <td className="px-6 py-3 text-sm h-12"></td>
                             <td className="px-6 py-3 text-sm h-12"></td>
@@ -1619,7 +1619,7 @@ export default function FinancialStatementsMappingPage() {
                             <td className="px-6 py-3 text-sm text-slate-600">-</td>
                           </tr>
                         )}
-                      </>
+                      </React.Fragment>
                     )
                   })}
                 </tbody>

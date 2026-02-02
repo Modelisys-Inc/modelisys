@@ -1,12 +1,12 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
 import { LayoutDashboard, TrendingUp, BarChart3, Scale, Waves, ChevronDown, LineChart, DollarSign, Calendar, Calculator, FileText, Target, Building2, Home, Settings, BookOpen, LogOut, StickyNote } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState, useEffect } from "react"
 import { useSidebar } from "@/contexts/sidebar-context"
-import { clearTokens } from "@/lib/api"
+import { useAuth } from "@/contexts/auth-context"
 
 const setupMenuItems = [
   {
@@ -122,15 +122,9 @@ const complementaryMenuItems = [
 
 export function Sidebar() {
   const pathname = usePathname()
-  const router = useRouter()
   const { isOpen } = useSidebar()
+  const { logout } = useAuth()
 
-  const handleLogout = () => {
-    clearTokens()
-    sessionStorage.clear()
-    router.push("/landing")
-  }
-  
   // Auto-expand submenu if active page is inside it
   const getInitialExpanded = () => {
     const expanded: string[] = []
@@ -144,7 +138,7 @@ export function Sidebar() {
     })
     return expanded
   }
-  
+
   const [expandedItems, setExpandedItems] = useState<string[]>(() => getInitialExpanded())
 
   // Update expanded items when pathname changes
@@ -313,7 +307,7 @@ export function Sidebar() {
 
         {/* Logout button */}
         <button
-          onClick={handleLogout}
+          onClick={logout}
           className={cn(
             "w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors duration-150",
             "text-slate-300 hover:bg-slate-700/60 hover:text-white"
