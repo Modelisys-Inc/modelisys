@@ -371,6 +371,44 @@ export async function createProduct(
   })
 }
 
+// --- Statement Structures API ---
+
+export interface StatementStructureData {
+  id: string;
+  company_id: string;
+  statement_type: string;
+  structure: Record<string, unknown>[];
+}
+
+export async function listStatementStructures(
+  companyId: string
+): Promise<StatementStructureData[]> {
+  const data = await apiFetch<{ structures: StatementStructureData[] }>(
+    `/api/companies/${companyId}/statement-structures`
+  );
+  return data.structures;
+}
+
+export async function getStatementStructure(
+  companyId: string,
+  statementType: "income-statement" | "balance-sheet"
+): Promise<StatementStructureData> {
+  return apiFetch<StatementStructureData>(
+    `/api/companies/${companyId}/statement-structures/${statementType}`
+  );
+}
+
+export async function upsertStatementStructure(
+  companyId: string,
+  statementType: "income-statement" | "balance-sheet",
+  structure: Record<string, unknown>[]
+): Promise<StatementStructureData> {
+  return apiFetch<StatementStructureData>(
+    `/api/companies/${companyId}/statement-structures/${statementType}`,
+    { method: "PUT", body: JSON.stringify({ structure }) }
+  );
+}
+
 export async function uploadTrialBalance(
   companyId: string,
   file: File,
