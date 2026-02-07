@@ -6,11 +6,10 @@ import { SeasonalitySummary } from "@/components/seasonality-summary"
 import { SeasonalityChart } from "@/components/seasonality-chart"
 import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector } from "@/components/entity-selector"
-import { useCompanies } from "@/hooks/use-companies"
+import { EntitySelector, Company } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TrendingUp, TrendingDown, DollarSign, BarChart3, Calendar, Filter } from "lucide-react"
-import { formatCurrency } from "@/lib/financial-utils"
+import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "12months" | "24months" | "years"
@@ -18,8 +17,78 @@ type ColumnMode = "variations" | "percentage"
 type AnalysisType = "revenue" | "expenses"
 type ProductType = "total" | "product_a" | "product_b" | "service_c"
 
+// Données d'exemple pour les sociétés, divisions et sous-divisions
+const companiesData: Company[] = [
+  {
+    id: "company-1",
+    name: "Modelisys Inc.",
+    divisions: [
+      {
+        id: "div-1",
+        name: "Division Technologie",
+        subDivisions: [
+          { id: "sub-1", name: "Développement Logiciel" },
+          { id: "sub-2", name: "Infrastructure IT" },
+          { id: "sub-3", name: "Support Technique" },
+        ],
+      },
+      {
+        id: "div-2",
+        name: "Division Conseil",
+        subDivisions: [
+          { id: "sub-4", name: "Conseil Stratégique" },
+          { id: "sub-5", name: "Conseil Opérationnel" },
+        ],
+      },
+      {
+        id: "div-3",
+        name: "Division Ventes",
+        subDivisions: [
+          { id: "sub-6", name: "Ventes B2B" },
+          { id: "sub-7", name: "Ventes B2C" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "company-2",
+    name: "TechSolutions SA",
+    divisions: [
+      {
+        id: "div-4",
+        name: "Division Produits",
+        subDivisions: [
+          { id: "sub-8", name: "Produits Cloud" },
+          { id: "sub-9", name: "Produits On-Premise" },
+        ],
+      },
+      {
+        id: "div-5",
+        name: "Division Services",
+        subDivisions: [
+          { id: "sub-10", name: "Services Professionnels" },
+          { id: "sub-11", name: "Services Gérés" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "company-3",
+    name: "InnovateCorp",
+    divisions: [
+      {
+        id: "div-6",
+        name: "Division R&D",
+        subDivisions: [
+          { id: "sub-12", name: "Recherche" },
+          { id: "sub-13", name: "Développement" },
+        ],
+      },
+    ],
+  },
+]
+
 export default function SeasonalityPage() {
-  const { companies: companiesData } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("12months")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
@@ -55,20 +124,41 @@ export default function SeasonalityPage() {
     }
   }
 
-  // Compute summary metrics for the cards
-  const metrics = (() => {
-    const baseRevenue = 275000
-    const basePrior = 250000
-    const currentValue = analysisType === "revenue" ? baseRevenue : 165000
-    const priorValue = analysisType === "revenue" ? basePrior : 150000
-    const averageValue = Math.round((currentValue + priorValue) / 2)
-    const variation = ((currentValue - priorValue) / priorValue) * 100
-    return { currentValue, priorValue, averageValue, variation }
-  })()
+  // Calculate summary metrics (mock data for now)
+  const calculateMetrics = () => {
+    const totalRevenue = analysisType === "revenue" ? 1200000 : 0
+    const totalExpenses = analysisType === "expenses" ? 800000 : 0
+    const priorRevenue = analysisType === "revenue" ? 1100000 : 0
+    const priorExpenses = analysisType === "expenses" ? 750000 : 0
+    const currentValue = analysisType === "revenue" ? totalRevenue : totalExpenses
+    const priorValue = analysisType === "revenue" ? priorRevenue : priorExpenses
+    const variation = calculateVariation(currentValue, priorValue)
+    
+    // Calculate average for trend views
+    let averageValue = 0
+    if (view === "12months") {
+      averageValue = (currentValue + priorValue) / 2 + (currentValue - priorValue) / 12 * 6
+    } else if (view === "24months") {
+      averageValue = (currentValue + priorValue) / 2 + (currentValue - priorValue) / 24 * 12
+    } else if (view === "years") {
+      averageValue = (currentValue + priorValue) / 2 + (currentValue - priorValue) / 6 * 3
+    } else {
+      averageValue = (currentValue + priorValue) / 2
+    }
+    
+    return {
+      currentValue,
+      priorValue,
+      variation,
+      averageValue
+    }
+  }
+
+  const metrics = calculateMetrics()
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
-      <DashboardHeader title="Saisonnalité" description="Analysez la saisonnalité de vos revenus et dépenses" />
+      <DashboardHeader title="Marge par produits" description="Analysez la marge de vos produits et services" />
       <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
         {/* Summary Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

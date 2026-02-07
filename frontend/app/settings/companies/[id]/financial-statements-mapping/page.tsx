@@ -1,18 +1,19 @@
 "use client"
 
-import React, { useState, useEffect, useCallback } from "react"
+import { useState, useEffect } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Edit2, X, Check, Plus, ChevronUp, ChevronDown, Trash2, ChevronRight } from "lucide-react"
+import { Building2, ArrowLeft, Edit2, X, Check, Plus, ChevronUp, ChevronDown, Trash2, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import {
-  getCompany,
-  getStatementStructure,
-  upsertStatementStructure,
-  type Company,
-} from "@/lib/api"
+
+interface Company {
+  id: string
+  name: string
+  fiscalYearEnd: string
+  currency: string
+}
 
 interface FinancialStatementRow {
   label: string
@@ -59,117 +60,155 @@ export default function FinancialStatementsMappingPage() {
   const [editingLinkCodeIndex, setEditingLinkCodeIndex] = useState<number | null>(null)
   const [editingLinkCode, setEditingLinkCode] = useState("")
 
-  const [loading, setLoading] = useState(true)
-
-  const defaultIncomeStatementRows: FinancialStatementRow[] = [
-    { label: "revenus", isBold: true, isSection: true },
-    { label: "coût des produits vendus", isSection: true, indent: true },
-    { label: "bénéfice brut", isBold: true, isResult: true },
-    { label: "" },
-    { label: "charges d'exploitation", isBold: true, isSection: true },
-    { label: "frais d'administration", indent: true },
-    { label: "frais de vente", indent: true },
-    { label: "autres dépenses (revenus)", indent: true },
-    { label: "total des charges", isBold: true },
-    { label: "" },
-    { label: "bénéfice avant impôts", isBold: true, isResult: true },
-    { label: "impôts (26%)", indent: true },
-    { label: "bénéfice net", isBold: true, isNetIncome: true },
-    { label: "" },
-    { label: "BAIIA", isBold: true, isEBITA: true },
-  ]
-
-  const defaultBalanceSheetRows: BalanceSheetRow[] = [
-    { label: "actifs", isBold: true, isSection: true },
-    { label: "actifs courants", isSection: true, indent: true },
-    { label: "actifs non courants", isSection: true, indent: true },
-    { label: "total des actifs", isBold: true, isResult: true },
-    { label: "" },
-    { label: "passifs", isBold: true, isSection: true },
-    { label: "passifs courants", indent: true },
-    { label: "passifs non courants", indent: true },
-    { label: "total des passifs", isBold: true },
-    { label: "" },
-    { label: "capitaux propres", isBold: true, isResult: true },
-    { label: "total passifs et capitaux propres", isBold: true, isResult: true },
-  ]
-
-  const loadData = useCallback(async () => {
-    try {
-      const companyData = await getCompany(companyId)
-      setCompany(companyData)
-
-      // Load income statement structure
-      try {
-        const isData = await getStatementStructure(companyId, "income-statement")
-        const rows = isData.structure as unknown as FinancialStatementRow[]
-        // Auto-fix: ensure COGS is between Revenus and Bénéfice brut
-        const revenusIndex = rows.findIndex(r => r.label?.toLowerCase() === "revenus")
-        const cogsIndex = rows.findIndex(r => r.label?.toLowerCase() === "coût des produits vendus")
-        const beneficeBrutIndex = rows.findIndex(r => r.label?.toLowerCase() === "bénéfice brut")
-        if (revenusIndex !== -1 && cogsIndex !== -1 && beneficeBrutIndex !== -1 &&
-            !(cogsIndex > revenusIndex && cogsIndex < beneficeBrutIndex)) {
-          const cogsRow = rows[cogsIndex]
-          const rowsWithoutCogs = rows.filter((_, i) => i !== cogsIndex)
-          const newRevenusIndex = rowsWithoutCogs.findIndex(r => r.label?.toLowerCase() === "revenus")
-          if (newRevenusIndex !== -1) {
-            const reorderedRows = [
-              ...rowsWithoutCogs.slice(0, newRevenusIndex + 1),
-              cogsRow,
-              ...rowsWithoutCogs.slice(newRevenusIndex + 1)
-            ]
-            setFinancialStatementRows(reorderedRows)
-            await upsertStatementStructure(companyId, "income-statement", reorderedRows as unknown as Record<string, unknown>[])
-          } else {
-            setFinancialStatementRows(rows)
+  // Load company and financial statement rows from localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined" && companyId) {
+      const loadCompany = () => {
+        const saved = localStorage.getItem("modelisys_companies")
+        if (saved) {
+          try {
+            const companies: Company[] = JSON.parse(saved)
+            const foundCompany = companies.find((c) => c.id === companyId)
+            if (foundCompany) {
+              setCompany(foundCompany)
+            } else {
+              router.push(`/settings/companies/${companyId}`)
+            }
+          } catch (e) {
+            console.error("Error loading company:", e)
+            router.push(`/settings/companies/${companyId}`)
           }
         } else {
-          setFinancialStatementRows(rows)
+          router.push(`/settings/companies/${companyId}`)
         }
-      } catch {
-        // No structure saved yet, use defaults and save them
-        setFinancialStatementRows(defaultIncomeStatementRows)
-        await upsertStatementStructure(companyId, "income-statement", defaultIncomeStatementRows as unknown as Record<string, unknown>[])
       }
 
-      // Load balance sheet structure
-      try {
-        const bsData = await getStatementStructure(companyId, "balance-sheet")
-        setBalanceSheetRows(bsData.structure as unknown as BalanceSheetRow[])
-      } catch {
-        // No structure saved yet, use defaults and save them
-        setBalanceSheetRows(defaultBalanceSheetRows)
-        await upsertStatementStructure(companyId, "balance-sheet", defaultBalanceSheetRows as unknown as Record<string, unknown>[])
+      const loadFinancialStatementRows = () => {
+        const defaultRows: FinancialStatementRow[] = [
+          { label: "revenus", isBold: true, isSection: true },
+          { label: "coût des produits vendus", isSection: true, indent: true },
+          { label: "bénéfice brut", isBold: true, isResult: true },
+          { label: "" }, // Spacer
+          { label: "charges d'exploitation", isBold: true, isSection: true },
+          { label: "frais d'administration", indent: true },
+          { label: "frais de vente", indent: true },
+          { label: "autres dépenses (revenus)", indent: true },
+          { label: "total des charges", isBold: true },
+          { label: "" }, // Spacer
+          { label: "bénéfice avant impôts", isBold: true, isResult: true },
+          { label: "impôts (26%)", indent: true },
+          { label: "bénéfice net", isBold: true, isNetIncome: true },
+          { label: "" }, // Spacer
+          { label: "BAIIA", isBold: true, isEBITA: true },
+        ]
+
+        const saved = localStorage.getItem(`modelisys_financial_statements_${companyId}`)
+        if (saved) {
+          try {
+            const rows: FinancialStatementRow[] = JSON.parse(saved)
+            
+            // Ensure "Coûts des produits vendus" is between "Revenus" and "Bénéfice brut"
+            const revenusIndex = rows.findIndex(r => r.label.toLowerCase() === "revenus")
+            const cogsIndex = rows.findIndex(r => r.label.toLowerCase() === "coût des produits vendus")
+            const beneficeBrutIndex = rows.findIndex(r => r.label.toLowerCase() === "bénéfice brut")
+            
+            // If all three exist but order is wrong, fix it
+            if (revenusIndex !== -1 && cogsIndex !== -1 && beneficeBrutIndex !== -1) {
+              // If Coûts des produits vendus is not between Revenus and Bénéfice brut, reorder
+              if (!(cogsIndex > revenusIndex && cogsIndex < beneficeBrutIndex)) {
+                // Remove Coûts des produits vendus from its current position
+                const cogsRow = rows[cogsIndex]
+                const rowsWithoutCogs = rows.filter((_, i) => i !== cogsIndex)
+                
+                // Find the new position (right after Revenus, before Bénéfice brut)
+                const newRevenusIndex = rowsWithoutCogs.findIndex(r => r.label.toLowerCase() === "revenus")
+                const newBeneficeBrutIndex = rowsWithoutCogs.findIndex(r => r.label.toLowerCase() === "bénéfice brut")
+                
+                if (newRevenusIndex !== -1 && newBeneficeBrutIndex !== -1) {
+                  // Insert Coûts des produits vendus right after Revenus
+                  const reorderedRows = [
+                    ...rowsWithoutCogs.slice(0, newRevenusIndex + 1),
+                    cogsRow,
+                    ...rowsWithoutCogs.slice(newRevenusIndex + 1)
+                  ]
+                  setFinancialStatementRows(reorderedRows)
+                  // Save the reordered rows
+                  if (typeof window !== "undefined" && companyId) {
+                    localStorage.setItem(`modelisys_financial_statements_${companyId}`, JSON.stringify(reorderedRows))
+                  }
+                  return
+                }
+              }
+            }
+            
+            setFinancialStatementRows(rows)
+          } catch (e) {
+            console.error("Error loading financial statement rows:", e)
+            setFinancialStatementRows(defaultRows)
+          }
+        } else {
+          setFinancialStatementRows(defaultRows)
+        }
       }
-    } catch (e) {
-      console.error("Error loading data:", e)
-      router.push(`/settings/companies/${companyId}`)
-    } finally {
-      setLoading(false)
+
+      const loadBalanceSheetRows = () => {
+        const defaultRows: BalanceSheetRow[] = [
+          { label: "actifs", isBold: true, isSection: true },
+          { label: "actifs courants", isSection: true, indent: true },
+          { label: "actifs non courants", isSection: true, indent: true },
+          { label: "total des actifs", isBold: true, isResult: true },
+          { label: "" }, // Spacer
+          { label: "passifs", isBold: true, isSection: true },
+          { label: "passifs courants", indent: true },
+          { label: "passifs non courants", indent: true },
+          { label: "total des passifs", isBold: true },
+          { label: "" }, // Spacer
+          { label: "capitaux propres", isBold: true, isResult: true },
+          { label: "total passifs et capitaux propres", isBold: true, isResult: true },
+        ]
+
+        const saved = localStorage.getItem(`modelisys_balance_sheet_${companyId}`)
+        if (saved) {
+          try {
+            const rows: BalanceSheetRow[] = JSON.parse(saved)
+            setBalanceSheetRows(rows)
+          } catch (e) {
+            console.error("Error loading balance sheet rows:", e)
+            setBalanceSheetRows(defaultRows)
+          }
+        } else {
+          setBalanceSheetRows(defaultRows)
+        }
+      }
+
+      loadCompany()
+      loadFinancialStatementRows()
+      loadBalanceSheetRows()
+
+      // Listen for storage changes
+      const handleStorageChange = () => {
+        loadCompany()
+        loadFinancialStatementRows()
+      }
+
+      window.addEventListener("storage", handleStorageChange)
+      const interval = setInterval(handleStorageChange, 1000)
+
+      return () => {
+        window.removeEventListener("storage", handleStorageChange)
+        clearInterval(interval)
+      }
     }
   }, [companyId, router])
 
-  useEffect(() => {
-    loadData()
-  }, [loadData])
-
-  if (loading || !company) {
-    return (
-      <div className="min-h-screen bg-slate-50">
-        <DashboardHeader title="Modelisys" />
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <p className="text-slate-500">Chargement...</p>
-        </div>
-      </div>
-    )
+  if (!company || financialStatementRows.length === 0) {
+    return null
   }
 
-  // Save financial statement rows to API
-  const saveFinancialStatementRows = async (rows: FinancialStatementRow[]) => {
-    try {
-      await upsertStatementStructure(companyId, "income-statement", rows as unknown as Record<string, unknown>[])
-    } catch (e) {
-      console.error("Error saving financial statement rows:", e)
+  // Save financial statement rows to localStorage
+  const saveFinancialStatementRows = (rows: FinancialStatementRow[]) => {
+    if (typeof window !== "undefined" && companyId) {
+      localStorage.setItem(`modelisys_financial_statements_${companyId}`, JSON.stringify(rows))
     }
   }
 
@@ -565,12 +604,10 @@ export default function FinancialStatementsMappingPage() {
     saveFinancialStatementRows(updatedRows)
   }
 
-  // Save balance sheet rows to API
-  const saveBalanceSheetRows = async (rows: BalanceSheetRow[]) => {
-    try {
-      await upsertStatementStructure(companyId, "balance-sheet", rows as unknown as Record<string, unknown>[])
-    } catch (e) {
-      console.error("Error saving balance sheet rows:", e)
+  // Save balance sheet rows to localStorage
+  const saveBalanceSheetRows = (rows: BalanceSheetRow[]) => {
+    if (typeof window !== "undefined" && companyId) {
+      localStorage.setItem(`modelisys_balance_sheet_${companyId}`, JSON.stringify(rows))
     }
   }
 
@@ -1293,9 +1330,9 @@ export default function FinancialStatementsMappingPage() {
                                      !isProtectedInDetail
 
                     return (
-                      <React.Fragment key={index}>
+                      <>
                         {shouldAddSpacerBefore && (
-                          <tr className="h-12 border-b border-slate-200">
+                          <tr key={`spacer-before-${index}`} className="h-12 border-b border-slate-200">
                             <td className="px-6 py-3 text-sm h-12"></td>
                             <td className="px-6 py-3 text-sm h-12"></td>
                             <td className="px-6 py-3 text-sm h-12"></td>
@@ -1619,7 +1656,7 @@ export default function FinancialStatementsMappingPage() {
                             <td className="px-6 py-3 text-sm text-slate-600">-</td>
                           </tr>
                         )}
-                      </React.Fragment>
+                      </>
                     )
                   })}
                 </tbody>

@@ -134,12 +134,6 @@ export function SeasonalityChart({
 
   const seasonalPattern = getSeasonalPattern()
   
-  // Deterministic pseudo-random to avoid SSR/client hydration mismatch
-  const seededRandom = (seed: number): number => {
-    const x = Math.sin(seed * 9301 + 49297) * 233280
-    return (x - Math.floor(x)) * 0.1 + 0.95 // Returns 0.95 to 1.05
-  }
-
   // Helper function to generate data for a given base value
   const generateDataForBase = (base: number, pattern: number[]): number[] => {
     const data: number[] = []
@@ -149,7 +143,7 @@ export function SeasonalityChart({
         const monthIndex = (new Date().getMonth() - (11 - idx) + 12) % 12
         const seasonalMultiplier = pattern[monthIndex] || 1
         const trend = 1 + (0.02 * idx)
-        const value = Math.round(base * seasonalMultiplier * trend * seededRandom(base + idx))
+        const value = Math.round(base * seasonalMultiplier * trend * (0.95 + Math.random() * 0.1))
         data.push(value)
       })
     } else if (view === "24months") {
@@ -158,14 +152,14 @@ export function SeasonalityChart({
         const monthIndex = (new Date().getMonth() - (23 - idx) + 24) % 12
         const seasonalMultiplier = pattern[monthIndex] || 1
         const trend = 1 + (0.01 * idx)
-        const value = Math.round(base * seasonalMultiplier * trend * seededRandom(base + idx))
+        const value = Math.round(base * seasonalMultiplier * trend * (0.95 + Math.random() * 0.1))
         data.push(value)
       })
     } else if (view === "years") {
       const yearLabels = getYearLabels()
       yearLabels.forEach((_, idx) => {
         const trend = 1 + (0.05 * idx)
-        const value = Math.round(base * 12 * trend * seededRandom(base + idx))
+        const value = Math.round(base * 12 * trend * (0.95 + Math.random() * 0.1))
         data.push(value)
       })
     }

@@ -7,6 +7,7 @@ import { PostFeaturesSection } from "@/components/post-features-section"
 import { AITeamSection } from "@/components/ai-team-section"
 import { PricingProcessSection } from "@/components/pricing-process-section"
 import { DemoBookingSection } from "@/components/demo-booking-section"
+import { EmailSubscriptionSection } from "@/components/email-subscription-section"
 import { Footer } from "@/components/footer"
 
 export default function LandingPage() {
@@ -22,7 +23,11 @@ export default function LandingPage() {
           <PostFeaturesSection />
           <AITeamSection />
           <PricingProcessSection />
-          <DemoBookingSection />
+          <DemoBookingSection 
+            description="Modelisys est actuellement déployé auprès d'un nombre restreint d'entreprises. Les accès sont accordés progressivement selon la liste d'attente."
+            showWaitlistProcess={true}
+          />
+          <EmailSubscriptionSection />
           <Footer />
         </div>
       </main>

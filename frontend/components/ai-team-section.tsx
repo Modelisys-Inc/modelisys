@@ -8,14 +8,14 @@ const conversations = [
   {
     title: "Module d'Analyse des Revenus",
     messages: [
-      { text: "J'ai besoin de comprendre pourquoi les revenus ont augmenté cette année", sender: "customer", delay: 0 },
+      { text: "J'ai besoin de comprendre pourquoi les revenus ont augmenté de 12% cette année", sender: "customer", delay: 0 },
       {
         text: "✓ Module ouvert : Analyse des revenus par ligne de produit, division et client",
         sender: "ai",
         delay: 1000,
       },
       {
-        text: "Analyse en cours : Croissance par produit, division et concentration clients affichées. Les moteurs de revenus sont identifiés visuellement.",
+        text: "Analyse en cours : Produit A +8%, Produit B +15%, Produit C +22%. La division C affiche la plus forte croissance. Concentration clients : Top 3 = 42%.",
         sender: "ai",
         delay: 2500,
       },
@@ -41,7 +41,7 @@ const conversations = [
         delay: 1000,
       },
       {
-        text: "Données affichées : Marges par produit, tendances de croissance et répartition des revenus. Le produit le plus performant est identifié automatiquement.",
+        text: "Données affichées : Produit A marge de 28% (1,1M$), Produit B marge de 35% (680K$), Produit C marge de 48% (620K$). Tendance : Produit C croît le plus rapidement à 22% annuellement.",
         sender: "ai",
         delay: 2500,
       },
@@ -51,7 +51,7 @@ const conversations = [
         delay: 4000,
       },
       {
-        text: "✓ Recommandation visible : Opportunités d'expansion identifiées par l'analyse des marges et de la croissance. Quelques minutes d'analyse révèlent le potentiel de revenus supplémentaires.",
+        text: "✓ Recommandation visible : Produit C affiche la marge et croissance les plus élevées - opportunité d'expansion identifiée. 5 minutes d'analyse révèlent 200K$ de revenus potentiels.",
         sender: "ai",
         delay: 5500,
       },
@@ -67,7 +67,7 @@ const conversations = [
         delay: 1000,
       },
       {
-        text: "Données visibles : DSO, DPO et cycle de trésorerie affichés. Rapports d'ancienneté des créances et comptes fournisseurs disponibles pour analyse.",
+        text: "Données visibles : DSO 42 jours (en hausse de 7 jours), DPO 45 jours, Cycle de trésorerie 67 jours. Rapports d'ancienneté montrent 185K$ de créances vieillies de 45+ jours. Comptes fournisseurs étendus.",
         sender: "ai",
         delay: 2500,
       },
@@ -77,7 +77,7 @@ const conversations = [
         delay: 4000,
       },
       {
-        text: "✓ Clair : Opportunités de recouvrement et d'optimisation des comptes fournisseurs identifiées. Amélioration de trésorerie potentielle calculée en quelques minutes.",
+        text: "✓ Clair : Recouvrer les créances vieillies libère 185K$. Étendre les comptes fournisseurs libère 120K$. Optimisation rapide totale : amélioration de trésorerie de 305K$ identifiée en quelques minutes.",
         sender: "ai",
         delay: 5500,
       },
@@ -93,7 +93,7 @@ const conversations = [
         delay: 1000,
       },
       {
-        text: "Données affichées : Trésorerie par division et total consolidé. Toutes les éliminations inter-sociétés réconciliées automatiquement.",
+        text: "Données affichées : Division A 820K$ de trésorerie, Division B 685K$, Division C 595K$. Total consolidé : 2,1M$. Toutes les éliminations inter-sociétés réconciliées automatiquement.",
         sender: "ai",
         delay: 2500,
       },
@@ -103,7 +103,7 @@ const conversations = [
         delay: 4000,
       },
       {
-        text: "✓ Prêt pour le conseil : Bilan consolidé, résultats par division, éliminations documentées. Ce qui prenait des jours prend maintenant quelques minutes.",
+        text: "✓ Prêt pour le conseil : Bilan consolidé, résultats par division, éliminations documentées. Ce qui prenait 3 jours prend maintenant 15 minutes. Niveau de confiance : 100%.",
         sender: "ai",
         delay: 5500,
       },
@@ -119,7 +119,7 @@ const conversations = [
         delay: 1000,
       },
       {
-        text: "Données clients et fournisseurs affichées : Concentration des revenus et des dépenses, risques de dépendance identifiés. Graphiques de concentration visuels disponibles.",
+        text: "Données clients : Top 3 = 42% des revenus. Données fournisseurs : Top 5 = 68% des dépenses. Fournisseur 1 = risque de dépendance de 22% identifié. Graphiques de concentration visuels disponibles.",
         sender: "ai",
         delay: 2500,
       },
@@ -129,7 +129,7 @@ const conversations = [
         delay: 4000,
       },
       {
-        text: "✓ Insights clairs : Niveaux de concentration clients et fournisseurs évalués avec recommandations de diversification. Actionnable en quelques minutes d'analyse.",
+        text: "✓ Insights clairs : Concentration clients modérée (diversifier Top 3 de 42% à 35%). Risque fournisseur élevé (réduire Fournisseur 1 de 22% à 15%). Actionnable en 5 minutes d'analyse.",
         sender: "ai",
         delay: 5500,
       },
@@ -145,7 +145,7 @@ const conversations = [
         delay: 1000,
       },
       {
-        text: "Scénarios créés : Conservateur, Base et Optimiste avec projections Capex et TRI. Capacité d'autofinancement analysée.",
+        text: "Scénarios créés : Conservateur 6% de croissance, Base 10%, Optimiste 15%. Projections Capex : 50K$ A1 à 75K$ A5. TRI : 22%. Autofinancé sans financement externe.",
         sender: "ai",
         delay: 2500,
       },
@@ -155,7 +155,7 @@ const conversations = [
         delay: 4000,
       },
       {
-        text: "✓ Valorisation terminée : Fourchettes de valeur d'entreprise affichées. Plusieurs scénarios prêts. Prêt pour M&A avec modèle financier complet.",
+        text: "✓ Valorisation terminée : Fourchettes de valeur d'entreprise affichées. Plusieurs scénarios prêts. Ce qui prend typiquement 2 semaines est prêt en 30 minutes. Prêt pour M&A avec modèle financier complet.",
         sender: "ai",
         delay: 5500,
       },

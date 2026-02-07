@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector } from "@/components/entity-selector"
-import { useCompanies } from "@/hooks/use-companies"
+import { EntitySelector, Company } from "@/components/entity-selector"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -22,6 +21,22 @@ import { CapexForecastDetail } from "@/components/capex-forecast-detail"
 import { DebtForecastDetail } from "@/components/debt-forecast-detail"
 import { FDRForecastDetail } from "@/components/fdr-forecast-detail"
 
+const companiesData: Company[] = [
+  {
+    id: "company-1",
+    name: "Société Principale",
+    divisions: [
+      {
+        id: "div-1",
+        name: "Division A",
+        subDivisions: [
+          { id: "subdiv-1", name: "Sous-division 1" },
+          { id: "subdiv-2", name: "Sous-division 2" },
+        ],
+      },
+    ],
+  },
+]
 
 type ModuleType = "income-statement" | "balance-sheet" | "cash-flow" | "revenue" | "expenses" | "capex" | "debt" | "fdr"
 
@@ -101,7 +116,6 @@ interface SavedProjection {
 }
 
 export default function ProFormaPage() {
-  const { companies: companiesData } = useCompanies()
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
