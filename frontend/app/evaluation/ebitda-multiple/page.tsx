@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector } from "@/components/entity-selector"
-import { useCompanies } from "@/hooks/use-companies"
+import { EntitySelector, Company } from "@/components/entity-selector"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -19,8 +18,25 @@ import { usePathname } from "next/navigation"
 const evaluationNav = [
   { label: "Modèle d'affaires", href: "/evaluation/business-model" },
   { label: "Multiple du BAIIA", href: "/evaluation/ebitda-multiple" },
+  { label: "Actif Corporel Net", href: "/evaluation/net-tangible-assets" },
 ]
 
+const companiesData: Company[] = [
+  {
+    id: "company-1",
+    name: "Société Principale",
+    divisions: [
+      {
+        id: "div-1",
+        name: "Division A",
+        subDivisions: [
+          { id: "subdiv-1", name: "Sous-division 1" },
+          { id: "subdiv-2", name: "Sous-division 2" },
+        ],
+      },
+    ],
+  },
+]
 
 interface Adjustment {
   id: string
@@ -37,8 +53,6 @@ interface EBITDAYear {
 }
 
 export default function EBITDAMultiplePage() {
-  const { companies: companiesData } = useCompanies()
-  const pathname = usePathname()
   const [hasAcceptedDisclaimer, setHasAcceptedDisclaimer] = useState<boolean>(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
@@ -67,7 +81,13 @@ export default function EBITDAMultiplePage() {
     // Annual: 3300000 (current year) - from income-statement-detail.tsx line 456
     // Prior: 2864000 (from income-statement-detail.tsx line 456)
     // Using historical pattern: 3300000, 2864000, 2550000, 2300000, 2100000
-    const revenueValues: number[] = []
+    const revenueValues = [
+      2100000, // Year -4
+      2300000, // Year -3
+      2550000, // Year -2
+      2864000, // Year -1 (prior in income-statement-detail)
+      3300000, // Year 0 (current in income-statement-detail)
+    ]
     
     if (yearOffset >= 0 && yearOffset < revenueValues.length) {
       return revenueValues[yearOffset]
@@ -89,7 +109,13 @@ export default function EBITDAMultiplePage() {
     // Annual: 768000 (current year)
     // Prior: 626000 (from income-statement-summary.tsx line 268)
     // Using historical pattern: 768000, 626000, 555000, 520000, 490000
-    const ebitdaValues: number[] = []
+    const ebitdaValues = [
+      490000, // Year -4
+      520000, // Year -3
+      555000, // Year -2
+      626000, // Year -1 (prior in income-statement-summary)
+      768000, // Year 0 (current in income-statement-summary)
+    ]
     
     if (yearOffset >= 0 && yearOffset < ebitdaValues.length) {
       return ebitdaValues[yearOffset]
@@ -633,6 +659,8 @@ export default function EBITDAMultiplePage() {
     )
   }
 
+  const pathname = usePathname()
+
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
@@ -745,30 +773,28 @@ export default function EBITDAMultiplePage() {
                 </div>
               </div>
 
-              {/* Content */}
-              <div className="p-6">
-
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b-2 border-slate-300">
-                        <th className="text-left py-4 px-4 text-sm font-semibold text-slate-900 min-w-[180px]">Métrique</th>
-                        {years.map((year) => (
-                          <th
-                            key={year.year}
-                            className={cn(
-                              "text-center py-4 px-4 text-sm font-semibold text-slate-900 min-w-[160px]",
-                            )}
-                          >
-                            {year.year}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {/* Revenus Row - Read Only */}
-                      <tr className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
-                        <td className="py-4 px-4 font-semibold text-slate-900">
+              {/* Table */}
+              <div className="overflow-x-auto bg-white">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Métrique</th>
+                      {years.map((year) => (
+                        <th
+                          key={year.year}
+                          className={cn(
+                            "px-4 py-4 text-center font-semibold text-slate-900 text-sm",
+                          )}
+                        >
+                          {year.year}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Revenus Row - Read Only */}
+                    <tr className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-3 font-semibold text-slate-900">
                           <div className="flex items-center gap-2">
                             <span>Revenus</span>
                             <span className="text-xs font-normal text-slate-500">(États des résultats)</span>
@@ -778,7 +804,7 @@ export default function EBITDAMultiplePage() {
                           <td
                             key={`revenue-${year.year}`}
                             className={cn(
-                              "py-4 px-4 text-center",
+                              "px-4 py-3 text-center",
                             )}
                           >
                             <span className="font-semibold text-slate-900 text-sm">
@@ -790,15 +816,15 @@ export default function EBITDAMultiplePage() {
 
                       {/* Empty Row */}
                       <tr className="border-b border-slate-200">
-                        <td className="py-2 px-4"></td>
+                        <td className="px-6 py-2"></td>
                         {years.map((year) => (
-                          <td key={`empty-${year.year}`} className="py-2 px-4"></td>
+                          <td key={`empty-${year.year}`} className="px-4 py-2"></td>
                         ))}
                       </tr>
 
                       {/* BAIIA Row - Read Only */}
                       <tr className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
-                        <td className="py-4 px-4 font-semibold text-slate-900">
+                        <td className="px-6 py-3 font-semibold text-slate-900">
                           <div className="flex items-center gap-2">
                             <span>BAIIA</span>
                             <span className="text-xs font-normal text-slate-500">(États des résultats)</span>
@@ -808,7 +834,7 @@ export default function EBITDAMultiplePage() {
                           <td
                             key={`ebitda-${year.year}`}
                             className={cn(
-                              "py-4 px-4 text-center",
+                              "px-4 py-3 text-center",
                             )}
                           >
                             <span className="font-semibold text-slate-900 text-sm">
@@ -820,11 +846,11 @@ export default function EBITDAMultiplePage() {
 
                       {/* +/- Ajustements - Visual separator row */}
                       <tr className="border-b border-slate-200">
-                        <td className="py-4 px-4 text-slate-600 italic">
+                        <td className="px-6 py-3 text-slate-600 italic">
                           +/- Ajustements
                         </td>
                         {years.map((year) => (
-                          <td key={`adjustments-label-${year.year}`} className="py-4 px-4"></td>
+                          <td key={`adjustments-label-${year.year}`} className="px-4 py-3"></td>
                         ))}
                       </tr>
 
@@ -832,7 +858,7 @@ export default function EBITDAMultiplePage() {
                       {adjustments.map((adjustment) => {
                         return (
                           <tr key={adjustment.id} className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
-                            <td className="py-4 px-4 text-slate-900">
+                            <td className="px-6 py-3 text-slate-900">
                               <div className="flex items-center gap-2">
                                 <span>{adjustment.name || "Ajustement"}</span>
                                 <button
@@ -850,7 +876,7 @@ export default function EBITDAMultiplePage() {
                                 <td
                                   key={`adj-${adjustment.id}-${year.year}`}
                                   className={cn(
-                                    "py-4 px-4 text-center",
+                                    "px-4 py-3 text-center",
                                   )}
                                 >
                                   <div className="flex items-center gap-2 justify-center">
@@ -883,12 +909,12 @@ export default function EBITDAMultiplePage() {
 
                       {/* BAIIA ajusté Row */}
                       <tr className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
-                        <td className="py-4 px-4 font-semibold text-slate-900">BAIIA ajusté</td>
+                        <td className="px-6 py-3 font-semibold text-slate-900">BAIIA ajusté</td>
                         {years.map((year) => (
                           <td
                             key={`adjusted-${year.year}`}
                             className={cn(
-                              "py-4 px-4 text-center",
+                              "px-4 py-3 text-center",
                             )}
                           >
                             <span className="font-semibold text-slate-900 text-sm">
@@ -900,7 +926,7 @@ export default function EBITDAMultiplePage() {
 
                       {/* BAIIA ajusté en % des revenus Row */}
                       <tr className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
-                        <td className="py-4 px-4 text-slate-600 italic">
+                        <td className="px-6 py-3 text-slate-600 italic">
                           BAIIA ajusté en % des revenus
                         </td>
                         {years.map((year) => {
@@ -910,7 +936,7 @@ export default function EBITDAMultiplePage() {
                             <td
                               key={`margin-${year.year}`}
                               className={cn(
-                                "py-4 px-4 text-center"
+                                "px-4 py-3 text-center"
                               )}
                             >
                               <span className="text-slate-900 text-sm">
@@ -923,14 +949,14 @@ export default function EBITDAMultiplePage() {
 
                       {/* Pondération Row */}
                       <tr className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
-                        <td className="py-4 px-4 font-semibold text-slate-900">Pondération</td>
+                        <td className="px-6 py-3 font-semibold text-slate-900">Pondération</td>
                         {years.map((year, index) => {
                           const hasNote = weightNotes[year.year] && weightNotes[year.year].trim().length > 0
                           return (
                             <td
                               key={`weight-${year.year}`}
                               className={cn(
-                                "py-4 px-4 text-center",
+                                "px-4 py-3 text-center",
                               )}
                             >
                               <div className="flex items-center gap-2 justify-center">
@@ -963,19 +989,20 @@ export default function EBITDAMultiplePage() {
                 </div>
 
                 {totalWeight !== 1 && representativeYears.length > 0 && (
-                  <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                    <div className="flex items-start gap-2">
-                      <Info className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                      <div className="text-sm text-amber-800">
-                        <p className="font-semibold mb-1">Pondération totale: {(totalWeight * 100).toFixed(0)}%</p>
-                        <p>
-                          La somme des pondérations des années représentatives devrait être égale à 100%. Ajustez les pondérations pour normaliser.
-                        </p>
+                  <div className="p-6">
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                      <div className="flex items-start gap-2">
+                        <Info className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                        <div className="text-sm text-amber-800">
+                          <p className="font-semibold mb-1">Pondération totale: {(totalWeight * 100).toFixed(0)}%</p>
+                          <p>
+                            La somme des pondérations des années représentatives devrait être égale à 100%. Ajustez les pondérations pour normaliser.
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
                 )}
-              </div>
             </div>
           </div>
         </div>

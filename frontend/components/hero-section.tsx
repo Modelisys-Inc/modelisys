@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button"
 import { ArrowRight, TrendingUp, DollarSign, Activity, Building2, Sparkles, FileBarChart, Calculator, FileText, Users, Calendar, Zap, CheckCircle2 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import Image from "next/image"
 
 const ArrowRightIcon = () => (
   <svg
@@ -117,9 +118,9 @@ export function HeroSection() {
           >
             <div className="space-y-6 mb-8">
               {/* Badge */}
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800/50 border border-slate-700/50 mb-4">
-                <Sparkles className="w-4 h-4 text-slate-400" />
-                <span className="text-sm font-semibold text-slate-300">Plateforme d'Intelligence Financière</span>
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500/20 border border-emerald-400/30 mb-4">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-semibold text-emerald-400">Bientôt disponible</span>
               </div>
 
             {/* Main Headline */}
@@ -153,7 +154,7 @@ export function HeroSection() {
                   }
                 }}
               >
-                Commencer maintenant
+                Accéder en priorité au lancement
                 <ArrowRightIcon />
               </Button>
             </div>
@@ -217,8 +218,14 @@ export function HeroSection() {
                   {/* Center circle */}
                   <div className="relative w-48 h-48 sm:w-56 sm:h-56 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-full border-4 border-slate-800 shadow-2xl flex items-center justify-center group hover:scale-110 transition-transform duration-500">
                     <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent rounded-full"></div>
-                    <div className="relative z-10 text-center">
-                      <div className="text-white font-bold text-xl sm:text-2xl">Modelisys</div>
+                    <div className="relative z-10 flex items-center justify-center w-36 h-36 sm:w-44 sm:h-44 translate-y-1">
+                      <Image
+                        src="/images/modelisys-logo-white.svg"
+                        alt="Modelisys"
+                        width={176}
+                        height={176}
+                        className="w-full h-full object-contain"
+                      />
                     </div>
                   </div>
                       </div>

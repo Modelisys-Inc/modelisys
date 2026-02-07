@@ -153,7 +153,10 @@ export function PricingProcessSection() {
                         <Settings className="w-6 h-6 text-white" />
                       </div>
                       <div className="flex-1">
-                        <h4 className="text-xl font-bold mb-2">Frais d'implantation</h4>
+                        <div className="flex items-center gap-3 mb-2">
+                          <h4 className="text-xl font-bold">Frais d'implantation</h4>
+                          <span className="text-lg font-semibold text-emerald-400">à partir de 7 000$</span>
+                        </div>
                         <p className="text-sm text-slate-300 leading-relaxed mb-4">
                           Un montant unique pour la configuration initiale de votre plateforme.
                         </p>
@@ -182,7 +185,10 @@ export function PricingProcessSection() {
                         <DollarSign className="w-6 h-6 text-white" />
                       </div>
                       <div className="flex-1">
-                        <h4 className="text-xl font-bold mb-2">Frais d'abonnement</h4>
+                        <div className="flex items-center gap-3 mb-2">
+                          <h4 className="text-xl font-bold">Frais d'abonnement</h4>
+                          <span className="text-lg font-semibold text-emerald-400">à partir de 350$/mois</span>
+                        </div>
                         <p className="text-sm text-slate-300 leading-relaxed">
                           Un abonnement mensuel récurrent pour l'accès à la plateforme et à toutes ses fonctionnalités configurées.
                         </p>

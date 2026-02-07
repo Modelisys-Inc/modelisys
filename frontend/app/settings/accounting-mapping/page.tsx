@@ -3,8 +3,7 @@
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { EntitySelector } from "@/components/entity-selector"
-import { useCompanies } from "@/hooks/use-companies"
+import { EntitySelector, Company } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, FileSpreadsheet, Edit2, Trash2, X, Check, Upload, Filter, ChevronDown, ChevronUp } from "lucide-react"
 import { useState, useRef, useCallback } from "react"
@@ -20,10 +19,51 @@ interface AccountMapping {
   subDivisionId?: string | null
 }
 
+const companiesData: Company[] = [
+  {
+    id: "company-1",
+    name: "Société Principale",
+    divisions: [
+      {
+        id: "div-1",
+        name: "Division A",
+        subDivisions: [
+          { id: "subdiv-1", name: "Sous-division 1" },
+          { id: "subdiv-2", name: "Sous-division 2" },
+        ],
+      },
+      {
+        id: "div-2",
+        name: "Division B",
+        subDivisions: [
+          { id: "subdiv-3", name: "Sous-division 3" },
+          { id: "subdiv-4", name: "Sous-division 4" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "company-2",
+    name: "Société Secondaire",
+    divisions: [
+      {
+        id: "div-3",
+        name: "Division C",
+        subDivisions: [
+          { id: "subdiv-5", name: "Sous-division 5" },
+        ],
+      },
+    ],
+  },
+]
 
 export default function AccountingMappingPage() {
-  const { companies: companiesData } = useCompanies()
-  const [mappings, setMappings] = useState<AccountMapping[]>([])
+  const [mappings, setMappings] = useState<AccountMapping[]>([
+    { id: "1", accountNumber: "1000", accountName: "Caisse", linkCodes: "ACT-001", companyId: "company-1", divisionId: "div-1", subDivisionId: "subdiv-1" },
+    { id: "2", accountNumber: "1200", accountName: "Comptes clients", linkCodes: "ACT-002", companyId: "company-1", divisionId: null, subDivisionId: null },
+    { id: "3", accountNumber: "4000", accountName: "Revenus de vente", linkCodes: "REV-001", companyId: "company-2", divisionId: "div-3", subDivisionId: null },
+    { id: "4", accountNumber: "5000", accountName: "Coûts des ventes", linkCodes: "DEP-001", companyId: null, divisionId: null, subDivisionId: null },
+  ])
   const [isAdding, setIsAdding] = useState(false)
   const [newAccountNumber, setNewAccountNumber] = useState("")
   const [newAccountName, setNewAccountName] = useState("")

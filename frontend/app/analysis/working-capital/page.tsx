@@ -7,11 +7,11 @@ import { WorkingCapitalAnalysis } from "@/components/working-capital-analysis"
 import { CashConversionChart } from "@/components/cash-conversion-chart"
 import { CashConversionAnalysis } from "@/components/cash-conversion-analysis"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector } from "@/components/entity-selector"
-import { useCompanies } from "@/hooks/use-companies"
+import { EntitySelector, Company } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
-import { Calendar, Filter } from "lucide-react"
+import { TrendingUp, TrendingDown, DollarSign, BarChart3, Building2, Calculator, Calendar, Filter, Target, TrendingUp as TrendingUpIcon, Zap } from "lucide-react"
+import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
@@ -20,8 +20,78 @@ type View = "current" | "12months" | "24months" | "years"
 type ColumnMode = "variations" | "percentage" | "comparison"
 type AnalysisType = "fonds-de-roulement" | "conversion-encaisse"
 
+// Données d'exemple pour les sociétés, divisions et sous-divisions
+const companiesData: Company[] = [
+  {
+    id: "company-1",
+    name: "Modelisys Inc.",
+    divisions: [
+      {
+        id: "div-1",
+        name: "Division Technologie",
+        subDivisions: [
+          { id: "sub-1", name: "Développement Logiciel" },
+          { id: "sub-2", name: "Infrastructure IT" },
+          { id: "sub-3", name: "Support Technique" },
+        ],
+      },
+      {
+        id: "div-2",
+        name: "Division Conseil",
+        subDivisions: [
+          { id: "sub-4", name: "Conseil Stratégique" },
+          { id: "sub-5", name: "Conseil Opérationnel" },
+        ],
+      },
+      {
+        id: "div-3",
+        name: "Division Ventes",
+        subDivisions: [
+          { id: "sub-6", name: "Ventes B2B" },
+          { id: "sub-7", name: "Ventes B2C" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "company-2",
+    name: "TechSolutions SA",
+    divisions: [
+      {
+        id: "div-4",
+        name: "Division Produits",
+        subDivisions: [
+          { id: "sub-8", name: "Produits Cloud" },
+          { id: "sub-9", name: "Produits On-Premise" },
+        ],
+      },
+      {
+        id: "div-5",
+        name: "Division Services",
+        subDivisions: [
+          { id: "sub-10", name: "Services Professionnels" },
+          { id: "sub-11", name: "Services Gérés" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "company-3",
+    name: "InnovateCorp",
+    divisions: [
+      {
+        id: "div-6",
+        name: "Division R&D",
+        subDivisions: [
+          { id: "sub-12", name: "Recherche" },
+          { id: "sub-13", name: "Développement" },
+        ],
+      },
+    ],
+  },
+]
+
 export default function WorkingCapitalPage() {
-  const { companies: companiesData } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("current")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
@@ -66,6 +136,40 @@ export default function WorkingCapitalPage() {
     }
   }
 
+  // Calculate summary metrics (mock data for now)
+  const calculateMetrics = () => {
+    const totalWorkingCapital = 450000
+    const priorWorkingCapital = 380000
+    const variation = calculateVariation(totalWorkingCapital, priorWorkingCapital)
+    const currentAssets = 1200000
+    const currentLiabilities = 750000
+    const workingCapitalRatio = currentAssets / currentLiabilities
+    
+    // Calculate average Working Capital for trend views
+    let averageWorkingCapital = 0
+    if (view === "12months") {
+      averageWorkingCapital = (totalWorkingCapital + priorWorkingCapital) / 2 + (totalWorkingCapital - priorWorkingCapital) / 12 * 6
+    } else if (view === "24months") {
+      averageWorkingCapital = (totalWorkingCapital + priorWorkingCapital) / 2 + (totalWorkingCapital - priorWorkingCapital) / 24 * 12
+    } else if (view === "years") {
+      averageWorkingCapital = (totalWorkingCapital + priorWorkingCapital) / 2 + (totalWorkingCapital - priorWorkingCapital) / 6 * 3
+    } else {
+      averageWorkingCapital = (totalWorkingCapital + priorWorkingCapital) / 2
+    }
+    
+    return {
+      totalWorkingCapital,
+      priorWorkingCapital,
+      variation,
+      currentAssets,
+      currentLiabilities,
+      workingCapitalRatio,
+      averageWorkingCapital
+    }
+  }
+
+  const metrics = calculateMetrics()
+  
   // Determine card title and content based on view
   const getWorkingCapitalCardTitle = () => {
     if (view === "current") {

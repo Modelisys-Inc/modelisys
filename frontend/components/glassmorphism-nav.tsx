@@ -6,7 +6,7 @@ import Image from "next/image"
 import Link from "next/link"
 
 const navigation = [
-  { name: "Défis", href: "#problem-solution" },
+  { name: "Pour qui ?", href: "#problem-solution" },
   { name: "Fonctionnalités", href: "#features" },
   { name: "Clés en main", href: "#ai-team" },
   { name: "Tarification", href: "#pricing-process" },
@@ -80,7 +80,7 @@ export function GlassmorphismNav() {
   return (
     <>
       <nav
-        className={`fixed top-4 md:top-8 left-0 right-0 z-50 transition-all duration-500 ${
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
           isVisible ? "translate-y-0 opacity-100" : "-translate-y-20 md:-translate-y-24 opacity-0"
         } ${hasLoaded ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
         style={{
@@ -88,12 +88,12 @@ export function GlassmorphismNav() {
         }}
       >
         {/* Main Navigation */}
-        <div className="w-full max-w-[1920px] mx-auto px-8 sm:px-12 lg:px-16 xl:px-20">
+        <div className="w-full">
             <div
-            className={`backdrop-blur-md border rounded-lg px-4 py-3 md:px-8 md:py-3 transition-all duration-300 ${
+            className={`backdrop-blur-md border-b border-slate-700/50 px-8 sm:px-12 lg:px-16 xl:px-20 py-3 md:py-4 transition-all duration-300 ${
               scrolled
-                ? "bg-slate-800/95 border-slate-700/50 shadow-lg"
-                : "bg-slate-800/80 border-slate-700/50 shadow-md"
+                ? "bg-slate-800/95 shadow-lg"
+                : "bg-slate-800/80 shadow-md"
             }`}
           >
             <div className="flex items-center justify-between">
@@ -106,10 +106,10 @@ export function GlassmorphismNav() {
                 >
                   <div className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center">
                     <Image
-                      src="/images/cliste-logo.png"
-                      alt="Financial Analytics Platform"
-                      width={40}
-                      height={40}
+                      src="/images/modelisys-icon-white.svg"
+                      alt="Modelisys"
+                      width={48}
+                      height={48}
                       className="w-full h-full object-contain"
                     />
                   </div>
@@ -168,7 +168,7 @@ export function GlassmorphismNav() {
                   }`}
                   onClick={() => scrollToSection("#demo")}
                 >
-                  <span>Commencer</span>
+                  <span>Accéder en priorité au lancement</span>
                   <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-1" />
                 </button>
               </div>
@@ -211,7 +211,7 @@ export function GlassmorphismNav() {
 
           {/* Menu container */}
           <div
-            className={`mt-2 w-full max-w-[1920px] mx-auto px-8 sm:px-12 lg:px-16 xl:px-20 transition-all duration-500 ease-out transform-gpu ${
+            className={`mt-0 w-full px-8 sm:px-12 lg:px-16 xl:px-20 transition-all duration-500 ease-out transform-gpu ${
               isOpen ? "opacity-100 translate-y-0 scale-100" : "opacity-0 -translate-y-8 scale-95 pointer-events-none"
             }`}
           >
@@ -272,7 +272,7 @@ export function GlassmorphismNav() {
                     setIsOpen(false)
                   }}
                 >
-                  <span className="mr-2">Commencer</span>
+                  <span className="mr-2">Accéder en priorité au lancement</span>
                   <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
                 </button>
               </div>

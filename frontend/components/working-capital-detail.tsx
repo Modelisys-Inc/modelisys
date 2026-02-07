@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import { useState } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
@@ -834,8 +834,8 @@ export function WorkingCapitalDetail({
               const isExpanded = row.rowId ? expandedRows.has(row.rowId) : false
 
               return (
-                <React.Fragment key={idx}>
-                  <tr className={cn(
+                <>
+                  <tr key={idx} className={cn(
                     "border-b",
                     row.label === "" ? "h-2 border-slate-200" : "",
                     (nextRowIsSubtotal || nextRowIsResult) ? "border-slate-900 border-b-2" : "border-slate-200",
@@ -1007,7 +1007,7 @@ export function WorkingCapitalDetail({
                       })}
                     </>
                   )}
-                </React.Fragment>
+                </>
               )
             })}
             {/* Working Capital Sections - Removed per user request */}

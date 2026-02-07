@@ -7,12 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ArrowRight, LogIn } from "lucide-react"
-import { useAuth } from "@/contexts/auth-context"
-import { ApiError } from "@/lib/api"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login } = useAuth()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -23,22 +20,16 @@ export default function LoginPage() {
     setError("")
     setIsLoading(true)
 
-    try {
-      await login(email, password)
-      router.push("/")
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 401) {
-          setError("Email ou mot de passe incorrect")
-        } else if (err.status === 403) {
-          setError("Ce compte est désactivé")
-        } else {
-          setError("Une erreur est survenue. Veuillez réessayer.")
-        }
-      } else {
-        setError("Impossible de se connecter au serveur")
+    // Vérification des identifiants
+    if (email === "Tristanbellerose1@gmail.com" && password === "123456") {
+      // Stocker le token de session (optionnel)
+      if (typeof window !== "undefined") {
+        localStorage.setItem("token", "authenticated")
       }
-    } finally {
+      // Rediriger vers le dashboard
+      router.push("/dashboard")
+    } else {
+      setError("Email ou mot de passe incorrect")
       setIsLoading(false)
     }
   }
@@ -131,8 +122,8 @@ export default function LoginPage() {
                     Mot de passe oublié ?
                   </Link>
                 </div>
-                <Button
-                  type="submit"
+                <Button 
+                  type="submit" 
                   disabled={isLoading}
                   className="w-full h-12 bg-slate-800 text-white hover:bg-slate-700 text-base font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
                 >

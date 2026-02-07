@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { FileBarChart, TrendingUp, Calculator, FileText, Building2, ArrowRight, Users, CheckCircle2, Calendar, DollarSign, BarChart3, LineChart, PieChart, Shield, AlertTriangle, UserCog, Zap } from "lucide-react"
+import { FileBarChart, TrendingUp, Calculator, FileText, Building2, ArrowRight, Users, CheckCircle2, Calendar, DollarSign, BarChart3, LineChart, PieChart, Shield, AlertTriangle, UserCog, Zap, StickyNote } from "lucide-react"
 
 const features = [
   {
@@ -36,9 +36,15 @@ const features = [
   },
   {
     title: "Documentation comptable structurée",
-    description: "Optimisez votre processus de clôture comptable en organisant systématiquement tous les documents justificatifs. Documentez en continu les variations significatives et les ajustements comptables avec notes explicatives détaillées.",
+    description: "Optimisez votre processus de clôture comptable en organisant systématiquement tous les documents justificatifs. Structurez et classez vos pièces comptables par compte, période et catégorie pour une traçabilité complète et une accessibilité optimale.",
     icon: Calendar,
     benefits: ["Organisation systématique", "Documentation continue", "Traçabilité complète"]
+  },
+  {
+    title: "Notes d'analyse et variations",
+    description: "Prenez des notes lors de vos analyses financières pour documenter les variations importantes et faciliter le suivi. Associez des notes explicatives détaillées à vos comptes, périodes et analyses pour conserver le contexte et le raisonnement derrière vos décisions.",
+    icon: StickyNote,
+    benefits: ["Notes contextuelles", "Suivi des variations", "Documentation du raisonnement"]
   },
   {
     title: "Portail collaboratif sécurisé",
@@ -50,18 +56,28 @@ const features = [
 
 // Dashboard Visualization Components
 function ConsolidationDashboard() {
+  const companies = [
+    { name: "Société A", revenue: 850, cogs: 380, grossProfit: 470, expenses: 280, netIncome: 190 },
+    { name: "Société B", revenue: 1200, cogs: 540, grossProfit: 660, expenses: 420, netIncome: 240 },
+    { name: "Société C", revenue: 450, cogs: 180, grossProfit: 270, expenses: 150, netIncome: 120 },
+  ]
+  const totalRevenue = companies.reduce((sum, c) => sum + c.revenue, 0)
+  const totalGrossProfit = companies.reduce((sum, c) => sum + c.grossProfit, 0)
+  const totalNetIncome = companies.reduce((sum, c) => sum + c.netIncome, 0)
+  const intercompanyEliminations = 45 // Transactions inter-sociétés éliminées
+
   return (
     <div className="space-y-4">
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg p-4 border border-slate-200">
           <div className="text-xs text-slate-500 mb-2">Revenus consolidés</div>
-          <div className="text-xl font-bold text-slate-900 mb-1">—</div>
-          <div className="text-xs text-slate-500 font-medium">— sociétés</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">{totalRevenue}K$</div>
+          <div className="text-xs text-slate-500 font-medium">3 sociétés</div>
         </div>
         <div className="bg-white rounded-lg p-4 border border-slate-200">
           <div className="text-xs text-slate-500 mb-2">Résultat net</div>
-          <div className="text-xl font-bold text-emerald-700 mb-1">—</div>
+          <div className="text-xl font-bold text-emerald-700 mb-1">{totalNetIncome}K$</div>
           <div className="text-xs text-emerald-600 font-medium">Consolidé</div>
         </div>
       </div>
@@ -74,42 +90,42 @@ function ConsolidationDashboard() {
           {/* Header */}
           <div className="grid grid-cols-4 gap-2 px-4 py-2 bg-slate-50/50 text-xs font-semibold text-slate-600 border-b border-slate-200">
             <div>Poste</div>
-            <div className="text-right">Société 1</div>
-            <div className="text-right">Société 2</div>
-            <div className="text-right">Société 3</div>
+            <div className="text-right">Société A</div>
+            <div className="text-right">Société B</div>
+            <div className="text-right">Société C</div>
           </div>
           {/* Revenus */}
           <div className="grid grid-cols-4 gap-2 px-4 py-2.5">
             <div className="text-xs font-semibold text-slate-900">Revenus</div>
-            <div className="text-xs text-right font-mono text-slate-900">—</div>
-            <div className="text-xs text-right font-mono text-slate-900">—</div>
-            <div className="text-xs text-right font-mono text-slate-900">—</div>
+            <div className="text-xs text-right font-mono text-slate-900">{companies[0].revenue}K$</div>
+            <div className="text-xs text-right font-mono text-slate-900">{companies[1].revenue}K$</div>
+            <div className="text-xs text-right font-mono text-slate-900">{companies[2].revenue}K$</div>
           </div>
           {/* Bénéfice brut */}
           <div className="grid grid-cols-4 gap-2 px-4 py-2.5 border-t border-slate-200">
             <div className="text-xs font-bold text-slate-900">Bénéfice brut</div>
-            <div className="text-xs text-right font-mono font-bold text-slate-900">—</div>
-            <div className="text-xs text-right font-mono font-bold text-slate-900">—</div>
-            <div className="text-xs text-right font-mono font-bold text-slate-900">—</div>
+            <div className="text-xs text-right font-mono font-bold text-slate-900">{companies[0].grossProfit}K$</div>
+            <div className="text-xs text-right font-mono font-bold text-slate-900">{companies[1].grossProfit}K$</div>
+            <div className="text-xs text-right font-mono font-bold text-slate-900">{companies[2].grossProfit}K$</div>
           </div>
           {/* Résultat net */}
           <div className="grid grid-cols-4 gap-2 px-4 py-2.5 border-t-2 border-slate-300 bg-slate-50">
             <div className="text-xs font-bold text-slate-900">Résultat net</div>
-            <div className="text-xs text-right font-mono font-bold text-emerald-700">—</div>
-            <div className="text-xs text-right font-mono font-bold text-emerald-700">—</div>
-            <div className="text-xs text-right font-mono font-bold text-emerald-700">—</div>
+            <div className="text-xs text-right font-mono font-bold text-emerald-700">{companies[0].netIncome}K$</div>
+            <div className="text-xs text-right font-mono font-bold text-emerald-700">{companies[1].netIncome}K$</div>
+            <div className="text-xs text-right font-mono font-bold text-emerald-700">{companies[2].netIncome}K$</div>
           </div>
         </div>
       </div>
       {/* Divisions Summary */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg p-3 border border-slate-200">
-          <div className="text-xs text-slate-500 mb-1">Divisions Société 1</div>
-          <div className="text-sm font-bold text-slate-900">— divisions</div>
+          <div className="text-xs text-slate-500 mb-1">Divisions Société A</div>
+          <div className="text-sm font-bold text-slate-900">3 divisions</div>
         </div>
         <div className="bg-white rounded-lg p-3 border border-slate-200">
           <div className="text-xs text-slate-500 mb-1">Sous-divisions</div>
-          <div className="text-sm font-bold text-slate-900">— sous-div.</div>
+          <div className="text-sm font-bold text-slate-900">6 sous-div.</div>
         </div>
       </div>
     </div>
@@ -123,12 +139,12 @@ function WorkingCapitalDashboard() {
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg p-4 border border-slate-200">
           <div className="text-xs text-slate-500 mb-2">DSO</div>
-          <div className="text-xl font-bold text-slate-900 mb-1">—</div>
-          <div className="text-xs text-emerald-600 font-medium">— vs mois dernier</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">42j</div>
+          <div className="text-xs text-emerald-600 font-medium">-12.5% vs mois dernier</div>
         </div>
         <div className="bg-white rounded-lg p-4 border border-slate-200">
           <div className="text-xs text-slate-500 mb-2">CCC</div>
-          <div className="text-xl font-bold text-slate-900 mb-1">—</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">49j</div>
           <div className="text-xs text-slate-500 font-medium">Optimisé</div>
         </div>
       </div>
@@ -139,23 +155,23 @@ function WorkingCapitalDashboard() {
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 bg-slate-600 rounded-full"></div>
             <div className="flex-1 h-3 bg-slate-200 rounded-full overflow-hidden">
-              <div className="h-full bg-slate-600 rounded-full" style={{ width: '0%' }}></div>
+              <div className="h-full bg-slate-600 rounded-full" style={{ width: '70%' }}></div>
             </div>
-            <span className="text-xs text-slate-600 font-medium w-10">DSO —</span>
+            <span className="text-xs text-slate-600 font-medium w-10">DSO 42j</span>
           </div>
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 bg-slate-500 rounded-full"></div>
             <div className="flex-1 h-3 bg-slate-200 rounded-full overflow-hidden">
-              <div className="h-full bg-slate-500 rounded-full" style={{ width: '0%' }}></div>
+              <div className="h-full bg-slate-500 rounded-full" style={{ width: '55%' }}></div>
             </div>
-            <span className="text-xs text-slate-600 font-medium w-10">DIO —</span>
+            <span className="text-xs text-slate-600 font-medium w-10">DIO 35j</span>
           </div>
           <div className="flex items-center gap-3">
             <div className="w-3 h-3 bg-slate-400 rounded-full"></div>
             <div className="flex-1 h-3 bg-slate-200 rounded-full overflow-hidden">
-              <div className="h-full bg-slate-400 rounded-full" style={{ width: '0%' }}></div>
+              <div className="h-full bg-slate-400 rounded-full" style={{ width: '45%' }}></div>
             </div>
-            <span className="text-xs text-slate-600 font-medium w-10">DPO —</span>
+            <span className="text-xs text-slate-600 font-medium w-10">DPO 28j</span>
           </div>
         </div>
       </div>
@@ -163,11 +179,11 @@ function WorkingCapitalDashboard() {
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg p-3 border border-slate-200">
           <div className="text-xs text-slate-500 mb-1">Fonds de roulement</div>
-          <div className="text-sm font-bold text-slate-900">—</div>
+          <div className="text-sm font-bold text-slate-900">1.2M$</div>
         </div>
         <div className="bg-white rounded-lg p-3 border border-slate-200">
           <div className="text-xs text-slate-500 mb-1">Capex ce mois</div>
-          <div className="text-sm font-bold text-slate-900">—</div>
+          <div className="text-sm font-bold text-slate-900">85K$</div>
         </div>
       </div>
     </div>
@@ -181,19 +197,19 @@ function ForecastDashboard() {
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg p-4 border border-slate-200">
           <div className="text-xs text-slate-500 mb-2">Budget Q3</div>
-          <div className="text-xl font-bold text-slate-900 mb-1">—</div>
-          <div className="text-xs text-emerald-600 font-medium">— vs prévu</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">305K$</div>
+          <div className="text-xs text-emerald-600 font-medium">+1.7% vs prévu</div>
         </div>
         <div className="bg-white rounded-lg p-4 border border-slate-200">
           <div className="text-xs text-slate-500 mb-2">Écart total</div>
-          <div className="text-xl font-bold text-slate-900 mb-1">—</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">+7.4%</div>
           <div className="text-xs text-slate-500 font-medium">Favorable</div>
         </div>
       </div>
       {/* Budget Table */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
         <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
-          <div className="text-xs font-semibold text-slate-700">Budget — Trimestre —</div>
+          <div className="text-xs font-semibold text-slate-700">Budget 2024 - Trimestre 3</div>
         </div>
         <div className="divide-y divide-slate-100">
           {/* Header */}
@@ -205,23 +221,27 @@ function ForecastDashboard() {
           </div>
           {/* Rows */}
           {[
-            { label: "Revenus" },
-            { label: "Charges d'exploitation" },
-            { label: "Capex" },
+            { label: "Revenus", budget: 300, actual: 305, variance: "+1.7%", isPositive: true },
+            { label: "Charges d'exploitation", budget: 180, actual: 175, variance: "-2.8%", isPositive: true },
+            { label: "Capex", budget: 25, actual: 28, variance: "+12%", isPositive: false },
           ].map((item, i) => (
             <div key={i} className="grid grid-cols-4 gap-2 px-4 py-2.5 text-xs">
               <div className="text-slate-700 font-medium">{item.label}</div>
-              <div className="text-right text-slate-600 font-mono">—</div>
-              <div className="text-right text-slate-900 font-mono font-semibold">—</div>
-              <div className="text-right font-semibold text-slate-600">—</div>
+              <div className="text-right text-slate-600 font-mono">{item.budget}K$</div>
+              <div className="text-right text-slate-900 font-mono font-semibold">{item.actual}K$</div>
+              <div className={`text-right font-semibold ${
+                item.isPositive ? "text-emerald-700" : "text-amber-700"
+              }`}>
+                {item.variance}
+              </div>
             </div>
           ))}
           {/* Total */}
           <div className="grid grid-cols-4 gap-2 px-4 py-2.5 bg-slate-50 border-t-2 border-slate-300 text-xs">
             <div className="font-bold text-slate-900">Bénéfice net</div>
-            <div className="text-right text-slate-600 font-mono font-semibold">—</div>
-            <div className="text-right text-slate-900 font-mono font-bold">—</div>
-            <div className="text-right font-bold text-emerald-700">—</div>
+            <div className="text-right text-slate-600 font-mono font-semibold">95K$</div>
+            <div className="text-right text-slate-900 font-mono font-bold">102K$</div>
+            <div className="text-right font-bold text-emerald-700">+7.4%</div>
           </div>
         </div>
       </div>
@@ -229,13 +249,13 @@ function ForecastDashboard() {
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg p-3 border border-slate-200">
           <div className="text-xs text-slate-500 mb-1">Scénario optimiste</div>
-          <div className="text-sm font-bold text-slate-900">—</div>
-          <div className="text-xs text-emerald-600 mt-1">— vs budget</div>
+          <div className="text-sm font-bold text-slate-900">1.2M$</div>
+          <div className="text-xs text-emerald-600 mt-1">+15% vs budget</div>
         </div>
         <div className="bg-white rounded-lg p-3 border border-slate-200">
           <div className="text-xs text-slate-500 mb-1">Scénario pessimiste</div>
-          <div className="text-sm font-bold text-slate-900">—</div>
-          <div className="text-xs text-amber-600 mt-1">— vs budget</div>
+          <div className="text-sm font-bold text-slate-900">0.9M$</div>
+          <div className="text-xs text-amber-600 mt-1">-10% vs budget</div>
         </div>
       </div>
     </div>
@@ -249,13 +269,13 @@ function AnalysisDashboard() {
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg p-4 border border-slate-200">
           <div className="text-xs text-slate-500 mb-2">Ratio liquidité</div>
-          <div className="text-xl font-bold text-slate-900 mb-1">—</div>
-          <div className="text-xs text-emerald-600 font-medium">—</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">2.4</div>
+          <div className="text-xs text-emerald-600 font-medium">Excellent</div>
         </div>
         <div className="bg-white rounded-lg p-4 border border-slate-200">
           <div className="text-xs text-slate-500 mb-2">ROE</div>
-          <div className="text-xl font-bold text-slate-900 mb-1">—</div>
-          <div className="text-xs text-emerald-600 font-medium">—</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">18.5%</div>
+          <div className="text-xs text-emerald-600 font-medium">+2.3%</div>
         </div>
       </div>
       {/* Product Margins */}
@@ -263,22 +283,22 @@ function AnalysisDashboard() {
         <div className="text-xs font-semibold text-slate-700 mb-3">Marges par produit</div>
         <div className="space-y-3">
           {[
-            { product: "Produit A" },
-            { product: "Produit B" },
-            { product: "Produit C" },
+            { product: "Produit A", margin: 52.3, revenue: 35, amount: 87.5 },
+            { product: "Produit B", margin: 38.7, revenue: 45, amount: 112.5 },
+            { product: "Produit C", margin: 41.2, revenue: 20, amount: 50.0 },
           ].map((item, i) => (
             <div key={i} className="space-y-1">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-700">{item.product}</span>
-                <span className="text-xs text-slate-500">— revenus</span>
+                <span className="text-xs text-slate-500">{item.revenue}% revenus</span>
               </div>
               <div className="flex items-center gap-3">
                 <div className="flex-1 h-3 bg-slate-200 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full" style={{ width: '0%' }}></div>
+                  <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full" style={{ width: `${item.margin}%` }}></div>
                 </div>
-                <span className="text-xs font-bold text-slate-900 w-14 text-right">—</span>
+                <span className="text-xs font-bold text-slate-900 w-14 text-right">{item.margin}%</span>
               </div>
-              <div className="text-xs text-slate-500 pl-1">— revenus</div>
+              <div className="text-xs text-slate-500 pl-1">{item.amount}K$ revenus</div>
             </div>
           ))}
         </div>
@@ -287,7 +307,7 @@ function AnalysisDashboard() {
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg p-3 border border-slate-200">
           <div className="text-xs text-slate-500 mb-1">Concentration clients</div>
-          <div className="text-sm font-bold text-slate-900">—</div>
+          <div className="text-sm font-bold text-slate-900">45%</div>
         </div>
         <div className="bg-white rounded-lg p-3 border border-slate-200">
           <div className="text-xs text-slate-500 mb-1">Top 3 clients</div>
@@ -299,7 +319,16 @@ function AnalysisDashboard() {
 }
 
 function ValuationDashboard() {
-  const years = ["A-4", "A-3", "A-2", "A-1", "A"]
+  // Données historiques sur 5 ans
+  const historicalData = [
+    { year: "2020", baia: 1.8, adjustments: 0.22, adjustedBaia: 2.02, multiple: 3.2, value: 6.5 },
+    { year: "2021", baia: 2.1, adjustments: 0.25, adjustedBaia: 2.35, multiple: 3.4, value: 8.0 },
+    { year: "2022", baia: 2.3, adjustments: 0.26, adjustedBaia: 2.56, multiple: 3.5, value: 9.0 },
+    { year: "2023", baia: 2.5, adjustments: 0.28, adjustedBaia: 2.78, multiple: 3.7, value: 10.3 },
+    { year: "2024", baia: 2.7, adjustments: 0.30, adjustedBaia: 3.00, multiple: 4.0, value: 12.0 },
+  ]
+  const currentYear = historicalData[4] // 2024
+  const valueRange = { min: currentYear.adjustedBaia * currentYear.multiple * 0.95, max: currentYear.adjustedBaia * currentYear.multiple * 1.05 }
 
   return (
     <div className="space-y-4">
@@ -312,43 +341,45 @@ function ValuationDashboard() {
           {/* Header */}
           <div className="grid grid-cols-6 gap-2 px-4 py-2 bg-slate-50/50 text-xs font-semibold text-slate-600 border-b border-slate-200">
             <div>Poste</div>
-            {years.map((y, i) => (
-              <div key={i} className="text-right">{y}</div>
-            ))}
+            <div className="text-right">2020</div>
+            <div className="text-right">2021</div>
+            <div className="text-right">2022</div>
+            <div className="text-right">2023</div>
+            <div className="text-right">2024</div>
           </div>
           {/* BAIIA de base */}
           <div className="grid grid-cols-6 gap-2 px-4 py-2.5 text-xs">
             <div className="text-slate-700 font-medium">BAIIA</div>
-            {years.map((_, i) => (
-              <div key={i} className="text-right text-slate-900 font-mono font-semibold">—</div>
+            {historicalData.map((data, i) => (
+              <div key={i} className="text-right text-slate-900 font-mono font-semibold">{data.baia.toFixed(2)}M$</div>
             ))}
           </div>
           {/* Total ajustements */}
           <div className="grid grid-cols-6 gap-2 px-4 py-2.5 text-xs border-t border-slate-200">
             <div className="text-slate-600 font-medium">Total ajustements</div>
-            {years.map((_, i) => (
-              <div key={i} className="text-right text-slate-700 font-mono font-semibold">—</div>
+            {historicalData.map((data, i) => (
+              <div key={i} className="text-right text-slate-700 font-mono font-semibold">+{data.adjustments.toFixed(2)}M$</div>
             ))}
           </div>
           {/* BAIIA ajusté */}
           <div className="grid grid-cols-6 gap-2 px-4 py-2.5 border-t-2 border-slate-300 bg-slate-50 text-xs">
             <div className="font-bold text-slate-900">BAIIA ajusté</div>
-            {years.map((_, i) => (
-              <div key={i} className="text-right font-mono font-bold text-emerald-700">—</div>
+            {historicalData.map((data, i) => (
+              <div key={i} className="text-right font-mono font-bold text-emerald-700">{data.adjustedBaia.toFixed(2)}M$</div>
             ))}
           </div>
           {/* Multiple */}
           <div className="grid grid-cols-6 gap-2 px-4 py-2.5 text-xs">
             <div className="text-slate-600">Multiple</div>
-            {years.map((_, i) => (
-              <div key={i} className="text-right text-slate-900 font-mono font-semibold">—</div>
+            {historicalData.map((data, i) => (
+              <div key={i} className="text-right text-slate-900 font-mono font-semibold">x{data.multiple.toFixed(1)}</div>
             ))}
           </div>
           {/* Valeur d'entreprise */}
           <div className="grid grid-cols-6 gap-2 px-4 py-2.5 text-xs">
-            <div className="text-slate-600">Valeur d&apos;entreprise</div>
-            {years.map((_, i) => (
-              <div key={i} className="text-right text-emerald-700 font-mono font-semibold">—</div>
+            <div className="text-slate-600">Valeur d'entreprise</div>
+            {historicalData.map((data, i) => (
+              <div key={i} className="text-right text-emerald-700 font-mono font-semibold">{data.value.toFixed(1)}M$</div>
             ))}
           </div>
         </div>
@@ -357,12 +388,12 @@ function ValuationDashboard() {
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg p-3 border border-slate-200">
           <div className="text-xs text-slate-500 mb-1">Évolution multiple</div>
-          <div className="text-sm font-bold text-emerald-700">—</div>
+          <div className="text-sm font-bold text-emerald-700">x3.2 → x4.0</div>
           <div className="text-xs text-slate-600 mt-1">Croissance BAIIA et réduction risques</div>
         </div>
         <div className="bg-white rounded-lg p-3 border border-slate-200">
           <div className="text-xs text-slate-500 mb-1">Valorisation</div>
-          <div className="text-sm font-bold text-emerald-700">—</div>
+          <div className="text-sm font-bold text-emerald-700">+85% en 5 ans</div>
           <div className="text-xs text-slate-600 mt-1">Amélioration performance continue</div>
         </div>
       </div>
@@ -377,12 +408,12 @@ function DocumentationDashboard() {
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg p-4 border border-slate-200">
           <div className="text-xs text-slate-500 mb-2">Documents classés</div>
-          <div className="text-xl font-bold text-slate-900 mb-1">—</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">20</div>
           <div className="text-xs text-emerald-600 font-medium">Complet</div>
         </div>
         <div className="bg-white rounded-lg p-4 border border-slate-200">
           <div className="text-xs text-slate-500 mb-2">En attente</div>
-          <div className="text-xl font-bold text-slate-900 mb-1">—</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">3</div>
           <div className="text-xs text-amber-600 font-medium">À traiter</div>
         </div>
       </div>
@@ -391,30 +422,84 @@ function DocumentationDashboard() {
         <div className="text-xs font-semibold text-slate-700 mb-3">Documents par compte GL</div>
         <div className="space-y-2.5">
           {[
-            { account: "Compte GL 1" },
-            { account: "Compte GL 2" },
-            { account: "Compte GL 3" },
-            { account: "Compte GL 4" },
+            { account: "1000 - Caisse", docs: 3, period: "Q3 2024" },
+            { account: "1200 - Comptes clients", docs: 5, period: "Q3 2024" },
+            { account: "1500 - Immobilisations", docs: 8, period: "Q3 2024" },
+            { account: "2000 - Comptes fournisseurs", docs: 4, period: "Q3 2024" },
           ].map((item, i) => (
             <div key={i} className="flex items-center justify-between text-xs py-1.5 border-b border-slate-100 last:border-0">
               <span className="text-slate-700 font-medium">{item.account}</span>
               <div className="flex items-center gap-4">
-                <span className="text-slate-600">— docs</span>
-                <span className="text-slate-600">— notes</span>
+                <span className="text-slate-600">{item.docs} docs</span>
+                <span className="text-slate-500">{item.period}</span>
               </div>
             </div>
           ))}
         </div>
       </div>
-      {/* Notes sur variations importantes */}
+      {/* Documents by Period */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg p-3 border border-slate-200">
-          <div className="text-xs text-slate-500 mb-1">Variations notées</div>
-          <div className="text-sm font-bold text-slate-900">—</div>
+          <div className="text-xs text-slate-500 mb-1">Documents ce trimestre</div>
+          <div className="text-sm font-bold text-slate-900">23</div>
         </div>
         <div className="bg-white rounded-lg p-3 border border-slate-200">
+          <div className="text-xs text-slate-500 mb-1">Dernière mise à jour</div>
+          <div className="text-sm font-bold text-slate-900">Q3 2024</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NotesDashboard() {
+  return (
+    <div className="space-y-4">
+      {/* Status Cards */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white rounded-lg p-4 border border-slate-200">
+          <div className="text-xs text-slate-500 mb-2">Notes actives</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">12</div>
+          <div className="text-xs text-emerald-600 font-medium">Ce trimestre</div>
+        </div>
+        <div className="bg-white rounded-lg p-4 border border-slate-200">
+          <div className="text-xs text-slate-500 mb-2">Variations notées</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">8</div>
+          <div className="text-xs text-amber-600 font-medium">Importantes</div>
+        </div>
+      </div>
+      {/* Recent Notes */}
+      <div className="bg-white rounded-lg p-4 border border-slate-200">
+        <div className="text-xs font-semibold text-slate-700 mb-3">Notes récentes</div>
+        <div className="space-y-3">
+          {[
+            { type: "Fonds de roulement", metric: "DSO", variation: "-5 jours", date: "Q3 2024", note: "Réduction de 45 à 40 jours grâce à la mise en place d'un système de relance automatisé et à la renégociation des conditions de paiement avec 3 clients majeurs représentant 40% du CA." },
+            { type: "Capex", metric: "Investissements", variation: "+25%", date: "Q3 2024", note: "Acquisition de 2 nouvelles machines de production (450K$) pour augmenter la capacité de 30%. Investissement justifié par la croissance des commandes et prévu pour Q4 2024." },
+            { type: "Résultats", metric: "Marge brute", variation: "+3.2%", date: "Q3 2024", note: "Amélioration de 32.5% à 35.7% due à l'augmentation des ventes de produits haut de gamme (+18% vs Q2) et à la réduction des coûts matières premières négociée avec 2 fournisseurs clés." },
+          ].map((item, i) => (
+            <div key={i} className="border-l-2 border-emerald-500 pl-3 py-2">
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex flex-col">
+                  <span className="text-xs font-semibold text-slate-900">{item.type}</span>
+                  <span className="text-xs text-slate-500">{item.metric}</span>
+                </div>
+                <span className="text-xs font-bold text-emerald-700">{item.variation}</span>
+              </div>
+              <p className="text-xs text-slate-600 mb-1">{item.note}</p>
+              <span className="text-xs text-slate-500">{item.date}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Notes by Category */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-white rounded-lg p-3 border border-slate-200">
           <div className="text-xs text-slate-500 mb-1">Dernière note</div>
-          <div className="text-sm font-bold text-slate-900">—</div>
+          <div className="text-sm font-bold text-slate-900">15 oct.</div>
+        </div>
+        <div className="bg-white rounded-lg p-3 border border-slate-200">
+          <div className="text-xs text-slate-500 mb-1">Notes ce mois</div>
+          <div className="text-sm font-bold text-slate-900">5</div>
         </div>
       </div>
     </div>
@@ -428,12 +513,12 @@ function CollaborationDashboard() {
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-lg p-4 border border-slate-200">
           <div className="text-xs text-slate-500 mb-2">Accès actifs</div>
-          <div className="text-xl font-bold text-slate-900 mb-1">—</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">2</div>
           <div className="text-xs text-emerald-600 font-medium">En ligne</div>
         </div>
         <div className="bg-white rounded-lg p-4 border border-slate-200">
           <div className="text-xs text-slate-500 mb-2">Total accès</div>
-          <div className="text-xl font-bold text-slate-900 mb-1">—</div>
+          <div className="text-xl font-bold text-slate-900 mb-1">3</div>
           <div className="text-xs text-slate-500 font-medium">Partagés</div>
         </div>
       </div>
@@ -442,9 +527,9 @@ function CollaborationDashboard() {
         <div className="text-xs font-semibold text-slate-700 mb-3">Accès partagés</div>
         <div className="space-y-3">
           {[
-            { name: "Utilisateur 1", role: "Comptable", status: "Actif", lastAccess: "—" },
-            { name: "Utilisateur 2", role: "Consultant", status: "Actif", lastAccess: "—" },
-            { name: "Utilisateur 3", role: "Banque", status: "En attente", lastAccess: "—" },
+            { name: "Cabinet Comptable ABC", role: "Comptable", status: "Actif", lastAccess: "Aujourd'hui" },
+            { name: "Consultant Finance XYZ", role: "Consultant", status: "Actif", lastAccess: "Hier" },
+            { name: "Institution Financière", role: "Banque", status: "En attente", lastAccess: "-" },
           ].map((item, i) => (
             <div key={i} className="flex items-center justify-between text-xs py-2 border-b border-slate-100 last:border-0">
               <div className="flex items-center gap-3">
@@ -457,8 +542,8 @@ function CollaborationDashboard() {
                 </div>
               </div>
               <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-                item.status === "Actif"
-                  ? "bg-emerald-100 text-emerald-700"
+                item.status === "Actif" 
+                  ? "bg-emerald-100 text-emerald-700" 
                   : "bg-slate-100 text-slate-600"
               }`}>
                 {item.status}
@@ -528,11 +613,10 @@ export function FeaturesSection() {
           <div className="flex items-start justify-between gap-8 mb-6">
             <div className="flex-1">
               <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 mb-4 leading-tight tracking-tight">
-            Des outils conçus pour les{" "}
-                <span className="text-slate-600">PME</span>
-          </h2>
+                Analysez. Projetez. Valorisez.
+              </h2>
               <p className="text-lg sm:text-xl text-slate-600 max-w-3xl leading-relaxed">
-            Une suite complète de fonctionnalités financières intégrées, conçue pour répondre aux besoins spécifiques des PME et optimiser la collaboration avec leurs partenaires financiers.
+            Une suite complète de fonctionnalités financières intégrées pour analyser vos chiffres, projeter l'avenir et piloter la valeur de votre entreprise.
           </p>
             </div>
           </div>
@@ -542,19 +626,41 @@ export function FeaturesSection() {
         <div className="space-y-24 sm:space-y-32 md:space-y-40">
           {features.map((feature, index) => {
             const Icon = feature.icon
-            const isEven = index % 2 === 0
+            // Invert order for Documentation (index 5), Notes (index 6), and Portail (index 7)
+            const baseIsEven = index % 2 === 0
+            const isEven = (index === 5) ? true : (index === 6) ? false : (index === 7) ? true : baseIsEven
             const isHovered = hoveredIndex === index
 
+            // Add title and description before "Documentation comptable structurée" (index 5)
+            const showIntroSection = index === 5
+
             return (
-              <div
-                key={index}
-                onMouseEnter={() => setHoveredIndex(index)}
-                onMouseLeave={() => setHoveredIndex(null)}
-                className={`grid lg:grid-cols-2 gap-12 lg:gap-16 items-center transition-all duration-1000 ${
-                  isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-12"
-                }`}
-                style={{ transitionDelay: `${index * 200}ms` }}
-              >
+              <div key={index} className={showIntroSection ? "mt-64 sm:mt-80 md:mt-96" : ""}>
+                {showIntroSection && (
+                  <div
+                    className={`mb-16 transition-all duration-1000 ${
+                      isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+                    }`}
+                    style={{ transitionDelay: `${index * 200}ms` }}
+                  >
+                    <div className="max-w-3xl">
+                      <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 mb-4 leading-tight tracking-tight">
+                        Documentez. Collaborez.
+                      </h2>
+                      <p className="text-lg sm:text-xl text-slate-600 leading-relaxed">
+                        Organisez et documentez vos processus comptables de manière structurée, et collaborez efficacement avec vos partenaires financiers pour optimiser votre gestion et faciliter vos clôtures comptables.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                <div
+                  onMouseEnter={() => setHoveredIndex(index)}
+                  onMouseLeave={() => setHoveredIndex(null)}
+                  className={`grid lg:grid-cols-2 gap-12 lg:gap-16 items-center transition-all duration-1000 ${
+                    isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-12"
+                  }`}
+                  style={{ transitionDelay: `${index * 200}ms` }}
+                >
                 {/* Content Column */}
                 <div className={`space-y-5 ${isEven ? "order-1" : "order-2"}`}>
                   {/* Icon */}
@@ -618,10 +724,12 @@ export function FeaturesSection() {
                       {index === 3 && <AnalysisDashboard />}
                       {index === 4 && <ValuationDashboard />}
                       {index === 5 && <DocumentationDashboard />}
-                      {index === 6 && <CollaborationDashboard />}
+                      {index === 6 && <NotesDashboard />}
+                      {index === 7 && <CollaborationDashboard />}
                     </div>
                   </div>
                 </div>
+              </div>
               </div>
             )
           })}
