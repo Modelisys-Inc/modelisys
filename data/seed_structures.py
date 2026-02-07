@@ -210,6 +210,150 @@ BALANCE_SHEET = [
 ]
 
 
+# ── Cash Flow Structure (Indirect Method) ─────────────────────────────
+# Uses IS link codes to compute net income, then adjusts for non-cash items
+# and working capital changes using BS link codes.
+# BS link codes give monthly movements (not cumulative) when used in a
+# non-balance-sheet context, so they represent the CHANGE in each account.
+
+CASH_FLOW = [
+    # ═══ ACTIVITÉS D'EXPLOITATION ═══
+    # Step 1: Compute Net Income from IS link codes
+    {
+        "id": "cf-revenue",
+        "label": "Revenus",
+        "isSection": True,
+        "children": [
+            {"id": "cf-20-101", "label": "Développement sur mesure", "linkCode": "20-101"},
+            {"id": "cf-20-102", "label": "Ventes de logiciels", "linkCode": "20-102"},
+            {"id": "cf-20-103", "label": "Formations", "linkCode": "20-103"},
+            {"id": "cf-20-104", "label": "Licences", "linkCode": "20-104"},
+        ],
+    },
+    {
+        "id": "cf-expenses",
+        "label": "Charges totales",
+        "isSection": True,
+        "children": [
+            {"id": "cf-30-300", "label": "Main-d'oeuvre directe et charges sociales", "linkCode": "30-300"},
+            {"id": "cf-30-330", "label": "Sous-traitance", "linkCode": "30-330"},
+            {"id": "cf-44-330", "label": "Salaires administratifs - J.-P. Desormiers", "linkCode": "44-330"},
+            {"id": "cf-44-335", "label": "Salaires administratifs - P. Julien", "linkCode": "44-335"},
+            {"id": "cf-44-336", "label": "Salaires administratifs - Autres", "linkCode": "44-336"},
+            {"id": "cf-44-340", "label": "Assurances", "linkCode": "44-340"},
+            {"id": "cf-44-370", "label": "Mauvaises créances", "linkCode": "44-370"},
+            {"id": "cf-44-403", "label": "Entretien et réparations", "linkCode": "44-403"},
+            {"id": "cf-44-410", "label": "Fournitures de bureau", "linkCode": "44-410"},
+            {"id": "cf-44-420", "label": "Frais informatiques", "linkCode": "44-420"},
+            {"id": "cf-44-441", "label": "Frais de déplacements", "linkCode": "44-441"},
+            {"id": "cf-44-442", "label": "Frais de représentation", "linkCode": "44-442"},
+            {"id": "cf-44-540", "label": "Loyer", "linkCode": "44-540"},
+            {"id": "cf-44-590", "label": "Honoraires professionnels", "linkCode": "44-590"},
+            {"id": "cf-44-610", "label": "Télécommunications", "linkCode": "44-610"},
+            {"id": "cf-44-660", "label": "Amortissement", "linkCode": "44-660"},
+            {"id": "cf-44-803", "label": "Marketing", "linkCode": "44-803"},
+            {"id": "cf-44-804", "label": "Formation", "linkCode": "44-804"},
+            {"id": "cf-48-460", "label": "Intérêts et frais bancaires", "linkCode": "48-460"},
+            {"id": "cf-50-460", "label": "Intérêts sur la dette à long terme", "linkCode": "50-460"},
+            {"id": "cf-50-461", "label": "Honoraires de garantie IQ", "linkCode": "50-461"},
+            {"id": "cf-80-811", "label": "Impôts sur le revenu", "linkCode": "80-811"},
+        ],
+    },
+    {
+        "id": "cf-net-income",
+        "label": "Résultat net",
+        "isBold": True,
+        "isResult": True,
+        "formula": ["+cf-revenue", "-cf-expenses"],
+    },
+    # Step 2: Non-cash adjustments (add back depreciation)
+    {
+        "id": "cf-noncash",
+        "label": "Éléments sans effet sur la trésorerie",
+        "isBold": True,
+        "isSection": True,
+        "children": [
+            {"id": "cf-dep-addback", "label": "Amortissement", "linkCode": "44-660"},
+        ],
+    },
+    # Step 3: Working capital changes
+    # Assets: increase = cash outflow (subtract)
+    {
+        "id": "cf-wc-assets",
+        "label": "Variation des actifs d'exploitation",
+        "isSection": True,
+        "children": [
+            {"id": "cf-delta-C", "label": "Comptes clients", "linkCode": "C"},
+            {"id": "cf-delta-L", "label": "Frais payés d'avance", "linkCode": "L"},
+            {"id": "cf-delta-AV", "label": "Avances", "linkCode": "AV"},
+        ],
+    },
+    # Liabilities: increase = cash inflow (add)
+    {
+        "id": "cf-wc-liabilities",
+        "label": "Variation des passifs d'exploitation",
+        "isSection": True,
+        "children": [
+            {"id": "cf-delta-BB", "label": "Comptes fournisseurs", "linkCode": "BB"},
+            {"id": "cf-delta-FF", "label": "Impôts à payer", "linkCode": "FF"},
+            {"id": "cf-delta-PD", "label": "Produits reportés", "linkCode": "PD"},
+        ],
+    },
+    {
+        "id": "cf-operating",
+        "label": "Flux de trésorerie liés aux activités d'exploitation",
+        "isBold": True,
+        "isResult": True,
+        "formula": ["+cf-net-income", "+cf-noncash", "-cf-wc-assets", "+cf-wc-liabilities"],
+    },
+    # ═══ ACTIVITÉS D'INVESTISSEMENT ═══
+    {
+        "id": "cf-investing",
+        "label": "Activités d'investissement",
+        "isBold": True,
+        "isSection": True,
+        "children": [
+            {"id": "cf-delta-G", "label": "Immobilisations", "linkCode": "G"},
+            {"id": "cf-delta-EA", "label": "Écart d'acquisition", "linkCode": "EA"},
+        ],
+    },
+    {
+        "id": "cf-investing-total",
+        "label": "Flux de trésorerie liés aux activités d'investissement",
+        "isBold": True,
+        "isResult": True,
+        "formula": ["-cf-investing"],
+    },
+    # ═══ ACTIVITÉS DE FINANCEMENT ═══
+    {
+        "id": "cf-financing",
+        "label": "Activités de financement",
+        "isBold": True,
+        "isSection": True,
+        "children": [
+            {"id": "cf-delta-AA", "label": "Marge de crédit", "linkCode": "AA"},
+            {"id": "cf-delta-KK", "label": "Dette à long terme", "linkCode": "KK"},
+            {"id": "cf-delta-UU", "label": "Capital-actions", "linkCode": "UU"},
+        ],
+    },
+    {
+        "id": "cf-financing-total",
+        "label": "Flux de trésorerie liés aux activités de financement",
+        "isBold": True,
+        "isResult": True,
+        "formula": ["+cf-financing"],
+    },
+    # ═══ TOTAL ═══
+    {
+        "id": "cf-total",
+        "label": "Variation nette de la trésorerie",
+        "isBold": True,
+        "isResult": True,
+        "formula": ["+cf-operating", "+cf-investing-total", "+cf-financing-total"],
+    },
+]
+
+
 def main():
     print("Logging in...")
     token = login()
@@ -218,6 +362,7 @@ def main():
     print("\nCreating statement structures...")
     put_structure(token, "income-statement", INCOME_STATEMENT)
     put_structure(token, "balance-sheet", BALANCE_SHEET)
+    put_structure(token, "cash-flow", CASH_FLOW)
 
     # Verify by fetching the income statement
     print("\nVerifying income statement (fiscal_year=2025, month=12, period=annual)...")
@@ -237,6 +382,21 @@ def main():
     # Verify balance sheet
     print("\nVerifying balance sheet (fiscal_year=2025, month=12, period=annual)...")
     url = f"{BASE}/api/companies/{COMPANY_ID}/financial-statements/balance-sheet"
+    r = requests.get(
+        url,
+        params={"fiscal_year": 2025, "month": 12, "period": "annual"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    r.raise_for_status()
+    data = r.json()
+    print(f"  Rows: {len(data['rows'])}")
+    for row in data["rows"]:
+        detail_count = len(row.get("detailRows", []))
+        print(f"    {row['label']}: current={row['current']:,.2f}  prior={row['prior']:,.2f}  (details={detail_count})")
+
+    # Verify cash flow
+    print("\nVerifying cash flow (fiscal_year=2025, month=12, period=annual)...")
+    url = f"{BASE}/api/companies/{COMPANY_ID}/financial-statements/cash-flow"
     r = requests.get(
         url,
         params={"fiscal_year": 2025, "month": 12, "period": "annual"},

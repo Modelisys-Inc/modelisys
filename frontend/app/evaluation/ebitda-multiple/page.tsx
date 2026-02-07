@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
 import { Card, CardContent } from "@/components/ui/card"
@@ -15,7 +15,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
-import { listEbitdaNotes, upsertEbitdaNote, getIncomeStatement } from "@/lib/api"
+import { listEbitdaNotes, upsertEbitdaNote, getIncomeStatement, listCompanies, type Company as ApiCompany } from "@/lib/api"
 import { generateId } from "@/lib/seeded-random"
 
 const evaluationNav = [
@@ -65,15 +65,34 @@ export default function EBITDAMultiplePage() {
   // Loading state for income statement data
   const [incomeDataLoading, setIncomeDataLoading] = useState(false)
 
+  // Store raw API companies to access fiscal_year_end
+  const [apiCompanies, setApiCompanies] = useState<ApiCompany[]>([])
+  useEffect(() => {
+    listCompanies().then(setApiCompanies).catch(() => {})
+  }, [])
+
+  // Compute the last complete fiscal year based on the selected company's fiscal year end
+  const lastCompleteFY = useMemo(() => {
+    const now = new Date()
+    const curMonth = now.getMonth() + 1
+    const curYear = now.getFullYear()
+    if (!companyId) return curYear
+    const company = apiCompanies.find(c => c.id === companyId)
+    const fyEnd = company?.fiscal_year_end || "12-31"
+    const fyEndMonth = parseInt(fyEnd.split("-")[0], 10) || 12
+    const currentFY = curMonth <= fyEndMonth ? curYear : curYear + 1
+    return currentFY - 1
+  }, [companyId, apiCompanies])
+
   // Initialize with 5 years of data - values start at 0 and are populated from API
-  const currentYear = new Date().getFullYear()
   const [years, setYears] = useState<EBITDAYear[]>(() => {
+    const yr = new Date().getFullYear()
     return [
-      { year: currentYear - 4, ebitda: 0, adjustedEBITDA: 0, weight: 0, isRepresentative: false },
-      { year: currentYear - 3, ebitda: 0, adjustedEBITDA: 0, weight: 0, isRepresentative: false },
-      { year: currentYear - 2, ebitda: 0, adjustedEBITDA: 0, weight: 0, isRepresentative: false },
-      { year: currentYear - 1, ebitda: 0, adjustedEBITDA: 0, weight: 0.25, isRepresentative: true },
-      { year: currentYear, ebitda: 0, adjustedEBITDA: 0, weight: 0.3, isRepresentative: true },
+      { year: yr - 4, ebitda: 0, adjustedEBITDA: 0, weight: 0, isRepresentative: false },
+      { year: yr - 3, ebitda: 0, adjustedEBITDA: 0, weight: 0, isRepresentative: false },
+      { year: yr - 2, ebitda: 0, adjustedEBITDA: 0, weight: 0, isRepresentative: false },
+      { year: yr - 1, ebitda: 0, adjustedEBITDA: 0, weight: 0.25, isRepresentative: true },
+      { year: yr, ebitda: 0, adjustedEBITDA: 0, weight: 0.3, isRepresentative: true },
     ]
   })
 
@@ -88,7 +107,7 @@ export default function EBITDAMultiplePage() {
     let cancelled = false
     setIncomeDataLoading(true)
 
-    const fiscalYears = [currentYear - 4, currentYear - 3, currentYear - 2, currentYear - 1, currentYear]
+    const fiscalYears = [lastCompleteFY - 4, lastCompleteFY - 3, lastCompleteFY - 2, lastCompleteFY - 1, lastCompleteFY]
     const promises = fiscalYears.map(fy =>
       getIncomeStatement(companyId, {
         fiscal_year: fy,
@@ -128,16 +147,19 @@ export default function EBITDAMultiplePage() {
       })
 
       setRevenueByYear(newRevenueByYear)
-      setYears(prev => prev.map(y => ({
-        ...y,
-        ebitda: ebitdaByYear[y.year] || 0,
-        adjustedEBITDA: ebitdaByYear[y.year] || 0,
+      // Update years with correct FY labels and EBITDA data
+      setYears(fiscalYears.map((fy, i) => ({
+        year: fy,
+        ebitda: ebitdaByYear[fy] || 0,
+        adjustedEBITDA: ebitdaByYear[fy] || 0,
+        weight: i >= 3 ? (i === 3 ? 0.25 : 0.3) : 0,
+        isRepresentative: i >= 3,
       })))
       setIncomeDataLoading(false)
     })
 
     return () => { cancelled = true }
-  }, [companyId, divisionId, subDivisionId, currentYear])
+  }, [companyId, divisionId, subDivisionId, lastCompleteFY])
 
   // Helper to get revenue for a given year
   const getRevenueForYear = (year: number): number => {

@@ -488,7 +488,9 @@ def compute_summary_metrics(
     if not net_income_row:
         net_income_row = _find_row(income.get("rows", []), "résultat net")
 
-    total_assets_row = _find_row(balance.get("rows", []), "total actif")
+    total_assets_row = _find_row(balance.get("rows", []), "total des actifs")
+    if not total_assets_row:
+        total_assets_row = _find_row(balance.get("rows", []), "total actif")
     if not total_assets_row:
         total_assets_row = _find_row(balance.get("rows", []), "actif total")
 

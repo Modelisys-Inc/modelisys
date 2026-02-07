@@ -88,9 +88,17 @@ export default function DashboardPage() {
   // Fetch summary metrics for each company
   useEffect(() => {
     if (companies.length === 0) return
-    const currentFY = new Date().getFullYear()
+    const now = new Date()
+    const currentMonth = now.getMonth() + 1
+    const currentYear = now.getFullYear()
+
     companies.forEach((company) => {
-      getFinancialStatementSummary(company.id, currentFY)
+      // Compute last complete fiscal year based on the company's fiscal year end
+      const fyEndMonth = parseInt(company.fiscalYearEnd.split("-")[0], 10) || 12
+      const currentFY = currentMonth <= fyEndMonth ? currentYear : currentYear + 1
+      const lastCompleteFY = currentFY - 1
+
+      getFinancialStatementSummary(company.id, lastCompleteFY)
         .then((metrics) => {
           setSummaryMetrics((prev) => ({ ...prev, [company.id]: metrics }))
         })
