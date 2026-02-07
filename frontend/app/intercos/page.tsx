@@ -1,166 +1,112 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Loader2 } from "lucide-react"
 import Link from "next/link"
-
-interface Company {
-  id: string
-  name: string
-  fiscalYearEnd: string
-  currency: string
-}
+import {
+  listCompanies,
+  listAccountMappings,
+  upsertAccountMappings,
+  type Company as ApiCompany,
+  type AccountMappingData,
+} from "@/lib/api"
 
 interface IntercoAccount {
   accountNumber: string
   description: string
-  linkCode?: string
-  summaryEF?: string
-  detailEF?: string
-  companyId: string // Société source
-  intercoCompanyId?: string // Société interco (destination)
+  linkCode: string | null
+  summaryEF: string | null
+  detailEF: string | null
+  companyId: string
+  intercoCompanyId: string | null
 }
 
 export default function IntercosPage() {
-  const [companies, setCompanies] = useState<Company[]>([])
+  const [companies, setCompanies] = useState<ApiCompany[]>([])
   const [intercoAccounts, setIntercoAccounts] = useState<IntercoAccount[]>([])
+  const [loading, setLoading] = useState(true)
 
-  // Reload interco accounts
-  const reloadIntercoAccounts = () => {
-    const savedCompanies = localStorage.getItem("modelisys_companies")
-    if (savedCompanies) {
-      try {
-        const loadedCompanies: Company[] = JSON.parse(savedCompanies)
-        setCompanies(loadedCompanies)
-        
-        const allIntercoAccounts: IntercoAccount[] = []
-        loadedCompanies.forEach(company => {
-          const savedAccounts = localStorage.getItem(`modelisys_account_mapping_${company.id}`)
-          if (savedAccounts) {
-            try {
-              const accounts: any[] = JSON.parse(savedAccounts)
-              accounts.forEach(account => {
-                // Only include accounts that have an interco defined
-                if (account.interco) {
-                  allIntercoAccounts.push({
-                    accountNumber: account.accountNumber,
-                    description: account.description,
-                    linkCode: account.linkCode,
-                    summaryEF: account.summaryEF,
-                    detailEF: account.detailEF,
-                    companyId: company.id,
-                    intercoCompanyId: account.interco
-                  })
-                }
-              })
-            } catch (e) {
-              console.error(`Error loading accounts for company ${company.id}:`, e)
-            }
+  const loadIntercoAccounts = useCallback(async () => {
+    try {
+      const loadedCompanies = await listCompanies()
+      setCompanies(loadedCompanies)
+
+      const allIntercoAccounts: IntercoAccount[] = []
+
+      await Promise.all(
+        loadedCompanies.map(async (company) => {
+          try {
+            const mappings = await listAccountMappings(company.id)
+            mappings.forEach((mapping) => {
+              if (mapping.interco_company_id) {
+                allIntercoAccounts.push({
+                  accountNumber: mapping.account_number,
+                  description: mapping.description,
+                  linkCode: mapping.link_code,
+                  summaryEF: mapping.summary_ef,
+                  detailEF: mapping.detail_ef,
+                  companyId: company.id,
+                  intercoCompanyId: mapping.interco_company_id,
+                })
+              }
+            })
+          } catch (e) {
+            console.error(`Error loading account mappings for company ${company.id}:`, e)
           }
         })
-        setIntercoAccounts(allIntercoAccounts)
-      } catch (e) {
-        console.error("Error loading companies:", e)
-      }
-    }
-  }
+      )
 
-  // Load all companies and interco accounts
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      reloadIntercoAccounts()
-
-      // Listen for storage changes
-      const handleStorageChange = () => {
-        reloadIntercoAccounts()
-      }
-
-      window.addEventListener("storage", handleStorageChange)
-      const interval = setInterval(handleStorageChange, 1000)
-
-      return () => {
-        window.removeEventListener("storage", handleStorageChange)
-        clearInterval(interval)
-      }
+      setIntercoAccounts(allIntercoAccounts)
+    } catch (e) {
+      console.error("Error loading companies:", e)
+      setCompanies([])
+      setIntercoAccounts([])
+    } finally {
+      setLoading(false)
     }
   }, [])
 
-  // Save interco account changes
-  const saveIntercoAccount = (accountNumber: string, currentCompanyId: string, field: "companyId" | "intercoCompanyId", value: string) => {
-    if (typeof window !== "undefined") {
-      if (field === "intercoCompanyId") {
-        // Update interco for the account
-        const savedAccounts = localStorage.getItem(`modelisys_account_mapping_${currentCompanyId}`)
-        if (savedAccounts) {
-          try {
-            const accounts: any[] = JSON.parse(savedAccounts)
-            const updatedAccounts = accounts.map(acc => {
-              if (acc.accountNumber === accountNumber) {
-                return { ...acc, interco: value === "none" ? undefined : value }
-              }
-              return acc
-            })
-            localStorage.setItem(`modelisys_account_mapping_${currentCompanyId}`, JSON.stringify(updatedAccounts))
-            reloadIntercoAccounts()
-          } catch (e) {
-            console.error("Error saving interco account:", e)
-          }
-        }
-      } else if (field === "companyId") {
-        // Move account to another company
-        // First, get the account from current company
-        const savedAccounts = localStorage.getItem(`modelisys_account_mapping_${currentCompanyId}`)
-        if (savedAccounts) {
-          try {
-            const accounts: any[] = JSON.parse(savedAccounts)
-            const accountToMove = accounts.find(acc => acc.accountNumber === accountNumber)
-            
-            if (accountToMove) {
-              // Remove from current company
-              const updatedAccounts = accounts.filter(acc => acc.accountNumber !== accountNumber)
-              localStorage.setItem(`modelisys_account_mapping_${currentCompanyId}`, JSON.stringify(updatedAccounts))
-              
-              // Add to new company
-              const newCompanyAccounts = localStorage.getItem(`modelisys_account_mapping_${value}`)
-              if (newCompanyAccounts) {
-                const accounts: any[] = JSON.parse(newCompanyAccounts)
-                // Check if account already exists in new company
-                const existingIndex = accounts.findIndex(acc => acc.accountNumber === accountNumber)
-                if (existingIndex >= 0) {
-                  // Update existing account
-                  accounts[existingIndex] = { ...accounts[existingIndex], ...accountToMove, interco: accountToMove.interco }
-                } else {
-                  // Add new account
-                  accounts.push(accountToMove)
-                }
-                localStorage.setItem(`modelisys_account_mapping_${value}`, JSON.stringify(accounts))
-              } else {
-                // Create new accounts array for the company
-                localStorage.setItem(`modelisys_account_mapping_${value}`, JSON.stringify([accountToMove]))
-              }
-              
-              reloadIntercoAccounts()
-            }
-          } catch (e) {
-            console.error("Error moving account:", e)
-          }
-        }
+  useEffect(() => {
+    loadIntercoAccounts()
+  }, [loadIntercoAccounts])
+
+  const saveIntercoAccount = async (
+    accountNumber: string,
+    currentCompanyId: string,
+    field: "companyId" | "intercoCompanyId",
+    value: string
+  ) => {
+    if (field === "intercoCompanyId") {
+      try {
+        // Find the existing account to preserve all mapping fields
+        const existing = intercoAccounts.find(
+          (a) => a.accountNumber === accountNumber && a.companyId === currentCompanyId
+        )
+        await upsertAccountMappings(currentCompanyId, [
+          {
+            account_number: accountNumber,
+            description: existing?.description ?? "",
+            link_code: existing?.linkCode ?? null,
+            summary_ef: existing?.summaryEF ?? null,
+            detail_ef: existing?.detailEF ?? null,
+            interco_company_id: value === "none" ? null : value,
+          },
+        ])
+        await loadIntercoAccounts()
+      } catch (e) {
+        console.error("Error saving interco account:", e)
       }
     }
-  }
-
-  // Get company name by ID
-  const getCompanyName = (companyId: string): string => {
-    const company = companies.find(c => c.id === companyId)
-    return company?.name || "Inconnue"
+    // Note: "companyId" field (moving an account between companies) is not supported
+    // via the current API — account mappings are scoped per company.
   }
 
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
-      
+
       {/* Dark Header Section */}
       <div className="w-full bg-slate-900 pt-15 pb-40">
         <div className="max-w-[1920px] mx-auto px-6">
@@ -180,7 +126,7 @@ export default function IntercosPage() {
                 Gérez les transactions intercompagnies et les éliminations
               </p>
               <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Configurez et suivez les comptes intercompagnies entre vos différentes sociétés. 
+                Configurez et suivez les comptes intercompagnies entre vos différentes sociétés.
                 Identifiez la société source et la société de destination pour chaque transaction intercompagnie.
               </p>
             </div>
@@ -209,6 +155,12 @@ export default function IntercosPage() {
 
             {/* Table */}
             <div className="overflow-x-auto bg-white">
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                  <span className="ml-2 text-sm text-slate-500">Chargement...</span>
+                </div>
+              ) : (
               <table className="w-full">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
@@ -227,34 +179,22 @@ export default function IntercosPage() {
                       <td colSpan={7} className="px-8 py-12 text-center text-sm text-slate-500">
                         <p>Aucun compte intercompagnie configuré.</p>
                         <p className="text-xs text-slate-400 mt-2">
-                          Configurez des intercos dans le mapping comptable de vos sociétés pour qu'ils apparaissent ici.
+                          Configurez des intercos dans le mapping comptable de vos sociétés pour qu&apos;ils apparaissent ici.
                         </p>
                       </td>
                     </tr>
                   ) : (
-                    intercoAccounts.map((account, index) => (
-                      <tr key={index} className="border-b border-slate-100 hover:bg-slate-50">
+                    intercoAccounts.map((account) => (
+                      <tr key={`${account.companyId}-${account.accountNumber}`} className="border-b border-slate-100 hover:bg-slate-50">
                         <td className="px-6 py-4 text-sm text-slate-600 font-mono">{account.accountNumber}</td>
                         <td className="px-6 py-4 text-sm text-slate-900">{account.description}</td>
                         <td className="px-6 py-4 text-sm text-slate-600">{account.linkCode || "-"}</td>
                         <td className="px-6 py-4 text-sm text-slate-600">{account.summaryEF || "-"}</td>
                         <td className="px-6 py-4 text-sm text-slate-600">{account.detailEF || "-"}</td>
                         <td className="px-6 py-4 text-center">
-                          <Select
-                            value={account.companyId}
-                            onValueChange={(value) => saveIntercoAccount(account.accountNumber, account.companyId, "companyId", value)}
-                          >
-                            <SelectTrigger className="w-40 h-8 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {companies.map((comp) => (
-                                <SelectItem key={comp.id} value={comp.id}>
-                                  {comp.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          <span className="text-xs text-slate-700">
+                            {companies.find(c => c.id === account.companyId)?.name || account.companyId}
+                          </span>
                         </td>
                         <td className="px-6 py-4 text-center">
                           <Select
@@ -280,6 +220,7 @@ export default function IntercosPage() {
                   )}
                 </tbody>
               </table>
+              )}
             </div>
           </div>
         </div>
@@ -287,4 +228,3 @@ export default function IntercosPage() {
     </div>
   )
 }
-

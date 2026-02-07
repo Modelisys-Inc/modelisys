@@ -4,7 +4,9 @@ import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import { ChevronRight, ChevronDown, StickyNote, TrendingUp } from "lucide-react"
-import { useState, useEffect } from "react"
+import { seededRandom, generateId } from "@/lib/seeded-random"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
@@ -101,91 +103,61 @@ export function CapexForecastDetail({
 
   const isForecastSection = title === "Estimation des Capex annuels"
 
-  // Storage key for persisting forecast data
-  const getStorageKey = (): string => {
-    const entityKey = [companyId, divisionId, subDivisionId].filter(Boolean).join("-") || "all"
-    return `modelisys_capex_forecast_${entityKey}`
-  }
+  // Debounced save to API
+  const saveConfigRef = useRef<NodeJS.Timeout>()
 
-  // Storage key for persisting depreciation rates
-  const getDepreciationRatesStorageKey = (): string => {
-    const entityKey = [companyId, divisionId, subDivisionId].filter(Boolean).join("-") || "all"
-    return `modelisys_capex_depreciation_rates_${entityKey}`
-  }
-
-  // Storage key for persisting capex adjustments
-  const getCapexAdjustmentsStorageKey = (): string => {
-    const entityKey = [companyId, divisionId, subDivisionId].filter(Boolean).join("-") || "all"
-    return `modelisys_capex_adjustments_${entityKey}`
-  }
-
-  // Load forecast values from localStorage on mount
-  useEffect(() => {
-    if (typeof window === "undefined" || !isForecastSection) return
-    
-    try {
-      const storageKey = getStorageKey()
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        setCapexValues(parsed)
+  const saveConfig = useCallback((data: Record<string, unknown>) => {
+    if (!companyId || !isForecastSection) return
+    clearTimeout(saveConfigRef.current)
+    saveConfigRef.current = setTimeout(async () => {
+      try {
+        await upsertForecastConfig(companyId, {
+          config_type: "capex-forecast",
+          data,
+        })
+      } catch (err) {
+        console.error("Error saving capex forecast config:", err)
       }
-      
-      // Load depreciation rates
-      const ratesKey = getDepreciationRatesStorageKey()
-      const ratesStored = localStorage.getItem(ratesKey)
-      if (ratesStored) {
-        const ratesParsed = JSON.parse(ratesStored)
-        setDepreciationRates(ratesParsed)
+    }, 500)
+  }, [companyId, isForecastSection])
+
+  // Load capex forecast config from API on mount
+  useEffect(() => {
+    if (!companyId || !isForecastSection) return
+
+    const loadConfig = async () => {
+      try {
+        const configs = await listForecastConfigs(companyId, { config_type: "capex-forecast" })
+        if (configs.length > 0) {
+          const data = configs[0].data as Record<string, unknown>
+          if (data.capexValues) setCapexValues(data.capexValues as typeof capexValues)
+          if (data.depreciationRates) setDepreciationRates(data.depreciationRates as typeof depreciationRates)
+          if (data.capexAdjustments) setCapexAdjustments(data.capexAdjustments as typeof capexAdjustments)
+        }
+      } catch (err) {
+        console.error("Error loading capex forecast config:", err)
       }
-      
-      // Load capex adjustments
-      const adjustmentsKey = getCapexAdjustmentsStorageKey()
-      const adjustmentsStored = localStorage.getItem(adjustmentsKey)
-      if (adjustmentsStored) {
-        const adjustmentsParsed = JSON.parse(adjustmentsStored)
-        setCapexAdjustments(adjustmentsParsed)
-      }
-    } catch (error) {
-      console.error("Error loading capex forecast values:", error)
     }
-  }, [companyId, divisionId, subDivisionId, title, isForecastSection])
+    loadConfig()
+  }, [companyId, isForecastSection])
 
-  // Save forecast values to localStorage whenever they change
+  // Save capex values whenever they change
   useEffect(() => {
-    if (typeof window === "undefined" || !isForecastSection || Object.keys(capexValues).length === 0) return
-    
-    try {
-      const storageKey = getStorageKey()
-      localStorage.setItem(storageKey, JSON.stringify(capexValues))
-    } catch (error) {
-      console.error("Error saving capex forecast values:", error)
-    }
-  }, [capexValues, companyId, divisionId, subDivisionId, title, isForecastSection])
+    if (!isForecastSection || Object.keys(capexValues).length === 0) return
+    saveConfig({ capexValues, depreciationRates, capexAdjustments })
+  }, [capexValues, saveConfig, isForecastSection])
 
-  // Save depreciation rates to localStorage whenever they change
+  // Save depreciation rates whenever they change
   useEffect(() => {
-    if (typeof window === "undefined" || !isForecastSection || Object.keys(depreciationRates).length === 0) return
-    
-    try {
-      const ratesKey = getDepreciationRatesStorageKey()
-      localStorage.setItem(ratesKey, JSON.stringify(depreciationRates))
-    } catch (error) {
-      console.error("Error saving depreciation rates:", error)
-    }
-  }, [depreciationRates, companyId, divisionId, subDivisionId, title, isForecastSection])
+    if (!isForecastSection || Object.keys(depreciationRates).length === 0) return
+    saveConfig({ capexValues, depreciationRates, capexAdjustments })
+  }, [depreciationRates, saveConfig, isForecastSection])
 
-  // Save capex adjustments to localStorage whenever they change
+  // Save capex adjustments whenever they change
   useEffect(() => {
-    if (typeof window === "undefined" || !isForecastSection || Object.keys(capexAdjustments).length === 0) return
-    
-    try {
-      const adjustmentsKey = getCapexAdjustmentsStorageKey()
-      localStorage.setItem(adjustmentsKey, JSON.stringify(capexAdjustments))
-    } catch (error) {
-      console.error("Error saving capex adjustments:", error)
-    }
-  }, [capexAdjustments, companyId, divisionId, subDivisionId, title, isForecastSection])
+    if (!isForecastSection || Object.keys(capexAdjustments).length === 0) return
+    saveConfig({ capexValues, depreciationRates, capexAdjustments })
+  }, [capexAdjustments, saveConfig, isForecastSection])
 
   // Effect to reset expanded rows when company/division/subdivision changes
   useEffect(() => {
@@ -320,7 +292,7 @@ export function CapexForecastDetail({
         } else {
           // Add new adjustment (always "amount" type for Capex)
           const newAdjustment: CapexAdjustment = {
-            id: `${Date.now()}-${Math.random()}`,
+            id: generateId(),
             rowId,
             yearIndex,
             type: "amount" as const,
@@ -422,7 +394,7 @@ export function CapexForecastDetail({
           return rowId ? getCapexValue(rowId, yearIndex, defaultValue, base) : defaultValue
         } else {
           const yearIndex = (numYears - 1) - i
-          return Math.round(base * (1 + growthRate * yearIndex) * (0.95 + Math.random() * 0.1))
+          return Math.round(base * (1 + growthRate * yearIndex) * (0.95 + seededRandom(base + i) * 0.1))
         }
       })
     }

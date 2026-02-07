@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -20,23 +20,15 @@ import { BaseSeasonalityDetail } from "@/components/base-seasonality-detail"
 import { CapexForecastDetail } from "@/components/capex-forecast-detail"
 import { DebtForecastDetail } from "@/components/debt-forecast-detail"
 import { FDRForecastDetail } from "@/components/fdr-forecast-detail"
-
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Société Principale",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division A",
-        subDivisions: [
-          { id: "subdiv-1", name: "Sous-division 1" },
-          { id: "subdiv-2", name: "Sous-division 2" },
-        ],
-      },
-    ],
-  },
-]
+import { useCompanies } from "@/hooks/use-companies"
+import {
+  listCompanies,
+  listProjections,
+  createProjection,
+  updateProjection,
+  deleteProjection as deleteProjectionApi,
+  type ProjectionData,
+} from "@/lib/api"
 
 type ModuleType = "income-statement" | "balance-sheet" | "cash-flow" | "revenue" | "expenses" | "capex" | "debt" | "fdr"
 
@@ -115,7 +107,22 @@ interface SavedProjection {
   updatedAt: string
 }
 
+function mapApiProjection(p: ProjectionData): SavedProjection {
+  return {
+    id: p.id,
+    name: p.name,
+    companyId: p.company_id,
+    divisionId: p.division_id,
+    subDivisionId: p.sub_division_id,
+    projectionYears: (p.projection_years as 3 | 4 | 5) || 5,
+    projectionMode: (p.projection_mode as "gl" | "account") || "gl",
+    createdAt: p.created_at,
+    updatedAt: p.updated_at,
+  }
+}
+
 export default function ProFormaPage() {
+  const { companies } = useCompanies()
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
@@ -136,76 +143,75 @@ export default function ProFormaPage() {
   const [newProjectionSubDivisionId, setNewProjectionSubDivisionId] = useState<string | null>(null)
   const [newProjectionYears, setNewProjectionYears] = useState<3 | 4 | 5>(5)
   const [newProjectionMode, setNewProjectionMode] = useState<"gl" | "account">("gl")
+  // Track which company the projections were loaded for
+  const [loadedProjectionsCompanyId, setLoadedProjectionsCompanyId] = useState<string | null>(null)
 
   const selectedModuleData = allModules.find(m => m.id === selectedModule)
   const Icon = selectedModuleData?.icon || BarChart3
 
-  // Load saved projections from localStorage and check for active projection
+  // Load projections from API when companies are available
   useEffect(() => {
-    const saved = localStorage.getItem("proFormaProjections")
-    if (saved) {
+    if (companies.length === 0) return
+
+    const loadAllProjections = async () => {
       try {
-        const projections = JSON.parse(saved) as SavedProjection[]
-        setSavedProjections(projections)
-        
-        // Check if there's a current projection in localStorage
-        const currentId = localStorage.getItem("currentProFormaProjectionId")
-        if (currentId) {
-          const projection = projections.find(p => p.id === currentId)
-          if (projection) {
-            // Load the projection
-            setCompanyId(projection.companyId)
-            setDivisionId(projection.divisionId)
-            setSubDivisionId(projection.subDivisionId)
-            setProjectionYears(projection.projectionYears)
-            setProjectionMode(projection.projectionMode || "gl")
-            setCurrentProjectionId(projection.id)
-            // Don't show initial modal if projection is loaded
-            setInitialModalOpen(false)
-            return
-          }
+        const allProjections: SavedProjection[] = []
+        for (const company of companies) {
+          const projections = await listProjections(company.id)
+          allProjections.push(...projections.map(mapApiProjection))
+        }
+        setSavedProjections(allProjections)
+
+        if (allProjections.length > 0 && !currentProjectionId) {
+          // No active projection, show initial modal
+          setInitialModalOpen(true)
+        } else if (allProjections.length === 0) {
+          setInitialModalOpen(true)
         }
       } catch (e) {
-        console.error("Error loading saved projections:", e)
+        console.error("Error loading projections:", e)
+        setInitialModalOpen(true)
       }
     }
-    
-    // If no active projection, show initial modal
-    setInitialModalOpen(true)
-  }, [])
 
-  // Save projections to localStorage whenever they change
-  useEffect(() => {
-    if (savedProjections.length > 0) {
-      localStorage.setItem("proFormaProjections", JSON.stringify(savedProjections))
-    }
-  }, [savedProjections])
+    loadAllProjections()
+  }, [companies])
 
-  const saveProjection = () => {
+  const saveProjection = async () => {
     if (!projectionName.trim()) return
 
-    const projection: SavedProjection = {
-      id: currentProjectionId || `projection-${Date.now()}`,
-      name: projectionName.trim(),
-      companyId,
-      divisionId,
-      subDivisionId,
-      projectionYears,
-      projectionMode: projectionMode,
-      createdAt: currentProjectionId 
-        ? savedProjections.find(p => p.id === currentProjectionId)?.createdAt || new Date().toISOString()
-        : new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }
-
     if (currentProjectionId) {
-      // Update existing projection
-      setSavedProjections(prev => prev.map(p => p.id === currentProjectionId ? projection : p))
-    } else {
-      // Add new projection
-      setSavedProjections(prev => [...prev, projection])
-      setCurrentProjectionId(projection.id)
-      localStorage.setItem("currentProFormaProjectionId", projection.id)
+      // Update existing projection via API
+      const existing = savedProjections.find(p => p.id === currentProjectionId)
+      if (existing && existing.companyId) {
+        try {
+          const updated = await updateProjection(existing.companyId, currentProjectionId, {
+            name: projectionName.trim(),
+            projection_years: projectionYears,
+            projection_mode: projectionMode,
+          })
+          const mapped = mapApiProjection(updated)
+          setSavedProjections(prev => prev.map(p => p.id === currentProjectionId ? mapped : p))
+        } catch (e) {
+          console.error("Error updating projection:", e)
+        }
+      }
+    } else if (companyId) {
+      // Create new projection via API
+      try {
+        const created = await createProjection(companyId, {
+          name: projectionName.trim(),
+          projection_years: projectionYears,
+          projection_mode: projectionMode,
+          division_id: divisionId || null,
+          sub_division_id: subDivisionId || null,
+        })
+        const mapped = mapApiProjection(created)
+        setSavedProjections(prev => [...prev, mapped])
+        setCurrentProjectionId(mapped.id)
+      } catch (e) {
+        console.error("Error creating projection:", e)
+      }
     }
 
     setSaveModalOpen(false)
@@ -221,47 +227,53 @@ export default function ProFormaPage() {
     setCurrentProjectionId(projection.id)
     setLoadModalOpen(false)
     setInitialModalOpen(false)
-    localStorage.setItem("currentProFormaProjectionId", projection.id)
   }
 
-  const createNewProjection = () => {
-    if (!newProjectionName.trim()) return
+  const handleCreateNewProjection = async () => {
+    if (!newProjectionName.trim() || !newProjectionCompanyId) return
 
-    const projection: SavedProjection = {
-      id: `projection-${Date.now()}`,
-      name: newProjectionName.trim(),
-      companyId: newProjectionCompanyId,
-      divisionId: newProjectionDivisionId,
-      subDivisionId: newProjectionSubDivisionId,
-      projectionYears: newProjectionYears,
-      projectionMode: newProjectionMode,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    }
-
-    setSavedProjections(prev => [...prev, projection])
-    loadProjection(projection)
-    setNewProjectionName("")
-    setNewProjectionCompanyId(null)
-    setNewProjectionDivisionId(null)
-    setNewProjectionSubDivisionId(null)
-    setNewProjectionYears(5)
-    setNewProjectionMode("gl")
-    setInitialModalMode("choice")
-  }
-
-  const deleteProjection = (id: string) => {
-    setSavedProjections(prev => prev.filter(p => p.id !== id))
-    if (currentProjectionId === id) {
-      setCurrentProjectionId(null)
-      localStorage.removeItem("currentProFormaProjectionId")
-      setInitialModalOpen(true)
+    try {
+      const created = await createProjection(newProjectionCompanyId, {
+        name: newProjectionName.trim(),
+        projection_years: newProjectionYears,
+        projection_mode: newProjectionMode,
+        division_id: newProjectionDivisionId || null,
+        sub_division_id: newProjectionSubDivisionId || null,
+      })
+      const mapped = mapApiProjection(created)
+      setSavedProjections(prev => [...prev, mapped])
+      loadProjection(mapped)
+      setNewProjectionName("")
+      setNewProjectionCompanyId(null)
+      setNewProjectionDivisionId(null)
+      setNewProjectionSubDivisionId(null)
+      setNewProjectionYears(5)
+      setNewProjectionMode("gl")
       setInitialModalMode("choice")
+    } catch (e) {
+      console.error("Error creating projection:", e)
+    }
+  }
+
+  const handleDeleteProjection = async (id: string) => {
+    const projection = savedProjections.find(p => p.id === id)
+    if (projection && projection.companyId) {
+      try {
+        await deleteProjectionApi(projection.companyId, id)
+        setSavedProjections(prev => prev.filter(p => p.id !== id))
+        if (currentProjectionId === id) {
+          setCurrentProjectionId(null)
+          setInitialModalOpen(true)
+          setInitialModalMode("choice")
+        }
+      } catch (e) {
+        console.error("Error deleting projection:", e)
+      }
     }
   }
 
   const openSaveModal = () => {
-    const currentProjection = currentProjectionId 
+    const currentProjection = currentProjectionId
       ? savedProjections.find(p => p.id === currentProjectionId)
       : null
     setProjectionName(currentProjection?.name || "")
@@ -289,7 +301,6 @@ export default function ProFormaPage() {
       <DashboardHeader
         title="Pro Forma"
         description="Générez vos états financiers pro forma basés sur vos projections et hypothèses"
-        userName="Tristan Bellerose"
       />
       <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
         {/* Projection Details Bar - Only show if projection is active */}
@@ -306,10 +317,10 @@ export default function ProFormaPage() {
                 <span className="text-xs text-slate-600">
                   Entité: <span className="font-medium text-slate-900">
                     {companyId 
-                      ? companiesData.find(c => c.id === companyId)?.name || "N/A"
+                      ? companies.find(c => c.id === companyId)?.name || "N/A"
                       : "Toutes les sociétés"}
-                    {divisionId && ` - ${companiesData.flatMap(c => c.divisions || []).find(d => d.id === divisionId)?.name || ""}`}
-                    {subDivisionId && ` - ${companiesData.flatMap(c => c.divisions || []).flatMap(d => d.subDivisions || []).find(s => s.id === subDivisionId)?.name || ""}`}
+                    {divisionId && ` - ${companies.flatMap(c => c.divisions || []).find(d => d.id === divisionId)?.name || ""}`}
+                    {subDivisionId && ` - ${companies.flatMap(c => c.divisions || []).flatMap(d => d.subDivisions || []).find(s => s.id === subDivisionId)?.name || ""}`}
                   </span>
                 </span>
               </div>
@@ -477,7 +488,7 @@ export default function ProFormaPage() {
                 companyId={companyId}
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
-                companies={companiesData}
+                companies={companies}
                 title="Estimation des revenus annuels"
                 projectionYears={projectionYears}
                 projectionMode={projectionMode}
@@ -486,7 +497,7 @@ export default function ProFormaPage() {
                 companyId={companyId}
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
-                companies={companiesData}
+                companies={companies}
                 title="Saisonnalité des revenus"
                 projectionMode={projectionMode}
               />
@@ -499,7 +510,7 @@ export default function ProFormaPage() {
               companyId={companyId}
               divisionId={divisionId}
               subDivisionId={subDivisionId}
-              companies={companiesData}
+              companies={companies}
               title="Estimation des dépenses annuelles"
               projectionYears={projectionYears}
               projectionMode={projectionMode}
@@ -512,7 +523,7 @@ export default function ProFormaPage() {
               companyId={companyId}
               divisionId={divisionId}
               subDivisionId={subDivisionId}
-              companies={companiesData}
+              companies={companies}
               title="Estimation des Capex annuels"
               projectionYears={projectionYears}
               projectionMode={projectionMode}
@@ -525,7 +536,7 @@ export default function ProFormaPage() {
               companyId={companyId}
               divisionId={divisionId}
               subDivisionId={subDivisionId}
-              companies={companiesData}
+              companies={companies}
               title="Estimation des Dettes annuelles"
               projectionYears={projectionYears}
             />
@@ -537,7 +548,7 @@ export default function ProFormaPage() {
               companyId={companyId}
               divisionId={divisionId}
               subDivisionId={subDivisionId}
-              companies={companiesData}
+              companies={companies}
               title="Estimation du FDR annuel"
               projectionYears={projectionYears}
               projectionMode={projectionMode}
@@ -551,7 +562,7 @@ export default function ProFormaPage() {
                 companyId={companyId}
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
-                companies={companiesData}
+                companies={companies}
                 title="États des résultats pro forma"
                 projectionYears={projectionYears}
               />
@@ -563,7 +574,7 @@ export default function ProFormaPage() {
                 companyId={companyId}
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
-                companies={companiesData}
+                companies={companies}
                 title="États des résultats pro forma"
                 projectionYears={projectionYears}
                 projectionMode={projectionMode}
@@ -578,7 +589,7 @@ export default function ProFormaPage() {
                 companyId={companyId}
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
-                companies={companiesData}
+                companies={companies}
                 title="Bilan pro forma"
               />
             ) : (
@@ -589,7 +600,7 @@ export default function ProFormaPage() {
                 companyId={companyId}
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
-                companies={companiesData}
+                companies={companies}
                 title="Bilan pro forma"
               />
             )
@@ -602,7 +613,7 @@ export default function ProFormaPage() {
                 companyId={companyId}
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
-                companies={companiesData}
+                companies={companies}
                 title="Flux de trésorerie pro forma"
               />
             ) : (
@@ -613,7 +624,7 @@ export default function ProFormaPage() {
                 companyId={companyId}
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
-                companies={companiesData}
+                companies={companies}
                 title="Flux de trésorerie pro forma"
               />
             )
@@ -733,7 +744,7 @@ export default function ProFormaPage() {
                     Entité
                   </label>
                   <EntitySelector
-                    companies={companiesData}
+                    companies={companies}
                     selectedCompanyId={newProjectionCompanyId}
                     selectedDivisionId={newProjectionDivisionId}
                     selectedSubDivisionId={newProjectionSubDivisionId}
@@ -793,8 +804,8 @@ export default function ProFormaPage() {
                     Retour
                   </Button>
                   <Button
-                    onClick={createNewProjection}
-                    disabled={!newProjectionName.trim()}
+                    onClick={handleCreateNewProjection}
+                    disabled={!newProjectionName.trim() || !newProjectionCompanyId}
                   >
                     Créer la projection
                   </Button>
@@ -824,10 +835,10 @@ export default function ProFormaPage() {
                             <div className="text-xs text-slate-600 space-y-1">
                               <p>
                                 Entité: {projection.companyId 
-                                  ? companiesData.find(c => c.id === projection.companyId)?.name || "N/A"
+                                  ? companies.find(c => c.id === projection.companyId)?.name || "N/A"
                                   : "Toutes les sociétés"}
-                                {projection.divisionId && ` - ${companiesData.flatMap(c => c.divisions || []).find(d => d.id === projection.divisionId)?.name || ""}`}
-                                {projection.subDivisionId && ` - ${companiesData.flatMap(c => c.divisions || []).flatMap(d => d.subDivisions || []).find(s => s.id === projection.subDivisionId)?.name || ""}`}
+                                {projection.divisionId && ` - ${companies.flatMap(c => c.divisions || []).find(d => d.id === projection.divisionId)?.name || ""}`}
+                                {projection.subDivisionId && ` - ${companies.flatMap(c => c.divisions || []).flatMap(d => d.subDivisions || []).find(s => s.id === projection.subDivisionId)?.name || ""}`}
                               </p>
                               <p>Projection: {projection.projectionYears} ans</p>
                               <p className="text-slate-500">
@@ -944,19 +955,19 @@ export default function ProFormaPage() {
                           <div className="text-xs text-slate-600 space-y-1">
                             <p>
                               Entité: {projection.companyId 
-                                ? companiesData.find(c => c.id === projection.companyId)?.name || "N/A"
+                                ? companies.find(c => c.id === projection.companyId)?.name || "N/A"
                                 : "Toutes les sociétés"}
                             </p>
                             {projection.divisionId && (
                               <p>
-                                Division: {companiesData
+                                Division: {companies
                                   .flatMap(c => c.divisions || [])
                                   .find(d => d.id === projection.divisionId)?.name || "N/A"}
                               </p>
                             )}
                             {projection.subDivisionId && (
                               <p>
-                                Sous-division: {companiesData
+                                Sous-division: {companies
                                   .flatMap(c => c.divisions || [])
                                   .flatMap(d => d.subDivisions || [])
                                   .find(s => s.id === projection.subDivisionId)?.name || "N/A"}
@@ -984,7 +995,7 @@ export default function ProFormaPage() {
                             onClick={(e) => {
                               e.stopPropagation()
                               if (confirm(`Êtes-vous sûr de vouloir supprimer la projection "${projection.name}" ?`)) {
-                                deleteProjection(projection.id)
+                                handleDeleteProjection(projection.id)
                               }
                             }}
                             className="p-1.5 rounded-md hover:bg-red-50 text-red-600 transition-colors"

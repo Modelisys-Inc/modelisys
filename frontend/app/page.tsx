@@ -6,17 +6,19 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Building2, Calendar, DollarSign, ArrowRight, Plus, Check, X, Network, TrendingUp } from "lucide-react"
+import { Building2, Calendar, DollarSign, ArrowRight, Plus, Check, X, Network, TrendingUp, Loader2 } from "lucide-react"
+import { formatCurrency } from "@/lib/financial-utils"
 import Link from "next/link"
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { listCompanies, createCompany, getFinancialStatementSummary, type Company as ApiCompany, type SummaryMetrics } from "@/lib/api"
 
 interface Company {
   id: string
   name: string
   fiscalYearEnd: string
   currency: string
-  divisions: any[]
+  divisions: { id: string; name: string; subDivisions: { id: string; name: string }[] }[]
 }
 
 const fiscalYearEndOptions = [
@@ -44,81 +46,91 @@ const currencies = [
   { value: "AUD", label: "AUD - Dollar australien" },
 ]
 
+function mapApiCompany(c: ApiCompany): Company {
+  return {
+    id: c.id,
+    name: c.name,
+    fiscalYearEnd: c.fiscal_year_end,
+    currency: c.currency,
+    divisions: (c.divisions || []).map((d) => ({
+      id: d.id,
+      name: d.name,
+      subDivisions: (d.sub_divisions || []).map((s) => ({
+        id: s.id,
+        name: s.name,
+      })),
+    })),
+  }
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const [companies, setCompanies] = useState<Company[]>([])
+  const [loading, setLoading] = useState(true)
   const [hoveredCompany, setHoveredCompany] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [newCompanyName, setNewCompanyName] = useState("")
   const [newCompanyFiscalYearEnd, setNewCompanyFiscalYearEnd] = useState("12-31")
   const [newCompanyCurrency, setNewCompanyCurrency] = useState("CAD")
+  const [creating, setCreating] = useState(false)
 
-  // Load companies from localStorage
+  // Summary metrics per company
+  const [summaryMetrics, setSummaryMetrics] = useState<Record<string, SummaryMetrics>>({})
+
+  // Load companies from API
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("modelisys_companies")
-      if (saved) {
-        try {
-          setCompanies(JSON.parse(saved))
-        } catch (e) {
-          console.error("Error loading companies:", e)
-        }
-      }
-    }
-
-    // Listen for storage changes (when companies are updated in entities page)
-    const handleStorageChange = () => {
-      const saved = localStorage.getItem("modelisys_companies")
-      if (saved) {
-        try {
-          setCompanies(JSON.parse(saved))
-        } catch (e) {
-          console.error("Error loading companies:", e)
-        }
-      }
-    }
-
-    window.addEventListener("storage", handleStorageChange)
-    
-    // Also check periodically for changes (since storage event only fires in other tabs)
-    const interval = setInterval(() => {
-      handleStorageChange()
-    }, 1000)
-
-    return () => {
-      window.removeEventListener("storage", handleStorageChange)
-      clearInterval(interval)
-    }
+    listCompanies()
+      .then((data) => setCompanies(data.map(mapApiCompany)))
+      .catch(() => setCompanies([]))
+      .finally(() => setLoading(false))
   }, [])
 
-  const handleAddCompany = () => {
-    if (newCompanyName.trim()) {
-      const newCompany: Company = {
-        id: Date.now().toString(),
-        name: newCompanyName.trim(),
-        fiscalYearEnd: newCompanyFiscalYearEnd,
-        currency: newCompanyCurrency,
-        divisions: [],
+  // Fetch summary metrics for each company
+  useEffect(() => {
+    if (companies.length === 0) return
+    const currentFY = new Date().getFullYear()
+    companies.forEach((company) => {
+      getFinancialStatementSummary(company.id, currentFY)
+        .then((metrics) => {
+          setSummaryMetrics((prev) => ({ ...prev, [company.id]: metrics }))
+        })
+        .catch(() => {
+          // No summary data available for this company
+        })
+    })
+  }, [companies])
+
+  const handleAddCompany = async () => {
+    if (newCompanyName.trim() && !creating) {
+      setCreating(true)
+      try {
+        const created = await createCompany({
+          name: newCompanyName.trim(),
+          fiscal_year_end: newCompanyFiscalYearEnd,
+          currency: newCompanyCurrency,
+        })
+        const mapped = mapApiCompany(created)
+        setCompanies((prev) => [...prev, mapped])
+        // Reset form and close dialog
+        setNewCompanyName("")
+        setNewCompanyFiscalYearEnd("12-31")
+        setNewCompanyCurrency("CAD")
+        setIsDialogOpen(false)
+        // Redirect to the new company page
+        router.push(`/settings/companies/${created.id}`)
+      } catch (e) {
+        console.error("Error creating company:", e)
+        alert("Erreur lors de la création de la société")
+      } finally {
+        setCreating(false)
       }
-      const updatedCompanies = [...companies, newCompany]
-      setCompanies(updatedCompanies)
-      if (typeof window !== "undefined") {
-        localStorage.setItem("modelisys_companies", JSON.stringify(updatedCompanies))
-      }
-      // Reset form and close dialog
-      setNewCompanyName("")
-      setNewCompanyFiscalYearEnd("12-31")
-      setNewCompanyCurrency("CAD")
-      setIsDialogOpen(false)
-      // Redirect to the new company page
-      router.push(`/settings/companies/${newCompany.id}`)
     }
   }
 
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
-      
+
       {/* Dark Header Section */}
       <div className="w-full bg-slate-900 pt-15 pb-40">
         <div className="max-w-[1920px] mx-auto px-6">
@@ -130,8 +142,8 @@ export default function DashboardPage() {
                 Gérez vos mappings comptables et importez vos balances de vérification
               </p>
               <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Configurez votre plateforme pour commencer à utiliser toutes les fonctionnalités. Gérez vos mappings comptables, 
-                importez vos balances de vérification en toute simplicité et définissez les correspondances entre vos comptes 
+                Configurez votre plateforme pour commencer à utiliser toutes les fonctionnalités. Gérez vos mappings comptables,
+                importez vos balances de vérification en toute simplicité et définissez les correspondances entre vos comptes
                 comptables et vos états financiers.
               </p>
               <Button
@@ -150,7 +162,16 @@ export default function DashboardPage() {
       <div className="relative -mt-32 mb-12">
         <div className="max-w-[1920px] mx-auto px-6">
           <h3 className="text-lg font-medium text-white mb-4 ml-2">Sociétés</h3>
-          {companies.length === 0 ? (
+          {loading ? (
+            <Card className="bg-white border border-slate-200 shadow-sm">
+              <CardContent className="p-8">
+                <div className="text-center py-12 text-slate-500">
+                  <Loader2 className="w-12 h-12 mx-auto mb-4 text-slate-400 animate-spin" />
+                  <p className="text-sm font-medium">Chargement des sociétés...</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : companies.length === 0 ? (
             <Card className="bg-white border border-slate-200 shadow-sm">
               <CardContent className="p-8">
                 <div className="text-center py-12 text-slate-500">
@@ -209,6 +230,45 @@ export default function DashboardPage() {
                                 : "Aucune division"}
                             </div>
                           </div>
+
+                          {/* Financial KPIs */}
+                          {summaryMetrics[company.id] && (
+                            <div className="space-y-1.5 mb-4 pt-3 border-t border-slate-100">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-slate-500">Revenus</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono font-medium text-slate-700">{formatCurrency(summaryMetrics[company.id].revenue)}</span>
+                                  {summaryMetrics[company.id].revenueVariation !== 0 && (
+                                    <span className={`text-[10px] font-medium ${summaryMetrics[company.id].revenueVariation >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                      {summaryMetrics[company.id].revenueVariation >= 0 ? "+" : ""}{summaryMetrics[company.id].revenueVariation.toFixed(1)}%
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-slate-500">Revenu net</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono font-medium text-slate-700">{formatCurrency(summaryMetrics[company.id].netIncome)}</span>
+                                  {summaryMetrics[company.id].netIncomeVariation !== 0 && (
+                                    <span className={`text-[10px] font-medium ${summaryMetrics[company.id].netIncomeVariation >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                      {summaryMetrics[company.id].netIncomeVariation >= 0 ? "+" : ""}{summaryMetrics[company.id].netIncomeVariation.toFixed(1)}%
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-slate-500">Actif total</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono font-medium text-slate-700">{formatCurrency(summaryMetrics[company.id].totalAssets)}</span>
+                                  {summaryMetrics[company.id].totalAssetsVariation !== 0 && (
+                                    <span className={`text-[10px] font-medium ${summaryMetrics[company.id].totalAssetsVariation >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                      {summaryMetrics[company.id].totalAssetsVariation >= 0 ? "+" : ""}{summaryMetrics[company.id].totalAssetsVariation.toFixed(1)}%
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
 
                           <div className="flex items-center text-slate-700 group-hover:text-slate-900 font-semibold text-sm group-hover:gap-3 gap-2 transition-all duration-300">
                             <span>Gérer</span>
@@ -359,10 +419,14 @@ export default function DashboardPage() {
             </Button>
             <Button
               onClick={handleAddCompany}
-              disabled={!newCompanyName.trim()}
+              disabled={!newCompanyName.trim() || creating}
               className="bg-emerald-500 hover:bg-emerald-600 text-white"
             >
-              <Check className="w-4 h-4 mr-2" />
+              {creating ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Check className="w-4 h-4 mr-2" />
+              )}
               Créer la société
             </Button>
           </DialogFooter>

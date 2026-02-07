@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
 import { Card, CardContent } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
@@ -12,23 +12,13 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Société Principale",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division A",
-        subDivisions: [
-          { id: "subdiv-1", name: "Sous-division 1" },
-          { id: "subdiv-2", name: "Sous-division 2" },
-        ],
-      },
-    ],
-  },
-]
+import { useCompanies } from "@/hooks/use-companies"
+import {
+  listBusinessRisks,
+  bulkUpsertBusinessRisks,
+  updateBusinessRisk,
+  type BusinessRiskData,
+} from "@/lib/api"
 
 interface BusinessRisk {
   id: string
@@ -48,6 +38,7 @@ const evaluationNav = [
 ]
 
 export default function BusinessModelPage() {
+  const { companies } = useCompanies()
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
@@ -56,6 +47,7 @@ export default function BusinessModelPage() {
   const [noteModalOpen, setNoteModalOpen] = useState(false)
   const [editingNoteRiskId, setEditingNoteRiskId] = useState<string | null>(null)
   const [tempNote, setTempNote] = useState<string>("")
+  const [risksLoading, setRisksLoading] = useState(false)
   const pathname = usePathname()
 
   const toggleCategory = (category: string) => {
@@ -324,33 +316,24 @@ export default function BusinessModelPage() {
     },
   ])
 
-  const updateRiskLevel = (riskId: string, level: "low" | "medium" | "high" | null) => {
-    const updatedRisks = risks.map(risk => 
+  const updateRiskLevel = useCallback((riskId: string, level: "low" | "medium" | "high" | null) => {
+    setRisks(prev => prev.map(risk =>
       risk.id === riskId ? { ...risk, level } : risk
-    )
-    setRisks(updatedRisks)
-    // Save to localStorage
-    const riskLevels = updatedRisks.reduce((acc, risk) => {
-      acc[risk.id] = risk.level
-      return acc
-    }, {} as Record<string, string | null>)
-    localStorage.setItem("businessRiskLevels", JSON.stringify(riskLevels))
-  }
+    ))
+    if (companyId) {
+      updateBusinessRisk(companyId, riskId, { level }).catch(console.error)
+    }
+  }, [companyId])
 
-  const updateRiskNote = (riskId: string, note: string) => {
-    const updatedRisks = risks.map(risk => 
-      risk.id === riskId ? { ...risk, note: note.trim() || undefined } : risk
-    )
-    setRisks(updatedRisks)
-    // Save to localStorage (only non-empty notes)
-    const riskNotes = updatedRisks.reduce((acc, risk) => {
-      if (risk.note && risk.note.trim()) {
-        acc[risk.id] = risk.note
-      }
-      return acc
-    }, {} as Record<string, string>)
-    localStorage.setItem("businessRiskNotes", JSON.stringify(riskNotes))
-  }
+  const updateRiskNote = useCallback((riskId: string, note: string) => {
+    const trimmed = note.trim() || undefined
+    setRisks(prev => prev.map(risk =>
+      risk.id === riskId ? { ...risk, note: trimmed } : risk
+    ))
+    if (companyId) {
+      updateBusinessRisk(companyId, riskId, { note: trimmed || null }).catch(console.error)
+    }
+  }, [companyId])
 
   const openNoteModal = (riskId: string) => {
     const risk = risks.find(r => r.id === riskId)
@@ -374,22 +357,67 @@ export default function BusinessModelPage() {
     setTempNote("")
   }
 
-  // Load risk notes and levels from localStorage on mount
+  // Load risks from backend when company changes. If no risks exist yet,
+  // seed the default definitions via bulk upsert so they are persisted.
   useEffect(() => {
-    const savedNotes = localStorage.getItem("businessRiskNotes")
-    const savedLevels = localStorage.getItem("businessRiskLevels")
-    
-    if (savedNotes || savedLevels) {
-      const notes = savedNotes ? JSON.parse(savedNotes) : {}
-      const levels = savedLevels ? JSON.parse(savedLevels) : {}
-      
-      setRisks(prevRisks => prevRisks.map(risk => ({
-        ...risk,
-        note: notes[risk.id] !== undefined ? notes[risk.id] : risk.note,
-        level: levels[risk.id] !== undefined ? levels[risk.id] : risk.level
-      })))
+    if (!companyId) {
+      // Reset to defaults when no company selected
+      setRisks(prev => prev.map(r => ({ ...r, level: null, note: undefined })))
+      return
     }
-  }, [])
+
+    let cancelled = false
+    setRisksLoading(true)
+
+    listBusinessRisks(companyId)
+      .then(async (serverRisks) => {
+        if (cancelled) return
+
+        if (serverRisks.length > 0) {
+          // Merge server data into local risk definitions
+          const serverMap = new Map(serverRisks.map(r => [r.risk_id, r]))
+          setRisks(prev => prev.map(risk => {
+            const sr = serverMap.get(risk.id)
+            if (sr) {
+              return {
+                ...risk,
+                level: (sr.level as BusinessRisk["level"]) ?? null,
+                note: sr.note || undefined,
+              }
+            }
+            return { ...risk, level: null, note: undefined }
+          }))
+        } else {
+          // No risks on server yet — seed defaults
+          const defaults = risks.map(r => ({
+            risk_id: r.id,
+            category: r.category,
+            name: r.name,
+            description: r.description,
+            impact: r.impact,
+            recommendation: r.recommendation,
+            level: null,
+            note: null,
+          }))
+          const created = await bulkUpsertBusinessRisks(companyId, defaults)
+          if (!cancelled) {
+            const createdMap = new Map(created.map(r => [r.risk_id, r]))
+            setRisks(prev => prev.map(risk => {
+              const cr = createdMap.get(risk.id)
+              return { ...risk, level: null, note: undefined }
+            }))
+          }
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) console.error("Failed to load business risks:", err)
+      })
+      .finally(() => {
+        if (!cancelled) setRisksLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [companyId])
 
   // Group risks by category
   const risksByCategory = risks.reduce((acc, risk) => {
@@ -511,7 +539,7 @@ export default function BusinessModelPage() {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Entité:</span>
                 <EntitySelector
-                  companies={companiesData}
+                  companies={companies}
                   selectedCompanyId={companyId}
                   selectedDivisionId={divisionId}
                   selectedSubDivisionId={subDivisionId}

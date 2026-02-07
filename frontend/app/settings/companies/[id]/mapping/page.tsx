@@ -1,13 +1,24 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Building2, ArrowLeft, Plus } from "lucide-react"
+import { ArrowLeft, Plus, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { Input } from "@/components/ui/input"
+import {
+  getCompany,
+  listCompanies,
+  listAccountMappings,
+  upsertAccountMappings,
+  listProducts,
+  createProduct,
+  type Company as ApiCompany,
+  type AccountMappingData,
+  type ProductData,
+} from "@/lib/api"
 
 interface Company {
   id: string
@@ -33,6 +44,53 @@ interface AccountMapping {
   interco?: string
 }
 
+function mapApiCompany(c: ApiCompany): Company {
+  return {
+    id: c.id,
+    name: c.name,
+    fiscalYearEnd: c.fiscal_year_end,
+    currency: c.currency,
+  }
+}
+
+function mapApiMapping(m: AccountMappingData): AccountMapping {
+  return {
+    accountNumber: m.account_number,
+    description: m.description,
+    linkCode: m.link_code || undefined,
+    summaryEF: m.summary_ef || undefined,
+    detailEF: m.detail_ef || undefined,
+    divisions: m.divisions || undefined,
+    subDivisions: m.sub_divisions || undefined,
+    fdrhc: m.fdrhc,
+    interests: m.interests,
+    amortization: m.amortization,
+    variableCosts: m.variable_costs,
+    fixedCosts: m.fixed_costs,
+    product: m.product || undefined,
+    interco: m.interco_company_id || undefined,
+  }
+}
+
+function toApiMappingEntry(m: AccountMapping) {
+  return {
+    account_number: m.accountNumber,
+    description: m.description,
+    link_code: m.linkCode || null,
+    summary_ef: m.summaryEF || null,
+    detail_ef: m.detailEF || null,
+    divisions: m.divisions || null,
+    sub_divisions: m.subDivisions || null,
+    fdrhc: m.fdrhc || false,
+    interests: m.interests || false,
+    amortization: m.amortization || false,
+    variable_costs: m.variableCosts || false,
+    fixed_costs: m.fixedCosts || false,
+    product: m.product || null,
+    interco_company_id: m.interco || null,
+  }
+}
+
 export default function CompanyMappingPage() {
   const params = useParams()
   const router = useRouter()
@@ -43,122 +101,49 @@ export default function CompanyMappingPage() {
   const [newProductName, setNewProductName] = useState("")
   const [showAddProduct, setShowAddProduct] = useState(false)
   const [allCompanies, setAllCompanies] = useState<Company[]>([])
+  const [loading, setLoading] = useState(true)
 
-  // Load company from localStorage
+  // Load all data from API
   useEffect(() => {
-    if (typeof window !== "undefined" && companyId) {
-      const loadCompany = () => {
-        const saved = localStorage.getItem("modelisys_companies")
-        if (saved) {
-          try {
-            const companies: Company[] = JSON.parse(saved)
-            const foundCompany = companies.find((c) => c.id === companyId)
-            if (foundCompany) {
-              setCompany(foundCompany)
-              // Set all companies except current one
-              const otherCompanies = companies.filter((c) => c.id !== companyId)
-              setAllCompanies(otherCompanies)
-            } else {
-              router.push(`/settings/companies/${companyId}`)
-            }
-          } catch (e) {
-            console.error("Error loading company:", e)
-            router.push(`/settings/companies/${companyId}`)
-          }
-        } else {
+    if (companyId) {
+      setLoading(true)
+      Promise.all([
+        getCompany(companyId),
+        listAccountMappings(companyId),
+        listProducts(companyId),
+        listCompanies(),
+      ])
+        .then(([companyData, mappingsData, productsData, companiesData]) => {
+          setCompany(mapApiCompany(companyData))
+          setAccounts(mappingsData.map(mapApiMapping))
+          setProducts(productsData.map((p: ProductData) => p.name))
+          setAllCompanies(
+            companiesData
+              .filter((c: ApiCompany) => c.id !== companyId)
+              .map(mapApiCompany)
+          )
+        })
+        .catch((e) => {
+          console.error("Error loading data:", e)
           router.push(`/settings/companies/${companyId}`)
-        }
-      }
-
-      const loadAccounts = () => {
-        const saved = localStorage.getItem(`modelisys_account_mapping_${companyId}`)
-        if (saved) {
-          try {
-            const loadedAccounts: AccountMapping[] = JSON.parse(saved)
-            setAccounts(loadedAccounts)
-          } catch (e) {
-            console.error("Error loading accounts:", e)
-            // Initialize with default accounts
-            setAccounts([
-              { accountNumber: "1000", description: "Comptes bancaires" },
-              { accountNumber: "1200", description: "Comptes clients" },
-              { accountNumber: "6000", description: "Revenus de services", product: "Produit 1" },
-            ])
-          }
-        } else {
-          // Initialize with default accounts
-          setAccounts([
-            { accountNumber: "1000", description: "Comptes bancaires" },
-            { accountNumber: "1200", description: "Comptes clients" },
-            { accountNumber: "6000", description: "Revenus de services", product: "Produit 1" },
-          ])
-        }
-      }
-
-      const loadProducts = () => {
-        const saved = localStorage.getItem(`modelisys_products_${companyId}`)
-        if (saved) {
-          try {
-            const loadedProducts: string[] = JSON.parse(saved)
-            setProducts(loadedProducts)
-          } catch (e) {
-            console.error("Error loading products:", e)
-            setProducts(["Produit 1", "Produit 2", "Produit 3"])
-          }
-        } else {
-          setProducts(["Produit 1", "Produit 2", "Produit 3"])
-        }
-      }
-
-      loadCompany()
-      loadAccounts()
-      loadProducts()
-
-      // Listen for storage changes
-      const handleStorageChange = () => {
-        loadCompany()
-        loadAccounts()
-        loadProducts()
-        // Reload all companies
-        const saved = localStorage.getItem("modelisys_companies")
-        if (saved) {
-          try {
-            const companies: Company[] = JSON.parse(saved)
-            setAllCompanies(companies.filter((c) => c.id !== companyId))
-          } catch (e) {
-            console.error("Error loading companies:", e)
-          }
-        }
-      }
-
-      window.addEventListener("storage", handleStorageChange)
-      const interval = setInterval(handleStorageChange, 1000)
-
-      return () => {
-        window.removeEventListener("storage", handleStorageChange)
-        clearInterval(interval)
-      }
+        })
+        .finally(() => setLoading(false))
     }
   }, [companyId, router])
 
-  // Save accounts to localStorage
-  const saveAccounts = (updatedAccounts: AccountMapping[]) => {
-    if (typeof window !== "undefined" && companyId) {
-      localStorage.setItem(`modelisys_account_mapping_${companyId}`, JSON.stringify(updatedAccounts))
+  // Save account mappings to API
+  const saveAccounts = useCallback(async (updatedAccounts: AccountMapping[]) => {
+    try {
+      await upsertAccountMappings(companyId, updatedAccounts.map(toApiMappingEntry))
+    } catch (e) {
+      console.error("Error saving account mappings:", e)
     }
-  }
-
-  // Save products to localStorage
-  const saveProducts = (updatedProducts: string[]) => {
-    if (typeof window !== "undefined" && companyId) {
-      localStorage.setItem(`modelisys_products_${companyId}`, JSON.stringify(updatedProducts))
-    }
-  }
+  }, [companyId])
 
   // Handle product change for an account
   const handleProductChange = (accountNumber: string, product: string) => {
-    const updatedAccounts = accounts.map(acc => 
-      acc.accountNumber === accountNumber 
+    const updatedAccounts = accounts.map(acc =>
+      acc.accountNumber === accountNumber
         ? { ...acc, product: product === "none" ? undefined : product }
         : acc
     )
@@ -168,8 +153,8 @@ export default function CompanyMappingPage() {
 
   // Handle interco change for an account
   const handleIntercoChange = (accountNumber: string, interco: string) => {
-    const updatedAccounts = accounts.map(acc => 
-      acc.accountNumber === accountNumber 
+    const updatedAccounts = accounts.map(acc =>
+      acc.accountNumber === accountNumber
         ? { ...acc, interco: interco === "none" ? undefined : interco }
         : acc
     )
@@ -178,14 +163,28 @@ export default function CompanyMappingPage() {
   }
 
   // Handle add new product
-  const handleAddProduct = () => {
+  const handleAddProduct = async () => {
     if (newProductName.trim() && !products.includes(newProductName.trim())) {
-      const updatedProducts = [...products, newProductName.trim()]
-      setProducts(updatedProducts)
-      saveProducts(updatedProducts)
-      setNewProductName("")
-      setShowAddProduct(false)
+      try {
+        await createProduct(companyId, { name: newProductName.trim() })
+        setProducts((prev) => [...prev, newProductName.trim()])
+        setNewProductName("")
+        setShowAddProduct(false)
+      } catch (e) {
+        console.error("Error creating product:", e)
+      }
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <DashboardHeader title="Modelisys" />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
+        </div>
+      </div>
+    )
   }
 
   if (!company) {
@@ -195,7 +194,7 @@ export default function CompanyMappingPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
-      
+
       {/* Dark Header Section */}
       <div className="w-full bg-slate-900 pt-15 pb-40">
         <div className="max-w-[1920px] mx-auto px-6">
@@ -215,7 +214,7 @@ export default function CompanyMappingPage() {
                 Configuration et paramètres de la société
               </p>
               <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres 
+                Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres
                 comptables et accédez aux différents modules de configuration pour cette entité.
               </p>
               {/* Navigation Menu */}
@@ -328,65 +327,65 @@ export default function CompanyMappingPage() {
                         <td className="px-6 py-4 text-sm text-slate-600">{account.divisions || "-"}</td>
                         <td className="px-6 py-4 text-sm text-slate-600">{account.subDivisions || "-"}</td>
                         <td className="px-6 py-4 text-center">
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             className="w-4 h-4 text-emerald-500 rounded border-slate-300"
                             checked={account.fdrhc || false}
                             onChange={(e) => {
                               const updatedAccounts = [...accounts]
-                              updatedAccounts[index].fdrhc = e.target.checked
+                              updatedAccounts[index] = { ...updatedAccounts[index], fdrhc: e.target.checked }
                               setAccounts(updatedAccounts)
                               saveAccounts(updatedAccounts)
                             }}
                           />
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             className="w-4 h-4 text-emerald-500 rounded border-slate-300"
                             checked={account.interests || false}
                             onChange={(e) => {
                               const updatedAccounts = [...accounts]
-                              updatedAccounts[index].interests = e.target.checked
+                              updatedAccounts[index] = { ...updatedAccounts[index], interests: e.target.checked }
                               setAccounts(updatedAccounts)
                               saveAccounts(updatedAccounts)
                             }}
                           />
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             className="w-4 h-4 text-emerald-500 rounded border-slate-300"
                             checked={account.amortization || false}
                             onChange={(e) => {
                               const updatedAccounts = [...accounts]
-                              updatedAccounts[index].amortization = e.target.checked
+                              updatedAccounts[index] = { ...updatedAccounts[index], amortization: e.target.checked }
                               setAccounts(updatedAccounts)
                               saveAccounts(updatedAccounts)
                             }}
                           />
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             className="w-4 h-4 text-emerald-500 rounded border-slate-300"
                             checked={account.variableCosts || false}
                             onChange={(e) => {
                               const updatedAccounts = [...accounts]
-                              updatedAccounts[index].variableCosts = e.target.checked
+                              updatedAccounts[index] = { ...updatedAccounts[index], variableCosts: e.target.checked }
                               setAccounts(updatedAccounts)
                               saveAccounts(updatedAccounts)
                             }}
                           />
                         </td>
                         <td className="px-6 py-4 text-center">
-                          <input 
-                            type="checkbox" 
+                          <input
+                            type="checkbox"
                             className="w-4 h-4 text-emerald-500 rounded border-slate-300"
                             checked={account.fixedCosts || false}
                             onChange={(e) => {
                               const updatedAccounts = [...accounts]
-                              updatedAccounts[index].fixedCosts = e.target.checked
+                              updatedAccounts[index] = { ...updatedAccounts[index], fixedCosts: e.target.checked }
                               setAccounts(updatedAccounts)
                               saveAccounts(updatedAccounts)
                             }}
@@ -482,4 +481,3 @@ export default function CompanyMappingPage() {
     </div>
   )
 }
-

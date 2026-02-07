@@ -1,13 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
+import { seededRandom } from "@/lib/seeded-random"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ChevronRight, ChevronDown, StickyNote } from "lucide-react"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId } from "@/lib/notes-storage"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
 
 type ComparisonType = "lastMonth" | "pastMonth" | "budget"
 
@@ -134,6 +137,82 @@ export function CapexDetail({
     return basePrior
   }
 
+  // Fetch series data for multi-period views
+  const currentYear = new Date().getFullYear()
+  const isMultiPeriod = view === "12months" || view === "24months" || view === "years"
+  const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
+
+  const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "balance-sheet",
+    fiscalYear: currentYear,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: isMultiPeriod,
+  })
+
+  // Convert series data into DetailRow[] format for multi-period views
+  const getSeriesData = (): DetailRow[] | null => {
+    if (!isMultiPeriod || seriesLoading || seriesRows.length === 0) return null
+
+    const rows: DetailRow[] = []
+    for (const sr of seriesRows) {
+      const rawAmounts = getRowAmounts(sr, periods)
+      let trendValues: number[]
+
+      if (view === "years") {
+        const agg = aggregateToYears(rawAmounts, periods)
+        trendValues = agg.amounts
+      } else {
+        trendValues = rawAmounts
+      }
+
+      const detailRow: DetailRow = {
+        label: sr.label,
+        current: trendValues.length > 0 ? trendValues[trendValues.length - 1] : 0,
+        prior: trendValues.length > 1 ? trendValues[trendValues.length - 2] : 0,
+        isBold: sr.isBold,
+        isSection: sr.isSection,
+        isResult: sr.isResult,
+        indent: !sr.isBold && !sr.isSection && !sr.isResult,
+        trendValues,
+        accountId: sr.id,
+        rowId: sr.detailRows.length > 0 ? sr.id : undefined,
+        balanceAccounts: sr.detailRows.length > 0 ? sr.detailRows.map((dr) => {
+          const drAmounts = periods.map((p) => dr.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] || 0)
+          return {
+            accountNumber: dr.id,
+            accountName: dr.label,
+            amount: drAmounts.length > 0 ? drAmounts[drAmounts.length - 1] : 0,
+            priorAmount: drAmounts.length > 1 ? drAmounts[drAmounts.length - 2] : 0,
+            proportion: undefined,
+          }
+        }) : undefined,
+      }
+
+      // Mark subtotal rows
+      if (sr.isBold && !sr.isSection) {
+        detailRow.isSubtotal = true
+        detailRow.indent = false
+      }
+
+      rows.push(detailRow)
+    }
+    return rows
+  }
+
+  // Get period labels for multi-period headers
+  const getSeriesPeriodLabels = (): string[] => {
+    if (periods.length === 0) return []
+    if (view === "years") {
+      const rawAmounts = seriesRows.length > 0 ? getRowAmounts(seriesRows[0], periods) : []
+      const agg = aggregateToYears(rawAmounts, periods)
+      return agg.labels
+    }
+    return getPeriodLabels(periods)
+  }
+
   // Helper function to get balance accounts for a given account type
   const getBalanceAccounts = (accountId: string, current: number, prior: number): BalanceAccount[] => {
     switch (accountId) {
@@ -182,7 +261,7 @@ export function CapexDetail({
     const generateTrend = (base: number, growthRate: number = 0.02) => {
       return Array.from({ length: 12 }, (_, i) => {
         const monthIndex = 11 - i
-        return Math.round(base * (1 + growthRate * monthIndex) * (0.95 + Math.random() * 0.1))
+        return Math.round(base * (1 + growthRate * monthIndex) * (0.95 + seededRandom(base + i) * 0.1))
       })
     }
 
@@ -218,7 +297,7 @@ export function CapexDetail({
     const generateTrend = (base: number, growthRate: number = 0.02) => {
       return Array.from({ length: 24 }, (_, i) => {
         const monthIndex = 23 - i
-        return Math.round(base * (1 + growthRate * monthIndex) * (0.95 + Math.random() * 0.1))
+        return Math.round(base * (1 + growthRate * monthIndex) * (0.95 + seededRandom(base + i) * 0.1))
       })
     }
 
@@ -254,7 +333,7 @@ export function CapexDetail({
     const generateTrend = (base: number, growthRate: number = 0.03) => {
       return Array.from({ length: 5 }, (_, i) => {
         const quarterIndex = 4 - i
-        return Math.round(base * (1 + growthRate * quarterIndex) * (0.97 + Math.random() * 0.06))
+        return Math.round(base * (1 + growthRate * quarterIndex) * (0.97 + seededRandom(base + i) * 0.06))
       })
     }
 
@@ -290,7 +369,7 @@ export function CapexDetail({
     const generateTrend = (base: number, growthRate: number = 0.05) => {
       return Array.from({ length: 6 }, (_, i) => {
         const yearIndex = 5 - i
-        return Math.round(base * (1 + growthRate * yearIndex) * (0.95 + Math.random() * 0.1))
+        return Math.round(base * (1 + growthRate * yearIndex) * (0.95 + seededRandom(base + i) * 0.1))
       })
     }
 
@@ -322,15 +401,14 @@ export function CapexDetail({
   }
 
   const getDetailData = (): DetailRow[] => {
-    // Return trend data for trend views
-    if (view === "12months") {
-      return get12MonthsData()
-    }
-    if (view === "24months") {
-      return get24MonthsData()
-    }
-    if (view === "years") {
-      return getYearsData()
+    // Return real series data for trend views when available
+    if (isMultiPeriod) {
+      const seriesData = getSeriesData()
+      if (seriesData) return seriesData
+      // Fall back to hardcoded while loading
+      if (view === "12months") return get12MonthsData()
+      if (view === "24months") return get24MonthsData()
+      if (view === "years") return getYearsData()
     }
     if (period === "monthly") {
       const currentRevenue = 275000
@@ -870,6 +948,13 @@ export function CapexDetail({
         </div>
       </div>
 
+      {/* Loading state */}
+      {isMultiPeriod && seriesLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="overflow-x-auto bg-white">
         <table className="w-full">
@@ -889,7 +974,7 @@ export function CapexDetail({
               )}
               {view === "12months" && (
                 <>
-                  {getMonthLabels(12).map((label, idx) => (
+                  {(getSeriesData() ? getSeriesPeriodLabels() : getMonthLabels(12)).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>
@@ -898,7 +983,7 @@ export function CapexDetail({
               )}
               {view === "24months" && (
                 <>
-                  {getMonthLabels(24).map((label, idx) => (
+                  {(getSeriesData() ? getSeriesPeriodLabels() : getMonthLabels(24)).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>
@@ -907,7 +992,7 @@ export function CapexDetail({
               )}
               {view === "years" && (
                 <>
-                  {getYearLabels().map((label, idx) => (
+                  {(getSeriesData() ? getSeriesPeriodLabels() : getYearLabels()).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>
@@ -940,8 +1025,8 @@ export function CapexDetail({
                 : false
 
               return (
-                <>
-                <tr key={idx} className={cn(
+                <Fragment key={idx}>
+                <tr className={cn(
                   "border-b",
                   row.label === "" ? "h-2 border-slate-200" : "",
                   (nextRowIsSubtotal || nextRowIsResult) ? "border-slate-900 border-b-2" : "border-slate-200",
@@ -1222,7 +1307,7 @@ export function CapexDetail({
                       })}
                     </>
                   )}
-                </>
+                </Fragment>
               )
             })}
             {/* Capex Summary Sections */}

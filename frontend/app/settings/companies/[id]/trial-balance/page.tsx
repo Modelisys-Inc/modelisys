@@ -3,11 +3,17 @@
 import { useState, useEffect, useRef } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Building2, ArrowLeft, Upload, X } from "lucide-react"
+import { ArrowLeft, Upload, X, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
+import {
+  getCompany,
+  getTrialBalance,
+  uploadTrialBalance,
+  type Company as ApiCompany,
+  type TrialBalanceData,
+} from "@/lib/api"
 
 interface Company {
   id: string
@@ -37,84 +43,70 @@ const months = [
   "Décembre"
 ]
 
+function mapApiCompany(c: ApiCompany): Company {
+  return {
+    id: c.id,
+    name: c.name,
+    fiscalYearEnd: c.fiscal_year_end,
+    currency: c.currency,
+  }
+}
+
+function mapTrialBalanceAccounts(data: TrialBalanceData): TrialBalanceAccount[] {
+  return data.accounts.map((a) => ({
+    accountNumber: a.account_number,
+    description: a.description,
+    monthlyAmounts: a.monthly_amounts,
+  }))
+}
+
 export default function TrialBalancePage() {
   const params = useParams()
   const router = useRouter()
   const companyId = params.id as string
   const [company, setCompany] = useState<Company | null>(null)
   const [accounts, setAccounts] = useState<TrialBalanceAccount[]>([])
+  const [loading, setLoading] = useState(true)
   const [showImportModal, setShowImportModal] = useState(false)
   const [selectedMonth, setSelectedMonth] = useState<string>("")
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString())
   const [importFile, setImportFile] = useState<File | null>(null)
+  const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Load company and accounts from localStorage
+  // Load company and accounts from API
   useEffect(() => {
-    if (typeof window !== "undefined" && companyId) {
-      const loadCompany = () => {
-        const saved = localStorage.getItem("modelisys_companies")
-        if (saved) {
-          try {
-            const companies: Company[] = JSON.parse(saved)
-            const foundCompany = companies.find((c) => c.id === companyId)
-            if (foundCompany) {
-              setCompany(foundCompany)
-            } else {
-              router.push(`/settings/companies/${companyId}`)
-            }
-          } catch (e) {
-            console.error("Error loading company:", e)
-            router.push(`/settings/companies/${companyId}`)
-          }
-        } else {
+    if (companyId) {
+      setLoading(true)
+      Promise.all([
+        getCompany(companyId),
+        getTrialBalance(companyId),
+      ])
+        .then(([companyData, tbData]) => {
+          setCompany(mapApiCompany(companyData))
+          setAccounts(mapTrialBalanceAccounts(tbData))
+        })
+        .catch((e) => {
+          console.error("Error loading data:", e)
           router.push(`/settings/companies/${companyId}`)
-        }
-      }
-
-      const loadAccounts = () => {
-        const saved = localStorage.getItem(`modelisys_trial_balance_${companyId}`)
-        if (saved) {
-          try {
-            const loadedAccounts: TrialBalanceAccount[] = JSON.parse(saved)
-            setAccounts(loadedAccounts)
-          } catch (e) {
-            console.error("Error loading trial balance accounts:", e)
-            setAccounts([])
-          }
-        } else {
-          setAccounts([])
-        }
-      }
-
-      loadCompany()
-      loadAccounts()
-
-      // Listen for storage changes
-      const handleStorageChange = () => {
-        loadCompany()
-        loadAccounts()
-      }
-
-      window.addEventListener("storage", handleStorageChange)
-      const interval = setInterval(handleStorageChange, 1000)
-
-      return () => {
-        window.removeEventListener("storage", handleStorageChange)
-        clearInterval(interval)
-      }
+        })
+        .finally(() => setLoading(false))
     }
   }, [companyId, router])
 
-  if (!company) {
-    return null
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <DashboardHeader title="Modelisys" />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
+        </div>
+      </div>
+    )
   }
 
-  // Save accounts to localStorage
-  const saveAccounts = (updatedAccounts: TrialBalanceAccount[]) => {
-    if (typeof window !== "undefined" && companyId) {
-      localStorage.setItem(`modelisys_trial_balance_${companyId}`, JSON.stringify(updatedAccounts))
-    }
+  if (!company) {
+    return null
   }
 
   // Format number for display
@@ -134,103 +126,27 @@ export default function TrialBalancePage() {
     }
   }
 
-  // Handle Excel import
+  // Handle Excel import via backend API
   const handleImport = async () => {
     if (!importFile || !selectedMonth) {
       alert("Veuillez sélectionner un fichier et un mois")
       return
     }
 
+    setImporting(true)
     try {
-      // Dynamically import xlsx
-      let XLSX
-      try {
-        XLSX = await import("xlsx")
-      } catch (importError) {
-        alert("La bibliothèque xlsx n'est pas installée. Veuillez exécuter : npm install xlsx --legacy-peer-deps")
-        return
-      }
-      
-      const arrayBuffer = await importFile.arrayBuffer()
-      const workbook = XLSX.read(arrayBuffer, { type: "array" })
-      const firstSheetName = workbook.SheetNames[0]
-      const worksheet = workbook.Sheets[firstSheetName]
-      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][]
+      const monthIndex = months.indexOf(selectedMonth) + 1
+      const result = await uploadTrialBalance(
+        companyId,
+        importFile,
+        parseInt(selectedYear),
+        monthIndex,
+      )
 
-      // Find header row (look for "# de compte", "Description", "montant" or similar)
-      let headerRowIndex = -1
-      for (let i = 0; i < Math.min(10, data.length); i++) {
-        const row = data[i]
-        if (row && row.length >= 3) {
-          const firstCell = String(row[0] || "").toLowerCase().trim()
-          const secondCell = String(row[1] || "").toLowerCase().trim()
-          const thirdCell = String(row[2] || "").toLowerCase().trim()
-          
-          if (
-            (firstCell.includes("compte") || firstCell.includes("#")) &&
-            (secondCell.includes("description") || secondCell.includes("desc")) &&
-            (thirdCell.includes("montant") || thirdCell.includes("amount") || thirdCell.includes("solde"))
-          ) {
-            headerRowIndex = i
-            break
-          }
-        }
-      }
+      // Reload trial balance data from API
+      const tbData = await getTrialBalance(companyId, parseInt(selectedYear))
+      setAccounts(mapTrialBalanceAccounts(tbData))
 
-      if (headerRowIndex === -1) {
-        alert("Impossible de trouver l'en-tête dans le fichier Excel. Assurez-vous que les colonnes sont : # de compte, Description, Montant")
-        return
-      }
-
-      // Parse data rows
-      const updatedAccounts = [...accounts]
-      const accountMap = new Map<string, TrialBalanceAccount>()
-      
-      // Create map from existing accounts
-      updatedAccounts.forEach(acc => {
-        accountMap.set(acc.accountNumber, acc)
-      })
-
-      let totalSum = 0
-      let importedCount = 0
-
-      // Process data rows (skip header row)
-      for (let i = headerRowIndex + 1; i < data.length; i++) {
-        const row = data[i]
-        if (!row || row.length < 3) continue
-
-        const accountNumber = String(row[0] || "").trim()
-        const description = String(row[1] || "").trim()
-        const amountStr = String(row[2] || "").trim().replace(/\s/g, "").replace(",", ".")
-        const amount = parseFloat(amountStr)
-
-        if (!accountNumber || isNaN(amount)) continue
-
-        // Get or create account
-        let account = accountMap.get(accountNumber)
-        if (!account) {
-          account = {
-            accountNumber,
-            description: description || accountNumber,
-            monthlyAmounts: {}
-          }
-          accountMap.set(accountNumber, account)
-        } else if (description && !account.description) {
-          // Update description if missing
-          account.description = description
-        }
-
-        // Update amount for selected month
-        account.monthlyAmounts[selectedMonth] = amount
-        totalSum += amount
-        importedCount++
-      }
-
-      // Convert map back to array
-      const finalAccounts = Array.from(accountMap.values())
-      setAccounts(finalAccounts)
-      saveAccounts(finalAccounts)
-      
       // Reset import state
       setShowImportModal(false)
       setImportFile(null)
@@ -238,29 +154,17 @@ export default function TrialBalancePage() {
       if (fileInputRef.current) {
         fileInputRef.current.value = ""
       }
-      
-      // Format total sum
-      const formattedSum = formatAmount(totalSum)
-      const isBalanced = Math.abs(totalSum) < 0.01 // Allow for small rounding errors
-      
-      // Show result message
-      let message = `Import réussi ! ${importedCount} compte(s) importé(s) pour ${selectedMonth} ${selectedYear}.\n\n`
-      message += `Somme totale des montants : ${formattedSum}`
-      
-      if (isBalanced) {
-        message += `\n\n✓ La balance est équilibrée (somme = 0)`
-        alert(message)
-      } else {
-        message += `\n\n⚠ ATTENTION : La balance n'est pas équilibrée (somme ≠ 0)`
-        alert(message)
-      }
+
+      alert(`Import réussi ! ${result.accounts_imported} compte(s) importé(s) pour ${selectedMonth} ${selectedYear}.`)
     } catch (error) {
       console.error("Error importing file:", error)
       alert("Erreur lors de l'importation du fichier. Veuillez vérifier le format du fichier.")
+    } finally {
+      setImporting(false)
     }
   }
 
-  // Generate years list (current year ± 5 years)
+  // Generate years list (current year +/- 5 years)
   const generateYears = () => {
     const currentYear = new Date().getFullYear()
     const years = []
@@ -273,7 +177,7 @@ export default function TrialBalancePage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
-      
+
       {/* Dark Header Section */}
       <div className="w-full bg-slate-900 pt-15 pb-40">
         <div className="max-w-[1920px] mx-auto px-6">
@@ -293,7 +197,7 @@ export default function TrialBalancePage() {
                 Configuration et paramètres de la société
               </p>
               <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres 
+                Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres
                 comptables et accédez aux différents modules de configuration pour cette entité.
               </p>
               {/* Navigation Menu */}
@@ -490,9 +394,12 @@ export default function TrialBalancePage() {
               </Button>
               <Button
                 onClick={handleImport}
-                disabled={!importFile || !selectedMonth}
+                disabled={!importFile || !selectedMonth || importing}
                 className="bg-emerald-500 hover:bg-emerald-600 text-white"
               >
+                {importing ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : null}
                 Importer
               </Button>
             </div>
@@ -502,4 +409,3 @@ export default function TrialBalancePage() {
     </div>
   )
 }
-

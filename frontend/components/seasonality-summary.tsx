@@ -3,6 +3,9 @@
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
+import { seededRandom } from "@/lib/seeded-random"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, aggregateToYears } from "@/lib/series-utils"
 
 type ProductType = "total" | "product_a" | "product_b" | "service_c"
 
@@ -42,6 +45,61 @@ export function SeasonalitySummary({
   subDivisionId,
   companies = [],
 }: SeasonalitySummaryProps) {
+  // --- Series hook for real data ---
+  const currentYear = new Date().getFullYear()
+  const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
+
+  const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "income-statement",
+    fiscalYear: currentYear,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: !!companyId,
+  })
+
+  // Convert series rows to SummaryRow[]
+  const getSeriesData = (): SummaryRow[] | null => {
+    if (seriesRows.length === 0 || periods.length === 0) return null
+
+    const result: SummaryRow[] = []
+    for (const row of seriesRows) {
+      const amounts = getRowAmounts(row, periods)
+      let trendValues: number[]
+
+      if (view === "years") {
+        const agg = aggregateToYears(amounts, periods)
+        trendValues = agg.amounts
+      } else {
+        trendValues = amounts
+      }
+
+      result.push({
+        label: row.label,
+        current: trendValues[trendValues.length - 1] || 0,
+        prior: trendValues.length > 1 ? trendValues[trendValues.length - 2] : 0,
+        indent: !row.isBold && !row.isSection,
+        isBold: row.isBold,
+        isSubtotal: row.isResult,
+        isSection: row.isSection,
+        trendValues,
+        accountId: row.id,
+      })
+    }
+    return result
+  }
+
+  const getSeriesPeriodLabels = (): string[] | null => {
+    if (periods.length === 0) return null
+    if (view === "years") {
+      const amounts = periods.map(() => 0)
+      const agg = aggregateToYears(amounts, periods)
+      return agg.labels
+    }
+    return getPeriodLabels(periods)
+  }
+
   // Helper function to generate month labels
   const getMonthLabels = (monthsCount: number = 12): string[] => {
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
@@ -110,17 +168,17 @@ export function SeasonalitySummary({
   }
 
   // Helper function to generate seasonality data with patterns
-  const generateSeasonalityData = (base: number, seasonalPattern: number[]): number[] => {
+  const generateSeasonalityData = (base: number, seasonalPattern: number[], seedOffset: number = 0): number[] => {
     const currentDate = new Date()
     const data: number[] = []
-    
+
     if (view === "12months") {
       for (let i = 11; i >= 0; i--) {
         const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
         const monthIndex = date.getMonth()
         const seasonalMultiplier = seasonalPattern[monthIndex] || 1
         const trend = 1 + (0.02 * (11 - i))
-        data.push(Math.round(base * seasonalMultiplier * trend * (0.95 + Math.random() * 0.1)))
+        data.push(Math.round(base * seasonalMultiplier * trend * (0.95 + seededRandom(base + i + seedOffset) * 0.1)))
       }
     } else if (view === "24months") {
       for (let i = 23; i >= 0; i--) {
@@ -128,15 +186,15 @@ export function SeasonalitySummary({
         const monthIndex = date.getMonth()
         const seasonalMultiplier = seasonalPattern[monthIndex] || 1
         const trend = 1 + (0.02 * (23 - i) / 12)
-        data.push(Math.round(base * seasonalMultiplier * trend * (0.95 + Math.random() * 0.1)))
+        data.push(Math.round(base * seasonalMultiplier * trend * (0.95 + seededRandom(base + i + seedOffset) * 0.1)))
       }
     } else if (view === "years") {
       for (let i = 5; i >= 0; i--) {
-        const yearValue = base * (1 + 0.05 * (5 - i)) * (0.95 + Math.random() * 0.1)
+        const yearValue = base * (1 + 0.05 * (5 - i)) * (0.95 + seededRandom(base + i + seedOffset) * 0.1)
         data.push(Math.round(yearValue))
       }
     }
-    
+
     return data
   }
 
@@ -337,7 +395,11 @@ export function SeasonalitySummary({
     ]
   }
 
-  const data = getSummaryData()
+  // Prefer series data when available
+  const seriesData = getSeriesData()
+  const seriesLabels = getSeriesPeriodLabels()
+
+  const data = seriesData || getSummaryData()
 
   // Calculate total revenue for each period
   const getTotalRevenueForPeriod = (periodIndex: number): number => {
@@ -385,6 +447,13 @@ export function SeasonalitySummary({
         </div>
       </div>
 
+      {/* Loading state */}
+      {seriesLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+        </div>
+      )}
+
       {/* Table */}
       <div className="overflow-x-auto bg-white">
         <table className="w-full">
@@ -393,7 +462,7 @@ export function SeasonalitySummary({
               <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Compte</th>
               {view === "12months" && (
                 <>
-                  {getMonthLabels(12).map((label, idx) => (
+                  {(seriesLabels || getMonthLabels(12)).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>
@@ -402,7 +471,7 @@ export function SeasonalitySummary({
               )}
               {view === "24months" && (
                 <>
-                  {getMonthLabels(24).map((label, idx) => (
+                  {(seriesLabels || getMonthLabels(24)).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>
@@ -411,7 +480,7 @@ export function SeasonalitySummary({
               )}
               {view === "years" && (
                 <>
-                  {getYearLabels().map((label, idx) => (
+                  {(seriesLabels || getYearLabels()).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>

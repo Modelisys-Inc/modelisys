@@ -8,6 +8,13 @@ import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { BarChart3, ChevronDown, TrendingUp, TrendingDown } from "lucide-react"
 
+export interface CapexChartDataPoint {
+  period: string
+  capex: number
+  denominator: number
+  ratio: number
+}
+
 interface CapexChartProps {
   period: "monthly" | "quarterly" | "annual"
   view: "current" | "12months" | "24months" | "years"
@@ -16,54 +23,8 @@ interface CapexChartProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
-}
-
-// Helper functions to generate data (same logic as CapexDetail)
-const getDetailData = (period: "monthly" | "quarterly" | "annual", view: "current" | "12months" | "24months" | "years") => {
-  // Simplified data generation - same structure as CapexDetail
-  if (view === "12months") {
-    return {
-      currentFixedAssets: 960000,
-      priorFixedAssets: 900000,
-      currentRevenue: 275000,
-      priorRevenue: 242000,
-      trendValues: Array.from({ length: 12 }, (_, i) => ({
-        fixedAssets: 900000 + (i * 5000),
-        revenue: 242000 + (i * 2750)
-      }))
-    }
-  }
-  if (view === "24months") {
-    return {
-      currentFixedAssets: 960000,
-      priorFixedAssets: 900000,
-      currentRevenue: 275000,
-      priorRevenue: 242000,
-      trendValues: Array.from({ length: 24 }, (_, i) => ({
-        fixedAssets: 900000 + (i * 2500),
-        revenue: 242000 + (i * 1375)
-      }))
-    }
-  }
-  if (view === "years") {
-    return {
-      currentFixedAssets: 11520000,
-      priorFixedAssets: 10800000,
-      currentRevenue: 3300000,
-      priorRevenue: 2864000,
-      trendValues: Array.from({ length: 6 }, (_, i) => ({
-        fixedAssets: 10800000 + (i * 120000),
-        revenue: 2864000 + (i * 72800)
-      }))
-    }
-  }
-  return {
-    currentFixedAssets: period === "monthly" ? 960000 : period === "quarterly" ? 2880000 : 11520000,
-    priorFixedAssets: period === "monthly" ? 900000 : period === "quarterly" ? 2700000 : 10800000,
-    currentRevenue: period === "monthly" ? 275000 : period === "quarterly" ? 825000 : 3300000,
-    priorRevenue: period === "monthly" ? 242000 : period === "quarterly" ? 716000 : 2864000,
-    trendValues: undefined
-  }
+  chartData?: CapexChartDataPoint[]
+  loading?: boolean
 }
 
 type RatioType = "depreciation" | "revenue" | "ebitda" | "cashflow"
@@ -76,356 +37,31 @@ export function CapexChart({
   divisionId,
   subDivisionId,
   companies = [],
+  chartData,
+  loading = false,
 }: CapexChartProps) {
   const [selectedAssetCategory, setSelectedAssetCategory] = useState<string>("total")
   const [selectedRatio, setSelectedRatio] = useState<RatioType>("depreciation")
 
-  // Get fixed assets cost
-  const getFixedAssetsCost = (isPrior: boolean, trendIndex?: number): number => {
-    const data = getDetailData(period, view)
-    
-    if (trendIndex !== undefined && data.trendValues) {
-      return data.trendValues[trendIndex]?.fixedAssets || 0
-    } else {
-      return isPrior ? data.priorFixedAssets : data.currentFixedAssets
-    }
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      </div>
+    )
   }
 
-  // Calculate accumulated depreciation (cumulative)
-  const calculateAccumulatedDepreciation = (isPrior: boolean, trendIndex?: number): number => {
-    const data = getDetailData(period, view)
-    const annualRate = 0.08
-    
-    // For trend data, calculate cumulative depreciation
-    if (trendIndex !== undefined && data.trendValues) {
-      let accumulated = 0
-      for (let i = 0; i <= trendIndex; i++) {
-        const assets = data.trendValues[i]?.fixedAssets || 0
-        if (period === "monthly") {
-          accumulated += assets * (annualRate / 12)
-        } else if (period === "quarterly") {
-          accumulated += assets * (annualRate / 4)
-        } else {
-          accumulated += assets * annualRate
-        }
-      }
-      return accumulated
-    }
-    
-    // For current/prior, estimate based on age (assume 3 years average)
-    const assets = isPrior ? data.priorFixedAssets : data.currentFixedAssets
-    const years = 3
-    return assets * annualRate * years
+  // Empty state
+  if (!chartData || chartData.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <p className="text-slate-400">Aucune donnée disponible</p>
+      </div>
+    )
   }
 
-  // Calculate book value (cost - accumulated depreciation)
-  const getBookValue = (isPrior: boolean, trendIndex?: number): number => {
-    const cost = getFixedAssetsCost(isPrior, trendIndex)
-    const accumulatedDepreciation = calculateAccumulatedDepreciation(isPrior, trendIndex)
-    return cost - accumulatedDepreciation
-  }
-
-  // Calculate Capex (variation in fixed assets)
-  const calculateCapex = (isPrior: boolean, trendIndex?: number): number => {
-    const data = getDetailData(period, view)
-    
-    if (trendIndex !== undefined && data.trendValues) {
-      const current = data.trendValues[trendIndex]?.fixedAssets || 0
-      const prior = trendIndex > 0 ? (data.trendValues[trendIndex - 1]?.fixedAssets || 0) : data.priorFixedAssets
-      return current - prior
-    } else {
-      return data.currentFixedAssets - data.priorFixedAssets
-    }
-  }
-
-  // Calculate Depreciation (typically 8% of fixed assets per year)
-  const calculateDepreciation = (isPrior: boolean, trendIndex?: number): number => {
-    const data = getDetailData(period, view)
-    
-    let totalAssets = 0
-    if (trendIndex !== undefined && data.trendValues) {
-      totalAssets = data.trendValues[trendIndex]?.fixedAssets || 0
-    } else {
-      totalAssets = isPrior ? data.priorFixedAssets : data.currentFixedAssets
-    }
-    
-    // Assume 8% annual depreciation rate, adjust for period
-    const annualRate = 0.08
-    if (period === "monthly") {
-      return totalAssets * (annualRate / 12)
-    } else if (period === "quarterly") {
-      return totalAssets * (annualRate / 4)
-    } else {
-      return totalAssets * annualRate
-    }
-  }
-
-  // Calculate Revenue
-  const getRevenue = (isPrior: boolean, trendIndex?: number): number => {
-    const data = getDetailData(period, view)
-    if (trendIndex !== undefined && data.trendValues) {
-      return data.trendValues[trendIndex]?.revenue || 0
-    }
-    return isPrior ? data.priorRevenue : data.currentRevenue
-  }
-
-  // Calculate EBITDA (20% of revenue)
-  const calculateEBITDA = (isPrior: boolean, trendIndex?: number): number => {
-    const revenue = getRevenue(isPrior, trendIndex)
-    return revenue * 0.20
-  }
-
-  // Calculate Operating Cash Flow
-  const calculateOperatingCashFlow = (isPrior: boolean, trendIndex?: number): number => {
-    const ebitda = calculateEBITDA(isPrior, trendIndex)
-    const depreciation = calculateDepreciation(isPrior, trendIndex)
-    return ebitda - depreciation
-  }
-
-  // Get denominator based on selected ratio
-  const getDenominator = (isPrior: boolean, trendIndex?: number): number => {
-    switch (selectedRatio) {
-      case "depreciation":
-        return calculateDepreciation(isPrior, trendIndex)
-      case "revenue":
-        return getRevenue(isPrior, trendIndex)
-      case "ebitda":
-        return calculateEBITDA(isPrior, trendIndex)
-      case "cashflow":
-        return calculateOperatingCashFlow(isPrior, trendIndex)
-      default:
-        return calculateDepreciation(isPrior, trendIndex)
-    }
-  }
-
-  // Get chart title based on display mode
-  const getChartTitle = (): string => {
-    if (displayMode === "cost") {
-      return "Coût / Amortissement"
-    } else if (displayMode === "book_value") {
-      return "Valeur comptable"
-    } else {
-      // displayMode === "capex"
-      switch (selectedRatio) {
-        case "depreciation":
-          return "Capex / Amortissement"
-        case "revenue":
-          return "Capex / Revenus"
-        case "ebitda":
-          return "Capex / BAIIA"
-        case "cashflow":
-          return "Capex / Flux de trésorerie"
-        default:
-          return "Capex / Amortissement"
-      }
-    }
-  }
-
-  // Get ratio label (for capex mode only)
-  const getRatioLabel = (): string => {
-    switch (selectedRatio) {
-      case "depreciation":
-        return "Capex / Amortissement"
-      case "revenue":
-        return "Capex / Revenus"
-      case "ebitda":
-        return "Capex / BAIIA"
-      case "cashflow":
-        return "Capex / Flux de trésorerie"
-      default:
-        return "Capex / Amortissement"
-    }
-  }
-
-  // Get denominator label
-  const getDenominatorLabel = (): string => {
-    switch (selectedRatio) {
-      case "depreciation":
-        return "Amortissement"
-      case "revenue":
-        return "Revenus"
-      case "ebitda":
-        return "BAIIA"
-      case "cashflow":
-        return "Flux de trésorerie"
-      default:
-        return "Amortissement"
-    }
-  }
-
-  // Get value for specific asset category based on display mode
-  const getValueForAsset = (accountId: string | "total", isPrior: boolean, trendIndex?: number): number => {
-    if (displayMode === "cost") {
-      const cost = getFixedAssetsCost(isPrior, trendIndex)
-      if (accountId === "total") {
-        return cost
-      }
-      const multipliers: Record<string, number> = {
-        land_buildings: 0.47,
-        equipment: 0.36,
-        vehicles: 0.10,
-        other_fixed: 0.06,
-        fixed_assets: 0.67,
-        patents: 0.50,
-        software: 0.33,
-        goodwill: 0.17,
-        intangible_assets: 0.33,
-      }
-      return cost * (multipliers[accountId] || 1)
-    } else if (displayMode === "book_value") {
-      const bookValue = getBookValue(isPrior, trendIndex)
-      if (accountId === "total") {
-        return bookValue
-      }
-      const multipliers: Record<string, number> = {
-        land_buildings: 0.47,
-        equipment: 0.36,
-        vehicles: 0.10,
-        other_fixed: 0.06,
-        fixed_assets: 0.67,
-        patents: 0.50,
-        software: 0.33,
-        goodwill: 0.17,
-        intangible_assets: 0.33,
-      }
-      return bookValue * (multipliers[accountId] || 1)
-    } else {
-      // displayMode === "capex"
-      if (accountId === "total") {
-        return calculateCapex(isPrior, trendIndex)
-      }
-      const total = calculateCapex(isPrior, trendIndex)
-      const multipliers: Record<string, number> = {
-        land_buildings: 0.47,
-        equipment: 0.36,
-        vehicles: 0.10,
-        other_fixed: 0.06,
-        fixed_assets: 0.67,
-        patents: 0.50,
-        software: 0.33,
-        goodwill: 0.17,
-        intangible_assets: 0.33,
-      }
-      return total * (multipliers[accountId] || 1)
-    }
-  }
-
-  // Calculate Capex for specific asset category (for capex mode)
-  const calculateCapexForAsset = (accountId: string | "total", isPrior: boolean, trendIndex?: number): number => {
-    if (accountId === "total") {
-      return calculateCapex(isPrior, trendIndex)
-    }
-    // For specific assets, use a fraction of total
-    const total = calculateCapex(isPrior, trendIndex)
-    const multipliers: Record<string, number> = {
-      land_buildings: 0.47,
-      equipment: 0.36,
-      vehicles: 0.10,
-      other_fixed: 0.06,
-      fixed_assets: 0.67,
-      patents: 0.50,
-      software: 0.33,
-      goodwill: 0.17,
-      intangible_assets: 0.33,
-    }
-    return total * (multipliers[accountId] || 1)
-  }
-
-  // Helper functions to get labels
-  const getMonthLabels = (count: number): string[] => {
-    const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
-    const labels: string[] = []
-    const currentDate = new Date()
-    for (let i = count - 1; i >= 0; i--) {
-      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
-      labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
-    }
-    return labels
-  }
-
-  const getYearLabels = (): string[] => {
-    const currentYear = new Date().getFullYear()
-    return Array.from({ length: 6 }, (_, i) => `${currentYear - 5 + i}`)
-  }
-
-  // Get data points for chart
-  let chartDataPoints: Array<{
-    period: string
-    capex: number
-    denominator: number
-    ratio: number
-  }> = []
-
-  if (view === "12months") {
-    const monthLabels = getMonthLabels(12)
-    monthLabels.forEach((_, idx) => {
-      const value = getValueForAsset(selectedAssetCategory, false, idx)
-      const depreciation = displayMode === "cost" ? calculateDepreciation(false, idx) : displayMode === "capex" ? calculateDepreciation(false, idx) : 0
-      const denominator = displayMode === "capex" ? getDenominator(false, idx) : displayMode === "cost" ? depreciation : 0
-      const ratio = displayMode === "book_value" ? 0 : (denominator !== 0 ? (value / denominator) * 100 : 0)
-      chartDataPoints.push({
-        period: monthLabels[idx],
-        capex: value,
-        denominator: denominator,
-        ratio: ratio,
-      })
-    })
-  } else if (view === "24months") {
-    const monthLabels = getMonthLabels(24)
-    monthLabels.forEach((_, idx) => {
-      const value = getValueForAsset(selectedAssetCategory, false, idx)
-      const depreciation = displayMode === "cost" ? calculateDepreciation(false, idx) : displayMode === "capex" ? calculateDepreciation(false, idx) : 0
-      const denominator = displayMode === "capex" ? getDenominator(false, idx) : displayMode === "cost" ? depreciation : 0
-      const ratio = displayMode === "book_value" ? 0 : (denominator !== 0 ? (value / denominator) * 100 : 0)
-      chartDataPoints.push({
-        period: monthLabels[idx],
-        capex: value,
-        denominator: denominator,
-        ratio: ratio,
-      })
-    })
-  } else if (view === "years") {
-    const yearLabels = getYearLabels()
-    yearLabels.forEach((_, idx) => {
-      const value = getValueForAsset(selectedAssetCategory, false, idx)
-      const depreciation = displayMode === "cost" ? calculateDepreciation(false, idx) : displayMode === "capex" ? calculateDepreciation(false, idx) : 0
-      const denominator = displayMode === "capex" ? getDenominator(false, idx) : displayMode === "cost" ? depreciation : 0
-      const ratio = displayMode === "book_value" ? 0 : (denominator !== 0 ? (value / denominator) * 100 : 0)
-      chartDataPoints.push({
-        period: yearLabels[idx],
-        capex: value,
-        denominator: denominator,
-        ratio: ratio,
-      })
-    })
-  } else if (view === "current") {
-    const valueCurrent = getValueForAsset(selectedAssetCategory, false)
-    const depreciationCurrent = displayMode === "cost" ? calculateDepreciation(false) : displayMode === "capex" ? calculateDepreciation(false) : 0
-    const denominatorCurrent = displayMode === "capex" ? getDenominator(false) : displayMode === "cost" ? depreciationCurrent : 0
-    const ratioCurrent = displayMode === "book_value" ? 0 : (denominatorCurrent !== 0 ? (valueCurrent / denominatorCurrent) * 100 : 0)
-    
-    const valuePrior = getValueForAsset(selectedAssetCategory, true)
-    const depreciationPrior = displayMode === "cost" ? calculateDepreciation(true) : displayMode === "capex" ? calculateDepreciation(true) : 0
-    const denominatorPrior = displayMode === "capex" ? getDenominator(true) : displayMode === "cost" ? depreciationPrior : 0
-    const ratioPrior = displayMode === "book_value" ? 0 : (denominatorPrior !== 0 ? (valuePrior / denominatorPrior) * 100 : 0)
-    
-    chartDataPoints = [
-      {
-        period: "Passé",
-        capex: valuePrior,
-        denominator: denominatorPrior,
-        ratio: ratioPrior,
-      },
-      {
-        period: "Courant",
-        capex: valueCurrent,
-        denominator: denominatorCurrent,
-        ratio: ratioCurrent,
-      },
-    ]
-  }
-
-  if (chartDataPoints.length === 0) return null
+  const chartDataPoints = chartData
 
   // Calculate averages
   const avgCapex = chartDataPoints.reduce((sum, d) => sum + d.capex, 0) / chartDataPoints.length
@@ -465,6 +101,44 @@ export function CapexChart({
       return "Valeur comptable"
     } else {
       return "Capex"
+    }
+  }
+
+  // Get chart title based on display mode
+  const getChartTitle = (): string => {
+    if (displayMode === "cost") {
+      return "Coût / Amortissement"
+    } else if (displayMode === "book_value") {
+      return "Valeur comptable"
+    } else {
+      switch (selectedRatio) {
+        case "depreciation":
+          return "Capex / Amortissement"
+        case "revenue":
+          return "Capex / Revenus"
+        case "ebitda":
+          return "Capex / BAIIA"
+        case "cashflow":
+          return "Capex / Flux de trésorerie"
+        default:
+          return "Capex / Amortissement"
+      }
+    }
+  }
+
+  // Get denominator label
+  const getDenominatorLabel = (): string => {
+    switch (selectedRatio) {
+      case "depreciation":
+        return "Amortissement"
+      case "revenue":
+        return "Revenus"
+      case "ebitda":
+        return "BAIIA"
+      case "cashflow":
+        return "Flux de trésorerie"
+      default:
+        return "Amortissement"
     }
   }
 

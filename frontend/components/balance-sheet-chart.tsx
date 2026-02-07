@@ -1,12 +1,26 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { ComposedChart, Line, Bar, Area, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ChevronDown, TrendingUp, TrendingDown } from "lucide-react"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears, findRow } from "@/lib/series-utils"
+
+export interface BalanceSheetChartDataPoint {
+  period: string
+  currentAssets: number
+  nonCurrentAssets: number
+  totalAssets: number
+  currentLiabilities: number
+  nonCurrentLiabilities: number
+  totalLiabilities: number
+  equity: number
+  debtToEquityRatio: number
+}
 
 interface BalanceSheetChartProps {
   period: "monthly" | "quarterly" | "annual"
@@ -15,133 +29,9 @@ interface BalanceSheetChartProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
-}
-
-// Helper functions to generate data
-const getChartData = (
-  period: "monthly" | "quarterly" | "annual", 
-  view: "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years",
-  chartView?: "assets_liabilities_equity" | "current_noncurrent" | "debt_equity_ratio"
-) => {
-  if (view === "12months") {
-    const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
-    const currentDate = new Date()
-    return Array.from({ length: 12 }, (_, i) => {
-      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - (11 - i), 1)
-      const baseCurrentAssets = 850000 + (i * 10000)
-      const baseNonCurrentAssets = 1200000 + (i * 15000)
-      const baseTotalAssets = baseCurrentAssets + baseNonCurrentAssets
-      const baseCurrentLiabilities = 450000 + (i * 5000)
-      const baseNonCurrentLiabilities = 600000 + (i * 8000)
-      const baseTotalLiabilities = baseCurrentLiabilities + baseNonCurrentLiabilities
-      const baseEquity = baseTotalAssets - baseTotalLiabilities
-      const debtToEquityRatio = (baseTotalLiabilities / baseEquity) * 100
-      return {
-        period: `${months[date.getMonth()]} ${date.getFullYear()}`,
-        currentAssets: baseCurrentAssets,
-        nonCurrentAssets: baseNonCurrentAssets,
-        totalAssets: baseTotalAssets,
-        currentLiabilities: baseCurrentLiabilities,
-        nonCurrentLiabilities: baseNonCurrentLiabilities,
-        totalLiabilities: baseTotalLiabilities,
-        equity: baseEquity,
-        debtToEquityRatio: debtToEquityRatio
-      }
-    })
-  }
-  if (view === "quarters") {
-    const currentDate = new Date()
-    return Array.from({ length: 5 }, (_, i) => {
-      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - (4 - i) * 3, 1)
-      const quarter = Math.floor(date.getMonth() / 3) + 1
-      const baseCurrentAssets = (850000 + (i * 10000)) * 1.1
-      const baseNonCurrentAssets = (1200000 + (i * 15000)) * 1.1
-      const baseTotalAssets = baseCurrentAssets + baseNonCurrentAssets
-      const baseCurrentLiabilities = (450000 + (i * 5000)) * 1.1
-      const baseNonCurrentLiabilities = (600000 + (i * 8000)) * 1.1
-      const baseTotalLiabilities = baseCurrentLiabilities + baseNonCurrentLiabilities
-      const baseEquity = baseTotalAssets - baseTotalLiabilities
-      const debtToEquityRatio = (baseTotalLiabilities / baseEquity) * 100
-      return {
-        period: `T${quarter} ${date.getFullYear()}`,
-        currentAssets: baseCurrentAssets,
-        nonCurrentAssets: baseNonCurrentAssets,
-        totalAssets: baseTotalAssets,
-        currentLiabilities: baseCurrentLiabilities,
-        nonCurrentLiabilities: baseNonCurrentLiabilities,
-        totalLiabilities: baseTotalLiabilities,
-        equity: baseEquity,
-        debtToEquityRatio: debtToEquityRatio
-      }
-    })
-  }
-  if (view === "years") {
-    const currentYear = new Date().getFullYear()
-    return Array.from({ length: 6 }, (_, i) => {
-      const year = currentYear - (5 - i)
-      const baseCurrentAssets = (850000 + (i * 10000)) * 1.2
-      const baseNonCurrentAssets = (1200000 + (i * 15000)) * 1.2
-      const baseTotalAssets = baseCurrentAssets + baseNonCurrentAssets
-      const baseCurrentLiabilities = (450000 + (i * 5000)) * 1.2
-      const baseNonCurrentLiabilities = (600000 + (i * 8000)) * 1.2
-      const baseTotalLiabilities = baseCurrentLiabilities + baseNonCurrentLiabilities
-      const baseEquity = baseTotalAssets - baseTotalLiabilities
-      const debtToEquityRatio = (baseTotalLiabilities / baseEquity) * 100
-      return {
-        period: `${year}`,
-        currentAssets: baseCurrentAssets,
-        nonCurrentAssets: baseNonCurrentAssets,
-        totalAssets: baseTotalAssets,
-        currentLiabilities: baseCurrentLiabilities,
-        nonCurrentLiabilities: baseNonCurrentLiabilities,
-        totalLiabilities: baseTotalLiabilities,
-        equity: baseEquity,
-        debtToEquityRatio: debtToEquityRatio
-      }
-    })
-  }
-  // For comparison view, return current and prior period
-  const currentCurrentAssets = period === "monthly" ? 900000 : period === "quarterly" ? 2700000 : 10800000
-  const priorCurrentAssets = period === "monthly" ? 850000 : period === "quarterly" ? 2550000 : 10200000
-  const currentNonCurrentAssets = period === "monthly" ? 1300000 : period === "quarterly" ? 3900000 : 15600000
-  const priorNonCurrentAssets = period === "monthly" ? 1200000 : period === "quarterly" ? 3600000 : 14400000
-  const currentTotalAssets = currentCurrentAssets + currentNonCurrentAssets
-  const priorTotalAssets = priorCurrentAssets + priorNonCurrentAssets
-  const currentCurrentLiabilities = period === "monthly" ? 480000 : period === "quarterly" ? 1440000 : 5760000
-  const priorCurrentLiabilities = period === "monthly" ? 450000 : period === "quarterly" ? 1350000 : 5400000
-  const currentNonCurrentLiabilities = period === "monthly" ? 650000 : period === "quarterly" ? 1950000 : 7800000
-  const priorNonCurrentLiabilities = period === "monthly" ? 600000 : period === "quarterly" ? 1800000 : 7200000
-  const currentTotalLiabilities = currentCurrentLiabilities + currentNonCurrentLiabilities
-  const priorTotalLiabilities = priorCurrentLiabilities + priorNonCurrentLiabilities
-  const currentEquity = currentTotalAssets - currentTotalLiabilities
-  const priorEquity = priorTotalAssets - priorTotalLiabilities
-  const currentDebtToEquityRatio = (currentTotalLiabilities / currentEquity) * 100
-  const priorDebtToEquityRatio = (priorTotalLiabilities / priorEquity) * 100
-
-  return [
-    {
-      period: period === "monthly" ? "Mois courant" : period === "quarterly" ? "Trimestre courant" : "Année courante",
-      currentAssets: currentCurrentAssets,
-      nonCurrentAssets: currentNonCurrentAssets,
-      totalAssets: currentTotalAssets,
-      currentLiabilities: currentCurrentLiabilities,
-      nonCurrentLiabilities: currentNonCurrentLiabilities,
-      totalLiabilities: currentTotalLiabilities,
-      equity: currentEquity,
-      debtToEquityRatio: currentDebtToEquityRatio
-    },
-    {
-      period: period === "monthly" ? "Mois précédent" : period === "quarterly" ? "Trimestre précédent" : "Année précédente",
-      currentAssets: priorCurrentAssets,
-      nonCurrentAssets: priorNonCurrentAssets,
-      totalAssets: priorTotalAssets,
-      currentLiabilities: priorCurrentLiabilities,
-      nonCurrentLiabilities: priorNonCurrentLiabilities,
-      totalLiabilities: priorTotalLiabilities,
-      equity: priorEquity,
-      debtToEquityRatio: priorDebtToEquityRatio
-    }
-  ]
+  fiscalYear?: number
+  chartData?: BalanceSheetChartDataPoint[]
+  loading?: boolean
 }
 
 type ChartViewType = "assets_liabilities_equity" | "current_noncurrent" | "debt_equity_ratio"
@@ -153,15 +43,137 @@ export function BalanceSheetChart({
   divisionId,
   subDivisionId,
   companies = [],
+  fiscalYear,
+  chartData,
+  loading = false,
 }: BalanceSheetChartProps) {
   const [selectedChartView, setSelectedChartView] = useState<ChartViewType>("assets_liabilities_equity")
-  
-  const chartData = getChartData(period, view, selectedChartView)
-  
+
+  // Series data for multi-period chart views
+  const isMultiPeriod = view === "12months" || view === "quarters" || view === "years"
+  const currentYear = fiscalYear || new Date().getFullYear()
+  const monthsNeeded = view === "years" ? 60 : 12
+
+  const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "balance-sheet",
+    fiscalYear: currentYear,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: isMultiPeriod,
+  })
+
+  // Transform series data into chart data points
+  const seriesChartData = useMemo((): BalanceSheetChartDataPoint[] => {
+    if (!seriesRows.length || !periods.length) return []
+
+    const currentAssetsRow = findRow(seriesRows, "actifs courants")
+    const nonCurrentAssetsRow = findRow(seriesRows, "actifs non courants")
+    const totalAssetsRow = findRow(seriesRows, "total des actifs")
+    const currentLiabilitiesRow = findRow(seriesRows, "passifs courants") || findRow(seriesRows, "passif courant")
+    const nonCurrentLiabilitiesRow = findRow(seriesRows, "passifs non courants") || findRow(seriesRows, "passif non courant")
+    const totalLiabilitiesRow = findRow(seriesRows, "total des passifs")
+    const equityRow = findRow(seriesRows, "capitaux propres") || findRow(seriesRows, "total capitaux propres")
+
+    const getAmounts = (row: typeof currentAssetsRow) => row ? getRowAmounts(row, periods) : periods.map(() => 0)
+
+    const currentAssetsAmounts = getAmounts(currentAssetsRow)
+    const nonCurrentAssetsAmounts = getAmounts(nonCurrentAssetsRow)
+    const totalAssetsAmounts = getAmounts(totalAssetsRow)
+    const currentLiabilitiesAmounts = getAmounts(currentLiabilitiesRow)
+    const nonCurrentLiabilitiesAmounts = getAmounts(nonCurrentLiabilitiesRow)
+    const totalLiabilitiesAmounts = getAmounts(totalLiabilitiesRow)
+    const equityAmounts = getAmounts(equityRow)
+
+    // Decide whether to aggregate
+    if (view === "quarters") {
+      const labels = aggregateToQuarters(currentAssetsAmounts, periods).labels
+      const ca = aggregateToQuarters(currentAssetsAmounts, periods).amounts
+      const nca = aggregateToQuarters(nonCurrentAssetsAmounts, periods).amounts
+      const ta = aggregateToQuarters(totalAssetsAmounts, periods).amounts
+      const cl = aggregateToQuarters(currentLiabilitiesAmounts, periods).amounts
+      const ncl = aggregateToQuarters(nonCurrentLiabilitiesAmounts, periods).amounts
+      const tl = aggregateToQuarters(totalLiabilitiesAmounts, periods).amounts
+      const eq = aggregateToQuarters(equityAmounts, periods).amounts
+
+      return labels.map((label, i) => ({
+        period: label,
+        currentAssets: ca[i],
+        nonCurrentAssets: nca[i],
+        totalAssets: ta[i],
+        currentLiabilities: cl[i],
+        nonCurrentLiabilities: ncl[i],
+        totalLiabilities: tl[i],
+        equity: eq[i],
+        debtToEquityRatio: eq[i] !== 0 ? (tl[i] / eq[i]) * 100 : 0,
+      }))
+    }
+
+    if (view === "years") {
+      const labels = aggregateToYears(currentAssetsAmounts, periods).labels
+      const ca = aggregateToYears(currentAssetsAmounts, periods).amounts
+      const nca = aggregateToYears(nonCurrentAssetsAmounts, periods).amounts
+      const ta = aggregateToYears(totalAssetsAmounts, periods).amounts
+      const cl = aggregateToYears(currentLiabilitiesAmounts, periods).amounts
+      const ncl = aggregateToYears(nonCurrentLiabilitiesAmounts, periods).amounts
+      const tl = aggregateToYears(totalLiabilitiesAmounts, periods).amounts
+      const eq = aggregateToYears(equityAmounts, periods).amounts
+
+      return labels.map((label, i) => ({
+        period: label,
+        currentAssets: ca[i],
+        nonCurrentAssets: nca[i],
+        totalAssets: ta[i],
+        currentLiabilities: cl[i],
+        nonCurrentLiabilities: ncl[i],
+        totalLiabilities: tl[i],
+        equity: eq[i],
+        debtToEquityRatio: eq[i] !== 0 ? (tl[i] / eq[i]) * 100 : 0,
+      }))
+    }
+
+    // 12months - monthly
+    const labels = getPeriodLabels(periods)
+    return labels.map((label, i) => ({
+      period: label,
+      currentAssets: currentAssetsAmounts[i],
+      nonCurrentAssets: nonCurrentAssetsAmounts[i],
+      totalAssets: totalAssetsAmounts[i],
+      currentLiabilities: currentLiabilitiesAmounts[i],
+      nonCurrentLiabilities: nonCurrentLiabilitiesAmounts[i],
+      totalLiabilities: totalLiabilitiesAmounts[i],
+      equity: equityAmounts[i],
+      debtToEquityRatio: equityAmounts[i] !== 0 ? (totalLiabilitiesAmounts[i] / equityAmounts[i]) * 100 : 0,
+    }))
+  }, [seriesRows, periods, view])
+
+  // Use series chart data when in multi-period mode, otherwise use prop
+  const effectiveChartData = isMultiPeriod ? seriesChartData : chartData
+  const effectiveLoading = loading || (isMultiPeriod && seriesLoading)
+
+  // Loading state
+  if (effectiveLoading) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      </div>
+    )
+  }
+
+  // Empty state
+  if (!effectiveChartData || effectiveChartData.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <p className="text-slate-400">Aucune donnée disponible</p>
+      </div>
+    )
+  }
+
   // Calculate averages
-  const avgAssets = chartData.reduce((sum, d) => sum + (d.totalAssets || 0), 0) / chartData.length
-  const avgLiabilities = chartData.reduce((sum, d) => sum + (d.totalLiabilities || 0), 0) / chartData.length
-  const avgEquity = chartData.reduce((sum, d) => sum + (d.equity || 0), 0) / chartData.length
+  const avgAssets = effectiveChartData.reduce((sum, d) => sum + (d.totalAssets || 0), 0) / effectiveChartData.length
+  const avgLiabilities = effectiveChartData.reduce((sum, d) => sum + (d.totalLiabilities || 0), 0) / effectiveChartData.length
+  const avgEquity = effectiveChartData.reduce((sum, d) => sum + (d.equity || 0), 0) / effectiveChartData.length
 
   // Helper function to get horizon text
   const getHorizonText = (): string => {
@@ -299,11 +311,11 @@ export function BalanceSheetChart({
             <div className="pb-3">
               <div className="text-xs font-medium text-slate-500 mb-1">Actifs totaux</div>
               <div className="text-xl font-semibold text-slate-900 mb-1.5">
-                {formatCurrency(chartData.reduce((sum, d) => sum + (d.totalAssets || 0), 0))}
+                {formatCurrency(effectiveChartData.reduce((sum, d) => sum + (d.totalAssets || 0), 0))}
               </div>
               {(() => {
-                const lastData = chartData[chartData.length - 1]
-                const previousData = chartData.length > 1 ? chartData[chartData.length - 2] : null
+                const lastData = effectiveChartData[effectiveChartData.length - 1]
+                const previousData = effectiveChartData.length > 1 ? effectiveChartData[effectiveChartData.length - 2] : null
                 const currentValue = lastData.totalAssets || 0
                 const previousValue = previousData?.totalAssets || 0
                 const variation = previousValue > 0 ? ((currentValue - previousValue) / previousValue * 100) : 0
@@ -331,11 +343,11 @@ export function BalanceSheetChart({
             <div className="pb-3">
               <div className="text-xs font-medium text-slate-500 mb-1">Passifs totaux</div>
               <div className="text-xl font-semibold text-slate-900 mb-1.5">
-                {formatCurrency(chartData.reduce((sum, d) => sum + (d.totalLiabilities || 0), 0))}
+                {formatCurrency(effectiveChartData.reduce((sum, d) => sum + (d.totalLiabilities || 0), 0))}
               </div>
               {(() => {
-                const lastData = chartData[chartData.length - 1]
-                const previousData = chartData.length > 1 ? chartData[chartData.length - 2] : null
+                const lastData = effectiveChartData[effectiveChartData.length - 1]
+                const previousData = effectiveChartData.length > 1 ? effectiveChartData[effectiveChartData.length - 2] : null
                 const currentValue = lastData.totalLiabilities || 0
                 const previousValue = previousData?.totalLiabilities || 0
                 const variation = previousValue > 0 ? ((currentValue - previousValue) / previousValue * 100) : 0
@@ -363,11 +375,11 @@ export function BalanceSheetChart({
             <div className="pb-3">
               <div className="text-xs font-medium text-slate-500 mb-1">Capitaux propres</div>
               <div className="text-xl font-semibold text-slate-900 mb-1.5">
-                {formatCurrency(chartData.reduce((sum, d) => sum + (d.equity || 0), 0))}
+                {formatCurrency(effectiveChartData.reduce((sum, d) => sum + (d.equity || 0), 0))}
               </div>
               {(() => {
-                const lastData = chartData[chartData.length - 1]
-                const previousData = chartData.length > 1 ? chartData[chartData.length - 2] : null
+                const lastData = effectiveChartData[effectiveChartData.length - 1]
+                const previousData = effectiveChartData.length > 1 ? effectiveChartData[effectiveChartData.length - 2] : null
                 const currentValue = lastData.equity || 0
                 const previousValue = previousData?.equity || 0
                 const variation = previousValue > 0 ? ((currentValue - previousValue) / previousValue * 100) : 0
@@ -392,7 +404,7 @@ export function BalanceSheetChart({
           {/* Right Panel - Chart */}
           <div className="lg:col-span-4">
             <ChartContainer config={chartConfig} className="h-[400px] w-full">
-          <ComposedChart data={chartData} margin={{ top: 20, right: 50, left: 20, bottom: 5 }}>
+          <ComposedChart data={effectiveChartData} margin={{ top: 20, right: 50, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis
               dataKey="period"

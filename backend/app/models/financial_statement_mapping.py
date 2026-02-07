@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Boolean, Text, DateTime, ForeignKey, JSON, func
+from sqlalchemy import String, Integer, Boolean, Text, DateTime, ForeignKey, JSON, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -14,6 +14,9 @@ class FinancialStatementMapping(Base):
     (bilan, resultats, capex, baiia). The structure is stored as JSON since it's
     a deeply nested tree that varies per organization."""
     __tablename__ = "financial_statement_mappings"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "mapping_type", name="uq_financial_statement_mappings_org_type"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -30,6 +33,9 @@ class CompanyStatementStructure(Base):
     """Per-company overrides for income statement and balance sheet row structure.
     Stores the customized row layout (which rows are visible, order, hierarchy)."""
     __tablename__ = "company_statement_structures"
+    __table_args__ = (
+        UniqueConstraint("company_id", "statement_type", name="uq_company_statement_structures_company_type"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)

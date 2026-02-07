@@ -16,7 +16,7 @@ from app.schemas.statement_structure import (
 
 router = APIRouter(prefix="/api/companies/{company_id}", tags=["statement-structures"])
 
-VALID_STATEMENT_TYPES = {"income-statement", "balance-sheet"}
+VALID_STATEMENT_TYPES = {"income-statement", "balance-sheet", "capex", "baiia"}
 
 
 def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:

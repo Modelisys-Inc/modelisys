@@ -2,6 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react"
 import { motion, AnimatePresence } from "motion/react"
+import { seededRandom } from "@/lib/seeded-random"
 
 import "./RotatingText.css"
 
@@ -100,7 +101,7 @@ const RotatingText = forwardRef<any, RotatingTextProps>((props, ref) => {
         return Math.abs(center - index) * staggerDuration
       }
       if (staggerFrom === "random") {
-        const randomIndex = Math.floor(Math.random() * total)
+        const randomIndex = Math.floor(seededRandom(index) * total)
         return Math.abs(randomIndex - index) * staggerDuration
       }
       return Math.abs(Number(staggerFrom) - index) * staggerDuration

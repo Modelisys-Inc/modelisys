@@ -1,3 +1,5 @@
+import { generateId } from "@/lib/seeded-random"
+
 // Types for notes
 export interface Note {
   id: string
@@ -40,7 +42,7 @@ export function saveNote(note: Omit<Note, "id" | "createdAt" | "updatedAt">): No
   const now = new Date().toISOString()
   const newNote: Note = {
     ...note,
-    id: `note-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: generateId("note"),
     createdAt: now,
     updatedAt: now,
   }

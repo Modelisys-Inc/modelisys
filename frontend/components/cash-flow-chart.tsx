@@ -1,11 +1,22 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { ComposedChart, Line, Bar, Area, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts"
 import { TrendingUp, TrendingDown } from "lucide-react"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears, findRow } from "@/lib/series-utils"
+
+export interface CashFlowChartDataPoint {
+  period: string
+  operating: number
+  investing: number
+  financing: number
+  netCashFlow: number
+  cashBalance: number
+}
 
 interface CashFlowChartProps {
   period: "monthly" | "quarterly" | "annual"
@@ -14,121 +25,12 @@ interface CashFlowChartProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
+  fiscalYear?: number
+  chartData?: CashFlowChartDataPoint[]
+  loading?: boolean
 }
 
 type ChartViewType = "operating_investing_financing"
-
-// Helper functions to generate data
-const getChartData = (
-  period: "monthly" | "quarterly" | "annual", 
-  view: "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years",
-  chartView?: ChartViewType
-) => {
-  if (view === "12months") {
-    const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
-    const currentDate = new Date()
-    return Array.from({ length: 12 }, (_, i) => {
-      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - (11 - i), 1)
-      const baseOperating = 420000 + (i * 5000)
-      const baseInvesting = -120000 - (i * 2000)
-      const baseFinancing = -40000 - (i * 1000)
-      const netCashFlow = baseOperating + baseInvesting + baseFinancing
-      const cashBalance = 850000 + (i * 10000)
-      return {
-        period: `${months[date.getMonth()]} ${date.getFullYear()}`,
-        operating: baseOperating,
-        investing: baseInvesting,
-        financing: baseFinancing,
-        netCashFlow: netCashFlow,
-        cashBalance: cashBalance
-      }
-    })
-  }
-  
-  if (view === "quarters") {
-    const quarters = ["Q1", "Q2", "Q3", "Q4", "Q5"]
-    return Array.from({ length: 5 }, (_, i) => {
-      const baseOperating = 420000 + (i * 15000)
-      const baseInvesting = -120000 - (i * 5000)
-      const baseFinancing = -40000 - (i * 2000)
-      const netCashFlow = baseOperating + baseInvesting + baseFinancing
-      const cashBalance = 850000 + (i * 30000)
-      return {
-        period: quarters[i],
-        operating: baseOperating,
-        investing: baseInvesting,
-        financing: baseFinancing,
-        netCashFlow: netCashFlow,
-        cashBalance: cashBalance
-      }
-    })
-  }
-  
-  if (view === "years") {
-    const currentYear = new Date().getFullYear()
-    return Array.from({ length: 6 }, (_, i) => {
-      const year = currentYear - (5 - i)
-      const baseOperating = 400000 + (i * 20000)
-      const baseInvesting = -100000 - (i * 10000)
-      const baseFinancing = -30000 - (i * 5000)
-      const netCashFlow = baseOperating + baseInvesting + baseFinancing
-      const cashBalance = 800000 + (i * 50000)
-      return {
-        period: year.toString(),
-        operating: baseOperating,
-        investing: baseInvesting,
-        financing: baseFinancing,
-        netCashFlow: netCashFlow,
-        cashBalance: cashBalance
-      }
-    })
-  }
-  
-  // Default comparison view
-  return [
-    {
-      period: "Courant",
-      operating: 450000,
-      investing: -125000,
-      financing: -50000,
-      netCashFlow: 275000,
-      cashBalance: 900000
-    },
-    {
-      period: "Passé",
-      operating: 420000,
-      investing: -150000,
-      financing: -30000,
-      netCashFlow: 240000,
-      cashBalance: 850000
-    }
-  ]
-}
-
-// Helper function to get entity text
-const getEntityText = (
-  companyId: string | null | undefined,
-  divisionId: string | null | undefined,
-  subDivisionId: string | null | undefined,
-  companies: Company[]
-): string => {
-  if (subDivisionId && divisionId && companyId) {
-    const company = companies.find((c) => c.id === companyId)
-    const division = company?.divisions.find((d) => d.id === divisionId)
-    const subDivision = division?.subDivisions.find((sd) => sd.id === subDivisionId)
-    return `${company?.name || ""} • ${division?.name || ""} • ${subDivision?.name || ""}`
-  }
-  if (divisionId && companyId) {
-    const company = companies.find((c) => c.id === companyId)
-    const division = company?.divisions.find((d) => d.id === divisionId)
-    return `${company?.name || ""} • ${division?.name || ""}`
-  }
-  if (companyId) {
-    const company = companies.find((c) => c.id === companyId)
-    return company?.name || "Société sélectionnée"
-  }
-  return "Toutes les sociétés"
-}
 
 // Helper function to get horizon text
 const getHorizonText = (
@@ -153,11 +55,111 @@ export function CashFlowChart({
   divisionId,
   subDivisionId,
   companies = [],
+  fiscalYear,
+  chartData,
+  loading = false,
 }: CashFlowChartProps) {
   const [selectedChartView] = useState<ChartViewType>("operating_investing_financing")
 
-  const chartData = getChartData(period, view, selectedChartView)
-  
+  // Series data for multi-period chart views
+  const isMultiPeriod = view === "12months" || view === "quarters" || view === "years"
+  const currentYear = fiscalYear || new Date().getFullYear()
+  const monthsNeeded = view === "years" ? 60 : 12
+
+  const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "cash-flow",
+    fiscalYear: currentYear,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: isMultiPeriod,
+  })
+
+  // Transform series data into chart data points
+  const seriesChartData = useMemo((): CashFlowChartDataPoint[] => {
+    if (!seriesRows.length || !periods.length) return []
+
+    const operatingRow = findRow(seriesRows, "exploitation") || findRow(seriesRows, "opérationnel") || findRow(seriesRows, "activités opérationnelles")
+    const investingRow = findRow(seriesRows, "investissement") || findRow(seriesRows, "activités d'investissement")
+    const financingRow = findRow(seriesRows, "financement") || findRow(seriesRows, "activités de financement")
+    const netCashFlowRow = findRow(seriesRows, "flux net") || findRow(seriesRows, "variation de trésorerie") || findRow(seriesRows, "variation nette")
+
+    const getAmounts = (row: typeof operatingRow) => row ? getRowAmounts(row, periods) : periods.map(() => 0)
+
+    const operatingAmounts = getAmounts(operatingRow)
+    const investingAmounts = getAmounts(investingRow)
+    const financingAmounts = getAmounts(financingRow)
+    const netCashFlowAmounts = getAmounts(netCashFlowRow)
+
+    if (view === "quarters") {
+      const labels = aggregateToQuarters(operatingAmounts, periods).labels
+      const op = aggregateToQuarters(operatingAmounts, periods).amounts
+      const inv = aggregateToQuarters(investingAmounts, periods).amounts
+      const fin = aggregateToQuarters(financingAmounts, periods).amounts
+      const net = aggregateToQuarters(netCashFlowAmounts, periods).amounts
+
+      return labels.map((label, i) => ({
+        period: label,
+        operating: op[i],
+        investing: inv[i],
+        financing: fin[i],
+        netCashFlow: net[i],
+        cashBalance: 0,
+      }))
+    }
+
+    if (view === "years") {
+      const labels = aggregateToYears(operatingAmounts, periods).labels
+      const op = aggregateToYears(operatingAmounts, periods).amounts
+      const inv = aggregateToYears(investingAmounts, periods).amounts
+      const fin = aggregateToYears(financingAmounts, periods).amounts
+      const net = aggregateToYears(netCashFlowAmounts, periods).amounts
+
+      return labels.map((label, i) => ({
+        period: label,
+        operating: op[i],
+        investing: inv[i],
+        financing: fin[i],
+        netCashFlow: net[i],
+        cashBalance: 0,
+      }))
+    }
+
+    // 12months - monthly
+    const labels = getPeriodLabels(periods)
+    return labels.map((label, i) => ({
+      period: label,
+      operating: operatingAmounts[i],
+      investing: investingAmounts[i],
+      financing: financingAmounts[i],
+      netCashFlow: netCashFlowAmounts[i],
+      cashBalance: 0,
+    }))
+  }, [seriesRows, periods, view])
+
+  // Use series chart data when in multi-period mode, otherwise use prop
+  const effectiveChartData = isMultiPeriod ? seriesChartData : chartData
+  const effectiveLoading = loading || (isMultiPeriod && seriesLoading)
+
+  // Loading state
+  if (effectiveLoading) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      </div>
+    )
+  }
+
+  // Empty state
+  if (!effectiveChartData || effectiveChartData.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <p className="text-slate-400">Aucune donnée disponible</p>
+      </div>
+    )
+  }
+
   // Helper function to get base title
   const getBaseTitle = (): string => {
     return "Structure des flux de trésorerie"
@@ -183,9 +185,9 @@ export function CashFlowChart({
   }
 
   // Calculate totals for metrics panel
-  const totalOperating = chartData.reduce((sum, d) => sum + d.operating, 0)
-  const totalInvesting = chartData.reduce((sum, d) => sum + d.investing, 0)
-  const totalFinancing = chartData.reduce((sum, d) => sum + d.financing, 0)
+  const totalOperating = effectiveChartData.reduce((sum, d) => sum + d.operating, 0)
+  const totalInvesting = effectiveChartData.reduce((sum, d) => sum + d.investing, 0)
+  const totalFinancing = effectiveChartData.reduce((sum, d) => sum + d.financing, 0)
 
   // Helper function to get entity text
   const getEntityText = (): string => {
@@ -256,8 +258,8 @@ export function CashFlowChart({
                 {formatCurrency(totalOperating)}
               </div>
               {(() => {
-                const lastData = chartData[chartData.length - 1]
-                const previousData = chartData.length > 1 ? chartData[chartData.length - 2] : null
+                const lastData = effectiveChartData[effectiveChartData.length - 1]
+                const previousData = effectiveChartData.length > 1 ? effectiveChartData[effectiveChartData.length - 2] : null
                 const currentValue = lastData.operating || 0
                 const previousValue = previousData?.operating || 0
                 const variation = previousValue !== 0 ? ((currentValue - previousValue) / Math.abs(previousValue) * 100) : 0
@@ -288,8 +290,8 @@ export function CashFlowChart({
                 {formatCurrency(totalInvesting)}
               </div>
               {(() => {
-                const lastData = chartData[chartData.length - 1]
-                const previousData = chartData.length > 1 ? chartData[chartData.length - 2] : null
+                const lastData = effectiveChartData[effectiveChartData.length - 1]
+                const previousData = effectiveChartData.length > 1 ? effectiveChartData[effectiveChartData.length - 2] : null
                 const currentValue = lastData.investing || 0
                 const previousValue = previousData?.investing || 0
                 const variation = previousValue !== 0 ? ((currentValue - previousValue) / Math.abs(previousValue) * 100) : 0
@@ -320,8 +322,8 @@ export function CashFlowChart({
                 {formatCurrency(totalFinancing)}
               </div>
               {(() => {
-                const lastData = chartData[chartData.length - 1]
-                const previousData = chartData.length > 1 ? chartData[chartData.length - 2] : null
+                const lastData = effectiveChartData[effectiveChartData.length - 1]
+                const previousData = effectiveChartData.length > 1 ? effectiveChartData[effectiveChartData.length - 2] : null
                 const currentValue = lastData.financing || 0
                 const previousValue = previousData?.financing || 0
                 const variation = previousValue !== 0 ? ((currentValue - previousValue) / Math.abs(previousValue) * 100) : 0
@@ -346,7 +348,7 @@ export function CashFlowChart({
           {/* Right Panel - Chart */}
           <div className="lg:col-span-4">
             <ChartContainer config={chartConfig} className="h-[400px] w-full">
-          <ComposedChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+          <ComposedChart data={effectiveChartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis
               dataKey="period"

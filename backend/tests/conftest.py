@@ -3,9 +3,17 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.sql.sqltypes import UUID
+from sqlalchemy.ext.compiler import compiles
 
 from app.database import Base, get_db
 from app.main import app
+
+
+# Register PostgreSQL UUID type to compile as CHAR(32) on SQLite
+@compiles(UUID, "sqlite")
+def _compile_uuid_sqlite(type_, compiler, **kw):
+    return "CHAR(32)"
 
 
 # Use in-memory SQLite for tests

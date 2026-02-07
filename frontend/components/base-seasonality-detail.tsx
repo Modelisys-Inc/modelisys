@@ -4,11 +4,13 @@ import { formatCurrency } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import { ChevronRight, ChevronDown, Settings, Edit2, Trash2 } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { generateId } from "@/lib/seeded-random"
 
 interface BaseSeasonalityDetailProps {
   companyId?: string | null
@@ -67,79 +69,67 @@ export function BaseSeasonalityDetail({
   const [adjustmentNote, setAdjustmentNote] = useState<string>("")
   const [editingAdjustmentId, setEditingAdjustmentId] = useState<string | null>(null) // ID of adjustment being edited, null if adding new
 
-  // Storage key for persisting seasonality data
-  const getStorageKey = (): string => {
-    const entityKey = [companyId, divisionId, subDivisionId].filter(Boolean).join("-") || "all"
-    return `modelisys_base_seasonality_${entityKey}`
-  }
+  // Debounced save to API
+  const saveConfigRef = useRef<NodeJS.Timeout>()
 
-  // Storage key for persisting seasonality adjustments
-  const getAdjustmentsStorageKey = (): string => {
-    const entityKey = [companyId, divisionId, subDivisionId].filter(Boolean).join("-") || "all"
-    return `modelisys_seasonality_adjustments_${entityKey}`
-  }
-
-  // Load seasonality values from localStorage on mount
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    
-    try {
-      const storageKey = getStorageKey()
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        setSeasonalityValues(parsed)
+  const saveConfig = useCallback((data: Record<string, unknown>) => {
+    if (!companyId) return
+    clearTimeout(saveConfigRef.current)
+    saveConfigRef.current = setTimeout(async () => {
+      try {
+        await upsertForecastConfig(companyId, {
+          config_type: "seasonality",
+          data,
+        })
+      } catch (err) {
+        console.error("Error saving seasonality config:", err)
       }
-    } catch (error) {
-      console.error("Error loading seasonality values:", error)
-    }
-    
-    // Load seasonality adjustments
-    try {
-      const adjustmentsKey = getAdjustmentsStorageKey()
-      const adjustmentsStored = localStorage.getItem(adjustmentsKey)
-      if (adjustmentsStored) {
-        const adjustmentsParsed = JSON.parse(adjustmentsStored)
-        if (adjustmentsParsed && typeof adjustmentsParsed === 'object' && !Array.isArray(adjustmentsParsed)) {
-          const validatedAdjustments: Record<string, SeasonalityAdjustment[]> = {}
-          for (const [key, value] of Object.entries(adjustmentsParsed)) {
-            if (Array.isArray(value)) {
-              validatedAdjustments[key] = value
-            } else {
-              validatedAdjustments[key] = [value as SeasonalityAdjustment]
+    }, 500)
+  }, [companyId])
+
+  // Load seasonality config from API on mount
+  useEffect(() => {
+    if (!companyId) return
+
+    const loadConfig = async () => {
+      try {
+        const configs = await listForecastConfigs(companyId, { config_type: "seasonality" })
+        if (configs.length > 0) {
+          const data = configs[0].data as Record<string, unknown>
+          if (data.seasonalityValues) setSeasonalityValues(data.seasonalityValues as typeof seasonalityValues)
+          if (data.seasonalityAdjustments) {
+            const adjustmentsParsed = data.seasonalityAdjustments as Record<string, unknown>
+            if (adjustmentsParsed && typeof adjustmentsParsed === 'object' && !Array.isArray(adjustmentsParsed)) {
+              const validatedAdjustments: Record<string, SeasonalityAdjustment[]> = {}
+              for (const [key, value] of Object.entries(adjustmentsParsed)) {
+                if (Array.isArray(value)) {
+                  validatedAdjustments[key] = value
+                } else {
+                  validatedAdjustments[key] = [value as SeasonalityAdjustment]
+                }
+              }
+              setSeasonalityAdjustments(validatedAdjustments)
             }
           }
-          setSeasonalityAdjustments(validatedAdjustments)
         }
+      } catch (err) {
+        console.error("Error loading seasonality config:", err)
       }
-    } catch (error) {
-      console.error("Error parsing seasonality adjustments:", error)
     }
-  }, [companyId, divisionId, subDivisionId])
+    loadConfig()
+  }, [companyId])
 
-  // Save seasonality values to localStorage whenever they change
+  // Save seasonality values whenever they change
   useEffect(() => {
-    if (typeof window === "undefined" || Object.keys(seasonalityValues).length === 0) return
-    
-    try {
-      const storageKey = getStorageKey()
-      localStorage.setItem(storageKey, JSON.stringify(seasonalityValues))
-    } catch (error) {
-      console.error("Error saving seasonality values:", error)
-    }
-  }, [seasonalityValues, companyId, divisionId, subDivisionId])
+    if (Object.keys(seasonalityValues).length === 0) return
+    saveConfig({ seasonalityValues, seasonalityAdjustments })
+  }, [seasonalityValues, saveConfig])
 
-  // Save seasonality adjustments to localStorage whenever they change
+  // Save seasonality adjustments whenever they change
   useEffect(() => {
-    if (typeof window === "undefined" || Object.keys(seasonalityAdjustments).length === 0) return
-    
-    try {
-      const adjustmentsKey = getAdjustmentsStorageKey()
-      localStorage.setItem(adjustmentsKey, JSON.stringify(seasonalityAdjustments))
-    } catch (error) {
-      console.error("Error saving seasonality adjustments:", error)
-    }
-  }, [seasonalityAdjustments, companyId, divisionId, subDivisionId])
+    if (Object.keys(seasonalityAdjustments).length === 0) return
+    saveConfig({ seasonalityValues, seasonalityAdjustments })
+  }, [seasonalityAdjustments, saveConfig])
 
   const toggleRow = (rowId: string) => {
     setExpandedRows((prev) => {
@@ -326,7 +316,7 @@ export function BaseSeasonalityDetail({
       } else {
         // Add new adjustment
         const newAdjustment: SeasonalityAdjustment = {
-          id: `${Date.now()}-${Math.random()}`,
+          id: generateId(),
           rowId: editingAdjustment.rowId,
           monthIndex: editingAdjustment.monthIndex,
           accountNumber: editingAdjustment.accountNumber,

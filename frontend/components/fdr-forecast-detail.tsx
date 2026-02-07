@@ -4,7 +4,9 @@ import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import { ChevronRight, ChevronDown, StickyNote, Settings, Edit2, Trash2 } from "lucide-react"
-import { useState, useEffect } from "react"
+import { seededRandom, generateId } from "@/lib/seeded-random"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
@@ -104,109 +106,74 @@ export function FDRForecastDetail({
   
   const isForecastSection = title === "Estimation du FDR annuel"
 
-  // Storage key for persisting forecast data
-  const getStorageKey = (): string => {
-    const entityKey = [companyId, divisionId, subDivisionId].filter(Boolean).join("-") || "all"
-    return `modelisys_fdr_forecast_${entityKey}`
-  }
+  // Debounced save to API
+  const saveConfigRef = useRef<NodeJS.Timeout>()
 
-  // Storage key for persisting FDR adjustments
-  const getFDRAdjustmentsStorageKey = (): string => {
-    const entityKey = [companyId, divisionId, subDivisionId].filter(Boolean).join("-") || "all"
-    return `modelisys_fdr_adjustments_${entityKey}`
-  }
-
-  // Storage key for persisting FDR types
-  const getFDRTypesStorageKey = (): string => {
-    const entityKey = [companyId, divisionId, subDivisionId].filter(Boolean).join("-") || "all"
-    return `modelisys_fdr_types_${entityKey}`
-  }
-
-  // Load forecast values from localStorage on mount
-  useEffect(() => {
-    if (typeof window === "undefined" || !isForecastSection) return
-    
-    try {
-      const storageKey = getStorageKey()
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        setFdrValues(parsed)
+  const saveConfig = useCallback((data: Record<string, unknown>) => {
+    if (!companyId || !isForecastSection) return
+    clearTimeout(saveConfigRef.current)
+    saveConfigRef.current = setTimeout(async () => {
+      try {
+        await upsertForecastConfig(companyId, {
+          config_type: "fdr-forecast",
+          data,
+        })
+      } catch (err) {
+        console.error("Error saving FDR forecast config:", err)
       }
-      
-      // Load FDR adjustments
-      const adjustmentsKey = getFDRAdjustmentsStorageKey()
-      const adjustmentsStored = localStorage.getItem(adjustmentsKey)
-      if (adjustmentsStored) {
-        try {
-          const adjustmentsParsed = JSON.parse(adjustmentsStored)
-          if (adjustmentsParsed && typeof adjustmentsParsed === 'object' && !Array.isArray(adjustmentsParsed)) {
-            const validatedAdjustments: Record<string, FDRAdjustment[]> = {}
-            for (const [key, value] of Object.entries(adjustmentsParsed)) {
-              if (Array.isArray(value)) {
-                validatedAdjustments[key] = value
-              } else {
-                validatedAdjustments[key] = [value as FDRAdjustment]
+    }, 500)
+  }, [companyId, isForecastSection])
+
+  // Load FDR forecast config from API on mount
+  useEffect(() => {
+    if (!companyId || !isForecastSection) return
+
+    const loadConfig = async () => {
+      try {
+        const configs = await listForecastConfigs(companyId, { config_type: "fdr-forecast" })
+        if (configs.length > 0) {
+          const data = configs[0].data as Record<string, unknown>
+          if (data.fdrValues) setFdrValues(data.fdrValues as typeof fdrValues)
+          if (data.fdrAdjustments) {
+            const adjustmentsParsed = data.fdrAdjustments as Record<string, unknown>
+            if (adjustmentsParsed && typeof adjustmentsParsed === 'object' && !Array.isArray(adjustmentsParsed)) {
+              const validatedAdjustments: Record<string, FDRAdjustment[]> = {}
+              for (const [key, value] of Object.entries(adjustmentsParsed)) {
+                if (Array.isArray(value)) {
+                  validatedAdjustments[key] = value
+                } else {
+                  validatedAdjustments[key] = [value as FDRAdjustment]
+                }
               }
+              setFdrAdjustments(validatedAdjustments)
             }
-            setFdrAdjustments(validatedAdjustments)
           }
-        } catch (error) {
-          console.error("Error parsing FDR adjustments:", error)
+          if (data.fdrTypes) setFdrTypes(data.fdrTypes as typeof fdrTypes)
         }
+      } catch (err) {
+        console.error("Error loading FDR forecast config:", err)
       }
-      
-      // Load FDR types
-      const typesKey = getFDRTypesStorageKey()
-      const typesStored = localStorage.getItem(typesKey)
-      if (typesStored) {
-        try {
-          const typesParsed = JSON.parse(typesStored)
-          setFdrTypes(typesParsed)
-        } catch (error) {
-          console.error("Error parsing FDR types:", error)
-        }
-      }
-    } catch (error) {
-      console.error("Error loading FDR forecast values:", error)
     }
-  }, [companyId, divisionId, subDivisionId, title, isForecastSection])
+    loadConfig()
+  }, [companyId, isForecastSection])
 
-  // Save forecast values to localStorage whenever they change
+  // Save FDR values whenever they change
   useEffect(() => {
-    if (typeof window === "undefined" || !isForecastSection || Object.keys(fdrValues).length === 0) return
-    
-    try {
-      const storageKey = getStorageKey()
-      localStorage.setItem(storageKey, JSON.stringify(fdrValues))
-    } catch (error) {
-      console.error("Error saving FDR forecast values:", error)
-    }
-  }, [fdrValues, companyId, divisionId, subDivisionId, title, isForecastSection])
+    if (!isForecastSection || Object.keys(fdrValues).length === 0) return
+    saveConfig({ fdrValues, fdrAdjustments, fdrTypes })
+  }, [fdrValues, saveConfig, isForecastSection])
 
-  // Save FDR adjustments to localStorage whenever they change
+  // Save FDR adjustments whenever they change
   useEffect(() => {
-    if (typeof window === "undefined" || !isForecastSection || Object.keys(fdrAdjustments).length === 0) return
-    
-    try {
-      const adjustmentsKey = getFDRAdjustmentsStorageKey()
-      localStorage.setItem(adjustmentsKey, JSON.stringify(fdrAdjustments))
-    } catch (error) {
-      console.error("Error saving FDR adjustments:", error)
-    }
-  }, [fdrAdjustments, companyId, divisionId, subDivisionId, title, isForecastSection])
+    if (!isForecastSection || Object.keys(fdrAdjustments).length === 0) return
+    saveConfig({ fdrValues, fdrAdjustments, fdrTypes })
+  }, [fdrAdjustments, saveConfig, isForecastSection])
 
-  // Save FDR types to localStorage whenever they change
+  // Save FDR types whenever they change
   useEffect(() => {
-    if (typeof window === "undefined" || !isForecastSection || Object.keys(fdrTypes).length === 0) return
-    
-    try {
-      const typesKey = getFDRTypesStorageKey()
-      localStorage.setItem(typesKey, JSON.stringify(fdrTypes))
-    } catch (error) {
-      console.error("Error saving FDR types:", error)
-    }
-  }, [fdrTypes, companyId, divisionId, subDivisionId, title, isForecastSection])
+    if (!isForecastSection || Object.keys(fdrTypes).length === 0) return
+    saveConfig({ fdrValues, fdrAdjustments, fdrTypes })
+  }, [fdrTypes, saveConfig, isForecastSection])
 
   // Effect to reset expanded rows when company/division/subdivision changes
   useEffect(() => {
@@ -352,7 +319,7 @@ export function FDRForecastDetail({
       } else {
         // Add new adjustment
         const newAdjustment: FDRAdjustment = {
-          id: `${Date.now()}-${Math.random()}`,
+          id: generateId(),
           rowId: editingAdjustment.rowId,
           yearIndex: editingAdjustment.yearIndex,
           type: adjustmentType, // This will match the FDR type
@@ -463,7 +430,7 @@ export function FDRForecastDetail({
     const generateTrend = (base: number, growthRate: number = 0.05) => {
       return Array.from({ length: projectionYears + 1 }, (_, i) => {
         const yearIndex = i
-        return Math.round(base * (1 + growthRate * yearIndex) * (0.95 + Math.random() * 0.1))
+        return Math.round(base * (1 + growthRate * yearIndex) * (0.95 + seededRandom(base + i) * 0.1))
       })
     }
 

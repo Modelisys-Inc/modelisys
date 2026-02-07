@@ -4,10 +4,15 @@ import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Plus, BarChart3, Edit2, Trash2, X, Check, Folder, FolderTree, Filter } from "lucide-react"
-import { useState, useEffect, useRef } from "react"
+import { Plus, BarChart3, Edit2, Trash2, X, Check, Filter, Loader2 } from "lucide-react"
+import { useState, useEffect, useCallback } from "react"
 import React from "react"
-import { usePathname } from "next/navigation"
+import {
+  listCompanies,
+  getStatementStructure,
+  upsertStatementStructure,
+  type StatementType,
+} from "@/lib/api"
 
 interface Poste {
   id: string
@@ -32,7 +37,12 @@ interface Mapping {
 
 type MappingType = "bilan" | "resultats" | "capex" | "baiia"
 
-const STORAGE_KEY_PREFIX = "financial-statements-mappings"
+const MAPPING_TYPE_TO_STATEMENT_TYPE: Record<MappingType, StatementType> = {
+  bilan: "balance-sheet",
+  resultats: "income-statement",
+  capex: "capex",
+  baiia: "baiia",
+}
 
 const getDefaultMappingsBilan = (): Mapping[] => [
   {
@@ -126,166 +136,81 @@ const getDefaultMappings = (type: MappingType): Mapping[] => {
   return []
 }
 
-const loadMappings = (type: MappingType): Mapping[] => {
-  if (typeof window === "undefined") return getDefaultMappings(type)
-  
-  try {
-    const storageKey = `${STORAGE_KEY_PREFIX}-${type}`
-    let stored = localStorage.getItem(storageKey)
-    
-    // Migration : Si on charge le bilan et qu'il n'y a pas de données, vérifier l'ancienne clé
-    if (!stored && type === "bilan") {
-      const oldKey = "financial-statements-mappings"
-      const oldStored = localStorage.getItem(oldKey)
-      if (oldStored) {
-        // Migrer les anciennes données vers la nouvelle clé
-        try {
-          const oldParsed = JSON.parse(oldStored)
-          localStorage.setItem(storageKey, JSON.stringify(oldParsed))
-          stored = oldStored
-        } catch (e) {
-          console.error("Error migrating old mappings:", e)
-        }
+/** Normalize raw API data into properly-typed Mapping[], merging with defaults. */
+function normalizeMappings(parsed: Mapping[], type: MappingType): Mapping[] {
+  const defaultMappings = getDefaultMappings(type)
+  const requiredNames = type === "bilan"
+    ? ["Actif", "Passif", "Capitaux propres"]
+    : type === "resultats"
+    ? ["Revenus", "Coûts des produits vendus", "Charges"]
+    : type === "capex"
+    ? ["Capex"]
+    : ["Amortissement", "Intérêts", "Impôts"]
+
+  const existingNames = parsed.map((m: Mapping) => m.name)
+  const missingMappings = defaultMappings.filter(m => !existingNames.includes(m.name))
+  const merged = [...parsed, ...missingMappings]
+  const filteredMerged = merged.filter((m: Mapping) => requiredNames.includes(m.name))
+
+  return filteredMerged.map((m: Mapping) => {
+    if (type === "bilan" && m.name === "Capitaux propres") {
+      return { ...m, categories: [], postes: m.postes || [] }
+    }
+    if (type === "resultats" && m.name === "Revenus") {
+      return { ...m, categories: [], postes: m.postes || [] }
+    }
+    if (type === "baiia" && (m.name === "Amortissement" || m.name === "Intérêts" || m.name === "Impôts")) {
+      return { ...m, categories: [], postes: m.postes || [] }
+    }
+    if (type === "resultats" && m.name === "Coûts des produits vendus") {
+      return {
+        ...m,
+        categories: (m.categories || []).map(cat => ({ ...cat, postes: cat.postes || [] })),
+        postes: undefined,
       }
     }
-    
-    if (stored) {
-      const parsed = JSON.parse(stored)
-      // S'assurer qu'on a toujours les mappings requis
-      const defaultMappings = getDefaultMappings(type)
-      const requiredNames = type === "bilan"
-        ? ["Actif", "Passif", "Capitaux propres"]
-        : type === "resultats"
-        ? ["Revenus", "Coûts des produits vendus", "Charges"]
-        : type === "capex"
-        ? ["Capex"]
-        : ["Amortissement", "Intérêts", "Impôts"]
-      
-      // Vérifier et ajouter les mappings manquants
-      const existingNames = parsed.map((m: Mapping) => m.name)
-      const missingMappings = defaultMappings.filter(m => !existingNames.includes(m.name))
-      
-      // Fusionner les mappings existants avec les manquants
-      const merged = [...parsed]
-      missingMappings.forEach(missing => {
-        merged.push(missing)
-      })
-      
-      // Filtrer pour ne garder que les mappings appropriés pour ce type
-      const filteredMerged = merged.filter((m: Mapping) => requiredNames.includes(m.name))
-      
-      // S'assurer que chaque mapping a la bonne structure et préserver toutes les données existantes
-      return filteredMerged.map((m: Mapping) => {
-        if (type === "bilan" && m.name === "Capitaux propres") {
-          return {
-            ...m,
-            categories: [],
-            postes: m.postes || [],
-          }
-        }
-        if (type === "resultats" && m.name === "Revenus") {
-          return {
-            ...m,
-            categories: [],
-            postes: m.postes || [],
-          }
-        }
-        // BAIIA : Amortissement, Intérêts et Impôts fonctionnent comme Revenus - uniquement des postes directs
-        if (type === "baiia" && (m.name === "Amortissement" || m.name === "Intérêts" || m.name === "Impôts")) {
-          return {
-            ...m,
-            categories: [],
-            postes: m.postes || [],
-          }
-        }
-        // Coûts des produits vendus fonctionne exactement comme Charges : uniquement des catégories, pas de postes directs
-        if (type === "resultats" && m.name === "Coûts des produits vendus") {
-          return {
-            ...m,
-            categories: (m.categories || []).map(cat => ({
-              ...cat,
-              postes: cat.postes || []
-            })),
-            postes: undefined, // Pas de postes directs, uniquement dans les catégories
-          }
-        }
-        // Capex fonctionne exactement comme Charges : uniquement des catégories, pas de postes directs
-        if (type === "capex" && m.name === "Capex") {
-          return {
-            ...m,
-            categories: (m.categories || []).map(cat => ({
-              ...cat,
-              postes: cat.postes || []
-            })),
-            postes: undefined, // Pas de postes directs, uniquement dans les catégories
-          }
-        }
-        // Pour Actif et Passif dans le bilan, s'assurer qu'ils ont les catégories Court terme et Long terme
-        // Mais préserver TOUTES les catégories et postes existants
-        if (type === "bilan" && (m.name === "Actif" || m.name === "Passif")) {
-          const defaultMapping = defaultMappings.find(dm => dm.name === m.name)
-          if (defaultMapping) {
-            const existingCategories = m.categories || []
-            const requiredCategoryNames = ["Court terme", "Long terme"]
-            const existingCategoryNames = existingCategories.map(c => c.name)
-            const missingCategoryNames = requiredCategoryNames.filter(name => !existingCategoryNames.includes(name))
-            
-            // Ajouter les catégories manquantes depuis le défaut, mais préserver toutes les données existantes
-            const missingCategories = defaultMapping.categories
-              .filter(c => missingCategoryNames.includes(c.name))
-              .map(c => ({
-                ...c,
-                // Si une catégorie avec le même nom existe déjà, préserver ses postes
-                postes: existingCategories.find(ec => ec.name === c.name)?.postes || c.postes || []
-              }))
-            
-            // Fusionner : garder toutes les catégories existantes (avec leurs postes) et ajouter les manquantes
-            const mergedCategories = [...existingCategories]
-            missingCategories.forEach(missingCat => {
-              if (!mergedCategories.find(ec => ec.name === missingCat.name)) {
-                mergedCategories.push(missingCat)
-              }
-            })
-            
-            return {
-              ...m,
-              categories: mergedCategories,
-              postes: undefined, // Actif et Passif n'ont pas de postes directs
-            }
-          }
-        }
-        // Pour les autres mappings (comme "Charges" dans Résultats), préserver toutes les catégories et leurs postes
-        return {
-          ...m,
-          categories: (m.categories || []).map(cat => ({
-            ...cat,
-            postes: cat.postes || [] // Préserver tous les postes existants
-          })),
-          postes: m.postes || undefined, // Préserver les postes directs si ils existent
-        }
-      })
+    if (type === "capex" && m.name === "Capex") {
+      return {
+        ...m,
+        categories: (m.categories || []).map(cat => ({ ...cat, postes: cat.postes || [] })),
+        postes: undefined,
+      }
     }
-  } catch (error) {
-    console.error("Error loading mappings from localStorage:", error)
-  }
-  return getDefaultMappings(type)
-}
-
-const saveMappings = (mappings: Mapping[], type: MappingType) => {
-  if (typeof window === "undefined") return
-  
-  try {
-    const storageKey = `${STORAGE_KEY_PREFIX}-${type}`
-    localStorage.setItem(storageKey, JSON.stringify(mappings))
-  } catch (error) {
-    console.error("Error saving mappings to localStorage:", error)
-  }
+    if (type === "bilan" && (m.name === "Actif" || m.name === "Passif")) {
+      const defaultMapping = defaultMappings.find(dm => dm.name === m.name)
+      if (defaultMapping) {
+        const existingCategories = m.categories || []
+        const requiredCategoryNames = ["Court terme", "Long terme"]
+        const existingCategoryNames = existingCategories.map(c => c.name)
+        const missingCategoryNames = requiredCategoryNames.filter(name => !existingCategoryNames.includes(name))
+        const missingCategories = defaultMapping.categories
+          .filter(c => missingCategoryNames.includes(c.name))
+          .map(c => ({
+            ...c,
+            postes: existingCategories.find(ec => ec.name === c.name)?.postes || c.postes || []
+          }))
+        const mergedCategories = [...existingCategories]
+        missingCategories.forEach(missingCat => {
+          if (!mergedCategories.find(ec => ec.name === missingCat.name)) {
+            mergedCategories.push(missingCat)
+          }
+        })
+        return { ...m, categories: mergedCategories, postes: undefined }
+      }
+    }
+    return {
+      ...m,
+      categories: (m.categories || []).map(cat => ({ ...cat, postes: cat.postes || [] })),
+      postes: m.postes || undefined,
+    }
+  })
 }
 
 export default function FinancialStatementsPage() {
-  const pathname = usePathname()
   const [mappingType, setMappingType] = useState<MappingType>("bilan")
-  const [mappings, setMappings] = useState<Mapping[]>(() => loadMappings("bilan"))
+  const [mappings, setMappings] = useState<Mapping[]>([])
+  const [loading, setLoading] = useState(true)
+  const [companyId, setCompanyId] = useState<string | null>(null)
   const [addingCategoryTo, setAddingCategoryTo] = useState<string | null>(null)
   const [newCategoryName, setNewCategoryName] = useState("")
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
@@ -298,203 +223,87 @@ export default function FinancialStatementsPage() {
   const [editingPosteLinkCode, setEditingPosteLinkCode] = useState("")
   const [selectedResultatsPoste, setSelectedResultatsPoste] = useState<string>("")
 
-  // Utiliser une ref pour suivre le type précédent et éviter les sauvegardes lors du premier chargement
-  const prevMappingTypeRef = React.useRef<MappingType | null>(null)
-  const isInitialMount = React.useRef(true)
-  const isChangingTypeRef = React.useRef(false)
-  const prevPathnameRef = useRef<string | null>(null)
-  
-  // Fonction pour récupérer tous les postes du type Résultats
+  // Cache for resultats mappings (used by BAIIA poste picker)
+  const [resultatsMappingsCache, setResultatsMappingsCache] = useState<Mapping[]>([])
+
+  // Load first company to use as context
+  useEffect(() => {
+    listCompanies()
+      .then((companies) => {
+        if (companies.length > 0) {
+          setCompanyId(companies[0].id)
+        } else {
+          setLoading(false)
+        }
+      })
+      .catch(() => setLoading(false))
+  }, [])
+
+  // Load mappings from API when type or company changes
+  const loadMappingsFromApi = useCallback(async (type: MappingType) => {
+    if (!companyId) return
+
+    setLoading(true)
+    try {
+      const statementType = MAPPING_TYPE_TO_STATEMENT_TYPE[type]
+      const data = await getStatementStructure(companyId, statementType)
+      const normalized = normalizeMappings(data.structure as unknown as Mapping[], type)
+      setMappings(normalized)
+    } catch {
+      // 404 means no structure saved yet - use defaults
+      setMappings(getDefaultMappings(type))
+    } finally {
+      setLoading(false)
+    }
+  }, [companyId])
+
+  useEffect(() => {
+    if (companyId) {
+      loadMappingsFromApi(mappingType)
+    }
+  }, [companyId, mappingType, loadMappingsFromApi])
+
+  // Load resultats mappings cache for BAIIA poste picker
+  useEffect(() => {
+    if (!companyId) return
+    const statementType = MAPPING_TYPE_TO_STATEMENT_TYPE["resultats"]
+    getStatementStructure(companyId, statementType)
+      .then((data) => {
+        setResultatsMappingsCache(normalizeMappings(data.structure as unknown as Mapping[], "resultats"))
+      })
+      .catch(() => {
+        setResultatsMappingsCache(getDefaultMappings("resultats"))
+      })
+  }, [companyId])
+
+  // Save mappings to API
+  const saveMappingsToApi = useCallback(async (mappingsToSave: Mapping[], type: MappingType) => {
+    if (!companyId) return
+    try {
+      const statementType = MAPPING_TYPE_TO_STATEMENT_TYPE[type]
+      await upsertStatementStructure(
+        companyId,
+        statementType,
+        mappingsToSave as unknown as Record<string, unknown>[]
+      )
+    } catch (e) {
+      console.error("Error saving mappings:", e)
+    }
+  }, [companyId])
+
+  // Fonction pour récupérer tous les postes du type Résultats (from cache)
   const getAllResultatsPostes = (): Poste[] => {
-    const resultatsMappings = loadMappings("resultats")
     const allPostes: Poste[] = []
-    
-    resultatsMappings.forEach((mapping) => {
-      // Postes directs (Revenus, Coûts des produits vendus)
+    resultatsMappingsCache.forEach((mapping) => {
       if (mapping.postes) {
         allPostes.push(...mapping.postes)
       }
-      
-      // Postes dans les catégories (Charges, Coûts des produits vendus)
       mapping.categories.forEach((category) => {
         allPostes.push(...category.postes)
       })
     })
-    
     return allPostes
   }
-
-  // Fonction utilitaire pour sauvegarder de manière synchrone
-  const saveMappingsSync = (mappingsToSave: Mapping[], type: MappingType) => {
-    if (typeof window === "undefined" || mappingsToSave.length === 0) return
-    
-    const requiredNames = type === "bilan"
-      ? ["Actif", "Passif", "Capitaux propres"]
-      : type === "resultats"
-      ? ["Revenus", "Coûts des produits vendus", "Charges"]
-      : type === "capex"
-      ? ["Capex"]
-      : ["Amortissement", "Intérêts", "Impôts"]
-    const filteredMappings = mappingsToSave.filter(m => requiredNames.includes(m.name))
-    
-    if (filteredMappings.length > 0) {
-      const storageKey = `${STORAGE_KEY_PREFIX}-${type}`
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(filteredMappings))
-      } catch (error) {
-        console.error("Error saving mappings:", error)
-      }
-    }
-  }
-  
-  // Charger les mappings quand le type change
-  useEffect(() => {
-    // Sauvegarder d'abord les mappings de l'ancien type avant de charger le nouveau (sauf au premier chargement)
-    if (!isInitialMount.current && mappings.length > 0 && prevMappingTypeRef.current !== null && prevMappingTypeRef.current !== mappingType) {
-      isChangingTypeRef.current = true
-      const previousType = prevMappingTypeRef.current
-      // Sauvegarder de manière synchrone pour garantir la persistance
-      saveMappingsSync(mappings, previousType)
-    }
-    
-    // Marquer que ce n'est plus le premier chargement
-    if (isInitialMount.current) {
-      isInitialMount.current = false
-    }
-    
-    // Mettre à jour la ref avec le nouveau type
-    prevMappingTypeRef.current = mappingType
-    
-    // Ensuite charger les mappings du nouveau type depuis localStorage
-    // Cela préservera toutes les modifications précédentes
-    const loadedMappings = loadMappings(mappingType)
-    setMappings(loadedMappings)
-    
-    // Réinitialiser le flag après un court délai pour permettre au useEffect de sauvegarde de fonctionner
-    setTimeout(() => {
-      isChangingTypeRef.current = false
-    }, 150)
-  }, [mappingType])
-
-  // S'assurer qu'on a toujours les mappings requis au chargement et que Actif/Passif ont les bonnes catégories
-  // Ce useEffect ne s'exécute qu'une seule fois au chargement initial pour chaque type
-  useEffect(() => {
-    if (mappings.length === 0 || isChangingTypeRef.current) return
-    
-    const requiredNames = mappingType === "bilan"
-      ? ["Actif", "Passif", "Capitaux propres"]
-      : mappingType === "resultats"
-      ? ["Revenus", "Coûts des produits vendus", "Charges"]
-      : mappingType === "capex"
-      ? ["Capex"]
-      : ["Amortissement", "Intérêts"]
-    
-    // Filtrer d'abord pour ne garder que les mappings du bon type
-    let updatedMappings = mappings.filter(m => requiredNames.includes(m.name))
-    let hasChanges = false
-    
-    const existingNames = updatedMappings.map(m => m.name)
-    const missingNames = requiredNames.filter(name => !existingNames.includes(name))
-    
-    // Ajouter les mappings manquants (seulement s'ils n'existent pas déjà)
-    if (missingNames.length > 0) {
-      const defaultMappings = getDefaultMappings(mappingType)
-      const missingMappings = defaultMappings.filter(m => missingNames.includes(m.name))
-      updatedMappings = [...updatedMappings, ...missingMappings]
-      hasChanges = true
-    }
-    
-    // Pour le bilan, s'assurer que Actif et Passif ont les catégories Court terme et Long terme
-    // Mais préserver toutes les catégories et postes existants
-    if (mappingType === "bilan") {
-      const defaultMappings = getDefaultMappingsBilan()
-      updatedMappings = updatedMappings.map(m => {
-        if (m.name === "Actif" || m.name === "Passif") {
-          const defaultMapping = defaultMappings.find(dm => dm.name === m.name)
-          if (defaultMapping) {
-            const existingCategories = m.categories || []
-            const requiredCategoryNames = ["Court terme", "Long terme"]
-            const existingCategoryNames = existingCategories.map(c => c.name)
-            const missingCategoryNames = requiredCategoryNames.filter(name => !existingCategoryNames.includes(name))
-            
-            if (missingCategoryNames.length > 0) {
-              // Ajouter les catégories manquantes depuis le défaut, mais préserver toutes les catégories existantes
-              const missingCategories = defaultMapping.categories
-                .filter(c => missingCategoryNames.includes(c.name))
-                .map(c => ({
-                  ...c,
-                  // Préserver les postes existants si la catégorie existe déjà avec un nom différent
-                  postes: existingCategories.find(ec => ec.name === c.name)?.postes || c.postes || []
-                }))
-              
-              // Fusionner les catégories : garder les existantes et ajouter les manquantes
-              const mergedCategories = [...existingCategories]
-              missingCategories.forEach(missingCat => {
-                if (!mergedCategories.find(ec => ec.name === missingCat.name)) {
-                  mergedCategories.push(missingCat)
-                }
-              })
-              
-              hasChanges = true
-              return {
-                ...m,
-                categories: mergedCategories,
-              }
-            }
-          }
-        }
-        return m
-      })
-    }
-    
-    // Mettre à jour seulement si quelque chose a changé
-    if (hasChanges) {
-      setMappings(updatedMappings)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mappingType])
-
-  // Sauvegarder les mappings dans localStorage à chaque modification
-  useEffect(() => {
-    // Ne pas sauvegarder lors du chargement initial ou lors d'un changement de type
-    if (mappings.length === 0 || isChangingTypeRef.current || isInitialMount.current) return
-    
-    // Sauvegarder immédiatement de manière synchrone
-    saveMappingsSync(mappings, mappingType)
-  }, [mappings, mappingType])
-  
-  // Sauvegarder lors du changement de route (navigation interne)
-  useEffect(() => {
-    // Sauvegarder avant de quitter la page si on change de route
-    if (prevPathnameRef.current !== null && prevPathnameRef.current !== pathname && mappings.length > 0) {
-      saveMappingsSync(mappings, mappingType)
-    }
-    prevPathnameRef.current = pathname
-  }, [pathname, mappings, mappingType])
-  
-  // Sauvegarder aussi avant de quitter la page (unload) et lors de la visibilité de la page
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      if (mappings.length > 0) {
-        saveMappingsSync(mappings, mappingType)
-      }
-    }
-    
-    const handleVisibilityChange = () => {
-      // Sauvegarder quand la page devient cachée (changement d'onglet, minimisation, etc.)
-      if (document.hidden && mappings.length > 0) {
-        saveMappingsSync(mappings, mappingType)
-      }
-    }
-    
-    window.addEventListener("beforeunload", handleBeforeUnload)
-    document.addEventListener("visibilitychange", handleVisibilityChange)
-    
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload)
-      document.removeEventListener("visibilitychange", handleVisibilityChange)
-    }
-  }, [mappings, mappingType])
 
 
 
@@ -513,7 +322,7 @@ export default function FinancialStatementsPage() {
       setAddingCategoryTo(null)
       
       // Sauvegarder immédiatement de manière synchrone
-      saveMappingsSync(updatedMappings, mappingType)
+      saveMappingsToApi(updatedMappings, mappingType)
     }
   }
 
@@ -539,7 +348,7 @@ export default function FinancialStatementsPage() {
       setEditingCategoryName("")
       
       // Sauvegarder immédiatement de manière synchrone
-      saveMappingsSync(updatedMappings, mappingType)
+      saveMappingsToApi(updatedMappings, mappingType)
     }
   }
 
@@ -555,7 +364,7 @@ export default function FinancialStatementsPage() {
     setMappings(updatedMappings)
     
     // Sauvegarder immédiatement
-    saveMappingsSync(updatedMappings, mappingType)
+    saveMappingsToApi(updatedMappings, mappingType)
   }
 
   const handleAddPoste = (mappingId: string, categoryId: string | null) => {
@@ -580,7 +389,7 @@ export default function FinancialStatementsPage() {
         setMappings(updatedMappings)
         setSelectedResultatsPoste("")
         setAddingPosteTo(null)
-        saveMappingsSync(updatedMappings, mappingType)
+        saveMappingsToApi(updatedMappings, mappingType)
         return
       }
     }
@@ -617,7 +426,7 @@ export default function FinancialStatementsPage() {
       setAddingPosteTo(null)
       
       // Sauvegarder immédiatement de manière synchrone
-      saveMappingsSync(updatedMappings, mappingType)
+      saveMappingsToApi(updatedMappings, mappingType)
     }
   }
 
@@ -667,7 +476,7 @@ export default function FinancialStatementsPage() {
       setEditingPosteLinkCode("")
       
       // Sauvegarder immédiatement de manière synchrone
-      saveMappingsSync(updatedMappings, mappingType)
+      saveMappingsToApi(updatedMappings, mappingType)
     }
   }
 
@@ -713,7 +522,7 @@ export default function FinancialStatementsPage() {
     setMappings(updatedMappings)
     
     // Sauvegarder immédiatement
-    saveMappingsSync(updatedMappings, mappingType)
+    saveMappingsToApi(updatedMappings, mappingType)
   }
 
   const handleToggleFdRhc = (mappingId: string, categoryId: string | null, posteId: string) => {
@@ -752,7 +561,7 @@ export default function FinancialStatementsPage() {
     setMappings(updatedMappings)
     
     // Sauvegarder immédiatement
-    saveMappingsSync(updatedMappings, mappingType)
+    saveMappingsToApi(updatedMappings, mappingType)
   }
 
   const handleDeletePoste = (mappingId: string, categoryId: string | null, posteId: string) => {
@@ -778,7 +587,7 @@ export default function FinancialStatementsPage() {
     setMappings(updatedMappings)
     
     // Sauvegarder immédiatement
-    saveMappingsSync(updatedMappings, mappingType)
+    saveMappingsToApi(updatedMappings, mappingType)
   }
 
   return (
@@ -874,7 +683,12 @@ export default function FinancialStatementsPage() {
           <div className="p-6">
             {/* Mappings Table */}
             <div className="overflow-x-auto bg-white">
-              {mappings.length === 0 ? (
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                  <span className="ml-2 text-sm text-slate-500">Chargement...</span>
+                </div>
+              ) : mappings.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
                   <BarChart3 className="w-12 h-12 mx-auto mb-4 text-slate-400" />
                   <p className="text-sm">Aucun mapping configuré</p>

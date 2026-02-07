@@ -1,12 +1,23 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TrendingUp, TrendingDown, ChevronDown } from "lucide-react"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, findRow, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
+
+export interface IncomeStatementChartDataPoint {
+  period: string
+  revenue: number
+  cogs: number
+  grossProfit: number
+  ebita: number
+  grossMarginPercent: number
+}
 
 interface IncomeStatementChartProps {
   period: "monthly" | "quarterly" | "annual"
@@ -18,251 +29,9 @@ interface IncomeStatementChartProps {
   comparisonType?: "lastMonth" | "pastMonth" | "budget"
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
-}
-
-// Helper functions to generate data
-const getChartData = (
-  period: "monthly" | "quarterly" | "annual", 
-  view: "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years",
-  chartView?: "revenue_ebita_margin" | "cogs_grossprofit_margin",
-  comparisonType?: "lastMonth" | "pastMonth" | "budget",
-  selectedBudgetId?: string | null
-) => {
-  if (view === "12months") {
-    const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
-    const currentDate = new Date()
-    return Array.from({ length: 12 }, (_, i) => {
-      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - (11 - i), 1)
-      // Use same base formula as quarters but for monthly values (divide by 3)
-      // For quarters: baseRevenue = (242000 + (i * 2750)) * 3
-      // For months: baseRevenue = 242000 + (i * 2750)
-      const baseRevenue = 242000 + (i * 2750)
-      const baseCOGS = 110000 + (i * 1250)
-      const baseGrossProfit = baseRevenue - baseCOGS
-      const baseAdmin = 52700 + (i * 500)
-      const baseSales = 32300 + (i * 300)
-      const baseOther = -3500
-      const baseTotalExpenses = baseAdmin + baseSales + baseOther
-      const baseEBITA = baseGrossProfit - baseTotalExpenses
-      const grossMarginPercent = (baseGrossProfit / baseRevenue) * 100
-      const revenueBudget = baseRevenue * 1.1
-      
-      return {
-        period: months[date.getMonth()],
-        revenue: baseRevenue,
-        cogs: baseCOGS,
-        grossProfit: baseGrossProfit,
-        ebita: baseEBITA,
-        grossMarginPercent: grossMarginPercent,
-        revenueBudget: revenueBudget
-      }
-    })
-  }
-  if (view === "quarters") {
-    const currentDate = new Date()
-    return Array.from({ length: 5 }, (_, i) => {
-      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - (4 - i) * 3, 1)
-      const quarter = Math.floor(date.getMonth() / 3) + 1
-      const baseRevenue = (242000 + (i * 2750)) * 3
-      const baseCOGS = (110000 + (i * 1250)) * 3
-      const baseGrossProfit = baseRevenue - baseCOGS
-      const baseAdmin = (52700 + (i * 500)) * 3
-      const baseSales = (32300 + (i * 300)) * 3
-      const baseOther = -3500 * 3
-      const baseTotalExpenses = baseAdmin + baseSales + baseOther
-      const baseEBITA = baseGrossProfit - baseTotalExpenses
-      const grossMarginPercent = (baseGrossProfit / baseRevenue) * 100
-      const revenueBudget = baseRevenue * 1.1
-      return {
-        period: `T${quarter} ${date.getFullYear()}`,
-        revenue: baseRevenue,
-        cogs: baseCOGS,
-        grossProfit: baseGrossProfit,
-        ebita: baseEBITA,
-        grossMarginPercent: grossMarginPercent,
-        revenueBudget: revenueBudget
-      }
-    })
-  }
-  if (view === "years") {
-    const currentYear = new Date().getFullYear()
-    return Array.from({ length: 6 }, (_, i) => {
-      const year = currentYear - (5 - i)
-      const baseRevenue = (242000 + (i * 2750)) * 12
-      const baseCOGS = (110000 + (i * 1250)) * 12
-      const baseGrossProfit = baseRevenue - baseCOGS
-      const baseAdmin = (52700 + (i * 500)) * 12
-      const baseSales = (32300 + (i * 300)) * 12
-      const baseOther = -3500 * 12
-      const baseTotalExpenses = baseAdmin + baseSales + baseOther
-      const baseEBITA = baseGrossProfit - baseTotalExpenses
-      const grossMarginPercent = (baseGrossProfit / baseRevenue) * 100
-      const revenueBudget = baseRevenue * 1.1
-      return {
-        period: `${year}`,
-        revenue: baseRevenue,
-        cogs: baseCOGS,
-        grossProfit: baseGrossProfit,
-        ebita: baseEBITA,
-        grossMarginPercent: grossMarginPercent,
-        revenueBudget: revenueBudget
-      }
-    })
-  }
-  // Helper function to get comparison prior value based on comparisonType
-  const getComparisonPriorValue = (basePrior: number): number => {
-    if (comparisonType === "lastMonth") {
-      return basePrior
-    } else if (comparisonType === "pastMonth") {
-      return Math.round(basePrior * 0.92)
-    } else if (comparisonType === "budget" && selectedBudgetId) {
-      // For budget, use a higher value (typically budgets are optimistic)
-      return Math.round(basePrior * 1.15)
-    }
-    return basePrior
-  }
-
-  // For comparison, YTD, and DDM views, return current and prior period
-  if (view === "ytd" || view === "ddm" || view === "comparison") {
-    // Base values for current period
-    let currentRevenue: number
-    let currentCOGS: number
-    let currentAdmin: number
-    let currentSales: number
-    let currentOther: number
-
-    if (view === "ytd") {
-      currentRevenue = 1650000 // Cumulative YTD
-      currentCOGS = 750000
-      currentAdmin = 351000
-      currentSales = 216000
-      currentOther = -21000
-    } else if (view === "ddm") {
-      currentRevenue = 275000 // Same day last month
-      currentCOGS = 125000
-      currentAdmin = 58500
-      currentSales = 36000
-      currentOther = -3500
-    } else {
-      // comparison view
-      currentRevenue = period === "monthly" ? 275000 : period === "quarterly" ? 825000 : 3300000
-      currentCOGS = period === "monthly" ? 125000 : period === "quarterly" ? 375000 : 1500000
-      currentAdmin = period === "monthly" ? 58500 : period === "quarterly" ? 175500 : 702000
-      currentSales = period === "monthly" ? 36000 : period === "quarterly" ? 108000 : 432000
-      currentOther = period === "monthly" ? -3500 : period === "quarterly" ? -10500 : -42000
-    }
-
-    // Base prior values
-    let basePriorRevenue: number
-    let basePriorCOGS: number
-    let basePriorAdmin: number
-    let basePriorSales: number
-    let basePriorOther: number
-
-    if (view === "ytd") {
-      basePriorRevenue = 1452000
-      basePriorCOGS = 660000
-      basePriorAdmin = 316200
-      basePriorSales = 193800
-      basePriorOther = -21000
-    } else if (view === "ddm") {
-      basePriorRevenue = 242000
-      basePriorCOGS = 110000
-      basePriorAdmin = 52700
-      basePriorSales = 32300
-      basePriorOther = -3500
-    } else {
-      // comparison view
-      basePriorRevenue = period === "monthly" ? 242000 : period === "quarterly" ? 726000 : 2904000
-      basePriorCOGS = period === "monthly" ? 110000 : period === "quarterly" ? 330000 : 1320000
-      basePriorAdmin = period === "monthly" ? 52700 : period === "quarterly" ? 158100 : 632400
-      basePriorSales = period === "monthly" ? 32300 : period === "quarterly" ? 96900 : 387600
-      basePriorOther = period === "monthly" ? -3500 : period === "quarterly" ? -10500 : -42000
-    }
-
-    // Apply comparison type adjustment to prior values
-    const priorRevenue = getComparisonPriorValue(basePriorRevenue)
-    const priorCOGS = getComparisonPriorValue(basePriorCOGS)
-    const priorGrossProfit = priorRevenue - priorCOGS
-    const priorAdmin = getComparisonPriorValue(basePriorAdmin)
-    const priorSales = getComparisonPriorValue(basePriorSales)
-    const priorOther = basePriorOther // Usually same
-    const priorTotalExpenses = priorAdmin + priorSales + priorOther
-    const priorEBITA = priorGrossProfit - priorTotalExpenses
-    const priorGrossMarginPercent = (priorGrossProfit / priorRevenue) * 100
-    const priorRevenueBudget = priorRevenue * 1.1
-
-    const currentGrossProfit = currentRevenue - currentCOGS
-    const currentTotalExpenses = currentAdmin + currentSales + currentOther
-    const currentEBITA = currentGrossProfit - currentTotalExpenses
-    const currentGrossMarginPercent = (currentGrossProfit / currentRevenue) * 100
-    const currentRevenueBudget = currentRevenue * 1.1
-
-    // Determine period label for prior
-    let priorPeriodLabel: string
-    if (view === "ytd") {
-      if (comparisonType === "lastMonth") priorPeriodLabel = "YTD précédent"
-      else if (comparisonType === "pastMonth") priorPeriodLabel = "YTD passé"
-      else if (comparisonType === "budget") priorPeriodLabel = "YTD budgeté"
-      else priorPeriodLabel = "YTD précédent"
-    } else if (view === "ddm") {
-      if (comparisonType === "lastMonth") priorPeriodLabel = "DDM précédent"
-      else if (comparisonType === "pastMonth") priorPeriodLabel = "DDM passé"
-      else if (comparisonType === "budget") priorPeriodLabel = "DDM budgeté"
-      else priorPeriodLabel = "DDM précédent"
-    } else {
-      // comparison view
-      if (period === "monthly") {
-        if (comparisonType === "lastMonth") priorPeriodLabel = "Mois précédent"
-        else if (comparisonType === "pastMonth") priorPeriodLabel = "Mois passé"
-        else if (comparisonType === "budget") priorPeriodLabel = "Mois budgeté"
-        else priorPeriodLabel = "Mois précédent"
-      } else if (period === "quarterly") {
-        if (comparisonType === "lastMonth") priorPeriodLabel = "Trimestre précédent"
-        else if (comparisonType === "pastMonth") priorPeriodLabel = "Trimestre passé"
-        else if (comparisonType === "budget") priorPeriodLabel = "Trimestre budgeté"
-        else priorPeriodLabel = "Trimestre précédent"
-      } else {
-        if (comparisonType === "lastMonth") priorPeriodLabel = "Année précédente"
-        else if (comparisonType === "pastMonth") priorPeriodLabel = "Année passée"
-        else if (comparisonType === "budget") priorPeriodLabel = "Année budgetée"
-        else priorPeriodLabel = "Année précédente"
-      }
-    }
-
-    let currentPeriodLabel: string
-    if (view === "ytd") {
-      currentPeriodLabel = "YTD courant"
-    } else if (view === "ddm") {
-      currentPeriodLabel = "DDM courant"
-    } else {
-      currentPeriodLabel = period === "monthly" ? "Mois courant" : period === "quarterly" ? "Trimestre courant" : "Année courante"
-    }
-
-    return [
-      {
-        period: currentPeriodLabel,
-        revenue: currentRevenue,
-        cogs: currentCOGS,
-        grossProfit: currentGrossProfit,
-        ebita: currentEBITA,
-        grossMarginPercent: currentGrossMarginPercent,
-        revenueBudget: currentRevenueBudget
-      },
-      {
-        period: priorPeriodLabel,
-        revenue: priorRevenue,
-        cogs: priorCOGS,
-        grossProfit: priorGrossProfit,
-        ebita: priorEBITA,
-        grossMarginPercent: priorGrossMarginPercent,
-        revenueBudget: priorRevenueBudget
-      }
-    ]
-  }
-
-  // This should never be reached, but keeping for type safety
-  return []
+  fiscalYear?: number
+  chartData?: IncomeStatementChartDataPoint[]
+  loading?: boolean
 }
 
 type ChartViewType = "revenue_ebita_margin" | "cogs_grossprofit_margin"
@@ -277,13 +46,104 @@ export function IncomeStatementChart({
   comparisonType = "lastMonth",
   selectedBudgetId = null,
   selectedBudgetName = null,
+  fiscalYear,
+  chartData,
+  loading = false,
 }: IncomeStatementChartProps) {
   const [selectedChartView, setSelectedChartView] = useState<ChartViewType>("revenue_ebita_margin")
   const [showRevenue, setShowRevenue] = useState(true)
   const [showEBITA, setShowEBITA] = useState(true)
   const [showGrossMargin, setShowGrossMargin] = useState(true)
-  
-  const chartData = getChartData(period, view, selectedChartView, comparisonType, selectedBudgetId)
+
+  // Fetch series data when no chartData prop is provided
+  const seriesMonthsNeeded = view === "years" ? 72 : view === "quarters" ? 15 : 12
+  const { rows: seriesRows, periods: seriesPeriods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "income-statement",
+    fiscalYear: fiscalYear || new Date().getFullYear(),
+    months: seriesMonthsNeeded,
+    divisionId: divisionId || undefined,
+    subDivisionId: subDivisionId || undefined,
+    enabled: !chartData,
+  })
+
+  // Build chart data from series API when no chartData prop
+  const seriesChartData = useMemo((): IncomeStatementChartDataPoint[] | null => {
+    if (chartData || !seriesRows.length || !seriesPeriods.length) return null
+    const revenueRow = findRow(seriesRows, "revenus")
+    const cogsRow = seriesRows.find(r => r.label.toLowerCase().includes("coût") && r.isResult)
+    const grossProfitRow = findRow(seriesRows, "bénéfice brut")
+    const ebitaRow = findRow(seriesRows, "baiia")
+    if (!revenueRow) return null
+
+    const revenueAmounts = getRowAmounts(revenueRow, seriesPeriods)
+    const cogsAmounts = cogsRow ? getRowAmounts(cogsRow, seriesPeriods) : revenueAmounts.map(() => 0)
+    const grossProfitAmounts = grossProfitRow ? getRowAmounts(grossProfitRow, seriesPeriods) : revenueAmounts.map((r, i) => r - cogsAmounts[i])
+    const ebitaAmounts = ebitaRow ? getRowAmounts(ebitaRow, seriesPeriods) : grossProfitAmounts
+
+    if (view === "quarters") {
+      const labels = aggregateToQuarters(revenueAmounts, seriesPeriods).labels
+      const rev = aggregateToQuarters(revenueAmounts, seriesPeriods).amounts
+      const cogs = aggregateToQuarters(cogsAmounts, seriesPeriods).amounts
+      const gp = aggregateToQuarters(grossProfitAmounts, seriesPeriods).amounts
+      const eb = aggregateToQuarters(ebitaAmounts, seriesPeriods).amounts
+      return labels.map((label, i) => ({
+        period: label,
+        revenue: rev[i],
+        cogs: cogs[i],
+        grossProfit: gp[i],
+        ebita: eb[i],
+        grossMarginPercent: rev[i] !== 0 ? (gp[i] / rev[i]) * 100 : 0,
+      }))
+    }
+    if (view === "years") {
+      const labels = aggregateToYears(revenueAmounts, seriesPeriods).labels
+      const rev = aggregateToYears(revenueAmounts, seriesPeriods).amounts
+      const cogs = aggregateToYears(cogsAmounts, seriesPeriods).amounts
+      const gp = aggregateToYears(grossProfitAmounts, seriesPeriods).amounts
+      const eb = aggregateToYears(ebitaAmounts, seriesPeriods).amounts
+      return labels.map((label, i) => ({
+        period: label,
+        revenue: rev[i],
+        cogs: cogs[i],
+        grossProfit: gp[i],
+        ebita: eb[i],
+        grossMarginPercent: rev[i] !== 0 ? (gp[i] / rev[i]) * 100 : 0,
+      }))
+    }
+    // Monthly
+    const labels = getPeriodLabels(seriesPeriods)
+    return labels.map((label, i) => ({
+      period: label,
+      revenue: revenueAmounts[i],
+      cogs: cogsAmounts[i],
+      grossProfit: grossProfitAmounts[i],
+      ebita: ebitaAmounts[i],
+      grossMarginPercent: revenueAmounts[i] !== 0 ? (grossProfitAmounts[i] / revenueAmounts[i]) * 100 : 0,
+    }))
+  }, [chartData, seriesRows, seriesPeriods, view])
+
+  // Use prop data or series-derived data
+  const effectiveChartData = chartData || seriesChartData
+  const effectiveLoading = loading || (seriesLoading && !chartData)
+
+  // Loading state
+  if (effectiveLoading) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      </div>
+    )
+  }
+
+  // Empty state
+  if (!effectiveChartData || effectiveChartData.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <p className="text-slate-400">Aucune donnée disponible</p>
+      </div>
+    )
+  }
 
   // Helper function to get horizon text
   const getHorizonText = (): string => {
@@ -471,20 +331,20 @@ export function IncomeStatementChart({
             <div className="pb-3">
               <div className="text-xs font-medium text-slate-500 mb-1">Revenus totaux</div>
               <div className="text-xl font-semibold text-slate-900 mb-1.5">
-                {formatCurrency(chartData.reduce((sum, d) => sum + (d.revenue || 0), 0))}
+                {formatCurrency(effectiveChartData.reduce((sum, d) => sum + (d.revenue || 0), 0))}
               </div>
               {(() => {
-                const lastData = chartData[chartData.length - 1]
+                const lastData = effectiveChartData[effectiveChartData.length - 1]
                 const hasPrevious = 'revenuePrevious' in lastData && (lastData as any).revenuePrevious
-                const variation = hasPrevious 
+                const variation = hasPrevious
                   ? lastData.revenue - (lastData as any).revenuePrevious
-                  : chartData.length > 1 
-                    ? lastData.revenue - chartData[chartData.length - 2].revenue
+                  : effectiveChartData.length > 1
+                    ? lastData.revenue - effectiveChartData[effectiveChartData.length - 2].revenue
                     : 0
                 const variationPercent = hasPrevious && (lastData as any).revenuePrevious > 0
                   ? ((lastData.revenue - (lastData as any).revenuePrevious) / (lastData as any).revenuePrevious * 100)
-                  : chartData.length > 1 && chartData[chartData.length - 2].revenue > 0
-                  ? ((lastData.revenue - chartData[chartData.length - 2].revenue) / chartData[chartData.length - 2].revenue * 100)
+                  : effectiveChartData.length > 1 && effectiveChartData[effectiveChartData.length - 2].revenue > 0
+                  ? ((lastData.revenue - effectiveChartData[effectiveChartData.length - 2].revenue) / effectiveChartData[effectiveChartData.length - 2].revenue * 100)
                   : 0
                 const isPositive = variation >= 0
                 return (
@@ -510,12 +370,12 @@ export function IncomeStatementChart({
             <div className="pb-3">
               <div className="text-xs font-medium text-slate-500 mb-1">BAIIA moyen</div>
               <div className="text-xl font-semibold text-slate-900 mb-1.5">
-                {formatCurrency(chartData.reduce((sum, d) => sum + (d.ebita || 0), 0) / chartData.length)}
+                {formatCurrency(effectiveChartData.reduce((sum, d) => sum + (d.ebita || 0), 0) / effectiveChartData.length)}
               </div>
               <div className="text-xs">
                 <span className="text-slate-500">
-                  {((chartData.reduce((sum, d) => sum + (d.ebita || 0), 0) / chartData.length) / 
-                    (chartData.reduce((sum, d) => sum + (d.revenue || 0), 0) / chartData.length) * 100).toFixed(0)}% des revenus
+                  {((effectiveChartData.reduce((sum, d) => sum + (d.ebita || 0), 0) / effectiveChartData.length) /
+                    (effectiveChartData.reduce((sum, d) => sum + (d.revenue || 0), 0) / effectiveChartData.length) * 100).toFixed(0)}% des revenus
                 </span>
               </div>
             </div>
@@ -528,12 +388,12 @@ export function IncomeStatementChart({
               <div className="text-xs font-medium text-slate-500 mb-1">Marge brute</div>
               <div className="text-xl font-semibold text-slate-900 mb-1.5">
                 {formatCurrency(
-                  (chartData.reduce((sum, d) => sum + (d.grossProfit || 0), 0) / chartData.length)
+                  (effectiveChartData.reduce((sum, d) => sum + (d.grossProfit || 0), 0) / effectiveChartData.length)
                 )}
               </div>
               <div className="text-xs">
                 <span className="text-slate-500">
-                  {(chartData.reduce((sum, d) => sum + (d.grossMarginPercent || 0), 0) / chartData.length).toFixed(0)}% des revenus
+                  {(effectiveChartData.reduce((sum, d) => sum + (d.grossMarginPercent || 0), 0) / effectiveChartData.length).toFixed(0)}% des revenus
                 </span>
               </div>
             </div>
@@ -542,7 +402,7 @@ export function IncomeStatementChart({
           {/* Right Panel - Chart */}
           <div className="lg:col-span-4">
             <ChartContainer config={chartConfig} className="h-[400px] w-full">
-          <ComposedChart data={chartData} margin={{ top: 20, right: 50, left: 20, bottom: 5 }}>
+          <ComposedChart data={effectiveChartData} margin={{ top: 20, right: 50, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
             <XAxis
               dataKey="period"

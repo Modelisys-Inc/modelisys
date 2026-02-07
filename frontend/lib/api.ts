@@ -108,6 +108,37 @@ export async function apiFetch<T = unknown>(
 
 export { ApiError, API_URL }
 
+// --- Auth API ---
+
+export async function login(email: string, password: string): Promise<AuthResponse> {
+  const res = await fetch(`${API_URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  })
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new ApiError(res.status, data.detail || res.statusText)
+  }
+
+  const data: AuthResponse = await res.json()
+  localStorage.setItem("access_token", data.access_token)
+  localStorage.setItem("refresh_token", data.refresh_token)
+  document.cookie = "has_session=1; path=/"
+  return data
+}
+
+export async function getMe(): Promise<UserInfo> {
+  return apiFetch<UserInfo>("/api/auth/me")
+}
+
+export function logout() {
+  localStorage.removeItem("access_token")
+  localStorage.removeItem("refresh_token")
+  document.cookie = "has_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT"
+}
+
 // --- Auth types ---
 
 export interface AuthResponse {
@@ -389,9 +420,11 @@ export async function listStatementStructures(
   return data.structures;
 }
 
+export type StatementType = "income-statement" | "balance-sheet" | "capex" | "baiia";
+
 export async function getStatementStructure(
   companyId: string,
-  statementType: "income-statement" | "balance-sheet"
+  statementType: StatementType
 ): Promise<StatementStructureData> {
   return apiFetch<StatementStructureData>(
     `/api/companies/${companyId}/statement-structures/${statementType}`
@@ -400,14 +433,798 @@ export async function getStatementStructure(
 
 export async function upsertStatementStructure(
   companyId: string,
-  statementType: "income-statement" | "balance-sheet",
+  statementType: StatementType,
   structure: Record<string, unknown>[]
 ): Promise<StatementStructureData> {
   return apiFetch<StatementStructureData>(
     `/api/companies/${companyId}/statement-structures/${statementType}`,
-    { method: "PUT", body: JSON.stringify({ structure }) }
+    { method: "PUT", body: { structure } }
   );
 }
+
+// --- Financial Statements API ---
+
+export interface FinancialStatementDetailRow {
+  id: string
+  label: string
+  current: number
+  prior: number
+  variation: number
+  variationAmount: number
+  isBold: boolean
+  isSection: boolean
+  isResult: boolean
+}
+
+export interface FinancialStatementRow {
+  id: string
+  label: string
+  current: number
+  prior: number
+  variation: number
+  variationAmount: number
+  isBold: boolean
+  isSection: boolean
+  isResult: boolean
+  detailRows: FinancialStatementDetailRow[]
+}
+
+export interface FinancialStatementParams {
+  fiscal_year: number
+  month?: number
+  period?: string
+  comparison_type?: string
+  budget_id?: string
+  division_id?: string
+  sub_division_id?: string
+}
+
+export interface FinancialStatementResponse {
+  companyId: string
+  statementType: string
+  fiscalYear: number
+  month: number
+  period: string
+  comparisonType: string
+  rows: FinancialStatementRow[]
+}
+
+function buildFinancialStatementQuery(params: FinancialStatementParams): string {
+  const query = new URLSearchParams()
+  query.set("fiscal_year", params.fiscal_year.toString())
+  if (params.month) query.set("month", params.month.toString())
+  if (params.period) query.set("period", params.period)
+  if (params.comparison_type) query.set("comparison_type", params.comparison_type)
+  if (params.budget_id) query.set("budget_id", params.budget_id)
+  if (params.division_id) query.set("division_id", params.division_id)
+  if (params.sub_division_id) query.set("sub_division_id", params.sub_division_id)
+  return `?${query.toString()}`
+}
+
+export async function getIncomeStatement(
+  companyId: string,
+  params: FinancialStatementParams
+): Promise<FinancialStatementResponse> {
+  return apiFetch<FinancialStatementResponse>(
+    `/api/companies/${companyId}/financial-statements/income-statement${buildFinancialStatementQuery(params)}`
+  )
+}
+
+export async function getBalanceSheet(
+  companyId: string,
+  params: FinancialStatementParams
+): Promise<FinancialStatementResponse> {
+  return apiFetch<FinancialStatementResponse>(
+    `/api/companies/${companyId}/financial-statements/balance-sheet${buildFinancialStatementQuery(params)}`
+  )
+}
+
+export async function getCashFlow(
+  companyId: string,
+  params: FinancialStatementParams
+): Promise<FinancialStatementResponse> {
+  return apiFetch<FinancialStatementResponse>(
+    `/api/companies/${companyId}/financial-statements/cash-flow${buildFinancialStatementQuery(params)}`
+  )
+}
+
+export interface SummaryMetrics {
+  fiscalYear: number
+  month: number
+  revenue: number
+  revenueVariation: number
+  netIncome: number
+  netIncomeVariation: number
+  totalAssets: number
+  totalAssetsVariation: number
+}
+
+export async function getFinancialStatementSummary(
+  companyId: string,
+  fiscalYear: number,
+  month?: number
+): Promise<SummaryMetrics> {
+  const query = new URLSearchParams()
+  query.set("fiscal_year", fiscalYear.toString())
+  if (month) query.set("month", month.toString())
+  return apiFetch<SummaryMetrics>(
+    `/api/companies/${companyId}/financial-statements/summary?${query.toString()}`
+  )
+}
+
+// --- Exchange Rates API ---
+
+export interface ExchangeRateData {
+  id: string
+  currency: string
+  fiscal_year: number | null
+  monthly_rates: Record<string, number>
+  notes: Record<string, string>
+  created_at: string
+  updated_at: string
+}
+
+export async function getExchangeRates(
+  companyId: string,
+  fiscalYear?: number
+): Promise<ExchangeRateData[]> {
+  const params = fiscalYear ? `?fiscal_year=${fiscalYear}` : ""
+  const data = await apiFetch<{ exchange_rates: ExchangeRateData[] }>(
+    `/api/companies/${companyId}/exchange-rates${params}`
+  )
+  return data.exchange_rates
+}
+
+export async function upsertExchangeRates(
+  companyId: string,
+  rates: Array<{
+    currency: string
+    fiscal_year?: number | null
+    monthly_rates: Record<string, number>
+    notes?: Record<string, string>
+  }>
+): Promise<ExchangeRateData[]> {
+  const data = await apiFetch<{ exchange_rates: ExchangeRateData[] }>(
+    `/api/companies/${companyId}/exchange-rates`,
+    { method: "PUT", body: rates }
+  )
+  return data.exchange_rates
+}
+
+// --- Budgets API ---
+
+export interface BudgetData {
+  id: string
+  name: string
+  fiscal_year: number
+  created_by_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface BudgetEntryData {
+  id: string
+  account_id: string
+  month: number
+  amount: number
+}
+
+export interface BudgetWithEntries extends BudgetData {
+  entries: BudgetEntryData[]
+}
+
+export async function listBudgets(
+  companyId: string
+): Promise<BudgetData[]> {
+  const data = await apiFetch<{ budgets: BudgetData[] }>(
+    `/api/companies/${companyId}/budgets`
+  )
+  return data.budgets
+}
+
+export async function createBudget(
+  companyId: string,
+  budget: { name: string; fiscal_year: number }
+): Promise<BudgetData> {
+  return apiFetch<BudgetData>(
+    `/api/companies/${companyId}/budgets`,
+    { method: "POST", body: budget }
+  )
+}
+
+export async function getBudget(
+  companyId: string,
+  budgetId: string
+): Promise<BudgetWithEntries> {
+  return apiFetch<BudgetWithEntries>(
+    `/api/companies/${companyId}/budgets/${budgetId}`
+  )
+}
+
+export async function upsertBudgetEntries(
+  companyId: string,
+  budgetId: string,
+  entries: Array<{ account_number: string; month: number; amount: number }>
+): Promise<BudgetWithEntries> {
+  return apiFetch<BudgetWithEntries>(
+    `/api/companies/${companyId}/budgets/${budgetId}/entries`,
+    { method: "PUT", body: entries }
+  )
+}
+
+export async function deleteBudget(
+  companyId: string,
+  budgetId: string
+): Promise<void> {
+  await apiFetch(
+    `/api/companies/${companyId}/budgets/${budgetId}`,
+    { method: "DELETE" }
+  )
+}
+
+// --- Notes API ---
+
+export interface NoteData {
+  id: string
+  company_id: string | null
+  division_id: string | null
+  sub_division_id: string | null
+  row_id: string
+  row_label: string
+  page: string
+  period: string
+  view: string
+  current_amount: number | null
+  prior_amount: number | null
+  variation_percent: number | null
+  variation_amount: number | null
+  content: string
+  created_by_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface NoteFilters {
+  page?: string
+  row_id?: string
+  period?: string
+  view?: string
+}
+
+export async function listNotes(
+  companyId: string,
+  filters: NoteFilters = {}
+): Promise<NoteData[]> {
+  const query = new URLSearchParams()
+  if (filters.page) query.set("page", filters.page)
+  if (filters.row_id) query.set("row_id", filters.row_id)
+  if (filters.period) query.set("period", filters.period)
+  if (filters.view) query.set("view", filters.view)
+  const qs = query.toString() ? `?${query.toString()}` : ""
+  const data = await apiFetch<{ notes: NoteData[] }>(
+    `/api/companies/${companyId}/notes${qs}`
+  )
+  return data.notes
+}
+
+export async function createNote(
+  companyId: string,
+  note: {
+    row_id: string
+    row_label: string
+    page: string
+    period: string
+    view: string
+    current_amount?: number | null
+    prior_amount?: number | null
+    variation_percent?: number | null
+    variation_amount?: number | null
+    content: string
+    division_id?: string | null
+    sub_division_id?: string | null
+  }
+): Promise<NoteData> {
+  return apiFetch<NoteData>(
+    `/api/companies/${companyId}/notes`,
+    { method: "POST", body: note }
+  )
+}
+
+export async function updateNote(
+  companyId: string,
+  noteId: string,
+  data: {
+    content?: string
+    current_amount?: number | null
+    prior_amount?: number | null
+    variation_percent?: number | null
+    variation_amount?: number | null
+  }
+): Promise<NoteData> {
+  return apiFetch<NoteData>(
+    `/api/companies/${companyId}/notes/${noteId}`,
+    { method: "PATCH", body: data }
+  )
+}
+
+export async function deleteNote(
+  companyId: string,
+  noteId: string
+): Promise<void> {
+  await apiFetch(
+    `/api/companies/${companyId}/notes/${noteId}`,
+    { method: "DELETE" }
+  )
+}
+
+// --- Projections API ---
+
+export interface ProjectionData {
+  id: string
+  name: string
+  projection_years: number
+  projection_mode: string
+  company_id: string | null
+  division_id: string | null
+  sub_division_id: string | null
+  created_by_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ProjectionAdjustmentData {
+  id: string
+  module: string
+  row_id: string
+  year_index: number
+  type: string
+  value: number
+  is_recurring: boolean
+  note: string | null
+}
+
+export interface LoanData {
+  id: string
+  name: string
+  principal: number
+  interest_rate: number
+  remaining_payments: number
+  payment_amount: number | null
+  start_month: number
+  notes: string | null
+}
+
+export interface ProjectionWithDetails extends ProjectionData {
+  adjustments: ProjectionAdjustmentData[]
+  loans: LoanData[]
+}
+
+export async function listProjections(
+  companyId: string
+): Promise<ProjectionData[]> {
+  const data = await apiFetch<{ projections: ProjectionData[] }>(
+    `/api/companies/${companyId}/projections`
+  )
+  return data.projections
+}
+
+export async function createProjection(
+  companyId: string,
+  projection: {
+    name: string
+    projection_years?: number
+    projection_mode?: string
+    division_id?: string | null
+    sub_division_id?: string | null
+  }
+): Promise<ProjectionData> {
+  return apiFetch<ProjectionData>(
+    `/api/companies/${companyId}/projections`,
+    { method: "POST", body: projection }
+  )
+}
+
+export async function getProjection(
+  companyId: string,
+  projectionId: string
+): Promise<ProjectionWithDetails> {
+  return apiFetch<ProjectionWithDetails>(
+    `/api/companies/${companyId}/projections/${projectionId}`
+  )
+}
+
+export async function updateProjection(
+  companyId: string,
+  projectionId: string,
+  data: { name?: string; projection_years?: number; projection_mode?: string }
+): Promise<ProjectionData> {
+  return apiFetch<ProjectionData>(
+    `/api/companies/${companyId}/projections/${projectionId}`,
+    { method: "PATCH", body: data }
+  )
+}
+
+export async function deleteProjection(
+  companyId: string,
+  projectionId: string
+): Promise<void> {
+  await apiFetch(
+    `/api/companies/${companyId}/projections/${projectionId}`,
+    { method: "DELETE" }
+  )
+}
+
+// --- Projection Adjustments ---
+
+export interface ProjectionAdjustmentCreate {
+  module: string
+  row_id: string
+  year_index: number
+  type: string
+  value: number
+  is_recurring?: boolean
+  note?: string | null
+}
+
+export async function createProjectionAdjustment(
+  companyId: string,
+  projectionId: string,
+  adjustment: ProjectionAdjustmentCreate
+): Promise<ProjectionAdjustmentData> {
+  return apiFetch<ProjectionAdjustmentData>(
+    `/api/companies/${companyId}/projections/${projectionId}/adjustments`,
+    { method: "POST", body: adjustment }
+  )
+}
+
+export async function bulkUpsertProjectionAdjustments(
+  companyId: string,
+  projectionId: string,
+  adjustments: ProjectionAdjustmentCreate[]
+): Promise<ProjectionWithDetails> {
+  return apiFetch<ProjectionWithDetails>(
+    `/api/companies/${companyId}/projections/${projectionId}/adjustments`,
+    { method: "PUT", body: adjustments }
+  )
+}
+
+export async function deleteProjectionAdjustment(
+  companyId: string,
+  projectionId: string,
+  adjustmentId: string
+): Promise<void> {
+  await apiFetch(
+    `/api/companies/${companyId}/projections/${projectionId}/adjustments/${adjustmentId}`,
+    { method: "DELETE" }
+  )
+}
+
+// --- Projection Loans ---
+
+export interface LoanCreate {
+  name: string
+  principal: number
+  interest_rate: number
+  remaining_payments: number
+  payment_amount?: number | null
+  start_month?: number
+  notes?: string | null
+}
+
+export async function createProjectionLoan(
+  companyId: string,
+  projectionId: string,
+  loan: LoanCreate
+): Promise<LoanData> {
+  return apiFetch<LoanData>(
+    `/api/companies/${companyId}/projections/${projectionId}/loans`,
+    { method: "POST", body: loan }
+  )
+}
+
+export async function bulkUpsertProjectionLoans(
+  companyId: string,
+  projectionId: string,
+  loans: LoanCreate[]
+): Promise<ProjectionWithDetails> {
+  return apiFetch<ProjectionWithDetails>(
+    `/api/companies/${companyId}/projections/${projectionId}/loans`,
+    { method: "PUT", body: loans }
+  )
+}
+
+export async function deleteProjectionLoan(
+  companyId: string,
+  projectionId: string,
+  loanId: string
+): Promise<void> {
+  await apiFetch(
+    `/api/companies/${companyId}/projections/${projectionId}/loans/${loanId}`,
+    { method: "DELETE" }
+  )
+}
+
+// --- Business Risks API ---
+
+export interface BusinessRiskData {
+  id: string
+  company_id: string | null
+  risk_id: string
+  category: string
+  name: string
+  description: string | null
+  impact: string | null
+  recommendation: string | null
+  level: string | null
+  note: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface BusinessRiskCreate {
+  risk_id: string
+  category: string
+  name: string
+  description?: string | null
+  impact?: string | null
+  recommendation?: string | null
+  level?: string | null
+  note?: string | null
+}
+
+export interface BusinessRiskUpdate {
+  level?: string | null
+  note?: string | null
+  description?: string | null
+  impact?: string | null
+  recommendation?: string | null
+}
+
+export async function listBusinessRisks(
+  companyId: string,
+  category?: string
+): Promise<BusinessRiskData[]> {
+  const query = category ? `?category=${encodeURIComponent(category)}` : ""
+  const data = await apiFetch<{ risks: BusinessRiskData[] }>(
+    `/api/companies/${companyId}/business-risks${query}`
+  )
+  return data.risks
+}
+
+export async function createBusinessRisk(
+  companyId: string,
+  risk: BusinessRiskCreate
+): Promise<BusinessRiskData> {
+  return apiFetch<BusinessRiskData>(
+    `/api/companies/${companyId}/business-risks`,
+    { method: "POST", body: risk }
+  )
+}
+
+export async function bulkUpsertBusinessRisks(
+  companyId: string,
+  risks: BusinessRiskCreate[]
+): Promise<BusinessRiskData[]> {
+  const data = await apiFetch<{ risks: BusinessRiskData[] }>(
+    `/api/companies/${companyId}/business-risks`,
+    { method: "PUT", body: risks }
+  )
+  return data.risks
+}
+
+export async function updateBusinessRisk(
+  companyId: string,
+  riskId: string,
+  data: BusinessRiskUpdate
+): Promise<BusinessRiskData> {
+  return apiFetch<BusinessRiskData>(
+    `/api/companies/${companyId}/business-risks/${riskId}`,
+    { method: "PATCH", body: data }
+  )
+}
+
+export async function deleteBusinessRisk(
+  companyId: string,
+  riskId: string
+): Promise<void> {
+  await apiFetch(
+    `/api/companies/${companyId}/business-risks/${riskId}`,
+    { method: "DELETE" }
+  )
+}
+
+// --- Forecast Configs API ---
+
+export interface ForecastConfigData {
+  id: string
+  config_type: string
+  data: Record<string, unknown>
+  company_id: string | null
+  division_id: string | null
+  sub_division_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ForecastConfigUpsert {
+  config_type: string
+  data: Record<string, unknown>
+  company_id?: string | null
+  division_id?: string | null
+  sub_division_id?: string | null
+}
+
+export async function listForecastConfigs(
+  companyId: string,
+  filters: {
+    config_type?: string
+    division_id?: string
+    sub_division_id?: string
+  } = {}
+): Promise<ForecastConfigData[]> {
+  const query = new URLSearchParams()
+  if (filters.config_type) query.set("config_type", filters.config_type)
+  if (filters.division_id) query.set("division_id", filters.division_id)
+  if (filters.sub_division_id) query.set("sub_division_id", filters.sub_division_id)
+  const qs = query.toString() ? `?${query.toString()}` : ""
+  const data = await apiFetch<{ configs: ForecastConfigData[] }>(
+    `/api/companies/${companyId}/forecast-configs${qs}`
+  )
+  return data.configs
+}
+
+export async function upsertForecastConfig(
+  companyId: string,
+  config: ForecastConfigUpsert
+): Promise<ForecastConfigData> {
+  return apiFetch<ForecastConfigData>(
+    `/api/companies/${companyId}/forecast-configs`,
+    { method: "PUT", body: config }
+  )
+}
+
+export async function deleteForecastConfig(
+  companyId: string,
+  configId: string
+): Promise<void> {
+  await apiFetch(
+    `/api/companies/${companyId}/forecast-configs/${configId}`,
+    { method: "DELETE" }
+  )
+}
+
+// --- EBITDA Multiple Notes API ---
+
+export interface EbitdaMultipleNoteData {
+  id: string
+  note_type: string
+  data: Record<string, unknown>
+  company_id: string | null
+  division_id: string | null
+  sub_division_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface EbitdaMultipleNoteUpsert {
+  note_type: string
+  data: Record<string, unknown>
+  company_id?: string | null
+  division_id?: string | null
+  sub_division_id?: string | null
+}
+
+export async function listEbitdaNotes(
+  companyId: string,
+  filters: {
+    note_type?: string
+    division_id?: string
+    sub_division_id?: string
+  } = {}
+): Promise<EbitdaMultipleNoteData[]> {
+  const query = new URLSearchParams()
+  if (filters.note_type) query.set("note_type", filters.note_type)
+  if (filters.division_id) query.set("division_id", filters.division_id)
+  if (filters.sub_division_id) query.set("sub_division_id", filters.sub_division_id)
+  const qs = query.toString() ? `?${query.toString()}` : ""
+  const data = await apiFetch<{ notes: EbitdaMultipleNoteData[] }>(
+    `/api/companies/${companyId}/ebitda-notes${qs}`
+  )
+  return data.notes
+}
+
+export async function upsertEbitdaNote(
+  companyId: string,
+  note: EbitdaMultipleNoteUpsert
+): Promise<EbitdaMultipleNoteData[]> {
+  const data = await apiFetch<{ notes: EbitdaMultipleNoteData[] }>(
+    `/api/companies/${companyId}/ebitda-notes`,
+    { method: "PUT", body: note }
+  )
+  return data.notes
+}
+
+// --- Financial Statement Series API ---
+
+export interface SeriesPeriod {
+  fiscalYear: number
+  fiscalMonth: number
+  label: string
+}
+
+export interface SeriesDetailRow {
+  id: string
+  label: string
+  amounts: Record<string, number>  // key: "YYYY-M" e.g. "2024-1"
+}
+
+export interface SeriesRow {
+  id: string
+  label: string
+  isBold: boolean
+  isSection: boolean
+  isResult: boolean
+  amounts: Record<string, number>  // key: "YYYY-M"
+  detailRows: SeriesDetailRow[]
+}
+
+export interface FinancialStatementSeriesResponse {
+  companyId: string
+  statementType: string
+  fiscalYear: number
+  periods: SeriesPeriod[]
+  rows: SeriesRow[]
+}
+
+export interface FinancialStatementSeriesParams {
+  fiscal_year: number
+  months?: number  // default 12
+  division_id?: string
+  sub_division_id?: string
+}
+
+export async function getFinancialStatementSeries(
+  companyId: string,
+  statementType: string,  // "income-statement" | "balance-sheet" | "cash-flow"
+  params: FinancialStatementSeriesParams
+): Promise<FinancialStatementSeriesResponse> {
+  const query = new URLSearchParams()
+  query.set("fiscal_year", params.fiscal_year.toString())
+  if (params.months) query.set("months", params.months.toString())
+  if (params.division_id) query.set("division_id", params.division_id)
+  if (params.sub_division_id) query.set("sub_division_id", params.sub_division_id)
+  return apiFetch<FinancialStatementSeriesResponse>(
+    `/api/companies/${companyId}/financial-statements/${statementType}/series?${query.toString()}`
+  )
+}
+
+// --- Financial Statement Summary Series API ---
+
+export interface SummarySeriesMonth {
+  month: number
+  revenue: number
+  revenueVariation: number
+  netIncome: number
+  netIncomeVariation: number
+  totalAssets: number
+  totalAssetsVariation: number
+}
+
+export interface SummarySeriesResponse {
+  fiscalYear: number
+  months: SummarySeriesMonth[]
+}
+
+export async function getFinancialStatementSummarySeries(
+  companyId: string,
+  fiscalYear: number
+): Promise<SummarySeriesResponse> {
+  return apiFetch<SummarySeriesResponse>(
+    `/api/companies/${companyId}/financial-statements/summary/series?fiscal_year=${fiscalYear}`
+  )
+}
+
+// --- Upload ---
 
 export async function uploadTrialBalance(
   companyId: string,

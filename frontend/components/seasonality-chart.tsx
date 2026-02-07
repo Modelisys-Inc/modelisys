@@ -3,6 +3,9 @@
 import { useState } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
+import { seededRandom } from "@/lib/seeded-random"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, aggregateToYears, findRow } from "@/lib/series-utils"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -66,7 +69,58 @@ export function SeasonalityChart({
       onProductChange(product)
     }
   }
-  
+
+  // --- Series hook for real data ---
+  const currentYear = new Date().getFullYear()
+  const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
+
+  const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "income-statement",
+    fiscalYear: currentYear,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: !!companyId,
+  })
+
+  // Build chart data from series for revenue_vs_costs view
+  const buildSeriesChartData = (): typeof chartDataPoints | null => {
+    if (seriesRows.length === 0 || periods.length === 0) return null
+
+    // Find revenue row and cost/expense rows
+    const revenueRow = findRow(seriesRows, "revenus") || findRow(seriesRows, "revenue") || findRow(seriesRows, "ventes") || findRow(seriesRows, "sales")
+    const costRow = findRow(seriesRows, "coût des ventes") || findRow(seriesRows, "cost of goods") || findRow(seriesRows, "cogs") || findRow(seriesRows, "coûts variables")
+
+    if (!revenueRow) return null
+
+    const revAmounts = getRowAmounts(revenueRow, periods)
+    const costAmounts = costRow ? getRowAmounts(costRow, periods) : revAmounts.map((v) => Math.round(v * 0.5))
+
+    let labels: string[]
+    let revValues: number[]
+    let costValues: number[]
+
+    if (view === "years") {
+      const revAgg = aggregateToYears(revAmounts, periods)
+      const costAgg = aggregateToYears(costAmounts, periods)
+      labels = revAgg.labels
+      revValues = revAgg.amounts
+      costValues = costAgg.amounts
+    } else {
+      labels = getPeriodLabels(periods)
+      revValues = revAmounts
+      costValues = costAmounts
+    }
+
+    return labels.map((label, idx) => ({
+      period: label,
+      revenue: Math.abs(revValues[idx]),
+      cost: Math.abs(costValues[idx]),
+      margin: Math.abs(revValues[idx]) - Math.abs(costValues[idx]),
+    }))
+  }
+
   // Base values for each product/service (matching seasonality-detail.tsx)
   const baseProduct1 = 120000
   const baseProduct2 = 90000
@@ -143,7 +197,7 @@ export function SeasonalityChart({
         const monthIndex = (new Date().getMonth() - (11 - idx) + 12) % 12
         const seasonalMultiplier = pattern[monthIndex] || 1
         const trend = 1 + (0.02 * idx)
-        const value = Math.round(base * seasonalMultiplier * trend * (0.95 + Math.random() * 0.1))
+        const value = Math.round(base * seasonalMultiplier * trend * (0.95 + seededRandom(base + idx) * 0.1))
         data.push(value)
       })
     } else if (view === "24months") {
@@ -152,14 +206,14 @@ export function SeasonalityChart({
         const monthIndex = (new Date().getMonth() - (23 - idx) + 24) % 12
         const seasonalMultiplier = pattern[monthIndex] || 1
         const trend = 1 + (0.01 * idx)
-        const value = Math.round(base * seasonalMultiplier * trend * (0.95 + Math.random() * 0.1))
+        const value = Math.round(base * seasonalMultiplier * trend * (0.95 + seededRandom(base + idx) * 0.1))
         data.push(value)
       })
     } else if (view === "years") {
       const yearLabels = getYearLabels()
       yearLabels.forEach((_, idx) => {
         const trend = 1 + (0.05 * idx)
-        const value = Math.round(base * 12 * trend * (0.95 + Math.random() * 0.1))
+        const value = Math.round(base * 12 * trend * (0.95 + seededRandom(base + idx) * 0.1))
         data.push(value)
       })
     }
@@ -288,6 +342,23 @@ export function SeasonalityChart({
         margin: margins[idx],
       })
     })
+  }
+
+  // Override with series data if available for revenue_vs_costs view
+  if (chartView === "revenue_vs_costs") {
+    const seriesChartData = buildSeriesChartData()
+    if (seriesChartData && seriesChartData.length > 0) {
+      chartDataPoints = seriesChartData
+    }
+  }
+
+  // Loading state
+  if (seriesLoading) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      </div>
+    )
   }
 
   if (chartDataPoints.length === 0) return null

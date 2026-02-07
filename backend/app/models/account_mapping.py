@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, func
+from sqlalchemy import Index, String, Boolean, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,6 +11,10 @@ from app.database import Base
 class AccountMapping(Base):
     """Per-company GL account mapping to financial statement lines, cost types, etc."""
     __tablename__ = "account_mappings"
+    __table_args__ = (
+        Index("ix_account_mappings_company_link_code", "company_id", "link_code"),
+        Index("ix_account_mappings_company_account_number", "company_id", "account_number"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -27,7 +31,7 @@ class AccountMapping(Base):
     variable_costs: Mapped[bool] = mapped_column(Boolean, default=False)
     fixed_costs: Mapped[bool] = mapped_column(Boolean, default=False)
     product: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    interco_company_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="SET NULL"), nullable=True)
+    interco_company_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

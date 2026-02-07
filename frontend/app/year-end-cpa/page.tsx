@@ -2,27 +2,11 @@
 
 import { useState } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
 import { Filter } from "lucide-react"
 import { TrialBalanceByGroup } from "@/components/trial-balance-by-group"
 import { YearEndNotesSection } from "@/components/year-end-notes-section"
-
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Société Principale",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division A",
-        subDivisions: [
-          { id: "subdiv-1", name: "Sous-division 1" },
-          { id: "subdiv-2", name: "Sous-division 2" },
-        ],
-      },
-    ],
-  },
-]
+import { useCompanies } from "@/hooks/use-companies"
 
 type SectionType = "documents" | "notes"
 
@@ -45,6 +29,7 @@ const sectionContent = {
 }
 
 export default function YearEndCPAPage() {
+  const { companies, loading } = useCompanies()
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
@@ -113,7 +98,7 @@ export default function YearEndCPAPage() {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Entité:</span>
                 <EntitySelector
-                  companies={companiesData}
+                  companies={companies}
                   selectedCompanyId={companyId}
                   selectedDivisionId={divisionId}
                   selectedSubDivisionId={subDivisionId}

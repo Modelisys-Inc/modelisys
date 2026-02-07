@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ArrowRight, LogIn } from "lucide-react"
+import { login } from "@/lib/api"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -20,15 +21,10 @@ export default function LoginPage() {
     setError("")
     setIsLoading(true)
 
-    // Vérification des identifiants
-    if (email === "Tristanbellerose1@gmail.com" && password === "123456") {
-      // Stocker le token de session (optionnel)
-      if (typeof window !== "undefined") {
-        localStorage.setItem("token", "authenticated")
-      }
-      // Rediriger vers le dashboard
+    try {
+      await login(email, password)
       router.push("/dashboard")
-    } else {
+    } catch {
       setError("Email ou mot de passe incorrect")
       setIsLoading(false)
     }
