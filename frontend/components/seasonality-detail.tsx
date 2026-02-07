@@ -20,6 +20,7 @@ interface SeasonalityDetailProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
+  fiscalYear?: number
 }
 
 interface DetailRow {
@@ -45,9 +46,10 @@ export function SeasonalityDetail({
   divisionId,
   subDivisionId,
   companies = [],
+  fiscalYear,
 }: SeasonalityDetailProps) {
   // --- Series hook for real data ---
-  const currentYear = new Date().getFullYear()
+  const currentYear = fiscalYear || new Date().getFullYear()
   const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
 
   const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({

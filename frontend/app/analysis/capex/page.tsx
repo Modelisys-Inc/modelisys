@@ -115,7 +115,7 @@ export default function CapexPage() {
     months: monthsNeeded,
     divisionId: selectedDivisionId || null,
     subDivisionId: selectedSubDivisionId || null,
-    enabled: isMultiPeriod && !!selectedCompanyId,
+    enabled: !!selectedCompanyId,
   })
 
   // Build chart data from series
@@ -175,15 +175,7 @@ export default function CapexPage() {
       }
     }
 
-    // Fallback
-    const totalCapex = 144000
-    const priorCapex = 120000
-    const variation = calculateVariation(totalCapex, priorCapex)
-    const totalAssets = 1440000
-    const capexPercentage = (totalCapex / totalAssets) * 100
-    const averageCapex = (totalCapex + priorCapex) / 2
-
-    return { totalCapex, priorCapex, variation, capexPercentage, totalAssets, averageCapex }
+    return { totalCapex: 0, priorCapex: 0, variation: 0, capexPercentage: 0, totalAssets: 0, averageCapex: 0 }
   }
 
   const metrics = calculateMetrics()

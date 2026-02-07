@@ -23,6 +23,7 @@ interface SeasonalityChartProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
+  fiscalYear?: number
 }
 
 // Helper function to generate month labels
@@ -61,6 +62,7 @@ export function SeasonalityChart({
   divisionId,
   subDivisionId,
   companies = [],
+  fiscalYear,
 }: SeasonalityChartProps) {
   const [chartView, setChartView] = useState<ChartViewType>("revenue_vs_costs")
   
@@ -71,7 +73,7 @@ export function SeasonalityChart({
   }
 
   // --- Series hook for real data ---
-  const currentYear = new Date().getFullYear()
+  const currentYear = fiscalYear || new Date().getFullYear()
   const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
 
   const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({

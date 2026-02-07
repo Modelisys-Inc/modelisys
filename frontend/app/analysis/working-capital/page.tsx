@@ -49,7 +49,7 @@ export default function WorkingCapitalPage() {
     months: monthsNeeded,
     divisionId: selectedDivisionId || null,
     subDivisionId: selectedSubDivisionId || null,
-    enabled: isMultiPeriod && !!selectedCompanyId,
+    enabled: !!selectedCompanyId,
   })
 
   // Build chart data from series
@@ -151,36 +151,34 @@ export default function WorkingCapitalPage() {
     }
   }
 
-  // Calculate summary metrics (mock data for now)
+  // Calculate summary metrics from real series data
   const calculateMetrics = () => {
-    const totalWorkingCapital = 450000
-    const priorWorkingCapital = 380000
-    const variation = calculateVariation(totalWorkingCapital, priorWorkingCapital)
-    const currentAssets = 1200000
-    const currentLiabilities = 750000
-    const workingCapitalRatio = currentAssets / currentLiabilities
-    
-    // Calculate average Working Capital for trend views
-    let averageWorkingCapital = 0
-    if (view === "12months") {
-      averageWorkingCapital = (totalWorkingCapital + priorWorkingCapital) / 2 + (totalWorkingCapital - priorWorkingCapital) / 12 * 6
-    } else if (view === "24months") {
-      averageWorkingCapital = (totalWorkingCapital + priorWorkingCapital) / 2 + (totalWorkingCapital - priorWorkingCapital) / 24 * 12
-    } else if (view === "years") {
-      averageWorkingCapital = (totalWorkingCapital + priorWorkingCapital) / 2 + (totalWorkingCapital - priorWorkingCapital) / 6 * 3
-    } else {
-      averageWorkingCapital = (totalWorkingCapital + priorWorkingCapital) / 2
+    if (seriesRows.length > 0 && periods.length > 0) {
+      const caRow = findRow(seriesRows, "actifs courants") || findRow(seriesRows, "actif courant") || findRow(seriesRows, "current assets")
+      const clRow = findRow(seriesRows, "passifs courants") || findRow(seriesRows, "passif courant") || findRow(seriesRows, "current liabilities")
+
+      if (caRow || clRow) {
+        const caAmounts = caRow ? getRowAmounts(caRow, periods) : periods.map(() => 0)
+        const clAmounts = clRow ? getRowAmounts(clRow, periods) : periods.map(() => 0)
+        const lastIdx = periods.length - 1
+        const priorIdx = Math.max(0, lastIdx - 1)
+
+        const currentAssets = caAmounts[lastIdx]
+        const currentLiabilities = clAmounts[lastIdx]
+        const totalWorkingCapital = currentAssets - currentLiabilities
+        const priorWorkingCapital = caAmounts[priorIdx] - clAmounts[priorIdx]
+        const variation = calculateVariation(totalWorkingCapital, priorWorkingCapital)
+        const workingCapitalRatio = currentLiabilities !== 0 ? currentAssets / currentLiabilities : 0
+
+        // Compute average WC across all periods
+        const wcValues = caAmounts.map((ca, i) => ca - clAmounts[i])
+        const averageWorkingCapital = wcValues.reduce((a, b) => a + b, 0) / wcValues.length
+
+        return { totalWorkingCapital, priorWorkingCapital, variation, currentAssets, currentLiabilities, workingCapitalRatio, averageWorkingCapital }
+      }
     }
-    
-    return {
-      totalWorkingCapital,
-      priorWorkingCapital,
-      variation,
-      currentAssets,
-      currentLiabilities,
-      workingCapitalRatio,
-      averageWorkingCapital
-    }
+
+    return { totalWorkingCapital: 0, priorWorkingCapital: 0, variation: 0, currentAssets: 0, currentLiabilities: 0, workingCapitalRatio: 0, averageWorkingCapital: 0 }
   }
 
   const metrics = calculateMetrics()
