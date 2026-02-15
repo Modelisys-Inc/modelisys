@@ -436,16 +436,13 @@ export function ProductMarginAnalysis({
     ]
   }
 
-  // Use real data when available, otherwise fall back to hardcoded demo data
-  const baseProductData = hasRealData
-    ? buildFromSeries()
-    : (columnMode === "comparison" ? getProductAnalysisData(period, view, "total") : getProductAnalysisData(period, view, selectedProduct))
-  const productData = baseProductData
+  // Use real data when available, show empty state otherwise
+  const productData = hasRealData ? buildFromSeries() : []
 
-  // Get data for each product for comparison mode (only when using demo data)
-  const productAData = (!hasRealData && columnMode === "comparison") ? getProductAnalysisData(period, view, "product_a") : []
-  const productBData = (!hasRealData && columnMode === "comparison") ? getProductAnalysisData(period, view, "product_b") : []
-  const productCData = (!hasRealData && columnMode === "comparison") ? getProductAnalysisData(period, view, "service_c") : []
+  // Get data for each product for comparison mode (empty when no real data)
+  const productAData: ProductRow[] = []
+  const productBData: ProductRow[] = []
+  const productCData: ProductRow[] = []
   
   // Helper function to get value for a specific product and row label
   const getProductValue = (productRows: ProductRow[], label: string): number => {
@@ -604,7 +601,21 @@ export function ProductMarginAnalysis({
         </div>
       </div>
 
+      {/* Empty state when no data */}
+      {productData.length === 0 && (
+        <div className="bg-white px-8 py-16 text-center">
+          <div className="text-slate-400 mb-2">
+            <svg className="w-12 h-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-medium text-slate-900 mb-1">Aucune donnée disponible</h3>
+          <p className="text-sm text-slate-500">Importez une balance de vérification et configurez les mappings de produits pour voir l'analyse des marges.</p>
+        </div>
+      )}
+
       {/* Table */}
+      {productData.length > 0 && (
       <div className="overflow-x-auto bg-white">
         <table className="w-full">
           <thead>
@@ -945,6 +956,7 @@ export function ProductMarginAnalysis({
           </tbody>
         </table>
       </div>
+      )}
 
       {/* Note Modal */}
       {selectedRowId && (() => {

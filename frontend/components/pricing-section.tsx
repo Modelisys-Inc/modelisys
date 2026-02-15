@@ -151,8 +151,7 @@ export function PricingSection() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    // Ici vous pouvez ajouter la logique pour envoyer le formulaire
-    console.log("Form submitted:", formData)
+    // TODO: Implement form submission to backend
     alert("Merci pour votre demande ! Nous vous contacterons sous peu.")
     setShowForm(false)
     setFormData({ name: "", email: "", phone: "", company: "" })

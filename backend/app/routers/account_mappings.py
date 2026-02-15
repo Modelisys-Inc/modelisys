@@ -35,17 +35,32 @@ def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Co
 @router.get("/account-mappings", response_model=AccountMappingListResponse)
 def list_account_mappings(
     company_id: uuid.UUID,
+    limit: int = 1000,
+    offset: int = 0,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     _verify_company_access(db, current_user, company_id)
+
+    # Get total count
+    total = db.query(AccountMapping).filter(AccountMapping.company_id == company_id).count()
+
+    # Get paginated results
     mappings = (
         db.query(AccountMapping)
         .filter(AccountMapping.company_id == company_id)
         .order_by(AccountMapping.account_number)
+        .offset(offset)
+        .limit(limit)
         .all()
     )
-    return AccountMappingListResponse(mappings=mappings)
+    return AccountMappingListResponse(
+        mappings=mappings,
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=offset + len(mappings) < total,
+    )
 
 
 @router.put("/account-mappings", response_model=AccountMappingListResponse)

@@ -1,17 +1,17 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class BudgetCreate(BaseModel):
-    name: str
-    fiscal_year: int
+    name: str = Field(..., min_length=1, max_length=100)
+    fiscal_year: int = Field(..., ge=1900, le=2100)
 
 
 class BudgetEntryUpsert(BaseModel):
-    account_number: str
-    month: int
+    account_number: str = Field(..., min_length=1, max_length=50)
+    month: int = Field(..., ge=1, le=12)
     amount: float
 
 
@@ -49,3 +49,7 @@ class BudgetWithEntriesResponse(BaseModel):
 
 class BudgetListResponse(BaseModel):
     budgets: list[BudgetResponse]
+    total: int | None = None
+    limit: int | None = None
+    offset: int | None = None
+    has_more: bool | None = None

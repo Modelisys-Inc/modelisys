@@ -35,6 +35,8 @@ def list_notes(
     row_id: str | None = Query(default=None),
     period: str | None = Query(default=None),
     view: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -51,8 +53,15 @@ def list_notes(
         query = query.filter(Note.period == period)
     if view:
         query = query.filter(Note.view == view)
-    notes = query.order_by(Note.created_at.desc()).all()
-    return NoteListResponse(notes=notes)
+    total = query.count()
+    notes = query.order_by(Note.created_at.desc()).offset(offset).limit(limit).all()
+    return NoteListResponse(
+        notes=notes,
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=offset + len(notes) < total,
+    )
 
 
 @router.post("", response_model=NoteResponse, status_code=status.HTTP_201_CREATED)

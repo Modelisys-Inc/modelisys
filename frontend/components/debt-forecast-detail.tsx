@@ -108,68 +108,17 @@ export function DebtForecastDetail({
             }))
             setLoans(loansWithStartMonth)
           } else {
-            // Default loans for demo
-            setLoans([
-              {
-                id: "loan-1",
-                name: "Emprunt 1",
-                principal: 2000000,
-                interestRate: 5.5,
-                remainingPayments: 10,
-                startMonth: 0,
-              },
-              {
-                id: "loan-2",
-                name: "Emprunt 2",
-                principal: 1500000,
-                interestRate: 4.5,
-                remainingPayments: 8,
-                startMonth: 12,
-              },
-            ])
+            // No loans configured - start with empty state
+            setLoans([])
           }
         } else {
-          // Default loans for demo
-          setLoans([
-            {
-              id: "loan-1",
-              name: "Emprunt 1",
-              principal: 2000000,
-              interestRate: 5.5,
-              remainingPayments: 10,
-              startMonth: 0,
-            },
-            {
-              id: "loan-2",
-              name: "Emprunt 2",
-              principal: 1500000,
-              interestRate: 4.5,
-              remainingPayments: 8,
-              startMonth: 12,
-            },
-          ])
+          // No config found - start with empty state
+          setLoans([])
         }
       } catch (err) {
         console.error("Error loading debt forecast config:", err)
-        // Default loans for demo on error
-        setLoans([
-          {
-            id: "loan-1",
-            name: "Emprunt 1",
-            principal: 2000000,
-            interestRate: 5.5,
-            remainingPayments: 10,
-            startMonth: 0,
-          },
-          {
-            id: "loan-2",
-            name: "Emprunt 2",
-            principal: 1500000,
-            interestRate: 4.5,
-            remainingPayments: 8,
-            startMonth: 12,
-          },
-        ])
+        // Error loading - start with empty state
+        setLoans([])
       }
     }
     loadConfig()

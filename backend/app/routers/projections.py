@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -53,20 +53,25 @@ def _get_projection_or_404(
 @router.get("", response_model=ProjectionListResponse)
 def list_projections(
     company_id: uuid.UUID,
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     company = _verify_company_access(db, current_user, company_id)
-    projections = (
-        db.query(Projection)
-        .filter(
-            Projection.organization_id == company.organization_id,
-            Projection.company_id == company_id,
-        )
-        .order_by(Projection.created_at.desc())
-        .all()
+    query = db.query(Projection).filter(
+        Projection.organization_id == company.organization_id,
+        Projection.company_id == company_id,
     )
-    return ProjectionListResponse(projections=projections)
+    total = query.count()
+    projections = query.order_by(Projection.created_at.desc()).offset(offset).limit(limit).all()
+    return ProjectionListResponse(
+        projections=projections,
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=offset + len(projections) < total,
+    )
 
 
 @router.post("", response_model=ProjectionWithDetailsResponse, status_code=status.HTTP_201_CREATED)

@@ -1,26 +1,26 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class NoteCreate(BaseModel):
-    row_id: str
-    row_label: str
-    page: str
-    period: str
-    view: str
+    row_id: str = Field(..., min_length=1, max_length=100)
+    row_label: str = Field(..., min_length=1, max_length=200)
+    page: str = Field(..., min_length=1, max_length=100)
+    period: str = Field(..., min_length=1, max_length=50)
+    view: str = Field(..., min_length=1, max_length=50)
     current_amount: float | None = None
     prior_amount: float | None = None
     variation_percent: float | None = None
     variation_amount: float | None = None
-    content: str
+    content: str = Field(..., min_length=1, max_length=10000)
     division_id: uuid.UUID | None = None
     sub_division_id: uuid.UUID | None = None
 
 
 class NoteUpdate(BaseModel):
-    content: str | None = None
+    content: str | None = Field(default=None, min_length=1, max_length=10000)
     current_amount: float | None = None
     prior_amount: float | None = None
     variation_percent: float | None = None
@@ -51,3 +51,7 @@ class NoteResponse(BaseModel):
 
 class NoteListResponse(BaseModel):
     notes: list[NoteResponse]
+    total: int | None = None
+    limit: int | None = None
+    offset: int | None = None
+    has_more: bool | None = None

@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -32,17 +32,22 @@ def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Co
 @router.get("", response_model=BudgetListResponse)
 def list_budgets(
     company_id: uuid.UUID,
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     company = _verify_company_access(db, current_user, company_id)
-    budgets = (
-        db.query(Budget)
-        .filter(Budget.company_id == company_id)
-        .order_by(Budget.fiscal_year.desc(), Budget.name)
-        .all()
+    query = db.query(Budget).filter(Budget.company_id == company_id)
+    total = query.count()
+    budgets = query.order_by(Budget.fiscal_year.desc(), Budget.name).offset(offset).limit(limit).all()
+    return BudgetListResponse(
+        budgets=budgets,
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=offset + len(budgets) < total,
     )
-    return BudgetListResponse(budgets=budgets)
 
 
 @router.post("", response_model=BudgetWithEntriesResponse, status_code=status.HTTP_201_CREATED)

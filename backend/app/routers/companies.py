@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
@@ -52,15 +52,20 @@ def _get_company_or_404(db: Session, company_id: uuid.UUID, org_id: uuid.UUID) -
 @router.get("", response_model=CompanyListResponse)
 def list_companies(
     org_id: uuid.UUID | None = None,
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     organization_id = _get_user_org_id(current_user, db, org_id)
+    base_query = db.query(Company).filter(Company.organization_id == organization_id)
+    total = base_query.count()
     companies = (
-        db.query(Company)
+        base_query
         .options(joinedload(Company.divisions).joinedload(Division.sub_divisions))
-        .filter(Company.organization_id == organization_id)
         .order_by(Company.created_at)
+        .offset(offset)
+        .limit(limit)
         .all()
     )
     # Deduplicate due to joinedload
@@ -70,7 +75,13 @@ def list_companies(
         if c.id not in seen:
             seen.add(c.id)
             unique.append(c)
-    return CompanyListResponse(companies=unique)
+    return CompanyListResponse(
+        companies=unique,
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=offset + len(unique) < total,
+    )
 
 
 @router.post("", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)

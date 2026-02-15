@@ -46,6 +46,10 @@ class AccountMappingResponse(BaseModel):
 
 class AccountMappingListResponse(BaseModel):
     mappings: list[AccountMappingResponse]
+    total: int | None = None
+    limit: int | None = None
+    offset: int | None = None
+    has_more: bool | None = None
 
 
 class ProductCreate(BaseModel):
