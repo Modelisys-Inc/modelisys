@@ -130,6 +130,8 @@ def update_company(
         company.fiscal_year_end = request.fiscal_year_end
     if request.currency is not None:
         company.currency = request.currency
+    if request.is_cumulative_tb is not None:
+        company.is_cumulative_tb = request.is_cumulative_tb
 
     db.commit()
     return _get_company_or_404(db, company_id, org_id)

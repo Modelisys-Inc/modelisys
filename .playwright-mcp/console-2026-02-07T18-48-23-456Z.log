@@ -1,0 +1,91 @@
+[    1773ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
+
+Check the render method of `DashboardHeader`.  @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[    1952ms] Error: Hydration failed because the server rendered text didn't match the client. As a result this tree will be regenerated on the client. This can happen if a SSR-ed Client Component used:
+
+- A server/client branch `if (typeof window !== 'undefined')`.
+- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.
+- Date formatting in a user's locale which doesn't match the server.
+- External changing data without sending a snapshot of it along with the HTML.
+- Invalid HTML tag nesting.
+
+It can also happen if the client has a browser extension installed which messes with the HTML before React loaded.
+
+https://react.dev/link/hydration-mismatch
+
+  ...
+    <SegmentViewNode type="page" pagePath="analysis/s...">
+      <SegmentTrieNode>
+      <ClientPageRoot Component={function SeasonalityPage} serverProvidedParams={{...}}>
+        <SeasonalityPage params={Promise} searchParams={Promise}>
+          <div className="min-h-scre...">
+            <DashboardHeader>
+            <main className="w-full py-...">
+              <div>
+              <div>
+              <SeasonalityChart>
+              <div className="rounded-xl...">
+                <SeasonalitySummary period="monthly" view="12months" columnMode="variations" analysisType="revenue" ...>
+                  <div className="w-full bg-...">
+                    <div>
+                    <div className="overflow-x...">
+                      <table className="w-full">
+                        <thead>
+                        <tbody>
+                          <tr>
+                          <tr className="border-b b...">
+                            <td>
+                            <td className="px-4 py-3 text-right font-mono text-emerald-600">
++                             110 387 $
+-                             106 734 $
+                            ...
+                          ...
+                    ...
+    ...
+
+    at throwOnHydrationMismatch (http://localhost:3000/_next/static/chunks/9e52f_next_dist_compiled_react-dom_74311ae2._.js:3348:56)
+    at prepareToHydrateHostInstance (http://localhost:3000/_next/static/chunks/9e52f_next_dist_compiled_react-dom_74311ae2._.js:3402:23)
+    at completeWork (http://localhost:3000/_next/static/chunks/9e52f_next_dist_compiled_react-dom_74311ae2._.js:6934:60)
+    at runWithFiberInDEV (http://localhost:3000/_next/static/chunks/9e52f_next_dist_compiled_react-dom_74311ae2._.js:965:74)
+    at completeUnitOfWork (http://localhost:3000/_next/static/chunks/9e52f_next_dist_compiled_react-dom_74311ae2._.js:9627:23)
+    at performUnitOfWork (http://localhost:3000/_next/static/chunks/9e52f_next_dist_compiled_react-dom_74311ae2._.js:9564:28)
+    at workLoopConcurrentByScheduler (http://localhost:3000/_next/static/chunks/9e52f_next_dist_compiled_react-dom_74311ae2._.js:9558:58)
+    at renderRootConcurrent (http://localhost:3000/_next/static/chunks/9e52f_next_dist_compiled_react-dom_74311ae2._.js:9541:71)
+    at performWorkOnRoot (http://localhost:3000/_next/static/chunks/9e52f_next_dist_compiled_react-dom_74311ae2._.js:9068:150)
+    at performWorkOnRootViaSchedulerTask (http://localhost:3000/_next/static/chunks/9e52f_next_dist_compiled_react-dom_74311ae2._.js:10230:9)
+    at MessagePort.performWorkUntilDeadline (http://localhost:3000/_next/static/chunks/9e52f_next_dist_compiled_6c324e6f._.js:2647:64)
+[   35910ms] [ERROR] In HTML, %s cannot be a child of <%s>.%s
+This will cause a hydration error.%s <html> main  
+
+  ...
+    <DevRootHTTPAccessFallbackBoundary>
+      <HTTPAccessFallbackBoundary notFound={<NotAllowedRootHTTPFallbackError>}>
+        <HTTPAccessFallbackErrorBoundary pathname="/login" notFound={<NotAllowedRootHTTPFallbackError>} ...>
+          <RedirectBoundary>
+            <RedirectErrorBoundary router={{...}}>
+              <Head>
+              <__next_root_layout_boundary__>
+                <SegmentViewNode type="layout" pagePath="layout.tsx">
+                  <SegmentTrieNode>
+                  <link>
+                  <script>
+                  <script>
+                  <RootLayout>
+                    <html lang="fr">
+                      <body className="font-sans ...">
+                        <Providers>
+                          <AuthProvider>
+                            <SidebarProvider>
+>                             <main className="min-h-screen bg-background">
+                                ...
+                                  <SegmentViewNode type="layout" pagePath="(public)/l...">
+                                    <SegmentTrieNode>
+                                    <PublicLayout>
+>                                     <html lang="fr">
+                        ...
+              ...
+ @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[   35910ms] [ERROR] <%s> cannot contain a nested %s.
+See this log for the ancestor stack trace. main <html> @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[   35927ms] [ERROR] You are mounting a new %s component when a previous one has not first unmounted. It is an error to render more than one %s component at a time and attributes and children of these components will likely fail in unpredictable ways. Please only render a single instance of <%s> and if you need to mount a new one, ensure any previous ones have unmounted first. html html html @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[   35928ms] [ERROR] You are mounting a new %s component when a previous one has not first unmounted. It is an error to render more than one %s component at a time and attributes and children of these components will likely fail in unpredictable ways. Please only render a single instance of <%s> and if you need to mount a new one, ensure any previous ones have unmounted first. body body body @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127

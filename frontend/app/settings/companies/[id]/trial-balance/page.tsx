@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Upload, X, Loader2 } from "lucide-react"
+import { ArrowLeft, Upload, X, Loader2, FileSpreadsheet } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import {
@@ -72,6 +72,7 @@ export default function TrialBalancePage() {
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString())
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Load company and accounts from API
@@ -337,8 +338,58 @@ export default function TrialBalancePage() {
                   type="file"
                   accept=".xlsx,.xls,.csv"
                   onChange={handleFileSelect}
-                  className="w-full text-sm text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
+                  className="sr-only"
                 />
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    setDragging(false)
+                    const file = e.dataTransfer.files?.[0]
+                    if (file) setImportFile(file)
+                  }}
+                  className={`flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-6 cursor-pointer transition-colors ${
+                    dragging
+                      ? "border-emerald-400 bg-emerald-50"
+                      : importFile
+                      ? "border-emerald-300 bg-emerald-50/50"
+                      : "border-slate-300 bg-slate-50 hover:border-emerald-400 hover:bg-emerald-50/30"
+                  }`}
+                >
+                  {importFile ? (
+                    <>
+                      <FileSpreadsheet className="w-8 h-8 text-emerald-600" />
+                      <p className="text-sm font-medium text-slate-900">{importFile.name}</p>
+                      <p className="text-xs text-slate-500">{(importFile.size / 1024).toFixed(1)} Ko</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setImportFile(null)
+                          if (fileInputRef.current) fileInputRef.current.value = ""
+                        }}
+                        className="text-xs text-slate-500 hover:text-red-600"
+                      >
+                        Retirer le fichier
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-8 h-8 text-slate-400" />
+                      <p className="text-sm text-slate-600">
+                        Glissez un fichier ici ou{" "}
+                        <span className="font-semibold text-emerald-600 underline underline-offset-2">
+                          parcourez
+                        </span>
+                      </p>
+                      <p className="text-xs text-slate-400">.xlsx, .xls ou .csv</p>
+                    </>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500 mt-2">
                   Format attendu : # de compte, Description, Montant
                 </p>

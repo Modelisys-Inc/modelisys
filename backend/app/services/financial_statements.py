@@ -9,6 +9,7 @@ import uuid
 from collections import defaultdict
 from decimal import Decimal
 
+from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.account_mapping import AccountMapping
@@ -52,6 +53,90 @@ def _fiscal_month_to_calendar(fiscal_month: int, fy_end_month: int) -> tuple[int
     return calendar_month, year_offset
 
 
+def _calendar_to_fiscal_month(calendar_month: int, fy_end_month: int) -> int:
+    """Convert a calendar month (1-12) to a fiscal month (1-12).
+
+    Fiscal month 1 is the month after the fiscal year end month.
+
+    Example: fiscal_year_end = "03-31" (fy_end_month=3):
+      - April (4) -> fiscal month 1
+      - December (12) -> fiscal month 9
+      - January (1) -> fiscal month 10
+      - March (3) -> fiscal month 12
+
+    For standard calendar year (fy_end_month=12):
+      - January (1) -> fiscal month 1
+      - December (12) -> fiscal month 12
+    """
+    return (calendar_month - fy_end_month - 1) % 12 + 1
+
+
+def _calendar_to_fiscal_date(
+    calendar_year: int, calendar_month: int, fy_end_month: int,
+) -> tuple[int, int]:
+    """Convert a calendar date (year, month) to fiscal coordinates (fiscal_year, fiscal_month).
+
+    The API receives calendar dates from the frontend (e.g. February 2025 = year=2025, month=2).
+    This function converts to the fiscal year and fiscal month used internally.
+
+    Example: fiscal_year_end = "03-31" (fy_end_month=3):
+      - April 2024 (cal_year=2024, cal_month=4) -> FY 2025, FM 1
+      - January 2025 (cal_year=2025, cal_month=1) -> FY 2025, FM 10
+      - March 2025 (cal_year=2025, cal_month=3) -> FY 2025, FM 12
+
+    For standard calendar year (fy_end_month=12):
+      - January 2025 -> FY 2025, FM 1
+      - December 2025 -> FY 2025, FM 12
+    """
+    fiscal_month = _calendar_to_fiscal_month(calendar_month, fy_end_month)
+    fiscal_year = calendar_year + 1 if calendar_month > fy_end_month else calendar_year
+    return fiscal_year, fiscal_month
+
+
+def _fetch_fiscal_year_entries(
+    db: Session, company_id: uuid.UUID, fiscal_year: int, fy_end_month: int,
+) -> list[TrialBalanceEntry]:
+    """Fetch TB entries for a fiscal year, handling calendar year boundary.
+
+    The DB stores calendar year and calendar month. For FY ending March 2025,
+    we need entries from (cal_year=2024, month 4-12) + (cal_year=2025, month 1-3).
+    """
+    if fy_end_month == 12:
+        # Standard calendar year - simple query
+        return (
+            db.query(TrialBalanceEntry)
+            .options(joinedload(TrialBalanceEntry.account))
+            .filter(
+                TrialBalanceEntry.company_id == company_id,
+                TrialBalanceEntry.fiscal_year == fiscal_year,
+            )
+            .all()
+        )
+
+    # Fiscal year spans two calendar years
+    first_cal_year = fiscal_year - 1   # months after fy_end (e.g. Apr-Dec 2024)
+    second_cal_year = fiscal_year      # months up to fy_end (e.g. Jan-Mar 2025)
+
+    return (
+        db.query(TrialBalanceEntry)
+        .options(joinedload(TrialBalanceEntry.account))
+        .filter(
+            TrialBalanceEntry.company_id == company_id,
+            or_(
+                and_(
+                    TrialBalanceEntry.fiscal_year == first_cal_year,
+                    TrialBalanceEntry.month > fy_end_month,
+                ),
+                and_(
+                    TrialBalanceEntry.fiscal_year == second_cal_year,
+                    TrialBalanceEntry.month <= fy_end_month,
+                ),
+            ),
+        )
+        .all()
+    )
+
+
 def _get_months_for_period(
     period: str, month: int, fy_end_month: int
 ) -> list[int]:
@@ -80,16 +165,107 @@ def _get_months_for_period(
 def _build_amount_index(
     entries: list[TrialBalanceEntry],
 ) -> dict[str, dict[int, Decimal]]:
-    """Build a lookup: account_number -> {month: amount}.
+    """Build a lookup: account_number -> {calendar_month: amount}.
 
-    We key by account_number (via the entry's account relationship)
-    so we can match against AccountMapping.account_number.
+    Keys are calendar months (1-12) as stored in the DB entries.
     """
     index: dict[str, dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     for entry in entries:
         acct_number = entry.account.account_number
         index[acct_number][entry.month] += Decimal(str(entry.amount))
     return index
+
+
+def _rekey_to_fiscal(
+    index: dict[str, dict[int, Decimal]], fy_end_month: int,
+) -> dict[str, dict[int, Decimal]]:
+    """Convert calendar-month-keyed index to fiscal-month-keyed index."""
+    result: dict[str, dict[int, Decimal]] = {}
+    for acct, monthly in index.items():
+        result[acct] = {}
+        for cal_month, amount in monthly.items():
+            fm = _calendar_to_fiscal_month(cal_month, fy_end_month)
+            result[acct][fm] = amount
+    return result
+
+
+def _build_fiscal_year_data(
+    db: Session,
+    company_id: uuid.UUID,
+    fiscal_year: int,
+    fy_end_month: int,
+    is_cumulative_tb: bool,
+) -> dict[str, dict[int, Decimal]]:
+    """Build a fiscal-month-keyed amount index for one fiscal year.
+
+    Handles:
+    1. Calendar/fiscal year boundary (fetching from two calendar years)
+    2. Conversion from calendar months to fiscal months
+    3. De-cumulation of cumulative TB data (across the full fiscal year)
+
+    For cumulative TB, the running total is continuous across the fiscal year
+    (not resetting at the calendar year boundary). So we first merge all entries
+    into fiscal month order, then de-cumulate once.
+    """
+    if fy_end_month == 12:
+        # Standard calendar year - one segment
+        entries = (
+            db.query(TrialBalanceEntry)
+            .options(joinedload(TrialBalanceEntry.account))
+            .filter(
+                TrialBalanceEntry.company_id == company_id,
+                TrialBalanceEntry.fiscal_year == fiscal_year,
+            )
+            .all()
+        )
+        index = _build_amount_index(entries)
+        if is_cumulative_tb:
+            index = _decumulate_amount_index(index)
+        # For fy_end=12, calendar month == fiscal month, no conversion needed
+        return index
+
+    # Non-December FY end: fetch from both calendar years, merge into fiscal months
+    entries = _fetch_fiscal_year_entries(db, company_id, fiscal_year, fy_end_month)
+
+    # Build index keyed by fiscal month (so entries are in fiscal chronological order)
+    index: dict[str, dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+    for entry in entries:
+        acct_number = entry.account.account_number
+        fm = _calendar_to_fiscal_month(entry.month, fy_end_month)
+        index[acct_number][fm] += Decimal(str(entry.amount))
+
+    # De-cumulate across the full fiscal year (FM 1-12 in order)
+    if is_cumulative_tb:
+        index = _decumulate_amount_index(index)
+
+    return dict(index)
+
+
+def _decumulate_amount_index(
+    index: dict[str, dict[int, Decimal]],
+) -> dict[str, dict[int, Decimal]]:
+    """Convert cumulative monthly amounts to period-specific amounts.
+
+    When trial balance data is uploaded as running totals (cumulative),
+    each month N contains the sum from month 1 to N.  This converts to
+    period-specific activity: actual_N = cumulative_N - cumulative_(N-1).
+
+    De-cumulated data is correct for both IS and BS computation:
+    - IS reads single-month activity directly.
+    - BS re-cumulates (sum months 1..fm) to get the balance at that date.
+    """
+    result: dict[str, dict[int, Decimal]] = {}
+    for acct_number, monthly in index.items():
+        sorted_months = sorted(monthly.keys())
+        decumulated: dict[int, Decimal] = {}
+        for i, month in enumerate(sorted_months):
+            if i == 0:
+                decumulated[month] = monthly[month]
+            else:
+                prev_month = sorted_months[i - 1]
+                decumulated[month] = monthly[month] - monthly[prev_month]
+        result[acct_number] = decumulated
+    return result
 
 
 def _build_mapping_index(
@@ -114,6 +290,8 @@ def _sum_for_link_code_single_month(
     division_filter: str | None = None,
     sub_division_filter: str | None = None,
     mappings_by_account: dict[str, AccountMapping] | None = None,
+    customer_filter: str | None = None,
+    supplier_filter: str | None = None,
 ) -> float:
     """Sum trial balance amounts for all accounts matching a link_code for a single fiscal month."""
     if not link_code:
@@ -122,7 +300,7 @@ def _sum_for_link_code_single_month(
     account_numbers = mapping_index.get(link_code, [])
     total = Decimal("0")
     for acct_num in account_numbers:
-        if (division_filter or sub_division_filter) and mappings_by_account:
+        if (division_filter or sub_division_filter or customer_filter or supplier_filter) and mappings_by_account:
             mapping = mappings_by_account.get(acct_num)
             if mapping:
                 if division_filter and mapping.divisions:
@@ -131,6 +309,16 @@ def _sum_for_link_code_single_month(
                 if sub_division_filter and mapping.sub_divisions:
                     if sub_division_filter not in mapping.sub_divisions:
                         continue
+                if customer_filter and mapping.customer:
+                    if customer_filter not in mapping.customer.split(","):
+                        continue
+                elif customer_filter and not mapping.customer:
+                    continue
+                if supplier_filter and mapping.supplier:
+                    if supplier_filter not in mapping.supplier.split(","):
+                        continue
+                elif supplier_filter and not mapping.supplier:
+                    continue
 
         monthly = amount_index.get(acct_num, {})
         total += monthly.get(fiscal_month, Decimal("0"))
@@ -145,6 +333,8 @@ def _sum_for_link_code(
     division_filter: str | None = None,
     sub_division_filter: str | None = None,
     mappings_by_account: dict[str, AccountMapping] | None = None,
+    customer_filter: str | None = None,
+    supplier_filter: str | None = None,
 ) -> float:
     """Sum trial balance amounts for all accounts matching a link_code across given fiscal months."""
     if not link_code:
@@ -153,8 +343,8 @@ def _sum_for_link_code(
     account_numbers = mapping_index.get(link_code, [])
     total = Decimal("0")
     for acct_num in account_numbers:
-        # Apply division/sub-division filter if provided
-        if (division_filter or sub_division_filter) and mappings_by_account:
+        # Apply division/sub-division/customer/supplier filter if provided
+        if (division_filter or sub_division_filter or customer_filter or supplier_filter) and mappings_by_account:
             mapping = mappings_by_account.get(acct_num)
             if mapping:
                 if division_filter and mapping.divisions:
@@ -163,6 +353,16 @@ def _sum_for_link_code(
                 if sub_division_filter and mapping.sub_divisions:
                     if sub_division_filter not in mapping.sub_divisions:
                         continue
+                if customer_filter and mapping.customer:
+                    if customer_filter not in mapping.customer.split(","):
+                        continue
+                elif customer_filter and not mapping.customer:
+                    continue
+                if supplier_filter and mapping.supplier:
+                    if supplier_filter not in mapping.supplier.split(","):
+                        continue
+                elif supplier_filter and not mapping.supplier:
+                    continue
 
         monthly = amount_index.get(acct_num, {})
         for fm in fiscal_months:
@@ -209,6 +409,8 @@ def _process_structure_rows(
     budget_amount_index: dict[str, dict[int, Decimal]] | None = None,
     use_budget_as_prior: bool = False,
     computed_values: dict[str, tuple[float, float]] | None = None,
+    customer_filter: str | None = None,
+    supplier_filter: str | None = None,
 ) -> list[dict]:
     """Recursively process statement structure rows into computed output rows.
 
@@ -240,7 +442,7 @@ def _process_structure_rows(
             current = _sum_for_link_code(
                 link_code, mapping_index, current_amount_index,
                 current_months, division_filter, sub_division_filter,
-                mappings_by_account,
+                mappings_by_account, customer_filter, supplier_filter,
             )
             if use_budget_as_prior and budget_amount_index is not None:
                 prior = _sum_budget_for_link_code(
@@ -250,7 +452,7 @@ def _process_structure_rows(
                 prior = _sum_for_link_code(
                     link_code, mapping_index, prior_amount_index,
                     prior_months, division_filter, sub_division_filter,
-                    mappings_by_account,
+                    mappings_by_account, customer_filter, supplier_filter,
                 )
 
         detail_rows = []
@@ -262,7 +464,7 @@ def _process_structure_rows(
                 division_filter, sub_division_filter,
                 mappings_by_account,
                 budget_amount_index, use_budget_as_prior,
-                computed_values,
+                computed_values, customer_filter, supplier_filter,
             )
             # If this is a section row without its own linkCode or formula,
             # sum up the children
@@ -316,6 +518,8 @@ def compute_financial_statement(
     budget_id: uuid.UUID | None = None,
     division_id: uuid.UUID | None = None,
     sub_division_id: uuid.UUID | None = None,
+    customer_filter: str | None = None,
+    supplier_filter: str | None = None,
 ) -> dict:
     """Compute a financial statement.
 
@@ -384,22 +588,16 @@ def compute_financial_statement(
     if statement_type == "balance-sheet":
         current_months = list(range(1, month + 1))
 
-    # 5. Fetch current year trial balance entries (eager load accounts)
-    current_entries = (
-        db.query(TrialBalanceEntry)
-        .options(joinedload(TrialBalanceEntry.account))
-        .filter(
-            TrialBalanceEntry.company_id == company.id,
-            TrialBalanceEntry.fiscal_year == fiscal_year,
-        )
-        .all()
+    # 5. Build current year amount index (handles calendar boundary + de-cumulation)
+    current_amount_index = _build_fiscal_year_data(
+        db, company.id, fiscal_year, fy_end_month, company.is_cumulative_tb,
     )
-    current_amount_index = _build_amount_index(current_entries)
 
     # 6. Fetch prior period data
     use_budget_as_prior = comparison_type == "budget" and budget_id is not None
     prior_amount_index: dict[str, dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
     budget_amount_index: dict[str, dict[int, Decimal]] | None = None
+    prior_months = current_months  # Default: same month range
 
     if use_budget_as_prior:
         # Fetch budget entries and build index keyed by account_number
@@ -413,21 +611,40 @@ def compute_financial_statement(
         for be in budget_entries:
             acct_number = be.account.account_number
             budget_amount_index[acct_number][be.month] += Decimal(str(be.amount))
-    else:
-        # Prior year
-        prior_year = fiscal_year - 1
-        prior_entries = (
-            db.query(TrialBalanceEntry)
-            .options(joinedload(TrialBalanceEntry.account))
-            .filter(
-                TrialBalanceEntry.company_id == company.id,
-                TrialBalanceEntry.fiscal_year == prior_year,
+    elif comparison_type == "lastMonth":
+        # Compare to the previous period (month/quarter) — typically same FY
+        if period == "monthly":
+            if month > 1:
+                prior_months = [month - 1]
+                prior_amount_index = current_amount_index
+            else:
+                # FM 1 → compare to FM 12 of prior FY
+                prior_months = [12]
+                prior_amount_index = _build_fiscal_year_data(
+                    db, company.id, fiscal_year - 1, fy_end_month, company.is_cumulative_tb,
+                )
+        elif period == "quarterly":
+            quarter = (month - 1) // 3
+            if quarter > 0:
+                start = (quarter - 1) * 3 + 1
+                prior_months = list(range(start, start + 3))
+                prior_amount_index = current_amount_index
+            else:
+                # First quarter → compare to Q4 of prior FY
+                prior_months = [10, 11, 12]
+                prior_amount_index = _build_fiscal_year_data(
+                    db, company.id, fiscal_year - 1, fy_end_month, company.is_cumulative_tb,
+                )
+        else:
+            # Annual or other → fall back to prior year
+            prior_amount_index = _build_fiscal_year_data(
+                db, company.id, fiscal_year - 1, fy_end_month, company.is_cumulative_tb,
             )
-            .all()
+    else:
+        # "pastMonth" / "prior_year" → same month range, prior fiscal year
+        prior_amount_index = _build_fiscal_year_data(
+            db, company.id, fiscal_year - 1, fy_end_month, company.is_cumulative_tb,
         )
-        prior_amount_index = _build_amount_index(prior_entries)
-
-    prior_months = current_months  # Same month range, different year/budget
 
     # 7. Process the structure into computed rows
     rows = _process_structure_rows(
@@ -442,6 +659,8 @@ def compute_financial_statement(
         mappings_by_account,
         budget_amount_index,
         use_budget_as_prior,
+        customer_filter=customer_filter,
+        supplier_filter=supplier_filter,
     )
 
     return {
@@ -562,6 +781,8 @@ def _process_structure_rows_series(
     sub_division_filter: str | None = None,
     mappings_by_account: dict[str, AccountMapping] | None = None,
     computed_values: dict[str, dict[str, float]] | None = None,
+    customer_filter: str | None = None,
+    supplier_filter: str | None = None,
 ) -> list[dict]:
     """Process statement structure rows for the series endpoint.
 
@@ -597,12 +818,14 @@ def _process_structure_rows_series(
                         total += _sum_for_link_code_single_month(
                             link_code, mapping_index, amt_index, m,
                             division_filter, sub_division_filter, mappings_by_account,
+                            customer_filter, supplier_filter,
                         )
                     amounts[key] = round(total, 2)
                 else:
                     amounts[key] = round(_sum_for_link_code_single_month(
                         link_code, mapping_index, amt_index, fm,
                         division_filter, sub_division_filter, mappings_by_account,
+                        customer_filter, supplier_filter,
                     ), 2)
 
         detail_rows = []
@@ -611,6 +834,7 @@ def _process_structure_rows_series(
                 children, mapping_index, amount_indices, periods,
                 statement_type, division_filter, sub_division_filter,
                 mappings_by_account, computed_values,
+                customer_filter, supplier_filter,
             )
             if not link_code and not formula:
                 # Sum children for each period
@@ -663,6 +887,8 @@ def compute_financial_statement_series(
     months: int = 12,
     division_id: uuid.UUID | None = None,
     sub_division_id: uuid.UUID | None = None,
+    customer_filter: str | None = None,
+    supplier_filter: str | None = None,
 ) -> dict:
     """Compute monthly series data for a financial statement.
 
@@ -715,19 +941,12 @@ def compute_financial_statement_series(
     # 5. Determine which fiscal years we need data for
     needed_fiscal_years = set(p["fiscalYear"] for p in periods)
 
-    # 6. Fetch trial balance entries for all needed fiscal years, build per-year indices
+    # 6. Build fiscal-month-keyed amount indices (handles calendar boundary + de-cumulation)
     amount_indices: dict[int, dict[str, dict[int, Decimal]]] = {}
     for fy in needed_fiscal_years:
-        entries = (
-            db.query(TrialBalanceEntry)
-            .options(joinedload(TrialBalanceEntry.account))
-            .filter(
-                TrialBalanceEntry.company_id == company.id,
-                TrialBalanceEntry.fiscal_year == fy,
-            )
-            .all()
+        amount_indices[fy] = _build_fiscal_year_data(
+            db, company.id, fy, fy_end_month, company.is_cumulative_tb,
         )
-        amount_indices[fy] = _build_amount_index(entries)
 
     # 7. Process structure rows for series
     rows = _process_structure_rows_series(
@@ -739,6 +958,8 @@ def compute_financial_statement_series(
         division_filter,
         sub_division_filter,
         mappings_by_account,
+        customer_filter=customer_filter,
+        supplier_filter=supplier_filter,
     )
 
     return {

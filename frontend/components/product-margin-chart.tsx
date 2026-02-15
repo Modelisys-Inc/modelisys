@@ -22,7 +22,7 @@ type ChartViewType = "revenue_grossprofit_margin" | "revenue_by_product" | "gros
 
 interface ProductMarginChartProps {
   period: "monthly" | "quarterly" | "annual"
-  view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
+  view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "24months" | "quarters" | "years"
   selectedProduct: ProductType
   companyId?: string | null
   divisionId?: string | null

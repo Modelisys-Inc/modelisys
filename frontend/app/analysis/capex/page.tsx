@@ -36,6 +36,13 @@ export default function CapexPage() {
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
   const pathname = usePathname()
 
+  // Auto-select first company
+  useEffect(() => {
+    if (!selectedCompanyId && companies.length > 0) {
+      setSelectedCompanyId(companies[0].id)
+    }
+  }, [companies, selectedCompanyId])
+
   // Date reference state (month and year)
   const currentDate = new Date()
   const [selectedMonth, setSelectedMonth] = useState<number>(currentDate.getMonth() + 1) // 1-12

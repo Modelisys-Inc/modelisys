@@ -10,13 +10,16 @@ from app.routers import (
     budgets,
     business_risks,
     companies,
+    customers,
     exchange_rates,
     financial_statements,
     forecast_configs,
     health,
     notes,
+    organizations,
     projections,
     statement_structures,
+    suppliers,
     trial_balance,
 )
 
@@ -56,8 +59,11 @@ app.include_router(exchange_rates.router)
 app.include_router(budgets.router)
 app.include_router(notes.router)
 app.include_router(projections.router)
+app.include_router(organizations.router)
 app.include_router(business_risks.router)
 app.include_router(forecast_configs.router)
+app.include_router(customers.router)
+app.include_router(suppliers.router)
 
 
 @app.get("/")

@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001"
 
 interface FetchOptions extends Omit<RequestInit, "body"> {
   body?: unknown
@@ -328,6 +328,8 @@ export interface AccountMappingData {
   variable_costs: boolean
   fixed_costs: boolean
   product: string | null
+  customer: string | null
+  supplier: string | null
   interco_company_id: string | null
 }
 
@@ -356,6 +358,8 @@ export async function upsertAccountMappings(
     variable_costs?: boolean
     fixed_costs?: boolean
     product?: string | null
+    customer?: string | null
+    supplier?: string | null
     interco_company_id?: string | null
   }>
 ): Promise<AccountMappingData[]> {
@@ -477,6 +481,8 @@ export interface FinancialStatementParams {
   budget_id?: string
   division_id?: string
   sub_division_id?: string
+  customer?: string
+  supplier?: string
 }
 
 export interface FinancialStatementResponse {
@@ -498,6 +504,8 @@ function buildFinancialStatementQuery(params: FinancialStatementParams): string 
   if (params.budget_id) query.set("budget_id", params.budget_id)
   if (params.division_id) query.set("division_id", params.division_id)
   if (params.sub_division_id) query.set("sub_division_id", params.sub_division_id)
+  if (params.customer) query.set("customer", params.customer)
+  if (params.supplier) query.set("supplier", params.supplier)
   return `?${query.toString()}`
 }
 
@@ -1181,6 +1189,8 @@ export interface FinancialStatementSeriesParams {
   months?: number  // default 12
   division_id?: string
   sub_division_id?: string
+  customer?: string
+  supplier?: string
 }
 
 export async function getFinancialStatementSeries(
@@ -1193,6 +1203,8 @@ export async function getFinancialStatementSeries(
   if (params.months) query.set("months", params.months.toString())
   if (params.division_id) query.set("division_id", params.division_id)
   if (params.sub_division_id) query.set("sub_division_id", params.sub_division_id)
+  if (params.customer) query.set("customer", params.customer)
+  if (params.supplier) query.set("supplier", params.supplier)
   return apiFetch<FinancialStatementSeriesResponse>(
     `/api/companies/${companyId}/financial-statements/${statementType}/series?${query.toString()}`
   )
@@ -1243,4 +1255,147 @@ export async function uploadTrialBalance(
     `/api/companies/${companyId}/trial-balance/upload${query}`,
     { method: "POST", body: formData }
   )
+}
+
+// --- Organization Members API ---
+
+export interface OrgMember {
+  id: string
+  email: string
+  full_name: string
+  role: string
+  created_at: string
+}
+
+export async function listOrgMembers(orgId: string): Promise<OrgMember[]> {
+  const data = await apiFetch<{ members: OrgMember[] }>(
+    `/api/organizations/${orgId}/members`
+  )
+  return data.members
+}
+
+export async function inviteMember(
+  orgId: string,
+  body: { email: string; role: string }
+): Promise<OrgMember> {
+  return apiFetch<OrgMember>(`/api/organizations/${orgId}/members`, {
+    method: "POST",
+    body,
+  })
+}
+
+export async function updateMemberRole(
+  orgId: string,
+  userId: string,
+  role: string
+): Promise<OrgMember> {
+  return apiFetch<OrgMember>(
+    `/api/organizations/${orgId}/members/${userId}`,
+    { method: "PATCH", body: { role } }
+  )
+}
+
+export async function removeMember(
+  orgId: string,
+  userId: string
+): Promise<void> {
+  await apiFetch(`/api/organizations/${orgId}/members/${userId}`, {
+    method: "DELETE",
+  })
+}
+
+// --- Customers API ---
+
+export interface CustomerData {
+  id: string
+  name: string
+  sort_order: number
+  created_at: string
+}
+
+export async function listCustomers(
+  companyId: string
+): Promise<CustomerData[]> {
+  const data = await apiFetch<{ customers: CustomerData[] }>(
+    `/api/companies/${companyId}/customers`
+  )
+  return data.customers
+}
+
+export async function createCustomer(
+  companyId: string,
+  data: { name: string; sort_order?: number }
+): Promise<CustomerData> {
+  return apiFetch<CustomerData>(`/api/companies/${companyId}/customers`, {
+    method: "POST",
+    body: data,
+  })
+}
+
+export async function bulkUpsertCustomers(
+  companyId: string,
+  customers: Array<{ name: string; sort_order?: number }>
+): Promise<CustomerData[]> {
+  const data = await apiFetch<{ customers: CustomerData[] }>(
+    `/api/companies/${companyId}/customers`,
+    { method: "PUT", body: customers }
+  )
+  return data.customers
+}
+
+export async function deleteCustomer(
+  companyId: string,
+  customerId: string
+): Promise<void> {
+  await apiFetch(`/api/companies/${companyId}/customers/${customerId}`, {
+    method: "DELETE",
+  })
+}
+
+// --- Suppliers API ---
+
+export interface SupplierData {
+  id: string
+  name: string
+  sort_order: number
+  created_at: string
+}
+
+export async function listSuppliers(
+  companyId: string
+): Promise<SupplierData[]> {
+  const data = await apiFetch<{ suppliers: SupplierData[] }>(
+    `/api/companies/${companyId}/suppliers`
+  )
+  return data.suppliers
+}
+
+export async function createSupplier(
+  companyId: string,
+  data: { name: string; sort_order?: number }
+): Promise<SupplierData> {
+  return apiFetch<SupplierData>(`/api/companies/${companyId}/suppliers`, {
+    method: "POST",
+    body: data,
+  })
+}
+
+export async function bulkUpsertSuppliers(
+  companyId: string,
+  suppliers: Array<{ name: string; sort_order?: number }>
+): Promise<SupplierData[]> {
+  const data = await apiFetch<{ suppliers: SupplierData[] }>(
+    `/api/companies/${companyId}/suppliers`,
+    { method: "PUT", body: suppliers }
+  )
+  return data.suppliers
+}
+
+export async function deleteSupplier(
+  companyId: string,
+  supplierId: string
+): Promise<void> {
+  await apiFetch(`/api/companies/${companyId}/suppliers/${supplierId}`, {
+    method: "DELETE",
+  })
 }

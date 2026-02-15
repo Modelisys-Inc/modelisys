@@ -83,6 +83,8 @@ def upsert_account_mappings(
             mapping.variable_costs = entry.variable_costs
             mapping.fixed_costs = entry.fixed_costs
             mapping.product = entry.product
+            mapping.customer = entry.customer
+            mapping.supplier = entry.supplier
             mapping.interco_company_id = interco_id
         else:
             mapping = AccountMapping(
@@ -100,6 +102,8 @@ def upsert_account_mappings(
                 variable_costs=entry.variable_costs,
                 fixed_costs=entry.fixed_costs,
                 product=entry.product,
+                customer=entry.customer,
+                supplier=entry.supplier,
                 interco_company_id=interco_id,
             )
             db.add(mapping)

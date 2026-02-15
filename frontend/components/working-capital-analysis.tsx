@@ -1,7 +1,10 @@
 "use client"
 
+import { useMemo } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, aggregateToYears, findRow } from "@/lib/series-utils"
 
 interface WorkingCapitalAnalysisProps {
   period: "monthly" | "quarterly" | "annual"
@@ -12,85 +15,21 @@ interface WorkingCapitalAnalysisProps {
   companies?: Company[]
 }
 
-// Helper functions to get data (same logic as WorkingCapitalDetail)
-const getDetailData = (period: "monthly" | "quarterly" | "annual", view: "current" | "12months" | "24months" | "years") => {
-  if (view === "12months") {
-    return {
-      currentAssets: 850000,
-      priorAssets: 750000,
-      currentLiabilities: 450000,
-      priorLiabilities: 420000,
-      currentRevenue: 275000,
-      priorRevenue: 242000,
-      trendValues: Array.from({ length: 12 }, (_, i) => ({
-        assets: 750000 + (i * 8333),
-        liabilities: 420000 + (i * 2500),
-        revenue: 242000 + (i * 2750)
-      }))
-    }
-  }
-  if (view === "24months") {
-    return {
-      currentAssets: 850000,
-      priorAssets: 750000,
-      currentLiabilities: 450000,
-      priorLiabilities: 420000,
-      currentRevenue: 275000,
-      priorRevenue: 242000,
-      trendValues: Array.from({ length: 24 }, (_, i) => ({
-        assets: 750000 + (i * 4167),
-        liabilities: 420000 + (i * 1250),
-        revenue: 242000 + (i * 1375)
-      }))
-    }
-  }
-  if (view === "years") {
-    return {
-      currentAssets: 10200000,
-      priorAssets: 9000000,
-      currentLiabilities: 5400000,
-      priorLiabilities: 5040000,
-      currentRevenue: 3300000,
-      priorRevenue: 2864000,
-      trendValues: Array.from({ length: 6 }, (_, i) => ({
-        assets: 9000000 + (i * 200000),
-        liabilities: 5040000 + (i * 60000),
-        revenue: 2864000 + (i * 72800)
-      }))
-    }
-  }
-  // Current view
-  if (period === "monthly") {
-    return {
-      currentAssets: 850000,
-      priorAssets: 750000,
-      currentLiabilities: 450000,
-      priorLiabilities: 420000,
-      currentRevenue: 275000,
-      priorRevenue: 242000,
-      trendValues: undefined
-    }
-  } else if (period === "quarterly") {
-    return {
-      currentAssets: 2550000,
-      priorAssets: 2250000,
-      currentLiabilities: 1350000,
-      priorLiabilities: 1260000,
-      currentRevenue: 825000,
-      priorRevenue: 716000,
-      trendValues: undefined
-    }
-  } else {
-    return {
-      currentAssets: 10200000,
-      priorAssets: 9000000,
-      currentLiabilities: 5400000,
-      priorLiabilities: 5040000,
-      currentRevenue: 3300000,
-      priorRevenue: 2864000,
-      trendValues: undefined
-    }
-  }
+interface AnalysisData {
+  currentAssets: number
+  priorAssets: number
+  currentLiabilities: number
+  priorLiabilities: number
+  currentRevenue: number
+  priorRevenue: number
+  currentCash: number
+  priorCash: number
+  trendValues?: Array<{
+    assets: number
+    liabilities: number
+    revenue: number
+    cash: number
+  }>
 }
 
 export function WorkingCapitalAnalysis({
@@ -101,7 +40,119 @@ export function WorkingCapitalAnalysis({
   subDivisionId,
   companies = [],
 }: WorkingCapitalAnalysisProps) {
-  const data = getDetailData(period, view)
+  // Fetch balance-sheet and income-statement series data
+  const currentYear = new Date().getFullYear()
+  const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
+
+  const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "balance-sheet",
+    fiscalYear: currentYear,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: !!companyId,
+  })
+
+  const { rows: isRows, periods: isPeriods, loading: isLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "income-statement",
+    fiscalYear: currentYear,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: !!companyId,
+  })
+
+  const loading = bsLoading || isLoading
+
+  // Compute the analysis data from real API rows
+  const data: AnalysisData = useMemo(() => {
+    const empty: AnalysisData = {
+      currentAssets: 0, priorAssets: 0,
+      currentLiabilities: 0, priorLiabilities: 0,
+      currentRevenue: 0, priorRevenue: 0,
+      currentCash: 0, priorCash: 0,
+      trendValues: undefined,
+    }
+
+    if (bsRows.length === 0 && isRows.length === 0) return empty
+
+    // Find relevant rows
+    const totalCurrentAssetsRow = findRow(bsRows, "total actifs courants")
+    const totalCurrentLiabilitiesRow = findRow(bsRows, "total passifs courants")
+    const totalRevenueRow = findRow(isRows, "total revenus") || findRow(isRows, "revenus")
+    const cashRow = findRow(bsRows, "encaisse") || findRow(bsRows, "trésorerie") || findRow(bsRows, "cash")
+
+    // Extract raw amounts arrays
+    const assetsAmounts = totalCurrentAssetsRow ? getRowAmounts(totalCurrentAssetsRow, bsPeriods) : []
+    const liabilitiesAmounts = totalCurrentLiabilitiesRow ? getRowAmounts(totalCurrentLiabilitiesRow, bsPeriods) : []
+    const revenueAmounts = totalRevenueRow ? getRowAmounts(totalRevenueRow, isPeriods) : []
+    const cashAmounts = cashRow ? getRowAmounts(cashRow, bsPeriods) : []
+
+    const isMultiPeriod = view === "12months" || view === "24months" || view === "years"
+
+    if (isMultiPeriod) {
+      let finalAssets: number[]
+      let finalLiabilities: number[]
+      let finalRevenue: number[]
+      let finalCash: number[]
+
+      if (view === "years") {
+        const aggAssets = aggregateToYears(assetsAmounts, bsPeriods)
+        const aggLiabilities = aggregateToYears(liabilitiesAmounts, bsPeriods)
+        const aggRevenue = aggregateToYears(revenueAmounts, isPeriods)
+        const aggCash = aggregateToYears(cashAmounts, bsPeriods)
+        finalAssets = aggAssets.amounts
+        finalLiabilities = aggLiabilities.amounts
+        finalRevenue = aggRevenue.amounts
+        finalCash = aggCash.amounts
+      } else {
+        finalAssets = assetsAmounts
+        finalLiabilities = liabilitiesAmounts
+        finalRevenue = revenueAmounts
+        finalCash = cashAmounts
+      }
+
+      const len = finalAssets.length
+      const trendValues = Array.from({ length: len }, (_, i) => ({
+        assets: finalAssets[i] || 0,
+        liabilities: finalLiabilities[i] || 0,
+        revenue: finalRevenue[i] || 0,
+        cash: finalCash[i] || 0,
+      }))
+
+      return {
+        currentAssets: len > 0 ? finalAssets[len - 1] : 0,
+        priorAssets: len > 1 ? finalAssets[len - 2] : 0,
+        currentLiabilities: len > 0 ? finalLiabilities[len - 1] : 0,
+        priorLiabilities: len > 1 ? finalLiabilities[len - 2] : 0,
+        currentRevenue: len > 0 ? finalRevenue[len - 1] : 0,
+        priorRevenue: len > 1 ? finalRevenue[len - 2] : 0,
+        currentCash: len > 0 ? finalCash[len - 1] : 0,
+        priorCash: len > 1 ? finalCash[len - 2] : 0,
+        trendValues,
+      }
+    }
+
+    // Current view - take last and second-to-last values
+    const aLen = assetsAmounts.length
+    const lLen = liabilitiesAmounts.length
+    const rLen = revenueAmounts.length
+    const cLen = cashAmounts.length
+
+    return {
+      currentAssets: aLen > 0 ? assetsAmounts[aLen - 1] : 0,
+      priorAssets: aLen > 1 ? assetsAmounts[aLen - 2] : 0,
+      currentLiabilities: lLen > 0 ? liabilitiesAmounts[lLen - 1] : 0,
+      priorLiabilities: lLen > 1 ? liabilitiesAmounts[lLen - 2] : 0,
+      currentRevenue: rLen > 0 ? revenueAmounts[rLen - 1] : 0,
+      priorRevenue: rLen > 1 ? revenueAmounts[rLen - 2] : 0,
+      currentCash: cLen > 0 ? cashAmounts[cLen - 1] : 0,
+      priorCash: cLen > 1 ? cashAmounts[cLen - 2] : 0,
+      trendValues: undefined,
+    }
+  }, [bsRows, isRows, bsPeriods, isPeriods, view])
 
   // Calculate Working Capital (current assets - current liabilities)
   const calculateWorkingCapital = (isPrior: boolean, trendIndex?: number): number => {
@@ -116,18 +167,15 @@ export function WorkingCapitalAnalysis({
   }
 
   // Calculate Working Capital Ex Cash (current assets - cash - current liabilities)
-  // Assuming cash is approximately 23.5% of current assets
   const calculateWorkingCapitalExCash = (isPrior: boolean, trendIndex?: number): number => {
-    const cashRatio = 0.235
-    
     if (trendIndex !== undefined && data.trendValues) {
       const assets = data.trendValues[trendIndex]?.assets || 0
-      const cash = assets * cashRatio
+      const cash = data.trendValues[trendIndex]?.cash || 0
       const liabilities = data.trendValues[trendIndex]?.liabilities || 0
       return assets - cash - liabilities
     }
     const assets = isPrior ? data.priorAssets : data.currentAssets
-    const cash = assets * cashRatio
+    const cash = isPrior ? data.priorCash : data.currentCash
     const liabilities = isPrior ? data.priorLiabilities : data.currentLiabilities
     return assets - cash - liabilities
   }
@@ -173,16 +221,34 @@ export function WorkingCapitalAnalysis({
 
   // Calculate FdRHC Ratio ((Current Assets - Cash) / Current Liabilities)
   const calculateFdRHCRatio = (isPrior: boolean, trendIndex?: number): number => {
-    const cashRatio = 0.235
     const assets = getCurrentAssets(isPrior, trendIndex)
-    const cash = assets * cashRatio
+    let cash = 0
+    if (trendIndex !== undefined && data.trendValues) {
+      cash = data.trendValues[trendIndex]?.cash || 0
+    } else {
+      cash = isPrior ? data.priorCash : data.currentCash
+    }
     const liabilities = getCurrentLiabilities(isPrior, trendIndex)
     if (liabilities === 0) return 0
     return (assets - cash) / liabilities
   }
 
-  // Helper to get month labels
-  const getMonthLabels = (count: number): string[] => {
+  // Get period labels from API data or fallback to generated labels
+  const getPeriodColumnLabels = (count: number): string[] => {
+    // Use real labels from balance-sheet periods when available
+    if (bsPeriods.length > 0) {
+      if (view === "years") {
+        const dummyAmounts = bsPeriods.map(() => 0)
+        const agg = aggregateToYears(dummyAmounts, bsPeriods)
+        return agg.labels
+      }
+      return bsPeriods.map((p) => p.label)
+    }
+    // Fallback to generated labels
+    if (view === "years") {
+      const cy = new Date().getFullYear()
+      return Array.from({ length: 6 }, (_, i) => `${cy - 5 + i}`)
+    }
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
     const labels: string[] = []
     const currentDate = new Date()
@@ -191,12 +257,6 @@ export function WorkingCapitalAnalysis({
       labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
     }
     return labels
-  }
-
-  // Helper to get year labels
-  const getYearLabels = (): string[] => {
-    const currentYear = new Date().getFullYear()
-    return Array.from({ length: 6 }, (_, i) => `${currentYear - 5 + i}`)
   }
 
   // Helper function to get horizon text
@@ -247,7 +307,29 @@ export function WorkingCapitalAnalysis({
         </div>
       </div>
 
+      {/* Loading state */}
+      {loading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+        </div>
+      )}
+
+      {/* No company selected */}
+      {!companyId && !loading && (
+        <div className="flex items-center justify-center py-12 text-slate-500 text-sm">
+          Sélectionnez une société
+        </div>
+      )}
+
+      {/* No data available */}
+      {companyId && !loading && data.currentAssets === 0 && data.priorAssets === 0 && data.currentLiabilities === 0 && !data.trendValues && (
+        <div className="flex items-center justify-center py-12 text-slate-500 text-sm">
+          Aucune donnée
+        </div>
+      )}
+
       {/* Table */}
+      {!loading && (companyId ? (data.currentAssets !== 0 || data.priorAssets !== 0 || data.currentLiabilities !== 0 || !!data.trendValues) : false) && (
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
@@ -262,7 +344,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "12months" && (
                 <>
-                  {getMonthLabels(12).map((label, idx) => (
+                  {getPeriodColumnLabels(12).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>
@@ -271,7 +353,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "24months" && (
                 <>
-                  {getMonthLabels(24).map((label, idx) => (
+                  {getPeriodColumnLabels(24).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>
@@ -280,7 +362,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "years" && (
                 <>
-                  {getYearLabels().map((label, idx) => (
+                  {getPeriodColumnLabels(0).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>
@@ -306,7 +388,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "12months" && (() => {
-                const values = Array.from({ length: 12 }).map((_, idx) => calculateWorkingCapital(false, idx))
+                const values = Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => calculateWorkingCapital(false, idx))
                 const average = values.reduce((sum, val) => sum + val, 0) / values.length
                 return (
                   <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
@@ -315,7 +397,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "24months" && (() => {
-                const values = Array.from({ length: 24 }).map((_, idx) => calculateWorkingCapital(false, idx))
+                const values = Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => calculateWorkingCapital(false, idx))
                 const average = values.reduce((sum, val) => sum + val, 0) / values.length
                 return (
                   <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
@@ -324,7 +406,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "years" && (() => {
-                const values = Array.from({ length: 6 }).map((_, idx) => calculateWorkingCapital(false, idx))
+                const values = Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => calculateWorkingCapital(false, idx))
                 const average = values.reduce((sum, val) => sum + val, 0) / values.length
                 return (
                   <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
@@ -347,7 +429,7 @@ export function WorkingCapitalAnalysis({
               
               {view === "12months" && (
                 <>
-                  {Array.from({ length: 12 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
                     const fdr = calculateWorkingCapital(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
@@ -359,7 +441,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "24months" && (
                 <>
-                  {Array.from({ length: 24 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
                     const fdr = calculateWorkingCapital(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
@@ -371,7 +453,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "years" && (
                 <>
-                  {Array.from({ length: 6 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
                     const fdr = calculateWorkingCapital(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
@@ -399,7 +481,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "12months" && (() => {
-                const values = Array.from({ length: 12 }).map((_, idx) => calculateWorkingCapitalExCash(false, idx))
+                const values = Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => calculateWorkingCapitalExCash(false, idx))
                 const average = values.reduce((sum, val) => sum + val, 0) / values.length
                 return (
                   <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
@@ -408,7 +490,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "24months" && (() => {
-                const values = Array.from({ length: 24 }).map((_, idx) => calculateWorkingCapitalExCash(false, idx))
+                const values = Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => calculateWorkingCapitalExCash(false, idx))
                 const average = values.reduce((sum, val) => sum + val, 0) / values.length
                 return (
                   <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
@@ -417,7 +499,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "years" && (() => {
-                const values = Array.from({ length: 6 }).map((_, idx) => calculateWorkingCapitalExCash(false, idx))
+                const values = Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => calculateWorkingCapitalExCash(false, idx))
                 const average = values.reduce((sum, val) => sum + val, 0) / values.length
                 return (
                   <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
@@ -440,7 +522,7 @@ export function WorkingCapitalAnalysis({
               
               {view === "12months" && (
                 <>
-                  {Array.from({ length: 12 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
                     const fdrhc = calculateWorkingCapitalExCash(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
@@ -452,7 +534,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "24months" && (
                 <>
-                  {Array.from({ length: 24 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
                     const fdrhc = calculateWorkingCapitalExCash(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
@@ -464,7 +546,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "years" && (
                 <>
-                  {Array.from({ length: 6 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
                     const fdrhc = calculateWorkingCapitalExCash(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
@@ -494,7 +576,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "12months" && (() => {
-                const values = Array.from({ length: 12 }).map((_, idx) => {
+                const values = Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
                   const fdr = calculateWorkingCapital(false, idx)
                   return getRevenuePercentage(fdr, false, idx)
                 })
@@ -506,7 +588,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "24months" && (() => {
-                const values = Array.from({ length: 24 }).map((_, idx) => {
+                const values = Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
                   const fdr = calculateWorkingCapital(false, idx)
                   return getRevenuePercentage(fdr, false, idx)
                 })
@@ -518,7 +600,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "years" && (() => {
-                const values = Array.from({ length: 6 }).map((_, idx) => {
+                const values = Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
                   const fdr = calculateWorkingCapital(false, idx)
                   return getRevenuePercentage(fdr, false, idx)
                 })
@@ -550,7 +632,7 @@ export function WorkingCapitalAnalysis({
               
               {view === "12months" && (
                 <>
-                  {Array.from({ length: 12 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
                     const fdr = calculateWorkingCapital(false, idx)
                     const percentage = getRevenuePercentage(fdr, false, idx)
                     return (
@@ -563,7 +645,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "24months" && (
                 <>
-                  {Array.from({ length: 24 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
                     const fdr = calculateWorkingCapital(false, idx)
                     const percentage = getRevenuePercentage(fdr, false, idx)
                     return (
@@ -576,7 +658,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "years" && (
                 <>
-                  {Array.from({ length: 6 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
                     const fdr = calculateWorkingCapital(false, idx)
                     const percentage = getRevenuePercentage(fdr, false, idx)
                     return (
@@ -607,7 +689,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "12months" && (() => {
-                const values = Array.from({ length: 12 }).map((_, idx) => {
+                const values = Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
                   const fdrhc = calculateWorkingCapitalExCash(false, idx)
                   return getRevenuePercentage(fdrhc, false, idx)
                 })
@@ -619,7 +701,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "24months" && (() => {
-                const values = Array.from({ length: 24 }).map((_, idx) => {
+                const values = Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
                   const fdrhc = calculateWorkingCapitalExCash(false, idx)
                   return getRevenuePercentage(fdrhc, false, idx)
                 })
@@ -631,7 +713,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "years" && (() => {
-                const values = Array.from({ length: 6 }).map((_, idx) => {
+                const values = Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
                   const fdrhc = calculateWorkingCapitalExCash(false, idx)
                   return getRevenuePercentage(fdrhc, false, idx)
                 })
@@ -663,7 +745,7 @@ export function WorkingCapitalAnalysis({
               
               {view === "12months" && (
                 <>
-                  {Array.from({ length: 12 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
                     const fdrhc = calculateWorkingCapitalExCash(false, idx)
                     const percentage = getRevenuePercentage(fdrhc, false, idx)
                     return (
@@ -676,7 +758,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "24months" && (
                 <>
-                  {Array.from({ length: 24 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
                     const fdrhc = calculateWorkingCapitalExCash(false, idx)
                     const percentage = getRevenuePercentage(fdrhc, false, idx)
                     return (
@@ -689,7 +771,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "years" && (
                 <>
-                  {Array.from({ length: 6 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
                     const fdrhc = calculateWorkingCapitalExCash(false, idx)
                     const percentage = getRevenuePercentage(fdrhc, false, idx)
                     return (
@@ -718,7 +800,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "12months" && (() => {
-                const values = Array.from({ length: 12 }).map((_, idx) => calculateFDRRatio(false, idx))
+                const values = Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => calculateFDRRatio(false, idx))
                 const average = values.reduce((sum, val) => sum + val, 0) / values.length
                 return (
                   <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
@@ -727,7 +809,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "24months" && (() => {
-                const values = Array.from({ length: 24 }).map((_, idx) => calculateFDRRatio(false, idx))
+                const values = Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => calculateFDRRatio(false, idx))
                 const average = values.reduce((sum, val) => sum + val, 0) / values.length
                 return (
                   <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
@@ -736,7 +818,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "years" && (() => {
-                const values = Array.from({ length: 6 }).map((_, idx) => calculateFDRRatio(false, idx))
+                const values = Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => calculateFDRRatio(false, idx))
                 const average = values.reduce((sum, val) => sum + val, 0) / values.length
                 return (
                   <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
@@ -759,7 +841,7 @@ export function WorkingCapitalAnalysis({
               
               {view === "12months" && (
                 <>
-                  {Array.from({ length: 12 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
                     const ratio = calculateFDRRatio(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
@@ -771,7 +853,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "24months" && (
                 <>
-                  {Array.from({ length: 24 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
                     const ratio = calculateFDRRatio(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
@@ -783,7 +865,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "years" && (
                 <>
-                  {Array.from({ length: 6 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
                     const ratio = calculateFDRRatio(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
@@ -811,7 +893,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "12months" && (() => {
-                const values = Array.from({ length: 12 }).map((_, idx) => calculateFdRHCRatio(false, idx))
+                const values = Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => calculateFdRHCRatio(false, idx))
                 const average = values.reduce((sum, val) => sum + val, 0) / values.length
                 return (
                   <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
@@ -820,7 +902,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "24months" && (() => {
-                const values = Array.from({ length: 24 }).map((_, idx) => calculateFdRHCRatio(false, idx))
+                const values = Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => calculateFdRHCRatio(false, idx))
                 const average = values.reduce((sum, val) => sum + val, 0) / values.length
                 return (
                   <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
@@ -829,7 +911,7 @@ export function WorkingCapitalAnalysis({
                 )
               })()}
               {view === "years" && (() => {
-                const values = Array.from({ length: 6 }).map((_, idx) => calculateFdRHCRatio(false, idx))
+                const values = Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => calculateFdRHCRatio(false, idx))
                 const average = values.reduce((sum, val) => sum + val, 0) / values.length
                 return (
                   <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
@@ -852,7 +934,7 @@ export function WorkingCapitalAnalysis({
               
               {view === "12months" && (
                 <>
-                  {Array.from({ length: 12 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
                     const ratio = calculateFdRHCRatio(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
@@ -864,7 +946,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "24months" && (
                 <>
-                  {Array.from({ length: 24 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
                     const ratio = calculateFdRHCRatio(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
@@ -876,7 +958,7 @@ export function WorkingCapitalAnalysis({
               )}
               {view === "years" && (
                 <>
-                  {Array.from({ length: 6 }).map((_, idx) => {
+                  {Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
                     const ratio = calculateFdRHCRatio(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
@@ -890,6 +972,7 @@ export function WorkingCapitalAnalysis({
           </tbody>
         </table>
       </div>
+      )}
     </div>
   )
 }

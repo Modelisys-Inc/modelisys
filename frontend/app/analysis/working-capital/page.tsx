@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { WorkingCapitalDetail } from "@/components/working-capital-detail"
 import { WorkingCapitalChart, type WorkingCapitalChartDataPoint } from "@/components/working-capital-chart"
 import { WorkingCapitalAnalysis } from "@/components/working-capital-analysis"
@@ -32,6 +32,13 @@ export default function WorkingCapitalPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
+
+  // Auto-select first company
+  useEffect(() => {
+    if (!selectedCompanyId && companiesData.length > 0) {
+      setSelectedCompanyId(companiesData[0].id)
+    }
+  }, [companiesData, selectedCompanyId])
 
   // Date reference state (month and year)
   const currentDate = new Date()

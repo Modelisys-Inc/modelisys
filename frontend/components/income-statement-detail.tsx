@@ -4,7 +4,7 @@ import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import type { FinancialStatementRow } from "@/lib/api"
-import { seededRandom, generateId } from "@/lib/seeded-random"
+import { generateId } from "@/lib/seeded-random"
 import { ChevronRight, ChevronDown, StickyNote, TrendingUp } from "lucide-react"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
@@ -1056,15 +1056,15 @@ export function IncomeStatementDetail({
                   defaultValue = Math.round(revenueValue * variableRate / 100)
                 } else {
                   // Fallback to compound growth if revenue not found
-                  defaultValue = Math.round(base * Math.pow(1 + effectiveGrowthRate, yearIndex) * (0.95 + seededRandom(base + yearIndex) * 0.1))
+                  defaultValue = Math.round(base * Math.pow(1 + effectiveGrowthRate, yearIndex))
                 }
               } else {
                 // No variable rate set, use compound growth
-                defaultValue = Math.round(base * Math.pow(1 + effectiveGrowthRate, yearIndex) * (0.95 + seededRandom(base + yearIndex) * 0.1))
+                defaultValue = Math.round(base * Math.pow(1 + effectiveGrowthRate, yearIndex))
               }
             } else {
               // Compound growth: base * (1 + rate) ^ yearIndex
-              defaultValue = Math.round(base * Math.pow(1 + effectiveGrowthRate, yearIndex) * (0.95 + seededRandom(base + yearIndex) * 0.1))
+              defaultValue = Math.round(base * Math.pow(1 + effectiveGrowthRate, yearIndex))
             }
           }
 
@@ -1073,7 +1073,7 @@ export function IncomeStatementDetail({
         } else {
           // For other views, generate past years
           const yearIndex = (numYears - 1) - i
-          return Math.round(base * (1 + growthRate * yearIndex) * (0.95 + seededRandom(base + i) * 0.1))
+          return Math.round(base * (1 + growthRate * yearIndex))
         }
       })
     }
@@ -1133,22 +1133,6 @@ export function IncomeStatementDetail({
     })
   }
 
-  // Helper function to get comparison data based on comparisonType
-  const getComparisonPriorValue = (basePrior: number): number => {
-    if (comparisonType === "lastMonth") {
-      // For "lastMonth", use the base prior value (YTD/DDM of last period)
-      return basePrior
-    } else if (comparisonType === "pastMonth") {
-      // For "pastMonth", use a slightly different value (YTD/DDM of past period)
-      return Math.round(basePrior * 0.92)
-    } else if (comparisonType === "budget" && selectedBudgetId) {
-      // For "budget", use budget data
-      // For now, use a budget value (typically higher than actual)
-      return Math.round(basePrior * 1.15)
-    }
-    return basePrior
-  }
-
   const getDetailData = (): DetailRow[] => {
     // Return series API data for multi-period views (non-forecast)
     if (view === "12months" && !isForecastSection) {
@@ -1160,312 +1144,18 @@ export function IncomeStatementDetail({
     if (view === "years" && !isForecastSection) {
       return getSeriesYearRows()
     }
-    // Use page-level API data for current/comparison views when available
-    if ((view === "current" || view === "comparison") && !isForecastSection && backendRows.length > 0) {
-      return mapBackendRows(backendRows)
-    }
     // Forecast sections still use getYearsData for projection logic
     if (view === "years" && isForecastSection) {
       return getYearsData()
     }
-    // Handle YTD and DDM views
-    if (view === "ytd" || view === "ddm") {
-      // Base values for current YTD/DDM
-      const baseRevenue = view === "ytd" ? 1650000 : 275000
-      const baseCOGS = view === "ytd" ? 750000 : 125000
-      const baseGrossProfit = baseRevenue - baseCOGS
-      const baseAdmin = view === "ytd" ? 351000 : 58500
-      const baseSales = view === "ytd" ? 216000 : 36000
-      const baseOther = view === "ytd" ? -21000 : -3500
-      const baseTotalExpenses = baseAdmin + baseSales + baseOther
-      const baseEBT = view === "ytd" ? 354000 : 59000
-      const baseTax = view === "ytd" ? 92040 : 15340
-      const baseNetIncome = view === "ytd" ? 261960 : 43660
-      const baseEBITA = view === "ytd" ? 384000 : 64000
-
-      // Prior values (will be adjusted based on comparisonType)
-      const priorRevenue = view === "ytd" ? 1452000 : 242000
-      const priorCOGS = view === "ytd" ? 660000 : 110000
-      const priorGrossProfit = priorRevenue - priorCOGS
-      const priorAdmin = view === "ytd" ? 316200 : 52700
-      const priorSales = view === "ytd" ? 193800 : 32300
-      const priorOther = view === "ytd" ? -21000 : -3500
-      const priorTotalExpenses = priorAdmin + priorSales + priorOther
-      const priorEBT = view === "ytd" ? 303000 : 50500
-      const priorTax = view === "ytd" ? 78780 : 13130
-      const priorNetIncome = view === "ytd" ? 224220 : 37370
-      const priorEBITA = view === "ytd" ? 333000 : 55500
-
-      // Apply comparison type adjustment
-      const adjustedPriorRevenue = getComparisonPriorValue(priorRevenue)
-      const adjustedPriorCOGS = getComparisonPriorValue(priorCOGS)
-      const adjustedPriorGrossProfit = adjustedPriorRevenue - adjustedPriorCOGS
-      const adjustedPriorAdmin = getComparisonPriorValue(priorAdmin)
-      const adjustedPriorSales = getComparisonPriorValue(priorSales)
-      const adjustedPriorOther = priorOther
-      const adjustedPriorTotalExpenses = adjustedPriorAdmin + adjustedPriorSales + adjustedPriorOther
-      const adjustedPriorEBT = adjustedPriorGrossProfit - adjustedPriorTotalExpenses
-      const adjustedPriorTax = Math.round(adjustedPriorEBT * 0.26)
-      const adjustedPriorNetIncome = adjustedPriorEBT - adjustedPriorTax
-      const adjustedPriorEBITA = adjustedPriorGrossProfit - adjustedPriorTotalExpenses
-
-      // Calculate individual line items with proportions
-      const revenueServices = Math.round(baseRevenue * 0.65)
-      const revenueProducts = Math.round(baseRevenue * 0.25)
-      const revenueOther = Math.round(baseRevenue * 0.10)
-      const priorRevenueServices = Math.round(adjustedPriorRevenue * 0.65)
-      const priorRevenueProducts = Math.round(adjustedPriorRevenue * 0.25)
-      const priorRevenueOther = Math.round(adjustedPriorRevenue * 0.10)
-
-      const cogsServices = Math.round(baseCOGS * 0.72)
-      const cogsProducts = Math.round(baseCOGS * 0.28)
-      const priorCogsServices = Math.round(adjustedPriorCOGS * 0.72)
-      const priorCogsProducts = Math.round(adjustedPriorCOGS * 0.28)
-
-      const adminSalaries = Math.round(baseAdmin * 0.68)
-      const adminRent = Math.round(baseAdmin * 0.14)
-      const adminSupplies = Math.round(baseAdmin * 0.06)
-      const adminProfServices = Math.round(baseAdmin * 0.12)
-      const priorAdminSalaries = Math.round(adjustedPriorAdmin * 0.68)
-      const priorAdminRent = Math.round(adjustedPriorAdmin * 0.14)
-      const priorAdminSupplies = Math.round(adjustedPriorAdmin * 0.06)
-      const priorAdminProfServices = Math.round(adjustedPriorAdmin * 0.12)
-
-      const salesSalaries = Math.round(baseSales * 0.50)
-      const salesMarketing = Math.round(baseSales * 0.33)
-      const salesCommissions = Math.round(baseSales * 0.17)
-      const priorSalesSalaries = Math.round(adjustedPriorSales * 0.50)
-      const priorSalesMarketing = Math.round(adjustedPriorSales * 0.33)
-      const priorSalesCommissions = Math.round(adjustedPriorSales * 0.17)
-
-      const rows: DetailRow[] = [
-        // Revenues
-        { label: "REVENUS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Ventes - Services professionnels", current: revenueServices, prior: priorRevenueServices, indent: true, rowId: "revenue-services" },
-        { label: "Ventes - Produits", current: revenueProducts, prior: priorRevenueProducts, indent: true, rowId: "revenue-products" },
-        { label: "Autres revenus", current: revenueOther, prior: priorRevenueOther, indent: true, rowId: "revenue-other" },
-        { label: "Total Revenus", current: baseRevenue, prior: adjustedPriorRevenue, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // COGS
-        { label: "COÛT DES PRODUITS VENDUS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Coût - Services", current: cogsServices, prior: priorCogsServices, indent: true, rowId: "cogs-services" },
-        { label: "Coût - Produits", current: cogsProducts, prior: priorCogsProducts, indent: true, rowId: "cogs-products" },
-        { label: "Total COGS", current: baseCOGS, prior: adjustedPriorCOGS, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Admin expenses
-        { label: "FRAIS D'ADMINISTRATION", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Salaires - Administrateurs", current: adminSalaries, prior: priorAdminSalaries, indent: true, rowId: "admin-salaries" },
-        { label: "Location de bureaux", current: adminRent, prior: priorAdminRent, indent: true, rowId: "admin-rent" },
-        { label: "Fournitures de bureau", current: adminSupplies, prior: priorAdminSupplies, indent: true, rowId: "admin-supplies" },
-        { label: "Services professionnels", current: adminProfServices, prior: priorAdminProfServices, indent: true, rowId: "admin-prof-services" },
-        { label: "Total Frais d'administration", current: baseAdmin, prior: adjustedPriorAdmin, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Sales expenses
-        { label: "FRAIS DE VENTE", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Salaires - Vente", current: salesSalaries, prior: priorSalesSalaries, indent: true, rowId: "sales-salaries" },
-        { label: "Marketing et publicité", current: salesMarketing, prior: priorSalesMarketing, indent: true, rowId: "sales-marketing" },
-        { label: "Commissions", current: salesCommissions, prior: priorSalesCommissions, indent: true, rowId: "sales-commissions" },
-        { label: "Total Frais de vente", current: baseSales, prior: adjustedPriorSales, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Other expenses/revenues
-        { label: "AUTRES DÉPENSES (REVENUS)", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Intérêts gagnés", current: baseOther < 0 ? baseOther : -2000, prior: adjustedPriorOther < 0 ? adjustedPriorOther : -2000, indent: true, rowId: "other-interest-earned" },
-        { label: "Revenus de placement", current: -1500, prior: -1500, indent: true, rowId: "other-investment-income" },
-        { label: "Intérêts débiteurs", current: 1000, prior: 1000, indent: true, rowId: "other-interest-expense" },
-        { label: "Total Autres dépenses (revenus)", current: baseOther, prior: adjustedPriorOther, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Totals
-        { label: "BÉNÉFICE BRUT", current: baseGrossProfit, prior: adjustedPriorGrossProfit, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        { label: "TOTAL DES CHARGES", current: baseTotalExpenses, prior: adjustedPriorTotalExpenses, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        { label: "BÉNÉFICE AVANT IMPÔTS", current: baseEBT, prior: adjustedPriorEBT, isBold: true, isSubtotal: true },
-        { label: "Impôts (26%)", current: baseTax, prior: adjustedPriorTax, indent: true },
-        { label: "BÉNÉFICE NET", current: baseNetIncome, prior: adjustedPriorNetIncome, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        { label: "BAIIA", current: baseEBITA, prior: adjustedPriorEBITA, isBold: true, isSubtotal: true },
-      ]
-
-      // Add balance accounts to rows that have rowId
-      const isForecastSectionForBalanceAccounts = title === "Estimation des revenus annuels" || title === "Estimation des dépenses annuelles" || title === "Estimation des Capex annuels" || title === "États des résultats pro forma"
-      return rows.map((row) => {
-        if (row.rowId && (projectionMode === "gl" || !isForecastSectionForBalanceAccounts)) {
-          return {
-            ...row,
-            balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
-          }
-        }
-        return row
-      })
+    // Use page-level API data for current/comparison/ytd/ddm views when available
+    // The parent page fetches with the appropriate period parameter (monthly, quarterly, annual, ytd)
+    // and comparison type, so backendRows already contain the correct data for all these views.
+    if (!isForecastSection && backendRows.length > 0) {
+      return mapBackendRows(backendRows)
     }
-    if (period === "monthly") {
-      const rows: DetailRow[] = [
-        // Revenues
-        { label: "REVENUS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Ventes - Services professionnels", current: 180000, prior: 160000, indent: true, rowId: "revenue-services" },
-        { label: "Ventes - Produits", current: 70000, prior: 60000, indent: true, rowId: "revenue-products" },
-        { label: "Autres revenus", current: 25000, prior: 20000, indent: true, rowId: "revenue-other" },
-        { label: "Total Revenus", current: 275000, prior: 240000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // COGS
-        { label: "COÛT DES PRODUITS VENDUS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Coût - Services", current: 90000, prior: 80000, indent: true, rowId: "cogs-services" },
-        { label: "Coût - Produits", current: 35000, prior: 30000, indent: true, rowId: "cogs-products" },
-        { label: "Total COGS", current: 125000, prior: 110000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Admin expenses
-        { label: "FRAIS D'ADMINISTRATION", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Salaires - Administrateurs", current: 40000, prior: 35000, indent: true, rowId: "admin-salaries" },
-        { label: "Location de bureaux", current: 8000, prior: 8000, indent: true, rowId: "admin-rent" },
-        { label: "Fournitures de bureau", current: 3500, prior: 3200, indent: true, rowId: "admin-supplies" },
-        { label: "Services professionnels", current: 7000, prior: 6500, indent: true, rowId: "admin-prof-services" },
-        { label: "Total Frais d'administration", current: 58500, prior: 52700, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Sales expenses
-        { label: "FRAIS DE VENTE", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Salaires - Vente", current: 18000, prior: 15000, indent: true, rowId: "sales-salaries" },
-        { label: "Marketing et publicité", current: 12000, prior: 10000, indent: true, rowId: "sales-marketing" },
-        { label: "Commissions", current: 6000, prior: 7300, indent: true, rowId: "sales-commissions" },
-        { label: "Total Frais de vente", current: 36000, prior: 32300, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Other expenses/revenues
-        { label: "AUTRES DÉPENSES (REVENUS)", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Intérêts gagnés", current: -2000, prior: -2000, indent: true, rowId: "other-interest-earned" },
-        { label: "Revenus de placement", current: -1500, prior: -1500, indent: true, rowId: "other-investment-income" },
-        { label: "Intérêts débiteurs", current: 1000, prior: 1000, indent: true, rowId: "other-interest-expense" },
-        { label: "Total Autres dépenses (revenus)", current: -3500, prior: -3500, isBold: true, isSubtotal: true },
-      ]
-      
-      // Add balance accounts to rows that have rowId
-      // Only generate balance accounts if projectionMode is "gl" or if it's not a forecast section
-      const isForecastSectionForBalanceAccounts = title === "Estimation des revenus annuels" || title === "Estimation des dépenses annuelles" || title === "Estimation des Capex annuels" || title === "États des résultats pro forma"
-      return rows.map((row) => {
-        if (row.rowId && (projectionMode === "gl" || !isForecastSectionForBalanceAccounts)) {
-          return {
-            ...row,
-            balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
-          }
-        }
-        return row
-      })
-    } else if (period === "quarterly") {
-      const rows: DetailRow[] = [
-        // Revenues
-        { label: "REVENUS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Ventes - Services professionnels", current: 540000, prior: 480000, indent: true, rowId: "revenue-services" },
-        { label: "Ventes - Produits", current: 210000, prior: 180000, indent: true, rowId: "revenue-products" },
-        { label: "Autres revenus", current: 75000, prior: 56000, indent: true },
-        { label: "Total Revenus", current: 825000, prior: 716000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // COGS
-        { label: "COÛT DES PRODUITS VENDUS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Coût - Services", current: 270000, prior: 240000, indent: true, rowId: "cogs-services" },
-        { label: "Coût - Produits", current: 105000, prior: 90000, indent: true, rowId: "cogs-products" },
-        { label: "Total COGS", current: 375000, prior: 330000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Admin expenses
-        { label: "FRAIS D'ADMINISTRATION", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Salaires - Administrateurs", current: 120000, prior: 105000, indent: true, rowId: "admin-salaries" },
-        { label: "Location de bureaux", current: 24000, prior: 24000, indent: true, rowId: "admin-rent" },
-        { label: "Fournitures de bureau", current: 10500, prior: 9600, indent: true, rowId: "admin-supplies" },
-        { label: "Services professionnels", current: 21000, prior: 19500, indent: true, rowId: "admin-prof-services" },
-        { label: "Total Frais d'administration", current: 175500, prior: 158100, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Sales expenses
-        { label: "FRAIS DE VENTE", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Salaires - Vente", current: 54000, prior: 45000, indent: true, rowId: "sales-salaries" },
-        { label: "Marketing et publicité", current: 36000, prior: 30000, indent: true, rowId: "sales-marketing" },
-        { label: "Commissions", current: 18000, prior: 21900, indent: true, rowId: "sales-commissions" },
-        { label: "Total Frais de vente", current: 108000, prior: 96900, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Other expenses/revenues
-        { label: "AUTRES DÉPENSES (REVENUS)", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Intérêts gagnés", current: -6000, prior: -6000, indent: true, rowId: "other-interest-earned" },
-        { label: "Revenus de placement", current: -4500, prior: -4500, indent: true, rowId: "other-investment-income" },
-        { label: "Intérêts débiteurs", current: 3000, prior: 3000, indent: true, rowId: "other-interest-expense" },
-        { label: "Total Autres dépenses (revenus)", current: -10500, prior: -10500, isBold: true, isSubtotal: true },
-      ]
-      
-      // Add balance accounts to rows that have rowId
-      // Only generate balance accounts if projectionMode is "gl" or if it's not a forecast section
-      const isForecastSectionForBalanceAccounts = title === "Estimation des revenus annuels" || title === "Estimation des dépenses annuelles" || title === "Estimation des Capex annuels" || title === "États des résultats pro forma"
-      return rows.map((row) => {
-        if (row.rowId && (projectionMode === "gl" || !isForecastSectionForBalanceAccounts)) {
-          return {
-            ...row,
-            balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
-          }
-        }
-        return row
-      })
-    } else {
-      const rows: DetailRow[] = [
-        // Revenues
-        { label: "REVENUS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Ventes - Services professionnels", current: 2160000, prior: 1920000, indent: true, rowId: "revenue-services" },
-        { label: "Ventes - Produits", current: 840000, prior: 720000, indent: true, rowId: "revenue-products" },
-        { label: "Autres revenus", current: 300000, prior: 224000, indent: true },
-        { label: "Total Revenus", current: 3300000, prior: 2864000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // COGS
-        { label: "COÛT DES PRODUITS VENDUS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Coût - Services", current: 1080000, prior: 960000, indent: true, rowId: "cogs-services" },
-        { label: "Coût - Produits", current: 420000, prior: 360000, indent: true, rowId: "cogs-products" },
-        { label: "Total COGS", current: 1500000, prior: 1320000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Admin expenses
-        { label: "FRAIS D'ADMINISTRATION", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Salaires - Administrateurs", current: 480000, prior: 420000, indent: true, rowId: "admin-salaries" },
-        { label: "Location de bureaux", current: 96000, prior: 96000, indent: true, rowId: "admin-rent" },
-        { label: "Fournitures de bureau", current: 42000, prior: 38400, indent: true, rowId: "admin-supplies" },
-        { label: "Services professionnels", current: 84000, prior: 78000, indent: true, rowId: "admin-prof-services" },
-        { label: "Total Frais d'administration", current: 702000, prior: 632400, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Sales expenses
-        { label: "FRAIS DE VENTE", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Salaires - Vente", current: 216000, prior: 180000, indent: true, rowId: "sales-salaries" },
-        { label: "Marketing et publicité", current: 144000, prior: 120000, indent: true, rowId: "sales-marketing" },
-        { label: "Commissions", current: 72000, prior: 87600, indent: true, rowId: "sales-commissions" },
-        { label: "Total Frais de vente", current: 432000, prior: 387600, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-
-        // Other expenses/revenues
-        { label: "AUTRES DÉPENSES (REVENUS)", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Intérêts gagnés", current: -24000, prior: -24000, indent: true, rowId: "other-interest-earned" },
-        { label: "Revenus de placement", current: -18000, prior: -18000, indent: true, rowId: "other-investment-income" },
-        { label: "Intérêts débiteurs", current: 12000, prior: 12000, indent: true, rowId: "other-interest-expense" },
-        { label: "Total Autres dépenses (revenus)", current: -42000, prior: -42000, isBold: true, isSubtotal: true },
-      ]
-      
-      // Add balance accounts to rows that have rowId
-      // Only generate balance accounts if projectionMode is "gl" or if it's not a forecast section
-      const isForecastSectionForBalanceAccounts = title === "Estimation des revenus annuels" || title === "Estimation des dépenses annuelles" || title === "Estimation des Capex annuels" || title === "États des résultats pro forma"
-      return rows.map((row) => {
-        if (row.rowId && (projectionMode === "gl" || !isForecastSectionForBalanceAccounts)) {
-          return {
-            ...row,
-            balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
-          }
-        }
-        return row
-      })
-    }
+    // No data available
+    return []
   }
 
   // Helper function to capitalize first letter
@@ -1546,6 +1236,26 @@ export function IncomeStatementDetail({
     })
   }
   
+  // Determine loading state early so it can be used in both empty-data and loading checks
+  const isDataLoading = (seriesLoading && isMultiPeriodView && !isForecastSection) || (loading && !isForecastSection && !isMultiPeriodView)
+
+  // Show "no data" state when data is empty and not loading
+  if (data.length === 0 && !isDataLoading && !isForecastSection) {
+    return (
+      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+        <div className="bg-white px-8 py-5 border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
+            <h2 className="text-xl font-semibold text-slate-900 tracking-tight">{title}</h2>
+          </div>
+        </div>
+        <div className="px-8 py-16 text-center">
+          <p className="text-sm text-slate-500">Aucune donnée disponible pour cette période.</p>
+        </div>
+      </div>
+    )
+  }
+
   // Determine what we're comparing
   const isCompanyComparison = columnMode === "comparison" && !companyId
   const isDivisionComparison = columnMode === "comparison" && companyId && !divisionId
@@ -1706,8 +1416,8 @@ export function IncomeStatementDetail({
     return "Courant"
   }
 
-  // Show loading state when fetching series data for multi-period views
-  if (seriesLoading && isMultiPeriodView && !isForecastSection) {
+  // Show loading state when fetching data
+  if (isDataLoading) {
     return (
       <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
         <div className="px-8 py-16 text-center">

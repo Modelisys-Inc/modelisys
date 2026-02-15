@@ -146,6 +146,13 @@ export default function ProFormaPage() {
   // Track which company the projections were loaded for
   const [loadedProjectionsCompanyId, setLoadedProjectionsCompanyId] = useState<string | null>(null)
 
+  // Auto-select first company for new projection form
+  useEffect(() => {
+    if (!newProjectionCompanyId && companies.length > 0) {
+      setNewProjectionCompanyId(companies[0].id)
+    }
+  }, [companies, newProjectionCompanyId])
+
   const selectedModuleData = allModules.find(m => m.id === selectedModule)
   const Icon = selectedModuleData?.icon || BarChart3
 
@@ -641,26 +648,7 @@ export default function ProFormaPage() {
                   </div>
                 </div>
 
-                {/* Module-specific content */}
-                <div className="mt-6">
-
-
-                  {selectedModule === "capex" && (
-                    <div className="p-8 bg-slate-50 rounded-lg border border-slate-200">
-                      <p className="text-center text-slate-600">
-                        Contenu des projections de Capex à venir...
-                      </p>
-                    </div>
-                  )}
-
-                  {selectedModule === "debt" && (
-                    <div className="p-8 bg-slate-50 rounded-lg border border-slate-200">
-                      <p className="text-center text-slate-600">
-                        Contenu de la structure de la dette à venir...
-                      </p>
-                    </div>
-                  )}
-                </div>
+                {/* Module-specific content placeholder removed — components render above */}
               </CardContent>
             </Card>
           )}

@@ -1,11 +1,15 @@
 "use client"
 
-import { useState } from "react"
-import { ProductMarginChart, type ProductType } from "@/components/product-margin-chart"
+import { useState, useEffect, useMemo } from "react"
+import { ProductMarginChart, type ProductType, type ProductMarginChartDataPoint } from "@/components/product-margin-chart"
 import { ProductMarginAnalysis } from "@/components/product-margin-analysis"
 import { Filter, Calendar } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
+import { useCompanies } from "@/hooks/use-companies"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { findRow } from "@/lib/series-utils"
+import { listCompanies, type Company as ApiCompany } from "@/lib/api"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -15,78 +19,8 @@ type Period = "monthly" | "quarterly" | "annual"
 type View = "current" | "comparison" | "ytd" | "ddm" | "12months" | "24months" | "quarters" | "years"
 type ColumnMode = "variations" | "percentage" | "comparison"
 
-// Données d'exemple pour les sociétés, divisions et sous-divisions
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Modelisys Inc.",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division Technologie",
-        subDivisions: [
-          { id: "sub-1", name: "Développement Logiciel" },
-          { id: "sub-2", name: "Infrastructure IT" },
-          { id: "sub-3", name: "Support Technique" },
-        ],
-      },
-      {
-        id: "div-2",
-        name: "Division Conseil",
-        subDivisions: [
-          { id: "sub-4", name: "Conseil Stratégique" },
-          { id: "sub-5", name: "Conseil Opérationnel" },
-        ],
-      },
-      {
-        id: "div-3",
-        name: "Division Ventes",
-        subDivisions: [
-          { id: "sub-6", name: "Ventes B2B" },
-          { id: "sub-7", name: "Ventes B2C" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-2",
-    name: "TechSolutions SA",
-    divisions: [
-      {
-        id: "div-4",
-        name: "Division Produits",
-        subDivisions: [
-          { id: "sub-8", name: "Produits Cloud" },
-          { id: "sub-9", name: "Produits On-Premise" },
-        ],
-      },
-      {
-        id: "div-5",
-        name: "Division Services",
-        subDivisions: [
-          { id: "sub-10", name: "Services Professionnels" },
-          { id: "sub-11", name: "Services Gérés" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-3",
-    name: "InnovateCorp",
-    divisions: [
-      {
-        id: "div-6",
-        name: "Division R&D",
-        subDivisions: [
-          { id: "sub-12", name: "Recherche" },
-          { id: "sub-13", name: "Développement" },
-        ],
-      },
-    ],
-  },
-]
-
 export default function ProductMarginPage() {
+  const { companies: companiesData } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("comparison")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
@@ -94,6 +28,59 @@ export default function ProductMarginPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
+
+  // Auto-select first company
+  useEffect(() => {
+    if (!selectedCompanyId && companiesData.length > 0) {
+      setSelectedCompanyId(companiesData[0].id)
+    }
+  }, [companiesData, selectedCompanyId])
+
+  // Fetch API companies for fiscal_year_end
+  const [apiCompanies, setApiCompanies] = useState<ApiCompany[]>([])
+  useEffect(() => {
+    listCompanies().then(setApiCompanies).catch(() => {})
+  }, [])
+
+  const lastCompleteFY = useMemo(() => {
+    const now = new Date()
+    const curMonth = now.getMonth() + 1
+    const curYear = now.getFullYear()
+    if (!selectedCompanyId) return curYear
+    const company = apiCompanies.find(c => c.id === selectedCompanyId)
+    const fyEnd = company?.fiscal_year_end || "12-31"
+    const fyEndMonth = parseInt(fyEnd.split("-")[0], 10) || 12
+    const currentFY = curMonth <= fyEndMonth ? curYear : curYear + 1
+    return currentFY - 1
+  }, [selectedCompanyId, apiCompanies])
+
+  const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
+
+  const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: selectedCompanyId || null,
+    statementType: "income-statement",
+    fiscalYear: lastCompleteFY,
+    months: monthsNeeded,
+    divisionId: selectedDivisionId || null,
+    subDivisionId: selectedSubDivisionId || null,
+    enabled: !!selectedCompanyId,
+  })
+
+  // Build chart data from IS series
+  const chartData = useMemo<ProductMarginChartDataPoint[]>(() => {
+    if (seriesRows.length === 0 || periods.length === 0) return []
+    const revenueRow = findRow(seriesRows, "revenus") || findRow(seriesRows, "revenue")
+    const cogsRow = findRow(seriesRows, "coût des ventes") || findRow(seriesRows, "cost of sales")
+    const grossProfitRow = findRow(seriesRows, "bénéfice brut") || findRow(seriesRows, "gross profit")
+    return periods.map(p => {
+      const key = `${p.fiscalYear}-${p.fiscalMonth}`
+      const revenue = Math.abs(revenueRow?.amounts[key] || 0)
+      const costs = Math.abs(cogsRow?.amounts[key] || 0)
+      const grossProfit = grossProfitRow?.amounts[key] || (revenue - costs)
+      const grossMargin = revenue !== 0 ? (grossProfit / revenue) * 100 : 0
+      return { period: p.label, revenue, costs, grossProfit, grossMargin }
+    })
+  }, [seriesRows, periods])
 
   // Fonction pour obtenir la valeur actuelle du sélecteur Horizon
   const getCurrentHorizon = (): string => {
@@ -328,22 +315,6 @@ export default function ProductMarginPage() {
               {/* Separator */}
               <div className="h-6 w-px bg-slate-700" />
 
-              {/* Product Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Produit:</span>
-                <Select value={selectedProduct} onValueChange={(value) => setSelectedProduct(value as ProductType)}>
-                  <SelectTrigger className="h-8 w-[160px] bg-slate-800/50 border-slate-700 text-slate-300 text-xs hover:bg-slate-700/50">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="total">Tous les produits</SelectItem>
-                    <SelectItem value="product_a">Produit A</SelectItem>
-                    <SelectItem value="product_b">Produit B</SelectItem>
-                    <SelectItem value="service_c">Service C</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
               {/* Separator */}
               <div className="h-6 w-px bg-slate-700" />
 
@@ -376,6 +347,8 @@ export default function ProductMarginPage() {
             divisionId={selectedDivisionId}
             subDivisionId={selectedSubDivisionId}
             companies={companiesData}
+            chartData={chartData}
+            loading={seriesLoading}
           />
         </div>
       </main>
@@ -417,6 +390,8 @@ export default function ProductMarginPage() {
             divisionId={selectedDivisionId}
             subDivisionId={selectedSubDivisionId}
             companies={companiesData}
+            seriesRows={seriesRows}
+            periods={periods}
           />
         </div>
       </div>

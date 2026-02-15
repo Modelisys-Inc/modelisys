@@ -4,11 +4,13 @@ import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import { ChevronRight, ChevronDown, StickyNote, TrendingUp } from "lucide-react"
-import { seededRandom, generateId } from "@/lib/seeded-random"
-import { useState, useEffect, useRef, useCallback } from "react"
+import { generateId } from "@/lib/seeded-random"
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react"
 import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId } from "@/lib/notes-storage"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, aggregateToYears } from "@/lib/series-utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -17,8 +19,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Settings, Edit2, Trash2 } from "lucide-react"
 
 interface CapexForecastDetailProps {
-  period: "monthly" | "quarterly" | "annual"
-  view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
+  period?: "monthly" | "quarterly" | "annual"
+  view?: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
   columnMode?: "variations" | "percentage" | "comparison"
   companyId?: string | null
   divisionId?: string | null
@@ -51,8 +53,8 @@ interface DetailRow {
 }
 
 export function CapexForecastDetail({
-  period,
-  view,
+  period = "monthly",
+  view = "current",
   columnMode = "variations",
   companyId,
   divisionId,
@@ -102,6 +104,73 @@ export function CapexForecastDetail({
   const [editingDepreciationRate, setEditingDepreciationRate] = useState<string | null>(null)
 
   const isForecastSection = title === "Estimation des Capex annuels"
+
+  // Fetch balance-sheet series data for real historical values
+  const currentYear = new Date().getFullYear()
+  const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "balance-sheet",
+    fiscalYear: currentYear,
+    months: 60, // 5 years of monthly data to aggregate into annual
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: !!companyId,
+  })
+
+  // Build base data from real API rows
+  const baseData = useMemo(() => {
+    if (bsRows.length === 0 || bsPeriods.length === 0) return null
+
+    // Helper: extract annual amounts for a row (last year = current, prior = year before)
+    const getAnnualData = (row: typeof bsRows[0]) => {
+      const rawAmounts = getRowAmounts(row, bsPeriods)
+      const agg = aggregateToYears(rawAmounts, bsPeriods)
+      // Last aggregated year's amount = current, second-to-last = prior
+      const current = agg.amounts.length > 0 ? agg.amounts[agg.amounts.length - 1] : 0
+      const prior = agg.amounts.length > 1 ? agg.amounts[agg.amounts.length - 2] : 0
+      return { current, prior, yearAmounts: agg.amounts, yearLabels: agg.labels }
+    }
+
+    // Build rows from all balance sheet series rows, preserving the structure
+    const rows: DetailRow[] = []
+    for (const sr of bsRows) {
+      const { current, prior } = getAnnualData(sr)
+
+      const detailRow: DetailRow = {
+        label: sr.label,
+        current,
+        prior,
+        isBold: sr.isBold,
+        isSection: sr.isSection,
+        indent: !sr.isBold && !sr.isSection && !sr.isResult,
+        rowId: (!sr.isSection && !sr.isResult) ? sr.id : undefined,
+      }
+
+      // Mark subtotal rows
+      if (sr.isBold && !sr.isSection) {
+        detailRow.isSubtotal = true
+        detailRow.indent = false
+      }
+
+      // Build balance accounts from detail rows
+      if (sr.detailRows.length > 0) {
+        detailRow.balanceAccounts = sr.detailRows.map((dr) => {
+          const drAmounts = bsPeriods.map((p) => dr.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] || 0)
+          return {
+            accountNumber: dr.id,
+            accountName: dr.label,
+            amount: drAmounts.length > 0 ? drAmounts[drAmounts.length - 1] : 0,
+            priorAmount: drAmounts.length > 1 ? drAmounts[drAmounts.length - 2] : 0,
+            proportion: current !== 0 ? (drAmounts.length > 0 ? drAmounts[drAmounts.length - 1] : 0) / current : 0,
+          }
+        })
+      }
+
+      rows.push(detailRow)
+    }
+
+    return rows
+  }, [bsRows, bsPeriods])
 
   // Debounced save to API
   const saveConfigRef = useRef<NodeJS.Timeout>()
@@ -180,45 +249,10 @@ export function CapexForecastDetail({
     })
   }
 
-  // Helper function to generate balance accounts for a row
+  // Helper function to generate balance accounts for a row (fallback for hardcoded data)
   const generateBalanceAccounts = (label: string, current: number, prior: number): BalanceAccount[] => {
-    const accounts: BalanceAccount[] = []
-    
-    if (label.includes("Terrains et constructions")) {
-      accounts.push(
-        { accountNumber: "2000", accountName: "Terrains", amount: Math.round(current * 0.4), priorAmount: Math.round(prior * 0.4), proportion: 0.4 },
-        { accountNumber: "2010", accountName: "Constructions", amount: Math.round(current * 0.6), priorAmount: Math.round(prior * 0.6), proportion: 0.6 }
-      )
-    } else if (label.includes("Matériel et équipement")) {
-      accounts.push(
-        { accountNumber: "2100", accountName: "Machinerie", amount: Math.round(current * 0.6), priorAmount: Math.round(prior * 0.6), proportion: 0.6 },
-        { accountNumber: "2110", accountName: "Équipement informatique", amount: Math.round(current * 0.4), priorAmount: Math.round(prior * 0.4), proportion: 0.4 }
-      )
-    } else if (label.includes("Véhicules")) {
-      accounts.push(
-        { accountNumber: "2200", accountName: "Véhicules de service", amount: current, priorAmount: prior, proportion: 1.0 }
-      )
-    } else if (label.includes("Autres immobilisations corporelles")) {
-      accounts.push(
-        { accountNumber: "2300", accountName: "Mobilier et matériel", amount: current, priorAmount: prior, proportion: 1.0 }
-      )
-    } else if (label.includes("Brevets et licences")) {
-      accounts.push(
-        { accountNumber: "3000", accountName: "Brevets", amount: Math.round(current * 0.6), priorAmount: Math.round(prior * 0.6), proportion: 0.6 },
-        { accountNumber: "3010", accountName: "Licences", amount: Math.round(current * 0.4), priorAmount: Math.round(prior * 0.4), proportion: 0.4 }
-      )
-    } else if (label.includes("Logiciels et développement")) {
-      accounts.push(
-        { accountNumber: "3100", accountName: "Logiciels", amount: Math.round(current * 0.5), priorAmount: Math.round(prior * 0.5), proportion: 0.5 },
-        { accountNumber: "3110", accountName: "Développement interne", amount: Math.round(current * 0.5), priorAmount: Math.round(prior * 0.5), proportion: 0.5 }
-      )
-    } else if (label.includes("Fonds commercial")) {
-      accounts.push(
-        { accountNumber: "3200", accountName: "Fonds commercial", amount: current, priorAmount: prior, proportion: 1.0 }
-      )
-    }
-    
-    return accounts
+    // This function is only used as a fallback when no real data is available
+    return []
   }
 
   // Get adjustments for a specific row and year
@@ -376,92 +410,123 @@ export function CapexForecastDetail({
     }))
   }
 
+  // Helper function to compute growth rate from two values
+  const computeGrowthRate = (current: number, prior: number): number => {
+    if (prior === 0) return 0.03 // Default 3% growth if no prior data
+    return (current - prior) / Math.abs(prior)
+  }
+
   // Helper function to generate trend data for years (projectionYears + 1)
   const getYearsData = (): DetailRow[] => {
-    const numYears = projectionYears + 1
-    const generateTrend = (base: number, growthRate: number = 0.05, rowId?: string) => {
-      return Array.from({ length: numYears }, (_, i) => {
-        if (isForecastSection) {
-          const yearIndex = i
-          let defaultValue: number
-          if (yearIndex === 0) {
-            defaultValue = base
-          } else {
-            const previousYearValue = rowId ? getCapexValue(rowId, yearIndex - 1, base, base) : base
-            defaultValue = Math.round(previousYearValue * (1 + growthRate))
+    // If we have real API data, use it
+    if (baseData && baseData.length > 0) {
+      return baseData.map((row) => {
+        if (row.isSection || row.label === "" || row.isSubtotal) {
+          // For section headers and spacers, generate empty trend values
+          const numYears = projectionYears + 1
+          return {
+            ...row,
+            trendValues: row.isSubtotal ? undefined : undefined, // Subtotals will be recalculated below
           }
-          // Use getCapexValue which now applies adjustments
-          return rowId ? getCapexValue(rowId, yearIndex, defaultValue, base) : defaultValue
-        } else {
-          const yearIndex = (numYears - 1) - i
-          return Math.round(base * (1 + growthRate * yearIndex) * (0.95 + seededRandom(base + i) * 0.1))
         }
+
+        // For data rows, compute growth rate from historical data and generate projections
+        const growthRate = computeGrowthRate(row.current, row.prior)
+        const base = row.current
+        const rowId = row.rowId
+        const numYears = projectionYears + 1
+
+        const trendValues = Array.from({ length: numYears }, (_, i) => {
+          if (isForecastSection) {
+            const yearIndex = i
+            let defaultValue: number
+            if (yearIndex === 0) {
+              defaultValue = base
+            } else {
+              const previousYearValue = rowId ? getCapexValue(rowId, yearIndex - 1, base, base) : base
+              defaultValue = Math.round(previousYearValue * (1 + growthRate))
+            }
+            return rowId ? getCapexValue(rowId, yearIndex, defaultValue, base) : defaultValue
+          } else {
+            const yearIndex = (numYears - 1) - i
+            return Math.round(base * (1 + growthRate * yearIndex))
+          }
+        })
+
+        return {
+          ...row,
+          trendValues,
+        }
+      }).map((row) => {
+        // Recalculate subtotals: sum of preceding data rows until next section/spacer
+        if (row.isSubtotal) {
+          // Find all data rows that belong to this subtotal
+          const allRows = baseData || []
+          const subtotalIdx = allRows.findIndex((r) => r.label === row.label && r.isSubtotal)
+          if (subtotalIdx >= 0) {
+            const childRows: DetailRow[] = []
+            for (let i = subtotalIdx - 1; i >= 0; i--) {
+              const r = allRows[i]
+              if (r.isSection || r.label === "") break
+              if (!r.isSubtotal && r.rowId) {
+                childRows.push(r)
+              }
+            }
+            // Recompute the child trend values now (they were computed above)
+            const numYears = projectionYears + 1
+            const childTrends = childRows.map((cr) => {
+              const growthRate = computeGrowthRate(cr.current, cr.prior)
+              const base = cr.current
+              return Array.from({ length: numYears }, (_, i) => {
+                if (isForecastSection) {
+                  const yearIndex = i
+                  let defaultValue: number
+                  if (yearIndex === 0) {
+                    defaultValue = base
+                  } else {
+                    const previousYearValue = cr.rowId ? getCapexValue(cr.rowId, yearIndex - 1, base, base) : base
+                    defaultValue = Math.round(previousYearValue * (1 + growthRate))
+                  }
+                  return cr.rowId ? getCapexValue(cr.rowId, yearIndex, defaultValue, base) : defaultValue
+                } else {
+                  const yearIndex = (numYears - 1) - i
+                  return Math.round(base * (1 + growthRate * yearIndex))
+                }
+              })
+            })
+
+            const subtotalTrend = Array.from({ length: numYears }, (_, yearIdx) =>
+              childTrends.reduce((sum, trend) => sum + (trend[yearIdx] || 0), 0)
+            )
+
+            return {
+              ...row,
+              trendValues: subtotalTrend,
+            }
+          }
+        }
+        return row
       })
     }
 
-    const rows: DetailRow[] = [
-      // Immobilisations corporelles
-      { label: "IMMOBILISATIONS CORPORELLES", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Terrains et constructions", current: 5400000, prior: 5040000, indent: true, trendValues: generateTrend(5400000, 0.03, "land_buildings"), rowId: "land_buildings" },
-      { label: "Matériel et équipement", current: 4200000, prior: 3960000, indent: true, trendValues: generateTrend(4200000, 0.04, "equipment"), rowId: "equipment" },
-      { label: "Véhicules", current: 1200000, prior: 1140000, indent: true, trendValues: generateTrend(1200000, 0.02, "vehicles"), rowId: "vehicles" },
-      { label: "Autres immobilisations corporelles", current: 720000, prior: 660000, indent: true, trendValues: generateTrend(720000, 0.025, "other_fixed"), rowId: "other_fixed" },
-      { label: "Total Immobilisations corporelles", current: 11520000, prior: 10800000, isBold: true, isSubtotal: true, trendValues: generateTrend(11520000, 0.03) },
-      { label: "", current: 0, prior: 0 },
-      
-      // Immobilisations incorporelles
-      { label: "IMMOBILISATIONS INCORPORELLES", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Brevets et licences", current: 1800000, prior: 1656000, indent: true, trendValues: generateTrend(1800000, 0.05, "patents"), rowId: "patents" },
-      { label: "Logiciels et développement", current: 1200000, prior: 1104000, indent: true, trendValues: generateTrend(1200000, 0.06, "software"), rowId: "software" },
-      { label: "Fonds commercial", current: 600000, prior: 552000, indent: true, trendValues: generateTrend(600000, 0.02, "goodwill"), rowId: "goodwill" },
-      { label: "Total Immobilisations incorporelles", current: 3600000, prior: 3312000, isBold: true, isSubtotal: true, trendValues: generateTrend(3600000, 0.045) },
-    ]
-    
-    // Add balance accounts to rows that have rowId
-    return rows.map((row) => {
-      if (row.rowId) {
-        return {
-          ...row,
-          balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
-        }
-      }
-      return row
-    })
+    // Fallback: empty data when no API data available
+    return []
   }
 
   const getDetailData = (): DetailRow[] => {
     const effectiveView = isForecastSection ? "years" : view
-    const effectivePeriod = isForecastSection ? "annual" : period
-    
+
     if (effectiveView === "years") {
       return getYearsData()
     }
-    
-    // For other views, return basic data structure
-    const rows: DetailRow[] = [
-      { label: "IMMOBILISATIONS CORPORELLES", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Terrains et constructions", current: 5400000, prior: 5040000, indent: true, rowId: "land_buildings" },
-      { label: "Matériel et équipement", current: 4200000, prior: 3960000, indent: true, rowId: "equipment" },
-      { label: "Véhicules", current: 1200000, prior: 1140000, indent: true, rowId: "vehicles" },
-      { label: "Autres immobilisations corporelles", current: 720000, prior: 660000, indent: true, rowId: "other_fixed" },
-      { label: "Total Immobilisations corporelles", current: 11520000, prior: 10800000, isBold: true, isSubtotal: true },
-      { label: "", current: 0, prior: 0 },
-      { label: "IMMOBILISATIONS INCORPORELLES", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Brevets et licences", current: 1800000, prior: 1656000, indent: true, rowId: "patents" },
-      { label: "Logiciels et développement", current: 1200000, prior: 1104000, indent: true, rowId: "software" },
-      { label: "Fonds commercial", current: 600000, prior: 552000, indent: true, rowId: "goodwill" },
-      { label: "Total Immobilisations incorporelles", current: 3600000, prior: 3312000, isBold: true, isSubtotal: true },
-    ]
-    
-    return rows.map((row) => {
-      if (row.rowId) {
-        return {
-          ...row,
-          balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
-        }
-      }
-      return row
-    })
+
+    // For other views, use real data from API if available
+    if (baseData && baseData.length > 0) {
+      return baseData
+    }
+
+    // Fallback: empty array when no data
+    return []
   }
 
   const capitalizeFirst = (str: string): string => {
@@ -543,18 +608,38 @@ export function CapexForecastDetail({
         </div>
       </div>
 
+      {/* Loading state */}
+      {bsLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!bsLoading && !companyId && (
+        <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+          <p className="text-sm">Veuillez sélectionner une société pour afficher les données.</p>
+        </div>
+      )}
+
+      {!bsLoading && companyId && data.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-12 text-slate-500">
+          <p className="text-sm">Aucune donnée disponible pour cette société.</p>
+        </div>
+      )}
+
       {/* Table */}
-      <div className="overflow-x-auto bg-white">
+      <div className={cn("overflow-x-auto bg-white", (bsLoading || (!companyId && data.length === 0)) && "hidden")}>
         <table className="w-full">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200">
               <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Compte</th>
-              {view === "years" && isForecastSection && (
+              {effectiveView === "years" && isForecastSection && (
                 <th className="px-4 py-4 text-center font-semibold text-slate-900 text-sm whitespace-nowrap">
                   Taux
                 </th>
               )}
-              {view === "years" && (
+              {effectiveView === "years" && (
                 <>
                   {getYearLabels().map((label, idx) => (
                     <th 
@@ -588,9 +673,8 @@ export function CapexForecastDetail({
                 : false
 
               return (
-                <>
-                  <tr 
-                    key={idx} 
+                <Fragment key={idx}>
+                  <tr
                     className={cn(
                       "border-b",
                       row.label === "" ? "h-2 border-slate-200" : "",
@@ -641,7 +725,7 @@ export function CapexForecastDetail({
                     </td>
 
                     {/* Depreciation Rate Column - NO gray background */}
-                    {view === "years" && isForecastSection && (
+                    {effectiveView === "years" && isForecastSection && (
                       <td className="px-4 py-3 text-center">
                         {shouldHideAmounts ? (
                           "-"
@@ -681,7 +765,7 @@ export function CapexForecastDetail({
                       </td>
                     )}
 
-                    {view === "years" && row.trendValues && (
+                    {effectiveView === "years" && row.trendValues && (
                       <>
                         {row.trendValues.map((value, valueIdx) => {
                           const actualValue = isForecastSection && row.rowId 
@@ -761,9 +845,9 @@ export function CapexForecastDetail({
                         })}
                       </>
                     )}
-                    {view === "years" && !row.trendValues && (
+                    {effectiveView === "years" && !row.trendValues && (
                       <>
-                        {Array.from({ length: isForecastSection && view === "years" ? projectionYears + 1 : 6 }).map((_, idx) => (
+                        {Array.from({ length: isForecastSection && effectiveView === "years" ? projectionYears + 1 : 6 }).map((_, idx) => (
                           <td 
                             key={idx} 
                             className={cn(
@@ -789,10 +873,10 @@ export function CapexForecastDetail({
                             </div>
                           </td>
                           {/* Depreciation Rate Column for balance accounts - NO gray background */}
-                          {view === "years" && isForecastSection && (
+                          {effectiveView === "years" && isForecastSection && (
                             <td className="px-4 py-2 text-center text-slate-500 text-sm">-</td>
                           )}
-                          {view === "years" && (
+                          {effectiveView === "years" && (
                             <>
                               {row.trendValues && row.trendValues.map((_, valueIdx) => {
                                 const accountValue = account.proportion 
@@ -841,7 +925,7 @@ export function CapexForecastDetail({
                                   {isForecastSection && (
                                     <td className="px-4 py-2 text-center text-slate-500 text-sm">-</td>
                                   )}
-                                  {Array.from({ length: isForecastSection && view === "years" ? projectionYears + 1 : 6 }).map((_, idx) => (
+                                  {Array.from({ length: isForecastSection && effectiveView === "years" ? projectionYears + 1 : 6 }).map((_, idx) => (
                                     <td 
                                       key={idx} 
                                       className={cn(
@@ -860,7 +944,7 @@ export function CapexForecastDetail({
                       ))}
                     </>
                   )}
-                </>
+                </Fragment>
               )
             })}
           </tbody>
@@ -869,8 +953,8 @@ export function CapexForecastDetail({
 
       {/* Note Modal */}
       <NoteModal
-        open={noteModalOpen}
-        onOpenChange={setNoteModalOpen}
+        isOpen={noteModalOpen}
+        onClose={() => setNoteModalOpen(false)}
         rowId={selectedRowId || ""}
         rowLabel={selectedRowLabel}
         page="capex"
@@ -879,8 +963,9 @@ export function CapexForecastDetail({
         companyId={companyId}
         divisionId={divisionId}
         subDivisionId={subDivisionId}
-        financialData={selectedRowFinancialData}
-        onNoteSaved={() => {
+        currentAmount={selectedRowFinancialData.currentAmount}
+        priorAmount={selectedRowFinancialData.priorAmount}
+        onSave={() => {
           setNotesUpdated((prev) => prev + 1)
         }}
       />

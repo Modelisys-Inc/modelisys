@@ -33,6 +33,13 @@ export default function SeasonalityPage() {
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
 
+  // Auto-select first company
+  useEffect(() => {
+    if (!selectedCompanyId && companiesData.length > 0) {
+      setSelectedCompanyId(companiesData[0].id)
+    }
+  }, [companiesData, selectedCompanyId])
+
   // Fetch API companies for fiscal_year_end
   const [apiCompanies, setApiCompanies] = useState<ApiCompany[]>([])
   useEffect(() => {

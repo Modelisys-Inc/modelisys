@@ -41,6 +41,8 @@ interface AccountMapping {
   variableCosts?: boolean
   fixedCosts?: boolean
   product?: string
+  customer?: string
+  supplier?: string
   interco?: string
 }
 
@@ -68,6 +70,8 @@ function mapApiMapping(m: AccountMappingData): AccountMapping {
     variableCosts: m.variable_costs,
     fixedCosts: m.fixed_costs,
     product: m.product || undefined,
+    customer: m.customer || undefined,
+    supplier: m.supplier || undefined,
     interco: m.interco_company_id || undefined,
   }
 }
@@ -87,6 +91,8 @@ function toApiMappingEntry(m: AccountMapping) {
     variable_costs: m.variableCosts || false,
     fixed_costs: m.fixedCosts || false,
     product: m.product || null,
+    customer: m.customer || null,
+    supplier: m.supplier || null,
     interco_company_id: m.interco || null,
   }
 }
@@ -306,13 +312,15 @@ export default function CompanyMappingPage() {
                         )}
                       </div>
                     </th>
+                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Client</th>
+                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Fournisseur</th>
                     <th className="px-6 py-4 text-center font-semibold text-slate-900 text-sm">Interco</th>
                   </tr>
                 </thead>
                 <tbody>
                   {accounts.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="px-8 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={16} className="px-8 py-12 text-center text-sm text-slate-500">
                         <p>Aucun compte configuré. Importez votre balance de vérification pour commencer.</p>
                       </td>
                     </tr>
@@ -408,6 +416,32 @@ export default function CompanyMappingPage() {
                               ))}
                             </SelectContent>
                           </Select>
+                        </td>
+                        <td className="px-6 py-4">
+                          <Input
+                            className="w-28 h-8 text-xs"
+                            value={account.customer || ""}
+                            placeholder="-"
+                            onChange={(e) => {
+                              const updatedAccounts = [...accounts]
+                              updatedAccounts[index] = { ...updatedAccounts[index], customer: e.target.value || undefined }
+                              setAccounts(updatedAccounts)
+                            }}
+                            onBlur={() => saveAccounts(accounts)}
+                          />
+                        </td>
+                        <td className="px-6 py-4">
+                          <Input
+                            className="w-28 h-8 text-xs"
+                            value={account.supplier || ""}
+                            placeholder="-"
+                            onChange={(e) => {
+                              const updatedAccounts = [...accounts]
+                              updatedAccounts[index] = { ...updatedAccounts[index], supplier: e.target.value || undefined }
+                              setAccounts(updatedAccounts)
+                            }}
+                            onBlur={() => saveAccounts(accounts)}
+                          />
                         </td>
                         <td className="px-6 py-4 text-center">
                           <Select

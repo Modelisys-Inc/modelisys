@@ -1,0 +1,43 @@
+[ 1361780ms] [ERROR] ./app/evaluation/ebitda-multiple/page.tsx:637:9
+Ecmascript file had an error
+  635 |   }
+  636 |
+> 637 |   const pathname = usePathname()
+      |         ^^^^^^^^
+  638 |
+  639 |   return (
+  640 |     <div className="min-h-screen bg-slate-50">
+
+the name `pathname` is defined multiple times
+
+Import traces:
+  Client Component Browser:
+    ./app/evaluation/ebitda-multiple/page.tsx [Client Component Browser]
+    ./app/evaluation/ebitda-multiple/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/evaluation/ebitda-multiple/page.tsx [Client Component SSR]
+    ./app/evaluation/ebitda-multiple/page.tsx [Server Component] @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[ 1363227ms] [ERROR] ./app/evaluation/ebitda-multiple/page.tsx:637:9
+Ecmascript file had an error
+  635 |   }
+  636 |
+> 637 |   const pathname = usePathname()
+      |         ^^^^^^^^
+  638 |
+  639 |   return (
+  640 |     <div className="min-h-screen bg-slate-50">
+
+the name `pathname` is defined multiple times
+
+Import traces:
+  Client Component Browser:
+    ./app/evaluation/ebitda-multiple/page.tsx [Client Component Browser]
+    ./app/evaluation/ebitda-multiple/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./app/evaluation/ebitda-multiple/page.tsx [Client Component SSR]
+    ./app/evaluation/ebitda-multiple/page.tsx [Server Component] @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[ 4788339ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8001/api/auth/me:0
+[ 4788339ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8001/api/auth/me:0
+[ 4788340ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8001/api/auth/me:0

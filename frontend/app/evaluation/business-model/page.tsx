@@ -35,6 +35,9 @@ const evaluationNav = [
   { label: "Modèle d'affaires", href: "/evaluation/business-model" },
   { label: "Multiple du BAIIA", href: "/evaluation/ebitda-multiple" },
   { label: "Actif Corporel Net", href: "/evaluation/net-tangible-assets" },
+  { label: "DCF", href: "/evaluation/dcf" },
+  { label: "CCF", href: "/evaluation/ccf" },
+  { label: "VCA", href: "/evaluation/vca" },
 ]
 
 export default function BusinessModelPage() {
@@ -42,6 +45,13 @@ export default function BusinessModelPage() {
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
+  // Auto-select first company
+  useEffect(() => {
+    if (!companyId && companies.length > 0) {
+      setCompanyId(companies[0].id)
+    }
+  }, [companies, companyId])
+
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [noteModalOpen, setNoteModalOpen] = useState(false)

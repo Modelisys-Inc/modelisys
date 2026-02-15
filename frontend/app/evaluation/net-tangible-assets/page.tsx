@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
 import { Filter, Settings } from "lucide-react"
@@ -14,15 +14,20 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useCompanies } from "@/hooks/use-companies"
 import {
+  listCompanies,
   listForecastConfigs,
   upsertForecastConfig,
   getBalanceSheet,
+  type Company as ApiCompany,
 } from "@/lib/api"
 
 const evaluationNav = [
   { label: "Modèle d'affaires", href: "/evaluation/business-model" },
   { label: "Multiple du BAIIA", href: "/evaluation/ebitda-multiple" },
   { label: "Actif Corporel Net", href: "/evaluation/net-tangible-assets" },
+  { label: "DCF", href: "/evaluation/dcf" },
+  { label: "CCF", href: "/evaluation/ccf" },
+  { label: "VCA", href: "/evaluation/vca" },
 ]
 
 interface BalanceRow {
@@ -46,8 +51,30 @@ export default function NetTangibleAssetsPage() {
   const [notesConfigId, setNotesConfigId] = useState<string | null>(null)
   const pathname = usePathname()
 
-  // Get current year
-  const currentYear = new Date().getFullYear()
+  // Auto-select first company
+  useEffect(() => {
+    if (!companyId && companies.length > 0) {
+      setCompanyId(companies[0].id)
+    }
+  }, [companies, companyId])
+
+  // Fetch API companies for fiscal_year_end
+  const [apiCompanies, setApiCompanies] = useState<ApiCompany[]>([])
+  useEffect(() => {
+    listCompanies().then(setApiCompanies).catch(() => {})
+  }, [])
+
+  const currentYear = useMemo(() => {
+    const now = new Date()
+    const curMonth = now.getMonth() + 1
+    const curYear = now.getFullYear()
+    if (!companyId) return curYear
+    const company = apiCompanies.find(c => c.id === companyId)
+    const fyEnd = company?.fiscal_year_end || "12-31"
+    const fyEndMonth = parseInt(fyEnd.split("-")[0], 10) || 12
+    const currentFY = curMonth <= fyEndMonth ? curYear : curYear + 1
+    return currentFY - 1
+  }, [companyId, apiCompanies])
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false)

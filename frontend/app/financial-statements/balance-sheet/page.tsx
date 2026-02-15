@@ -15,6 +15,7 @@ import { useCompanies } from "@/hooks/use-companies"
 import {
   listBudgets,
   listCompanies,
+  listNotes,
   getBalanceSheet,
   type BudgetData,
   type FinancialStatementRow,
@@ -137,11 +138,22 @@ export default function BalanceSheetPage() {
     return withVariation.slice(0, 3)
   }, [rows])
 
-  // --- Count notes (placeholder - would come from listNotes API) ---
-  const notesCount = useMemo(() => {
-    // TODO: Replace with actual notes count from listNotes API
-    return rows.length > 0 ? rows.filter((r) => r.label && r.current !== 0).length : 0
-  }, [rows])
+  // --- Count notes from the API ---
+  const [notesCount, setNotesCount] = useState(0)
+  useEffect(() => {
+    const fetchNotes = async () => {
+      try {
+        const apiCompanies = await listCompanies()
+        const companyId = selectedCompanyId || apiCompanies[0]?.id
+        if (!companyId) { setNotesCount(0); return }
+        const notes = await listNotes(companyId, { page: "balance-sheet" })
+        setNotesCount(notes.length)
+      } catch {
+        setNotesCount(0)
+      }
+    }
+    fetchNotes()
+  }, [selectedCompanyId])
 
   // Fonction pour obtenir la valeur actuelle du sélecteur Horizon
   const getCurrentHorizon = (): string => {

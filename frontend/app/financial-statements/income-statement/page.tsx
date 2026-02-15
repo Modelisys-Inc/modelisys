@@ -15,6 +15,7 @@ import { useCompanies } from "@/hooks/use-companies"
 import {
   listBudgets,
   listCompanies,
+  listNotes,
   getIncomeStatement,
   type BudgetData,
   type FinancialStatementRow,
@@ -88,6 +89,8 @@ export default function IncomeStatementPage() {
   // --- Fetch financial statement data from the API ---
   const [rows, setRows] = useState<FinancialStatementRow[]>([])
   const [loading, setLoading] = useState(false)
+  // Track the resolved company ID (falls back to first company when none selected)
+  const [resolvedCompanyId, setResolvedCompanyId] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -95,15 +98,25 @@ export default function IncomeStatementPage() {
       try {
         const apiCompanies = await listCompanies()
         const companyId = selectedCompanyId || apiCompanies[0]?.id
+        setResolvedCompanyId(companyId || null)
         if (!companyId) {
           setRows([])
           return
         }
 
+        // Determine the API period parameter based on the view
+        // For YTD view, use "ytd" period; for DDM, use "annual" (last 12 months)
+        let apiPeriod: string = period
+        if (view === "ytd") {
+          apiPeriod = "ytd"
+        } else if (view === "ddm") {
+          apiPeriod = "annual"
+        }
+
         const params: FinancialStatementParams = {
           fiscal_year: selectedYear,
           month: selectedMonth,
-          period: period,
+          period: apiPeriod,
           comparison_type: comparisonType,
           budget_id: comparisonType === "budget" && selectedBudgetId ? selectedBudgetId : undefined,
           division_id: selectedDivisionId || undefined,
@@ -137,11 +150,22 @@ export default function IncomeStatementPage() {
     return withVariation.slice(0, 3)
   }, [rows])
 
-  // --- Count notes (placeholder - would come from listNotes API) ---
-  const notesCount = useMemo(() => {
-    // TODO: Replace with actual notes count from listNotes API
-    return rows.length > 0 ? rows.filter((r) => r.label && r.current !== 0).length : 0
-  }, [rows])
+  // --- Count notes from the API ---
+  const [notesCount, setNotesCount] = useState(0)
+  useEffect(() => {
+    const fetchNotes = async () => {
+      try {
+        const apiCompanies = await listCompanies()
+        const companyId = selectedCompanyId || apiCompanies[0]?.id
+        if (!companyId) { setNotesCount(0); return }
+        const notes = await listNotes(companyId, { page: "income-statement" })
+        setNotesCount(notes.length)
+      } catch {
+        setNotesCount(0)
+      }
+    }
+    fetchNotes()
+  }, [selectedCompanyId])
 
   // Fonction pour obtenir la valeur actuelle du sélecteur Horizon
   const getCurrentHorizon = (): string => {
@@ -554,7 +578,7 @@ export default function IncomeStatementPage() {
               period={period}
               view={view}
               columnMode={columnMode}
-              companyId={selectedCompanyId}
+              companyId={resolvedCompanyId}
               divisionId={selectedDivisionId}
               subDivisionId={selectedSubDivisionId}
               companies={companies}
@@ -562,13 +586,15 @@ export default function IncomeStatementPage() {
               selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
               selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
               fiscalYear={selectedYear}
+              rows={rows}
+              loading={loading}
             />
           ) : (
             <IncomeStatementDetail
               period={period}
               view={view}
               columnMode={columnMode}
-              companyId={selectedCompanyId}
+              companyId={resolvedCompanyId}
               divisionId={selectedDivisionId}
               subDivisionId={selectedSubDivisionId}
               companies={companies}

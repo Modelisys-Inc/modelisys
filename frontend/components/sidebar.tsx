@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { LayoutDashboard, TrendingUp, BarChart3, Scale, Waves, ChevronDown, LineChart, DollarSign, Calendar, Calculator, FileText, Target, Building2, Home, Settings, BookOpen, LogOut, StickyNote } from "lucide-react"
+import { LayoutDashboard, TrendingUp, BarChart3, Scale, Waves, ChevronDown, LineChart, DollarSign, Calendar, Calculator, FileText, Target, Building2, Home, Settings, BookOpen, LogOut, StickyNote, Users, Truck, Layers, GitCompare } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState, useEffect } from "react"
 import { useSidebar } from "@/contexts/sidebar-context"
@@ -10,7 +10,7 @@ import { useSidebar } from "@/contexts/sidebar-context"
 const setupMenuItems = [
   {
     label: "Configuration comptable",
-    href: "/",
+    href: "/settings/companies",
     icon: LayoutDashboard,
   },
 ]
@@ -60,8 +60,18 @@ const menuItems = [
       },
       {
         label: "Marge par produits",
-        href: "/analysis/seasonality",
+        href: "/analysis/product-margin",
         icon: Calendar,
+      },
+      {
+        label: "Revenus par clients",
+        href: "/analysis/revenue-by-customer",
+        icon: Users,
+      },
+      {
+        label: "Achats par fournisseur",
+        href: "/analysis/purchases-by-supplier",
+        icon: Truck,
       },
       {
         label: "Ratios",
@@ -80,6 +90,31 @@ const menuItems = [
         href: "/projections/pro-forma",
         icon: FileText,
       },
+      {
+        label: "Revenus",
+        href: "/projections/revenue",
+        icon: TrendingUp,
+      },
+      {
+        label: "Dépenses",
+        href: "/projections/expenses",
+        icon: DollarSign,
+      },
+      {
+        label: "Capex",
+        href: "/projections/capex",
+        icon: Calculator,
+      },
+      {
+        label: "Dettes",
+        href: "/projections/debt",
+        icon: Scale,
+      },
+      {
+        label: "Hypothèses",
+        href: "/projections/assumptions",
+        icon: Settings,
+      },
     ],
   },
   {
@@ -95,6 +130,43 @@ const menuItems = [
       {
         label: "Multiple du BAIIA",
         href: "/evaluation/ebitda-multiple",
+        icon: Calculator,
+      },
+      {
+        label: "Actif Corporel Net",
+        href: "/evaluation/net-tangible-assets",
+        icon: Scale,
+      },
+      {
+        label: "DCF",
+        href: "/evaluation/dcf",
+        icon: TrendingUp,
+      },
+      {
+        label: "CCF",
+        href: "/evaluation/ccf",
+        icon: DollarSign,
+      },
+      {
+        label: "VCA",
+        href: "/evaluation/vca",
+        icon: Building2,
+      },
+    ],
+  },
+  {
+    label: "Scénarios",
+    href: "#",
+    icon: Layers,
+    submenu: [
+      {
+        label: "Comparaison",
+        href: "/scenarios",
+        icon: GitCompare,
+      },
+      {
+        label: "VAN",
+        href: "/scenarios/van",
         icon: Calculator,
       },
     ],

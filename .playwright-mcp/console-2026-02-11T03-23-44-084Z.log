@@ -1,0 +1,4 @@
+[   12269ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
+
+Check the render method of `IncomeStatementDetail`.  @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[  125810ms] [ERROR] Failed to load resource: the server responded with a status of 422 (Unprocessable Entity) @ http://localhost:8001/api/companies/a17cc179-df90-4f56-a5f9-21ccd232f9f5/financial-statements/income-statement/series?fiscal_year=2025&months=72:0

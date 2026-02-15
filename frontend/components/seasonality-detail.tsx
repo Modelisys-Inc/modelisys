@@ -4,7 +4,6 @@ import { useState } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
-import { seededRandom } from "@/lib/seeded-random"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, getPeriodLabels, aggregateToYears } from "@/lib/series-utils"
 
@@ -175,144 +174,11 @@ export function SeasonalityDetail({
     }
   }
 
-  // Helper function to generate seasonality data with patterns
-  const generateSeasonalityData = (base: number, seasonalPattern: number[], seedOffset: number = 0): number[] => {
-    const currentDate = new Date()
-    const data: number[] = []
-
-    if (view === "12months") {
-      for (let i = 11; i >= 0; i--) {
-        const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
-        const monthIndex = date.getMonth()
-        const seasonalMultiplier = seasonalPattern[monthIndex] || 1
-        const trend = 1 + (0.02 * (11 - i))
-        data.push(Math.round(base * seasonalMultiplier * trend * (0.95 + seededRandom(base + i + seedOffset) * 0.1)))
-      }
-    } else if (view === "24months") {
-      for (let i = 23; i >= 0; i--) {
-        const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
-        const monthIndex = date.getMonth()
-        const seasonalMultiplier = seasonalPattern[monthIndex] || 1
-        const trend = 1 + (0.01 * (23 - i) / 12)
-        data.push(Math.round(base * seasonalMultiplier * trend * (0.95 + seededRandom(base + i + seedOffset) * 0.1)))
-      }
-    } else if (view === "years") {
-      for (let i = 5; i >= 0; i--) {
-        const yearValue = base * (1 + 0.05 * (5 - i)) * (0.95 + seededRandom(base + i + seedOffset) * 0.1)
-        data.push(Math.round(yearValue))
-      }
-    }
-
-    return data
-  }
-
-  // Seasonal patterns
-  const revenueSeasonalPattern = [0.85, 0.80, 0.90, 1.00, 1.10, 1.15, 1.20, 1.15, 1.05, 1.00, 0.95, 1.05]
-
-  // Generate detailed variable costs breakdown by product/service
-  const getVariableCostsDetailData = (): DetailRow[] => {
-    // Base revenue values
-    const baseProduct1Revenue = 120000
-    const baseProduct2Revenue = 90000
-    const baseProduct3Revenue = 65000
-    
-    // Variable cost breakdown ratios for each product
-    // Product A: 55% total (Achats: 30%, Main-d'oeuvre: 20%, Transport: 5%)
-    // Product B: 50% total (Achats: 25%, Main-d'oeuvre: 20%, Transport: 5%)
-    // Service C: 35% total (Achats: 15%, Main-d'oeuvre: 15%, Transport: 5%)
-    
-    const getProductCostBreakdown = (productRevenue: number, productType: "product_a" | "product_b" | "service_c") => {
-      let purchasesRatio = 0
-      let laborRatio = 0
-      let transportRatio = 0.05 // 5% for all
-      
-      if (productType === "product_a") {
-        purchasesRatio = 0.30
-        laborRatio = 0.20
-      } else if (productType === "product_b") {
-        purchasesRatio = 0.25
-        laborRatio = 0.20
-      } else if (productType === "service_c") {
-        purchasesRatio = 0.15
-        laborRatio = 0.15
-      }
-      
-      const basePurchases = productRevenue * purchasesRatio
-      const baseLabor = productRevenue * laborRatio
-      const baseTransport = productRevenue * transportRatio
-      const baseTotal = basePurchases + baseLabor + baseTransport
-      
-      const purchasesTrend = generateSeasonalityData(basePurchases, revenueSeasonalPattern)
-      const laborTrend = generateSeasonalityData(baseLabor, revenueSeasonalPattern)
-      const transportTrend = generateSeasonalityData(baseTransport, revenueSeasonalPattern)
-      const totalTrend = purchasesTrend.map((_, idx) => purchasesTrend[idx] + laborTrend[idx] + transportTrend[idx])
-      
-      return {
-        purchases: { base: basePurchases, trend: purchasesTrend },
-        labor: { base: baseLabor, trend: laborTrend },
-        transport: { base: baseTransport, trend: transportTrend },
-        total: { base: baseTotal, trend: totalTrend },
-      }
-    }
-    
-    const product1Breakdown = getProductCostBreakdown(baseProduct1Revenue, "product_a")
-    const product2Breakdown = getProductCostBreakdown(baseProduct2Revenue, "product_b")
-    const product3Breakdown = getProductCostBreakdown(baseProduct3Revenue, "service_c")
-    
-    // Filter based on selected product
-    if (selectedProduct === "product_a") {
-      return [
-        { label: "COÛTS VARIABLES - PRODUIT A", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Achats", current: product1Breakdown.purchases.base, prior: product1Breakdown.purchases.base * 0.9, indent: true, trendValues: product1Breakdown.purchases.trend, accountId: "purchases_product_a" },
-        { label: "Main-d'oeuvre", current: product1Breakdown.labor.base, prior: product1Breakdown.labor.base * 0.9, indent: true, trendValues: product1Breakdown.labor.trend, accountId: "labor_product_a" },
-        { label: "Transport", current: product1Breakdown.transport.base, prior: product1Breakdown.transport.base * 0.9, indent: true, trendValues: product1Breakdown.transport.trend, accountId: "transport_product_a" },
-        { label: "Total Coûts variables - Produit A", current: product1Breakdown.total.base, prior: product1Breakdown.total.base * 0.9, isBold: true, isSubtotal: true, trendValues: product1Breakdown.total.trend },
-      ]
-    } else if (selectedProduct === "product_b") {
-      return [
-        { label: "COÛTS VARIABLES - PRODUIT B", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Achats", current: product2Breakdown.purchases.base, prior: product2Breakdown.purchases.base * 0.9, indent: true, trendValues: product2Breakdown.purchases.trend, accountId: "purchases_product_b" },
-        { label: "Main-d'oeuvre", current: product2Breakdown.labor.base, prior: product2Breakdown.labor.base * 0.9, indent: true, trendValues: product2Breakdown.labor.trend, accountId: "labor_product_b" },
-        { label: "Transport", current: product2Breakdown.transport.base, prior: product2Breakdown.transport.base * 0.9, indent: true, trendValues: product2Breakdown.transport.trend, accountId: "transport_product_b" },
-        { label: "Total Coûts variables - Produit B", current: product2Breakdown.total.base, prior: product2Breakdown.total.base * 0.9, isBold: true, isSubtotal: true, trendValues: product2Breakdown.total.trend },
-      ]
-    } else if (selectedProduct === "service_c") {
-      return [
-        { label: "COÛTS VARIABLES - SERVICE C", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Achats", current: product3Breakdown.purchases.base, prior: product3Breakdown.purchases.base * 0.9, indent: true, trendValues: product3Breakdown.purchases.trend, accountId: "purchases_service_c" },
-        { label: "Main-d'oeuvre", current: product3Breakdown.labor.base, prior: product3Breakdown.labor.base * 0.9, indent: true, trendValues: product3Breakdown.labor.trend, accountId: "labor_service_c" },
-        { label: "Transport", current: product3Breakdown.transport.base, prior: product3Breakdown.transport.base * 0.9, indent: true, trendValues: product3Breakdown.transport.trend, accountId: "transport_service_c" },
-        { label: "Total Coûts variables - Service C", current: product3Breakdown.total.base, prior: product3Breakdown.total.base * 0.9, isBold: true, isSubtotal: true, trendValues: product3Breakdown.total.trend },
-      ]
-    }
-    
-    // Total - show all products with their breakdowns
-    return [
-      { label: "COÛTS VARIABLES - PRODUIT A", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Achats", current: product1Breakdown.purchases.base, prior: product1Breakdown.purchases.base * 0.9, indent: true, trendValues: product1Breakdown.purchases.trend, accountId: "purchases_product_a" },
-      { label: "Main-d'oeuvre", current: product1Breakdown.labor.base, prior: product1Breakdown.labor.base * 0.9, indent: true, trendValues: product1Breakdown.labor.trend, accountId: "labor_product_a" },
-      { label: "Transport", current: product1Breakdown.transport.base, prior: product1Breakdown.transport.base * 0.9, indent: true, trendValues: product1Breakdown.transport.trend, accountId: "transport_product_a" },
-      { label: "Total Coûts variables - Produit A", current: product1Breakdown.total.base, prior: product1Breakdown.total.base * 0.9, isBold: true, isSubtotal: true, trendValues: product1Breakdown.total.trend },
-      { label: "", current: 0, prior: 0 },
-      { label: "COÛTS VARIABLES - PRODUIT B", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Achats", current: product2Breakdown.purchases.base, prior: product2Breakdown.purchases.base * 0.9, indent: true, trendValues: product2Breakdown.purchases.trend, accountId: "purchases_product_b" },
-      { label: "Main-d'oeuvre", current: product2Breakdown.labor.base, prior: product2Breakdown.labor.base * 0.9, indent: true, trendValues: product2Breakdown.labor.trend, accountId: "labor_product_b" },
-      { label: "Transport", current: product2Breakdown.transport.base, prior: product2Breakdown.transport.base * 0.9, indent: true, trendValues: product2Breakdown.transport.trend, accountId: "transport_product_b" },
-      { label: "Total Coûts variables - Produit B", current: product2Breakdown.total.base, prior: product2Breakdown.total.base * 0.9, isBold: true, isSubtotal: true, trendValues: product2Breakdown.total.trend },
-      { label: "", current: 0, prior: 0 },
-      { label: "COÛTS VARIABLES - SERVICE C", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Achats", current: product3Breakdown.purchases.base, prior: product3Breakdown.purchases.base * 0.9, indent: true, trendValues: product3Breakdown.purchases.trend, accountId: "purchases_service_c" },
-      { label: "Main-d'oeuvre", current: product3Breakdown.labor.base, prior: product3Breakdown.labor.base * 0.9, indent: true, trendValues: product3Breakdown.labor.trend, accountId: "labor_service_c" },
-      { label: "Transport", current: product3Breakdown.transport.base, prior: product3Breakdown.transport.base * 0.9, indent: true, trendValues: product3Breakdown.transport.trend, accountId: "transport_service_c" },
-      { label: "Total Coûts variables - Service C", current: product3Breakdown.total.base, prior: product3Breakdown.total.base * 0.9, isBold: true, isSubtotal: true, trendValues: product3Breakdown.total.trend },
-    ]
-  }
-
   // Prefer series data when available
   const seriesData = getSeriesData()
   const seriesLabels = getSeriesPeriodLabels()
 
-  const data = seriesData || getVariableCostsDetailData()
+  const data = seriesData || []
 
   // Calculate total variable costs for each period (for percentage calculations)
   const getTotalVariableCostsForPeriod = (periodIndex: number): number => {
@@ -354,6 +220,13 @@ export function SeasonalityDetail({
       {seriesLoading && (
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {!seriesLoading && data.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16">
+          <p className="text-slate-500 text-lg font-medium">Aucune donnée disponible</p>
         </div>
       )}
 
