@@ -10,6 +10,9 @@ export const metadata: Metadata = {
   title: "Financial Dashboard",
   description: "Dashboard comptable",
   generator: "v0.app",
+  icons: {
+    icon: "/images/modelisys-icon-white.svg",
+  },
 }
 
 export default function RootLayout({

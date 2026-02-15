@@ -1,12 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
+import type { FinancialStatementRow } from "@/lib/api"
 import { ChevronRight, ChevronDown, StickyNote } from "lucide-react"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId } from "@/lib/notes-storage"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
 
 interface BalanceSheetDetailProps {
   period: "monthly" | "quarterly" | "annual"
@@ -17,6 +20,12 @@ interface BalanceSheetDetailProps {
   subDivisionId?: string | null
   companies?: Company[]
   title?: string
+  comparisonType?: "lastMonth" | "pastMonth" | "budget"
+  selectedBudgetId?: string | null
+  selectedBudgetName?: string | null
+  fiscalYear?: number
+  rows?: FinancialStatementRow[]
+  loading?: boolean
 }
 
 interface BalanceAccount {
@@ -52,6 +61,9 @@ export function BalanceSheetDetail({
   subDivisionId,
   companies = [],
   title,
+  fiscalYear,
+  rows: backendRows = [],
+  loading = false,
 }: BalanceSheetDetailProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [noteModalOpen, setNoteModalOpen] = useState(false)
@@ -64,6 +76,21 @@ export function BalanceSheetDetail({
     variationAmount?: number | null
   }>({})
   const [notesUpdated, setNotesUpdated] = useState(0) // Force re-render when notes change
+
+  // Series data for multi-period views
+  const isMultiPeriod = view === "12months" || view === "quarters" || view === "years"
+  const currentYear = fiscalYear || new Date().getFullYear()
+  const monthsNeeded = view === "years" ? 60 : 12
+
+  const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "balance-sheet",
+    fiscalYear: currentYear,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: isMultiPeriod,
+  })
 
   const toggleRow = (rowId: string) => {
     setExpandedRows((prev) => {
@@ -82,381 +109,92 @@ export function BalanceSheetDetail({
     return view === "current" || view === "comparison" || view === "ytd" || view === "ddm"
   }
 
-  const generateBalanceAccounts = (label: string, current: number, prior: number): BalanceAccount[] => {
-    // Generate sample balance accounts based on the row label
-    const accounts: BalanceAccount[] = []
-    
-    if (label.includes("Trésorerie et équivalents")) {
-      accounts.push(
-        { accountNumber: "1000", accountName: "Caisse", amount: Math.round(current * 0.1), priorAmount: Math.round(prior * 0.1), proportion: 0.1 },
-        { accountNumber: "1010", accountName: "Comptes bancaires", amount: Math.round(current * 0.9), priorAmount: Math.round(prior * 0.9), proportion: 0.9 }
-      )
-    } else if (label.includes("Comptes clients")) {
-      accounts.push(
-        { accountNumber: "1200", accountName: "Clients - Comptes à recevoir", amount: Math.round(current * 0.8), priorAmount: Math.round(prior * 0.8), proportion: 0.8 },
-        { accountNumber: "1210", accountName: "Clients - Factures à recevoir", amount: Math.round(current * 0.2), priorAmount: Math.round(prior * 0.2), proportion: 0.2 }
-      )
-    } else if (label.includes("Stocks")) {
-      accounts.push(
-        { accountNumber: "1300", accountName: "Inventaire - Matières premières", amount: Math.round(current * 0.4), priorAmount: Math.round(prior * 0.4), proportion: 0.4 },
-        { accountNumber: "1310", accountName: "Inventaire - Produits finis", amount: Math.round(current * 0.6), priorAmount: Math.round(prior * 0.6), proportion: 0.6 }
-      )
-    } else if (label.includes("Autres actifs courants")) {
-      accounts.push(
-        { accountNumber: "1400", accountName: "Prépayés", amount: Math.round(current * 0.5), priorAmount: Math.round(prior * 0.5), proportion: 0.5 },
-        { accountNumber: "1410", accountName: "Autres créances", amount: Math.round(current * 0.5), priorAmount: Math.round(prior * 0.5), proportion: 0.5 }
-      )
-    } else if (label.includes("Immobilisations corporelles")) {
-      accounts.push(
-        { accountNumber: "1500", accountName: "Terrain", amount: Math.round(current * 0.2), priorAmount: Math.round(prior * 0.2), proportion: 0.2 },
-        { accountNumber: "1510", accountName: "Bâtiments", amount: Math.round(current * 0.5), priorAmount: Math.round(prior * 0.5), proportion: 0.5 },
-        { accountNumber: "1520", accountName: "Équipement", amount: Math.round(current * 0.3), priorAmount: Math.round(prior * 0.3), proportion: 0.3 }
-      )
-    } else if (label.includes("Immobilisations incorporelles")) {
-      accounts.push(
-        { accountNumber: "1600", accountName: "Brevets", amount: Math.round(current * 0.4), priorAmount: Math.round(prior * 0.4), proportion: 0.4 },
-        { accountNumber: "1610", accountName: "Logiciels", amount: Math.round(current * 0.6), priorAmount: Math.round(prior * 0.6), proportion: 0.6 }
-      )
-    } else if (label.includes("Comptes fournisseurs")) {
-      accounts.push(
-        { accountNumber: "2000", accountName: "Fournisseurs - Comptes à payer", amount: Math.round(current * 0.7), priorAmount: Math.round(prior * 0.7), proportion: 0.7 },
-        { accountNumber: "2010", accountName: "Fournisseurs - Factures à payer", amount: Math.round(current * 0.3), priorAmount: Math.round(prior * 0.3), proportion: 0.3 }
-      )
-    } else if (label.includes("Dettes à court terme")) {
-      accounts.push(
-        { accountNumber: "2100", accountName: "Emprunts bancaires - CT", amount: Math.round(current * 0.6), priorAmount: Math.round(prior * 0.6), proportion: 0.6 },
-        { accountNumber: "2110", accountName: "Dettes fiscales", amount: Math.round(current * 0.4), priorAmount: Math.round(prior * 0.4), proportion: 0.4 }
-      )
-    } else if (label.includes("Dettes à long terme")) {
-      accounts.push(
-        { accountNumber: "2200", accountName: "Emprunts bancaires - LT", amount: Math.round(current * 0.7), priorAmount: Math.round(prior * 0.7), proportion: 0.7 },
-        { accountNumber: "2210", accountName: "Obligations", amount: Math.round(current * 0.3), priorAmount: Math.round(prior * 0.3), proportion: 0.3 }
-      )
-    } else if (label.includes("Capital social")) {
-      accounts.push(
-        { accountNumber: "3000", accountName: "Capital-actions ordinaires", amount: Math.round(current * 0.8), priorAmount: Math.round(prior * 0.8), proportion: 0.8 },
-        { accountNumber: "3010", accountName: "Capital-actions privilégiées", amount: Math.round(current * 0.2), priorAmount: Math.round(prior * 0.2), proportion: 0.2 }
-      )
-    }
-    
-    return accounts
-  }
+  // Map backend FinancialStatementRow[] to internal DetailRow[]
+  const mapBackendRows = (apiRows: FinancialStatementRow[]): DetailRow[] => {
+    const result: DetailRow[] = []
+    const slugify = (label: string) => label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 
-  // Helper function to generate trend data for 12 months
-  const get12MonthsData = (): DetailRow[] => {
-    const generateTrend = (base: number, growthRate: number = 0.02) => {
-      return Array.from({ length: 12 }, (_, i) => {
-        const monthIndex = 11 - i
-        return Math.round(base * (1 + growthRate * monthIndex) * (0.95 + Math.random() * 0.1))
+    for (const row of apiRows) {
+      // Push the section/formula header row
+      result.push({
+        label: row.label,
+        current: row.isSection ? 0 : (row.current ?? 0),
+        prior: row.isSection ? 0 : (row.prior ?? 0),
+        indent: false,
+        isBold: row.isBold || row.isResult,
+        isSubtotal: row.isResult,
+        isSection: row.isSection,
       })
-    }
 
-    const rows: DetailRow[] = [
-      { label: "ACTIFS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "ACTIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Trésorerie et équivalents", current: 200000, prior: 180000, indent: true, trendValues: generateTrend(200000, 0.025), rowId: "cash" },
-      { label: "Comptes clients", current: 350000, prior: 300000, indent: true, trendValues: generateTrend(350000, 0.03), rowId: "receivables" },
-      { label: "Stocks", current: 150000, prior: 130000, indent: true, trendValues: generateTrend(150000, 0.02), rowId: "inventory" },
-      { label: "Autres actifs courants", current: 150000, prior: 140000, indent: true, trendValues: generateTrend(150000, 0.02), rowId: "other-current-assets" },
-      { label: "Total Actifs courants", current: 850000, prior: 750000, isBold: true, isSubtotal: true, trendValues: generateTrend(850000, 0.025) },
-      { label: "", current: 0, prior: 0 },
-      { label: "Immobilisations corporelles", current: 800000, prior: 750000, trendValues: generateTrend(800000, 0.02), rowId: "fixed-assets" },
-      { label: "Immobilisations incorporelles", current: 250000, prior: 230000, trendValues: generateTrend(250000, 0.02), rowId: "intangible-assets" },
-      { label: "Autres actifs non courants", current: 150000, prior: 120000, trendValues: generateTrend(150000, 0.025) },
-      { label: "Total Actifs", current: 2050000, prior: 1850000, isBold: true, isSubtotal: true, trendValues: generateTrend(2050000, 0.022) },
-      { label: "", current: 0, prior: 0 },
-      { label: "PASSIFS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "PASSIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Comptes fournisseurs", current: 200000, prior: 180000, indent: true, trendValues: generateTrend(200000, 0.02), rowId: "payables" },
-      { label: "Dettes à court terme", current: 150000, prior: 140000, indent: true, trendValues: generateTrend(150000, 0.02), rowId: "short-term-debt" },
-      { label: "Autres passifs courants", current: 100000, prior: 100000, indent: true, trendValues: generateTrend(100000, 0) },
-      { label: "Total Passifs courants", current: 450000, prior: 420000, isBold: true, isSubtotal: true, trendValues: generateTrend(450000, 0.018) },
-      { label: "", current: 0, prior: 0 },
-      { label: "Dettes à long terme", current: 450000, prior: 430000, trendValues: generateTrend(450000, 0.02), rowId: "long-term-debt" },
-      { label: "Autres passifs non courants", current: 150000, prior: 150000, trendValues: generateTrend(150000, 0) },
-      { label: "Total Passifs", current: 1050000, prior: 1000000, isBold: true, isSubtotal: true, trendValues: generateTrend(1050000, 0.019) },
-      { label: "", current: 0, prior: 0 },
-      { label: "CAPITAUX PROPRES", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Capital social", current: 600000, prior: 550000, indent: true, trendValues: generateTrend(600000, 0.025), rowId: "share-capital" },
-      { label: "Bénéfices non répartis", current: 400000, prior: 300000, indent: true, trendValues: generateTrend(400000, 0.03) },
-      { label: "Total Capitaux propres", current: 1000000, prior: 850000, isBold: true, isSubtotal: true, trendValues: generateTrend(1000000, 0.025) },
-      { label: "", current: 0, prior: 0 },
-      { label: "Total passifs et capitaux propres", current: 2050000, prior: 1850000, isBold: true, isSubtotal: true, trendValues: generateTrend(2050000, 0.022) },
-    ]
-    
-    // Add balance accounts to rows that have rowId
-    return rows.map((row) => {
-      if (row.rowId) {
-        return {
-          ...row,
-          balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
+      // Flatten detailRows as indented child rows
+      if (row.detailRows && row.detailRows.length > 0) {
+        for (const dr of row.detailRows) {
+          result.push({
+            label: dr.label,
+            current: dr.current ?? 0,
+            prior: dr.prior ?? 0,
+            indent: true,
+            rowId: slugify(dr.label),
+          })
+        }
+        // Add subtotal and spacer after section children
+        if (row.isSection) {
+          result.push({
+            label: `Total ${row.label}`,
+            current: row.current ?? 0,
+            prior: row.prior ?? 0,
+            isBold: true,
+            isSubtotal: true,
+          })
+          result.push({ label: "", current: 0, prior: 0 })
         }
       }
-      return row
-    })
+    }
+    return result
   }
 
-  // Helper function to generate trend data for quarters
-  const getQuartersData = (): DetailRow[] => {
-    const generateTrend = (base: number, growthRate: number = 0.03) => {
-      return Array.from({ length: 5 }, (_, i) => {
-        const quarterIndex = 4 - i
-        return Math.round(base * (1 + growthRate * quarterIndex) * (0.97 + Math.random() * 0.06))
-      })
-    }
+  // Build multi-period rows from series API data
+  const getMultiPeriodData = (): DetailRow[] => {
+    if (!seriesRows.length || !periods.length) return []
+    const slugify = (label: string) => label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 
-    const rows: DetailRow[] = [
-      { label: "ACTIFS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "ACTIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Trésorerie et équivalents", current: 600000, prior: 540000, indent: true, trendValues: generateTrend(600000, 0.04), rowId: "cash" },
-      { label: "Comptes clients", current: 1050000, prior: 900000, indent: true, trendValues: generateTrend(1050000, 0.04), rowId: "receivables" },
-      { label: "Stocks", current: 450000, prior: 390000, indent: true, trendValues: generateTrend(450000, 0.03), rowId: "inventory" },
-      { label: "Autres actifs courants", current: 450000, prior: 420000, indent: true, trendValues: generateTrend(450000, 0.03), rowId: "other-current-assets" },
-      { label: "Total Actifs courants", current: 2550000, prior: 2250000, isBold: true, isSubtotal: true, trendValues: generateTrend(2550000, 0.04) },
-      { label: "", current: 0, prior: 0 },
-      { label: "Immobilisations corporelles", current: 2400000, prior: 2250000, trendValues: generateTrend(2400000, 0.03), rowId: "fixed-assets" },
-      { label: "Immobilisations incorporelles", current: 750000, prior: 690000, trendValues: generateTrend(750000, 0.03), rowId: "intangible-assets" },
-      { label: "Autres actifs non courants", current: 450000, prior: 360000, trendValues: generateTrend(450000, 0.035) },
-      { label: "Total Actifs", current: 6150000, prior: 5550000, isBold: true, isSubtotal: true, trendValues: generateTrend(6150000, 0.035) },
-      { label: "", current: 0, prior: 0 },
-      { label: "PASSIFS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "PASSIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Comptes fournisseurs", current: 600000, prior: 540000, indent: true, trendValues: generateTrend(600000, 0.025), rowId: "payables" },
-      { label: "Dettes à court terme", current: 450000, prior: 420000, indent: true, trendValues: generateTrend(450000, 0.025), rowId: "short-term-debt" },
-      { label: "Autres passifs courants", current: 300000, prior: 300000, indent: true, trendValues: generateTrend(300000, 0) },
-      { label: "Total Passifs courants", current: 1350000, prior: 1260000, isBold: true, isSubtotal: true, trendValues: generateTrend(1350000, 0.025) },
-      { label: "", current: 0, prior: 0 },
-      { label: "Dettes à long terme", current: 1350000, prior: 1290000, trendValues: generateTrend(1350000, 0.03), rowId: "long-term-debt" },
-      { label: "Autres passifs non courants", current: 450000, prior: 450000, trendValues: generateTrend(450000, 0) },
-      { label: "Total Passifs", current: 3150000, prior: 3000000, isBold: true, isSubtotal: true, trendValues: generateTrend(3150000, 0.027) },
-      { label: "", current: 0, prior: 0 },
-      { label: "CAPITAUX PROPRES", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Capital social", current: 1800000, prior: 1650000, indent: true, trendValues: generateTrend(1800000, 0.045), rowId: "share-capital" },
-      { label: "Bénéfices non répartis", current: 1200000, prior: 900000, indent: true, trendValues: generateTrend(1200000, 0.05) },
-      { label: "Total Capitaux propres", current: 3000000, prior: 2550000, isBold: true, isSubtotal: true, trendValues: generateTrend(3000000, 0.045) },
-      { label: "", current: 0, prior: 0 },
-      { label: "Total passifs et capitaux propres", current: 6150000, prior: 5550000, isBold: true, isSubtotal: true, trendValues: generateTrend(6150000, 0.035) },
-    ]
-    
-    // Add balance accounts to rows that have rowId
-    return rows.map((row) => {
-      if (row.rowId) {
-        return {
-          ...row,
-          balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
-        }
+    return seriesRows.map(row => {
+      const rawAmounts = getRowAmounts(row, periods)
+
+      let values: number[]
+      if (view === "quarters") {
+        values = aggregateToQuarters(rawAmounts, periods).amounts
+      } else if (view === "years") {
+        values = aggregateToYears(rawAmounts, periods).amounts
+      } else {
+        values = rawAmounts
       }
-      return row
-    })
-  }
 
-  // Helper function to generate trend data for years
-  const getYearsData = (): DetailRow[] => {
-    const generateTrend = (base: number, growthRate: number = 0.05) => {
-      return Array.from({ length: 6 }, (_, i) => {
-        const yearIndex = 5 - i
-        return Math.round(base * (1 + growthRate * yearIndex) * (0.95 + Math.random() * 0.1))
-      })
-    }
+      const isIndented = !row.isBold && !row.isSection && !row.isResult
+      const rowId = (!row.isSection && !row.isResult && row.label) ? slugify(row.label) : undefined
 
-    const rows: DetailRow[] = [
-      { label: "ACTIFS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "ACTIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Trésorerie et équivalents", current: 2400000, prior: 2160000, indent: true, trendValues: generateTrend(2400000, 0.06), rowId: "cash" },
-      { label: "Comptes clients", current: 4200000, prior: 3600000, indent: true, trendValues: generateTrend(4200000, 0.06), rowId: "receivables" },
-      { label: "Stocks", current: 1800000, prior: 1560000, indent: true, trendValues: generateTrend(1800000, 0.05), rowId: "inventory" },
-      { label: "Autres actifs courants", current: 1800000, prior: 1680000, indent: true, trendValues: generateTrend(1800000, 0.05), rowId: "other-current-assets" },
-      { label: "Total Actifs courants", current: 10200000, prior: 9000000, isBold: true, isSubtotal: true, trendValues: generateTrend(10200000, 0.06) },
-      { label: "", current: 0, prior: 0 },
-      { label: "Immobilisations corporelles", current: 9600000, prior: 9000000, trendValues: generateTrend(9600000, 0.05), rowId: "fixed-assets" },
-      { label: "Immobilisations incorporelles", current: 3000000, prior: 2760000, trendValues: generateTrend(3000000, 0.05), rowId: "intangible-assets" },
-      { label: "Autres actifs non courants", current: 1800000, prior: 1440000, trendValues: generateTrend(1800000, 0.06) },
-      { label: "Total Actifs", current: 24600000, prior: 22200000, isBold: true, isSubtotal: true, trendValues: generateTrend(24600000, 0.055) },
-      { label: "", current: 0, prior: 0 },
-      { label: "PASSIFS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "PASSIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Comptes fournisseurs", current: 2400000, prior: 2160000, indent: true, trendValues: generateTrend(2400000, 0.04), rowId: "payables" },
-      { label: "Dettes à court terme", current: 1800000, prior: 1680000, indent: true, trendValues: generateTrend(1800000, 0.04), rowId: "short-term-debt" },
-      { label: "Autres passifs courants", current: 1200000, prior: 1200000, indent: true, trendValues: generateTrend(1200000, 0) },
-      { label: "Total Passifs courants", current: 5400000, prior: 5040000, isBold: true, isSubtotal: true, trendValues: generateTrend(5400000, 0.04) },
-      { label: "", current: 0, prior: 0 },
-      { label: "Dettes à long terme", current: 5400000, prior: 5160000, trendValues: generateTrend(5400000, 0.05), rowId: "long-term-debt" },
-      { label: "Autres passifs non courants", current: 1800000, prior: 1800000, trendValues: generateTrend(1800000, 0) },
-      { label: "Total Passifs", current: 12600000, prior: 12000000, isBold: true, isSubtotal: true, trendValues: generateTrend(12600000, 0.045) },
-      { label: "", current: 0, prior: 0 },
-      { label: "CAPITAUX PROPRES", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Capital social", current: 7200000, prior: 6600000, indent: true, trendValues: generateTrend(7200000, 0.065), rowId: "share-capital" },
-      { label: "Bénéfices non répartis", current: 4800000, prior: 3600000, indent: true, trendValues: generateTrend(4800000, 0.07) },
-      { label: "Total Capitaux propres", current: 12000000, prior: 10200000, isBold: true, isSubtotal: true, trendValues: generateTrend(12000000, 0.065) },
-      { label: "", current: 0, prior: 0 },
-      { label: "Total passifs et capitaux propres", current: 24600000, prior: 22200000, isBold: true, isSubtotal: true, trendValues: generateTrend(24600000, 0.055) },
-    ]
-    
-    // Add balance accounts to rows that have rowId
-    return rows.map((row) => {
-      if (row.rowId) {
-        return {
-          ...row,
-          balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
-        }
+      return {
+        label: row.label,
+        current: values[values.length - 1] || 0,
+        prior: values[values.length - 2] || 0,
+        indent: isIndented,
+        isBold: row.isBold,
+        isSubtotal: row.isResult,
+        isSection: row.isSection,
+        trendValues: row.isSection ? undefined : values,
+        rowId,
       }
-      return row
     })
   }
 
   const getDetailData = (): DetailRow[] => {
-    // Return trend data for trend views
-    if (view === "12months") {
-      return get12MonthsData()
+    if (isMultiPeriod) {
+      return getMultiPeriodData()
     }
-    if (view === "quarters") {
-      return getQuartersData()
+    if (backendRows.length > 0) {
+      return mapBackendRows(backendRows)
     }
-    if (view === "years") {
-      return getYearsData()
-    }
-    if (period === "monthly") {
-      const rows: DetailRow[] = [
-        // Assets
-        { label: "ACTIFS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "ACTIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Trésorerie et équivalents", current: 200000, prior: 180000, indent: true, rowId: "cash" },
-        { label: "Comptes clients", current: 350000, prior: 300000, indent: true, rowId: "receivables" },
-        { label: "Stocks", current: 150000, prior: 130000, indent: true, rowId: "inventory" },
-        { label: "Autres actifs courants", current: 150000, prior: 140000, indent: true, rowId: "other-current-assets" },
-        { label: "Total Actifs courants", current: 850000, prior: 750000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        { label: "Immobilisations corporelles", current: 800000, prior: 750000, rowId: "fixed-assets" },
-        { label: "Immobilisations incorporelles", current: 250000, prior: 230000, rowId: "intangible-assets" },
-        { label: "Autres actifs non courants", current: 150000, prior: 120000 },
-        { label: "Total Actifs", current: 2050000, prior: 1850000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        // Liabilities
-        { label: "PASSIFS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "PASSIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Comptes fournisseurs", current: 200000, prior: 180000, indent: true, rowId: "payables" },
-        { label: "Dettes à court terme", current: 150000, prior: 140000, indent: true, rowId: "short-term-debt" },
-        { label: "Autres passifs courants", current: 100000, prior: 100000, indent: true },
-        { label: "Total Passifs courants", current: 450000, prior: 420000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        { label: "Dettes à long terme", current: 450000, prior: 430000, rowId: "long-term-debt" },
-        { label: "Autres passifs non courants", current: 150000, prior: 150000 },
-        { label: "Total Passifs", current: 1050000, prior: 1000000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        // Equity
-        { label: "CAPITAUX PROPRES", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Capital social", current: 600000, prior: 550000, indent: true, rowId: "share-capital" },
-        { label: "Bénéfices non répartis", current: 400000, prior: 300000, indent: true },
-        { label: "Total Capitaux propres", current: 1000000, prior: 850000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        { label: "Total passifs et capitaux propres", current: 2050000, prior: 1850000, isBold: true, isSubtotal: true },
-      ]
-      
-      // Add balance accounts to rows that have rowId
-      return rows.map((row) => {
-        if (row.rowId) {
-          return {
-            ...row,
-            balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
-          }
-        }
-        return row
-      })
-    } else if (period === "quarterly") {
-      const rows: DetailRow[] = [
-        // Assets
-        { label: "ACTIFS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "ACTIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Trésorerie et équivalents", current: 600000, prior: 540000, indent: true, rowId: "cash" },
-        { label: "Comptes clients", current: 1050000, prior: 900000, indent: true, rowId: "receivables" },
-        { label: "Stocks", current: 450000, prior: 390000, indent: true, rowId: "inventory" },
-        { label: "Autres actifs courants", current: 450000, prior: 420000, indent: true, rowId: "other-current-assets" },
-        { label: "Total Actifs courants", current: 2550000, prior: 2250000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        { label: "Immobilisations corporelles", current: 2400000, prior: 2250000, rowId: "fixed-assets" },
-        { label: "Immobilisations incorporelles", current: 750000, prior: 690000, rowId: "intangible-assets" },
-        { label: "Autres actifs non courants", current: 450000, prior: 360000 },
-        { label: "Total Actifs", current: 6150000, prior: 5550000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        // Liabilities
-        { label: "PASSIFS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "PASSIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Comptes fournisseurs", current: 600000, prior: 540000, indent: true, rowId: "payables" },
-        { label: "Dettes à court terme", current: 450000, prior: 420000, indent: true, rowId: "short-term-debt" },
-        { label: "Autres passifs courants", current: 300000, prior: 300000, indent: true },
-        { label: "Total Passifs courants", current: 1350000, prior: 1260000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        { label: "Dettes à long terme", current: 1350000, prior: 1290000, rowId: "long-term-debt" },
-        { label: "Autres passifs non courants", current: 450000, prior: 450000 },
-        { label: "Total Passifs", current: 3150000, prior: 3000000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        // Equity
-        { label: "CAPITAUX PROPRES", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Capital social", current: 1800000, prior: 1650000, indent: true, rowId: "share-capital" },
-        { label: "Bénéfices non répartis", current: 1200000, prior: 900000, indent: true },
-        { label: "Total Capitaux propres", current: 3000000, prior: 2550000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        { label: "Total passifs et capitaux propres", current: 6150000, prior: 5550000, isBold: true, isSubtotal: true },
-      ]
-      
-      // Add balance accounts to rows that have rowId
-      return rows.map((row) => {
-        if (row.rowId) {
-          return {
-            ...row,
-            balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
-          }
-        }
-        return row
-      })
-    } else {
-      const rows: DetailRow[] = [
-        // Assets
-        { label: "ACTIFS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "ACTIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Trésorerie et équivalents", current: 2400000, prior: 2160000, indent: true, rowId: "cash" },
-        { label: "Comptes clients", current: 4200000, prior: 3600000, indent: true, rowId: "receivables" },
-        { label: "Stocks", current: 1800000, prior: 1560000, indent: true, rowId: "inventory" },
-        { label: "Autres actifs courants", current: 1800000, prior: 1680000, indent: true, rowId: "other-current-assets" },
-        { label: "Total Actifs courants", current: 10200000, prior: 9000000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        { label: "Immobilisations corporelles", current: 9600000, prior: 9000000, rowId: "fixed-assets" },
-        { label: "Immobilisations incorporelles", current: 3000000, prior: 2760000, rowId: "intangible-assets" },
-        { label: "Autres actifs non courants", current: 1800000, prior: 1440000 },
-        { label: "Total Actifs", current: 24600000, prior: 22200000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        // Liabilities
-        { label: "PASSIFS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "PASSIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Comptes fournisseurs", current: 2400000, prior: 2160000, indent: true, rowId: "payables" },
-        { label: "Dettes à court terme", current: 1800000, prior: 1680000, indent: true, rowId: "short-term-debt" },
-        { label: "Autres passifs courants", current: 1200000, prior: 1200000, indent: true },
-        { label: "Total Passifs courants", current: 5400000, prior: 5040000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        { label: "Dettes à long terme", current: 5400000, prior: 5160000, rowId: "long-term-debt" },
-        { label: "Autres passifs non courants", current: 1800000, prior: 1800000 },
-        { label: "Total Passifs", current: 12600000, prior: 12000000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        // Equity
-        { label: "CAPITAUX PROPRES", current: 0, prior: 0, isBold: true, isSection: true },
-        { label: "Capital social", current: 7200000, prior: 6600000, indent: true, rowId: "share-capital" },
-        { label: "Bénéfices non répartis", current: 4800000, prior: 3600000, indent: true },
-        { label: "Total Capitaux propres", current: 12000000, prior: 10200000, isBold: true, isSubtotal: true },
-        { label: "", current: 0, prior: 0 },
-        { label: "Total passifs et capitaux propres", current: 24600000, prior: 22200000, isBold: true, isSubtotal: true },
-      ]
-      
-      // Add balance accounts to rows that have rowId
-      return rows.map((row) => {
-        if (row.rowId) {
-          return {
-            ...row,
-            balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
-          }
-        }
-        return row
-      })
-    }
+    return []
   }
 
   // Helper function to capitalize first letter
@@ -562,8 +300,9 @@ export function BalanceSheetDetail({
     return parts.join(" • ")
   }
 
-  // Helper function to generate month labels (12 months)
+  // Helper function to generate month labels from series data or fallback
   const getMonthLabels = (): string[] => {
+    if (periods.length > 0) return getPeriodLabels(periods)
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
     const currentDate = new Date()
     const labels: string[] = []
@@ -574,8 +313,12 @@ export function BalanceSheetDetail({
     return labels
   }
 
-  // Helper function to generate quarter labels (5 quarters)
+  // Helper function to generate quarter labels from series data or fallback
   const getQuarterLabels = (): string[] => {
+    if (periods.length > 0 && seriesRows.length > 0) {
+      const rawAmounts = getRowAmounts(seriesRows[0], periods)
+      return aggregateToQuarters(rawAmounts, periods).labels
+    }
     const currentDate = new Date()
     const labels: string[] = []
     for (let i = 4; i >= 0; i--) {
@@ -586,12 +329,16 @@ export function BalanceSheetDetail({
     return labels
   }
 
-  // Helper function to generate year labels (6 years)
+  // Helper function to generate year labels from series data or fallback
   const getYearLabels = (): string[] => {
-    const currentYear = new Date().getFullYear()
+    if (periods.length > 0 && seriesRows.length > 0) {
+      const rawAmounts = getRowAmounts(seriesRows[0], periods)
+      return aggregateToYears(rawAmounts, periods).labels
+    }
+    const cy = new Date().getFullYear()
     const labels: string[] = []
     for (let i = 5; i >= 0; i--) {
-      labels.push(`${currentYear - i}`)
+      labels.push(`${cy - i}`)
     }
     return labels
   }
@@ -607,6 +354,31 @@ export function BalanceSheetDetail({
     if (view === "quarters") return "Trimestres"
     if (view === "years") return "Années"
     return "Courant"
+  }
+
+  if (loading || (isMultiPeriod && seriesLoading)) {
+    return (
+      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+        <div className="px-8 py-16 text-center">
+          <div className="animate-pulse space-y-4">
+            <div className="h-4 bg-slate-200 rounded w-1/3 mx-auto"></div>
+            <div className="h-4 bg-slate-200 rounded w-2/3 mx-auto"></div>
+            <div className="h-4 bg-slate-200 rounded w-1/2 mx-auto"></div>
+          </div>
+          <p className="text-sm text-slate-500 mt-4">Chargement des données...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (data.length === 0) {
+    return (
+      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+        <div className="px-8 py-16 text-center">
+          <p className="text-sm text-slate-500">Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.</p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -765,8 +537,8 @@ export function BalanceSheetDetail({
                 : false
 
               return (
-                <>
-                  <tr key={idx} className={cn(
+                <Fragment key={idx}>
+                  <tr className={cn(
                     "border-b",
                     row.label === "" ? "h-2 border-slate-200" : "",
                     nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
@@ -1238,7 +1010,7 @@ export function BalanceSheetDetail({
                       })}
                     </>
                   )}
-                </>
+                </Fragment>
               )
             })}
           </tbody>

@@ -147,7 +147,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-slate-900">Configuration initiale</h2>
               <Link
-                href="/"
+                href="/settings"
                 className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors flex items-center gap-2"
               >
                 <Settings className="w-4 h-4" />

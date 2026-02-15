@@ -1,0 +1,3 @@
+[    3538ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3000/favicon.ico:0
+[    3586ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8001/api/auth/me:0
+[   10774ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8001/api/auth/login:0

@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { WorkingCapitalDetail } from "@/components/working-capital-detail"
-import { WorkingCapitalChart } from "@/components/working-capital-chart"
+import { WorkingCapitalChart, type WorkingCapitalChartDataPoint } from "@/components/working-capital-chart"
 import { WorkingCapitalAnalysis } from "@/components/working-capital-analysis"
 import { CashConversionChart } from "@/components/cash-conversion-chart"
 import { CashConversionAnalysis } from "@/components/cash-conversion-analysis"
@@ -14,84 +14,17 @@ import { TrendingUp, TrendingDown, DollarSign, BarChart3, Building2, Calculator,
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useCompanies } from "@/hooks/use-companies"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, aggregateToYears, findRow } from "@/lib/series-utils"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "current" | "12months" | "24months" | "years"
 type ColumnMode = "variations" | "percentage" | "comparison"
 type AnalysisType = "fonds-de-roulement" | "conversion-encaisse"
 
-// Données d'exemple pour les sociétés, divisions et sous-divisions
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Modelisys Inc.",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division Technologie",
-        subDivisions: [
-          { id: "sub-1", name: "Développement Logiciel" },
-          { id: "sub-2", name: "Infrastructure IT" },
-          { id: "sub-3", name: "Support Technique" },
-        ],
-      },
-      {
-        id: "div-2",
-        name: "Division Conseil",
-        subDivisions: [
-          { id: "sub-4", name: "Conseil Stratégique" },
-          { id: "sub-5", name: "Conseil Opérationnel" },
-        ],
-      },
-      {
-        id: "div-3",
-        name: "Division Ventes",
-        subDivisions: [
-          { id: "sub-6", name: "Ventes B2B" },
-          { id: "sub-7", name: "Ventes B2C" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-2",
-    name: "TechSolutions SA",
-    divisions: [
-      {
-        id: "div-4",
-        name: "Division Produits",
-        subDivisions: [
-          { id: "sub-8", name: "Produits Cloud" },
-          { id: "sub-9", name: "Produits On-Premise" },
-        ],
-      },
-      {
-        id: "div-5",
-        name: "Division Services",
-        subDivisions: [
-          { id: "sub-10", name: "Services Professionnels" },
-          { id: "sub-11", name: "Services Gérés" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-3",
-    name: "InnovateCorp",
-    divisions: [
-      {
-        id: "div-6",
-        name: "Division R&D",
-        subDivisions: [
-          { id: "sub-12", name: "Recherche" },
-          { id: "sub-13", name: "Développement" },
-        ],
-      },
-    ],
-  },
-]
-
 export default function WorkingCapitalPage() {
+  const { companies: companiesData } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("current")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
@@ -100,10 +33,99 @@ export default function WorkingCapitalPage() {
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
 
+  // Auto-select first company
+  useEffect(() => {
+    if (!selectedCompanyId && companiesData.length > 0) {
+      setSelectedCompanyId(companiesData[0].id)
+    }
+  }, [companiesData, selectedCompanyId])
+
   // Date reference state (month and year)
   const currentDate = new Date()
   const [selectedMonth, setSelectedMonth] = useState<number>(currentDate.getMonth() + 1) // 1-12
   const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear())
+
+  // Fetch balance-sheet series for chart data
+  const isMultiPeriod = view === "12months" || view === "24months" || view === "years"
+  const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
+
+  const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: selectedCompanyId || null,
+    statementType: "balance-sheet",
+    fiscalYear: selectedYear,
+    months: monthsNeeded,
+    divisionId: selectedDivisionId || null,
+    subDivisionId: selectedSubDivisionId || null,
+    enabled: !!selectedCompanyId,
+  })
+
+  // Build chart data from series
+  const buildChartData = (): WorkingCapitalChartDataPoint[] => {
+    if (!isMultiPeriod || seriesRows.length === 0 || periods.length === 0) return []
+
+    // Find rows for current assets and current liabilities
+    const currentAssetsRow = findRow(seriesRows, "actif courant") || findRow(seriesRows, "actifs courant") || findRow(seriesRows, "current assets")
+    const currentLiabilitiesRow = findRow(seriesRows, "passif courant") || findRow(seriesRows, "passifs courant") || findRow(seriesRows, "current liabilities")
+
+    if (!currentAssetsRow && !currentLiabilitiesRow) {
+      // Try to find any total row as fallback
+      const totalRow = seriesRows.find((r) => r.isBold && !r.isSection && r.label.toLowerCase().includes("total"))
+      if (!totalRow) return []
+
+      const amounts = getRowAmounts(totalRow, periods)
+      let labels: string[]
+      let values: number[]
+
+      if (view === "years") {
+        const agg = aggregateToYears(amounts, periods)
+        labels = agg.labels
+        values = agg.amounts
+      } else {
+        labels = getPeriodLabels(periods)
+        values = amounts
+      }
+
+      return labels.map((label, idx) => ({
+        period: label,
+        workingCapital: values[idx],
+        denominator: Math.abs(values[idx]) * 3, // estimate revenue as 3x
+        ratio: 33.3,
+      }))
+    }
+
+    const caAmounts = currentAssetsRow ? getRowAmounts(currentAssetsRow, periods) : periods.map(() => 0)
+    const clAmounts = currentLiabilitiesRow ? getRowAmounts(currentLiabilitiesRow, periods) : periods.map(() => 0)
+
+    let labels: string[]
+    let caValues: number[]
+    let clValues: number[]
+
+    if (view === "years") {
+      const caAgg = aggregateToYears(caAmounts, periods)
+      const clAgg = aggregateToYears(clAmounts, periods)
+      labels = caAgg.labels
+      caValues = caAgg.amounts
+      clValues = clAgg.amounts
+    } else {
+      labels = getPeriodLabels(periods)
+      caValues = caAmounts
+      clValues = clAmounts
+    }
+
+    return labels.map((label, idx) => {
+      const wc = caValues[idx] - clValues[idx]
+      const denominator = caValues[idx] + clValues[idx] || 1
+      const ratio = (wc / denominator) * 100
+      return {
+        period: label,
+        workingCapital: wc,
+        denominator: caValues[idx],
+        ratio,
+      }
+    })
+  }
+
+  const chartData = buildChartData()
 
   // Fonction pour obtenir la valeur actuelle du sélecteur Horizon
   const getCurrentHorizon = (): string => {
@@ -136,36 +158,34 @@ export default function WorkingCapitalPage() {
     }
   }
 
-  // Calculate summary metrics (mock data for now)
+  // Calculate summary metrics from real series data
   const calculateMetrics = () => {
-    const totalWorkingCapital = 450000
-    const priorWorkingCapital = 380000
-    const variation = calculateVariation(totalWorkingCapital, priorWorkingCapital)
-    const currentAssets = 1200000
-    const currentLiabilities = 750000
-    const workingCapitalRatio = currentAssets / currentLiabilities
-    
-    // Calculate average Working Capital for trend views
-    let averageWorkingCapital = 0
-    if (view === "12months") {
-      averageWorkingCapital = (totalWorkingCapital + priorWorkingCapital) / 2 + (totalWorkingCapital - priorWorkingCapital) / 12 * 6
-    } else if (view === "24months") {
-      averageWorkingCapital = (totalWorkingCapital + priorWorkingCapital) / 2 + (totalWorkingCapital - priorWorkingCapital) / 24 * 12
-    } else if (view === "years") {
-      averageWorkingCapital = (totalWorkingCapital + priorWorkingCapital) / 2 + (totalWorkingCapital - priorWorkingCapital) / 6 * 3
-    } else {
-      averageWorkingCapital = (totalWorkingCapital + priorWorkingCapital) / 2
+    if (seriesRows.length > 0 && periods.length > 0) {
+      const caRow = findRow(seriesRows, "actifs courants") || findRow(seriesRows, "actif courant") || findRow(seriesRows, "current assets")
+      const clRow = findRow(seriesRows, "passifs courants") || findRow(seriesRows, "passif courant") || findRow(seriesRows, "current liabilities")
+
+      if (caRow || clRow) {
+        const caAmounts = caRow ? getRowAmounts(caRow, periods) : periods.map(() => 0)
+        const clAmounts = clRow ? getRowAmounts(clRow, periods) : periods.map(() => 0)
+        const lastIdx = periods.length - 1
+        const priorIdx = Math.max(0, lastIdx - 1)
+
+        const currentAssets = caAmounts[lastIdx]
+        const currentLiabilities = clAmounts[lastIdx]
+        const totalWorkingCapital = currentAssets - currentLiabilities
+        const priorWorkingCapital = caAmounts[priorIdx] - clAmounts[priorIdx]
+        const variation = calculateVariation(totalWorkingCapital, priorWorkingCapital)
+        const workingCapitalRatio = currentLiabilities !== 0 ? currentAssets / currentLiabilities : 0
+
+        // Compute average WC across all periods
+        const wcValues = caAmounts.map((ca, i) => ca - clAmounts[i])
+        const averageWorkingCapital = wcValues.reduce((a, b) => a + b, 0) / wcValues.length
+
+        return { totalWorkingCapital, priorWorkingCapital, variation, currentAssets, currentLiabilities, workingCapitalRatio, averageWorkingCapital }
+      }
     }
-    
-    return {
-      totalWorkingCapital,
-      priorWorkingCapital,
-      variation,
-      currentAssets,
-      currentLiabilities,
-      workingCapitalRatio,
-      averageWorkingCapital
-    }
+
+    return { totalWorkingCapital: 0, priorWorkingCapital: 0, variation: 0, currentAssets: 0, currentLiabilities: 0, workingCapitalRatio: 0, averageWorkingCapital: 0 }
   }
 
   const metrics = calculateMetrics()
@@ -411,6 +431,8 @@ export default function WorkingCapitalPage() {
                 divisionId={selectedDivisionId}
                 subDivisionId={selectedSubDivisionId}
                 companies={companiesData}
+                chartData={chartData.length > 0 ? chartData : undefined}
+                loading={seriesLoading}
               />
             </div>
           </>

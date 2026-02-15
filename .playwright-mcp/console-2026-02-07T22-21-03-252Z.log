@@ -1,0 +1,25 @@
+[   42450ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
+
+Check the render method of `BalanceSheetDetail`.  @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[  128624ms] [ERROR] ./components/balance-sheet-detail.tsx:1013:19
+Parsing ecmascript source code failed
+  1011 |                     </>
+  1012 |                   )}
+> 1013 |                 </>
+       |                   ^
+  1014 |               )
+  1015 |             })}
+  1016 |           </tbody>
+
+Expression expected
+
+Import traces:
+  Client Component Browser:
+    ./components/balance-sheet-detail.tsx [Client Component Browser]
+    ./app/financial-statements/balance-sheet/page.tsx [Client Component Browser]
+    ./app/financial-statements/balance-sheet/page.tsx [Server Component]
+
+  Client Component SSR:
+    ./components/balance-sheet-detail.tsx [Client Component SSR]
+    ./app/financial-statements/balance-sheet/page.tsx [Client Component SSR]
+    ./app/financial-statements/balance-sheet/page.tsx [Server Component] @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127

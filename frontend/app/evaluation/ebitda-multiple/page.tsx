@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -14,28 +14,17 @@ import { cn } from "@/lib/utils"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useCompanies } from "@/hooks/use-companies"
+import { listEbitdaNotes, upsertEbitdaNote, getIncomeStatement, listCompanies, type Company as ApiCompany } from "@/lib/api"
+import { generateId } from "@/lib/seeded-random"
 
 const evaluationNav = [
   { label: "Modèle d'affaires", href: "/evaluation/business-model" },
   { label: "Multiple du BAIIA", href: "/evaluation/ebitda-multiple" },
   { label: "Actif Corporel Net", href: "/evaluation/net-tangible-assets" },
-]
-
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Société Principale",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division A",
-        subDivisions: [
-          { id: "subdiv-1", name: "Sous-division 1" },
-          { id: "subdiv-2", name: "Sous-division 2" },
-        ],
-      },
-    ],
-  },
+  { label: "DCF", href: "/evaluation/dcf" },
+  { label: "CCF", href: "/evaluation/ccf" },
+  { label: "VCA", href: "/evaluation/vca" },
 ]
 
 interface Adjustment {
@@ -53,11 +42,20 @@ interface EBITDAYear {
 }
 
 export default function EBITDAMultiplePage() {
+  const { companies } = useCompanies()
+  const pathname = usePathname()
   const [hasAcceptedDisclaimer, setHasAcceptedDisclaimer] = useState<boolean>(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
   
+  // Auto-select first company
+  useEffect(() => {
+    if (!companyId && companies.length > 0) {
+      setCompanyId(companies[0].id)
+    }
+  }, [companies, companyId])
+
   // Check if disclaimer was accepted in session storage
   useEffect(() => {
     const accepted = sessionStorage.getItem("ebitda-multiple-disclaimer-accepted")
@@ -71,73 +69,112 @@ export default function EBITDAMultiplePage() {
     setHasAcceptedDisclaimer(true)
   }
   
-  // Function to get Revenue from income statement (matching the calculation in income-statement-summary)
-  // These values should match the annual Revenue from the income statement page
-  const getRevenueFromIncomeStatement = (year: number): number => {
-    const currentYear = new Date().getFullYear()
-    const yearOffset = currentYear - year
-    
-    // Base annual Revenue from income-statement-summary.tsx (annual period)
-    // Annual: 3300000 (current year) - from income-statement-detail.tsx line 456
-    // Prior: 2864000 (from income-statement-detail.tsx line 456)
-    // Using historical pattern: 3300000, 2864000, 2550000, 2300000, 2100000
-    const revenueValues = [
-      2100000, // Year -4
-      2300000, // Year -3
-      2550000, // Year -2
-      2864000, // Year -1 (prior in income-statement-detail)
-      3300000, // Year 0 (current in income-statement-detail)
-    ]
-    
-    if (yearOffset >= 0 && yearOffset < revenueValues.length) {
-      return revenueValues[yearOffset]
-    }
-    
-    // Fallback: calculate based on growth pattern
-    const baseAnnualRevenue = 3300000
-    const growthRate = 0.07
-    return Math.round(baseAnnualRevenue / Math.pow(1 + growthRate, yearOffset))
-  }
+  // Revenue map: fiscal_year -> revenue amount (populated from API)
+  const [revenueByYear, setRevenueByYear] = useState<Record<number, number>>({})
 
-  // Function to get EBITDA from income statement (matching the calculation in income-statement-summary)
-  // These values should match the annual EBITDA from the income statement page
-  const getEBITDAFromIncomeStatement = (year: number): number => {
-    const currentYear = new Date().getFullYear()
-    const yearOffset = currentYear - year
-    
-    // Base annual EBITDA from income-statement-summary.tsx (annual period)
-    // Annual: 768000 (current year)
-    // Prior: 626000 (from income-statement-summary.tsx line 268)
-    // Using historical pattern: 768000, 626000, 555000, 520000, 490000
-    const ebitdaValues = [
-      490000, // Year -4
-      520000, // Year -3
-      555000, // Year -2
-      626000, // Year -1 (prior in income-statement-summary)
-      768000, // Year 0 (current in income-statement-summary)
-    ]
-    
-    if (yearOffset >= 0 && yearOffset < ebitdaValues.length) {
-      return ebitdaValues[yearOffset]
-    }
-    
-    // Fallback: calculate based on growth pattern
-    const baseAnnualEBITDA = 768000
-    const growthRate = 0.07
-    return Math.round(baseAnnualEBITDA / Math.pow(1 + growthRate, yearOffset))
-  }
+  // Loading state for income statement data
+  const [incomeDataLoading, setIncomeDataLoading] = useState(false)
 
-  // Initialize with 5 years of data - EBITDA values from income statement
-  const currentYear = new Date().getFullYear()
+  // Store raw API companies to access fiscal_year_end
+  const [apiCompanies, setApiCompanies] = useState<ApiCompany[]>([])
+  useEffect(() => {
+    listCompanies().then(setApiCompanies).catch(() => {})
+  }, [])
+
+  // Compute the last complete fiscal year based on the selected company's fiscal year end
+  const lastCompleteFY = useMemo(() => {
+    const now = new Date()
+    const curMonth = now.getMonth() + 1
+    const curYear = now.getFullYear()
+    if (!companyId) return curYear
+    const company = apiCompanies.find(c => c.id === companyId)
+    const fyEnd = company?.fiscal_year_end || "12-31"
+    const fyEndMonth = parseInt(fyEnd.split("-")[0], 10) || 12
+    const currentFY = curMonth <= fyEndMonth ? curYear : curYear + 1
+    return currentFY - 1
+  }, [companyId, apiCompanies])
+
+  // Initialize with 5 years of data - values start at 0 and are populated from API
   const [years, setYears] = useState<EBITDAYear[]>(() => {
+    const yr = new Date().getFullYear()
     return [
-      { year: currentYear - 4, ebitda: getEBITDAFromIncomeStatement(currentYear - 4), adjustedEBITDA: getEBITDAFromIncomeStatement(currentYear - 4), weight: 0, isRepresentative: false },
-      { year: currentYear - 3, ebitda: getEBITDAFromIncomeStatement(currentYear - 3), adjustedEBITDA: getEBITDAFromIncomeStatement(currentYear - 3), weight: 0, isRepresentative: false },
-      { year: currentYear - 2, ebitda: getEBITDAFromIncomeStatement(currentYear - 2), adjustedEBITDA: getEBITDAFromIncomeStatement(currentYear - 2), weight: 0, isRepresentative: false },
-      { year: currentYear - 1, ebitda: getEBITDAFromIncomeStatement(currentYear - 1), adjustedEBITDA: getEBITDAFromIncomeStatement(currentYear - 1), weight: 0.25, isRepresentative: true },
-      { year: currentYear, ebitda: getEBITDAFromIncomeStatement(currentYear), adjustedEBITDA: getEBITDAFromIncomeStatement(currentYear), weight: 0.3, isRepresentative: true },
+      { year: yr - 4, ebitda: 0, adjustedEBITDA: 0, weight: 0, isRepresentative: false },
+      { year: yr - 3, ebitda: 0, adjustedEBITDA: 0, weight: 0, isRepresentative: false },
+      { year: yr - 2, ebitda: 0, adjustedEBITDA: 0, weight: 0, isRepresentative: false },
+      { year: yr - 1, ebitda: 0, adjustedEBITDA: 0, weight: 0.25, isRepresentative: true },
+      { year: yr, ebitda: 0, adjustedEBITDA: 0, weight: 0.3, isRepresentative: true },
     ]
   })
+
+  // Fetch income statement data for all 5 years when company changes
+  useEffect(() => {
+    if (!companyId) {
+      setRevenueByYear({})
+      setYears(prev => prev.map(y => ({ ...y, ebitda: 0, adjustedEBITDA: 0 })))
+      return
+    }
+
+    let cancelled = false
+    setIncomeDataLoading(true)
+
+    const fiscalYears = [lastCompleteFY - 4, lastCompleteFY - 3, lastCompleteFY - 2, lastCompleteFY - 1, lastCompleteFY]
+    const promises = fiscalYears.map(fy =>
+      getIncomeStatement(companyId, {
+        fiscal_year: fy,
+        period: "annual",
+        ...(divisionId ? { division_id: divisionId } : {}),
+        ...(subDivisionId ? { sub_division_id: subDivisionId } : {}),
+      }).catch(() => null)
+    )
+
+    Promise.all(promises).then(results => {
+      if (cancelled) return
+
+      const newRevenueByYear: Record<number, number> = {}
+      const ebitdaByYear: Record<number, number> = {}
+
+      results.forEach((res, idx) => {
+        const fy = fiscalYears[idx]
+        if (!res || !res.rows) {
+          newRevenueByYear[fy] = 0
+          ebitdaByYear[fy] = 0
+          return
+        }
+
+        // Find Revenue row (typically labeled "Revenus" or first result row)
+        const revenueRow = res.rows.find(r =>
+          r.label.toLowerCase().includes("revenu") && r.isResult
+        ) || res.rows.find(r => r.label.toLowerCase().includes("revenu"))
+        newRevenueByYear[fy] = revenueRow ? revenueRow.current : 0
+
+        // Find EBITDA/BAIIA row
+        const ebitdaRow = res.rows.find(r =>
+          (r.label.toLowerCase().includes("baiia") || r.label.toLowerCase().includes("ebitda")) && r.isResult
+        ) || res.rows.find(r =>
+          r.label.toLowerCase().includes("baiia") || r.label.toLowerCase().includes("ebitda")
+        )
+        ebitdaByYear[fy] = ebitdaRow ? ebitdaRow.current : 0
+      })
+
+      setRevenueByYear(newRevenueByYear)
+      // Update years with correct FY labels and EBITDA data
+      setYears(fiscalYears.map((fy, i) => ({
+        year: fy,
+        ebitda: ebitdaByYear[fy] || 0,
+        adjustedEBITDA: ebitdaByYear[fy] || 0,
+        weight: i >= 3 ? (i === 3 ? 0.25 : 0.3) : 0,
+        isRepresentative: i >= 3,
+      })))
+      setIncomeDataLoading(false)
+    })
+
+    return () => { cancelled = true }
+  }, [companyId, divisionId, subDivisionId, lastCompleteFY])
+
+  // Helper to get revenue for a given year
+  const getRevenueForYear = (year: number): number => {
+    return revenueByYear[year] || 0
+  }
 
   // Adjustments shared across all years
   const [adjustments, setAdjustments] = useState<Adjustment[]>([])
@@ -207,7 +244,7 @@ export default function EBITDAMultiplePage() {
   // Add a new adjustment row
   const addAdjustment = () => {
     const newAdjustment: Adjustment = {
-      id: `adj-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: generateId("adj"),
       name: `Ajustement ${adjustments.length + 1}`,
       amounts: {},
     }
@@ -221,18 +258,21 @@ export default function EBITDAMultiplePage() {
   // Remove an adjustment row
   const removeAdjustment = (adjustmentId: string) => {
     setAdjustments(adjustments.filter((adj) => adj.id !== adjustmentId))
-    // Remove notes from storage
     setAdjustmentNotes((prev) => {
       const newNotes = { ...prev }
       delete newNotes[adjustmentId]
       return newNotes
     })
-    // Remove from localStorage
-    if (typeof window !== "undefined") {
-      const storageKey = `ebitda-adjustment-notes-${companyId || "all"}-${divisionId || "all"}-${subDivisionId || "all"}`
+    // Persist updated notes to backend
+    if (companyId) {
       const updatedNotes = { ...adjustmentNotes }
       delete updatedNotes[adjustmentId]
-      localStorage.setItem(storageKey, JSON.stringify(updatedNotes))
+      upsertEbitdaNote(companyId, {
+        note_type: "adjustment",
+        data: updatedNotes as Record<string, unknown>,
+        division_id: divisionId,
+        sub_division_id: subDivisionId,
+      }).catch(console.error)
     }
   }
 
@@ -275,26 +315,21 @@ export default function EBITDAMultiplePage() {
       updateAdjustmentAmount(editingAdjustmentId, year, adjustmentModalAmounts[year] || 0)
       
       // Update note for this specific year
-      setAdjustmentNotes((prev) => {
-        const adjustmentNotesForId = prev[editingAdjustmentId] || {}
-        return {
-          ...prev,
-          [editingAdjustmentId]: {
-            ...adjustmentNotesForId,
-            [year]: adjustmentNote,
-          },
-        }
-      })
-      
-      // Save to localStorage
-      if (typeof window !== "undefined") {
-        const storageKey = `ebitda-adjustment-notes-${companyId || "all"}-${divisionId || "all"}-${subDivisionId || "all"}`
-        const updatedNotes = { ...adjustmentNotes }
-        if (!updatedNotes[editingAdjustmentId]) {
-          updatedNotes[editingAdjustmentId] = {}
-        }
-        updatedNotes[editingAdjustmentId][year] = adjustmentNote
-        localStorage.setItem(storageKey, JSON.stringify(updatedNotes))
+      const updatedAdjNotes = { ...adjustmentNotes }
+      if (!updatedAdjNotes[editingAdjustmentId]) {
+        updatedAdjNotes[editingAdjustmentId] = {}
+      }
+      updatedAdjNotes[editingAdjustmentId][year] = adjustmentNote
+      setAdjustmentNotes(updatedAdjNotes)
+
+      // Persist to backend
+      if (companyId) {
+        upsertEbitdaNote(companyId, {
+          note_type: "adjustment",
+          data: updatedAdjNotes as Record<string, unknown>,
+          division_id: divisionId,
+          sub_division_id: subDivisionId,
+        }).catch(console.error)
       }
     } else {
       // Editing name only - no amount or note changes
@@ -309,33 +344,41 @@ export default function EBITDAMultiplePage() {
     setAdjustmentNote("")
   }
 
-  // Load adjustment notes from localStorage
+  // Load all EBITDA notes from backend when entity changes
   useEffect(() => {
-    if (typeof window === "undefined") return
-    
-    try {
-      const storageKey = `ebitda-adjustment-notes-${companyId || "all"}-${divisionId || "all"}-${subDivisionId || "all"}`
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        // Convert old format (adjustmentId -> note) to new format (adjustmentId -> year -> note) if needed
-        const convertedNotes: Record<string, Record<number, string>> = {}
-        for (const [adjustmentId, value] of Object.entries(parsed)) {
-          if (typeof value === "string") {
-            // Old format - convert to new format (assign to first year)
-            if (years.length > 0) {
-              convertedNotes[adjustmentId] = { [years[0].year]: value }
+    if (!companyId) return
+    let cancelled = false
+
+    listEbitdaNotes(companyId, {
+      division_id: divisionId || undefined,
+      sub_division_id: subDivisionId || undefined,
+    })
+      .then((notes) => {
+        if (cancelled) return
+        for (const note of notes) {
+          const d = note.data as Record<string, unknown>
+          if (note.note_type === "adjustment") {
+            const converted: Record<string, Record<number, string>> = {}
+            for (const [key, value] of Object.entries(d)) {
+              if (typeof value === "object" && value !== null) {
+                converted[key] = value as Record<number, string>
+              }
             }
-          } else if (typeof value === "object" && value !== null) {
-            // New format - keep as is
-            convertedNotes[adjustmentId] = value as Record<number, string>
+            setAdjustmentNotes(converted)
+          } else if (note.note_type === "weight") {
+            setWeightNotes(d as Record<number, string>)
+          } else if (note.note_type === "range") {
+            setEbitdaRangeNotes(d as Record<"low" | "high", string>)
+          } else if (note.note_type === "multiple") {
+            setMultipleNotes(d as Record<"low" | "high", string>)
           }
         }
-        setAdjustmentNotes(convertedNotes)
-      }
-    } catch (error) {
-      console.error("Error loading adjustment notes:", error)
-    }
+      })
+      .catch((err) => {
+        if (!cancelled) console.error("Error loading EBITDA notes:", err)
+      })
+
+    return () => { cancelled = true }
   }, [companyId, divisionId, subDivisionId])
 
   // Update adjustment name
@@ -384,16 +427,17 @@ export default function EBITDAMultiplePage() {
     
     // Update note
     const year = years[editingWeightIndex].year
-    setWeightNotes((prev) => ({
-      ...prev,
-      [year]: weightNote,
-    }))
-    
-    // Save to localStorage
-    if (typeof window !== "undefined") {
-      const storageKey = `ebitda-weight-notes-${companyId || "all"}-${divisionId || "all"}-${subDivisionId || "all"}`
-      const updatedNotes = { ...weightNotes, [year]: weightNote }
-      localStorage.setItem(storageKey, JSON.stringify(updatedNotes))
+    const updatedWeightNotes = { ...weightNotes, [year]: weightNote }
+    setWeightNotes(updatedWeightNotes)
+
+    // Persist to backend
+    if (companyId) {
+      upsertEbitdaNote(companyId, {
+        note_type: "weight",
+        data: updatedWeightNotes as Record<string, unknown>,
+        division_id: divisionId,
+        sub_division_id: subDivisionId,
+      }).catch(console.error)
     }
     
     // Close modal
@@ -403,21 +447,7 @@ export default function EBITDAMultiplePage() {
     setWeightNote("")
   }
 
-  // Load weight notes from localStorage
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    
-    try {
-      const storageKey = `ebitda-weight-notes-${companyId || "all"}-${divisionId || "all"}-${subDivisionId || "all"}`
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        setWeightNotes(parsed)
-      }
-    } catch (error) {
-      console.error("Error loading weight notes:", error)
-    }
-  }, [companyId, divisionId, subDivisionId])
+  // Weight notes are loaded from backend in the combined loader above
 
   // Open BAIIA Range modal
   const openEbitdaRangeModal = (type: "low" | "high") => {
@@ -439,14 +469,17 @@ export default function EBITDAMultiplePage() {
       setHighEBITDARange(ebitdaRangeModalValue)
     }
     
-    // Update note and save to localStorage
-    const updatedNotes = { ...ebitdaRangeNotes, [editingEbitdaRangeType]: ebitdaRangeNote }
-    setEbitdaRangeNotes(updatedNotes)
-    
-    // Save to localStorage
-    if (typeof window !== "undefined") {
-      const storageKey = `ebitda-range-notes-${companyId || "all"}-${divisionId || "all"}-${subDivisionId || "all"}`
-      localStorage.setItem(storageKey, JSON.stringify(updatedNotes))
+    // Update note and persist to backend
+    const updatedRangeNotes = { ...ebitdaRangeNotes, [editingEbitdaRangeType]: ebitdaRangeNote }
+    setEbitdaRangeNotes(updatedRangeNotes)
+
+    if (companyId) {
+      upsertEbitdaNote(companyId, {
+        note_type: "range",
+        data: updatedRangeNotes as Record<string, unknown>,
+        division_id: divisionId,
+        sub_division_id: subDivisionId,
+      }).catch(console.error)
     }
     
     // Close modal
@@ -456,21 +489,7 @@ export default function EBITDAMultiplePage() {
     setEbitdaRangeNote("")
   }
 
-  // Load BAIIA Range notes from localStorage
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    
-    try {
-      const storageKey = `ebitda-range-notes-${companyId || "all"}-${divisionId || "all"}-${subDivisionId || "all"}`
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        setEbitdaRangeNotes(parsed)
-      }
-    } catch (error) {
-      console.error("Error loading ebitda range notes:", error)
-    }
-  }, [companyId, divisionId, subDivisionId])
+  // Range notes are loaded from backend in the combined loader above
 
   // Open Multiple modal
   const openMultipleModal = (type: "low" | "high") => {
@@ -492,14 +511,17 @@ export default function EBITDAMultiplePage() {
       setHighMultiple(multipleModalValue)
     }
     
-    // Update note and save to localStorage
-    const updatedNotes = { ...multipleNotes, [editingMultipleType]: multipleNote }
-    setMultipleNotes(updatedNotes)
-    
-    // Save to localStorage
-    if (typeof window !== "undefined") {
-      const storageKey = `ebitda-multiple-notes-${companyId || "all"}-${divisionId || "all"}-${subDivisionId || "all"}`
-      localStorage.setItem(storageKey, JSON.stringify(updatedNotes))
+    // Update note and persist to backend
+    const updatedMultipleNotes = { ...multipleNotes, [editingMultipleType]: multipleNote }
+    setMultipleNotes(updatedMultipleNotes)
+
+    if (companyId) {
+      upsertEbitdaNote(companyId, {
+        note_type: "multiple",
+        data: updatedMultipleNotes as Record<string, unknown>,
+        division_id: divisionId,
+        sub_division_id: subDivisionId,
+      }).catch(console.error)
     }
     
     // Close modal
@@ -509,21 +531,7 @@ export default function EBITDAMultiplePage() {
     setMultipleNote("")
   }
 
-  // Load Multiple notes from localStorage
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    
-    try {
-      const storageKey = `ebitda-multiple-notes-${companyId || "all"}-${divisionId || "all"}-${subDivisionId || "all"}`
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        setMultipleNotes(parsed)
-      }
-    } catch (error) {
-      console.error("Error loading multiple notes:", error)
-    }
-  }, [companyId, divisionId, subDivisionId])
+  // Multiple notes are loaded from the backend via the listEbitdaNotes effect above
 
   // Calculate weighted average of representative years (years with weight > 0)
   const representativeYears = years.filter((y) => y.weight > 0)
@@ -659,8 +667,6 @@ export default function EBITDAMultiplePage() {
     )
   }
 
-  const pathname = usePathname()
-
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
@@ -724,7 +730,7 @@ export default function EBITDAMultiplePage() {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Entité:</span>
                 <EntitySelector
-                  companies={companiesData}
+                  companies={companies}
                   selectedCompanyId={companyId}
                   selectedDivisionId={divisionId}
                   selectedSubDivisionId={subDivisionId}
@@ -808,7 +814,7 @@ export default function EBITDAMultiplePage() {
                             )}
                           >
                             <span className="font-semibold text-slate-900 text-sm">
-                              {formatCurrency(getRevenueFromIncomeStatement(year.year))}
+                              {formatCurrency(getRevenueForYear(year.year))}
                             </span>
                           </td>
                         ))}
@@ -930,7 +936,7 @@ export default function EBITDAMultiplePage() {
                           BAIIA ajusté en % des revenus
                         </td>
                         {years.map((year) => {
-                          const revenue = getRevenueFromIncomeStatement(year.year)
+                          const revenue = getRevenueForYear(year.year)
                           const marginPercent = revenue > 0 ? (year.adjustedEBITDA / revenue) * 100 : 0
                           return (
                             <td

@@ -3,10 +3,12 @@
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
+import { useCompanies } from "@/hooks/use-companies"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, FileSpreadsheet, Edit2, Trash2, X, Check, Upload, Filter, ChevronDown, ChevronUp } from "lucide-react"
-import { useState, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { listAccountMappings, upsertAccountMappings, type AccountMappingData } from "@/lib/api"
 import * as XLSX from "xlsx"
 
 interface AccountMapping {
@@ -19,51 +21,22 @@ interface AccountMapping {
   subDivisionId?: string | null
 }
 
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Société Principale",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division A",
-        subDivisions: [
-          { id: "subdiv-1", name: "Sous-division 1" },
-          { id: "subdiv-2", name: "Sous-division 2" },
-        ],
-      },
-      {
-        id: "div-2",
-        name: "Division B",
-        subDivisions: [
-          { id: "subdiv-3", name: "Sous-division 3" },
-          { id: "subdiv-4", name: "Sous-division 4" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-2",
-    name: "Société Secondaire",
-    divisions: [
-      {
-        id: "div-3",
-        name: "Division C",
-        subDivisions: [
-          { id: "subdiv-5", name: "Sous-division 5" },
-        ],
-      },
-    ],
-  },
-]
+function apiToLocal(m: AccountMappingData, companyId: string): AccountMapping {
+  return {
+    id: m.id,
+    accountNumber: m.account_number,
+    accountName: m.description,
+    linkCodes: m.link_code || "",
+    companyId,
+    divisionId: m.divisions || null,
+    subDivisionId: m.sub_divisions || null,
+  }
+}
 
 export default function AccountingMappingPage() {
-  const [mappings, setMappings] = useState<AccountMapping[]>([
-    { id: "1", accountNumber: "1000", accountName: "Caisse", linkCodes: "ACT-001", companyId: "company-1", divisionId: "div-1", subDivisionId: "subdiv-1" },
-    { id: "2", accountNumber: "1200", accountName: "Comptes clients", linkCodes: "ACT-002", companyId: "company-1", divisionId: null, subDivisionId: null },
-    { id: "3", accountNumber: "4000", accountName: "Revenus de vente", linkCodes: "REV-001", companyId: "company-2", divisionId: "div-3", subDivisionId: null },
-    { id: "4", accountNumber: "5000", accountName: "Coûts des ventes", linkCodes: "DEP-001", companyId: null, divisionId: null, subDivisionId: null },
-  ])
+  const { companies: companiesData } = useCompanies()
+  const [mappings, setMappings] = useState<AccountMapping[]>([])
+  const [apiLoading, setApiLoading] = useState(false)
   const [isAdding, setIsAdding] = useState(false)
   const [newAccountNumber, setNewAccountNumber] = useState("")
   const [newAccountName, setNewAccountName] = useState("")
@@ -84,6 +57,36 @@ export default function AccountingMappingPage() {
   // État pour la barre de contrôle d'importation (uniquement l'entité)
   const [importCompanyId, setImportCompanyId] = useState<string | null>(null)
   const [showImportSection, setShowImportSection] = useState(false)
+
+  // Auto-select first company
+  useEffect(() => {
+    if (!importCompanyId && companiesData.length > 0) {
+      setImportCompanyId(companiesData[0].id)
+    }
+  }, [companiesData, importCompanyId])
+
+  // Fetch real mappings when company changes
+  useEffect(() => {
+    if (!importCompanyId) {
+      setMappings([])
+      return
+    }
+    let cancelled = false
+    setApiLoading(true)
+    listAccountMappings(importCompanyId)
+      .then((data) => {
+        if (!cancelled) {
+          setMappings(data.map((m) => apiToLocal(m, importCompanyId)))
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setMappings([])
+      })
+      .finally(() => {
+        if (!cancelled) setApiLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [importCompanyId])
 
   const handleAddMapping = () => {
     if (newAccountNumber.trim() && newAccountName.trim() && newLinkCodes.trim()) {
@@ -210,8 +213,21 @@ export default function AccountingMappingPage() {
           subDivisionId: null,
         })).filter((m) => m.accountNumber && m.accountName)
 
-        if (importedMappings.length > 0) {
-          setMappings([...mappings, ...importedMappings])
+        if (importedMappings.length > 0 && importCompanyId) {
+          // Persist imported mappings to API
+          const entries = importedMappings.map((m) => ({
+            account_number: m.accountNumber,
+            description: m.accountName,
+            link_code: m.linkCodes || null,
+          }))
+          upsertAccountMappings(importCompanyId, entries)
+            .then((saved) => {
+              setMappings([...mappings, ...saved.map((s) => apiToLocal(s, importCompanyId))])
+            })
+            .catch(() => {
+              // Fallback: add locally without persisting
+              setMappings([...mappings, ...importedMappings])
+            })
         }
       } catch (error) {
         console.error("Erreur lors de l'importation du fichier Excel:", error)
@@ -460,7 +476,11 @@ export default function AccountingMappingPage() {
 
             {/* Mappings List */}
             <div className="space-y-3">
-              {mappings.length === 0 ? (
+              {apiLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+                </div>
+              ) : mappings.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
                   <FileSpreadsheet className="w-12 h-12 mx-auto mb-4 text-slate-400" />
                   <p className="text-sm">Aucun compte configuré</p>

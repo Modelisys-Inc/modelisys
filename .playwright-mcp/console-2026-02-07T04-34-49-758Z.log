@@ -1,0 +1,33 @@
+[   54217ms] [ERROR] In HTML, %s cannot be a child of <%s>.%s
+This will cause a hydration error.%s <html> main  
+
+  ...
+    <DevRootHTTPAccessFallbackBoundary>
+      <HTTPAccessFallbackBoundary notFound={<NotAllowedRootHTTPFallbackError>}>
+        <HTTPAccessFallbackErrorBoundary pathname="/login" notFound={<NotAllowedRootHTTPFallbackError>} ...>
+          <RedirectBoundary>
+            <RedirectErrorBoundary router={{...}}>
+              <Head>
+              <__next_root_layout_boundary__>
+                <SegmentViewNode type="layout" pagePath="layout.tsx">
+                  <SegmentTrieNode>
+                  <link>
+                  <script>
+                  <script>
+                  <RootLayout>
+                    <html lang="fr">
+                      <body className="font-sans ...">
+                        <Providers>
+                          <AuthProvider>
+                            <SidebarProvider>
+>                             <main className="min-h-screen bg-background">
+                                ...
+                                  <SegmentViewNode type="layout" pagePath="(public)/l...">
+                                    <SegmentTrieNode>
+                                    <PublicLayout>
+>                                     <html lang="fr">
+                        ...
+              ...
+ @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[   54219ms] [ERROR] <%s> cannot contain a nested %s.
+See this log for the ancestor stack trace. main <html> @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127

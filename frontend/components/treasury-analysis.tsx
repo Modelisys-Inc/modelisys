@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Cell } from "recharts"
@@ -13,6 +13,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, findRow } from "@/lib/series-utils"
+
+interface TreasuryAnalysisProps {
+  companyId?: string | null
+  divisionId?: string | null
+  subDivisionId?: string | null
+  fiscalYear?: number
+}
 
 interface TreasuryData {
   month: string
@@ -24,26 +33,6 @@ interface TreasuryData {
   receiptPercentage?: number
   receiptsForecast?: number
   disbursementsForecast?: number
-}
-
-// Generate sample data based on the image description
-const generateTreasuryData = (): TreasuryData[] => {
-  return [
-    { month: "FEVR.", treasuryStart: 9567895, receipts: 5648916, disbursements: 4500000, treasuryEnd: 10716811, isProjected: false, receiptsForecast: 5600000, disbursementsForecast: 4500000 },
-    { month: "MARS", treasuryStart: 9534405, receipts: 5639844, disbursements: 4800000, treasuryEnd: 10374249, isProjected: false, receiptsForecast: 5600000, disbursementsForecast: 4800000 },
-    { month: "AVR.", treasuryStart: 10536227, receipts: 5735000, disbursements: 5200000, treasuryEnd: 11071227, isProjected: false, receiptPercentage: 67, receiptsForecast: 5700000, disbursementsForecast: 5200000 },
-    { month: "MAI", treasuryStart: 10434612, receipts: 5835540, disbursements: 5400000, treasuryEnd: 10870152, isProjected: true, receiptsForecast: 5800000, disbursementsForecast: 5400000 },
-    { month: "JUIN", treasuryStart: 9432997, receipts: 5635000, disbursements: 5100000, treasuryEnd: 9967997, isProjected: true, receiptsForecast: 5600000, disbursementsForecast: 5100000 },
-    { month: "JUIL.", treasuryStart: 9931292, receipts: 5335670, disbursements: 4900000, treasuryEnd: 10366962, isProjected: true, receiptsForecast: 5300000, disbursementsForecast: 4900000 },
-    { month: "AOÛT", treasuryStart: 10129587, receipts: 6735060, disbursements: 5500000, treasuryEnd: 11364647, isProjected: true, receiptsForecast: 6700000, disbursementsForecast: 5500000 },
-    { month: "SEPT.", treasuryStart: 10227882, receipts: 5935200, disbursements: 5300000, treasuryEnd: 10863082, isProjected: true, receiptsForecast: 5900000, disbursementsForecast: 5300000 },
-    { month: "OCT.", treasuryStart: 10126377, receipts: 5835560, disbursements: 5200000, treasuryEnd: 10761937, isProjected: true, receiptsForecast: 5800000, disbursementsForecast: 5200000 },
-    { month: "NOV.", treasuryStart: 10524872, receipts: 5635870, disbursements: 5100000, treasuryEnd: 11060742, isProjected: true, receiptsForecast: 5600000, disbursementsForecast: 5100000 },
-    { month: "DÉC.", treasuryStart: 11223367, receipts: 5645670, disbursements: 5200000, treasuryEnd: 11669037, isProjected: true, receiptsForecast: 5600000, disbursementsForecast: 5200000 },
-    { month: "JANV.", treasuryStart: 10561862, receipts: 5567677, disbursements: 5000000, treasuryEnd: 11129539, isProjected: true, receiptsForecast: 5550000, disbursementsForecast: 5000000 },
-    { month: "FEVR.", treasuryStart: 11021862, receipts: 5676200, disbursements: 5100000, treasuryEnd: 11598062, isProjected: true, receiptsForecast: 5650000, disbursementsForecast: 5100000 },
-    { month: "MARS", treasuryStart: 0, receipts: 0, disbursements: 0, treasuryEnd: 0, isProjected: true },
-  ]
 }
 
 const chartConfig = {
@@ -69,51 +58,158 @@ const formatCurrencyDisplay = (value: number): string => {
   return formatCurrency(value).replace("$", "€")
 }
 
-export function TreasuryAnalysis() {
+export function TreasuryAnalysis({
+  companyId,
+  divisionId,
+  subDivisionId,
+  fiscalYear,
+}: TreasuryAnalysisProps) {
   const [selectedProject, setSelectedProject] = useState("all")
   const [selectedPeriod, setSelectedPeriod] = useState("jan-dec")
   const [selectedScenario, setSelectedScenario] = useState("main")
   const [selectedView, setSelectedView] = useState("consolidated")
-  
-  const data = generateTreasuryData()
-  
-  // Calculate treasury trend for chart (normalized to 0-250K range for visualization)
-  const treasuryTrend = data.map((item, index) => {
-    if (item.treasuryStart === 0) return 0
-    const trendValues = [
-      80000,  // FEVR
-      100000, // MARS
-      100000, // AVR
-      95000,  // MAI
-      90000,  // JUIN
-      95000,  // JUIL
-      100000, // AOÛT
-      105000, // SEPT
-      110000, // OCT
-      115000, // NOV
-      120000, // DÉC
-      130000, // JANV
-      140000, // FEVR
-      150000, // MARS
-    ]
-    return trendValues[index] || 0
+
+  const currentYear = fiscalYear || new Date().getFullYear()
+
+  // Fetch cash-flow series data
+  const { rows: cfRows, periods: cfPeriods, loading: cfLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "cash-flow",
+    fiscalYear: currentYear,
+    months: 12,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: !!companyId,
   })
+
+  // Fetch balance-sheet series data (for cash / treasury position)
+  const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "balance-sheet",
+    fiscalYear: currentYear,
+    months: 12,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: !!companyId,
+  })
+
+  const loading = cfLoading || bsLoading
+
+  // Build treasury data from API rows
+  const { data, currentTreasury } = useMemo(() => {
+    if (!cfPeriods.length || !cfRows.length) {
+      return { data: [] as TreasuryData[], currentTreasury: 0 }
+    }
+
+    const periodLabels = getPeriodLabels(cfPeriods)
+
+    // Find cash flow rows
+    const operatingRow = findRow(cfRows, "exploitation") || findRow(cfRows, "activités opérat")
+    const investingRow = findRow(cfRows, "investissement")
+    const financingRow = findRow(cfRows, "financement")
+    // Net cash flow is the total / result row
+    const netCashFlowRow = findRow(cfRows, "variation de trésorerie") || findRow(cfRows, "flux net") || findRow(cfRows, "variation nette")
+
+    // Use the most meaningful rows as receipts/disbursements proxy
+    // Operating inflows approximate receipts, investing + financing outflows approximate disbursements
+    const operatingAmounts = operatingRow ? getRowAmounts(operatingRow, cfPeriods) : cfPeriods.map(() => 0)
+    const investingAmounts = investingRow ? getRowAmounts(investingRow, cfPeriods) : cfPeriods.map(() => 0)
+    const financingAmounts = financingRow ? getRowAmounts(financingRow, cfPeriods) : cfPeriods.map(() => 0)
+    const netAmounts = netCashFlowRow ? getRowAmounts(netCashFlowRow, cfPeriods) : cfPeriods.map(() => 0)
+
+    // Find treasury position from balance sheet (cash & equivalents)
+    const treasuryBsRow = findRow(bsRows, "trésorerie") || findRow(bsRows, "encaisse") || findRow(bsRows, "liquidité")
+    const treasuryBsAmounts = treasuryBsRow && bsPeriods.length ? getRowAmounts(treasuryBsRow, bsPeriods) : null
+
+    // Build the treasury data array
+    const result: TreasuryData[] = cfPeriods.map((period, i) => {
+      // Positive operating cash flow = receipts, negative = disbursement contribution
+      const receipts = Math.max(operatingAmounts[i], 0)
+      // Disbursements: absolute value of negative operating + negative investing + negative financing
+      const disbursements = Math.abs(Math.min(operatingAmounts[i], 0))
+        + Math.abs(Math.min(investingAmounts[i], 0))
+        + Math.abs(Math.min(financingAmounts[i], 0))
+
+      // Treasury from balance sheet if available
+      const treasuryEnd = treasuryBsAmounts ? treasuryBsAmounts[i] : 0
+      const treasuryStart = i > 0 && treasuryBsAmounts ? treasuryBsAmounts[i - 1] : 0
+
+      return {
+        month: periodLabels[i].toUpperCase(),
+        treasuryStart,
+        receipts: receipts + Math.max(investingAmounts[i], 0) + Math.max(financingAmounts[i], 0),
+        disbursements,
+        treasuryEnd,
+        isProjected: false,
+      }
+    })
+
+    const lastTreasury = treasuryBsAmounts && treasuryBsAmounts.length > 0
+      ? treasuryBsAmounts[treasuryBsAmounts.length - 1]
+      : 0
+
+    return { data: result, currentTreasury: lastTreasury }
+  }, [cfRows, cfPeriods, bsRows, bsPeriods])
+
+  // Treasury trend: use treasuryEnd for each period, scaled for chart visualization
+  const treasuryTrend = useMemo(() => {
+    if (!data.length) return [] as number[]
+    const maxVal = Math.max(...data.map(d => Math.abs(d.treasuryEnd)), 1)
+    // Normalize to 0-250K range for the chart Y-axis
+    return data.map(d => d.treasuryEnd === 0 ? 0 : (d.treasuryEnd / maxVal) * 250000)
+  }, [data])
 
   // Format data for chart
   const chartData = data.map((item, index) => ({
     ...item,
-    treasuryTrend: treasuryTrend[index],
-    treasuryTrendSolid: index < 3 ? treasuryTrend[index] : null,
+    treasuryTrend: treasuryTrend[index] || 0,
+    treasuryTrendSolid: treasuryTrend[index] || 0,
     receiptsChart: item.receipts / 1000,
     disbursementsChart: item.disbursements / 1000,
   }))
 
   // Y-axis settings
   const yAxisMaxTreasury = 250000
-  const yAxisMaxBars = 7000
+  const yAxisMaxBars = useMemo(() => {
+    if (!data.length) return 7000
+    const maxBar = Math.max(...data.map(d => Math.max(d.receipts, d.disbursements)))
+    // Round up to nearest 1000K
+    return Math.ceil(maxBar / 1000 / 1000) * 1000 || 7000
+  }, [data])
 
   // Calculate column widths for perfect alignment
   const columnCount = data.length
+
+  if (loading) {
+    return (
+      <div className="w-full space-y-4">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-8 py-16 text-center">
+            <div className="animate-pulse space-y-4">
+              <div className="h-4 bg-slate-200 rounded w-1/3 mx-auto"></div>
+              <div className="h-4 bg-slate-200 rounded w-2/3 mx-auto"></div>
+              <div className="h-4 bg-slate-200 rounded w-1/2 mx-auto"></div>
+            </div>
+            <p className="text-sm text-slate-500 mt-4">Chargement des données de trésorerie...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!data.length) {
+    return (
+      <div className="w-full space-y-4">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="px-8 py-16 text-center">
+            <p className="text-sm text-slate-500">
+              Aucune donnée de trésorerie disponible. Veuillez sélectionner une société et importer les données financières.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="w-full space-y-4">
@@ -125,8 +221,6 @@ export function TreasuryAnalysis() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tous les projets</SelectItem>
-            <SelectItem value="project1">Projet 1</SelectItem>
-            <SelectItem value="project2">Projet 2</SelectItem>
           </SelectContent>
         </Select>
 
@@ -136,7 +230,6 @@ export function TreasuryAnalysis() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="jan-dec">Janv. → Déc.</SelectItem>
-            <SelectItem value="custom">Période personnalisée</SelectItem>
           </SelectContent>
         </Select>
 
@@ -146,8 +239,6 @@ export function TreasuryAnalysis() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="main">Scénario principal</SelectItem>
-            <SelectItem value="optimistic">Scénario optimiste</SelectItem>
-            <SelectItem value="pessimistic">Scénario pessimiste</SelectItem>
           </SelectContent>
         </Select>
 
@@ -157,7 +248,6 @@ export function TreasuryAnalysis() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="consolidated">Vue consolidée</SelectItem>
-            <SelectItem value="detailed">Vue détaillée</SelectItem>
           </SelectContent>
         </Select>
 
@@ -192,7 +282,7 @@ export function TreasuryAnalysis() {
                   <span className="text-xs font-semibold text-blue-800 uppercase tracking-wide">Trésorerie courante</span>
                 </div>
                 <div className="text-3xl font-bold text-blue-900 mb-1">
-                  +3,15 M€
+                  {formatCurrencyDisplay(currentTreasury)}
                 </div>
                 <div className="text-xs text-blue-700 font-medium">
                   Trésorerie disponible
@@ -592,7 +682,7 @@ export function TreasuryAnalysis() {
               {/* Right Y-axis - positioned outside table */}
               <div className="flex-shrink-0 flex items-center justify-center" style={{ width: "50px" }}>
                 <div className="flex flex-col justify-between h-[360px] py-10" style={{ fontSize: "11px", color: "#64748b" }}>
-                  {[0, 1000, 2000, 3000, 4000, 5000, 6000, 7000].map((value) => (
+                  {Array.from({ length: 8 }, (_, i) => Math.round((yAxisMaxBars / 7) * i)).map((value) => (
                     <div key={value} className="text-right font-mono">
                       {value}K
                     </div>

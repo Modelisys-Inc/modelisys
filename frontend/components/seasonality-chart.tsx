@@ -3,6 +3,8 @@
 import { useState } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, aggregateToYears, findRow } from "@/lib/series-utils"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -20,30 +22,7 @@ interface SeasonalityChartProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
-}
-
-// Helper function to generate month labels
-const getMonthLabels = (count: number): string[] => {
-  const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
-  const labels: string[] = []
-  const currentDate = new Date()
-  for (let i = count - 1; i >= 0; i--) {
-    const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
-    labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
-  }
-  return labels
-}
-
-// Helper function to generate year labels
-const getYearLabels = (): string[] => {
-  const currentYear = new Date().getFullYear()
-  return Array.from({ length: 6 }, (_, i) => `${currentYear - 5 + i}`)
-}
-
-// Generate seasonal pattern (example: higher in Q4, lower in Q1)
-const getSeasonalPattern = (): number[] => {
-  // Pattern for 12 months: higher in Nov-Dec, lower in Jan-Feb
-  return [0.85, 0.80, 0.90, 0.95, 1.0, 1.05, 1.10, 1.05, 1.0, 0.95, 1.15, 1.20]
+  fiscalYear?: number
 }
 
 type ChartViewType = "revenue_vs_costs" | "revenue_by_type" | "variable_costs_detail"
@@ -58,6 +37,7 @@ export function SeasonalityChart({
   divisionId,
   subDivisionId,
   companies = [],
+  fiscalYear,
 }: SeasonalityChartProps) {
   const [chartView, setChartView] = useState<ChartViewType>("revenue_vs_costs")
   
@@ -66,63 +46,59 @@ export function SeasonalityChart({
       onProductChange(product)
     }
   }
-  
-  // Base values for each product/service (matching seasonality-detail.tsx)
-  const baseProduct1 = 120000
-  const baseProduct2 = 90000
-  const baseProduct3 = 65000
-  
-  // Variable cost ratios
-  const product1CostRatio = 0.55 // 55% of revenue
-  const product2CostRatio = 0.50 // 50% of revenue
-  const product3CostRatio = 0.35 // 35% of revenue (service)
-  
-  // Get base values based on selected product
-  const getBaseRevenue = (): number => {
-    if (analysisType === "revenue") {
-      switch (selectedProduct) {
-        case "product_a":
-          return baseProduct1
-        case "product_b":
-          return baseProduct2
-        case "service_c":
-          return baseProduct3
-        case "total":
-        default:
-          return baseProduct1 + baseProduct2 + baseProduct3
-      }
+
+  // --- Series hook for real data ---
+  const currentYear = fiscalYear || new Date().getFullYear()
+  const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
+
+  const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "income-statement",
+    fiscalYear: currentYear,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: !!companyId,
+  })
+
+  // Build chart data from series for revenue_vs_costs view
+  const buildSeriesChartData = (): typeof chartDataPoints | null => {
+    if (seriesRows.length === 0 || periods.length === 0) return null
+
+    // Find revenue row and cost/expense rows
+    const revenueRow = findRow(seriesRows, "revenus") || findRow(seriesRows, "revenue") || findRow(seriesRows, "ventes") || findRow(seriesRows, "sales")
+    const costRow = findRow(seriesRows, "coût des ventes") || findRow(seriesRows, "cost of goods") || findRow(seriesRows, "cogs") || findRow(seriesRows, "coûts variables")
+
+    if (!revenueRow) return null
+
+    const revAmounts = getRowAmounts(revenueRow, periods)
+    const costAmounts = costRow ? getRowAmounts(costRow, periods) : revAmounts.map((v) => Math.round(v * 0.5))
+
+    let labels: string[]
+    let revValues: number[]
+    let costValues: number[]
+
+    if (view === "years") {
+      const revAgg = aggregateToYears(revAmounts, periods)
+      const costAgg = aggregateToYears(costAmounts, periods)
+      labels = revAgg.labels
+      revValues = revAgg.amounts
+      costValues = costAgg.amounts
     } else {
-      return 70000
+      labels = getPeriodLabels(periods)
+      revValues = revAmounts
+      costValues = costAmounts
     }
+
+    return labels.map((label, idx) => ({
+      period: label,
+      revenue: Math.abs(revValues[idx]),
+      cost: Math.abs(costValues[idx]),
+      margin: Math.abs(revValues[idx]) - Math.abs(costValues[idx]),
+    }))
   }
-  
-  const getBaseCost = (): number => {
-    if (analysisType === "revenue") {
-      switch (selectedProduct) {
-        case "product_a":
-          return baseProduct1 * product1CostRatio
-        case "product_b":
-          return baseProduct2 * product2CostRatio
-        case "service_c":
-          return baseProduct3 * product3CostRatio
-        case "total":
-        default:
-          return baseProduct1 * product1CostRatio + baseProduct2 * product2CostRatio + baseProduct3 * product3CostRatio
-      }
-    } else {
-      return 0
-    }
-  }
-  
-  const getBaseMargin = (): number => {
-    return getBaseRevenue() - getBaseCost()
-  }
-  
-  const baseRevenue = getBaseRevenue()
-  const baseCost = getBaseCost()
-  const baseMargin = getBaseMargin()
-  
-  // Generate chart data
+
+  // Generate chart data from real series data only
   let chartDataPoints: Array<{
     period: string
     revenue?: number
@@ -132,165 +108,38 @@ export function SeasonalityChart({
     average?: number
   }> = []
 
-  const seasonalPattern = getSeasonalPattern()
-  
-  // Helper function to generate data for a given base value
-  const generateDataForBase = (base: number, pattern: number[]): number[] => {
-    const data: number[] = []
-    if (view === "12months") {
-      const monthLabels = getMonthLabels(12)
-      monthLabels.forEach((_, idx) => {
-        const monthIndex = (new Date().getMonth() - (11 - idx) + 12) % 12
-        const seasonalMultiplier = pattern[monthIndex] || 1
-        const trend = 1 + (0.02 * idx)
-        const value = Math.round(base * seasonalMultiplier * trend * (0.95 + Math.random() * 0.1))
-        data.push(value)
-      })
-    } else if (view === "24months") {
-      const monthLabels = getMonthLabels(24)
-      monthLabels.forEach((_, idx) => {
-        const monthIndex = (new Date().getMonth() - (23 - idx) + 24) % 12
-        const seasonalMultiplier = pattern[monthIndex] || 1
-        const trend = 1 + (0.01 * idx)
-        const value = Math.round(base * seasonalMultiplier * trend * (0.95 + Math.random() * 0.1))
-        data.push(value)
-      })
-    } else if (view === "years") {
-      const yearLabels = getYearLabels()
-      yearLabels.forEach((_, idx) => {
-        const trend = 1 + (0.05 * idx)
-        const value = Math.round(base * 12 * trend * (0.95 + Math.random() * 0.1))
-        data.push(value)
-      })
+  if (chartView === "revenue_vs_costs") {
+    const seriesChartData = buildSeriesChartData()
+    if (seriesChartData && seriesChartData.length > 0) {
+      chartDataPoints = seriesChartData
     }
-    return data
   }
 
-  // Generate data based on chart view
-  const getLabels = (): string[] => {
-    if (view === "12months") return getMonthLabels(12)
-    if (view === "24months") return getMonthLabels(24)
-    if (view === "years") return getYearLabels()
-    return []
-  }
-  
-  const labels = getLabels()
-  
-  if (chartView === "revenue_by_type") {
-    // Histogram by revenue type (only when Total is selected)
-    const product1Values = generateDataForBase(baseProduct1, seasonalPattern)
-    const product2Values = generateDataForBase(baseProduct2, seasonalPattern)
-    const product3Values = generateDataForBase(baseProduct3, seasonalPattern)
-    
-    labels.forEach((label, idx) => {
-      chartDataPoints.push({
-        period: label,
-        productA: product1Values[idx],
-        productB: product2Values[idx],
-        serviceC: product3Values[idx],
-      })
-    })
-  } else if (chartView === "variable_costs_detail") {
-    // Variable costs breakdown by component (Achats, Main-d'oeuvre, Transport) with revenue curve
-    const transportRatio = 0.05 // 5% for all
-    
-    if (selectedProduct === "total") {
-      // Cumulative values for all products/services
-      const product1PurchasesRatio = 0.30
-      const product1LaborRatio = 0.20
-      const product2PurchasesRatio = 0.25
-      const product2LaborRatio = 0.20
-      const product3PurchasesRatio = 0.15
-      const product3LaborRatio = 0.15
-      
-      const baseProduct1Revenue = baseProduct1
-      const baseProduct2Revenue = baseProduct2
-      const baseProduct3Revenue = baseProduct3
-      
-      const baseProduct1Purchases = baseProduct1Revenue * product1PurchasesRatio
-      const baseProduct1Labor = baseProduct1Revenue * product1LaborRatio
-      const baseProduct1Transport = baseProduct1Revenue * transportRatio
-      
-      const baseProduct2Purchases = baseProduct2Revenue * product2PurchasesRatio
-      const baseProduct2Labor = baseProduct2Revenue * product2LaborRatio
-      const baseProduct2Transport = baseProduct2Revenue * transportRatio
-      
-      const baseProduct3Purchases = baseProduct3Revenue * product3PurchasesRatio
-      const baseProduct3Labor = baseProduct3Revenue * product3LaborRatio
-      const baseProduct3Transport = baseProduct3Revenue * transportRatio
-      
-      // Cumulative base values
-      const basePurchasesTotal = baseProduct1Purchases + baseProduct2Purchases + baseProduct3Purchases
-      const baseLaborTotal = baseProduct1Labor + baseProduct2Labor + baseProduct3Labor
-      const baseTransportTotal = baseProduct1Transport + baseProduct2Transport + baseProduct3Transport
-      const baseRevenueTotal = baseProduct1Revenue + baseProduct2Revenue + baseProduct3Revenue
-      
-      const revenueValues = generateDataForBase(baseRevenueTotal, seasonalPattern)
-      const purchasesValues = generateDataForBase(basePurchasesTotal, seasonalPattern)
-      const laborValues = generateDataForBase(baseLaborTotal, seasonalPattern)
-      const transportValues = generateDataForBase(baseTransportTotal, seasonalPattern)
-      
-      labels.forEach((label, idx) => {
-        chartDataPoints.push({
-          period: label,
-          revenue: revenueValues[idx],
-          purchases: purchasesValues[idx],
-          labor: laborValues[idx],
-          transport: transportValues[idx],
-        })
-      })
-    } else {
-      // Individual product/service values
-      let purchasesRatio = 0
-      let laborRatio = 0
-      
-      if (selectedProduct === "product_a") {
-        purchasesRatio = 0.30
-        laborRatio = 0.20
-      } else if (selectedProduct === "product_b") {
-        purchasesRatio = 0.25
-        laborRatio = 0.20
-      } else if (selectedProduct === "service_c") {
-        purchasesRatio = 0.15
-        laborRatio = 0.15
-      }
-      
-      const baseRevenue = getBaseRevenue()
-      const basePurchases = baseRevenue * purchasesRatio
-      const baseLabor = baseRevenue * laborRatio
-      const baseTransport = baseRevenue * transportRatio
-      
-      const revenueValues = generateDataForBase(baseRevenue, seasonalPattern)
-      const purchasesValues = generateDataForBase(basePurchases, seasonalPattern)
-      const laborValues = generateDataForBase(baseLabor, seasonalPattern)
-      const transportValues = generateDataForBase(baseTransport, seasonalPattern)
-      
-      labels.forEach((label, idx) => {
-        chartDataPoints.push({
-          period: label,
-          revenue: revenueValues[idx],
-          purchases: purchasesValues[idx],
-          labor: laborValues[idx],
-          transport: transportValues[idx],
-        })
-      })
-    }
-  } else if (chartView === "revenue_vs_costs") {
-    // Revenue vs variable costs with gross margin
-    const revenues = generateDataForBase(baseRevenue, seasonalPattern)
-    const costs = generateDataForBase(baseCost, seasonalPattern)
-    const margins = revenues.map((rev, idx) => rev - costs[idx])
-    labels.forEach((label, idx) => {
-      chartDataPoints.push({
-        period: label,
-        revenue: revenues[idx],
-        cost: costs[idx],
-        margin: margins[idx],
-      })
-    })
+  // Loading state
+  if (seriesLoading) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      </div>
+    )
   }
 
-  if (chartDataPoints.length === 0) return null
+  if (chartDataPoints.length === 0) {
+    return (
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6 overflow-hidden">
+        <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-8 py-5 border-b border-slate-700">
+          <div className="flex items-center gap-3">
+            <div className={`w-1 h-12 rounded-full flex-shrink-0 ${analysisType === "revenue" ? "bg-emerald-400" : "bg-red-400"}`}></div>
+            <h3 className="text-xl font-bold text-white tracking-tight">Saisonnalité</h3>
+          </div>
+        </div>
+        <div className="flex flex-col items-center justify-center h-64 bg-white">
+          <BarChart3 className="w-12 h-12 mb-4 text-slate-300" />
+          <p className="text-slate-500 text-lg font-medium">Aucune donnée disponible</p>
+        </div>
+      </div>
+    )
+  }
 
   const valueLabel = analysisType === "revenue" ? "Revenus" : "Dépenses"
 

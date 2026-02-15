@@ -1,0 +1,6 @@
+[    5058ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
+
+Check the render method of `IncomeStatementDetail`.  @ http://localhost:3000/_next/static/chunks/9febf_next_dist_833f6516._.js:3127
+[    9537ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
+
+Check the render method of `CapexForecastDetail`.  @ http://localhost:3000/_next/static/chunks/9febf_next_dist_833f6516._.js:3127

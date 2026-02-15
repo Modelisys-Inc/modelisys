@@ -7,6 +7,7 @@ import { PanelLeftIcon } from 'lucide-react'
 
 import { useIsMobile } from '@/hooks/use-mobile'
 import { cn } from '@/lib/utils'
+import { seededRandom } from '@/lib/seeded-random'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
@@ -599,6 +600,8 @@ function SidebarMenuBadge({
   )
 }
 
+let skeletonCounter = 0
+
 function SidebarMenuSkeleton({
   className,
   showIcon = false,
@@ -606,9 +609,9 @@ function SidebarMenuSkeleton({
 }: React.ComponentProps<'div'> & {
   showIcon?: boolean
 }) {
-  // Random width between 50 to 90%.
+  // Deterministic width between 50 to 90%.
   const width = React.useMemo(() => {
-    return `${Math.floor(Math.random() * 40) + 50}%`
+    return `${Math.floor(seededRandom(skeletonCounter++) * 40) + 50}%`
   }, [])
 
   return (

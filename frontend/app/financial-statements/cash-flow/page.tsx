@@ -1,93 +1,31 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { CashFlowSummary } from "@/components/cash-flow-summary"
 import { CashFlowDetail } from "@/components/cash-flow-detail"
 import { CashFlowChart } from "@/components/cash-flow-chart"
 import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Filter, Calendar, TrendingUp, TrendingDown, DollarSign, BarChart3, Wallet } from "lucide-react"
-import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
+import { Filter, Calendar, TrendingUp, TrendingDown, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useCompanies } from "@/hooks/use-companies"
+import {
+  listBudgets,
+  listCompanies,
+  getCashFlow,
+  type BudgetData,
+  type FinancialStatementRow,
+  type FinancialStatementParams,
+} from "@/lib/api"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
 type Section = "summary" | "detail"
 type ColumnMode = "variations" | "percentage" | "comparison"
-
-// Données d'exemple pour les sociétés, divisions et sous-divisions
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Modelisys Inc.",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division Technologie",
-        subDivisions: [
-          { id: "sub-1", name: "Développement Logiciel" },
-          { id: "sub-2", name: "Infrastructure IT" },
-          { id: "sub-3", name: "Support Technique" },
-        ],
-      },
-      {
-        id: "div-2",
-        name: "Division Conseil",
-        subDivisions: [
-          { id: "sub-4", name: "Conseil Stratégique" },
-          { id: "sub-5", name: "Conseil Opérationnel" },
-        ],
-      },
-      {
-        id: "div-3",
-        name: "Division Ventes",
-        subDivisions: [
-          { id: "sub-6", name: "Ventes B2B" },
-          { id: "sub-7", name: "Ventes B2C" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-2",
-    name: "TechSolutions SA",
-    divisions: [
-      {
-        id: "div-4",
-        name: "Division Produits",
-        subDivisions: [
-          { id: "sub-8", name: "Produits Cloud" },
-          { id: "sub-9", name: "Produits On-Premise" },
-        ],
-      },
-      {
-        id: "div-5",
-        name: "Division Services",
-        subDivisions: [
-          { id: "sub-10", name: "Services Professionnels" },
-          { id: "sub-11", name: "Services Gérés" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-3",
-    name: "InnovateCorp",
-    divisions: [
-      {
-        id: "div-6",
-        name: "Division R&D",
-        subDivisions: [
-          { id: "sub-12", name: "Recherche" },
-          { id: "sub-13", name: "Développement" },
-        ],
-      },
-    ],
-  },
-]
+type ComparisonType = "lastMonth" | "pastMonth" | "budget"
 
 const financialStatementsNav = [
   { label: "Résultats", href: "/financial-statements/income-statement" },
@@ -96,6 +34,7 @@ const financialStatementsNav = [
 ]
 
 export default function CashFlowPage() {
+  const { companies } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("comparison")
   const [section, setSection] = useState<Section>("summary")
@@ -103,12 +42,100 @@ export default function CashFlowPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
+  const [comparisonType, setComparisonType] = useState<ComparisonType>("lastMonth")
+  const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null)
   const pathname = usePathname()
 
   // Date reference state (month and year)
   const currentDate = new Date()
   const [selectedMonth, setSelectedMonth] = useState<number>(currentDate.getMonth() + 1) // 1-12
   const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear())
+
+  // Load budgets from API
+  const [budgets, setBudgets] = useState<Array<{ id: string; name: string }>>([])
+
+  useEffect(() => {
+    // Load budgets for the first company
+    listCompanies()
+      .then((apiCompanies) => {
+        if (apiCompanies.length > 0) {
+          return listBudgets(apiCompanies[0].id)
+        }
+        return []
+      })
+      .then((loadedBudgets: BudgetData[]) => {
+        const mapped = loadedBudgets.map((b) => ({ id: b.id, name: b.name }))
+        setBudgets(mapped)
+        if (mapped.length > 0 && !selectedBudgetId) {
+          setSelectedBudgetId(mapped[0].id)
+        }
+      })
+      .catch((e) => {
+        console.error("Error loading budgets:", e)
+        setBudgets([])
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Auto-switch comparison type when horizon doesn't support "lastMonth"
+  useEffect(() => {
+    const isAnnualYTDorDDM = view === "ytd" || view === "ddm" || (view === "comparison" && period === "annual")
+    if (isAnnualYTDorDDM && comparisonType === "lastMonth") {
+      setComparisonType("pastMonth")
+    }
+  }, [view, period, comparisonType])
+
+  // --- Fetch financial statement data from the API ---
+  const [rows, setRows] = useState<FinancialStatementRow[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      try {
+        const apiCompanies = await listCompanies()
+        const companyId = selectedCompanyId || apiCompanies[0]?.id
+        if (!companyId) {
+          setRows([])
+          return
+        }
+
+        const params: FinancialStatementParams = {
+          fiscal_year: selectedYear,
+          month: selectedMonth,
+          period: period,
+          comparison_type: comparisonType,
+          budget_id: comparisonType === "budget" && selectedBudgetId ? selectedBudgetId : undefined,
+          division_id: selectedDivisionId || undefined,
+          sub_division_id: selectedSubDivisionId || undefined,
+        }
+
+        const response = await getCashFlow(companyId, params)
+        setRows(response.rows)
+      } catch (err) {
+        console.error("Error fetching cash flow data:", err)
+        setRows([])
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
+  }, [selectedCompanyId, selectedYear, selectedMonth, period, view, comparisonType, selectedBudgetId, selectedDivisionId, selectedSubDivisionId])
+
+  // --- Compute top 3 variations from fetched rows ---
+  const topVariations = useMemo(() => {
+    if (rows.length === 0) return []
+    // Filter rows that have meaningful variation and are not empty/section-only
+    const withVariation = rows
+      .filter((r) => r.label && r.current !== 0 && r.prior !== 0 && !r.isSection)
+      .map((r) => ({
+        label: r.label,
+        variation: r.variation,
+        variationAmount: r.variationAmount,
+      }))
+      .sort((a, b) => Math.abs(b.variation) - Math.abs(a.variation))
+    return withVariation.slice(0, 3)
+  }, [rows])
 
   // Fonction pour obtenir la valeur actuelle du sélecteur Horizon
   const getCurrentHorizon = (): string => {
@@ -165,39 +192,6 @@ export default function CashFlowPage() {
         setView("comparison")
     }
   }
-
-  // Calculate summary metrics (mock data for now)
-  const calculateMetrics = () => {
-    const operatingCashFlow = 450000
-    const priorOperatingCashFlow = 420000
-    const operatingVariation = calculateVariation(operatingCashFlow, priorOperatingCashFlow)
-    const investingCashFlow = -125000
-    const priorInvestingCashFlow = -150000
-    const investingVariation = calculateVariation(investingCashFlow, priorInvestingCashFlow)
-    const financingCashFlow = -50000
-    const priorFinancingCashFlow = -30000
-    const financingVariation = calculateVariation(financingCashFlow, priorFinancingCashFlow)
-    const netCashFlow = operatingCashFlow + investingCashFlow + financingCashFlow
-    const priorNetCashFlow = priorOperatingCashFlow + priorInvestingCashFlow + priorFinancingCashFlow
-    const netVariation = calculateVariation(netCashFlow, priorNetCashFlow)
-    
-    return {
-      operatingCashFlow,
-      priorOperatingCashFlow,
-      operatingVariation,
-      investingCashFlow,
-      priorInvestingCashFlow,
-      investingVariation,
-      financingCashFlow,
-      priorFinancingCashFlow,
-      financingVariation,
-      netCashFlow,
-      priorNetCashFlow,
-      netVariation
-    }
-  }
-
-  const metrics = calculateMetrics()
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
@@ -327,21 +321,67 @@ export default function CashFlowPage() {
               {/* Separator */}
               <div className="h-6 w-px bg-slate-700" />
 
-              {/* Horizon Selector */}
+              {/* Horizon and Comparison Group */}
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Horizon:</span>
-                <Select value={getCurrentHorizon()} onValueChange={handleHorizonChange}>
-                  <SelectTrigger className="h-8 w-[140px] bg-slate-800/50 border-slate-700 text-slate-300 text-xs hover:bg-slate-700/50 disabled:opacity-30">
-                    <Calendar className="w-3.5 h-3.5 mr-2 text-slate-400" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="courant">Courant</SelectItem>
-                    <SelectItem value="12mois">12 mois</SelectItem>
-                    <SelectItem value="trimestres">Trimestres</SelectItem>
-                    <SelectItem value="annees">Années</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-2 items-center">
+                  <Select value={getCurrentHorizon()} onValueChange={handleHorizonChange}>
+                    <SelectTrigger className="h-8 w-[140px] bg-slate-800/50 border-slate-700 text-slate-300 text-xs hover:bg-slate-700/50">
+                      <Calendar className="w-3.5 h-3.5 mr-2 text-slate-400" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="courant">Courant</SelectItem>
+                      <SelectItem value="12mois">12 mois</SelectItem>
+                      <SelectItem value="trimestres">Trimestres</SelectItem>
+                      <SelectItem value="annees">Années</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {(view === "comparison" || view === "ytd" || view === "ddm") && (
+                    <>
+                      <ChevronRight className="w-4 h-4 text-slate-400" />
+                      <Select value={comparisonType} onValueChange={(value) => {
+                        setComparisonType(value as ComparisonType)
+                        // Reset budget selection when switching away from budget
+                        if (value !== "budget") {
+                          setSelectedBudgetId(null)
+                        }
+                      }}>
+                        <SelectTrigger className="h-8 w-[140px] bg-slate-800/50 border-slate-700 text-slate-300 text-xs hover:bg-slate-700/50">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {/* Hide "Mois dernier" for Annuel, YTD, and DDM horizons */}
+                          {!(view === "ytd" || view === "ddm" || (view === "comparison" && period === "annual")) && (
+                            <SelectItem value="lastMonth">Mois dernier</SelectItem>
+                          )}
+                          <SelectItem value="pastMonth">Mois passé</SelectItem>
+                          <SelectItem value="budget">Budget</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {comparisonType === "budget" && budgets.length > 0 && (
+                        <>
+                          <ChevronRight className="w-4 h-4 text-slate-400" />
+                          <Select
+                            value={selectedBudgetId || budgets[0].id}
+                            onValueChange={setSelectedBudgetId}
+                          >
+                            <SelectTrigger className="h-8 w-[140px] bg-slate-800/50 border-slate-700 text-slate-300 text-xs hover:bg-slate-700/50">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {budgets.map((budget) => (
+                                <SelectItem key={budget.id} value={budget.id}>
+                                  {budget.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* Separator */}
@@ -402,7 +442,7 @@ export default function CashFlowPage() {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Entité:</span>
                 <EntitySelector
-                  companies={companiesData}
+                  companies={companies}
                   selectedCompanyId={selectedCompanyId}
                   selectedDivisionId={selectedDivisionId}
                   selectedSubDivisionId={selectedSubDivisionId}
@@ -426,7 +466,8 @@ export default function CashFlowPage() {
             companyId={selectedCompanyId}
             divisionId={selectedDivisionId}
             subDivisionId={selectedSubDivisionId}
-            companies={companiesData}
+            companies={companies}
+            fiscalYear={selectedYear}
           />
         </div>
       </main>
@@ -446,33 +487,39 @@ export default function CashFlowPage() {
               
               {/* Top 3 Variations */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-4">
-                  <div className="text-xs text-slate-400 mb-1">Variation la plus importante</div>
-                  <div className="text-lg font-semibold text-white mb-1">Flux opérationnels</div>
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-500" />
-                    <span className="text-sm font-medium text-emerald-500">+24.6%</span>
-                    <span className="text-xs text-slate-400">vs période précédente</span>
-                  </div>
-                </div>
-                <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-4">
-                  <div className="text-xs text-slate-400 mb-1">2e variation importante</div>
-                  <div className="text-lg font-semibold text-white mb-1">Flux d'investissement</div>
-                  <div className="flex items-center gap-2">
-                    <TrendingDown className="w-4 h-4 text-red-500" />
-                    <span className="text-sm font-medium text-red-500">-18.3%</span>
-                    <span className="text-xs text-slate-400">vs période précédente</span>
-                  </div>
-                </div>
-                <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-4">
-                  <div className="text-xs text-slate-400 mb-1">3e variation importante</div>
-                  <div className="text-lg font-semibold text-white mb-1">Flux de financement</div>
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-500" />
-                    <span className="text-sm font-medium text-emerald-500">+12.9%</span>
-                    <span className="text-xs text-slate-400">vs période précédente</span>
-                  </div>
-                </div>
+                {topVariations.length > 0 ? topVariations.map((v, i) => {
+                  const isPositive = v.variation >= 0
+                  const labels = ["Variation la plus importante", "2e variation importante", "3e variation importante"]
+                  return (
+                    <div key={i} className="bg-slate-800/50 rounded-lg border border-slate-700 p-4">
+                      <div className="text-xs text-slate-400 mb-1">{labels[i]}</div>
+                      <div className="text-lg font-semibold text-white mb-1">{v.label}</div>
+                      <div className="flex items-center gap-2">
+                        {isPositive ? (
+                          <TrendingUp className="w-4 h-4 text-emerald-500" />
+                        ) : (
+                          <TrendingDown className="w-4 h-4 text-red-500" />
+                        )}
+                        <span className={`text-sm font-medium ${isPositive ? "text-emerald-500" : "text-red-500"}`}>
+                          {isPositive ? "+" : ""}{v.variation.toFixed(1)}%
+                        </span>
+                        <span className="text-xs text-slate-400">vs période précédente</span>
+                      </div>
+                    </div>
+                  )
+                }) : (
+                  <>
+                    {[0, 1, 2].map((i) => (
+                      <div key={i} className="bg-slate-800/50 rounded-lg border border-slate-700 p-4">
+                        <div className="text-xs text-slate-400 mb-1">{["Variation la plus importante", "2e variation importante", "3e variation importante"][i]}</div>
+                        <div className="text-lg font-semibold text-white mb-1">--</div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-slate-500">Aucune donnée</span>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -490,7 +537,13 @@ export default function CashFlowPage() {
               companyId={selectedCompanyId}
               divisionId={selectedDivisionId}
               subDivisionId={selectedSubDivisionId}
-              companies={companiesData}
+              companies={companies}
+              comparisonType={comparisonType}
+              selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
+              selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
+              fiscalYear={selectedYear}
+              rows={rows}
+              loading={loading}
             />
           ) : (
             <CashFlowDetail
@@ -500,7 +553,13 @@ export default function CashFlowPage() {
               companyId={selectedCompanyId}
               divisionId={selectedDivisionId}
               subDivisionId={selectedSubDivisionId}
-              companies={companiesData}
+              companies={companies}
+              comparisonType={comparisonType}
+              selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
+              selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
+              fiscalYear={selectedYear}
+              rows={rows}
+              loading={loading}
             />
           )}
         </div>

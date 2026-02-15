@@ -1,0 +1,126 @@
+[  107688ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
+
+Check the render method of `IncomeStatementDetail`.  @ http://localhost:3000/_next/static/chunks/9febf_next_dist_833f6516._.js:3127
+[  132468ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
+
+Check the render method of `IncomeStatementDetail`.  @ http://localhost:3000/_next/static/chunks/9febf_next_dist_833f6516._.js:3127
+[  165712ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
+
+Check the render method of `IncomeStatementDetail`.  @ http://localhost:3000/_next/static/chunks/9febf_next_dist_833f6516._.js:3127
+[  282740ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
+
+Check the render method of `IncomeStatementDetail`.  @ http://localhost:3000/_next/static/chunks/9febf_next_dist_833f6516._.js:3127
+[  331539ms] [ERROR] Error fetching income statement data: TypeError: Failed to fetch
+    at apiFetch (http://localhost:3000/_next/static/chunks/_5d0a1731._.js:218:21)
+    at listCompanies (http://localhost:3000/_next/static/chunks/_5d0a1731._.js:286:24)
+    at IncomeStatementPage.useEffect.fetchData (http://localhost:3000/_next/static/chunks/_04baea9a._.js:8976:183)
+    at IncomeStatementPage.useEffect (http://localhost:3000/_next/static/chunks/_04baea9a._.js:9009:13)
+    at Object.react_stack_bottom_frame (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:14876:22)
+    at runWithFiberInDEV (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:965:74)
+    at commitHookEffectListMount (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:7266:167)
+    at commitHookPassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:7301:60)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8696:33)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8700:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8700:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316) @ http://localhost:3000/_next/static/chunks/9febf_next_dist_833f6516._.js:3127
+[  331540ms] [ERROR] Error loading budgets: TypeError: Failed to fetch
+    at apiFetch (http://localhost:3000/_next/static/chunks/_5d0a1731._.js:218:21)
+    at listCompanies (http://localhost:3000/_next/static/chunks/_5d0a1731._.js:286:24)
+    at IncomeStatementPage.useEffect (http://localhost:3000/_next/static/chunks/_04baea9a._.js:8925:144)
+    at Object.react_stack_bottom_frame (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:14876:22)
+    at runWithFiberInDEV (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:965:74)
+    at commitHookEffectListMount (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:7266:167)
+    at commitHookPassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:7301:60)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8696:33)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8700:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8700:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8757:17)
+    at recursivelyTraversePassiveMountEffects (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8683:316)
+    at commitPassiveMountOnFiber (http://localhost:3000/_next/static/chunks/9febf_next_dist_compiled_react-dom_060531c3._.js:8695:17) @ http://localhost:3000/_next/static/chunks/9febf_next_dist_833f6516._.js:3127
+[  332129ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:8001/api/auth/me:0
+[  332130ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:8001/api/companies:0
+[  332130ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:8001/api/companies:0
+[  332130ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:8001/api/companies:0
+[  332130ms] [ERROR] Failed to load resource: the server responded with a status of 403 (Forbidden) @ http://localhost:8001/api/companies:0
+[  332135ms] [ERROR] Error loading budgets: ApiError: Not authenticated
+    at apiFetch (http://localhost:3000/_next/static/chunks/_5d0a1731._.js:249:15)
+    at async listCompanies (http://localhost:3000/_next/static/chunks/_5d0a1731._.js:286:18) @ http://localhost:3000/_next/static/chunks/9febf_next_dist_833f6516._.js:3127
+[  332135ms] [ERROR] Error fetching income statement data: ApiError: Not authenticated
+    at apiFetch (http://localhost:3000/_next/static/chunks/_5d0a1731._.js:249:15)
+    at async listCompanies (http://localhost:3000/_next/static/chunks/_5d0a1731._.js:286:18)
+    at async IncomeStatementPage.useEffect.fetchData (http://localhost:3000/_next/static/chunks/_04baea9a._.js:8976:46) @ http://localhost:3000/_next/static/chunks/9febf_next_dist_833f6516._.js:3127

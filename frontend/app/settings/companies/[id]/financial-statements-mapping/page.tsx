@@ -1,18 +1,34 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Building2, ArrowLeft, Edit2, X, Check, Plus, ChevronUp, ChevronDown, Trash2, ChevronRight } from "lucide-react"
+import { ArrowLeft, Edit2, X, Check, Plus, ChevronUp, ChevronDown, Trash2, ChevronRight, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
+import {
+  getCompany,
+  getStatementStructure,
+  upsertStatementStructure,
+  type Company as ApiCompany,
+  type StatementType,
+} from "@/lib/api"
 
 interface Company {
   id: string
   name: string
   fiscalYearEnd: string
   currency: string
+}
+
+function mapApiCompany(c: ApiCompany): Company {
+  return {
+    id: c.id,
+    name: c.name,
+    fiscalYearEnd: c.fiscal_year_end,
+    currency: c.currency,
+  }
 }
 
 interface FinancialStatementRow {
@@ -60,156 +76,151 @@ export default function FinancialStatementsMappingPage() {
   const [editingLinkCodeIndex, setEditingLinkCodeIndex] = useState<number | null>(null)
   const [editingLinkCode, setEditingLinkCode] = useState("")
 
-  // Load company and financial statement rows from localStorage
-  useEffect(() => {
-    if (typeof window !== "undefined" && companyId) {
-      const loadCompany = () => {
-        const saved = localStorage.getItem("modelisys_companies")
-        if (saved) {
-          try {
-            const companies: Company[] = JSON.parse(saved)
-            const foundCompany = companies.find((c) => c.id === companyId)
-            if (foundCompany) {
-              setCompany(foundCompany)
-            } else {
-              router.push(`/settings/companies/${companyId}`)
-            }
-          } catch (e) {
-            console.error("Error loading company:", e)
-            router.push(`/settings/companies/${companyId}`)
-          }
-        } else {
-          router.push(`/settings/companies/${companyId}`)
+  const [loading, setLoading] = useState(true)
+
+  const defaultIncomeStatementRows: FinancialStatementRow[] = [
+    { label: "revenus", isBold: true, isSection: true },
+    { label: "coût des produits vendus", isSection: true, indent: true },
+    { label: "bénéfice brut", isBold: true, isResult: true },
+    { label: "" }, // Spacer
+    { label: "charges d'exploitation", isBold: true, isSection: true },
+    { label: "frais d'administration", indent: true },
+    { label: "frais de vente", indent: true },
+    { label: "autres dépenses (revenus)", indent: true },
+    { label: "total des charges", isBold: true },
+    { label: "" }, // Spacer
+    { label: "bénéfice avant impôts", isBold: true, isResult: true },
+    { label: "impôts (26%)", indent: true },
+    { label: "bénéfice net", isBold: true, isNetIncome: true },
+    { label: "" }, // Spacer
+    { label: "BAIIA", isBold: true, isEBITA: true },
+  ]
+
+  const defaultBalanceSheetRows: BalanceSheetRow[] = [
+    { label: "actifs", isBold: true, isSection: true },
+    { label: "actifs courants", isSection: true, indent: true },
+    { label: "actifs non courants", isSection: true, indent: true },
+    { label: "total des actifs", isBold: true, isResult: true },
+    { label: "" }, // Spacer
+    { label: "passifs", isBold: true, isSection: true },
+    { label: "passifs courants", indent: true },
+    { label: "passifs non courants", indent: true },
+    { label: "total des passifs", isBold: true },
+    { label: "" }, // Spacer
+    { label: "capitaux propres", isBold: true, isResult: true },
+    { label: "total passifs et capitaux propres", isBold: true, isResult: true },
+  ]
+
+  // Ensure "Coûts des produits vendus" is between "Revenus" and "Bénéfice brut"
+  const ensureCogsOrder = (rows: FinancialStatementRow[]): FinancialStatementRow[] => {
+    const revenusIndex = rows.findIndex(r => r.label.toLowerCase() === "revenus")
+    const cogsIndex = rows.findIndex(r => r.label.toLowerCase() === "coût des produits vendus")
+    const beneficeBrutIndex = rows.findIndex(r => r.label.toLowerCase() === "bénéfice brut")
+
+    if (revenusIndex !== -1 && cogsIndex !== -1 && beneficeBrutIndex !== -1) {
+      if (!(cogsIndex > revenusIndex && cogsIndex < beneficeBrutIndex)) {
+        const cogsRow = rows[cogsIndex]
+        const rowsWithoutCogs = rows.filter((_, i) => i !== cogsIndex)
+        const newRevenusIndex = rowsWithoutCogs.findIndex(r => r.label.toLowerCase() === "revenus")
+        const newBeneficeBrutIndex = rowsWithoutCogs.findIndex(r => r.label.toLowerCase() === "bénéfice brut")
+        if (newRevenusIndex !== -1 && newBeneficeBrutIndex !== -1) {
+          return [
+            ...rowsWithoutCogs.slice(0, newRevenusIndex + 1),
+            cogsRow,
+            ...rowsWithoutCogs.slice(newRevenusIndex + 1)
+          ]
         }
-      }
-
-      const loadFinancialStatementRows = () => {
-        const defaultRows: FinancialStatementRow[] = [
-          { label: "revenus", isBold: true, isSection: true },
-          { label: "coût des produits vendus", isSection: true, indent: true },
-          { label: "bénéfice brut", isBold: true, isResult: true },
-          { label: "" }, // Spacer
-          { label: "charges d'exploitation", isBold: true, isSection: true },
-          { label: "frais d'administration", indent: true },
-          { label: "frais de vente", indent: true },
-          { label: "autres dépenses (revenus)", indent: true },
-          { label: "total des charges", isBold: true },
-          { label: "" }, // Spacer
-          { label: "bénéfice avant impôts", isBold: true, isResult: true },
-          { label: "impôts (26%)", indent: true },
-          { label: "bénéfice net", isBold: true, isNetIncome: true },
-          { label: "" }, // Spacer
-          { label: "BAIIA", isBold: true, isEBITA: true },
-        ]
-
-        const saved = localStorage.getItem(`modelisys_financial_statements_${companyId}`)
-        if (saved) {
-          try {
-            const rows: FinancialStatementRow[] = JSON.parse(saved)
-            
-            // Ensure "Coûts des produits vendus" is between "Revenus" and "Bénéfice brut"
-            const revenusIndex = rows.findIndex(r => r.label.toLowerCase() === "revenus")
-            const cogsIndex = rows.findIndex(r => r.label.toLowerCase() === "coût des produits vendus")
-            const beneficeBrutIndex = rows.findIndex(r => r.label.toLowerCase() === "bénéfice brut")
-            
-            // If all three exist but order is wrong, fix it
-            if (revenusIndex !== -1 && cogsIndex !== -1 && beneficeBrutIndex !== -1) {
-              // If Coûts des produits vendus is not between Revenus and Bénéfice brut, reorder
-              if (!(cogsIndex > revenusIndex && cogsIndex < beneficeBrutIndex)) {
-                // Remove Coûts des produits vendus from its current position
-                const cogsRow = rows[cogsIndex]
-                const rowsWithoutCogs = rows.filter((_, i) => i !== cogsIndex)
-                
-                // Find the new position (right after Revenus, before Bénéfice brut)
-                const newRevenusIndex = rowsWithoutCogs.findIndex(r => r.label.toLowerCase() === "revenus")
-                const newBeneficeBrutIndex = rowsWithoutCogs.findIndex(r => r.label.toLowerCase() === "bénéfice brut")
-                
-                if (newRevenusIndex !== -1 && newBeneficeBrutIndex !== -1) {
-                  // Insert Coûts des produits vendus right after Revenus
-                  const reorderedRows = [
-                    ...rowsWithoutCogs.slice(0, newRevenusIndex + 1),
-                    cogsRow,
-                    ...rowsWithoutCogs.slice(newRevenusIndex + 1)
-                  ]
-                  setFinancialStatementRows(reorderedRows)
-                  // Save the reordered rows
-                  if (typeof window !== "undefined" && companyId) {
-                    localStorage.setItem(`modelisys_financial_statements_${companyId}`, JSON.stringify(reorderedRows))
-                  }
-                  return
-                }
-              }
-            }
-            
-            setFinancialStatementRows(rows)
-          } catch (e) {
-            console.error("Error loading financial statement rows:", e)
-            setFinancialStatementRows(defaultRows)
-          }
-        } else {
-          setFinancialStatementRows(defaultRows)
-        }
-      }
-
-      const loadBalanceSheetRows = () => {
-        const defaultRows: BalanceSheetRow[] = [
-          { label: "actifs", isBold: true, isSection: true },
-          { label: "actifs courants", isSection: true, indent: true },
-          { label: "actifs non courants", isSection: true, indent: true },
-          { label: "total des actifs", isBold: true, isResult: true },
-          { label: "" }, // Spacer
-          { label: "passifs", isBold: true, isSection: true },
-          { label: "passifs courants", indent: true },
-          { label: "passifs non courants", indent: true },
-          { label: "total des passifs", isBold: true },
-          { label: "" }, // Spacer
-          { label: "capitaux propres", isBold: true, isResult: true },
-          { label: "total passifs et capitaux propres", isBold: true, isResult: true },
-        ]
-
-        const saved = localStorage.getItem(`modelisys_balance_sheet_${companyId}`)
-        if (saved) {
-          try {
-            const rows: BalanceSheetRow[] = JSON.parse(saved)
-            setBalanceSheetRows(rows)
-          } catch (e) {
-            console.error("Error loading balance sheet rows:", e)
-            setBalanceSheetRows(defaultRows)
-          }
-        } else {
-          setBalanceSheetRows(defaultRows)
-        }
-      }
-
-      loadCompany()
-      loadFinancialStatementRows()
-      loadBalanceSheetRows()
-
-      // Listen for storage changes
-      const handleStorageChange = () => {
-        loadCompany()
-        loadFinancialStatementRows()
-      }
-
-      window.addEventListener("storage", handleStorageChange)
-      const interval = setInterval(handleStorageChange, 1000)
-
-      return () => {
-        window.removeEventListener("storage", handleStorageChange)
-        clearInterval(interval)
       }
     }
+    return rows
+  }
+
+  // Load company and statement structures from API
+  useEffect(() => {
+    if (!companyId) return
+
+    const loadData = async () => {
+      setLoading(true)
+      try {
+        const companyData = await getCompany(companyId)
+        setCompany(mapApiCompany(companyData))
+
+        // Load income statement structure
+        try {
+          const isData = await getStatementStructure(companyId, "income-statement")
+          if (isData.structure && Array.isArray(isData.structure) && isData.structure.length > 0) {
+            const rows = ensureCogsOrder(isData.structure as unknown as FinancialStatementRow[])
+            setFinancialStatementRows(rows)
+          } else {
+            setFinancialStatementRows(defaultIncomeStatementRows)
+          }
+        } catch {
+          // Structure doesn't exist yet, use defaults
+          setFinancialStatementRows(defaultIncomeStatementRows)
+        }
+
+        // Load balance sheet structure
+        try {
+          const bsData = await getStatementStructure(companyId, "balance-sheet")
+          if (bsData.structure && Array.isArray(bsData.structure) && bsData.structure.length > 0) {
+            setBalanceSheetRows(bsData.structure as unknown as BalanceSheetRow[])
+          } else {
+            setBalanceSheetRows(defaultBalanceSheetRows)
+          }
+        } catch {
+          // Structure doesn't exist yet, use defaults
+          setBalanceSheetRows(defaultBalanceSheetRows)
+        }
+      } catch (e) {
+        console.error("Error loading data:", e)
+        router.push(`/settings/companies/${companyId}`)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadData()
   }, [companyId, router])
+
+  // Save financial statement rows to API
+  const saveFinancialStatementRows = useCallback(async (rows: FinancialStatementRow[]) => {
+    try {
+      await upsertStatementStructure(
+        companyId,
+        "income-statement" as StatementType,
+        rows as unknown as Record<string, unknown>[]
+      )
+    } catch (e) {
+      console.error("Error saving income statement structure:", e)
+    }
+  }, [companyId])
+
+  // Save balance sheet rows to API
+  const saveBalanceSheetRows = useCallback(async (rows: BalanceSheetRow[]) => {
+    try {
+      await upsertStatementStructure(
+        companyId,
+        "balance-sheet" as StatementType,
+        rows as unknown as Record<string, unknown>[]
+      )
+    } catch (e) {
+      console.error("Error saving balance sheet structure:", e)
+    }
+  }, [companyId])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <DashboardHeader title="Modelisys" />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
+        </div>
+      </div>
+    )
+  }
 
   if (!company || financialStatementRows.length === 0) {
     return null
-  }
-
-  // Save financial statement rows to localStorage
-  const saveFinancialStatementRows = (rows: FinancialStatementRow[]) => {
-    if (typeof window !== "undefined" && companyId) {
-      localStorage.setItem(`modelisys_financial_statements_${companyId}`, JSON.stringify(rows))
-    }
   }
 
   // Helper function to capitalize first letter (same as in income-statement-summary)
@@ -602,13 +613,6 @@ export default function FinancialStatementsMappingPage() {
     
     setFinancialStatementRows(updatedRows)
     saveFinancialStatementRows(updatedRows)
-  }
-
-  // Save balance sheet rows to localStorage
-  const saveBalanceSheetRows = (rows: BalanceSheetRow[]) => {
-    if (typeof window !== "undefined" && companyId) {
-      localStorage.setItem(`modelisys_balance_sheet_${companyId}`, JSON.stringify(rows))
-    }
   }
 
   // Handle start editing a balance sheet post

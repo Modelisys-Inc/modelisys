@@ -1,6 +1,9 @@
 "use client"
 
+import { useMemo } from "react"
 import { Company } from "@/components/entity-selector"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, aggregateToYears, findRow } from "@/lib/series-utils"
 
 interface CashConversionAnalysisProps {
   period: "monthly" | "quarterly" | "annual"
@@ -11,73 +14,13 @@ interface CashConversionAnalysisProps {
   companies?: Company[]
 }
 
-// Helper functions to get data
-const getDetailData = (period: "monthly" | "quarterly" | "annual", view: "current" | "12months" | "24months" | "years") => {
-  if (view === "12months") {
-    return {
-      receivables: 350000,
-      priorReceivables: 300000,
-      inventory: 150000,
-      priorInventory: 130000,
-      payables: 200000,
-      priorPayables: 180000,
-      revenue: 275000,
-      priorRevenue: 242000,
-      trendValues: Array.from({ length: 12 }, (_, i) => ({
-        receivables: 300000 + (i * 4167),
-        inventory: 130000 + (i * 1667),
-        payables: 180000 + (i * 1667),
-        revenue: 242000 + (i * 2750)
-      }))
-    }
+/** Try multiple label variants to find a row. */
+function findRowMulti(rows: import("@/lib/api").SeriesRow[], ...labels: string[]) {
+  for (const label of labels) {
+    const found = findRow(rows, label)
+    if (found) return found
   }
-  if (view === "24months") {
-    return {
-      receivables: 350000,
-      priorReceivables: 300000,
-      inventory: 150000,
-      priorInventory: 130000,
-      payables: 200000,
-      priorPayables: 180000,
-      revenue: 275000,
-      priorRevenue: 242000,
-      trendValues: Array.from({ length: 24 }, (_, i) => ({
-        receivables: 300000 + (i * 2083),
-        inventory: 130000 + (i * 833),
-        payables: 180000 + (i * 833),
-        revenue: 242000 + (i * 1375)
-      }))
-    }
-  }
-  if (view === "years") {
-    return {
-      receivables: 4200000,
-      priorReceivables: 3600000,
-      inventory: 1800000,
-      priorInventory: 1560000,
-      payables: 2400000,
-      priorPayables: 2160000,
-      revenue: 3300000,
-      priorRevenue: 2864000,
-      trendValues: Array.from({ length: 6 }, (_, i) => ({
-        receivables: 3600000 + (i * 120000),
-        inventory: 1560000 + (i * 48000),
-        payables: 2160000 + (i * 48000),
-        revenue: 2864000 + (i * 72800)
-      }))
-    }
-  }
-  return {
-    receivables: period === "monthly" ? 350000 : period === "quarterly" ? 1050000 : 4200000,
-    priorReceivables: period === "monthly" ? 300000 : period === "quarterly" ? 900000 : 3600000,
-    inventory: period === "monthly" ? 150000 : period === "quarterly" ? 450000 : 1800000,
-    priorInventory: period === "monthly" ? 130000 : period === "quarterly" ? 390000 : 1560000,
-    payables: period === "monthly" ? 200000 : period === "quarterly" ? 600000 : 2400000,
-    priorPayables: period === "monthly" ? 180000 : period === "quarterly" ? 540000 : 2160000,
-    revenue: period === "monthly" ? 275000 : period === "quarterly" ? 825000 : 3300000,
-    priorRevenue: period === "monthly" ? 242000 : period === "quarterly" ? 716000 : 2864000,
-    trendValues: undefined
-  }
+  return undefined
 }
 
 export function CashConversionAnalysis({
@@ -88,13 +31,144 @@ export function CashConversionAnalysis({
   subDivisionId,
   companies = [],
 }: CashConversionAnalysisProps) {
-  const data = getDetailData(period, view)
+  // Fetch balance-sheet and income-statement series data
+  const currentYear = new Date().getFullYear()
+  const isMultiPeriod = view === "12months" || view === "24months" || view === "years"
+  const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
+
+  const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "balance-sheet",
+    fiscalYear: currentYear,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: !!companyId,
+  })
+
+  const { rows: isRows, periods: isPeriods, loading: isLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "income-statement",
+    fiscalYear: currentYear,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: !!companyId,
+  })
+
+  const loading = bsLoading || isLoading
+
+  // Build data from API rows
+  const data = useMemo(() => {
+    // Locate relevant rows in balance sheet
+    const receivablesRow = findRowMulti(bsRows, "comptes clients", "clients", "accounts receivable", "receivables")
+    const inventoryRow = findRowMulti(bsRows, "stocks", "inventaire", "inventory")
+    const payablesRow = findRowMulti(bsRows, "comptes fournisseurs", "fournisseurs", "accounts payable", "payables")
+
+    // Locate relevant rows in income statement
+    const revenueRow = findRowMulti(isRows, "total revenus", "revenus", "revenue", "ventes", "chiffre d'affaires")
+    const cogsRow = findRowMulti(isRows, "coût des ventes", "total coût", "coût des marchandises", "cost of sales", "cogs")
+
+    // Use balance sheet periods as reference (both should match)
+    const periods = bsPeriods
+
+    if (periods.length === 0) {
+      return {
+        receivables: 0, priorReceivables: 0,
+        inventory: 0, priorInventory: 0,
+        payables: 0, priorPayables: 0,
+        revenue: 0, priorRevenue: 0,
+        cogs: 0, priorCogs: 0,
+        trendValues: undefined as Array<{ receivables: number; inventory: number; payables: number; revenue: number; cogs: number }> | undefined,
+        periodLabels: [] as string[],
+      }
+    }
+
+    const receivablesAmounts = receivablesRow ? getRowAmounts(receivablesRow, periods) : periods.map(() => 0)
+    const inventoryAmounts = inventoryRow ? getRowAmounts(inventoryRow, periods) : periods.map(() => 0)
+    const payablesAmounts = payablesRow ? getRowAmounts(payablesRow, periods) : periods.map(() => 0)
+
+    // Income statement amounts - use isPeriods since they come from a different hook
+    const isPeriodsToUse = isPeriods.length > 0 ? isPeriods : periods
+    const revenueAmountsRaw = revenueRow ? getRowAmounts(revenueRow, isPeriodsToUse) : isPeriodsToUse.map(() => 0)
+    const cogsAmountsRaw = cogsRow ? getRowAmounts(cogsRow, isPeriodsToUse) : isPeriodsToUse.map(() => 0)
+
+    // For yearly view, aggregate monthly amounts
+    if (view === "years") {
+      const recAgg = aggregateToYears(receivablesAmounts, periods)
+      const invAgg = aggregateToYears(inventoryAmounts, periods)
+      const payAgg = aggregateToYears(payablesAmounts, periods)
+      const revAgg = aggregateToYears(revenueAmountsRaw, isPeriodsToUse)
+      const cogsAgg = aggregateToYears(cogsAmountsRaw, isPeriodsToUse)
+
+      const trendValues = recAgg.amounts.map((_, i) => ({
+        receivables: Math.abs(recAgg.amounts[i]),
+        inventory: Math.abs(invAgg.amounts[i]),
+        payables: Math.abs(payAgg.amounts[i]),
+        revenue: Math.abs(revAgg.amounts[i]),
+        cogs: Math.abs(cogsAgg.amounts[i]),
+      }))
+
+      const last = trendValues.length - 1
+      const prior = Math.max(0, last - 1)
+
+      return {
+        receivables: last >= 0 ? trendValues[last].receivables : 0,
+        priorReceivables: prior >= 0 && last > 0 ? trendValues[prior].receivables : 0,
+        inventory: last >= 0 ? trendValues[last].inventory : 0,
+        priorInventory: prior >= 0 && last > 0 ? trendValues[prior].inventory : 0,
+        payables: last >= 0 ? trendValues[last].payables : 0,
+        priorPayables: prior >= 0 && last > 0 ? trendValues[prior].payables : 0,
+        revenue: last >= 0 ? trendValues[last].revenue : 0,
+        priorRevenue: prior >= 0 && last > 0 ? trendValues[prior].revenue : 0,
+        cogs: last >= 0 ? trendValues[last].cogs : 0,
+        priorCogs: prior >= 0 && last > 0 ? trendValues[prior].cogs : 0,
+        trendValues,
+        periodLabels: recAgg.labels,
+      }
+    }
+
+    // For monthly views (12months, 24months, or current)
+    const trendValues = receivablesAmounts.map((_, i) => ({
+      receivables: Math.abs(receivablesAmounts[i]),
+      inventory: Math.abs(inventoryAmounts[i]),
+      payables: Math.abs(payablesAmounts[i]),
+      revenue: Math.abs(revenueAmountsRaw[i] || 0),
+      cogs: Math.abs(cogsAmountsRaw[i] || 0),
+    }))
+
+    const last = trendValues.length - 1
+    const prior = Math.max(0, last - 1)
+
+    return {
+      receivables: last >= 0 ? trendValues[last].receivables : 0,
+      priorReceivables: prior >= 0 && last > 0 ? trendValues[prior].receivables : 0,
+      inventory: last >= 0 ? trendValues[last].inventory : 0,
+      priorInventory: prior >= 0 && last > 0 ? trendValues[prior].inventory : 0,
+      payables: last >= 0 ? trendValues[last].payables : 0,
+      priorPayables: prior >= 0 && last > 0 ? trendValues[prior].payables : 0,
+      revenue: last >= 0 ? trendValues[last].revenue : 0,
+      priorRevenue: prior >= 0 && last > 0 ? trendValues[prior].revenue : 0,
+      cogs: last >= 0 ? trendValues[last].cogs : 0,
+      priorCogs: prior >= 0 && last > 0 ? trendValues[prior].cogs : 0,
+      trendValues: isMultiPeriod ? trendValues : undefined,
+      periodLabels: getPeriodLabels(periods),
+    }
+  }, [bsRows, bsPeriods, isRows, isPeriods, view, isMultiPeriod])
+
+  // Number of trend columns to render
+  const trendCount = data.trendValues?.length ?? 0
 
   // Helper to get days in period
   const getDaysInPeriod = (): number => {
-    if (period === "monthly") return 30
-    if (period === "quarterly") return 90
-    return 365
+    if (view === "years") return 365
+    // For monthly-based views, use 30 days per period
+    return 30
+  }
+
+  // Helper to get COGS, falling back to 60% of revenue if no COGS row found
+  const getCogs = (revenue: number, cogsValue: number): number => {
+    return cogsValue > 0 ? cogsValue : revenue * 0.6
   }
 
   // Calculate Days Sales Outstanding (DSO) - Délai de couvrement des clients
@@ -118,16 +192,16 @@ export function CashConversionAnalysis({
     if (trendIndex !== undefined && data.trendValues) {
       const inventory = data.trendValues[trendIndex]?.inventory || 0
       const revenue = data.trendValues[trendIndex]?.revenue || 0
-      // Estimate cost of goods sold as 60% of revenue
-      const cogs = revenue * 0.6
+      const cogsValue = data.trendValues[trendIndex]?.cogs || 0
+      const cogs = getCogs(revenue, cogsValue)
       if (cogs === 0) return 0
       const days = getDaysInPeriod()
       return (inventory / cogs) * days
     }
     const inventory = isPrior ? data.priorInventory : data.inventory
     const revenue = isPrior ? data.priorRevenue : data.revenue
-    // Estimate cost of goods sold as 60% of revenue
-    const cogs = revenue * 0.6
+    const cogsValue = isPrior ? data.priorCogs : data.cogs
+    const cogs = getCogs(revenue, cogsValue)
     if (cogs === 0) return 0
     const days = getDaysInPeriod()
     return (inventory / cogs) * days
@@ -138,16 +212,16 @@ export function CashConversionAnalysis({
     if (trendIndex !== undefined && data.trendValues) {
       const payables = data.trendValues[trendIndex]?.payables || 0
       const revenue = data.trendValues[trendIndex]?.revenue || 0
-      // Estimate cost of goods sold as 60% of revenue
-      const cogs = revenue * 0.6
+      const cogsValue = data.trendValues[trendIndex]?.cogs || 0
+      const cogs = getCogs(revenue, cogsValue)
       if (cogs === 0) return 0
       const days = getDaysInPeriod()
       return (payables / cogs) * days
     }
     const payables = isPrior ? data.priorPayables : data.payables
     const revenue = isPrior ? data.priorRevenue : data.revenue
-    // Estimate cost of goods sold as 60% of revenue
-    const cogs = revenue * 0.6
+    const cogsValue = isPrior ? data.priorCogs : data.cogs
+    const cogs = getCogs(revenue, cogsValue)
     if (cogs === 0) return 0
     const days = getDaysInPeriod()
     return (payables / cogs) * days
@@ -161,23 +235,8 @@ export function CashConversionAnalysis({
     return dso + dio - dpo
   }
 
-  // Helper to get month labels
-  const getMonthLabels = (count: number): string[] => {
-    const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
-    const labels: string[] = []
-    const currentDate = new Date()
-    for (let i = count - 1; i >= 0; i--) {
-      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
-      labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
-    }
-    return labels
-  }
-
-  // Helper to get year labels
-  const getYearLabels = (): string[] => {
-    const currentYear = new Date().getFullYear()
-    return Array.from({ length: 6 }, (_, i) => `${currentYear - 5 + i}`)
-  }
+  // Period labels from real data
+  const periodLabels = data.periodLabels
 
   // Helper function to get horizon text
   const getHorizonText = (): string => {
@@ -188,6 +247,57 @@ export function CashConversionAnalysis({
     if (view === "24months") return "24 mois"
     if (view === "years") return "5 ans"
     return "Courant"
+  }
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
+        <div className="px-8 py-5 border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
+            <h3 className="text-xl font-semibold text-slate-900 tracking-tight">Analyse de la conversion de l&apos;encaisse</h3>
+          </div>
+        </div>
+        <div className="flex items-center justify-center h-48">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+        </div>
+      </div>
+    )
+  }
+
+  // No company selected
+  if (!companyId) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
+        <div className="px-8 py-5 border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
+            <h3 className="text-xl font-semibold text-slate-900 tracking-tight">Analyse de la conversion de l&apos;encaisse</h3>
+          </div>
+        </div>
+        <div className="flex items-center justify-center h-48 text-slate-500">
+          Sélectionnez une société
+        </div>
+      </div>
+    )
+  }
+
+  // No data available
+  if (bsRows.length === 0 && isRows.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
+        <div className="px-8 py-5 border-b border-slate-200">
+          <div className="flex items-center gap-3">
+            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
+            <h3 className="text-xl font-semibold text-slate-900 tracking-tight">Analyse de la conversion de l&apos;encaisse</h3>
+          </div>
+        </div>
+        <div className="flex items-center justify-center h-48 text-slate-500">
+          Aucune donnée disponible
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -240,27 +350,9 @@ export function CashConversionAnalysis({
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Passé</th>
                 </>
               )}
-              {view === "12months" && (
+              {(view === "12months" || view === "24months" || view === "years") && (
                 <>
-                  {getMonthLabels(12).map((label, idx) => (
-                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
-                      {label}
-                    </th>
-                  ))}
-                </>
-              )}
-              {view === "24months" && (
-                <>
-                  {getMonthLabels(24).map((label, idx) => (
-                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
-                      {label}
-                    </th>
-                  ))}
-                </>
-              )}
-              {view === "years" && (
-                <>
-                  {getYearLabels().map((label, idx) => (
+                  {periodLabels.map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>
@@ -285,34 +377,16 @@ export function CashConversionAnalysis({
                   </td>
                 )
               })()}
-              {view === "12months" && (() => {
-                const values = Array.from({ length: 12 }).map((_, idx) => calculateDSO(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
+              {isMultiPeriod && (() => {
+                const values = Array.from({ length: trendCount }).map((_, idx) => calculateDSO(false, idx))
+                const average = values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0
                 return (
                   <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
                     {average.toFixed(1)} j
                   </td>
                 )
               })()}
-              {view === "24months" && (() => {
-                const values = Array.from({ length: 24 }).map((_, idx) => calculateDSO(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)} j
-                  </td>
-                )
-              })()}
-              {view === "years" && (() => {
-                const values = Array.from({ length: 6 }).map((_, idx) => calculateDSO(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)} j
-                  </td>
-                )
-              })()}
-              
+
               {/* Colonnes de données */}
               {view === "current" && (
                 <>
@@ -324,34 +398,10 @@ export function CashConversionAnalysis({
                   </td>
                 </>
               )}
-              
-              {view === "12months" && (
+
+              {isMultiPeriod && (
                 <>
-                  {Array.from({ length: 12 }).map((_, idx) => {
-                    const dso = calculateDSO(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right font-mono text-sm text-slate-900">
-                        {dso.toFixed(1)} j
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "24months" && (
-                <>
-                  {Array.from({ length: 24 }).map((_, idx) => {
-                    const dso = calculateDSO(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right font-mono text-sm text-slate-900">
-                        {dso.toFixed(1)} j
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "years" && (
-                <>
-                  {Array.from({ length: 6 }).map((_, idx) => {
+                  {Array.from({ length: trendCount }).map((_, idx) => {
                     const dso = calculateDSO(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right font-mono text-sm text-slate-900">
@@ -378,34 +428,16 @@ export function CashConversionAnalysis({
                   </td>
                 )
               })()}
-              {view === "12months" && (() => {
-                const values = Array.from({ length: 12 }).map((_, idx) => calculateDIO(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
+              {isMultiPeriod && (() => {
+                const values = Array.from({ length: trendCount }).map((_, idx) => calculateDIO(false, idx))
+                const average = values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0
                 return (
                   <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
                     {average.toFixed(1)} j
                   </td>
                 )
               })()}
-              {view === "24months" && (() => {
-                const values = Array.from({ length: 24 }).map((_, idx) => calculateDIO(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)} j
-                  </td>
-                )
-              })()}
-              {view === "years" && (() => {
-                const values = Array.from({ length: 6 }).map((_, idx) => calculateDIO(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)} j
-                  </td>
-                )
-              })()}
-              
+
               {/* Colonnes de données */}
               {view === "current" && (
                 <>
@@ -417,34 +449,10 @@ export function CashConversionAnalysis({
                   </td>
                 </>
               )}
-              
-              {view === "12months" && (
+
+              {isMultiPeriod && (
                 <>
-                  {Array.from({ length: 12 }).map((_, idx) => {
-                    const dio = calculateDIO(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right font-mono text-sm text-slate-900">
-                        {dio.toFixed(1)} j
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "24months" && (
-                <>
-                  {Array.from({ length: 24 }).map((_, idx) => {
-                    const dio = calculateDIO(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right font-mono text-sm text-slate-900">
-                        {dio.toFixed(1)} j
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "years" && (
-                <>
-                  {Array.from({ length: 6 }).map((_, idx) => {
+                  {Array.from({ length: trendCount }).map((_, idx) => {
                     const dio = calculateDIO(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right font-mono text-sm text-slate-900">
@@ -471,34 +479,16 @@ export function CashConversionAnalysis({
                   </td>
                 )
               })()}
-              {view === "12months" && (() => {
-                const values = Array.from({ length: 12 }).map((_, idx) => calculateDPO(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
+              {isMultiPeriod && (() => {
+                const values = Array.from({ length: trendCount }).map((_, idx) => calculateDPO(false, idx))
+                const average = values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0
                 return (
                   <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
                     {average.toFixed(1)} j
                   </td>
                 )
               })()}
-              {view === "24months" && (() => {
-                const values = Array.from({ length: 24 }).map((_, idx) => calculateDPO(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)} j
-                  </td>
-                )
-              })()}
-              {view === "years" && (() => {
-                const values = Array.from({ length: 6 }).map((_, idx) => calculateDPO(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)} j
-                  </td>
-                )
-              })()}
-              
+
               {/* Colonnes de données */}
               {view === "current" && (
                 <>
@@ -510,34 +500,10 @@ export function CashConversionAnalysis({
                   </td>
                 </>
               )}
-              
-              {view === "12months" && (
+
+              {isMultiPeriod && (
                 <>
-                  {Array.from({ length: 12 }).map((_, idx) => {
-                    const dpo = calculateDPO(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right font-mono text-sm text-slate-900">
-                        {dpo.toFixed(1)} j
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "24months" && (
-                <>
-                  {Array.from({ length: 24 }).map((_, idx) => {
-                    const dpo = calculateDPO(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right font-mono text-sm text-slate-900">
-                        {dpo.toFixed(1)} j
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "years" && (
-                <>
-                  {Array.from({ length: 6 }).map((_, idx) => {
+                  {Array.from({ length: trendCount }).map((_, idx) => {
                     const dpo = calculateDPO(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right font-mono text-sm text-slate-900">
@@ -564,34 +530,16 @@ export function CashConversionAnalysis({
                   </td>
                 )
               })()}
-              {view === "12months" && (() => {
-                const values = Array.from({ length: 12 }).map((_, idx) => calculateCCC(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
+              {isMultiPeriod && (() => {
+                const values = Array.from({ length: trendCount }).map((_, idx) => calculateCCC(false, idx))
+                const average = values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0
                 return (
                   <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
                     {average.toFixed(1)} j
                   </td>
                 )
               })()}
-              {view === "24months" && (() => {
-                const values = Array.from({ length: 24 }).map((_, idx) => calculateCCC(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)} j
-                  </td>
-                )
-              })()}
-              {view === "years" && (() => {
-                const values = Array.from({ length: 6 }).map((_, idx) => calculateCCC(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)} j
-                  </td>
-                )
-              })()}
-              
+
               {/* Colonnes de données */}
               {view === "current" && (
                 <>
@@ -603,34 +551,10 @@ export function CashConversionAnalysis({
                   </td>
                 </>
               )}
-              
-              {view === "12months" && (
+
+              {isMultiPeriod && (
                 <>
-                  {Array.from({ length: 12 }).map((_, idx) => {
-                    const ccc = calculateCCC(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right font-mono text-sm text-slate-900">
-                        {ccc.toFixed(1)} j
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "24months" && (
-                <>
-                  {Array.from({ length: 24 }).map((_, idx) => {
-                    const ccc = calculateCCC(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right font-mono text-sm text-slate-900">
-                        {ccc.toFixed(1)} j
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "years" && (
-                <>
-                  {Array.from({ length: 6 }).map((_, idx) => {
+                  {Array.from({ length: trendCount }).map((_, idx) => {
                     const ccc = calculateCCC(false, idx)
                     return (
                       <td key={idx} className="px-4 py-3.5 text-right font-mono text-sm text-slate-900">

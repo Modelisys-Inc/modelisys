@@ -35,6 +35,7 @@ class CompanyCreate(BaseModel):
     name: str
     fiscal_year_end: str = "12-31"
     currency: str = "CAD"
+    is_cumulative_tb: bool = False
     divisions: list[DivisionCreate] = []
 
 
@@ -42,6 +43,7 @@ class CompanyUpdate(BaseModel):
     name: str | None = None
     fiscal_year_end: str | None = None
     currency: str | None = None
+    is_cumulative_tb: bool | None = None
 
 
 class CompanyResponse(BaseModel):
@@ -49,6 +51,7 @@ class CompanyResponse(BaseModel):
     name: str
     fiscal_year_end: str
     currency: str
+    is_cumulative_tb: bool = False
     divisions: list[DivisionResponse] = []
     created_at: datetime
     updated_at: datetime

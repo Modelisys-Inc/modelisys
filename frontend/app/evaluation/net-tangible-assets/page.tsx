@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
 import { Filter, Settings } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -12,28 +12,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Société Principale",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division A",
-        subDivisions: [
-          { id: "subdiv-1", name: "Sous-division 1" },
-          { id: "subdiv-2", name: "Sous-division 2" },
-        ],
-      },
-    ],
-  },
-]
+import { useCompanies } from "@/hooks/use-companies"
+import {
+  listCompanies,
+  listForecastConfigs,
+  upsertForecastConfig,
+  getBalanceSheet,
+  type Company as ApiCompany,
+} from "@/lib/api"
 
 const evaluationNav = [
   { label: "Modèle d'affaires", href: "/evaluation/business-model" },
   { label: "Multiple du BAIIA", href: "/evaluation/ebitda-multiple" },
   { label: "Actif Corporel Net", href: "/evaluation/net-tangible-assets" },
+  { label: "DCF", href: "/evaluation/dcf" },
+  { label: "CCF", href: "/evaluation/ccf" },
+  { label: "VCA", href: "/evaluation/vca" },
 ]
 
 interface BalanceRow {
@@ -50,13 +44,37 @@ interface BalanceRow {
 }
 
 export default function NetTangibleAssetsPage() {
+  const { companies } = useCompanies()
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
+  const [notesConfigId, setNotesConfigId] = useState<string | null>(null)
   const pathname = usePathname()
 
-  // Get current year
-  const currentYear = new Date().getFullYear()
+  // Auto-select first company
+  useEffect(() => {
+    if (!companyId && companies.length > 0) {
+      setCompanyId(companies[0].id)
+    }
+  }, [companies, companyId])
+
+  // Fetch API companies for fiscal_year_end
+  const [apiCompanies, setApiCompanies] = useState<ApiCompany[]>([])
+  useEffect(() => {
+    listCompanies().then(setApiCompanies).catch(() => {})
+  }, [])
+
+  const currentYear = useMemo(() => {
+    const now = new Date()
+    const curMonth = now.getMonth() + 1
+    const curYear = now.getFullYear()
+    if (!companyId) return curYear
+    const company = apiCompanies.find(c => c.id === companyId)
+    const fyEnd = company?.fiscal_year_end || "12-31"
+    const fyEndMonth = parseInt(fyEnd.split("-")[0], 10) || 12
+    const currentFY = curMonth <= fyEndMonth ? curYear : curYear + 1
+    return currentFY - 1
+  }, [companyId, apiCompanies])
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false)
@@ -68,36 +86,77 @@ export default function NetTangibleAssetsPage() {
   // Notes storage: key = rowId-column -> note
   const [notes, setNotes] = useState<Record<string, string>>({})
 
-  // Balance sheet data - using years view data structure
-  const [balanceData, setBalanceData] = useState<BalanceRow[]>([
-    { label: "ACTIFS", year2026: 0, adjustments: 0, debts: 0, assets: 0, isBold: true, isSection: true },
-    { label: "ACTIFS COURANTS", year2026: 0, adjustments: 0, debts: 0, assets: 0, isBold: true, isSection: true },
-    { label: "Trésorerie et équivalents", year2026: 2400000, adjustments: 0, debts: 0, assets: 0, indent: true, rowId: "cash" },
-    { label: "Comptes clients", year2026: 4200000, adjustments: 0, debts: 0, assets: 0, indent: true, rowId: "receivables" },
-    { label: "Stocks", year2026: 1800000, adjustments: 0, debts: 0, assets: 0, indent: true, rowId: "inventory" },
-    { label: "Autres actifs courants", year2026: 1800000, adjustments: 0, debts: 0, assets: 0, indent: true, rowId: "other-current-assets" },
-    { label: "Total Actifs courants", year2026: 10200000, adjustments: 0, debts: 0, assets: 0, isBold: true, isSubtotal: true },
-    { label: "", year2026: 0, adjustments: 0, debts: 0, assets: 0 },
-    { label: "Immobilisations corporelles", year2026: 9600000, adjustments: 0, debts: 0, assets: 0, rowId: "fixed-assets" },
-    { label: "Immobilisations incorporelles", year2026: 3000000, adjustments: 0, debts: 0, assets: 0, rowId: "intangible-assets" },
-    { label: "Autres actifs non courants", year2026: 1800000, adjustments: 0, debts: 0, assets: 0 },
-    { label: "Total Actifs", year2026: 24600000, adjustments: 0, debts: 0, assets: 0, isBold: true, isSubtotal: true },
-    { label: "", year2026: 0, adjustments: 0, debts: 0, assets: 0 },
-    { label: "PASSIFS", year2026: 0, adjustments: 0, debts: 0, assets: 0, isBold: true, isSection: true },
-    { label: "PASSIFS COURANTS", year2026: 0, adjustments: 0, debts: 0, assets: 0, isBold: true, isSection: true },
-    { label: "Comptes fournisseurs", year2026: 2400000, adjustments: 0, debts: 0, assets: 0, indent: true, rowId: "payables" },
-    { label: "Dettes à court terme", year2026: 1800000, adjustments: 0, debts: 0, assets: 0, indent: true, rowId: "short-term-debt" },
-    { label: "Autres passifs courants", year2026: 1200000, adjustments: 0, debts: 0, assets: 0, indent: true },
-    { label: "Total Passifs courants", year2026: 5400000, adjustments: 0, debts: 0, assets: 0, isBold: true, isSubtotal: true },
-    { label: "", year2026: 0, adjustments: 0, debts: 0, assets: 0 },
-    { label: "Dettes à long terme", year2026: 5400000, adjustments: 0, debts: 0, assets: 0, rowId: "long-term-debt" },
-    { label: "Autres passifs non courants", year2026: 1800000, adjustments: 0, debts: 0, assets: 0 },
-    { label: "Total Passifs", year2026: 12600000, adjustments: 0, debts: 0, assets: 0, isBold: true, isSubtotal: true },
-    { label: "", year2026: 0, adjustments: 0, debts: 0, assets: 0 },
-    { label: "Actif net", year2026: 12000000, adjustments: 0, debts: 0, assets: 0, isBold: true, isSubtotal: true, rowId: "net-assets" },
-    { label: "", year2026: 0, adjustments: 0, debts: 0, assets: 0 },
-    { label: "Total passifs et actif net", year2026: 24600000, adjustments: 0, debts: 0, assets: 0, isBold: true, isSubtotal: true },
-  ])
+  // Balance sheet data - populated from API
+  const [balanceData, setBalanceData] = useState<BalanceRow[]>([])
+  const [balanceLoading, setBalanceLoading] = useState(false)
+
+  // Fetch balance sheet data from API when company changes
+  useEffect(() => {
+    if (!companyId) {
+      setBalanceData([])
+      return
+    }
+
+    let cancelled = false
+    setBalanceLoading(true)
+
+    getBalanceSheet(companyId, {
+      fiscal_year: currentYear,
+      period: "annual",
+      ...(divisionId ? { division_id: divisionId } : {}),
+      ...(subDivisionId ? { sub_division_id: subDivisionId } : {}),
+    })
+      .then(response => {
+        if (cancelled) return
+
+        if (!response.rows || response.rows.length === 0) {
+          setBalanceData([])
+          return
+        }
+
+        // Convert FinancialStatementRow[] to BalanceRow[]
+        const rows: BalanceRow[] = response.rows.map(row => {
+          // Generate a stable rowId for editable rows (non-section, non-spacer rows with a label)
+          const isSection = row.isSection
+          const isSubtotal = row.isResult
+          const isBold = row.isBold
+          const isSpacer = !row.label || row.label.trim() === ""
+          const indent = !isBold && !isSection && !isSubtotal && !isSpacer
+
+          // Create a rowId for rows that should be editable
+          let rowId: string | undefined
+          if (!isSection && !isSubtotal && !isSpacer && row.label) {
+            rowId = row.id
+          }
+
+          return {
+            label: row.label,
+            year2026: row.current,
+            adjustments: 0,
+            debts: 0,
+            assets: 0,
+            isBold,
+            isSection,
+            isSubtotal,
+            indent,
+            rowId,
+          }
+        })
+
+        setBalanceData(rows)
+      })
+      .catch(err => {
+        if (!cancelled) {
+          console.error("Error loading balance sheet:", err)
+          setBalanceData([])
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBalanceLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [companyId, divisionId, subDivisionId, currentYear])
 
   // Calculate VCA and ACN for each row
   const calculateVCA = (row: BalanceRow): number => {
@@ -118,18 +177,48 @@ export default function NetTangibleAssetsPage() {
     .filter(row => row.rowId && !row.isSection && !row.isSubtotal && row.label !== "")
     .reduce((sum, row) => sum + row.assets, 0)
 
-  // Load notes from localStorage
+  // Load notes from API
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const storageKey = `net-tangible-assets-notes-${companyId || "all"}-${divisionId || "all"}-${subDivisionId || "all"}`
-        const stored = localStorage.getItem(storageKey)
-        if (stored) {
-          setNotes(JSON.parse(stored))
+    if (!companyId) {
+      setNotes({})
+      setNotesConfigId(null)
+      return
+    }
+
+    listForecastConfigs(companyId, {
+      config_type: "net-tangible-assets-notes",
+      ...(divisionId ? { division_id: divisionId } : {}),
+      ...(subDivisionId ? { sub_division_id: subDivisionId } : {}),
+    })
+      .then((configs) => {
+        if (configs.length > 0) {
+          setNotes((configs[0].data as Record<string, string>) || {})
+          setNotesConfigId(configs[0].id)
+        } else {
+          setNotes({})
+          setNotesConfigId(null)
         }
-      } catch (error) {
-        console.error("Error loading notes:", error)
-      }
+      })
+      .catch((err) => {
+        console.error("Error loading notes:", err)
+        setNotes({})
+        setNotesConfigId(null)
+      })
+  }, [companyId, divisionId, subDivisionId])
+
+  // Save notes to API
+  const saveNotesToApi = useCallback(async (updatedNotes: Record<string, string>) => {
+    if (!companyId) return
+    try {
+      const result = await upsertForecastConfig(companyId, {
+        config_type: "net-tangible-assets-notes",
+        data: updatedNotes as Record<string, unknown>,
+        division_id: divisionId || null,
+        sub_division_id: subDivisionId || null,
+      })
+      setNotesConfigId(result.id)
+    } catch (err) {
+      console.error("Error saving notes:", err)
     }
   }, [companyId, divisionId, subDivisionId])
 
@@ -163,15 +252,8 @@ export default function NetTangibleAssetsPage() {
     const updatedNotes = { ...notes, [noteKey]: modalNote }
     setNotes(updatedNotes)
 
-    // Save to localStorage
-    if (typeof window !== "undefined") {
-      try {
-        const storageKey = `net-tangible-assets-notes-${companyId || "all"}-${divisionId || "all"}-${subDivisionId || "all"}`
-        localStorage.setItem(storageKey, JSON.stringify(updatedNotes))
-      } catch (error) {
-        console.error("Error saving notes:", error)
-      }
-    }
+    // Save to API
+    saveNotesToApi(updatedNotes)
 
     setModalOpen(false)
     setEditingRowId(null)
@@ -242,7 +324,7 @@ export default function NetTangibleAssetsPage() {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Entité:</span>
                 <EntitySelector
-                  companies={companiesData}
+                  companies={companies}
                   selectedCompanyId={companyId}
                   selectedDivisionId={divisionId}
                   selectedSubDivisionId={subDivisionId}
@@ -272,6 +354,17 @@ export default function NetTangibleAssetsPage() {
             </div>
 
             {/* Table */}
+            {balanceLoading ? (
+              <div className="flex items-center justify-center h-64 bg-white">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+              </div>
+            ) : balanceData.length === 0 ? (
+              <div className="flex items-center justify-center h-64 bg-white">
+                <p className="text-slate-400">
+                  {companyId ? "Aucune donnée de bilan disponible" : "Sélectionnez une entreprise pour afficher le bilan"}
+                </p>
+              </div>
+            ) : (
             <div className="overflow-x-auto bg-white">
               <table className="w-full">
                 <thead>
@@ -463,6 +556,7 @@ export default function NetTangibleAssetsPage() {
                 </tbody>
               </table>
             </div>
+            )}
           </div>
         </div>
       </div>

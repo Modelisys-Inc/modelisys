@@ -6,9 +6,21 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Building2, Calendar, DollarSign, ArrowLeft, Folder, FolderTree, ChevronDown, ChevronRight, Plus, Edit2, Trash2, X, Check, AlertTriangle } from "lucide-react"
+import { Building2, Calendar, DollarSign, ArrowLeft, Folder, FolderTree, ChevronDown, ChevronRight, Plus, Edit2, Trash2, X, Check, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter, usePathname } from "next/navigation"
+import {
+  getCompany,
+  updateCompany,
+  deleteCompany as deleteCompanyApi,
+  createDivision as createDivisionApi,
+  updateDivision as updateDivisionApi,
+  deleteDivision as deleteDivisionApi,
+  createSubDivision as createSubDivisionApi,
+  updateSubDivision as updateSubDivisionApi,
+  deleteSubDivision as deleteSubDivisionApi,
+  type Company as ApiCompany,
+} from "@/lib/api"
 
 interface SubDivision {
   id: string
@@ -27,6 +39,23 @@ interface Company {
   fiscalYearEnd: string
   currency: string
   divisions: Division[]
+}
+
+function mapApiCompany(c: ApiCompany): Company {
+  return {
+    id: c.id,
+    name: c.name,
+    fiscalYearEnd: c.fiscal_year_end,
+    currency: c.currency,
+    divisions: (c.divisions || []).map((d) => ({
+      id: d.id,
+      name: d.name,
+      subDivisions: (d.sub_divisions || []).map((s) => ({
+        id: s.id,
+        name: s.name,
+      })),
+    })),
+  }
 }
 
 const fiscalYearEndOptions = [
@@ -60,6 +89,7 @@ export default function CompanySettingsPage() {
   const pathname = usePathname()
   const companyId = params.id as string
   const [company, setCompany] = useState<Company | null>(null)
+  const [loading, setLoading] = useState(true)
   const [expandedDivisions, setExpandedDivisions] = useState<Set<string>>(new Set())
   const [addingDivisionTo, setAddingDivisionTo] = useState(false)
   const [newDivisionName, setNewDivisionName] = useState("")
@@ -74,59 +104,14 @@ export default function CompanySettingsPage() {
   const [editingCompanyName, setEditingCompanyName] = useState(false)
   const [editingName, setEditingName] = useState("")
 
-  // Save company to localStorage
-  const saveCompany = (updatedCompany: Company) => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("modelisys_companies")
-      if (saved) {
-        try {
-          const companies: Company[] = JSON.parse(saved)
-          const updatedCompanies = companies.map((c) => (c.id === companyId ? updatedCompany : c))
-          localStorage.setItem("modelisys_companies", JSON.stringify(updatedCompanies))
-        } catch (e) {
-          console.error("Error saving company:", e)
-        }
-      }
-    }
-  }
-
-  // Load company from localStorage
+  // Load company from API
   useEffect(() => {
-    if (typeof window !== "undefined" && companyId) {
-      const loadCompany = () => {
-        const saved = localStorage.getItem("modelisys_companies")
-        if (saved) {
-          try {
-            const companies: Company[] = JSON.parse(saved)
-            const foundCompany = companies.find((c) => c.id === companyId)
-            if (foundCompany) {
-              setCompany(foundCompany)
-            } else {
-              router.push("/")
-            }
-          } catch (e) {
-            console.error("Error loading company:", e)
-            router.push("/")
-          }
-        } else {
-          router.push("/")
-        }
-      }
-
-      loadCompany()
-
-      // Listen for storage changes
-      const handleStorageChange = () => {
-        loadCompany()
-      }
-
-      window.addEventListener("storage", handleStorageChange)
-      const interval = setInterval(handleStorageChange, 1000)
-
-      return () => {
-        window.removeEventListener("storage", handleStorageChange)
-        clearInterval(interval)
-      }
+    if (companyId) {
+      setLoading(true)
+      getCompany(companyId)
+        .then((data) => setCompany(mapApiCompany(data)))
+        .catch(() => router.push("/"))
+        .finally(() => setLoading(false))
     }
   }, [companyId, router])
 
@@ -142,21 +127,21 @@ export default function CompanySettingsPage() {
     })
   }
 
-  const handleAddDivision = () => {
+  const handleAddDivision = async () => {
     if (newDivisionName.trim() && company) {
-      const newDivision: Division = {
-        id: Date.now().toString(),
-        name: newDivisionName.trim(),
-        subDivisions: [],
+      try {
+        const created = await createDivisionApi(companyId, { name: newDivisionName.trim() })
+        const newDivision: Division = {
+          id: created.id,
+          name: created.name,
+          subDivisions: (created.sub_divisions || []).map((s) => ({ id: s.id, name: s.name })),
+        }
+        setCompany({ ...company, divisions: [...company.divisions, newDivision] })
+        setNewDivisionName("")
+        setAddingDivisionTo(false)
+      } catch (e) {
+        console.error("Error creating division:", e)
       }
-      const updatedCompany = {
-        ...company,
-        divisions: [...company.divisions, newDivision],
-      }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setNewDivisionName("")
-      setAddingDivisionTo(false)
     }
   }
 
@@ -165,18 +150,21 @@ export default function CompanySettingsPage() {
     setEditingDivisionName(division.name)
   }
 
-  const handleSaveEditDivision = (divisionId: string) => {
+  const handleSaveEditDivision = async (divisionId: string) => {
     if (editingDivisionName.trim() && company) {
-      const updatedCompany = {
-        ...company,
-        divisions: company.divisions.map((d) =>
-          d.id === divisionId ? { ...d, name: editingDivisionName.trim() } : d
-        ),
+      try {
+        await updateDivisionApi(divisionId, { name: editingDivisionName.trim() })
+        setCompany({
+          ...company,
+          divisions: company.divisions.map((d) =>
+            d.id === divisionId ? { ...d, name: editingDivisionName.trim() } : d
+          ),
+        })
+        setEditingDivisionId(null)
+        setEditingDivisionName("")
+      } catch (e) {
+        console.error("Error updating division:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setEditingDivisionId(null)
-      setEditingDivisionName("")
     }
   }
 
@@ -185,40 +173,43 @@ export default function CompanySettingsPage() {
     setEditingDivisionName("")
   }
 
-  const handleDeleteDivision = (divisionId: string) => {
+  const handleDeleteDivision = async (divisionId: string) => {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette division et toutes ses sous-divisions ?") && company) {
-      const updatedCompany = {
-        ...company,
-        divisions: company.divisions.filter((d) => d.id !== divisionId),
+      try {
+        await deleteDivisionApi(divisionId)
+        setCompany({
+          ...company,
+          divisions: company.divisions.filter((d) => d.id !== divisionId),
+        })
+        setExpandedDivisions((prev) => {
+          const newSet = new Set(prev)
+          newSet.delete(divisionId)
+          return newSet
+        })
+      } catch (e) {
+        console.error("Error deleting division:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setExpandedDivisions((prev) => {
-        const newSet = new Set(prev)
-        newSet.delete(divisionId)
-        return newSet
-      })
     }
   }
 
-  const handleAddSubDivision = (divisionId: string) => {
+  const handleAddSubDivision = async (divisionId: string) => {
     if (newSubDivisionName.trim() && company) {
-      const newSubDivision: SubDivision = {
-        id: Date.now().toString(),
-        name: newSubDivisionName.trim(),
-      }
-      const updatedCompany = {
-        ...company,
-        divisions: company.divisions.map((d) =>
-          d.id === divisionId ? { ...d, subDivisions: [...d.subDivisions, newSubDivision] } : d
-        ),
-      }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setNewSubDivisionName("")
-      setAddingSubDivisionTo(null)
-      if (!expandedDivisions.has(divisionId)) {
-        setExpandedDivisions((prev) => new Set(prev).add(divisionId))
+      try {
+        const created = await createSubDivisionApi(divisionId, { name: newSubDivisionName.trim() })
+        const newSubDivision: SubDivision = { id: created.id, name: created.name }
+        setCompany({
+          ...company,
+          divisions: company.divisions.map((d) =>
+            d.id === divisionId ? { ...d, subDivisions: [...d.subDivisions, newSubDivision] } : d
+          ),
+        })
+        setNewSubDivisionName("")
+        setAddingSubDivisionTo(null)
+        if (!expandedDivisions.has(divisionId)) {
+          setExpandedDivisions((prev) => new Set(prev).add(divisionId))
+        }
+      } catch (e) {
+        console.error("Error creating sub-division:", e)
       }
     }
   }
@@ -228,25 +219,28 @@ export default function CompanySettingsPage() {
     setEditingSubDivisionName(subDivision.name)
   }
 
-  const handleSaveEditSubDivision = (divisionId: string, subDivisionId: string) => {
+  const handleSaveEditSubDivision = async (divisionId: string, subDivisionId: string) => {
     if (editingSubDivisionName.trim() && company) {
-      const updatedCompany = {
-        ...company,
-        divisions: company.divisions.map((d) =>
-          d.id === divisionId
-            ? {
-                ...d,
-                subDivisions: d.subDivisions.map((sd) =>
-                  sd.id === subDivisionId ? { ...sd, name: editingSubDivisionName.trim() } : sd
-                ),
-              }
-            : d
-        ),
+      try {
+        await updateSubDivisionApi(subDivisionId, { name: editingSubDivisionName.trim() })
+        setCompany({
+          ...company,
+          divisions: company.divisions.map((d) =>
+            d.id === divisionId
+              ? {
+                  ...d,
+                  subDivisions: d.subDivisions.map((sd) =>
+                    sd.id === subDivisionId ? { ...sd, name: editingSubDivisionName.trim() } : sd
+                  ),
+                }
+              : d
+          ),
+        })
+        setEditingSubDivisionId(null)
+        setEditingSubDivisionName("")
+      } catch (e) {
+        console.error("Error updating sub-division:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setEditingSubDivisionId(null)
-      setEditingSubDivisionName("")
     }
   }
 
@@ -255,18 +249,21 @@ export default function CompanySettingsPage() {
     setEditingSubDivisionName("")
   }
 
-  const handleDeleteSubDivision = (divisionId: string, subDivisionId: string) => {
+  const handleDeleteSubDivision = async (divisionId: string, subDivisionId: string) => {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette sous-division ?") && company) {
-      const updatedCompany = {
-        ...company,
-        divisions: company.divisions.map((d) =>
-          d.id === divisionId
-            ? { ...d, subDivisions: d.subDivisions.filter((sd) => sd.id !== subDivisionId) }
-            : d
-        ),
+      try {
+        await deleteSubDivisionApi(subDivisionId)
+        setCompany({
+          ...company,
+          divisions: company.divisions.map((d) =>
+            d.id === divisionId
+              ? { ...d, subDivisions: d.subDivisions.filter((sd) => sd.id !== subDivisionId) }
+              : d
+          ),
+        })
+      } catch (e) {
+        console.error("Error deleting sub-division:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
     }
   }
 
@@ -276,15 +273,15 @@ export default function CompanySettingsPage() {
     }
   }
 
-  const handleSaveFiscalYearEnd = () => {
+  const handleSaveFiscalYearEnd = async () => {
     if (editingFiscalYearEnd && company) {
-      const updatedCompany = {
-        ...company,
-        fiscalYearEnd: editingFiscalYearEnd,
+      try {
+        await updateCompany(companyId, { fiscal_year_end: editingFiscalYearEnd })
+        setCompany({ ...company, fiscalYearEnd: editingFiscalYearEnd })
+        setEditingFiscalYearEnd(null)
+      } catch (e) {
+        console.error("Error updating fiscal year end:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setEditingFiscalYearEnd(null)
     }
   }
 
@@ -298,15 +295,15 @@ export default function CompanySettingsPage() {
     }
   }
 
-  const handleSaveCurrency = () => {
+  const handleSaveCurrency = async () => {
     if (editingCurrency && company) {
-      const updatedCompany = {
-        ...company,
-        currency: editingCurrency,
+      try {
+        await updateCompany(companyId, { currency: editingCurrency })
+        setCompany({ ...company, currency: editingCurrency })
+        setEditingCurrency(null)
+      } catch (e) {
+        console.error("Error updating currency:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setEditingCurrency(null)
     }
   }
 
@@ -321,16 +318,16 @@ export default function CompanySettingsPage() {
     }
   }
 
-  const handleSaveCompanyName = () => {
+  const handleSaveCompanyName = async () => {
     if (editingName.trim() && company) {
-      const updatedCompany = {
-        ...company,
-        name: editingName.trim(),
+      try {
+        await updateCompany(companyId, { name: editingName.trim() })
+        setCompany({ ...company, name: editingName.trim() })
+        setEditingCompanyName(false)
+        setEditingName("")
+      } catch (e) {
+        console.error("Error updating company name:", e)
       }
-      setCompany(updatedCompany)
-      saveCompany(updatedCompany)
-      setEditingCompanyName(false)
-      setEditingName("")
     }
   }
 
@@ -339,31 +336,27 @@ export default function CompanySettingsPage() {
     setEditingName("")
   }
 
-  const handleDeleteCompany = () => {
+  const handleDeleteCompany = async () => {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette société et toutes ses divisions ? Cette action est irréversible.")) {
-      if (typeof window !== "undefined") {
-        const saved = localStorage.getItem("modelisys_companies")
-        if (saved) {
-          try {
-            const companies: Company[] = JSON.parse(saved)
-            const updatedCompanies = companies.filter((c) => c.id !== companyId)
-            localStorage.setItem("modelisys_companies", JSON.stringify(updatedCompanies))
-            // Redirect to home page
-            router.push("/")
-          } catch (e) {
-            console.error("Error deleting company:", e)
-          }
-        }
+      try {
+        await deleteCompanyApi(companyId)
+        router.push("/")
+      } catch (e) {
+        console.error("Error deleting company:", e)
       }
     }
   }
 
-  if (!company) {
+  if (loading || !company) {
     return (
       <div className="min-h-screen bg-slate-50">
         <DashboardHeader title="Modelisys" />
         <div className="flex items-center justify-center min-h-[60vh]">
-          <p className="text-slate-500">Chargement...</p>
+          {loading ? (
+            <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
+          ) : (
+            <p className="text-slate-500">Chargement...</p>
+          )}
         </div>
       </div>
     )
@@ -438,7 +431,7 @@ export default function CompanySettingsPage() {
                 Configuration et paramètres de la société
               </p>
               <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres 
+                Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres
                 comptables et accédez aux différents modules de configuration pour cette entité.
               </p>
               {/* Navigation Menu - Information de base, Mapping comptable et Mapping états financiers */}

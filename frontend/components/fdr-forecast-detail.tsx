@@ -4,7 +4,9 @@ import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import { ChevronRight, ChevronDown, StickyNote, Settings, Edit2, Trash2 } from "lucide-react"
-import { useState, useEffect } from "react"
+import { generateId } from "@/lib/seeded-random"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
@@ -12,6 +14,8 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, aggregateToYears } from "@/lib/series-utils"
 
 interface FDRForecastDetailProps {
   period: "monthly" | "quarterly" | "annual"
@@ -104,109 +108,86 @@ export function FDRForecastDetail({
   
   const isForecastSection = title === "Estimation du FDR annuel"
 
-  // Storage key for persisting forecast data
-  const getStorageKey = (): string => {
-    const entityKey = [companyId, divisionId, subDivisionId].filter(Boolean).join("-") || "all"
-    return `modelisys_fdr_forecast_${entityKey}`
-  }
+  // ── Fetch balance-sheet series data ──
+  const currentYear = new Date().getFullYear()
+  const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "balance-sheet",
+    fiscalYear: currentYear,
+    months: 60, // 5 fiscal years of monthly data
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: !!companyId,
+  })
 
-  // Storage key for persisting FDR adjustments
-  const getFDRAdjustmentsStorageKey = (): string => {
-    const entityKey = [companyId, divisionId, subDivisionId].filter(Boolean).join("-") || "all"
-    return `modelisys_fdr_adjustments_${entityKey}`
-  }
+  // Debounced save to API
+  const saveConfigRef = useRef<NodeJS.Timeout>()
 
-  // Storage key for persisting FDR types
-  const getFDRTypesStorageKey = (): string => {
-    const entityKey = [companyId, divisionId, subDivisionId].filter(Boolean).join("-") || "all"
-    return `modelisys_fdr_types_${entityKey}`
-  }
-
-  // Load forecast values from localStorage on mount
-  useEffect(() => {
-    if (typeof window === "undefined" || !isForecastSection) return
-    
-    try {
-      const storageKey = getStorageKey()
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        setFdrValues(parsed)
+  const saveConfig = useCallback((data: Record<string, unknown>) => {
+    if (!companyId || !isForecastSection) return
+    clearTimeout(saveConfigRef.current)
+    saveConfigRef.current = setTimeout(async () => {
+      try {
+        await upsertForecastConfig(companyId, {
+          config_type: "fdr-forecast",
+          data,
+        })
+      } catch (err) {
+        console.error("Error saving FDR forecast config:", err)
       }
-      
-      // Load FDR adjustments
-      const adjustmentsKey = getFDRAdjustmentsStorageKey()
-      const adjustmentsStored = localStorage.getItem(adjustmentsKey)
-      if (adjustmentsStored) {
-        try {
-          const adjustmentsParsed = JSON.parse(adjustmentsStored)
-          if (adjustmentsParsed && typeof adjustmentsParsed === 'object' && !Array.isArray(adjustmentsParsed)) {
-            const validatedAdjustments: Record<string, FDRAdjustment[]> = {}
-            for (const [key, value] of Object.entries(adjustmentsParsed)) {
-              if (Array.isArray(value)) {
-                validatedAdjustments[key] = value
-              } else {
-                validatedAdjustments[key] = [value as FDRAdjustment]
+    }, 500)
+  }, [companyId, isForecastSection])
+
+  // Load FDR forecast config from API on mount
+  useEffect(() => {
+    if (!companyId || !isForecastSection) return
+
+    const loadConfig = async () => {
+      try {
+        const configs = await listForecastConfigs(companyId, { config_type: "fdr-forecast" })
+        if (configs.length > 0) {
+          const data = configs[0].data as Record<string, unknown>
+          if (data.fdrValues) setFdrValues(data.fdrValues as typeof fdrValues)
+          if (data.fdrAdjustments) {
+            const adjustmentsParsed = data.fdrAdjustments as Record<string, unknown>
+            if (adjustmentsParsed && typeof adjustmentsParsed === 'object' && !Array.isArray(adjustmentsParsed)) {
+              const validatedAdjustments: Record<string, FDRAdjustment[]> = {}
+              for (const [key, value] of Object.entries(adjustmentsParsed)) {
+                if (Array.isArray(value)) {
+                  validatedAdjustments[key] = value
+                } else {
+                  validatedAdjustments[key] = [value as FDRAdjustment]
+                }
               }
+              setFdrAdjustments(validatedAdjustments)
             }
-            setFdrAdjustments(validatedAdjustments)
           }
-        } catch (error) {
-          console.error("Error parsing FDR adjustments:", error)
+          if (data.fdrTypes) setFdrTypes(data.fdrTypes as typeof fdrTypes)
         }
+      } catch (err) {
+        console.error("Error loading FDR forecast config:", err)
       }
-      
-      // Load FDR types
-      const typesKey = getFDRTypesStorageKey()
-      const typesStored = localStorage.getItem(typesKey)
-      if (typesStored) {
-        try {
-          const typesParsed = JSON.parse(typesStored)
-          setFdrTypes(typesParsed)
-        } catch (error) {
-          console.error("Error parsing FDR types:", error)
-        }
-      }
-    } catch (error) {
-      console.error("Error loading FDR forecast values:", error)
     }
-  }, [companyId, divisionId, subDivisionId, title, isForecastSection])
+    loadConfig()
+  }, [companyId, isForecastSection])
 
-  // Save forecast values to localStorage whenever they change
+  // Save FDR values whenever they change
   useEffect(() => {
-    if (typeof window === "undefined" || !isForecastSection || Object.keys(fdrValues).length === 0) return
-    
-    try {
-      const storageKey = getStorageKey()
-      localStorage.setItem(storageKey, JSON.stringify(fdrValues))
-    } catch (error) {
-      console.error("Error saving FDR forecast values:", error)
-    }
-  }, [fdrValues, companyId, divisionId, subDivisionId, title, isForecastSection])
+    if (!isForecastSection || Object.keys(fdrValues).length === 0) return
+    saveConfig({ fdrValues, fdrAdjustments, fdrTypes })
+  }, [fdrValues, saveConfig, isForecastSection])
 
-  // Save FDR adjustments to localStorage whenever they change
+  // Save FDR adjustments whenever they change
   useEffect(() => {
-    if (typeof window === "undefined" || !isForecastSection || Object.keys(fdrAdjustments).length === 0) return
-    
-    try {
-      const adjustmentsKey = getFDRAdjustmentsStorageKey()
-      localStorage.setItem(adjustmentsKey, JSON.stringify(fdrAdjustments))
-    } catch (error) {
-      console.error("Error saving FDR adjustments:", error)
-    }
-  }, [fdrAdjustments, companyId, divisionId, subDivisionId, title, isForecastSection])
+    if (!isForecastSection || Object.keys(fdrAdjustments).length === 0) return
+    saveConfig({ fdrValues, fdrAdjustments, fdrTypes })
+  }, [fdrAdjustments, saveConfig, isForecastSection])
 
-  // Save FDR types to localStorage whenever they change
+  // Save FDR types whenever they change
   useEffect(() => {
-    if (typeof window === "undefined" || !isForecastSection || Object.keys(fdrTypes).length === 0) return
-    
-    try {
-      const typesKey = getFDRTypesStorageKey()
-      localStorage.setItem(typesKey, JSON.stringify(fdrTypes))
-    } catch (error) {
-      console.error("Error saving FDR types:", error)
-    }
-  }, [fdrTypes, companyId, divisionId, subDivisionId, title, isForecastSection])
+    if (!isForecastSection || Object.keys(fdrTypes).length === 0) return
+    saveConfig({ fdrValues, fdrAdjustments, fdrTypes })
+  }, [fdrTypes, saveConfig, isForecastSection])
 
   // Effect to reset expanded rows when company/division/subdivision changes
   useEffect(() => {
@@ -352,7 +333,7 @@ export function FDRForecastDetail({
       } else {
         // Add new adjustment
         const newAdjustment: FDRAdjustment = {
-          id: `${Date.now()}-${Math.random()}`,
+          id: generateId(),
           rowId: editingAdjustment.rowId,
           yearIndex: editingAdjustment.yearIndex,
           type: adjustmentType, // This will match the FDR type
@@ -458,125 +439,84 @@ export function FDRForecastDetail({
     return accounts
   }
 
-  // Generate data for years view - Exact copy from BalanceSheetDetail.getYearsData() but filtered
+  // ── Derive year labels from series data ──
+  const yearLabelsFromSeries = useMemo((): string[] => {
+    if (bsRows.length === 0 || bsPeriods.length === 0) return []
+    const rawAmounts = getRowAmounts(bsRows[0], bsPeriods)
+    return aggregateToYears(rawAmounts, bsPeriods).labels
+  }, [bsRows, bsPeriods])
+
+  // Generate data for years view from real API data
   const getYearsData = (): DetailRow[] => {
-    const generateTrend = (base: number, growthRate: number = 0.05) => {
-      return Array.from({ length: projectionYears + 1 }, (_, i) => {
-        const yearIndex = i
-        return Math.round(base * (1 + growthRate * yearIndex) * (0.95 + Math.random() * 0.1))
-      })
+    if (bsRows.length === 0 || bsPeriods.length === 0) return []
+
+    const slugify = (label: string) =>
+      label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
+
+    // Labels that should be excluded from the FDR view (cash, fixed assets, debt, etc.)
+    const excludedPatterns = [
+      "trésorerie", "caisse", "encaisse",
+      "immobilisations corporelles", "immobilisations incorporelles",
+      "autres actifs non courants", "actifs non courants",
+      "dettes à court terme", "dettes à long terme",
+      "autres passifs non courants", "passifs non courants",
+    ]
+
+    const isExcluded = (label: string): boolean => {
+      const lower = label.toLowerCase()
+      return excludedPatterns.some((p) => lower.includes(p))
     }
 
-    // Get all rows from balance sheet (exact copy)
-    const allRows: DetailRow[] = [
-      { label: "ACTIFS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "ACTIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Trésorerie et équivalents", current: 2400000, prior: 2160000, indent: true, trendValues: generateTrend(2400000, 0.06), rowId: "cash" },
-      { label: "Comptes clients", current: 4200000, prior: 3600000, indent: true, trendValues: generateTrend(4200000, 0.06), rowId: "receivables" },
-      { label: "Stocks", current: 1800000, prior: 1560000, indent: true, trendValues: generateTrend(1800000, 0.05), rowId: "inventory" },
-      { label: "Autres actifs courants", current: 1800000, prior: 1680000, indent: true, trendValues: generateTrend(1800000, 0.05), rowId: "other-current-assets" },
-      { label: "Total Actifs courants", current: 10200000, prior: 9000000, isBold: true, isSubtotal: true, trendValues: generateTrend(10200000, 0.06) },
-      { label: "", current: 0, prior: 0 },
-      { label: "Immobilisations corporelles", current: 9600000, prior: 9000000, trendValues: generateTrend(9600000, 0.05), rowId: "fixed-assets" },
-      { label: "Immobilisations incorporelles", current: 3000000, prior: 2760000, trendValues: generateTrend(3000000, 0.05), rowId: "intangible-assets" },
-      { label: "Autres actifs non courants", current: 1800000, prior: 1440000, trendValues: generateTrend(1800000, 0.06) },
-      { label: "Total Actifs", current: 24600000, prior: 22200000, isBold: true, isSubtotal: true, trendValues: generateTrend(24600000, 0.055) },
-      { label: "", current: 0, prior: 0 },
-      { label: "PASSIFS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "PASSIFS COURANTS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Comptes fournisseurs", current: 2400000, prior: 2160000, indent: true, trendValues: generateTrend(2400000, 0.04), rowId: "payables" },
-      { label: "Dettes à court terme", current: 1800000, prior: 1680000, indent: true, trendValues: generateTrend(1800000, 0.04), rowId: "short-term-debt" },
-      { label: "Autres passifs courants", current: 1200000, prior: 1200000, indent: true, trendValues: generateTrend(1200000, 0) },
-      { label: "Total Passifs courants", current: 5400000, prior: 5040000, isBold: true, isSubtotal: true, trendValues: generateTrend(5400000, 0.04) },
-      { label: "", current: 0, prior: 0 },
-      { label: "Dettes à long terme", current: 5400000, prior: 5160000, trendValues: generateTrend(5400000, 0.05), rowId: "long-term-debt" },
-      { label: "Autres passifs non courants", current: 1800000, prior: 1800000, trendValues: generateTrend(1800000, 0) },
-      { label: "Total Passifs", current: 12600000, prior: 12000000, isBold: true, isSubtotal: true, trendValues: generateTrend(12600000, 0.045) },
-      { label: "", current: 0, prior: 0 },
-      { label: "CAPITAUX PROPRES", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Capital social", current: 7200000, prior: 6600000, indent: true, trendValues: generateTrend(7200000, 0.065), rowId: "share-capital" },
-      { label: "Bénéfices non répartis", current: 4800000, prior: 3600000, indent: true, trendValues: generateTrend(4800000, 0.07) },
-      { label: "Total Capitaux propres", current: 12000000, prior: 10200000, isBold: true, isSubtotal: true, trendValues: generateTrend(12000000, 0.065) },
-      { label: "", current: 0, prior: 0 },
-      { label: "Total passifs et capitaux propres", current: 24600000, prior: 22200000, isBold: true, isSubtotal: true, trendValues: generateTrend(24600000, 0.055) },
-    ]
-    
-    // Filter out excluded items: cash, fixed assets, intangible assets, other non-current assets, short-term debt, long-term debt, other non-current liabilities
-    const excludedRowIds = ["cash", "fixed-assets", "intangible-assets", "short-term-debt", "long-term-debt"]
-    const excludedLabels = ["Trésorerie et équivalents", "Immobilisations corporelles", "Immobilisations incorporelles", "Autres actifs non courants", "Dettes à court terme", "Dettes à long terme", "Autres passifs non courants"]
-    
-    const filteredRows = allRows.filter(row => {
-      if (row.rowId && excludedRowIds.includes(row.rowId)) return false
-      if (excludedLabels.includes(row.label)) return false
+    // Build all rows from API series data
+    const allRows: DetailRow[] = bsRows.map((sr) => {
+      const rawAmounts = getRowAmounts(sr, bsPeriods)
+      const yearAgg = aggregateToYears(rawAmounts, bsPeriods)
+      const values = yearAgg.amounts
+      const isIndented = !sr.isBold && !sr.isSection && !sr.isResult
+
+      return {
+        label: sr.label,
+        current: values[values.length - 1] || 0,
+        prior: values.length >= 2 ? values[values.length - 2] : 0,
+        indent: isIndented,
+        isBold: sr.isBold,
+        isSubtotal: sr.isResult,
+        isSection: sr.isSection,
+        trendValues: sr.isSection ? undefined : values,
+        rowId: isIndented && sr.label ? slugify(sr.label) : undefined,
+      }
+    })
+
+    // Filter out excluded rows (cash, fixed assets, debt, etc.)
+    const filteredRows = allRows.filter((row) => {
+      if (!row.label) return true // keep spacers
+      if (isExcluded(row.label)) return false
       return true
     })
-    
-    // Recalculate totals after filtering
-    const currentAssetsExCash = filteredRows
-      .filter(r => r.rowId === "receivables" || r.rowId === "inventory" || r.rowId === "other-current-assets")
-      .reduce((sum, r) => sum + (r.current || 0), 0)
-    
-    const currentLiabilitiesExDebt = filteredRows
-      .filter(r => r.rowId === "payables" || (r.label === "Autres passifs courants" && !r.isBold))
-      .reduce((sum, r) => sum + (r.current || 0), 0)
-    
-    // Update totals in filtered rows
+
+    // Add balance accounts from API detailRows for rows that have a rowId
     return filteredRows.map((row) => {
-      // Update "Total Actifs courants" to exclude cash
-      if (row.label === "Total Actifs courants") {
-        return {
-          ...row,
-          current: currentAssetsExCash,
-          prior: Math.round(currentAssetsExCash * 0.9),
-          trendValues: generateTrend(currentAssetsExCash, 0.06),
-          label: "Total Actifs courants (hors caisse)"
-        }
-      }
-      // Update "Total Actifs" to exclude fixed assets
-      if (row.label === "Total Actifs") {
-        return {
-          ...row,
-          current: currentAssetsExCash,
-          prior: Math.round(currentAssetsExCash * 0.9),
-          trendValues: generateTrend(currentAssetsExCash, 0.055)
-        }
-      }
-      // Update "Total Passifs courants" to exclude debt
-      if (row.label === "Total Passifs courants") {
-        return {
-          ...row,
-          current: currentLiabilitiesExDebt,
-          prior: Math.round(currentLiabilitiesExDebt * 0.93),
-          trendValues: generateTrend(currentLiabilitiesExDebt, 0.04)
-        }
-      }
-      // Update "Total Passifs" to exclude long-term debt
-      if (row.label === "Total Passifs") {
-        return {
-          ...row,
-          current: currentLiabilitiesExDebt,
-          prior: Math.round(currentLiabilitiesExDebt * 0.93),
-          trendValues: generateTrend(currentLiabilitiesExDebt, 0.045)
-        }
-      }
-      // Update "Total passifs et capitaux propres"
-      if (row.label === "Total passifs et capitaux propres") {
-        const totalEquity = filteredRows.find(r => r.label === "Total Capitaux propres")?.current || 0
-        const newTotal = currentLiabilitiesExDebt + totalEquity
-        return {
-          ...row,
-          current: newTotal,
-          prior: Math.round(newTotal * 0.9),
-          trendValues: generateTrend(newTotal, 0.055)
-        }
-      }
-      return row
-    }).map((row) => {
-      // Add balance accounts to rows that have rowId (same as BalanceSheetDetail)
       if (row.rowId) {
-        return {
-          ...row,
-          balanceAccounts: generateBalanceAccounts(row.label, row.current || 0, row.prior || 0)
+        // Find original series row to get detailRows
+        const sr = bsRows.find((r) => slugify(r.label) === row.rowId)
+        if (sr && sr.detailRows && sr.detailRows.length > 0) {
+          const balanceAccounts: BalanceAccount[] = sr.detailRows.map((dr) => {
+            const drAmounts = bsPeriods.map(
+              (p) => dr.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] || 0
+            )
+            const drYear = aggregateToYears(drAmounts, bsPeriods)
+            const drCurrent = drYear.amounts[drYear.amounts.length - 1] || 0
+            const drPrior = drYear.amounts.length >= 2 ? drYear.amounts[drYear.amounts.length - 2] : 0
+            const parentCurrent = row.current || 1
+            return {
+              accountNumber: dr.id || "",
+              accountName: dr.label,
+              amount: drCurrent,
+              priorAmount: drPrior,
+              proportion: parentCurrent !== 0 ? drCurrent / parentCurrent : 0,
+            }
+          })
+          return { ...row, balanceAccounts }
         }
       }
       return row
@@ -631,16 +571,47 @@ export function FDRForecastDetail({
                   <th className="px-4 py-4 text-center font-semibold text-slate-900 text-sm whitespace-nowrap">
                     Type
                   </th>
-                  {Array.from({ length: projectionYears + 1 }).map((_, idx) => (
-                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm">
-                      {2021 + idx}
-                    </th>
-                  ))}
+                  {yearLabelsFromSeries.length > 0
+                    ? yearLabelsFromSeries.map((label, idx) => (
+                        <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm">
+                          {label}
+                        </th>
+                      ))
+                    : Array.from({ length: projectionYears + 1 }).map((_, idx) => (
+                        <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm">
+                          {currentYear - projectionYears + idx}
+                        </th>
+                      ))
+                  }
                 </>
               )}
             </tr>
           </thead>
           <tbody>
+            {!companyId && (
+              <tr>
+                <td colSpan={20} className="px-6 py-12 text-center text-slate-500">
+                  Sélectionnez une société
+                </td>
+              </tr>
+            )}
+            {companyId && bsLoading && (
+              <tr>
+                <td colSpan={20} className="px-6 py-12 text-center text-slate-500">
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
+                    Chargement des données...
+                  </div>
+                </td>
+              </tr>
+            )}
+            {companyId && !bsLoading && data.length === 0 && (
+              <tr>
+                <td colSpan={20} className="px-6 py-12 text-center text-slate-500">
+                  Aucune donnée disponible. Veuillez importer une balance de vérification.
+                </td>
+              </tr>
+            )}
             {data.map((row, idx) => {
               const isExpanded = row.rowId ? expandedRows.has(row.rowId) : false
               const canExpand = row.balanceAccounts && row.balanceAccounts.length > 0
@@ -795,11 +766,11 @@ export function FDRForecastDetail({
                         )}
                         {!row.trendValues && (
                       <>
-                        {Array.from({ length: projectionYears + 1 }).map((_, emptyIdx) => {
+                        {Array.from({ length: yearLabelsFromSeries.length || (projectionYears + 1) }).map((_, emptyIdx) => {
                           const isForecastSectionForEmpty = title === "Estimation du FDR annuel"
                           return (
-                            <td 
-                              key={emptyIdx} 
+                            <td
+                              key={emptyIdx}
                               className={cn(
                                 "px-4 py-3 text-right font-semibold text-white",
                                 isForecastSectionForEmpty && emptyIdx === 0 ? "bg-slate-50" : ""
@@ -850,11 +821,11 @@ export function FDRForecastDetail({
                             )}
                             {!row.trendValues && (
                             <>
-                              {Array.from({ length: projectionYears + 1 }).map((_, emptyIdx) => {
+                              {Array.from({ length: yearLabelsFromSeries.length || (projectionYears + 1) }).map((_, emptyIdx) => {
                                 const isForecastSectionForEmpty = title === "Estimation du FDR annuel"
                                 return (
-                                  <td 
-                                    key={emptyIdx} 
+                                  <td
+                                    key={emptyIdx}
                                     className={cn(
                                       "px-4 py-2 text-right font-semibold text-sm text-slate-400",
                                       isForecastSectionForEmpty && emptyIdx === 0 ? "bg-slate-50" : ""
@@ -900,7 +871,9 @@ export function FDRForecastDetail({
       {/* Adjustment Modal */}
       {editingAdjustment && (() => {
         const rowLabel = editingAdjustment.rowId ? (data.find(r => r.rowId === editingAdjustment.rowId)?.label || "Poste") : "Poste"
-        const yearLabels = Array.from({ length: projectionYears + 1 }, (_, i) => `${2021 + i}`)
+        const yearLabels = yearLabelsFromSeries.length > 0
+          ? yearLabelsFromSeries
+          : Array.from({ length: projectionYears + 1 }, (_, i) => `${currentYear - projectionYears + i}`)
         const yearIndex = editingAdjustment.yearIndex >= 0 && editingAdjustment.yearIndex < yearLabels.length 
           ? editingAdjustment.yearIndex 
           : 0

@@ -3,6 +3,8 @@
 import { useState } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
+import type { SeriesRow, SeriesPeriod } from "@/lib/api"
+import { findRow } from "@/lib/series-utils"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { ChevronDown, StickyNote } from "lucide-react"
@@ -19,6 +21,8 @@ interface ProductMarginAnalysisProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
+  seriesRows?: SeriesRow[]
+  periods?: SeriesPeriod[]
 }
 
 interface ProductRow {
@@ -49,7 +53,7 @@ interface ProductRow {
 // Helper functions to generate data
 const getProductAnalysisData = (
   period: "monthly" | "quarterly" | "annual",
-  view: "current" | "12months" | "years",
+  view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "24months" | "quarters" | "years",
   selectedProduct: "total" | "product_a" | "product_b" | "service_c" = "total"
 ): ProductRow[] => {
   const periodMultiplier = period === "monthly" ? 1 : period === "quarterly" ? 3 : 12
@@ -82,9 +86,9 @@ const getProductAnalysisData = (
   const totalGrossProfit = totalRevenue - totalCosts
   const totalGrossMargin = totalRevenue !== 0 ? (totalGrossProfit / totalRevenue) * 100 : 0
 
-  if (view === "12months" || view === "quarters" || view === "years") {
-    const count = view === "12months" ? 12 : view === "quarters" ? 5 : 6
-    const growthRate = view === "years" ? 0.08 : view === "12months" ? 0.02 : 0.03
+  if (view === "12months" || view === "24months" || view === "quarters" || view === "years") {
+    const count = view === "24months" ? 24 : view === "12months" ? 12 : view === "quarters" ? 5 : 6
+    const growthRate = view === "years" ? 0.08 : (view === "12months" || view === "24months") ? 0.02 : 0.03
     
     const generateTrend = (base: number) => {
       return Array.from({ length: count }, (_, i) => {
@@ -370,6 +374,8 @@ export function ProductMarginAnalysis({
   divisionId,
   subDivisionId,
   companies = [],
+  seriesRows = [],
+  periods: seriesPeriods = [],
 }: ProductMarginAnalysisProps) {
   const [noteModalOpen, setNoteModalOpen] = useState(false)
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null)
@@ -382,14 +388,64 @@ export function ProductMarginAnalysis({
   }>({})
   const [notesUpdated, setNotesUpdated] = useState(0) // Force re-render when notes change
 
-  // In comparison mode, always use "total" view for row structure
-  const baseProductData = columnMode === "comparison" ? getProductAnalysisData(period, view, "total") : getProductAnalysisData(period, view, selectedProduct)
+  const hasRealData = seriesRows.length > 0 && seriesPeriods.length > 0
+
+  // Build ProductRow[] from real IS series data
+  const buildFromSeries = (): ProductRow[] => {
+    const revenueRow = findRow(seriesRows, "revenus") || findRow(seriesRows, "revenue")
+    const cogsRow = findRow(seriesRows, "coût des ventes") || findRow(seriesRows, "cost of sales")
+    const grossProfitRow = findRow(seriesRows, "bénéfice brut") || findRow(seriesRows, "gross profit")
+
+    if (view === "12months" || view === "24months" || view === "quarters" || view === "years") {
+      const trendValues = seriesPeriods.map(p => {
+        const key = `${p.fiscalYear}-${p.fiscalMonth}`
+        const revenue = Math.abs(revenueRow?.amounts[key] || 0)
+        const costs = Math.abs(cogsRow?.amounts[key] || 0)
+        const grossProfit = grossProfitRow?.amounts[key] || (revenue - costs)
+        const grossMargin = revenue !== 0 ? (grossProfit / revenue) * 100 : 0
+        return { revenue, costs, grossProfit, grossMargin }
+      })
+      return [
+        { label: "Revenus totaux", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: trendValues.map(t => ({ revenue: t.revenue, costs: 0, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "total_revenue", rowId: "total_revenue" },
+        { label: "Coût des produits vendus totaux", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: trendValues.map(t => ({ revenue: 0, costs: t.costs, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "total_cogs", rowId: "total_cogs" },
+        { label: "Bénéfice brut totaux", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: trendValues.map(t => ({ revenue: 0, costs: 0, grossProfit: t.grossProfit, grossMargin: t.grossMargin })), isBold: true, isSubtotal: true, accountId: "total_gross_profit", rowId: "total_gross_profit" },
+        { label: "Marge brute (%)", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: trendValues.map(t => ({ revenue: 0, costs: 0, grossProfit: 0, grossMargin: t.grossMargin })), isBold: true, isResult: true, accountId: "total_gross_margin", rowId: "total_gross_margin" },
+      ]
+    }
+
+    // Comparison/ytd/ddm views: current vs prior period
+    const lastP = seriesPeriods[seriesPeriods.length - 1]
+    const priorP = seriesPeriods.length > 1 ? seriesPeriods[seriesPeriods.length - 2] : null
+    const lastKey = lastP ? `${lastP.fiscalYear}-${lastP.fiscalMonth}` : ""
+    const priorKey = priorP ? `${priorP.fiscalYear}-${priorP.fiscalMonth}` : ""
+
+    const rev = Math.abs(revenueRow?.amounts[lastKey] || 0)
+    const cog = Math.abs(cogsRow?.amounts[lastKey] || 0)
+    const gp = grossProfitRow?.amounts[lastKey] || (rev - cog)
+    const gm = rev !== 0 ? (gp / rev) * 100 : 0
+
+    const revPrior = priorKey ? Math.abs(revenueRow?.amounts[priorKey] || 0) : 0
+    const cogPrior = priorKey ? Math.abs(cogsRow?.amounts[priorKey] || 0) : 0
+    const gpPrior = priorKey ? (grossProfitRow?.amounts[priorKey] || (revPrior - cogPrior)) : 0
+    const gmPrior = revPrior !== 0 ? (gpPrior / revPrior) * 100 : 0
+
+    return [
+      { label: "Revenus totaux", revenue: rev, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: revPrior, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "total_revenue", rowId: "total_revenue" },
+      { label: "Coût des produits vendus totaux", revenue: 0, costs: cog, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: cogPrior, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "total_cogs", rowId: "total_cogs" },
+      { label: "Bénéfice brut totaux", revenue: 0, costs: 0, grossProfit: gp, grossMargin: gm, revenuePrior: 0, costsPrior: 0, grossProfitPrior: gpPrior, grossMarginPrior: gmPrior, isBold: true, isSubtotal: true, accountId: "total_gross_profit", rowId: "total_gross_profit" },
+    ]
+  }
+
+  // Use real data when available, otherwise fall back to hardcoded demo data
+  const baseProductData = hasRealData
+    ? buildFromSeries()
+    : (columnMode === "comparison" ? getProductAnalysisData(period, view, "total") : getProductAnalysisData(period, view, selectedProduct))
   const productData = baseProductData
-  
-  // Get data for each product for comparison mode
-  const productAData = columnMode === "comparison" ? getProductAnalysisData(period, view, "product_a") : []
-  const productBData = columnMode === "comparison" ? getProductAnalysisData(period, view, "product_b") : []
-  const productCData = columnMode === "comparison" ? getProductAnalysisData(period, view, "service_c") : []
+
+  // Get data for each product for comparison mode (only when using demo data)
+  const productAData = (!hasRealData && columnMode === "comparison") ? getProductAnalysisData(period, view, "product_a") : []
+  const productBData = (!hasRealData && columnMode === "comparison") ? getProductAnalysisData(period, view, "product_b") : []
+  const productCData = (!hasRealData && columnMode === "comparison") ? getProductAnalysisData(period, view, "service_c") : []
   
   // Helper function to get value for a specific product and row label
   const getProductValue = (productRows: ProductRow[], label: string): number => {
@@ -628,21 +684,28 @@ export function ProductMarginAnalysis({
               )}
               {view === "12months" && (
                   <>
-                    {getMonthLabels(12).map((label, idx) => (
+                    {(hasRealData ? seriesPeriods.map(p => p.label) : getMonthLabels(12)).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">{label}</th>
+                    ))}
+                  </>
+              )}
+              {view === "24months" && hasRealData && (
+                  <>
+                    {seriesPeriods.map((p, idx) => (
+                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">{p.label}</th>
                     ))}
                   </>
               )}
               {view === "quarters" && (
                 <>
-                  {getQuarterLabels().map((label, idx) => (
+                  {(hasRealData ? seriesPeriods.map(p => p.label) : getQuarterLabels()).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">{label}</th>
                     ))}
                   </>
               )}
               {view === "years" && (
                   <>
-                    {getYearLabels().map((label, idx) => (
+                    {(hasRealData ? seriesPeriods.map(p => p.label) : getYearLabels()).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">{label}</th>
                     ))}
                   </>

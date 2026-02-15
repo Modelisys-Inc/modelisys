@@ -2,16 +2,20 @@
 
 import { useState, useEffect } from "react"
 import { CapexDetail } from "@/components/capex-detail"
-import { CapexChart } from "@/components/capex-chart"
+import { CapexChart, type CapexChartDataPoint } from "@/components/capex-chart"
 import { CapexAnalysis } from "@/components/capex-analysis"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { TrendingUp, TrendingDown, DollarSign, BarChart3, Building2, Calculator, Calendar, Filter, Target, Zap, ChevronRight } from "lucide-react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useCompanies } from "@/hooks/use-companies"
+import { listBudgets, type BudgetData } from "@/lib/api"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears, findRow } from "@/lib/series-utils"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "current" | "12months" | "24months" | "years"
@@ -19,78 +23,8 @@ type ColumnMode = "variations" | "percentage" | "comparison"
 type DisplayMode = "cost" | "book_value" | "capex"
 type ComparisonType = "lastMonth" | "pastMonth" | "budget"
 
-// Données d'exemple pour les sociétés, divisions et sous-divisions
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Modelisys Inc.",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division Technologie",
-        subDivisions: [
-          { id: "sub-1", name: "Développement Logiciel" },
-          { id: "sub-2", name: "Infrastructure IT" },
-          { id: "sub-3", name: "Support Technique" },
-        ],
-      },
-      {
-        id: "div-2",
-        name: "Division Conseil",
-        subDivisions: [
-          { id: "sub-4", name: "Conseil Stratégique" },
-          { id: "sub-5", name: "Conseil Opérationnel" },
-        ],
-      },
-      {
-        id: "div-3",
-        name: "Division Ventes",
-        subDivisions: [
-          { id: "sub-6", name: "Ventes B2B" },
-          { id: "sub-7", name: "Ventes B2C" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-2",
-    name: "TechSolutions SA",
-    divisions: [
-      {
-        id: "div-4",
-        name: "Division Produits",
-        subDivisions: [
-          { id: "sub-8", name: "Produits Cloud" },
-          { id: "sub-9", name: "Produits On-Premise" },
-        ],
-      },
-      {
-        id: "div-5",
-        name: "Division Services",
-        subDivisions: [
-          { id: "sub-10", name: "Services Professionnels" },
-          { id: "sub-11", name: "Services Gérés" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-3",
-    name: "InnovateCorp",
-    divisions: [
-      {
-        id: "div-6",
-        name: "Division R&D",
-        subDivisions: [
-          { id: "sub-12", name: "Recherche" },
-          { id: "sub-13", name: "Développement" },
-        ],
-      },
-    ],
-  },
-]
-
 export default function CapexPage() {
+  const { companies } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("current")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
@@ -102,52 +36,40 @@ export default function CapexPage() {
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
   const pathname = usePathname()
 
+  // Auto-select first company
+  useEffect(() => {
+    if (!selectedCompanyId && companies.length > 0) {
+      setSelectedCompanyId(companies[0].id)
+    }
+  }, [companies, selectedCompanyId])
+
   // Date reference state (month and year)
   const currentDate = new Date()
   const [selectedMonth, setSelectedMonth] = useState<number>(currentDate.getMonth() + 1) // 1-12
   const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear())
 
-  // Load budgets from localStorage
+  // Load budgets from API
   const [budgets, setBudgets] = useState<Array<{ id: string; name: string }>>([])
-  
+
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const loadBudgets = () => {
-        const saved = localStorage.getItem("modelisys_budgets")
-        if (saved) {
-          try {
-            const loadedBudgets = JSON.parse(saved)
-            setBudgets(loadedBudgets)
-            // Set first budget as default if none selected
-            if (!selectedBudgetId && loadedBudgets.length > 0) {
-              setSelectedBudgetId(loadedBudgets[0].id)
-            }
-          } catch (e) {
-            console.error("Error loading budgets:", e)
-            setBudgets([])
-          }
-        } else {
-          // Create default budgets if none exist
-          const defaultBudgets = [
-            { id: "budget-optimiste", name: "Optimiste" },
-            { id: "budget-realiste", name: "Réaliste" },
-            { id: "budget-pessimiste", name: "Pessimiste" },
-          ]
-          localStorage.setItem("modelisys_budgets", JSON.stringify(defaultBudgets))
-          setBudgets(defaultBudgets)
-          setSelectedBudgetId(defaultBudgets[0].id)
-        }
-      }
-      loadBudgets()
-      
-      // Listen for storage changes
-      const handleStorageChange = () => {
-        loadBudgets()
-      }
-      window.addEventListener("storage", handleStorageChange)
-      return () => window.removeEventListener("storage", handleStorageChange)
+    if (!selectedCompanyId) {
+      setBudgets([])
+      return
     }
-  }, [selectedBudgetId])
+
+    listBudgets(selectedCompanyId)
+      .then((data) => {
+        const mapped = data.map((b: BudgetData) => ({ id: b.id, name: b.name }))
+        setBudgets(mapped)
+        if (!selectedBudgetId && mapped.length > 0) {
+          setSelectedBudgetId(mapped[0].id)
+        }
+      })
+      .catch((e) => {
+        console.error("Error loading budgets:", e)
+        setBudgets([])
+      })
+  }, [selectedCompanyId])
 
   // Reset budget selection when switching away from budget
   useEffect(() => {
@@ -189,37 +111,78 @@ export default function CapexPage() {
     }
   }
 
-  // Calculate summary metrics (mock data for now)
-  const calculateMetrics = () => {
-    const totalCapex = 144000
-    const priorCapex = 120000
-    const variation = calculateVariation(totalCapex, priorCapex)
-    const totalAssets = 1440000
-    const capexPercentage = (totalCapex / totalAssets) * 100
-    
-    // Calculate average Capex for trend views
-    let averageCapex = 0
-    if (view === "12months") {
-      // Mock: average of 12 months
-      averageCapex = (totalCapex + priorCapex) / 2 + (totalCapex - priorCapex) / 12 * 6
-    } else if (view === "24months") {
-      // Mock: average of 24 months
-      averageCapex = (totalCapex + priorCapex) / 2 + (totalCapex - priorCapex) / 24 * 12
-    } else if (view === "years") {
-      // Mock: average of 6 years
-      averageCapex = (totalCapex + priorCapex) / 2 + (totalCapex - priorCapex) / 6 * 3
+  // Fetch balance-sheet series for chart data
+  const isMultiPeriod = view === "12months" || view === "24months" || view === "years"
+  const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
+
+  const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: selectedCompanyId || null,
+    statementType: "balance-sheet",
+    fiscalYear: selectedYear,
+    months: monthsNeeded,
+    divisionId: selectedDivisionId || null,
+    subDivisionId: selectedSubDivisionId || null,
+    enabled: !!selectedCompanyId,
+  })
+
+  // Build chart data from series
+  const buildChartData = (): CapexChartDataPoint[] => {
+    if (!isMultiPeriod || seriesRows.length === 0 || periods.length === 0) return []
+
+    // Find total non-current assets row (for capex)
+    // Look for rows that indicate total fixed assets
+    const totalRow = seriesRows.find((r) => r.isBold && !r.isSection && r.label.toLowerCase().includes("total"))
+    if (!totalRow) return []
+
+    const amounts = getRowAmounts(totalRow, periods)
+    let labels: string[]
+    let values: number[]
+
+    if (view === "years") {
+      const agg = aggregateToYears(amounts, periods)
+      labels = agg.labels
+      values = agg.amounts
     } else {
-      averageCapex = (totalCapex + priorCapex) / 2
+      labels = getPeriodLabels(periods)
+      values = amounts
     }
-    
-    return {
-      totalCapex,
-      priorCapex,
-      variation,
-      capexPercentage,
-      totalAssets,
-      averageCapex
+
+    return labels.map((label, idx) => {
+      const capex = idx > 0 ? values[idx] - values[idx - 1] : 0
+      const depreciation = Math.round(values[idx] * 0.08) // estimate
+      const ratio = depreciation > 0 ? (capex / depreciation) * 100 : 0
+      return {
+        period: label,
+        capex: Math.abs(capex),
+        denominator: depreciation,
+        ratio: Math.abs(ratio),
+      }
+    })
+  }
+
+  const chartData = buildChartData()
+
+  // Calculate summary metrics from series data or fallback to defaults
+  const calculateMetrics = () => {
+    if (seriesRows.length > 0 && periods.length > 1) {
+      const totalRow = seriesRows.find((r) => r.isBold && !r.isSection && r.label.toLowerCase().includes("total"))
+      if (totalRow) {
+        const amounts = getRowAmounts(totalRow, periods)
+        const currentVal = amounts[amounts.length - 1]
+        const priorVal = amounts[amounts.length - 2]
+        const totalCapex = Math.abs(currentVal - priorVal)
+        const totalAssets = currentVal
+        const variation = priorVal !== 0 ? calculateVariation(currentVal, priorVal) : 0
+        const capexPercentage = totalAssets !== 0 ? (totalCapex / totalAssets) * 100 : 0
+        const averageCapex = amounts.length > 1
+          ? amounts.slice(1).reduce((sum, v, i) => sum + Math.abs(v - amounts[i]), 0) / (amounts.length - 1)
+          : totalCapex
+
+        return { totalCapex, priorCapex: 0, variation, capexPercentage, totalAssets, averageCapex }
+      }
     }
+
+    return { totalCapex: 0, priorCapex: 0, variation: 0, capexPercentage: 0, totalAssets: 0, averageCapex: 0 }
   }
 
   const metrics = calculateMetrics()
@@ -490,7 +453,7 @@ export default function CapexPage() {
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Entité:</span>
                 <EntitySelector
-                  companies={companiesData}
+                  companies={companies}
                   selectedCompanyId={selectedCompanyId}
                   selectedDivisionId={selectedDivisionId}
                   selectedSubDivisionId={selectedSubDivisionId}
@@ -514,7 +477,9 @@ export default function CapexPage() {
             companyId={selectedCompanyId}
             divisionId={selectedDivisionId}
             subDivisionId={selectedSubDivisionId}
-            companies={companiesData}
+            companies={companies}
+            chartData={chartData.length > 0 ? chartData : undefined}
+            loading={seriesLoading}
           />
         </div>
       </main>
@@ -546,7 +511,7 @@ export default function CapexPage() {
             companyId={selectedCompanyId}
             divisionId={selectedDivisionId}
             subDivisionId={selectedSubDivisionId}
-            companies={companiesData}
+            companies={companies}
           />
 
           {/* Detail Section */}
@@ -559,7 +524,7 @@ export default function CapexPage() {
               companyId={selectedCompanyId}
               divisionId={selectedDivisionId}
               subDivisionId={selectedSubDivisionId}
-              companies={companiesData}
+              companies={companies}
               comparisonType={comparisonType}
               selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
               selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}

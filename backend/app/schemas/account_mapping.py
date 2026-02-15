@@ -17,6 +17,8 @@ class AccountMappingUpsert(BaseModel):
     variable_costs: bool = False
     fixed_costs: bool = False
     product: str | None = None
+    customer: str | None = None
+    supplier: str | None = None
     interco_company_id: str | None = None
 
 
@@ -35,6 +37,8 @@ class AccountMappingResponse(BaseModel):
     variable_costs: bool = False
     fixed_costs: bool = False
     product: str | None = None
+    customer: str | None = None
+    supplier: str | None = None
     interco_company_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}

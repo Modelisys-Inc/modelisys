@@ -3,6 +3,9 @@
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
+import type { FinancialStatementRow } from "@/lib/api"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
 
 interface IncomeStatementSummaryProps {
   period: "monthly" | "quarterly" | "annual"
@@ -17,6 +20,9 @@ interface IncomeStatementSummaryProps {
   comparisonType?: "lastMonth" | "pastMonth" | "budget"
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
+  fiscalYear?: number
+  rows?: FinancialStatementRow[]
+  loading?: boolean
 }
 
 interface SummaryRow {
@@ -47,9 +53,27 @@ export function IncomeStatementSummary({
   comparisonType = "lastMonth",
   selectedBudgetId = null,
   selectedBudgetName = null,
+  fiscalYear,
+  rows: backendRows = [],
+  loading = false,
 }: IncomeStatementSummaryProps) {
   const isForecastSection = title === "États des résultats pro forma"
-  
+
+  // Determine months needed for series API based on view
+  const isMultiPeriodView = view === "12months" || view === "24months" || view === "quarters" || view === "years"
+  const seriesMonthsNeeded = view === "24months" ? 24 : view === "years" ? 72 : view === "quarters" ? 15 : 12
+
+  // Fetch multi-period series data from API
+  const { rows: seriesRows, periods: seriesPeriods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "income-statement",
+    fiscalYear: fiscalYear || new Date().getFullYear(),
+    months: seriesMonthsNeeded,
+    divisionId: divisionId || undefined,
+    subDivisionId: subDivisionId || undefined,
+    enabled: isMultiPeriodView && !isForecastSection,
+  })
+
   // Helper function to get comparison label
   const getComparisonLabel = (): string => {
     if (view !== "comparison" && view !== "ytd" && view !== "ddm") return "Passé"
@@ -82,497 +106,19 @@ export function IncomeStatementSummary({
     return "Passé"
   }
   
-  // Helper function to generate trend data for 12 months
-  const get12MonthsData = (): SummaryRow[] => {
-    const baseRevenue = 275000
-    const baseCOGS = 125000
-    const baseGrossProfit = 150000
-    const baseAdmin = 58500
-    const baseSales = 36000
-    const baseOther = -3500
-    const baseTotalExpenses = 91000
-    const baseEBT = 59000
-    const baseTax = 15340
-    const baseNetIncome = 43660
-    const baseEBITA = 64000
-
-    // Generate 12 months with slight variations showing growth trend
-    const generateTrend = (base: number, growthRate: number = 0.02) => {
-      return Array.from({ length: 12 }, (_, i) => {
-        const monthIndex = 11 - i // Reverse order (oldest to newest)
-        return Math.round(base * (1 + growthRate * monthIndex) * (0.95 + Math.random() * 0.1))
-      })
-    }
-
-    const revenueTrend = generateTrend(baseRevenue, 0.025)
-    const grossProfitTrend = generateTrend(baseGrossProfit, 0.03)
-    const marginTrend = revenueTrend.map((rev, i) => {
-      const gp = grossProfitTrend[i]
-      return rev !== 0 ? (gp / rev) * 100 : 0
-    })
-    const currentMargin = (baseGrossProfit / baseRevenue) * 100
-    const priorMargin = (132000 / 242000) * 100
-    const netIncomeTrend = generateTrend(baseNetIncome, 0.035)
-    const ebitaTrend = generateTrend(baseEBITA, 0.03)
-    const netMarginTrend = revenueTrend.map((rev: number, i: number) => {
-      const net = netIncomeTrend[i]
-      return rev !== 0 ? (net / rev) * 100 : 0
-    })
-    const ebitaMarginTrend = revenueTrend.map((rev: number, i: number) => {
-      const ebita = ebitaTrend[i]
-      return rev !== 0 ? (ebita / rev) * 100 : 0
-    })
-
-    const rows: SummaryRow[] = [
-      { label: "revenus", current: baseRevenue, prior: 242000, isBold: true, isSection: true, trendValues: revenueTrend },
-      { label: "coût des produits vendus", current: baseCOGS, prior: 110000, isBold: true, isSection: true, indent: true, trendValues: generateTrend(baseCOGS, 0.02) },
-      { label: "bénéfice brut", current: baseGrossProfit, prior: 132000, isBold: true, isResult: true, trendValues: grossProfitTrend },
-      { label: "Marge brute", current: currentMargin, prior: priorMargin, isBold: true, isMargin: true, indent: true, trendValues: marginTrend },
-    ]
-    
-    rows.push({ label: "", current: 0, prior: 0 })
-    rows.push({ label: "charges d'exploitation", current: 0, prior: 0, isSection: true })
-    rows.push({ label: "frais d'administration", current: baseAdmin, prior: 52700, isBold: true, indent: true, trendValues: generateTrend(baseAdmin, 0.015) })
-    rows.push({ label: "frais de vente", current: baseSales, prior: 32300, isBold: true, indent: true, trendValues: generateTrend(baseSales, 0.02) })
-    rows.push({ label: "autres dépenses (revenus)", current: baseOther, prior: -3500, isBold: true, indent: true, trendValues: generateTrend(baseOther, 0) })
-    rows.push({ label: "total des charges", current: baseTotalExpenses, prior: 81500, isBold: true, trendValues: generateTrend(baseTotalExpenses, 0.018) })
-    rows.push({ label: "", current: 0, prior: 0 })
-    rows.push({ label: "bénéfice avant impôts", current: baseEBT, prior: 50500, isBold: true, isResult: true, trendValues: generateTrend(baseEBT, 0.035) })
-    rows.push({ label: "impôts (26%)", current: baseTax, prior: 13130, isBold: true, indent: true, trendValues: generateTrend(baseTax, 0.035) })
-    rows.push({ label: "bénéfice net", current: baseNetIncome, prior: 37370, isBold: true, isNetIncome: true, trendValues: netIncomeTrend })
-    rows.push({ label: "Bénéfice net en % des revenus", current: (baseNetIncome / baseRevenue) * 100, prior: (37370 / 242000) * 100, isBold: true, isMargin: true, indent: true, trendValues: netMarginTrend })
-    
-    rows.push({ label: "", current: 0, prior: 0 })
-    rows.push({ label: "BAIIA", current: baseEBITA, prior: 55500, isBold: true, isEBITA: true, trendValues: ebitaTrend })
-    rows.push({ label: "BAIIA en % des revenus", current: (baseEBITA / baseRevenue) * 100, prior: (55500 / 242000) * 100, isBold: true, isMargin: true, indent: true, trendValues: ebitaMarginTrend })
-    
-    return rows
-  }
-
-  // Helper function to generate trend data for quarters
-  const getQuartersData = (): SummaryRow[] => {
-    const baseRevenue = 825000
-    const baseCOGS = 375000
-    const baseGrossProfit = 450000
-    const baseAdmin = 175500
-    const baseSales = 108000
-    const baseOther = -10500
-    const baseTotalExpenses = 273000
-    const baseEBT = 177000
-    const baseTax = 46020
-    const baseNetIncome = 130980
-    const baseEBITA = 192000
-
-    const generateTrend = (base: number, growthRate: number = 0.03) => {
-      return Array.from({ length: 5 }, (_, i) => {
-        const quarterIndex = 4 - i
-        return Math.round(base * (1 + growthRate * quarterIndex) * (0.97 + Math.random() * 0.06))
-      })
-    }
-
-    const revenueTrend = generateTrend(baseRevenue, 0.04)
-    const grossProfitTrend = generateTrend(baseGrossProfit, 0.05)
-    const marginTrend = revenueTrend.map((rev, i) => {
-      const gp = grossProfitTrend[i]
-      return rev !== 0 ? (gp / rev) * 100 : 0
-    })
-    const currentMargin = (baseGrossProfit / baseRevenue) * 100
-    const priorMargin = (386000 / 716000) * 100
-    const netIncomeTrend = generateTrend(baseNetIncome, 0.06)
-    const ebitaTrend = generateTrend(baseEBITA, 0.05)
-    const netMarginTrend = revenueTrend.map((rev: number, i: number) => {
-      const net = netIncomeTrend[i]
-      return rev !== 0 ? (net / rev) * 100 : 0
-    })
-    const ebitaMarginTrend = revenueTrend.map((rev: number, i: number) => {
-      const ebita = ebitaTrend[i]
-      return rev !== 0 ? (ebita / rev) * 100 : 0
-    })
-
-    const rows: SummaryRow[] = [
-      { label: "revenus", current: baseRevenue, prior: 716000, isBold: true, isSection: true, trendValues: revenueTrend },
-      { label: "coût des produits vendus", current: baseCOGS, prior: 330000, isBold: true, isSection: true, indent: true, trendValues: generateTrend(baseCOGS, 0.03) },
-      { label: "bénéfice brut", current: baseGrossProfit, prior: 386000, isBold: true, isResult: true, trendValues: grossProfitTrend },
-      { label: "Marge brute", current: currentMargin, prior: priorMargin, isBold: true, isMargin: true, indent: true, trendValues: marginTrend },
-    ]
-    
-    rows.push({ label: "", current: 0, prior: 0 })
-    rows.push({ label: "charges d'exploitation", current: 0, prior: 0, isSection: true })
-    rows.push({ label: "frais d'administration", current: baseAdmin, prior: 158100, isBold: true, indent: true, trendValues: generateTrend(baseAdmin, 0.02) })
-    rows.push({ label: "frais de vente", current: baseSales, prior: 96900, isBold: true, indent: true, trendValues: generateTrend(baseSales, 0.025) })
-    rows.push({ label: "autres dépenses (revenus)", current: baseOther, prior: -10500, isBold: true, indent: true, trendValues: generateTrend(baseOther, 0) })
-    rows.push({ label: "total des charges", current: baseTotalExpenses, prior: 244500, isBold: true, trendValues: generateTrend(baseTotalExpenses, 0.022) })
-    rows.push({ label: "", current: 0, prior: 0 })
-    rows.push({ label: "bénéfice avant impôts", current: baseEBT, prior: 141500, isBold: true, isResult: true, trendValues: generateTrend(baseEBT, 0.06) })
-    rows.push({ label: "impôts (26%)", current: baseTax, prior: 36790, isBold: true, indent: true, trendValues: generateTrend(baseTax, 0.06) })
-    rows.push({ label: "bénéfice net", current: baseNetIncome, prior: 104710, isBold: true, isNetIncome: true, trendValues: netIncomeTrend })
-    rows.push({ label: "Bénéfice net en % des revenus", current: (baseNetIncome / baseRevenue) * 100, prior: (104710 / 716000) * 100, isBold: true, isMargin: true, indent: true, trendValues: netMarginTrend })
-    
-    rows.push({ label: "", current: 0, prior: 0 })
-    rows.push({ label: "BAIIA", current: baseEBITA, prior: 156500, isBold: true, isEBITA: true, trendValues: ebitaTrend })
-    rows.push({ label: "BAIIA en % des revenus", current: (baseEBITA / baseRevenue) * 100, prior: (156500 / 716000) * 100, isBold: true, isMargin: true, indent: true, trendValues: ebitaMarginTrend })
-    
-    return rows
-  }
-
-  // Helper function to generate trend data for years
-  const getYearsData = (): SummaryRow[] => {
-    const baseRevenue = 3300000
-    const baseCOGS = 1500000
-    const baseGrossProfit = 1800000
-    const baseAdmin = 702000
-    const baseSales = 432000
-    const baseOther = -42000
-    const baseTotalExpenses = 1092000
-    const baseEBT = 708000
-    const baseTax = 184080
-    const baseNetIncome = 523920
-    const baseEBITA = 768000
-
-    const generateTrend = (base: number, growthRate: number = 0.05) => {
-      return Array.from({ length: projectionYears + 1 }, (_, i) => {
-        if (isForecastSection) {
-          // For forecast sections, generate future years (years 0 to 5, starting from current year)
-          const yearIndex = i
-          // Compound growth: base * (1 + rate) ^ yearIndex
-          return Math.round(base * Math.pow(1 + growthRate, yearIndex) * (0.95 + Math.random() * 0.1))
-        } else {
-          // For other views, generate past years
-          const yearIndex = 5 - i
-          return Math.round(base * (1 + growthRate * yearIndex) * (0.95 + Math.random() * 0.1))
-        }
-      })
-    }
-
-    const revenueTrend = generateTrend(baseRevenue, 0.06)
-    const grossProfitTrend = generateTrend(baseGrossProfit, 0.07)
-    const marginTrend = revenueTrend.map((rev, i) => {
-      const gp = grossProfitTrend[i]
-      return rev !== 0 ? (gp / rev) * 100 : 0
-    })
-    const currentMargin = (baseGrossProfit / baseRevenue) * 100
-    const priorMargin = (1544000 / 2864000) * 100
-    const netIncomeTrend = generateTrend(baseNetIncome, 0.08)
-    const ebitaTrend = generateTrend(baseEBITA, 0.07)
-    const netMarginTrend = revenueTrend.map((rev: number, i: number) => {
-      const net = netIncomeTrend[i]
-      return rev !== 0 ? (net / rev) * 100 : 0
-    })
-    const ebitaMarginTrend = revenueTrend.map((rev: number, i: number) => {
-      const ebita = ebitaTrend[i]
-      return rev !== 0 ? (ebita / rev) * 100 : 0
-    })
-
-    const rows: SummaryRow[] = [
-      { label: "revenus", current: baseRevenue, prior: 2864000, isBold: true, isSection: true, trendValues: revenueTrend },
-      { label: "coût des produits vendus", current: baseCOGS, prior: 1320000, isBold: true, isSection: true, indent: true, trendValues: generateTrend(baseCOGS, 0.05) },
-      { label: "bénéfice brut", current: baseGrossProfit, prior: 1544000, isBold: true, isResult: true, trendValues: grossProfitTrend },
-      { label: "Marge brute", current: currentMargin, prior: priorMargin, isBold: true, isMargin: true, indent: true, trendValues: marginTrend },
-    ]
-    
-    rows.push({ label: "", current: 0, prior: 0 })
-    rows.push({ label: "charges d'exploitation", current: 0, prior: 0, isSection: true })
-    rows.push({ label: "frais d'administration", current: baseAdmin, prior: 632400, isBold: true, indent: true, trendValues: generateTrend(baseAdmin, 0.03) })
-    rows.push({ label: "frais de vente", current: baseSales, prior: 387600, isBold: true, indent: true, trendValues: generateTrend(baseSales, 0.04) })
-    rows.push({ label: "autres dépenses (revenus)", current: baseOther, prior: -42000, isBold: true, indent: true, trendValues: generateTrend(baseOther, 0) })
-    rows.push({ label: "total des charges", current: baseTotalExpenses, prior: 978000, isBold: true, trendValues: generateTrend(baseTotalExpenses, 0.035) })
-    rows.push({ label: "", current: 0, prior: 0 })
-    rows.push({ label: "bénéfice avant impôts", current: baseEBT, prior: 566000, isBold: true, isResult: true, trendValues: generateTrend(baseEBT, 0.08) })
-    rows.push({ label: "impôts (26%)", current: baseTax, prior: 147160, isBold: true, indent: true, trendValues: generateTrend(baseTax, 0.08) })
-    rows.push({ label: "bénéfice net", current: baseNetIncome, prior: 418840, isBold: true, isNetIncome: true, trendValues: netIncomeTrend })
-    rows.push({ label: "Bénéfice net en % des revenus", current: (baseNetIncome / baseRevenue) * 100, prior: (418840 / 2864000) * 100, isBold: true, isMargin: true, indent: true, trendValues: netMarginTrend })
-    
-    rows.push({ label: "", current: 0, prior: 0 })
-    rows.push({ label: "BAIIA", current: baseEBITA, prior: 626000, isBold: true, isEBITA: true, trendValues: ebitaTrend })
-    rows.push({ label: "BAIIA en % des revenus", current: (baseEBITA / baseRevenue) * 100, prior: (626000 / 2864000) * 100, isBold: true, isMargin: true, indent: true, trendValues: ebitaMarginTrend })
-    
-    return rows
-  }
-
-  // Helper function to generate trend data for 24 months
-  const get24MonthsData = (): SummaryRow[] => {
-    const baseRevenue = 275000
-    const baseCOGS = 125000
-    const baseGrossProfit = 150000
-    const baseAdmin = 58500
-    const baseSales = 36000
-    const baseOther = -3500
-    const baseTotalExpenses = 91000
-    const baseEBT = 59000
-    const baseTax = 15340
-    const baseNetIncome = 43660
-    const baseEBITA = 64000
-
-    // Generate 24 months with slight variations showing growth trend
-    const generateTrend = (base: number, growthRate: number = 0.02) => {
-      return Array.from({ length: 24 }, (_, i) => {
-        const monthIndex = 23 - i // Reverse order (oldest to newest)
-        return Math.round(base * (1 + growthRate * monthIndex) * (0.95 + Math.random() * 0.1))
-      })
-    }
-
-    const revenueTrend = generateTrend(baseRevenue, 0.025)
-    const grossProfitTrend = generateTrend(baseGrossProfit, 0.03)
-    const marginTrend = revenueTrend.map((rev, i) => {
-      const gp = grossProfitTrend[i]
-      return rev !== 0 ? (gp / rev) * 100 : 0
-    })
-    const currentMargin = (baseGrossProfit / baseRevenue) * 100
-    const priorMargin = (132000 / 242000) * 100
-    const netIncomeTrend = generateTrend(baseNetIncome, 0.035)
-    const ebitaTrend = generateTrend(baseEBITA, 0.03)
-    const netMarginTrend = revenueTrend.map((rev: number, i: number) => {
-      const net = netIncomeTrend[i]
-      return rev !== 0 ? (net / rev) * 100 : 0
-    })
-    const ebitaMarginTrend = revenueTrend.map((rev: number, i: number) => {
-      const ebita = ebitaTrend[i]
-      return rev !== 0 ? (ebita / rev) * 100 : 0
-    })
-
-    const rows: SummaryRow[] = [
-      { label: "revenus", current: baseRevenue, prior: 242000, isBold: true, isSection: true, trendValues: revenueTrend },
-      { label: "coût des produits vendus", current: baseCOGS, prior: 110000, isBold: true, isSection: true, indent: true, trendValues: generateTrend(baseCOGS, 0.02) },
-      { label: "bénéfice brut", current: baseGrossProfit, prior: 132000, isBold: true, isResult: true, trendValues: grossProfitTrend },
-    ]
-    
-    if (isForecastSection) {
-      rows.push({ label: "marge brute", current: currentMargin, prior: priorMargin, isBold: true, isMargin: true, trendValues: marginTrend })
-    }
-    
-    rows.push({ label: "", current: 0, prior: 0 })
-    rows.push({ label: "charges d'exploitation", current: 0, prior: 0, isSection: true })
-    rows.push({ label: "frais d'administration", current: baseAdmin, prior: 52700, isBold: true, indent: true, trendValues: generateTrend(baseAdmin, 0.015) })
-    rows.push({ label: "frais de vente", current: baseSales, prior: 32300, isBold: true, indent: true, trendValues: generateTrend(baseSales, 0.02) })
-    rows.push({ label: "autres dépenses (revenus)", current: baseOther, prior: -3500, isBold: true, indent: true, trendValues: generateTrend(baseOther, 0) })
-    rows.push({ label: "total des charges", current: baseTotalExpenses, prior: 81500, isBold: true, trendValues: generateTrend(baseTotalExpenses, 0.018) })
-    rows.push({ label: "", current: 0, prior: 0 })
-    rows.push({ label: "bénéfice avant impôts", current: baseEBT, prior: 50500, isBold: true, isResult: true, trendValues: generateTrend(baseEBT, 0.035) })
-    rows.push({ label: "impôts (26%)", current: baseTax, prior: 13130, isBold: true, indent: true, trendValues: generateTrend(baseTax, 0.035) })
-    rows.push({ label: "bénéfice net", current: baseNetIncome, prior: 37370, isBold: true, isNetIncome: true, trendValues: generateTrend(baseNetIncome, 0.035) })
-    
-    if (isForecastSection) {
-      rows.push({ label: "marge nette", current: (baseNetIncome / baseRevenue) * 100, prior: (37370 / 242000) * 100, isBold: true, isMargin: true, trendValues: netMarginTrend })
-    }
-    
-    rows.push({ label: "", current: 0, prior: 0 })
-    rows.push({ label: "BAIIA", current: baseEBITA, prior: 55500, isBold: true, isEBITA: true, trendValues: ebitaTrend })
-    
-    if (isForecastSection) {
-      rows.push({ label: "Marge BAIIA", current: (baseEBITA / baseRevenue) * 100, prior: (55500 / 242000) * 100, isBold: true, isMargin: true, trendValues: ebitaMarginTrend })
-    }
-    
-    return rows
-  }
-
-  // Helper function to get comparison data based on comparisonType
-  const getComparisonPriorValue = (basePrior: number): number => {
-    if (comparisonType === "lastMonth") {
-      // For "lastMonth", use the base prior value (YTD/DDM of last period)
-      return basePrior
-    } else if (comparisonType === "pastMonth") {
-      // For "pastMonth", use a slightly different value (YTD/DDM of past period)
-      return Math.round(basePrior * 0.92)
-    } else if (comparisonType === "budget" && selectedBudgetId) {
-      // For "budget", load budget data from localStorage
-      // For now, use a budget value (typically higher than actual)
-      return Math.round(basePrior * 1.15)
-    }
-    return basePrior
-  }
-
-  const getSummaryData = (): SummaryRow[] => {
-    // Return trend data for trend views
-    if (view === "12months") {
-      return get12MonthsData()
-    }
-    if (view === "24months") {
-      return get24MonthsData()
-    }
-    if (view === "quarters") {
-      return getQuartersData()
-    }
-    if (view === "years") {
-      return getYearsData()
-    }
-    // Handle YTD and DDM views
-    if (view === "ytd" || view === "ddm") {
-      // Base values for current YTD/DDM
-      const baseRevenue = view === "ytd" ? 1650000 : 275000 // YTD is cumulative, DDM is monthly
-      const baseCOGS = view === "ytd" ? 750000 : 125000
-      const baseGrossProfit = baseRevenue - baseCOGS
-      const baseAdmin = view === "ytd" ? 351000 : 58500
-      const baseSales = view === "ytd" ? 216000 : 36000
-      const baseOther = view === "ytd" ? -21000 : -3500
-      const baseTotalExpenses = baseAdmin + baseSales + baseOther
-      const baseEBT = view === "ytd" ? 354000 : 59000
-      const baseTax = view === "ytd" ? 92040 : 15340
-      const baseNetIncome = view === "ytd" ? 261960 : 43660
-      const baseEBITA = view === "ytd" ? 384000 : 64000
-
-      // Prior values (will be adjusted based on comparisonType)
-      const priorRevenue = view === "ytd" ? 1452000 : 242000
-      const priorCOGS = view === "ytd" ? 660000 : 110000
-      const priorGrossProfit = priorRevenue - priorCOGS
-      const priorAdmin = view === "ytd" ? 316200 : 52700
-      const priorSales = view === "ytd" ? 193800 : 32300
-      const priorOther = view === "ytd" ? -21000 : -3500
-      const priorTotalExpenses = priorAdmin + priorSales + priorOther
-      const priorEBT = view === "ytd" ? 303000 : 50500
-      const priorTax = view === "ytd" ? 78780 : 13130
-      const priorNetIncome = view === "ytd" ? 224220 : 37370
-      const priorEBITA = view === "ytd" ? 333000 : 55500
-
-      // Apply comparison type adjustment
-      const adjustedPriorRevenue = getComparisonPriorValue(priorRevenue)
-      const adjustedPriorCOGS = getComparisonPriorValue(priorCOGS)
-      const adjustedPriorGrossProfit = adjustedPriorRevenue - adjustedPriorCOGS
-      const adjustedPriorAdmin = getComparisonPriorValue(priorAdmin)
-      const adjustedPriorSales = getComparisonPriorValue(priorSales)
-      const adjustedPriorOther = priorOther // Usually same
-      const adjustedPriorTotalExpenses = adjustedPriorAdmin + adjustedPriorSales + adjustedPriorOther
-      const adjustedPriorEBT = adjustedPriorGrossProfit - adjustedPriorTotalExpenses
-      const adjustedPriorTax = Math.round(adjustedPriorEBT * 0.26)
-      const adjustedPriorNetIncome = adjustedPriorEBT - adjustedPriorTax
-      const adjustedPriorEBITA = adjustedPriorGrossProfit - adjustedPriorTotalExpenses
-
-      const rows: SummaryRow[] = [
-        { label: "revenus", current: baseRevenue, prior: adjustedPriorRevenue, isBold: true, isSection: true },
-        { label: "coût des produits vendus", current: baseCOGS, prior: adjustedPriorCOGS, isBold: true, isSection: true, indent: true },
-        { label: "bénéfice brut", current: baseGrossProfit, prior: adjustedPriorGrossProfit, isBold: true, isResult: true },
-      ]
-      
-      if (isForecastSection) {
-        rows.push({ label: "marge brute", current: (baseGrossProfit / baseRevenue) * 100, prior: (adjustedPriorGrossProfit / adjustedPriorRevenue) * 100, isBold: true, isMargin: true })
-      }
-      
-      rows.push({ label: "", current: 0, prior: 0 })
-      rows.push({ label: "charges d'exploitation", current: 0, prior: 0, isSection: true })
-      rows.push({ label: "frais d'administration", current: baseAdmin, prior: adjustedPriorAdmin, isBold: true, indent: true })
-      rows.push({ label: "frais de vente", current: baseSales, prior: adjustedPriorSales, isBold: true, indent: true })
-      rows.push({ label: "autres dépenses (revenus)", current: baseOther, prior: adjustedPriorOther, isBold: true, indent: true })
-      rows.push({ label: "total des charges", current: baseTotalExpenses, prior: adjustedPriorTotalExpenses, isBold: true })
-      rows.push({ label: "", current: 0, prior: 0 })
-      rows.push({ label: "bénéfice avant impôts", current: baseEBT, prior: adjustedPriorEBT, isBold: true, isResult: true })
-      rows.push({ label: "impôts (26%)", current: baseTax, prior: adjustedPriorTax, isBold: true, indent: true })
-      rows.push({ label: "bénéfice net", current: baseNetIncome, prior: adjustedPriorNetIncome, isBold: true, isNetIncome: true })
-      
-      if (isForecastSection) {
-        rows.push({ label: "marge nette", current: (baseNetIncome / baseRevenue) * 100, prior: (adjustedPriorNetIncome / adjustedPriorRevenue) * 100, isBold: true, isMargin: true })
-      }
-      
-      rows.push({ label: "", current: 0, prior: 0 })
-      rows.push({ label: "BAIIA", current: baseEBITA, prior: adjustedPriorEBITA, isBold: true, isEBITA: true })
-      
-      if (isForecastSection) {
-        rows.push({ label: "Marge BAIIA", current: (baseEBITA / baseRevenue) * 100, prior: (adjustedPriorEBITA / adjustedPriorRevenue) * 100, isBold: true, isMargin: true })
-      }
-      
-      return rows
-    }
-    if (period === "monthly") {
-      const rows: SummaryRow[] = [
-        { label: "revenus", current: 275000, prior: 242000, isBold: true, isSection: true },
-        { label: "coût des produits vendus", current: 125000, prior: 110000, isBold: true, isSection: true, indent: true },
-        { label: "bénéfice brut", current: 150000, prior: 132000, isBold: true, isResult: true },
-      ]
-      
-      if (isForecastSection) {
-        rows.push({ label: "marge brute", current: (150000 / 275000) * 100, prior: (132000 / 242000) * 100, isBold: true, isMargin: true })
-      }
-      
-      rows.push({ label: "", current: 0, prior: 0 })
-      rows.push({ label: "charges d'exploitation", current: 0, prior: 0, isSection: true })
-      rows.push({ label: "frais d'administration", current: 58500, prior: 52700, isBold: true, indent: true })
-      rows.push({ label: "frais de vente", current: 36000, prior: 32300, isBold: true, indent: true })
-      rows.push({ label: "autres dépenses (revenus)", current: -3500, prior: -3500, isBold: true, indent: true })
-      rows.push({ label: "total des charges", current: 91000, prior: 81500, isBold: true })
-      rows.push({ label: "", current: 0, prior: 0 })
-      rows.push({ label: "bénéfice avant impôts", current: 59000, prior: 50500, isBold: true, isResult: true })
-      rows.push({ label: "impôts (26%)", current: 15340, prior: 13130, isBold: true, indent: true })
-      rows.push({ label: "bénéfice net", current: 43660, prior: 37370, isBold: true, isNetIncome: true })
-      
-      if (isForecastSection) {
-        rows.push({ label: "marge nette", current: (43660 / 275000) * 100, prior: (37370 / 242000) * 100, isBold: true, isMargin: true })
-      }
-      
-      rows.push({ label: "", current: 0, prior: 0 })
-      rows.push({ label: "BAIIA", current: 64000, prior: 55500, isBold: true, isEBITA: true })
-      
-      if (isForecastSection) {
-        rows.push({ label: "Marge BAIIA", current: (64000 / 275000) * 100, prior: (55500 / 242000) * 100, isBold: true, isMargin: true })
-      }
-      
-      return rows
-    } else if (period === "quarterly") {
-      const rows: SummaryRow[] = [
-        { label: "revenus", current: 825000, prior: 716000, isBold: true, isSection: true },
-        { label: "coût des produits vendus", current: 375000, prior: 330000, isBold: true, isSection: true, indent: true },
-        { label: "bénéfice brut", current: 450000, prior: 386000, isBold: true, isResult: true },
-      ]
-      
-      if (isForecastSection) {
-        rows.push({ label: "marge brute", current: (450000 / 825000) * 100, prior: (386000 / 716000) * 100, isBold: true, isMargin: true })
-      }
-      
-      rows.push({ label: "", current: 0, prior: 0 })
-      rows.push({ label: "charges d'exploitation", current: 0, prior: 0, isSection: true })
-      rows.push({ label: "frais d'administration", current: 175500, prior: 158100, isBold: true, indent: true })
-      rows.push({ label: "frais de vente", current: 108000, prior: 96900, isBold: true, indent: true })
-      rows.push({ label: "autres dépenses (revenus)", current: -10500, prior: -10500, isBold: true, indent: true })
-      rows.push({ label: "total des charges", current: 273000, prior: 244500, isBold: true })
-      rows.push({ label: "", current: 0, prior: 0 })
-      rows.push({ label: "bénéfice avant impôts", current: 177000, prior: 141500, isBold: true, isResult: true })
-      rows.push({ label: "impôts (26%)", current: 46020, prior: 36790, isBold: true, indent: true })
-      rows.push({ label: "bénéfice net", current: 130980, prior: 104710, isBold: true, isNetIncome: true })
-      
-      if (isForecastSection) {
-        rows.push({ label: "marge nette", current: (130980 / 825000) * 100, prior: (104710 / 716000) * 100, isBold: true, isMargin: true })
-      }
-      
-      rows.push({ label: "", current: 0, prior: 0 })
-      rows.push({ label: "BAIIA", current: 192000, prior: 156500, isBold: true, isEBITA: true })
-      
-      if (isForecastSection) {
-        rows.push({ label: "Marge BAIIA", current: (192000 / 825000) * 100, prior: (156500 / 716000) * 100, isBold: true, isMargin: true })
-      }
-      
-      return rows
-    } else {
-      const rows: SummaryRow[] = [
-        { label: "revenus", current: 3300000, prior: 2864000, isBold: true, isSection: true },
-        { label: "coût des produits vendus", current: 1500000, prior: 1320000, isBold: true, isSection: true, indent: true },
-        { label: "bénéfice brut", current: 1800000, prior: 1544000, isBold: true, isResult: true },
-      ]
-      
-      if (isForecastSection) {
-        rows.push({ label: "marge brute", current: (1800000 / 3300000) * 100, prior: (1544000 / 2864000) * 100, isBold: true, isMargin: true })
-      }
-      
-      rows.push({ label: "", current: 0, prior: 0 })
-      rows.push({ label: "charges d'exploitation", current: 0, prior: 0, isSection: true })
-      rows.push({ label: "frais d'administration", current: 702000, prior: 632400, isBold: true, indent: true })
-      rows.push({ label: "frais de vente", current: 432000, prior: 387600, isBold: true, indent: true })
-      rows.push({ label: "autres dépenses (revenus)", current: -42000, prior: -42000, isBold: true, indent: true })
-      rows.push({ label: "total des charges", current: 1092000, prior: 978000, isBold: true })
-      rows.push({ label: "", current: 0, prior: 0 })
-      rows.push({ label: "bénéfice avant impôts", current: 708000, prior: 566000, isBold: true, isResult: true })
-      rows.push({ label: "impôts (26%)", current: 184080, prior: 147160, isBold: true, indent: true })
-      rows.push({ label: "bénéfice net", current: 523920, prior: 418840, isBold: true, isNetIncome: true })
-      
-      if (isForecastSection) {
-        rows.push({ label: "marge nette", current: (523920 / 3300000) * 100, prior: (418840 / 2864000) * 100, isBold: true, isMargin: true })
-      }
-      
-      rows.push({ label: "", current: 0, prior: 0 })
-      rows.push({ label: "BAIIA", current: 768000, prior: 626000, isBold: true, isEBITA: true })
-      
-      if (isForecastSection) {
-        rows.push({ label: "Marge BAIIA", current: (768000 / 3300000) * 100, prior: (626000 / 2864000) * 100, isBold: true, isMargin: true })
-      }
-      
-      return rows
-    }
+  // Map backend FinancialStatementRow[] to internal SummaryRow[]
+  const mapBackendRows = (apiRows: FinancialStatementRow[]): SummaryRow[] => {
+    return apiRows.map((row) => ({
+      label: row.label,
+      current: row.current,
+      prior: row.prior,
+      isBold: row.isBold,
+      isSection: row.isSection,
+      isResult: row.isResult,
+      isNetIncome: row.label.toLowerCase().includes("bénéfice net") && row.isResult,
+      isEBITA: row.label.toLowerCase() === "baiia",
+      indent: !row.isBold && !row.isSection && !row.isResult,
+    }))
   }
 
   // Helper function to capitalize first letter
@@ -597,7 +143,39 @@ export function IncomeStatementSummary({
     return boldLabels.includes(label.toLowerCase()) || !!row.isResult || !!row.isNetIncome || !!row.isEBITA
   }
 
-  const data = getSummaryData()
+  // Build data: use series API for multi-period views, backend rows for single-period
+  const buildSeriesData = (): SummaryRow[] => {
+    if (!seriesRows.length || !seriesPeriods.length) return []
+    return seriesRows.map((row) => {
+      const rawAmounts = getRowAmounts(row, seriesPeriods)
+      let trendValues: number[]
+      if (view === "quarters") {
+        const { amounts: qAmounts } = aggregateToQuarters(rawAmounts, seriesPeriods)
+        trendValues = qAmounts
+      } else if (view === "years") {
+        const { amounts: yAmounts } = aggregateToYears(rawAmounts, seriesPeriods)
+        trendValues = yAmounts
+      } else {
+        trendValues = rawAmounts
+      }
+      const lastAmount = trendValues[trendValues.length - 1] || 0
+      const priorAmount = trendValues.length >= 2 ? trendValues[trendValues.length - 2] || 0 : 0
+      return {
+        label: row.label,
+        current: lastAmount,
+        prior: priorAmount,
+        isBold: row.isBold || row.isResult,
+        isSection: row.isSection,
+        isResult: row.isResult,
+        isNetIncome: row.label.toLowerCase().includes("bénéfice net") && row.isResult,
+        isEBITA: row.label.toLowerCase() === "baiia",
+        indent: !row.isBold && !row.isSection && !row.isResult,
+        trendValues,
+      }
+    })
+  }
+
+  const data = isMultiPeriodView && !isForecastSection ? buildSeriesData() : mapBackendRows(backendRows)
   
   // Determine what we're comparing
   const isCompanyComparison = columnMode === "comparison" && !companyId
@@ -703,6 +281,9 @@ export function IncomeStatementSummary({
 
   // Helper function to generate month labels (12 or 24 months)
   const getMonthLabels = (monthsCount: number = 12): string[] => {
+    if (seriesPeriods.length > 0 && !isForecastSection) {
+      return getPeriodLabels(seriesPeriods)
+    }
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
     const currentDate = new Date()
     const labels: string[] = []
@@ -715,6 +296,11 @@ export function IncomeStatementSummary({
 
   // Helper function to generate quarter labels (5 quarters)
   const getQuarterLabels = (): string[] => {
+    if (seriesPeriods.length > 0 && !isForecastSection) {
+      const dummyAmounts = seriesPeriods.map(() => 0)
+      const { labels } = aggregateToQuarters(dummyAmounts, seriesPeriods)
+      return labels
+    }
     const currentDate = new Date()
     const labels: string[] = []
     for (let i = 4; i >= 0; i--) {
@@ -727,6 +313,11 @@ export function IncomeStatementSummary({
 
   // Helper function to generate year labels (projectionYears + 1 for forecast sections)
   const getYearLabels = (): string[] => {
+    if (seriesPeriods.length > 0 && !isForecastSection) {
+      const dummyAmounts = seriesPeriods.map(() => 0)
+      const { labels } = aggregateToYears(dummyAmounts, seriesPeriods)
+      return labels
+    }
     const currentYear = new Date().getFullYear()
     const labels: string[] = []
     if (isForecastSection) {
@@ -755,6 +346,31 @@ export function IncomeStatementSummary({
     if (view === "quarters") return "Trimestres"
     if (view === "years") return "Années"
     return "Courant"
+  }
+
+  if (loading || (seriesLoading && isMultiPeriodView && !isForecastSection)) {
+    return (
+      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+        <div className="px-8 py-16 text-center">
+          <div className="animate-pulse space-y-4">
+            <div className="h-4 bg-slate-200 rounded w-1/3 mx-auto"></div>
+            <div className="h-4 bg-slate-200 rounded w-2/3 mx-auto"></div>
+            <div className="h-4 bg-slate-200 rounded w-1/2 mx-auto"></div>
+          </div>
+          <p className="text-sm text-slate-500 mt-4">Chargement des données...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (data.length === 0) {
+    return (
+      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+        <div className="px-8 py-16 text-center">
+          <p className="text-sm text-slate-500">Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.</p>
+        </div>
+      </div>
+    )
   }
 
   return (

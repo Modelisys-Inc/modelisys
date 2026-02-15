@@ -4,7 +4,8 @@ import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import { ChevronRight, ChevronDown, StickyNote, Plus, X } from "lucide-react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
@@ -72,29 +73,85 @@ export function DebtForecastDetail({
 
   const isForecast = isForecastSection(title)
 
-  // Storage key for persisting loans
-  const getStorageKey = (): string => {
-    const entityKey = [companyId, divisionId, subDivisionId].filter(Boolean).join("-") || "all"
-    return `modelisys_debt_loans_${entityKey}`
-  }
+  // Debounced save to API
+  const saveConfigRef = useRef<NodeJS.Timeout>()
 
-  // Load loans from localStorage on mount
+  const saveConfig = useCallback((data: Record<string, unknown>) => {
+    if (!companyId || !isForecast) return
+    clearTimeout(saveConfigRef.current)
+    saveConfigRef.current = setTimeout(async () => {
+      try {
+        await upsertForecastConfig(companyId, {
+          config_type: "debt-forecast",
+          data,
+        })
+      } catch (err) {
+        console.error("Error saving debt forecast config:", err)
+      }
+    }, 500)
+  }, [companyId, isForecast])
+
+  // Load loans from API on mount
   useEffect(() => {
-    if (typeof window === "undefined" || !isForecast) return
-    
-    try {
-      const storageKey = getStorageKey()
-      const stored = localStorage.getItem(storageKey)
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        // Ensure all loans have startMonth (default to 0 for existing loans)
-        const loansWithStartMonth = parsed.map((loan: Loan) => ({
-          ...loan,
-          startMonth: loan.startMonth !== undefined ? loan.startMonth : 0
-        }))
-        setLoans(loansWithStartMonth)
-      } else {
-        // Default loans for demo
+    if (!companyId || !isForecast) return
+
+    const loadConfig = async () => {
+      try {
+        const configs = await listForecastConfigs(companyId, { config_type: "debt-forecast" })
+        if (configs.length > 0) {
+          const data = configs[0].data as Record<string, unknown>
+          if (data.loans && Array.isArray(data.loans)) {
+            // Ensure all loans have startMonth (default to 0 for existing loans)
+            const loansWithStartMonth = (data.loans as Loan[]).map((loan: Loan) => ({
+              ...loan,
+              startMonth: loan.startMonth !== undefined ? loan.startMonth : 0
+            }))
+            setLoans(loansWithStartMonth)
+          } else {
+            // Default loans for demo
+            setLoans([
+              {
+                id: "loan-1",
+                name: "Emprunt 1",
+                principal: 2000000,
+                interestRate: 5.5,
+                remainingPayments: 10,
+                startMonth: 0,
+              },
+              {
+                id: "loan-2",
+                name: "Emprunt 2",
+                principal: 1500000,
+                interestRate: 4.5,
+                remainingPayments: 8,
+                startMonth: 12,
+              },
+            ])
+          }
+        } else {
+          // Default loans for demo
+          setLoans([
+            {
+              id: "loan-1",
+              name: "Emprunt 1",
+              principal: 2000000,
+              interestRate: 5.5,
+              remainingPayments: 10,
+              startMonth: 0,
+            },
+            {
+              id: "loan-2",
+              name: "Emprunt 2",
+              principal: 1500000,
+              interestRate: 4.5,
+              remainingPayments: 8,
+              startMonth: 12,
+            },
+          ])
+        }
+      } catch (err) {
+        console.error("Error loading debt forecast config:", err)
+        // Default loans for demo on error
         setLoans([
           {
             id: "loan-1",
@@ -102,7 +159,7 @@ export function DebtForecastDetail({
             principal: 2000000,
             interestRate: 5.5,
             remainingPayments: 10,
-            startMonth: 0, // Début en janvier 2026
+            startMonth: 0,
           },
           {
             id: "loan-2",
@@ -110,26 +167,19 @@ export function DebtForecastDetail({
             principal: 1500000,
             interestRate: 4.5,
             remainingPayments: 8,
-            startMonth: 12, // Début en janvier 2027
+            startMonth: 12,
           },
         ])
       }
-    } catch (error) {
-      console.error("Error loading loans:", error)
     }
-  }, [companyId, divisionId, subDivisionId, title, isForecast])
+    loadConfig()
+  }, [companyId, isForecast])
 
-  // Save loans to localStorage whenever they change
+  // Save loans whenever they change
   useEffect(() => {
-    if (typeof window === "undefined" || !isForecast || loans.length === 0) return
-    
-    try {
-      const storageKey = getStorageKey()
-      localStorage.setItem(storageKey, JSON.stringify(loans))
-    } catch (error) {
-      console.error("Error saving loans:", error)
-    }
-  }, [loans, companyId, divisionId, subDivisionId, title, isForecast])
+    if (!isForecast || loans.length === 0) return
+    saveConfig({ loans })
+  }, [loans, saveConfig, isForecast])
 
   // Calculate monthly payment (PMT formula) based on current balance and remaining payments
   const calculateMonthlyPayment = (balance: number, annualRate: number, numPayments: number): number => {

@@ -9,6 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronDown } from "lucide-react"
 import { TrendingUp, TrendingDown } from "lucide-react"
 
+export interface WorkingCapitalChartDataPoint {
+  period: string
+  workingCapital: number
+  denominator: number
+  ratio: number
+}
+
 interface WorkingCapitalChartProps {
   period: "monthly" | "quarterly" | "annual"
   view: "current" | "12months" | "24months" | "years"
@@ -16,64 +23,8 @@ interface WorkingCapitalChartProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
-}
-
-// Helper functions to generate data
-const getDetailData = (period: "monthly" | "quarterly" | "annual", view: "current" | "12months" | "24months" | "years") => {
-  if (view === "12months") {
-    return {
-      currentAssets: 850000,
-      priorAssets: 750000,
-      currentLiabilities: 450000,
-      priorLiabilities: 420000,
-      currentRevenue: 275000,
-      priorRevenue: 242000,
-      trendValues: Array.from({ length: 12 }, (_, i) => ({
-        assets: 750000 + (i * 8333),
-        liabilities: 420000 + (i * 2500),
-        revenue: 242000 + (i * 2750)
-      }))
-    }
-  }
-  if (view === "24months") {
-    return {
-      currentAssets: 850000,
-      priorAssets: 750000,
-      currentLiabilities: 450000,
-      priorLiabilities: 420000,
-      currentRevenue: 275000,
-      priorRevenue: 242000,
-      trendValues: Array.from({ length: 24 }, (_, i) => ({
-        assets: 750000 + (i * 4167),
-        liabilities: 420000 + (i * 1250),
-        revenue: 242000 + (i * 1375)
-      }))
-    }
-  }
-  if (view === "years") {
-    return {
-      currentAssets: 10200000,
-      priorAssets: 9000000,
-      currentLiabilities: 5400000,
-      priorLiabilities: 5040000,
-      currentRevenue: 3300000,
-      priorRevenue: 2864000,
-      trendValues: Array.from({ length: 6 }, (_, i) => ({
-        assets: 9000000 + (i * 200000),
-        liabilities: 5040000 + (i * 60000),
-        revenue: 2864000 + (i * 72800)
-      }))
-    }
-  }
-  return {
-    currentAssets: period === "monthly" ? 850000 : period === "quarterly" ? 2550000 : 10200000,
-    priorAssets: period === "monthly" ? 750000 : period === "quarterly" ? 2250000 : 9000000,
-    currentLiabilities: period === "monthly" ? 450000 : period === "quarterly" ? 1350000 : 5400000,
-    priorLiabilities: period === "monthly" ? 420000 : period === "quarterly" ? 1260000 : 5040000,
-    currentRevenue: period === "monthly" ? 275000 : period === "quarterly" ? 825000 : 3300000,
-    priorRevenue: period === "monthly" ? 242000 : period === "quarterly" ? 716000 : 2864000,
-    trendValues: undefined
-  }
+  chartData?: WorkingCapitalChartDataPoint[]
+  loading?: boolean
 }
 
 type RatioType = "revenue" | "revenue_ex_cash"
@@ -85,87 +36,30 @@ export function WorkingCapitalChart({
   divisionId,
   subDivisionId,
   companies = [],
+  chartData,
+  loading = false,
 }: WorkingCapitalChartProps) {
   const [selectedRatio, setSelectedRatio] = useState<RatioType>("revenue")
 
-  // Calculate Working Capital (current assets - current liabilities)
-  const calculateWorkingCapital = (isPrior: boolean, trendIndex?: number): number => {
-    const data = getDetailData(period, view)
-    
-    if (trendIndex !== undefined && data.trendValues) {
-      const assets = data.trendValues[trendIndex]?.assets || 0
-      const liabilities = data.trendValues[trendIndex]?.liabilities || 0
-      return assets - liabilities
-    } else {
-      const assets = isPrior ? data.priorAssets : data.currentAssets
-      const liabilities = isPrior ? data.priorLiabilities : data.currentLiabilities
-      return assets - liabilities
-    }
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      </div>
+    )
   }
 
-  // Calculate Working Capital Ex Cash (current assets - cash - current liabilities)
-  // Assuming cash is approximately 23.5% of current assets (200000 / 850000)
-  const calculateWorkingCapitalExCash = (isPrior: boolean, trendIndex?: number): number => {
-    const data = getDetailData(period, view)
-    const cashRatio = 0.235
-    
-    if (trendIndex !== undefined && data.trendValues) {
-      const assets = data.trendValues[trendIndex]?.assets || 0
-      const cash = assets * cashRatio
-      const liabilities = data.trendValues[trendIndex]?.liabilities || 0
-      return assets - cash - liabilities
-    } else {
-      const assets = isPrior ? data.priorAssets : data.currentAssets
-      const cash = assets * cashRatio
-      const liabilities = isPrior ? data.priorLiabilities : data.currentLiabilities
-      return assets - cash - liabilities
-    }
+  // Empty state
+  if (!chartData || chartData.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <p className="text-slate-400">Aucune donnée disponible</p>
+      </div>
+    )
   }
 
-  // Calculate Current Assets
-  const getCurrentAssets = (isPrior: boolean, trendIndex?: number): number => {
-    const data = getDetailData(period, view)
-    if (trendIndex !== undefined && data.trendValues) {
-      return data.trendValues[trendIndex]?.assets || 0
-    }
-    return isPrior ? data.priorAssets : data.currentAssets
-  }
-
-  // Calculate Current Liabilities
-  const getCurrentLiabilities = (isPrior: boolean, trendIndex?: number): number => {
-    const data = getDetailData(period, view)
-    if (trendIndex !== undefined && data.trendValues) {
-      return data.trendValues[trendIndex]?.liabilities || 0
-    }
-    return isPrior ? data.priorLiabilities : data.currentLiabilities
-  }
-
-  // Calculate Revenue
-  const getRevenue = (isPrior: boolean, trendIndex?: number): number => {
-    const data = getDetailData(period, view)
-    if (trendIndex !== undefined && data.trendValues) {
-      return data.trendValues[trendIndex]?.revenue || 0
-    }
-    return isPrior ? data.priorRevenue : data.currentRevenue
-  }
-
-  // Get working capital value based on selected ratio
-  const getWorkingCapitalValue = (isPrior: boolean, trendIndex?: number): number => {
-    switch (selectedRatio) {
-      case "revenue":
-        return calculateWorkingCapital(isPrior, trendIndex)
-      case "revenue_ex_cash":
-        return calculateWorkingCapitalExCash(isPrior, trendIndex)
-      default:
-        return calculateWorkingCapital(isPrior, trendIndex)
-    }
-  }
-
-  // Get denominator based on selected ratio
-  const getDenominator = (isPrior: boolean, trendIndex?: number): number => {
-    // All ratios use revenue as denominator
-    return getRevenue(isPrior, trendIndex)
-  }
+  const chartDataPoints = chartData
 
   // Get ratio label
   const getRatioLabel = (): string => {
@@ -183,95 +77,6 @@ export function WorkingCapitalChart({
   const getDenominatorLabel = (): string => {
     return "Revenus"
   }
-
-  // Helper functions to get labels
-  const getMonthLabels = (count: number): string[] => {
-    const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
-    const labels: string[] = []
-    const currentDate = new Date()
-    for (let i = count - 1; i >= 0; i--) {
-      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
-      labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
-    }
-    return labels
-  }
-
-  const getYearLabels = (): string[] => {
-    const currentYear = new Date().getFullYear()
-    return Array.from({ length: 6 }, (_, i) => `${currentYear - 5 + i}`)
-  }
-
-  // Get data points for chart
-  let chartDataPoints: Array<{
-    period: string
-    workingCapital: number
-    denominator: number
-    ratio: number
-  }> = []
-
-  if (view === "12months") {
-    const monthLabels = getMonthLabels(12)
-    monthLabels.forEach((_, idx) => {
-      const workingCapital = getWorkingCapitalValue(false, idx)
-      const denominator = getDenominator(false, idx)
-      const ratio = denominator !== 0 ? (workingCapital / denominator) * 100 : 0
-      chartDataPoints.push({
-        period: monthLabels[idx],
-        workingCapital: workingCapital,
-        denominator: denominator,
-        ratio: ratio,
-      })
-    })
-  } else if (view === "24months") {
-    const monthLabels = getMonthLabels(24)
-    monthLabels.forEach((_, idx) => {
-      const workingCapital = getWorkingCapitalValue(false, idx)
-      const denominator = getDenominator(false, idx)
-      const ratio = denominator !== 0 ? (workingCapital / denominator) * 100 : 0
-      chartDataPoints.push({
-        period: monthLabels[idx],
-        workingCapital: workingCapital,
-        denominator: denominator,
-        ratio: ratio,
-      })
-    })
-  } else if (view === "years") {
-    const yearLabels = getYearLabels()
-    yearLabels.forEach((_, idx) => {
-      const workingCapital = getWorkingCapitalValue(false, idx)
-      const denominator = getDenominator(false, idx)
-      const ratio = denominator !== 0 ? (workingCapital / denominator) * 100 : 0
-      chartDataPoints.push({
-        period: yearLabels[idx],
-        workingCapital: workingCapital,
-        denominator: denominator,
-        ratio: ratio,
-      })
-    })
-  } else if (view === "current") {
-    const workingCapitalCurrent = getWorkingCapitalValue(false)
-    const denominatorCurrent = getDenominator(false)
-    const ratioCurrent = denominatorCurrent !== 0 ? (workingCapitalCurrent / denominatorCurrent) * 100 : 0
-    const workingCapitalPrior = getWorkingCapitalValue(true)
-    const denominatorPrior = getDenominator(true)
-    const ratioPrior = denominatorPrior !== 0 ? (workingCapitalPrior / denominatorPrior) * 100 : 0
-    chartDataPoints = [
-      {
-        period: "Passé",
-        workingCapital: workingCapitalPrior,
-        denominator: denominatorPrior,
-        ratio: ratioPrior,
-      },
-      {
-        period: "Courant",
-        workingCapital: workingCapitalCurrent,
-        denominator: denominatorCurrent,
-        ratio: ratioCurrent,
-      },
-    ]
-  }
-
-  if (chartDataPoints.length === 0) return null
 
   // Calculate averages
   const avgWorkingCapital = chartDataPoints.reduce((sum, d) => sum + d.workingCapital, 0) / chartDataPoints.length
@@ -327,7 +132,7 @@ export function WorkingCapitalChart({
   const totalRevenue = chartDataPoints.reduce((sum, d) => sum + d.denominator, 0)
 
   // Calculate variation for total revenue
-  const revenueVariation = chartDataPoints.length > 1 
+  const revenueVariation = chartDataPoints.length > 1
     ? chartDataPoints[chartDataPoints.length - 1].denominator - chartDataPoints[chartDataPoints.length - 2].denominator
     : 0
   const revenueVariationPercent = chartDataPoints.length > 1 && chartDataPoints[chartDataPoints.length - 2].denominator > 0
@@ -405,10 +210,10 @@ export function WorkingCapitalChart({
                 </div>
               )}
             </div>
-            
+
             {/* Separator */}
             <div className="border-b border-slate-200 my-3"></div>
-            
+
             {/* Working Capital Average */}
             <div className="pb-3">
               <div className="text-xs font-medium text-slate-500 mb-1">{workingCapitalLabel} moyen</div>
@@ -421,10 +226,10 @@ export function WorkingCapitalChart({
                 </span>
               </div>
             </div>
-            
+
             {/* Separator */}
             <div className="border-b border-slate-200 my-3"></div>
-            
+
             {/* Ratio Average */}
             <div>
               <div className="text-xs font-medium text-slate-500 mb-1">{ratioLabel}</div>
@@ -509,13 +314,13 @@ export function WorkingCapitalChart({
                         <div className="w-4 h-4 rounded-md shadow-sm bg-emerald-500 flex-shrink-0"></div>
                         <span className="text-sm font-medium text-slate-700 whitespace-nowrap">{workingCapitalLabel}</span>
                       </div>
-                      
+
                       {/* Dénominateur */}
                       <div className="flex items-center gap-2.5 min-w-fit">
                         <div className="w-4 h-4 rounded-md shadow-sm bg-blue-500 flex-shrink-0"></div>
                         <span className="text-sm font-medium text-slate-700 whitespace-nowrap">{denominatorLabel}</span>
                       </div>
-                      
+
                       {/* Ratio */}
                       <div className="flex items-center gap-2.5 min-w-fit">
                         <div className="w-8 h-1.5 bg-amber-500 rounded-full flex-shrink-0"></div>
@@ -577,4 +382,3 @@ export function WorkingCapitalChart({
     </div>
   )
 }
-

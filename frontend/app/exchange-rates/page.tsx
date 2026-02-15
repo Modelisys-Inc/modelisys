@@ -1,15 +1,22 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { ArrowLeft, Plus, X, Settings } from "lucide-react"
+import { ArrowLeft, Plus, X, Settings, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import {
+  listCompanies,
+  getExchangeRates,
+  upsertExchangeRates,
+  type ExchangeRateData,
+  type Company as ApiCompany,
+} from "@/lib/api"
 
 interface ExchangeRate {
   currency: string
@@ -41,6 +48,14 @@ const currencies = [
   { value: "AUD", label: "AUD - Dollar australien" },
 ]
 
+function mapApiToLocal(data: ExchangeRateData[]): ExchangeRate[] {
+  return data.map((r) => ({
+    currency: r.currency,
+    monthlyRates: r.monthly_rates,
+    notes: r.notes,
+  }))
+}
+
 export default function ExchangeRatesPage() {
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([])
   const [newCurrency, setNewCurrency] = useState<string>("")
@@ -49,47 +64,63 @@ export default function ExchangeRatesPage() {
   const [editingMonth, setEditingMonth] = useState<string>("")
   const [editingRate, setEditingRate] = useState<string>("")
   const [editingNote, setEditingNote] = useState<string>("")
+  const [loading, setLoading] = useState(true)
+  const [companyId, setCompanyId] = useState<string | null>(null)
 
-  // Load exchange rates from localStorage
+  // Load first company to use as org context for exchange rates
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const loadExchangeRates = () => {
-        const saved = localStorage.getItem("modelisys_exchange_rates")
-        if (saved) {
-          try {
-            const loadedRates: ExchangeRate[] = JSON.parse(saved)
-            setExchangeRates(loadedRates)
-          } catch (e) {
-            console.error("Error loading exchange rates:", e)
-            setExchangeRates([])
-          }
+    listCompanies()
+      .then((companies) => {
+        if (companies.length > 0) {
+          setCompanyId(companies[0].id)
         } else {
-          setExchangeRates([])
+          setLoading(false)
         }
-      }
-
-      loadExchangeRates()
-
-      // Listen for storage changes
-      const handleStorageChange = () => {
-        loadExchangeRates()
-      }
-
-      window.addEventListener("storage", handleStorageChange)
-      const interval = setInterval(handleStorageChange, 1000)
-
-      return () => {
-        window.removeEventListener("storage", handleStorageChange)
-        clearInterval(interval)
-      }
-    }
+      })
+      .catch(() => setLoading(false))
   }, [])
 
-  // Save exchange rates to localStorage
-  const saveExchangeRates = (rates: ExchangeRate[]) => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("modelisys_exchange_rates", JSON.stringify(rates))
-      setExchangeRates(rates)
+  // Load exchange rates from API
+  const loadExchangeRates = useCallback(async () => {
+    if (!companyId) return
+
+    setLoading(true)
+    try {
+      const data = await getExchangeRates(companyId)
+      setExchangeRates(mapApiToLocal(data))
+    } catch (e) {
+      console.error("Error loading exchange rates:", e)
+      setExchangeRates([])
+    } finally {
+      setLoading(false)
+    }
+  }, [companyId])
+
+  useEffect(() => {
+    if (companyId) {
+      loadExchangeRates()
+    }
+  }, [companyId, loadExchangeRates])
+
+  // Save all exchange rates to API
+  const saveExchangeRates = async (rates: ExchangeRate[]) => {
+    if (!companyId) return
+
+    setExchangeRates(rates)
+
+    try {
+      await upsertExchangeRates(
+        companyId,
+        rates.map((r) => ({
+          currency: r.currency,
+          monthly_rates: r.monthlyRates,
+          notes: r.notes || {},
+        }))
+      )
+    } catch (e) {
+      console.error("Error saving exchange rates:", e)
+      // Reload from API on error to restore consistent state
+      await loadExchangeRates()
     }
   }
 
@@ -117,7 +148,7 @@ export default function ExchangeRatesPage() {
     const rate = exchangeRates.find(er => er.currency === currency)
     const currentRate = rate?.monthlyRates[month] || 0
     const currentNote = rate?.notes?.[month] || ""
-    
+
     setEditingCurrency(currency)
     setEditingMonth(month)
     setEditingRate(currentRate === 0 ? "" : currentRate.toFixed(4))
@@ -163,7 +194,7 @@ export default function ExchangeRatesPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
-      
+
       {/* Dark Header Section */}
       <div className="w-full bg-slate-900 pt-15 pb-40">
         <div className="max-w-[1920px] mx-auto px-6">
@@ -183,7 +214,7 @@ export default function ExchangeRatesPage() {
                 Configurez les taux de change pour convertir vos devises en CAD
               </p>
               <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Entrez les taux de change mensuels pour chaque devise. Ces taux seront utilisés pour convertir 
+                Entrez les taux de change mensuels pour chaque devise. Ces taux seront utilisés pour convertir
                 automatiquement les montants des sociétés en devise étrangère vers le dollar canadien (CAD).
               </p>
             </div>
@@ -224,7 +255,7 @@ export default function ExchangeRatesPage() {
                   </Select>
                   <Button
                     onClick={handleAddCurrency}
-                    disabled={!newCurrency}
+                    disabled={!newCurrency || !companyId}
                     className="bg-blue-500 hover:bg-blue-600 text-white"
                   >
                     <Plus className="w-4 h-4 mr-2" />
@@ -236,6 +267,12 @@ export default function ExchangeRatesPage() {
 
             {/* Table */}
             <div className="overflow-x-auto bg-white">
+              {loading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                  <span className="ml-2 text-sm text-slate-500">Chargement...</span>
+                </div>
+              ) : (
               <table className="w-full">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
@@ -260,8 +297,8 @@ export default function ExchangeRatesPage() {
                       </td>
                     </tr>
                   ) : (
-                    exchangeRates.map((rate, index) => (
-                      <tr key={index} className="border-b border-slate-100 hover:bg-slate-50">
+                    exchangeRates.map((rate) => (
+                      <tr key={rate.currency} className="border-b border-slate-100 hover:bg-slate-50">
                         <td className="px-6 py-4 text-sm font-semibold text-slate-900 sticky left-0 bg-white z-10">
                           {currencies.find(c => c.value === rate.currency)?.label || rate.currency}
                         </td>
@@ -310,6 +347,7 @@ export default function ExchangeRatesPage() {
                   )}
                 </tbody>
               </table>
+              )}
             </div>
           </div>
         </div>
@@ -328,7 +366,7 @@ export default function ExchangeRatesPage() {
               )}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4 py-4">
             <div>
               <label className="text-sm font-medium text-slate-700 mb-2 block">
@@ -346,7 +384,7 @@ export default function ExchangeRatesPage() {
                 Taux de conversion de {editingCurrency} vers CAD
               </p>
             </div>
-            
+
             <div>
               <label className="text-sm font-medium text-slate-700 mb-2 block">
                 Note explicative
@@ -385,4 +423,3 @@ export default function ExchangeRatesPage() {
     </div>
   )
 }
-

@@ -9,6 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronDown } from "lucide-react"
 import { TrendingUp, TrendingDown } from "lucide-react"
 
+export interface CashConversionChartDataPoint {
+  period: string
+  numerator: number
+  denominator: number
+  ratio: number
+}
+
 interface CashConversionChartProps {
   period: "monthly" | "quarterly" | "annual"
   view: "current" | "12months" | "24months" | "years"
@@ -16,75 +23,8 @@ interface CashConversionChartProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
-}
-
-// Helper functions to generate data
-const getDetailData = (period: "monthly" | "quarterly" | "annual", view: "current" | "12months" | "24months" | "years") => {
-  if (view === "12months") {
-    return {
-      receivables: 350000,
-      priorReceivables: 300000,
-      inventory: 150000,
-      priorInventory: 130000,
-      payables: 200000,
-      priorPayables: 180000,
-      revenue: 275000,
-      priorRevenue: 242000,
-      trendValues: Array.from({ length: 12 }, (_, i) => ({
-        receivables: 300000 + (i * 4167),
-        inventory: 130000 + (i * 1667),
-        payables: 180000 + (i * 1667),
-        revenue: 242000 + (i * 2750)
-      }))
-    }
-  }
-  if (view === "24months") {
-    return {
-      receivables: 350000,
-      priorReceivables: 300000,
-      inventory: 150000,
-      priorInventory: 130000,
-      payables: 200000,
-      priorPayables: 180000,
-      revenue: 275000,
-      priorRevenue: 242000,
-      trendValues: Array.from({ length: 24 }, (_, i) => ({
-        receivables: 300000 + (i * 2083),
-        inventory: 130000 + (i * 833),
-        payables: 180000 + (i * 833),
-        revenue: 242000 + (i * 1375)
-      }))
-    }
-  }
-  if (view === "years") {
-    return {
-      receivables: 4200000,
-      priorReceivables: 3600000,
-      inventory: 1800000,
-      priorInventory: 1560000,
-      payables: 2400000,
-      priorPayables: 2160000,
-      revenue: 3300000,
-      priorRevenue: 2864000,
-      trendValues: Array.from({ length: 6 }, (_, i) => ({
-        receivables: 3600000 + (i * 120000),
-        inventory: 1560000 + (i * 48000),
-        payables: 2160000 + (i * 48000),
-        revenue: 2864000 + (i * 72800)
-      }))
-    }
-  }
-  return {
-    receivables: period === "monthly" ? 350000 : period === "quarterly" ? 1050000 : 4200000,
-    priorReceivables: period === "monthly" ? 300000 : period === "quarterly" ? 900000 : 3600000,
-    inventory: period === "monthly" ? 150000 : period === "quarterly" ? 450000 : 1800000,
-    priorInventory: period === "monthly" ? 130000 : period === "quarterly" ? 390000 : 1560000,
-    payables: period === "monthly" ? 200000 : period === "quarterly" ? 600000 : 2400000,
-    priorPayables: period === "monthly" ? 180000 : period === "quarterly" ? 540000 : 2160000,
-    revenue: period === "monthly" ? 275000 : period === "quarterly" ? 825000 : 3300000,
-    priorRevenue: period === "monthly" ? 242000 : period === "quarterly" ? 716000 : 2864000,
-    trendValues: undefined
-  }
+  chartData?: CashConversionChartDataPoint[]
+  loading?: boolean
 }
 
 type MetricType = "DSO" | "DIO" | "DPO" | "CCC"
@@ -96,110 +36,30 @@ export function CashConversionChart({
   divisionId,
   subDivisionId,
   companies = [],
+  chartData,
+  loading = false,
 }: CashConversionChartProps) {
   const [selectedMetric, setSelectedMetric] = useState<MetricType>("DSO")
 
-  const data = getDetailData(period, view)
-
-  // Helper to get days in period
-  const getDaysInPeriod = (): number => {
-    if (period === "monthly") return 30
-    if (period === "quarterly") return 90
-    return 365
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      </div>
+    )
   }
 
-  // Calculate Days Sales Outstanding (DSO) - Délai de couvrement des clients
-  const calculateDSO = (isPrior: boolean, trendIndex?: number): number => {
-    if (trendIndex !== undefined && data.trendValues) {
-      const receivables = data.trendValues[trendIndex]?.receivables || 0
-      const revenue = data.trendValues[trendIndex]?.revenue || 0
-      if (revenue === 0) return 0
-      const days = getDaysInPeriod()
-      return (receivables / revenue) * days
-    }
-    const receivables = isPrior ? data.priorReceivables : data.receivables
-    const revenue = isPrior ? data.priorRevenue : data.revenue
-    if (revenue === 0) return 0
-    const days = getDaysInPeriod()
-    return (receivables / revenue) * days
+  // Empty state
+  if (!chartData || chartData.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
+        <p className="text-slate-400">Aucune donnée disponible</p>
+      </div>
+    )
   }
 
-  // Calculate Days Inventory Outstanding (DIO) - Délai de rotation des stocks
-  const calculateDIO = (isPrior: boolean, trendIndex?: number): number => {
-    if (trendIndex !== undefined && data.trendValues) {
-      const inventory = data.trendValues[trendIndex]?.inventory || 0
-      const revenue = data.trendValues[trendIndex]?.revenue || 0
-      // Estimate cost of goods sold as 60% of revenue
-      const cogs = revenue * 0.6
-      if (cogs === 0) return 0
-      const days = getDaysInPeriod()
-      return (inventory / cogs) * days
-    }
-    const inventory = isPrior ? data.priorInventory : data.inventory
-    const revenue = isPrior ? data.priorRevenue : data.revenue
-    // Estimate cost of goods sold as 60% of revenue
-    const cogs = revenue * 0.6
-    if (cogs === 0) return 0
-    const days = getDaysInPeriod()
-    return (inventory / cogs) * days
-  }
-
-  // Calculate Days Payable Outstanding (DPO) - Délai de paiement des fournisseurs
-  const calculateDPO = (isPrior: boolean, trendIndex?: number): number => {
-    if (trendIndex !== undefined && data.trendValues) {
-      const payables = data.trendValues[trendIndex]?.payables || 0
-      const revenue = data.trendValues[trendIndex]?.revenue || 0
-      // Estimate cost of goods sold as 60% of revenue
-      const cogs = revenue * 0.6
-      if (cogs === 0) return 0
-      const days = getDaysInPeriod()
-      return (payables / cogs) * days
-    }
-    const payables = isPrior ? data.priorPayables : data.payables
-    const revenue = isPrior ? data.priorRevenue : data.revenue
-    // Estimate cost of goods sold as 60% of revenue
-    const cogs = revenue * 0.6
-    if (cogs === 0) return 0
-    const days = getDaysInPeriod()
-    return (payables / cogs) * days
-  }
-
-  // Calculate Cash Conversion Cycle (CCC) - Cycle de conversion de l'encaisse
-  const calculateCCC = (isPrior: boolean, trendIndex?: number): number => {
-    return calculateDSO(isPrior, trendIndex) + calculateDIO(isPrior, trendIndex) - calculateDPO(isPrior, trendIndex)
-  }
-
-  // Get metric value based on selected metric
-  const getMetricValue = (isPrior: boolean, trendIndex?: number): number => {
-    switch (selectedMetric) {
-      case "DSO":
-        return calculateDSO(isPrior, trendIndex)
-      case "DIO":
-        return calculateDIO(isPrior, trendIndex)
-      case "DPO":
-        return calculateDPO(isPrior, trendIndex)
-      case "CCC":
-        return calculateCCC(isPrior, trendIndex)
-      default:
-        return 0
-    }
-  }
-
-  // Get metric label
-  const getMetricLabel = (): string => {
-    switch (selectedMetric) {
-      case "DSO":
-        return "DSO"
-      case "DIO":
-        return "DIO"
-      case "DPO":
-        return "DPO"
-      case "CCC":
-        return "CCC"
-      default:
-        return "DSO"
-    }
-  }
+  const chartDataPoints = chartData
 
   // Get metric full name
   const getMetricFullName = (): string => {
@@ -214,69 +74,6 @@ export function CashConversionChart({
         return "Cycle de conversion de l'encaisse"
       default:
         return "Délai de couvrement des clients"
-    }
-  }
-
-  // Helper functions to get labels
-  const getMonthLabels = (count: number): string[] => {
-    const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
-    const labels: string[] = []
-    const currentDate = new Date()
-    for (let i = count - 1; i >= 0; i--) {
-      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
-      labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
-    }
-    return labels
-  }
-
-  const getYearLabels = (): string[] => {
-    const currentYear = new Date().getFullYear()
-    return Array.from({ length: 6 }, (_, i) => `${currentYear - 5 + i}`)
-  }
-
-  // Get numerator and denominator based on selected metric
-  const getNumerator = (isPrior: boolean, trendIndex?: number): number => {
-    switch (selectedMetric) {
-      case "DSO":
-        if (trendIndex !== undefined && data.trendValues) {
-          return data.trendValues[trendIndex]?.receivables || 0
-        }
-        return isPrior ? data.priorReceivables : data.receivables
-      case "DIO":
-        if (trendIndex !== undefined && data.trendValues) {
-          return data.trendValues[trendIndex]?.inventory || 0
-        }
-        return isPrior ? data.priorInventory : data.inventory
-      case "DPO":
-        if (trendIndex !== undefined && data.trendValues) {
-          return data.trendValues[trendIndex]?.payables || 0
-        }
-        return isPrior ? data.priorPayables : data.payables
-      case "CCC":
-        return calculateDSO(isPrior, trendIndex) + calculateDIO(isPrior, trendIndex)
-      default:
-        return 0
-    }
-  }
-
-  const getDenominator = (isPrior: boolean, trendIndex?: number): number => {
-    switch (selectedMetric) {
-      case "DSO":
-        if (trendIndex !== undefined && data.trendValues) {
-          return data.trendValues[trendIndex]?.revenue || 0
-        }
-        return isPrior ? data.priorRevenue : data.revenue
-      case "DIO":
-      case "DPO":
-        // CMV = 60% of revenue
-        if (trendIndex !== undefined && data.trendValues) {
-          return (data.trendValues[trendIndex]?.revenue || 0) * 0.6
-        }
-        return (isPrior ? data.priorRevenue : data.revenue) * 0.6
-      case "CCC":
-        return calculateDPO(isPrior, trendIndex)
-      default:
-        return 0
     }
   }
 
@@ -309,78 +106,6 @@ export function CashConversionChart({
         return ""
     }
   }
-
-  // Get data points for chart
-  let chartDataPoints: Array<{
-    period: string
-    numerator: number
-    denominator: number
-    ratio: number
-  }> = []
-
-  if (view === "12months") {
-    const monthLabels = getMonthLabels(12)
-    monthLabels.forEach((_, idx) => {
-      const numerator = getNumerator(false, idx)
-      const denominator = getDenominator(false, idx)
-      const ratio = getMetricValue(false, idx)
-      chartDataPoints.push({
-        period: monthLabels[idx],
-        numerator: numerator,
-        denominator: denominator,
-        ratio: ratio,
-      })
-    })
-  } else if (view === "24months") {
-    const monthLabels = getMonthLabels(24)
-    monthLabels.forEach((_, idx) => {
-      const numerator = getNumerator(false, idx)
-      const denominator = getDenominator(false, idx)
-      const ratio = getMetricValue(false, idx)
-      chartDataPoints.push({
-        period: monthLabels[idx],
-        numerator: numerator,
-        denominator: denominator,
-        ratio: ratio,
-      })
-    })
-  } else if (view === "years") {
-    const yearLabels = getYearLabels()
-    yearLabels.forEach((_, idx) => {
-      const numerator = getNumerator(false, idx)
-      const denominator = getDenominator(false, idx)
-      const ratio = getMetricValue(false, idx)
-      chartDataPoints.push({
-        period: yearLabels[idx],
-        numerator: numerator,
-        denominator: denominator,
-        ratio: ratio,
-      })
-    })
-  } else if (view === "current") {
-    const numeratorCurrent = getNumerator(false)
-    const denominatorCurrent = getDenominator(false)
-    const ratioCurrent = getMetricValue(false)
-    const numeratorPrior = getNumerator(true)
-    const denominatorPrior = getDenominator(true)
-    const ratioPrior = getMetricValue(true)
-    chartDataPoints = [
-      {
-        period: "Passé",
-        numerator: numeratorPrior,
-        denominator: denominatorPrior,
-        ratio: ratioPrior,
-      },
-      {
-        period: "Courant",
-        numerator: numeratorCurrent,
-        denominator: denominatorCurrent,
-        ratio: ratioCurrent,
-      },
-    ]
-  }
-
-  if (chartDataPoints.length === 0) return null
 
   // Calculate averages
   const avgNumerator = chartDataPoints.reduce((sum, d) => sum + d.numerator, 0) / chartDataPoints.length

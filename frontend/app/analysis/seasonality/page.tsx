@@ -1,15 +1,19 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { SeasonalityDetail } from "@/components/seasonality-detail"
 import { SeasonalitySummary } from "@/components/seasonality-summary"
 import { SeasonalityChart } from "@/components/seasonality-chart"
 import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TrendingUp, TrendingDown, DollarSign, BarChart3, Calendar, Filter } from "lucide-react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
+import { useCompanies } from "@/hooks/use-companies"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, findRow } from "@/lib/series-utils"
+import { listCompanies, type Company as ApiCompany } from "@/lib/api"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "12months" | "24months" | "years"
@@ -17,78 +21,8 @@ type ColumnMode = "variations" | "percentage"
 type AnalysisType = "revenue" | "expenses"
 type ProductType = "total" | "product_a" | "product_b" | "service_c"
 
-// Données d'exemple pour les sociétés, divisions et sous-divisions
-const companiesData: Company[] = [
-  {
-    id: "company-1",
-    name: "Modelisys Inc.",
-    divisions: [
-      {
-        id: "div-1",
-        name: "Division Technologie",
-        subDivisions: [
-          { id: "sub-1", name: "Développement Logiciel" },
-          { id: "sub-2", name: "Infrastructure IT" },
-          { id: "sub-3", name: "Support Technique" },
-        ],
-      },
-      {
-        id: "div-2",
-        name: "Division Conseil",
-        subDivisions: [
-          { id: "sub-4", name: "Conseil Stratégique" },
-          { id: "sub-5", name: "Conseil Opérationnel" },
-        ],
-      },
-      {
-        id: "div-3",
-        name: "Division Ventes",
-        subDivisions: [
-          { id: "sub-6", name: "Ventes B2B" },
-          { id: "sub-7", name: "Ventes B2C" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-2",
-    name: "TechSolutions SA",
-    divisions: [
-      {
-        id: "div-4",
-        name: "Division Produits",
-        subDivisions: [
-          { id: "sub-8", name: "Produits Cloud" },
-          { id: "sub-9", name: "Produits On-Premise" },
-        ],
-      },
-      {
-        id: "div-5",
-        name: "Division Services",
-        subDivisions: [
-          { id: "sub-10", name: "Services Professionnels" },
-          { id: "sub-11", name: "Services Gérés" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "company-3",
-    name: "InnovateCorp",
-    divisions: [
-      {
-        id: "div-6",
-        name: "Division R&D",
-        subDivisions: [
-          { id: "sub-12", name: "Recherche" },
-          { id: "sub-13", name: "Développement" },
-        ],
-      },
-    ],
-  },
-]
-
 export default function SeasonalityPage() {
+  const { companies: companiesData } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("12months")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
@@ -98,6 +32,43 @@ export default function SeasonalityPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
+
+  // Auto-select first company
+  useEffect(() => {
+    if (!selectedCompanyId && companiesData.length > 0) {
+      setSelectedCompanyId(companiesData[0].id)
+    }
+  }, [companiesData, selectedCompanyId])
+
+  // Fetch API companies for fiscal_year_end
+  const [apiCompanies, setApiCompanies] = useState<ApiCompany[]>([])
+  useEffect(() => {
+    listCompanies().then(setApiCompanies).catch(() => {})
+  }, [])
+
+  const lastCompleteFY = useMemo(() => {
+    const now = new Date()
+    const curMonth = now.getMonth() + 1
+    const curYear = now.getFullYear()
+    if (!selectedCompanyId) return curYear
+    const company = apiCompanies.find(c => c.id === selectedCompanyId)
+    const fyEnd = company?.fiscal_year_end || "12-31"
+    const fyEndMonth = parseInt(fyEnd.split("-")[0], 10) || 12
+    const currentFY = curMonth <= fyEndMonth ? curYear : curYear + 1
+    return currentFY - 1
+  }, [selectedCompanyId, apiCompanies])
+
+  const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
+
+  const { rows: seriesRows, periods } = useFinancialStatementSeries({
+    companyId: selectedCompanyId || null,
+    statementType: "income-statement",
+    fiscalYear: lastCompleteFY,
+    months: monthsNeeded,
+    divisionId: selectedDivisionId || null,
+    subDivisionId: selectedSubDivisionId || null,
+    enabled: !!selectedCompanyId,
+  })
 
   // Fonction pour obtenir la valeur actuelle du sélecteur Horizon
   const getCurrentHorizon = (): string => {
@@ -124,34 +95,22 @@ export default function SeasonalityPage() {
     }
   }
 
-  // Calculate summary metrics (mock data for now)
+  // Calculate summary metrics from real IS data
   const calculateMetrics = () => {
-    const totalRevenue = analysisType === "revenue" ? 1200000 : 0
-    const totalExpenses = analysisType === "expenses" ? 800000 : 0
-    const priorRevenue = analysisType === "revenue" ? 1100000 : 0
-    const priorExpenses = analysisType === "expenses" ? 750000 : 0
-    const currentValue = analysisType === "revenue" ? totalRevenue : totalExpenses
-    const priorValue = analysisType === "revenue" ? priorRevenue : priorExpenses
-    const variation = calculateVariation(currentValue, priorValue)
-    
-    // Calculate average for trend views
-    let averageValue = 0
-    if (view === "12months") {
-      averageValue = (currentValue + priorValue) / 2 + (currentValue - priorValue) / 12 * 6
-    } else if (view === "24months") {
-      averageValue = (currentValue + priorValue) / 2 + (currentValue - priorValue) / 24 * 12
-    } else if (view === "years") {
-      averageValue = (currentValue + priorValue) / 2 + (currentValue - priorValue) / 6 * 3
-    } else {
-      averageValue = (currentValue + priorValue) / 2
+    if (seriesRows.length > 0 && periods.length > 0) {
+      const revenueRow = findRow(seriesRows, "revenus") || findRow(seriesRows, "revenue") || findRow(seriesRows, "chiffre d'affaires") || findRow(seriesRows, "ventes")
+      const expenseRow = findRow(seriesRows, "coût des ventes") || findRow(seriesRows, "charges") || findRow(seriesRows, "dépenses") || findRow(seriesRows, "expenses")
+
+      const targetRow = analysisType === "revenue" ? revenueRow : expenseRow
+      if (targetRow) {
+        const amounts = getRowAmounts(targetRow, periods)
+        const currentValue = amounts.reduce((a, b) => a + b, 0)
+        const averageValue = currentValue / (amounts.length || 1)
+        // No prior year data comparison for now
+        return { currentValue, priorValue: 0, variation: 0, averageValue }
+      }
     }
-    
-    return {
-      currentValue,
-      priorValue,
-      variation,
-      averageValue
-    }
+    return { currentValue: 0, priorValue: 0, variation: 0, averageValue: 0 }
   }
 
   const metrics = calculateMetrics()
@@ -372,6 +331,7 @@ export default function SeasonalityPage() {
           divisionId={selectedDivisionId}
           subDivisionId={selectedSubDivisionId}
           companies={companiesData}
+          fiscalYear={lastCompleteFY}
         />
 
         {/* Summary/Detail Section */}
@@ -387,6 +347,7 @@ export default function SeasonalityPage() {
               divisionId={selectedDivisionId}
               subDivisionId={selectedSubDivisionId}
               companies={companiesData}
+              fiscalYear={lastCompleteFY}
             />
           ) : (
             <SeasonalityDetail
@@ -399,6 +360,7 @@ export default function SeasonalityPage() {
               divisionId={selectedDivisionId}
               subDivisionId={selectedSubDivisionId}
               companies={companiesData}
+              fiscalYear={lastCompleteFY}
             />
           )}
         </div>

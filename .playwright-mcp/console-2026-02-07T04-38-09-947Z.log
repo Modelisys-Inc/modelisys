@@ -1,0 +1,44 @@
+[    1898ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
+
+Check the render method of `DashboardHeader`.  @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[   98561ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
+
+Check the render method of `tbody`.  It was passed a child from WorkingCapitalDetail. @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[  115444ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
+
+Check the render method of `DashboardHeader`.  @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[  123654ms] [ERROR] In HTML, %s cannot be a child of <%s>.%s
+This will cause a hydration error.%s <html> main  
+
+  ...
+    <DevRootHTTPAccessFallbackBoundary>
+      <HTTPAccessFallbackBoundary notFound={<NotAllowedRootHTTPFallbackError>}>
+        <HTTPAccessFallbackErrorBoundary pathname="/landing" notFound={<NotAllowedRootHTTPFallbackError>} ...>
+          <RedirectBoundary>
+            <RedirectErrorBoundary router={{...}}>
+              <Head>
+              <__next_root_layout_boundary__>
+                <SegmentViewNode type="layout" pagePath="layout.tsx">
+                  <SegmentTrieNode>
+                  <link>
+                  <script>
+                  <script>
+                  <RootLayout>
+                    <html lang="fr">
+                      <body className="font-sans ...">
+                        <Providers>
+                          <AuthProvider>
+                            <SidebarProvider>
+>                             <main className="min-h-screen bg-background">
+                                ...
+                                  <SegmentViewNode type="layout" pagePath="(public)/l...">
+                                    <SegmentTrieNode>
+                                    <PublicLayout>
+>                                     <html lang="fr">
+                        ...
+              ...
+ @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[  123654ms] [ERROR] <%s> cannot contain a nested %s.
+See this log for the ancestor stack trace. main <html> @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[  123670ms] [ERROR] You are mounting a new %s component when a previous one has not first unmounted. It is an error to render more than one %s component at a time and attributes and children of these components will likely fail in unpredictable ways. Please only render a single instance of <%s> and if you need to mount a new one, ensure any previous ones have unmounted first. html html html @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
+[  123672ms] [ERROR] You are mounting a new %s component when a previous one has not first unmounted. It is an error to render more than one %s component at a time and attributes and children of these components will likely fail in unpredictable ways. Please only render a single instance of <%s> and if you need to mount a new one, ensure any previous ones have unmounted first. body body body @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127

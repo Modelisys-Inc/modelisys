@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Numeric, DateTime, ForeignKey, func
+from sqlalchemy import Index, String, Integer, Numeric, DateTime, ForeignKey, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,10 +44,13 @@ class AccountCategory(Base):
 class ChartOfAccount(Base):
     """Individual GL account mapped to a category. Per-company."""
     __tablename__ = "chart_of_accounts"
+    __table_args__ = (
+        UniqueConstraint("company_id", "account_number", name="uq_chart_of_accounts_company_account_number"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
-    account_category_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("account_categories.id", ondelete="SET NULL"), nullable=True)
+    account_category_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("account_categories.id", ondelete="SET NULL"), nullable=True, index=True)
     account_number: Mapped[str] = mapped_column(String(20), nullable=False)
     account_name: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -62,6 +65,11 @@ class ChartOfAccount(Base):
 class TrialBalanceEntry(Base):
     """Monthly amount for a GL account. Core financial data."""
     __tablename__ = "trial_balance_entries"
+    __table_args__ = (
+        Index("ix_trial_balance_entries_company_fiscal_year", "company_id", "fiscal_year"),
+        Index("ix_trial_balance_entries_company_fiscal_year_month", "company_id", "fiscal_year", "month"),
+        UniqueConstraint("company_id", "account_id", "fiscal_year", "month", name="uq_trial_balance_entries_company_account_year_month"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
