@@ -17,30 +17,36 @@ test.describe("Analysis Pages", () => {
   test("can navigate to working capital analysis", async ({ page }) => {
     await page.goto("/analysis/working-capital");
     await expect(page).toHaveURL(/\/analysis\/working-capital/);
+    // Use heading selector for more specificity
     await expect(
-      page.locator("text=Fonds de roulement").or(page.locator("text=Working Capital"))
+      page.locator("h2").filter({ hasText: /fonds de roulement|working capital/i }).first()
     ).toBeVisible({ timeout: 10000 });
   });
 
   test("can navigate to capex analysis", async ({ page }) => {
     await page.goto("/analysis/capex");
     await expect(page).toHaveURL(/\/analysis\/capex/);
-    await expect(page.locator("text=Capex")).toBeVisible({ timeout: 10000 });
+    // Use heading selector for more specificity
+    await expect(
+      page.locator("h2").filter({ hasText: /capex/i }).first()
+    ).toBeVisible({ timeout: 10000 });
   });
 
   test("can navigate to ratios analysis", async ({ page }) => {
     await page.goto("/analysis/ratios");
     await expect(page).toHaveURL(/\/analysis\/ratios/);
+    // Use heading selector for more specificity
     await expect(
-      page.locator("text=Ratios").or(page.locator("text=ratios"))
+      page.locator("h2").filter({ hasText: /ratios/i }).first()
     ).toBeVisible({ timeout: 10000 });
   });
 
   test("can navigate to product margin analysis", async ({ page }) => {
     await page.goto("/analysis/product-margin");
     await expect(page).toHaveURL(/\/analysis\/product-margin/);
+    // Use heading selector for more specificity
     await expect(
-      page.locator("text=Marge").or(page.locator("text=marge"))
+      page.locator("h2").filter({ hasText: /marge/i }).first()
     ).toBeVisible({ timeout: 10000 });
   });
 
@@ -56,17 +62,17 @@ test.describe("Analysis Pages", () => {
 
   test("analysis pages have entity selector", async ({ page }) => {
     await page.goto("/analysis/working-capital");
-    // Should have entity selector
+    // Should have entity selector - use first() to avoid strict mode
     await expect(
-      page.locator("text=Entité").or(page.locator('[data-testid="entity-selector"]'))
+      page.locator("text=Entité").or(page.locator('[data-testid="entity-selector"]')).first()
     ).toBeVisible({ timeout: 10000 });
   });
 
   test("analysis pages have horizon selector", async ({ page }) => {
     await page.goto("/analysis/capex");
-    // Should have horizon/period selector
+    // Should have horizon/period selector - use first() to avoid strict mode
     await expect(
-      page.locator("text=Horizon").or(page.locator("text=Période"))
+      page.locator("text=Horizon").or(page.locator("text=Période")).first()
     ).toBeVisible({ timeout: 10000 });
   });
 });
