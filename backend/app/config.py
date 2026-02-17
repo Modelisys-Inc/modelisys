@@ -21,6 +21,22 @@ class Settings(BaseSettings):
     debug: bool = False
     environment: str = "development"  # development, staging, production
 
+    # Rate limiting
+    rate_limit_per_minute: int = 60
+
+    # Sentry (optional)
+    sentry_dsn: str | None = None
+
+    # Email (optional)
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    from_email: str = "noreply@modelisys.com"
+
+    # Frontend URL (for password reset links)
+    frontend_url: str = "http://localhost:3000"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @field_validator("jwt_secret_key")

@@ -3,7 +3,7 @@ def test_register_success(client):
         "/api/auth/register",
         json={
             "email": "new@example.com",
-            "password": "securepassword",
+            "password": "SecurePassword123",
             "full_name": "New User",
             "organization_name": "New Org",
         },
@@ -20,7 +20,7 @@ def test_register_duplicate_email(client, registered_user):
         "/api/auth/register",
         json={
             "email": "test@example.com",
-            "password": "anotherpassword",
+            "password": "AnotherPassword123",
             "full_name": "Another User",
             "organization_name": "Another Org",
         },
@@ -33,7 +33,7 @@ def test_login_success(client, registered_user):
         "/api/auth/login",
         json={
             "email": "test@example.com",
-            "password": "testpassword123",
+            "password": "TestPassword123",
         },
     )
     assert response.status_code == 200
@@ -47,7 +47,7 @@ def test_login_wrong_password(client, registered_user):
         "/api/auth/login",
         json={
             "email": "test@example.com",
-            "password": "wrongpassword",
+            "password": "WrongPassword123",
         },
     )
     assert response.status_code == 401
@@ -58,7 +58,7 @@ def test_login_nonexistent_user(client):
         "/api/auth/login",
         json={
             "email": "nonexistent@example.com",
-            "password": "password",
+            "password": "Password123",
         },
     )
     assert response.status_code == 401
@@ -76,6 +76,8 @@ def test_refresh_token(client, registered_user):
 
 
 def test_refresh_with_access_token_fails(client, registered_user):
+    # Clear cookies to ensure we test the body parameter, not the cookie
+    client.cookies.clear()
     response = client.post(
         "/api/auth/refresh",
         json={"refresh_token": registered_user["access_token"]},

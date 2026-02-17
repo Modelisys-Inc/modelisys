@@ -5,9 +5,11 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql.sqltypes import UUID
 from sqlalchemy.ext.compiler import compiles
+from unittest.mock import patch
 
 from app.database import Base, get_db
 from app.main import app
+from app.utils.rate_limit import auth_rate_limiter, api_rate_limiter
 
 
 # Register PostgreSQL UUID type to compile as CHAR(32) on SQLite
@@ -31,6 +33,11 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 def setup_db():
     """Create all tables before each test, drop after."""
     Base.metadata.create_all(bind=engine)
+    # Reset rate limiters for each test
+    auth_rate_limiter.tokens.clear()
+    auth_rate_limiter.last_update.clear()
+    api_rate_limiter.tokens.clear()
+    api_rate_limiter.last_update.clear()
     yield
     Base.metadata.drop_all(bind=engine)
 
@@ -62,7 +69,7 @@ def registered_user(client):
         "/api/auth/register",
         json={
             "email": "test@example.com",
-            "password": "testpassword123",
+            "password": "TestPassword123",
             "full_name": "Test User",
             "organization_name": "Test Org",
         },

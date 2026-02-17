@@ -8,7 +8,7 @@ def _register(client, email="admin@example.com", org_name="Test Org"):
         "/api/auth/register",
         json={
             "email": email,
-            "password": "testpassword123",
+            "password": "TestPassword123",
             "full_name": "Admin User",
             "organization_name": org_name,
         },
