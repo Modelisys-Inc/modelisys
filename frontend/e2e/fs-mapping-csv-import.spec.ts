@@ -3,7 +3,6 @@ import path from "path"
 import fs from "fs"
 import os from "os"
 
-const BASE_URL = "http://localhost:3000"
 const TEST_EMAIL = "playwright@modelisys.com"
 const TEST_PASSWORD = "PlaywrightTest123"
 const COMPANY_ID = "a17cc179-df90-4f56-a5f9-21ccd232f9f5"
@@ -11,22 +10,21 @@ const COMPANY_ID = "a17cc179-df90-4f56-a5f9-21ccd232f9f5"
 test.describe("Financial Statement Mapping CSV Import", () => {
   test.beforeEach(async ({ page }) => {
     // Login
-    await page.goto(`${BASE_URL}/login`)
-    await page.fill('input[type="email"]', TEST_EMAIL)
-    await page.fill('input[type="password"]', TEST_PASSWORD)
+    await page.goto("/login")
+    await page.fill("#email", TEST_EMAIL)
+    await page.fill("#password", TEST_PASSWORD)
     await page.click('button[type="submit"]')
-    await page.waitForURL(/.*(?!login).*/)
+    await page.waitForURL(/(dashboard|financial-statements)/, { timeout: 10000 })
   })
 
   test("should show import CSV button on FS mapping page", async ({ page }) => {
-    await page.goto(`${BASE_URL}/settings/companies/${COMPANY_ID}/financial-statements-mapping`)
-    await page.waitForLoadState("networkidle")
-    await expect(page.getByText("Importer CSV")).toBeVisible()
+    await page.goto(`/settings/companies/${COMPANY_ID}/financial-statements-mapping`)
+    await expect(page.getByText("Importer CSV")).toBeVisible({ timeout: 10000 })
   })
 
   test("should import CSV and show success message", async ({ page }) => {
-    await page.goto(`${BASE_URL}/settings/companies/${COMPANY_ID}/financial-statements-mapping`)
-    await page.waitForLoadState("networkidle")
+    await page.goto(`/settings/companies/${COMPANY_ID}/financial-statements-mapping`)
+    await expect(page.getByText("Importer CSV")).toBeVisible({ timeout: 10000 })
 
     // Create a test CSV file
     const csvContent = [
