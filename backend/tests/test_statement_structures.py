@@ -1,3 +1,4 @@
+import io
 import uuid
 
 
@@ -202,3 +203,135 @@ def test_structure_with_link_codes(client, auth_headers):
     saved = response.json()["structure"]
     assert saved[0]["linkCode"] == "AC-001"
     assert saved[1]["linkCode"] == "ANC-001"
+
+
+def _make_csv(rows_data):
+    """Helper to create a CSV file matching the expected format."""
+    lines = [",,,,\n", ",,,,\n", ",Nom de compte,Catégories,Types,Classement\n"]
+    for nom, cat, typ, classement in rows_data:
+        lines.append(f",{nom},{cat},{typ},{classement}\n")
+    return "".join(lines).encode("utf-8")
+
+
+def test_csv_import_balance_sheet(client, auth_headers):
+    """CSV rows for Actif/Passif/Capitaux propres merge into balance sheet."""
+    company_id = _create_company(client, auth_headers)
+    csv_data = _make_csv([
+        ("Encaisse", "Actif", "Court terme", "1"),
+        ("Débiteurs", "Actif", "Court terme", "2"),
+        ("Immobilisations corporelles", "Actif", "Long terme", "1"),
+        ("Marge de crédit", "Passif", "Court terme", "1"),
+        ("Dette à long terme", "Passif", "Long terme", "1"),
+        ("Capital-action", "Capitaux propres", "n/a", "1"),
+    ])
+    response = client.post(
+        f"/api/companies/{company_id}/statement-structures/import-csv",
+        files={"file": ("test.csv", io.BytesIO(csv_data), "text/csv")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["balance_sheet_rows_added"] == 6
+    assert data["income_statement_rows_added"] == 0
+
+    # Verify balance sheet structure was created
+    bs = client.get(
+        f"/api/companies/{company_id}/statement-structures/balance-sheet",
+        headers=auth_headers,
+    )
+    assert bs.status_code == 200
+    labels = [r["label"].lower() for r in bs.json()["structure"]]
+    assert "encaisse" in labels
+    assert "débiteurs" in labels
+    assert "immobilisations corporelles" in labels
+
+
+def test_csv_import_income_statement(client, auth_headers):
+    """CSV rows for Revenus/Charges/Impôts merge as detailRows."""
+    company_id = _create_company(client, auth_headers)
+    csv_data = _make_csv([
+        ("Revenus de développement", "Revenus", "n/a", "1"),
+        ("Revenus de licences", "Revenus", "n/a", "2"),
+        ("Main-d'oeuvre directe", "Coûts des produits vendus", "n/a", "1"),
+        ("Salaires administratifs", "Charges", "Frais d'administration", "1"),
+        ("Intérêts bancaires", "Charges", "Frais financiers", "1"),
+        ("Impôts", "Impôts", "n/a", "1"),
+    ])
+    response = client.post(
+        f"/api/companies/{company_id}/statement-structures/import-csv",
+        files={"file": ("test.csv", io.BytesIO(csv_data), "text/csv")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["income_statement_rows_added"] == 6
+
+    # Verify income statement detailRows
+    is_resp = client.get(
+        f"/api/companies/{company_id}/statement-structures/income-statement",
+        headers=auth_headers,
+    )
+    assert is_resp.status_code == 200
+    structure = is_resp.json()["structure"]
+    revenus_row = next(r for r in structure if r.get("label", "").lower() == "revenus")
+    assert len(revenus_row["detailRows"]) == 2
+    assert revenus_row["isExpanded"] is True
+
+
+def test_csv_import_merge_no_duplicates(client, auth_headers):
+    """Importing the same CSV twice should not create duplicates."""
+    company_id = _create_company(client, auth_headers)
+    csv_data = _make_csv([
+        ("Encaisse", "Actif", "Court terme", "1"),
+        ("Revenus de licences", "Revenus", "n/a", "1"),
+    ])
+    # Import twice
+    client.post(
+        f"/api/companies/{company_id}/statement-structures/import-csv",
+        files={"file": ("test.csv", io.BytesIO(csv_data), "text/csv")},
+        headers=auth_headers,
+    )
+    response = client.post(
+        f"/api/companies/{company_id}/statement-structures/import-csv",
+        files={"file": ("test.csv", io.BytesIO(csv_data), "text/csv")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["balance_sheet_rows_added"] == 0
+    assert response.json()["income_statement_rows_added"] == 0
+    assert response.json()["skipped"] == 2
+
+
+def test_csv_import_latin1_encoding(client, auth_headers):
+    """CSV with Latin-1 encoding should be handled."""
+    company_id = _create_company(client, auth_headers)
+    csv_text = ",,,,\n,,,,\n,Nom de compte,Catégories,Types,Classement\n,Débiteurs,Actif,Court terme,1\n"
+    csv_bytes = csv_text.encode("latin-1")
+    response = client.post(
+        f"/api/companies/{company_id}/statement-structures/import-csv",
+        files={"file": ("test.csv", io.BytesIO(csv_bytes), "text/csv")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["balance_sheet_rows_added"] == 1
+
+
+def test_csv_import_invalid_file(client, auth_headers):
+    """Non-CSV content without header should return 400."""
+    company_id = _create_company(client, auth_headers)
+    response = client.post(
+        f"/api/companies/{company_id}/statement-structures/import-csv",
+        files={"file": ("test.csv", io.BytesIO(b"not a csv at all"), "text/csv")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+
+
+def test_csv_import_unauthenticated(client):
+    """Unauthenticated request should return 403."""
+    fake_id = str(uuid.uuid4())
+    response = client.post(
+        f"/api/companies/{fake_id}/statement-structures/import-csv",
+        files={"file": ("test.csv", io.BytesIO(b"data"), "text/csv")},
+    )
+    assert response.status_code == 403

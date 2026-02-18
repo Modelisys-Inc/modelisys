@@ -18,3 +18,10 @@ class StatementStructureResponse(BaseModel):
 
 class StatementStructureListResponse(BaseModel):
     structures: list[StatementStructureResponse]
+
+
+class CSVImportResponse(BaseModel):
+    income_statement_rows_added: int
+    balance_sheet_rows_added: int
+    skipped: int
+    message: str
