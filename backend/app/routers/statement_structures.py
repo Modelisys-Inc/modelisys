@@ -223,6 +223,7 @@ def _get_existing_detail_labels(row):
 
 def _merge_balance_sheet(structure, rows):
     added = 0
+    skipped = []
     rows_sorted = sorted(rows, key=lambda r: (r["categorie"], r["type"], r["classement"]))
 
     for (cat, typ), group in groupby(rows_sorted, key=lambda r: (r["categorie"], r["type"])):
@@ -231,6 +232,8 @@ def _merge_balance_sheet(structure, rows):
         if cat == "capitaux propres":
             section_idx = _find_row_index(structure, "capitaux propres")
             if section_idx == -1:
+                for item in items:
+                    skipped.append({"nom": item["nom"], "reason": "Section 'capitaux propres' introuvable"})
                 continue
             end_idx = len(structure)
             for i in range(section_idx + 1, len(structure)):
@@ -240,7 +243,9 @@ def _merge_balance_sheet(structure, rows):
             existing = _get_existing_labels(structure, section_idx + 1, end_idx)
             insert_at = end_idx
             for item in items:
-                if item["nom"].lower() not in existing:
+                if item["nom"].lower() in existing:
+                    skipped.append({"nom": item["nom"], "reason": "Doublon (capitaux propres)"})
+                else:
                     structure.insert(insert_at, {
                         "label": item["nom"],
                         "indent": True,
@@ -251,9 +256,13 @@ def _merge_balance_sheet(structure, rows):
         else:
             subsection_label = TYPE_TO_BALANCE_SUBSECTION.get((cat, typ))
             if not subsection_label:
+                for item in items:
+                    skipped.append({"nom": item["nom"], "reason": f"Type '{typ}' non reconnu pour '{cat}'"})
                 continue
             section_idx = _find_row_index(structure, subsection_label)
             if section_idx == -1:
+                for item in items:
+                    skipped.append({"nom": item["nom"], "reason": f"Section '{subsection_label}' introuvable"})
                 continue
             end_idx = section_idx + 1
             for i in range(section_idx + 1, len(structure)):
@@ -272,7 +281,9 @@ def _merge_balance_sheet(structure, rows):
             existing = _get_existing_labels(structure, section_idx + 1, end_idx)
             insert_at = end_idx
             for item in items:
-                if item["nom"].lower() not in existing:
+                if item["nom"].lower() in existing:
+                    skipped.append({"nom": item["nom"], "reason": f"Doublon ({subsection_label})"})
+                else:
                     structure.insert(insert_at, {
                         "label": item["nom"],
                         "indent": True,
@@ -281,11 +292,12 @@ def _merge_balance_sheet(structure, rows):
                     insert_at += 1
                     added += 1
 
-    return added
+    return added, skipped
 
 
 def _merge_income_statement(structure, rows):
     added = 0
+    skipped = []
     rows_sorted = sorted(rows, key=lambda r: (r["categorie"], r["type"], r["classement"]))
 
     for row_data in rows_sorted:
@@ -306,12 +318,15 @@ def _merge_income_statement(structure, rows):
                     parent_label = s_row["label"]
                     break
             if not parent_label:
+                skipped.append({"nom": nom, "reason": "Section 'impôts' introuvable"})
                 continue
         else:
+            skipped.append({"nom": nom, "reason": f"Catégorie '{cat}' non reconnue"})
             continue
 
         parent_idx = _find_row_index(structure, parent_label)
         if parent_idx == -1:
+            skipped.append({"nom": nom, "reason": f"Poste parent '{parent_label}' introuvable"})
             continue
 
         parent_row = structure[parent_idx]
@@ -320,6 +335,7 @@ def _merge_income_statement(structure, rows):
 
         existing = _get_existing_detail_labels(parent_row)
         if nom.lower() in existing:
+            skipped.append({"nom": nom, "reason": f"Doublon ({parent_label})"})
             continue
 
         parent_row["detailRows"].append({
@@ -329,7 +345,7 @@ def _merge_income_statement(structure, rows):
         parent_row["isExpanded"] = True
         added += 1
 
-    return added
+    return added, skipped
 
 
 # ---------------------------------------------------------------------------
@@ -398,26 +414,38 @@ async def import_csv_statement_structure(
             "classement": order,
         })
 
-    balance_rows = [r for r in parsed_rows if r["categorie"] in BALANCE_SHEET_CATEGORIES]
-    income_rows = [r for r in parsed_rows if r["categorie"] in INCOME_STATEMENT_CATEGORIES]
+    all_categories = BALANCE_SHEET_CATEGORIES | INCOME_STATEMENT_CATEGORIES
+    balance_rows = []
+    income_rows = []
+    skipped_details = []
+
+    for r in parsed_rows:
+        if r["categorie"] in BALANCE_SHEET_CATEGORIES:
+            balance_rows.append(r)
+        elif r["categorie"] in INCOME_STATEMENT_CATEGORIES:
+            income_rows.append(r)
+        else:
+            skipped_details.append({"nom": r["nom"], "reason": f"Catégorie '{r['categorie']}' non reconnue"})
 
     bs_structure = _get_or_default_structure(db, company_id, "balance-sheet", DEFAULT_BALANCE_SHEET)
-    bs_added = _merge_balance_sheet(bs_structure, balance_rows)
+    bs_added, bs_skipped = _merge_balance_sheet(bs_structure, balance_rows)
+    skipped_details.extend(bs_skipped)
 
     is_structure = _get_or_default_structure(db, company_id, "income-statement", DEFAULT_INCOME_STATEMENT)
-    is_added = _merge_income_statement(is_structure, income_rows)
+    is_added, is_skipped = _merge_income_statement(is_structure, income_rows)
+    skipped_details.extend(is_skipped)
 
     _save_structure(db, company_id, "balance-sheet", bs_structure)
     _save_structure(db, company_id, "income-statement", is_structure)
     db.commit()
 
-    total = len(parsed_rows)
     added = bs_added + is_added
-    skipped = total - added
+    skipped = len(skipped_details)
 
     return {
         "income_statement_rows_added": is_added,
         "balance_sheet_rows_added": bs_added,
         "skipped": skipped,
+        "skipped_details": skipped_details,
         "message": f"{added} rows imported ({bs_added} balance sheet, {is_added} income statement), {skipped} skipped",
     }

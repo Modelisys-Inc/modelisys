@@ -14,6 +14,7 @@ import {
   importStatementStructureCSV,
   type Company as ApiCompany,
   type StatementType,
+  type SkippedRow,
 } from "@/lib/api"
 
 interface Company {
@@ -79,7 +80,7 @@ export default function FinancialStatementsMappingPage() {
 
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState<string | null>(null)
+  const [importResult, setImportResult] = useState<{ message: string; skippedDetails: SkippedRow[] } | null>(null)
 
   const defaultIncomeStatementRows: FinancialStatementRow[] = [
     { label: "revenus", isBold: true, isSection: true },
@@ -216,7 +217,7 @@ export default function FinancialStatementsMappingPage() {
     setImportResult(null)
     try {
       const result = await importStatementStructureCSV(companyId, file)
-      setImportResult(result.message)
+      setImportResult({ message: result.message, skippedDetails: result.skipped_details || [] })
 
       // Reload both structures
       try {
@@ -233,7 +234,7 @@ export default function FinancialStatementsMappingPage() {
         }
       } catch { /* keep current */ }
     } catch (e) {
-      setImportResult("Erreur lors de l'importation du fichier CSV")
+      setImportResult({ message: "Erreur lors de l'importation du fichier CSV", skippedDetails: [] })
       console.error("CSV import error:", e)
     } finally {
       setImporting(false)
@@ -980,16 +981,45 @@ export default function FinancialStatementsMappingPage() {
                 </div>
 
                 {importResult && (
-                  <div className="mt-4 p-3 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-between">
-                    <span className="text-sm text-emerald-200">{importResult}</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setImportResult(null)}
-                      className="h-6 w-6 p-0 text-emerald-300 hover:text-white hover:bg-emerald-500/30"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </Button>
+                  <div className="mt-4 rounded-lg bg-emerald-500/20 border border-emerald-500/30">
+                    <div className="p-3 flex items-center justify-between">
+                      <span className="text-sm text-emerald-200">{importResult.message}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setImportResult(null)}
+                        className="h-6 w-6 p-0 text-emerald-300 hover:text-white hover:bg-emerald-500/30"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                    {importResult.skippedDetails.length > 0 && (
+                      <div className="px-3 pb-3">
+                        <details className="text-xs text-slate-300">
+                          <summary className="cursor-pointer hover:text-white transition-colors">
+                            Voir les {importResult.skippedDetails.length} lignes ignorées
+                          </summary>
+                          <div className="mt-2 max-h-48 overflow-y-auto rounded bg-slate-800/50 border border-slate-700/50">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b border-slate-700/50">
+                                  <th className="px-3 py-1.5 text-left text-slate-400 font-medium">Nom</th>
+                                  <th className="px-3 py-1.5 text-left text-slate-400 font-medium">Raison</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {importResult.skippedDetails.map((row, i) => (
+                                  <tr key={i} className="border-b border-slate-700/30 last:border-0">
+                                    <td className="px-3 py-1.5 text-slate-300">{row.nom}</td>
+                                    <td className="px-3 py-1.5 text-slate-400">{row.reason}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </details>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

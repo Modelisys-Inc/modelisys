@@ -446,10 +446,16 @@ export async function upsertStatementStructure(
   );
 }
 
+export interface SkippedRow {
+  nom: string
+  reason: string
+}
+
 export interface CSVImportResponse {
   income_statement_rows_added: number
   balance_sheet_rows_added: number
   skipped: number
+  skipped_details: SkippedRow[]
   message: string
 }
 
