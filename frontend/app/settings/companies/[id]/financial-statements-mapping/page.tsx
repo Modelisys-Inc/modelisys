@@ -4,13 +4,14 @@ import { useState, useEffect, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Edit2, X, Check, Plus, ChevronUp, ChevronDown, Trash2, ChevronRight, Loader2 } from "lucide-react"
+import { ArrowLeft, Edit2, X, Check, Plus, ChevronUp, ChevronDown, Trash2, ChevronRight, Loader2, Upload } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import {
   getCompany,
   getStatementStructure,
   upsertStatementStructure,
+  importStatementStructureCSV,
   type Company as ApiCompany,
   type StatementType,
 } from "@/lib/api"
@@ -77,6 +78,8 @@ export default function FinancialStatementsMappingPage() {
   const [editingLinkCode, setEditingLinkCode] = useState("")
 
   const [loading, setLoading] = useState(true)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<string | null>(null)
 
   const defaultIncomeStatementRows: FinancialStatementRow[] = [
     { label: "revenus", isBold: true, isSection: true },
@@ -205,6 +208,35 @@ export default function FinancialStatementsMappingPage() {
       )
     } catch (e) {
       console.error("Error saving balance sheet structure:", e)
+    }
+  }, [companyId])
+
+  const handleImportCSV = useCallback(async (file: File) => {
+    setImporting(true)
+    setImportResult(null)
+    try {
+      const result = await importStatementStructureCSV(companyId, file)
+      setImportResult(result.message)
+
+      // Reload both structures
+      try {
+        const isData = await getStatementStructure(companyId, "income-statement")
+        if (isData.structure && Array.isArray(isData.structure) && isData.structure.length > 0) {
+          setFinancialStatementRows(ensureCogsOrder(isData.structure as unknown as FinancialStatementRow[]))
+        }
+      } catch { /* keep current */ }
+
+      try {
+        const bsData = await getStatementStructure(companyId, "balance-sheet")
+        if (bsData.structure && Array.isArray(bsData.structure) && bsData.structure.length > 0) {
+          setBalanceSheetRows(bsData.structure as unknown as BalanceSheetRow[])
+        }
+      } catch { /* keep current */ }
+    } catch (e) {
+      setImportResult("Erreur lors de l'importation du fichier CSV")
+      console.error("CSV import error:", e)
+    } finally {
+      setImporting(false)
     }
   }, [companyId])
 
@@ -914,7 +946,52 @@ export default function FinancialStatementsMappingPage() {
                       </Button>
                     </div>
                   </div>
+
+                  {/* Import CSV Button */}
+                  <div className="flex items-center gap-2 ml-auto">
+                    <label className="cursor-pointer">
+                      <input
+                        type="file"
+                        accept=".csv"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            handleImportCSV(file)
+                            e.target.value = ""
+                          }
+                        }}
+                        disabled={importing}
+                      />
+                      <div className={`inline-flex items-center gap-2 h-8 px-4 rounded-lg text-xs font-medium transition-all ${
+                        importing
+                          ? "bg-slate-700 text-slate-400 cursor-wait"
+                          : "bg-emerald-500 text-white hover:bg-emerald-600 cursor-pointer"
+                      }`}>
+                        {importing ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Upload className="w-3.5 h-3.5" />
+                        )}
+                        Importer CSV
+                      </div>
+                    </label>
+                  </div>
                 </div>
+
+                {importResult && (
+                  <div className="mt-4 p-3 rounded-lg bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-between">
+                    <span className="text-sm text-emerald-200">{importResult}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setImportResult(null)}
+                      className="h-6 w-6 p-0 text-emerald-300 hover:text-white hover:bg-emerald-500/30"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
