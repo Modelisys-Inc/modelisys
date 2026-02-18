@@ -446,6 +446,25 @@ export async function upsertStatementStructure(
   );
 }
 
+export interface CSVImportResponse {
+  income_statement_rows_added: number
+  balance_sheet_rows_added: number
+  skipped: number
+  message: string
+}
+
+export async function importStatementStructureCSV(
+  companyId: string,
+  file: File
+): Promise<CSVImportResponse> {
+  const formData = new FormData()
+  formData.append("file", file)
+  return apiFetch<CSVImportResponse>(
+    `/api/companies/${companyId}/statement-structures/import-csv`,
+    { method: "POST", body: formData }
+  )
+}
+
 // --- Financial Statements API ---
 
 export interface FinancialStatementDetailRow {
