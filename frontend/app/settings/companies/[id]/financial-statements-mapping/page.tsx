@@ -950,6 +950,9 @@ export default function FinancialStatementsMappingPage() {
 
                   {/* Import CSV Button */}
                   <div className="flex items-center gap-2 ml-auto">
+                    <span className="text-[10px] text-slate-400 hidden lg:inline" title="Colonnes: Nom de compte, Catégories, Types, Classement, Code de liaison">
+                      CSV: Nom, Catégorie, Type, Classement, Code de liaison
+                    </span>
                     <label className="cursor-pointer">
                       <input
                         type="file"

@@ -246,11 +246,14 @@ def _merge_balance_sheet(structure, rows):
                 if item["nom"].lower() in existing:
                     skipped.append({"nom": item["nom"], "reason": "Doublon (capitaux propres)"})
                 else:
-                    structure.insert(insert_at, {
+                    new_row = {
                         "label": item["nom"],
                         "indent": True,
                         "doubleIndent": True,
-                    })
+                    }
+                    if item.get("linkCode"):
+                        new_row["linkCode"] = item["linkCode"]
+                    structure.insert(insert_at, new_row)
                     insert_at += 1
                     added += 1
         else:
@@ -284,11 +287,14 @@ def _merge_balance_sheet(structure, rows):
                 if item["nom"].lower() in existing:
                     skipped.append({"nom": item["nom"], "reason": f"Doublon ({subsection_label})"})
                 else:
-                    structure.insert(insert_at, {
+                    new_row = {
                         "label": item["nom"],
                         "indent": True,
                         "doubleIndent": True,
-                    })
+                    }
+                    if item.get("linkCode"):
+                        new_row["linkCode"] = item["linkCode"]
+                    structure.insert(insert_at, new_row)
                     insert_at += 1
                     added += 1
 
@@ -304,6 +310,7 @@ def _merge_income_statement(structure, rows):
         cat = row_data["categorie"]
         typ = row_data["type"]
         nom = row_data["nom"]
+        link_code = row_data.get("linkCode")
 
         if cat == "revenus":
             parent_label = "revenus"
@@ -338,10 +345,13 @@ def _merge_income_statement(structure, rows):
             skipped.append({"nom": nom, "reason": f"Doublon ({parent_label})"})
             continue
 
-        parent_row["detailRows"].append({
+        detail_row = {
             "label": nom,
             "indent": True,
-        })
+        }
+        if link_code:
+            detail_row["linkCode"] = link_code
+        parent_row["detailRows"].append(detail_row)
         parent_row["isExpanded"] = True
         added += 1
 
@@ -401,6 +411,7 @@ async def import_csv_statement_structure(
         if len(cells) < 4:
             continue
         nom, categorie, type_val, classement = cells[0], cells[1], cells[2], cells[3]
+        link_code = cells[4].strip() if len(cells) > 4 else ""
         if not nom or not categorie:
             continue
         try:
@@ -412,6 +423,7 @@ async def import_csv_statement_structure(
             "categorie": categorie.lower(),
             "type": type_val.lower() if type_val else "n/a",
             "classement": order,
+            "linkCode": link_code if link_code else None,
         })
 
     all_categories = BALANCE_SHEET_CATEGORIES | INCOME_STATEMENT_CATEGORIES

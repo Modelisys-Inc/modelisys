@@ -205,11 +205,22 @@ def test_structure_with_link_codes(client, auth_headers):
     assert saved[1]["linkCode"] == "ANC-001"
 
 
-def _make_csv(rows_data):
-    """Helper to create a CSV file matching the expected format."""
-    lines = [",,,,\n", ",,,,\n", ",Nom de compte,Catégories,Types,Classement\n"]
-    for nom, cat, typ, classement in rows_data:
-        lines.append(f",{nom},{cat},{typ},{classement}\n")
+def _make_csv(rows_data, with_link_codes=False):
+    """Helper to create a CSV file matching the expected format.
+
+    rows_data: list of tuples (nom, cat, typ, classement) or
+               (nom, cat, typ, classement, link_code) when with_link_codes=True.
+    """
+    if with_link_codes:
+        lines = [",,,,,,\n", ",,,,,,\n", ",Nom de compte,Catégories,Types,Classement,Code de liaison\n"]
+        for row in rows_data:
+            nom, cat, typ, classement = row[0], row[1], row[2], row[3]
+            link_code = row[4] if len(row) > 4 else ""
+            lines.append(f",{nom},{cat},{typ},{classement},{link_code}\n")
+    else:
+        lines = [",,,,\n", ",,,,\n", ",Nom de compte,Catégories,Types,Classement\n"]
+        for nom, cat, typ, classement in rows_data:
+            lines.append(f",{nom},{cat},{typ},{classement}\n")
     return "".join(lines).encode("utf-8")
 
 
@@ -335,3 +346,78 @@ def test_csv_import_unauthenticated(client):
         files={"file": ("test.csv", io.BytesIO(b"data"), "text/csv")},
     )
     assert response.status_code == 403
+
+
+def test_csv_import_with_link_codes(client, auth_headers):
+    """CSV with 5th column 'Code de liaison' should set linkCode on imported rows."""
+    company_id = _create_company(client, auth_headers)
+    csv_data = _make_csv([
+        ("Encaisse", "Actif", "Court terme", "1", "A"),
+        ("Débiteurs", "Actif", "Court terme", "2", "C"),
+        ("Dette à long terme", "Passif", "Long terme", "1", "KK"),
+        ("Capital-action", "Capitaux propres", "n/a", "1", "UU"),
+        ("Revenus dev", "Revenus", "n/a", "1", "20-101"),
+        ("Salaires admin", "Charges", "Frais d'administration", "1", "44-330"),
+    ], with_link_codes=True)
+    response = client.post(
+        f"/api/companies/{company_id}/statement-structures/import-csv",
+        files={"file": ("test.csv", io.BytesIO(csv_data), "text/csv")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["balance_sheet_rows_added"] == 4
+    assert data["income_statement_rows_added"] == 2
+
+    # Verify balance sheet rows have linkCode
+    bs = client.get(
+        f"/api/companies/{company_id}/statement-structures/balance-sheet",
+        headers=auth_headers,
+    )
+    assert bs.status_code == 200
+    bs_rows = bs.json()["structure"]
+    encaisse = next(r for r in bs_rows if r.get("label", "").lower() == "encaisse")
+    assert encaisse["linkCode"] == "A"
+    debiteurs = next(r for r in bs_rows if r.get("label", "").lower() == "débiteurs")
+    assert debiteurs["linkCode"] == "C"
+    capital = next(r for r in bs_rows if r.get("label", "").lower() == "capital-action")
+    assert capital["linkCode"] == "UU"
+
+    # Verify income statement detailRows have linkCode
+    is_resp = client.get(
+        f"/api/companies/{company_id}/statement-structures/income-statement",
+        headers=auth_headers,
+    )
+    assert is_resp.status_code == 200
+    is_structure = is_resp.json()["structure"]
+    revenus_row = next(r for r in is_structure if r.get("label", "").lower() == "revenus")
+    assert len(revenus_row["detailRows"]) == 1
+    assert revenus_row["detailRows"][0]["linkCode"] == "20-101"
+
+    admin_row = next(r for r in is_structure if r.get("label", "").lower() == "frais d'administration")
+    assert len(admin_row["detailRows"]) == 1
+    assert admin_row["detailRows"][0]["linkCode"] == "44-330"
+
+
+def test_csv_import_without_link_codes_column(client, auth_headers):
+    """CSV without 5th column should still work (linkCode not set)."""
+    company_id = _create_company(client, auth_headers)
+    csv_data = _make_csv([
+        ("Encaisse", "Actif", "Court terme", "1"),
+        ("Revenus dev", "Revenus", "n/a", "1"),
+    ])
+    response = client.post(
+        f"/api/companies/{company_id}/statement-structures/import-csv",
+        files={"file": ("test.csv", io.BytesIO(csv_data), "text/csv")},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["balance_sheet_rows_added"] == 1
+
+    # Verify no linkCode on balance sheet row
+    bs = client.get(
+        f"/api/companies/{company_id}/statement-structures/balance-sheet",
+        headers=auth_headers,
+    )
+    encaisse = next(r for r in bs.json()["structure"] if r.get("label", "").lower() == "encaisse")
+    assert "linkCode" not in encaisse

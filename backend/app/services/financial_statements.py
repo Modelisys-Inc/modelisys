@@ -431,7 +431,7 @@ def _process_structure_rows(
         is_bold = row.get("isBold", False)
         is_section = row.get("isSection", False)
         is_result = row.get("isResult", False)
-        children = row.get("children", [])
+        children = row.get("children", []) or row.get("detailRows", [])
         formula = row.get("formula")
         row_id = row.get("id", link_code or label)
 
@@ -799,7 +799,7 @@ def _process_structure_rows_series(
         is_bold = row.get("isBold", False)
         is_section = row.get("isSection", False)
         is_result = row.get("isResult", False)
-        children = row.get("children", [])
+        children = row.get("children", []) or row.get("detailRows", [])
         formula = row.get("formula")
         row_id = row.get("id", link_code or label)
 
