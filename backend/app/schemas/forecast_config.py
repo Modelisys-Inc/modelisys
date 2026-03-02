@@ -10,6 +10,7 @@ class ForecastConfigUpsert(BaseModel):
     company_id: uuid.UUID | None = None
     division_id: uuid.UUID | None = None
     sub_division_id: uuid.UUID | None = None
+    projection_id: uuid.UUID | None = None
 
 
 class ForecastConfigResponse(BaseModel):
@@ -19,6 +20,7 @@ class ForecastConfigResponse(BaseModel):
     company_id: uuid.UUID | None = None
     division_id: uuid.UUID | None = None
     sub_division_id: uuid.UUID | None = None
+    projection_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 

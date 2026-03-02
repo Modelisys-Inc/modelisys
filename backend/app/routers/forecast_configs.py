@@ -37,6 +37,7 @@ def list_forecast_configs(
     config_type: str | None = Query(default=None),
     division_id: uuid.UUID | None = Query(default=None),
     sub_division_id: uuid.UUID | None = Query(default=None),
+    projection_id: uuid.UUID | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -51,6 +52,8 @@ def list_forecast_configs(
         query = query.filter(ForecastConfig.division_id == division_id)
     if sub_division_id:
         query = query.filter(ForecastConfig.sub_division_id == sub_division_id)
+    if projection_id:
+        query = query.filter(ForecastConfig.projection_id == projection_id)
     configs = query.order_by(ForecastConfig.config_type).all()
     return ForecastConfigListResponse(configs=configs)
 
@@ -62,7 +65,7 @@ def upsert_forecast_config(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Upsert a forecast config. Matches on config_type + company + division + sub_division."""
+    """Upsert a forecast config. Matches on config_type + company + division + sub_division + projection_id."""
     company = _verify_company_access(db, current_user, company_id)
 
     existing = (
@@ -73,6 +76,7 @@ def upsert_forecast_config(
             ForecastConfig.config_type == request.config_type,
             ForecastConfig.division_id == request.division_id,
             ForecastConfig.sub_division_id == request.sub_division_id,
+            ForecastConfig.projection_id == request.projection_id,
         )
         .first()
     )
@@ -90,6 +94,7 @@ def upsert_forecast_config(
             sub_division_id=request.sub_division_id,
             config_type=request.config_type,
             data=request.data,
+            projection_id=request.projection_id,
         )
         db.add(config)
         db.commit()

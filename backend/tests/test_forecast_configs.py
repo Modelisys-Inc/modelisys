@@ -251,3 +251,87 @@ def test_ebitda_notes_unauthenticated(client):
     fake_id = str(uuid.uuid4())
     response = client.get(f"/api/companies/{fake_id}/ebitda-notes")
     assert response.status_code == 403
+
+
+def test_upsert_forecast_config_with_projection_id(client, auth_headers):
+    """projection_id scopes configs independently."""
+    company_id = _create_company(client, auth_headers)
+
+    # Create a projection first
+    proj_resp = client.post(
+        f"/api/companies/{company_id}/projections",
+        json={"name": "Test Proj", "projection_years": 5, "projection_mode": "gl"},
+        headers=auth_headers,
+    )
+    assert proj_resp.status_code == 201
+    proj_id = proj_resp.json()["id"]
+
+    # Upsert company-scoped config (no projection_id)
+    r1 = client.put(
+        f"/api/companies/{company_id}/forecast-configs",
+        json={"config_type": "income-statement-detail", "data": {"inflationRate": 2.0}},
+        headers=auth_headers,
+    )
+    assert r1.status_code == 200
+
+    # Upsert projection-scoped config (same config_type, different projection_id)
+    r2 = client.put(
+        f"/api/companies/{company_id}/forecast-configs",
+        json={
+            "config_type": "income-statement-detail",
+            "data": {"inflationRate": 5.0},
+            "projection_id": proj_id,
+        },
+        headers=auth_headers,
+    )
+    assert r2.status_code == 200
+    assert r2.json()["projection_id"] == proj_id
+
+    # Both should exist as separate records
+    list_resp = client.get(
+        f"/api/companies/{company_id}/forecast-configs?config_type=income-statement-detail",
+        headers=auth_headers,
+    )
+    assert list_resp.status_code == 200
+    configs = list_resp.json()["configs"]
+    assert len(configs) == 2
+
+    # Filter by projection_id returns only the projection-scoped one
+    filtered = client.get(
+        f"/api/companies/{company_id}/forecast-configs"
+        f"?config_type=income-statement-detail&projection_id={proj_id}",
+        headers=auth_headers,
+    )
+    assert filtered.status_code == 200
+    assert len(filtered.json()["configs"]) == 1
+    assert filtered.json()["configs"][0]["data"]["inflationRate"] == 5.0
+
+
+def test_upsert_forecast_config_projection_id_updates_existing(client, auth_headers):
+    """Second upsert with same projection_id updates in-place, no duplicate."""
+    company_id = _create_company(client, auth_headers)
+    proj_resp = client.post(
+        f"/api/companies/{company_id}/projections",
+        json={"name": "P", "projection_years": 3, "projection_mode": "gl"},
+        headers=auth_headers,
+    )
+    proj_id = proj_resp.json()["id"]
+
+    client.put(
+        f"/api/companies/{company_id}/forecast-configs",
+        json={"config_type": "capex-forecast", "data": {"additions": []}, "projection_id": proj_id},
+        headers=auth_headers,
+    )
+    r = client.put(
+        f"/api/companies/{company_id}/forecast-configs",
+        json={"config_type": "capex-forecast", "data": {"additions": [{"id": "x"}]}, "projection_id": proj_id},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+
+    list_resp = client.get(
+        f"/api/companies/{company_id}/forecast-configs?projection_id={proj_id}",
+        headers=auth_headers,
+    )
+    assert len(list_resp.json()["configs"]) == 1
+    assert list_resp.json()["configs"][0]["data"]["additions"] == [{"id": "x"}]
