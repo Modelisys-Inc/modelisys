@@ -22,6 +22,12 @@ class ForecastConfig(Base):
     company_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True, index=True)
     division_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("divisions.id", ondelete="CASCADE"), nullable=True, index=True)
     sub_division_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("sub_divisions.id", ondelete="CASCADE"), nullable=True, index=True)
+    projection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projections.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     config_type: Mapped[str] = mapped_column(String(50), nullable=False)
     # Config types:
     #   expense_types        - {"rowId": "variable" | "fixe"}
