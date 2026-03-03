@@ -75,6 +75,7 @@ def _depreciation_for_year(additions: list[dict], year_index: int) -> float:
 
 
 def _apply_revenue_adjustments(base: float, adjustments: list[dict]) -> float:
+    """Apply revenue adjustments to a base amount. Supports growthPercent and absolute amount types."""
     result = base
     for adj in adjustments:
         adj_type = adj.get("type", "")
@@ -85,18 +86,35 @@ def _apply_revenue_adjustments(base: float, adjustments: list[dict]) -> float:
     return result
 
 
-def _apply_expense_adjustments(base: float, adjustments: list[dict]) -> float:
-    result = base
+def _apply_expense_adjustments(inflated_amount: float, adjustments: list[dict]) -> float:
+    """Apply expense adjustments to an already-inflated amount.
+
+    Percentage adjustments are computed against the original inflated_amount
+    (not the running total), so multiple percentage adjustments are additive
+    relative to the same base.
+    """
+    result = inflated_amount
     for adj in adjustments:
         adj_type = adj.get("type", "")
         if adj_type == "amount":
             result += float(adj.get("amount", 0))
         elif adj_type == "percentage":
-            result += base * float(adj.get("percentage", 0)) / 100
+            result += inflated_amount * float(adj.get("percentage", 0)) / 100
     return result
 
 
 class ProjectionComputeService:
+    """Compute projected financial summary metrics for all years of a projection.
+
+    Simplifications (V1):
+    - Revenue per year is read directly from revenueValues overrides or the base IS amount,
+      with per-year adjustments applied independently (not compounded from prior year).
+    - Tax is applied to EBIT (not EBT); interest expense is not deducted before tax.
+    - Debt service is pro-rated by months active in each year.
+    - Working capital change is not included in free cash flow.
+    - Rows with zero base IS value and no revenueValues override are excluded;
+      for companies with no historical data, all metrics will be zero.
+    """
     TAX_RATE = 0.27  # Canadian combined federal + provincial
 
     @classmethod
@@ -138,7 +156,11 @@ class ProjectionComputeService:
         # 3. Load loans
         loans = db.query(Loan).filter(Loan.projection_id == proj_id).all()
 
-        # 4. Classify rows: revenue (current > 0) vs expense (current < 0)
+        # 4. Classify IS rows: revenue (positive current) vs expense (negative current).
+        # isSection rows are section headers (sum of children, already counted in children).
+        # isResult rows are formula-computed totals (e.g. net income). Both are excluded
+        # to prevent double-counting. Rows with current == 0 are also excluded; for
+        # companies with no historical trial balance, all metrics will be zero.
         revenue_rows = [
             r for r in all_rows
             if not r.get("isSection") and not r.get("isResult")
@@ -202,15 +224,21 @@ class ProjectionComputeService:
             tax = ebit * cls.TAX_RATE if ebit > 0 else 0.0
             net_income = ebit - tax
 
-            # Debt service
+            # Debt service (pro-rated by actual months active in this year)
             debt_service = 0.0
             for loan in loans:
                 start_month = int(loan.start_month or 0)
-                year_end_month = y * 12 - 1
                 loan_total_months = int(loan.remaining_payments or 0)
                 loan_end_month = start_month + loan_total_months - 1
-                if start_month <= year_end_month and loan_end_month >= (y - 1) * 12:
-                    debt_service += _annual_loan_payment(loan)
+                year_start_month = (y - 1) * 12
+                year_end_month = y * 12 - 1
+                # Find overlap between loan active period and this projection year
+                active_start = max(start_month, year_start_month)
+                active_end = min(loan_end_month, year_end_month)
+                if active_end >= active_start:
+                    active_months = active_end - active_start + 1
+                    monthly_pmt = _annual_loan_payment(loan) / 12
+                    debt_service += monthly_pmt * active_months
 
             # Free cash flow
             tax_on_ebit = ebit * cls.TAX_RATE if ebit > 0 else 0.0

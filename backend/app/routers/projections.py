@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -151,7 +152,7 @@ def delete_projection(
 def compute_projection(
     company_id: uuid.UUID,
     projection_id: uuid.UUID,
-    base_fiscal_year: int = Query(default=None),
+    base_fiscal_year: int | None = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -160,7 +161,6 @@ def compute_projection(
     projection = _get_projection_or_404(db, company, projection_id)
 
     if base_fiscal_year is None:
-        from datetime import date
         base_fiscal_year = date.today().year - 1
 
     result = ProjectionComputeService.compute(db, company, projection, base_fiscal_year)
