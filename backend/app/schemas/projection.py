@@ -107,3 +107,29 @@ class ProjectionListResponse(BaseModel):
     limit: int | None = None
     offset: int | None = None
     has_more: bool | None = None
+
+
+# --- Projection Compute ---
+
+class ProjectionYearResult(BaseModel):
+    year_index: int
+    fiscal_year: int
+    total_revenue: float
+    total_expenses: float
+    ebitda: float
+    ebitda_margin: float
+    depreciation: float
+    ebit: float
+    net_income: float
+    capex: float
+    debt_service: float
+    free_cash_flow: float
+
+
+class ProjectionComputeResult(BaseModel):
+    projection_id: str
+    projection_name: str
+    base_fiscal_year: int
+    projection_years: int
+    computed_at: str
+    years: list[ProjectionYearResult]

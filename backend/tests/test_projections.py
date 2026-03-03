@@ -427,3 +427,62 @@ def test_projections_unauthenticated(client):
     fake_id = str(uuid.uuid4())
     response = client.get(f"/api/companies/{fake_id}/projections")
     assert response.status_code == 403
+
+
+def test_compute_projection_returns_summary(client, auth_headers):
+    """Compute endpoint returns per-year summary even when no ForecastConfig exists."""
+    company_id = _create_company(client, auth_headers)
+    proj = _create_projection(client, auth_headers, company_id, projection_years=3)
+    proj_id = proj["id"]
+
+    response = client.get(
+        f"/api/companies/{company_id}/projections/{proj_id}/compute",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["projection_id"] == proj_id
+    assert data["projection_name"] == "5-Year Projection"
+    assert data["projection_years"] == 3
+    assert len(data["years"]) == 3
+    for yr in data["years"]:
+        assert "year_index" in yr
+        assert "fiscal_year" in yr
+        assert "total_revenue" in yr
+        assert "total_expenses" in yr
+        assert "ebitda" in yr
+        assert "ebitda_margin" in yr
+        assert "depreciation" in yr
+        assert "ebit" in yr
+        assert "net_income" in yr
+        assert "capex" in yr
+        assert "debt_service" in yr
+        assert "free_cash_flow" in yr
+
+
+def test_compute_projection_applies_forecast_config(client, auth_headers):
+    """Compute endpoint uses projection-scoped ForecastConfig when present."""
+    company_id = _create_company(client, auth_headers)
+    proj = _create_projection(client, auth_headers, company_id, projection_years=2)
+    proj_id = proj["id"]
+
+    # Save a capex config for this projection
+    client.put(
+        f"/api/companies/{company_id}/forecast-configs",
+        json={
+            "config_type": "capex-forecast",
+            "data": {"additions": [{"id": "eq1", "label": "Equip", "yearIndex": 0, "amount": 100000, "usefulLife": 5}]},
+            "projection_id": proj_id,
+        },
+        headers=auth_headers,
+    )
+
+    response = client.get(
+        f"/api/companies/{company_id}/projections/{proj_id}/compute",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    year1 = next(y for y in data["years"] if y["year_index"] == 1)
+    assert year1["capex"] == 100000.0
+    assert year1["depreciation"] == 20000.0
