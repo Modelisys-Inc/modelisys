@@ -224,7 +224,7 @@ export function IncomeStatementDetail({
         console.error("Error saving income statement config:", err)
       }
     }, 500)
-  }, [companyId, isForecastSection])
+  }, [companyId, isForecastSection, projectionId])
 
   // Load forecast config from API on mount
   useEffect(() => {
@@ -274,7 +274,7 @@ export function IncomeStatementDetail({
       }
     }
     loadConfig()
-  }, [companyId, isForecastSection])
+  }, [companyId, isForecastSection, projectionId])
 
   // Helper to build the full config data bundle
   const buildConfigData = useCallback(() => ({

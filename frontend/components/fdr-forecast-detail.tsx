@@ -140,7 +140,7 @@ export function FDRForecastDetail({
         console.error("Error saving FDR forecast config:", err)
       }
     }, 500)
-  }, [companyId, isForecastSection])
+  }, [companyId, isForecastSection, projectionId])
 
   // Load FDR forecast config from API on mount
   useEffect(() => {
@@ -173,7 +173,7 @@ export function FDRForecastDetail({
       }
     }
     loadConfig()
-  }, [companyId, isForecastSection])
+  }, [companyId, isForecastSection, projectionId])
 
   // Save FDR values whenever they change
   useEffect(() => {

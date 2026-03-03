@@ -192,7 +192,7 @@ export function CapexForecastDetail({
         console.error("Error saving capex forecast config:", err)
       }
     }, 500)
-  }, [companyId, isForecastSection])
+  }, [companyId, isForecastSection, projectionId])
 
   // Load capex forecast config from API on mount
   useEffect(() => {
@@ -212,7 +212,7 @@ export function CapexForecastDetail({
       }
     }
     loadConfig()
-  }, [companyId, isForecastSection])
+  }, [companyId, isForecastSection, projectionId])
 
   // Save capex values whenever they change
   useEffect(() => {

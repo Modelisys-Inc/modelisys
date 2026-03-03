@@ -123,7 +123,7 @@ export function BaseSeasonalityDetail({
         console.error("Error saving seasonality config:", err)
       }
     }, 500)
-  }, [companyId])
+  }, [companyId, projectionId])
 
   // Load seasonality config from API on mount
   useEffect(() => {
@@ -155,7 +155,7 @@ export function BaseSeasonalityDetail({
       }
     }
     loadConfig()
-  }, [companyId])
+  }, [companyId, projectionId])
 
   // Save seasonality values whenever they change
   useEffect(() => {

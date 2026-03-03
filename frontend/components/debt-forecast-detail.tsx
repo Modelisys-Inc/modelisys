@@ -93,7 +93,7 @@ export function DebtForecastDetail({
         console.error("Error saving debt forecast config:", err)
       }
     }, 500)
-  }, [companyId, isForecast])
+  }, [companyId, isForecast, projectionId])
 
   // Load loans from API on mount
   useEffect(() => {
@@ -126,7 +126,7 @@ export function DebtForecastDetail({
       }
     }
     loadConfig()
-  }, [companyId, isForecast])
+  }, [companyId, isForecast, projectionId])
 
   // Save loans whenever they change
   useEffect(() => {
