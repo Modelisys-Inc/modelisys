@@ -67,20 +67,24 @@ export default function ScenariosPage() {
   const { projections, loading } = useProjections(selectedCompanyId)
   const [computedResults, setComputedResults] = useState<Record<string, ProjectionComputeResult>>({})
   const [isComputing, setIsComputing] = useState(false)
+  const [computeError, setComputeError] = useState<string | null>(null)
 
   // Clear selection when company changes
   useEffect(() => {
     setSelectedIds([])
     setComputedResults({})
+    setComputeError(null)
   }, [selectedCompanyId])
 
   // Compute projections when selection changes
   useEffect(() => {
     if (!selectedCompanyId || selectedIds.length === 0) {
       setComputedResults({})
+      setComputeError(null)
       return
     }
     setIsComputing(true)
+    setComputeError(null)
     Promise.all(
       selectedIds.map((id) => computeProjection(selectedCompanyId, id))
     )
@@ -90,7 +94,10 @@ export default function ScenariosPage() {
         setComputedResults(map)
         setIsComputing(false)
       })
-      .catch(() => setIsComputing(false))
+      .catch(() => {
+        setIsComputing(false)
+        setComputeError("Impossible de calculer les projections. Veuillez réessayer.")
+      })
   }, [selectedIds, selectedCompanyId])
 
   const companyNameMap = useMemo(() => {
@@ -392,6 +399,13 @@ export default function ScenariosPage() {
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="w-6 h-6 animate-spin text-slate-400 mr-2" />
                     <span className="text-sm text-slate-500">Calcul des projections en cours...</span>
+                  </div>
+                )}
+
+                {/* Compute error */}
+                {computeError && (
+                  <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                    {computeError}
                   </div>
                 )}
 
