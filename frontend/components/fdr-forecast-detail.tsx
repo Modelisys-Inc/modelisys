@@ -8,7 +8,7 @@ import { generateId } from "@/lib/seeded-random"
 import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
 import { NoteModal } from "@/components/note-modal"
-import { getNoteByRowId } from "@/lib/notes-storage"
+import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -28,6 +28,7 @@ interface FDRForecastDetailProps {
   title?: string
   projectionYears?: 3 | 4 | 5
   projectionMode?: "gl" | "account"
+  projectionId?: string | null
 }
 
 interface BalanceAccount {
@@ -62,7 +63,9 @@ export function FDRForecastDetail({
   title = "Estimation du FDR annuel",
   projectionYears = 5,
   projectionMode = "gl",
+  projectionId,
 }: FDRForecastDetailProps) {
+  useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [noteModalOpen, setNoteModalOpen] = useState(false)
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null)
@@ -131,6 +134,7 @@ export function FDRForecastDetail({
         await upsertForecastConfig(companyId, {
           config_type: "fdr-forecast",
           data,
+          projection_id: projectionId ?? undefined,
         })
       } catch (err) {
         console.error("Error saving FDR forecast config:", err)
@@ -144,7 +148,7 @@ export function FDRForecastDetail({
 
     const loadConfig = async () => {
       try {
-        const configs = await listForecastConfigs(companyId, { config_type: "fdr-forecast" })
+        const configs = await listForecastConfigs(companyId, { config_type: "fdr-forecast", projection_id: projectionId ?? undefined })
         if (configs.length > 0) {
           const data = configs[0].data as Record<string, unknown>
           if (data.fdrValues) setFdrValues(data.fdrValues as typeof fdrValues)
@@ -403,40 +407,6 @@ export function FDRForecastDetail({
   const capitalizeFirst = (str: string): string => {
     if (!str) return str
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
-  }
-
-  // Helper function to generate balance accounts for a row (exact copy from BalanceSheetDetail)
-  const generateBalanceAccounts = (label: string, current: number, prior: number): BalanceAccount[] => {
-    const accounts: BalanceAccount[] = []
-    
-    if (label.includes("Comptes clients")) {
-      accounts.push(
-        { accountNumber: "1200", accountName: "Comptes clients - Factures à recevoir", amount: Math.round(current * 0.6), priorAmount: Math.round(prior * 0.6), proportion: 0.6 },
-        { accountNumber: "1210", accountName: "Comptes clients - Notes de crédit", amount: Math.round(current * 0.4), priorAmount: Math.round(prior * 0.4), proportion: 0.4 }
-      )
-    } else if (label.includes("Stocks")) {
-      accounts.push(
-        { accountNumber: "1300", accountName: "Inventaire - Matières premières", amount: Math.round(current * 0.4), priorAmount: Math.round(prior * 0.4), proportion: 0.4 },
-        { accountNumber: "1310", accountName: "Inventaire - Produits finis", amount: Math.round(current * 0.6), priorAmount: Math.round(prior * 0.6), proportion: 0.6 }
-      )
-    } else if (label.includes("Autres actifs courants")) {
-      accounts.push(
-        { accountNumber: "1400", accountName: "Prépayés", amount: Math.round(current * 0.5), priorAmount: Math.round(prior * 0.5), proportion: 0.5 },
-        { accountNumber: "1410", accountName: "Autres créances", amount: Math.round(current * 0.5), priorAmount: Math.round(prior * 0.5), proportion: 0.5 }
-      )
-    } else if (label.includes("Comptes fournisseurs")) {
-      accounts.push(
-        { accountNumber: "2000", accountName: "Fournisseurs - Comptes à payer", amount: Math.round(current * 0.7), priorAmount: Math.round(prior * 0.7), proportion: 0.7 },
-        { accountNumber: "2010", accountName: "Fournisseurs - Factures à payer", amount: Math.round(current * 0.3), priorAmount: Math.round(prior * 0.3), proportion: 0.3 }
-      )
-    } else if (label.includes("Capital social")) {
-      accounts.push(
-        { accountNumber: "3000", accountName: "Capital-actions ordinaires", amount: Math.round(current * 0.8), priorAmount: Math.round(prior * 0.8), proportion: 0.8 },
-        { accountNumber: "3010", accountName: "Capital-actions privilégiées", amount: Math.round(current * 0.2), priorAmount: Math.round(prior * 0.2), proportion: 0.2 }
-      )
-    }
-    
-    return accounts
   }
 
   // ── Derive year labels from series data ──

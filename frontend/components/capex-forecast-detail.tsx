@@ -8,7 +8,7 @@ import { generateId } from "@/lib/seeded-random"
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react"
 import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
 import { NoteModal } from "@/components/note-modal"
-import { getNoteByRowId } from "@/lib/notes-storage"
+import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, aggregateToYears } from "@/lib/series-utils"
 import { Button } from "@/components/ui/button"
@@ -29,6 +29,7 @@ interface CapexForecastDetailProps {
   title?: string
   projectionYears?: 3 | 4 | 5
   projectionMode?: "gl" | "account"
+  projectionId?: string | null
 }
 
 interface BalanceAccount {
@@ -63,7 +64,9 @@ export function CapexForecastDetail({
   title = "Estimation des Capex annuels",
   projectionYears = 5,
   projectionMode = "gl",
+  projectionId,
 }: CapexForecastDetailProps) {
+  useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [noteModalOpen, setNoteModalOpen] = useState(false)
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null)
@@ -183,6 +186,7 @@ export function CapexForecastDetail({
         await upsertForecastConfig(companyId, {
           config_type: "capex-forecast",
           data,
+          projection_id: projectionId ?? undefined,
         })
       } catch (err) {
         console.error("Error saving capex forecast config:", err)
@@ -196,7 +200,7 @@ export function CapexForecastDetail({
 
     const loadConfig = async () => {
       try {
-        const configs = await listForecastConfigs(companyId, { config_type: "capex-forecast" })
+        const configs = await listForecastConfigs(companyId, { config_type: "capex-forecast", projection_id: projectionId ?? undefined })
         if (configs.length > 0) {
           const data = configs[0].data as Record<string, unknown>
           if (data.capexValues) setCapexValues(data.capexValues as typeof capexValues)
@@ -247,12 +251,6 @@ export function CapexForecastDetail({
       }
       return newSet
     })
-  }
-
-  // Helper function to generate balance accounts for a row (fallback for hardcoded data)
-  const generateBalanceAccounts = (label: string, current: number, prior: number): BalanceAccount[] => {
-    // This function is only used as a fallback when no real data is available
-    return []
   }
 
   // Get adjustments for a specific row and year

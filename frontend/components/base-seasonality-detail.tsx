@@ -4,8 +4,10 @@ import { formatCurrency } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import { ChevronRight, ChevronDown, Settings, Edit2, Trash2 } from "lucide-react"
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts } from "@/lib/series-utils"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -19,6 +21,7 @@ interface BaseSeasonalityDetailProps {
   companies?: Company[]
   title?: string
   projectionMode?: "gl" | "account"
+  projectionId?: string | null
 }
 
 interface DetailRow {
@@ -45,6 +48,7 @@ export function BaseSeasonalityDetail({
   companies = [],
   title = "Saisonnalité des revenus",
   projectionMode = "gl",
+  projectionId,
 }: BaseSeasonalityDetailProps) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   
@@ -69,6 +73,39 @@ export function BaseSeasonalityDetail({
   const [adjustmentNote, setAdjustmentNote] = useState<string>("")
   const [editingAdjustmentId, setEditingAdjustmentId] = useState<string | null>(null) // ID of adjustment being edited, null if adding new
 
+  // Fetch real income statement series data for seasonality computation
+  const currentYear = new Date().getFullYear()
+  const { rows: seriesRows, periods: seriesPeriods, loading: seriesLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "income-statement",
+    fiscalYear: currentYear,
+    months: 12,
+    divisionId: divisionId || undefined,
+    subDivisionId: subDivisionId || undefined,
+    enabled: true,
+  })
+
+  // Compute seasonal patterns from real monthly data
+  const computedSeasonalPatterns = useMemo((): Record<string, number[]> => {
+    if (seriesRows.length === 0 || seriesPeriods.length === 0) return {}
+    const patterns: Record<string, number[]> = {}
+    for (const sr of seriesRows) {
+      if (sr.isSection || sr.isResult || sr.isBold) continue
+      const amounts = getRowAmounts(sr, seriesPeriods)
+      if (amounts.length < 12) continue
+      // Take the last 12 months
+      const last12 = amounts.slice(-12)
+      const avg = last12.reduce((s, v) => s + Math.abs(v), 0) / 12
+      if (avg === 0) continue
+      // Compute seasonal factors: each month / average
+      patterns[sr.id] = last12.map(v => Math.abs(v) / avg)
+    }
+    return patterns
+  }, [seriesRows, seriesPeriods])
+
+  // Default even seasonal pattern (no seasonality)
+  const evenSeasonalPattern = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+
   // Debounced save to API
   const saveConfigRef = useRef<NodeJS.Timeout>()
 
@@ -80,6 +117,7 @@ export function BaseSeasonalityDetail({
         await upsertForecastConfig(companyId, {
           config_type: "seasonality",
           data,
+          projection_id: projectionId ?? undefined,
         })
       } catch (err) {
         console.error("Error saving seasonality config:", err)
@@ -93,7 +131,7 @@ export function BaseSeasonalityDetail({
 
     const loadConfig = async () => {
       try {
-        const configs = await listForecastConfigs(companyId, { config_type: "seasonality" })
+        const configs = await listForecastConfigs(companyId, { config_type: "seasonality", projection_id: projectionId ?? undefined })
         if (configs.length > 0) {
           const data = configs[0].data as Record<string, unknown>
           if (data.seasonalityValues) setSeasonalityValues(data.seasonalityValues as typeof seasonalityValues)
@@ -143,78 +181,7 @@ export function BaseSeasonalityDetail({
     })
   }
 
-  // Helper function to generate balance accounts for a row
-  const generateBalanceAccounts = (label: string): Array<{
-    accountNumber: string
-    accountName: string
-    amount: number
-    priorAmount?: number
-  }> => {
-    const accounts: Array<{
-      accountNumber: string
-      accountName: string
-      amount: number
-      priorAmount?: number
-    }> = []
-    
-    if (label.includes("Services professionnels")) {
-      accounts.push(
-        { accountNumber: "4000", accountName: "Revenus de services", amount: 1200000, priorAmount: 1100000 },
-        { accountNumber: "4010", accountName: "Revenus de consultation", amount: 960000, priorAmount: 820000 }
-      )
-    } else if (label.includes("Produits") && !label.includes("Coût")) {
-      accounts.push(
-        { accountNumber: "4100", accountName: "Revenus de vente de produits", amount: 840000, priorAmount: 720000 }
-      )
-    } else if (label.includes("Autres revenus")) {
-      accounts.push(
-        { accountNumber: "4200", accountName: "Revenus divers", amount: 240000, priorAmount: 200000 }
-      )
-    } else if (label.includes("Coût - Services")) {
-      accounts.push(
-        { accountNumber: "5000", accountName: "Coûts directs - Services", amount: 756000, priorAmount: 672000 },
-        { accountNumber: "5010", accountName: "Sous-traitance", amount: 324000, priorAmount: 288000 }
-      )
-    } else if (label.includes("Coût - Produits")) {
-      accounts.push(
-        { accountNumber: "5100", accountName: "Coût des marchandises vendues", amount: 420000, priorAmount: 360000 }
-      )
-    } else if (label.includes("Salaires - Administrateurs")) {
-      accounts.push(
-        { accountNumber: "6000", accountName: "Salaires - Administration", amount: 480000, priorAmount: 420000 }
-      )
-    } else if (label.includes("Location de bureaux")) {
-      accounts.push(
-        { accountNumber: "6100", accountName: "Location", amount: 96000, priorAmount: 96000 }
-      )
-    } else if (label.includes("Fournitures de bureau")) {
-      accounts.push(
-        { accountNumber: "6200", accountName: "Fournitures", amount: 42000, priorAmount: 38400 }
-      )
-    } else if (label.includes("Services professionnels") && label.includes("Frais")) {
-      accounts.push(
-        { accountNumber: "6300", accountName: "Services professionnels", amount: 84000, priorAmount: 78000 }
-      )
-    } else if (label.includes("Salaires - Vente")) {
-      accounts.push(
-        { accountNumber: "7000", accountName: "Salaires - Vente", amount: 216000, priorAmount: 180000 }
-      )
-    } else if (label.includes("Marketing et publicité")) {
-      accounts.push(
-        { accountNumber: "7100", accountName: "Marketing", amount: 144000, priorAmount: 120000 }
-      )
-    } else if (label.includes("Commissions")) {
-      accounts.push(
-        { accountNumber: "7200", accountName: "Commissions", amount: 72000, priorAmount: 87600 }
-      )
-    }
-    
-    return accounts
-  }
-
-  // Seasonal patterns - same as in seasonality components
-  const revenueSeasonalPattern = [0.85, 0.80, 0.90, 1.00, 1.10, 1.15, 1.20, 1.15, 1.05, 1.00, 0.95, 1.05]
-  const expenseSeasonalPattern = [1.00, 0.95, 1.00, 1.05, 1.10, 1.15, 1.20, 1.15, 1.10, 1.05, 1.00, 1.10]
+  // No hardcoded seasonal patterns - use computed from real data or even distribution
 
   // Get seasonality adjustments for a specific row and month
   const getSeasonalityAdjustments = (rowId: string, monthIndex: number, accountNumber?: string): SeasonalityAdjustment[] => {
@@ -234,14 +201,16 @@ export function BaseSeasonalityDetail({
   // Get seasonality pattern for a row or account
   const getSeasonalityPattern = (rowId?: string, accountNumber?: string): number[] => {
     const key = accountNumber ? `${rowId}-${accountNumber}` : rowId || ""
+    // First check user-edited values
     if (seasonalityValues[key]) {
       return seasonalityValues[key]
     }
-    // Return default pattern based on row type
-    if (rowId?.includes("revenue") || rowId?.includes("other-interest-earned") || rowId?.includes("other-investment-income")) {
-      return revenueSeasonalPattern
+    // Then check computed patterns from real data
+    if (rowId && computedSeasonalPatterns[rowId]) {
+      return computedSeasonalPatterns[rowId]
     }
-    return expenseSeasonalPattern
+    // Fall back to even distribution
+    return evenSeasonalPattern
   }
 
   // Get the percentage value for a specific month, considering adjustments
@@ -351,16 +320,20 @@ export function BaseSeasonalityDetail({
     })
   }
 
-  // Calculate total revenue pattern by summing the three revenue lines for each month
-  // Each pattern represents a seasonal factor (normalized to sum to 12)
-  // The total is the sum of the three patterns for each month
+  // Calculate total revenue pattern by summing all indented (non-section, non-result) rows' patterns
   const getTotalRevenuePattern = (): number[] => {
-    const servicesPattern = getSeasonalityPattern("revenue-services")
-    const productsPattern = getSeasonalityPattern("revenue-products")
-    const otherPattern = getSeasonalityPattern("revenue-other")
-    
-    // Sum the patterns for each month
-    return servicesPattern.map((val, idx) => val + productsPattern[idx] + otherPattern[idx])
+    const total = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    let count = 0
+    for (const sr of seriesRows) {
+      if (sr.isSection || sr.isResult || sr.isBold) continue
+      const pattern = getSeasonalityPattern(sr.id)
+      for (let m = 0; m < 12; m++) {
+        total[m] += pattern[m]
+      }
+      count++
+    }
+    if (count === 0) return evenSeasonalPattern
+    return total
   }
 
   // Update seasonality value for a row or account (no automatic normalization)
@@ -379,28 +352,49 @@ export function BaseSeasonalityDetail({
     })
   }
 
-  // Generate data rows with seasonal patterns
+  // Generate data rows with seasonal patterns from real API data
   const getDetailData = (): DetailRow[] => {
-    const rows: DetailRow[] = [
-      // Revenues
-      { label: "REVENUS", isBold: true, isSection: true },
-      { label: "Ventes - Services professionnels", indent: true, rowId: "revenue-services", seasonalPattern: revenueSeasonalPattern },
-      { label: "Ventes - Produits", indent: true, rowId: "revenue-products", seasonalPattern: revenueSeasonalPattern },
-      { label: "Autres revenus", indent: true, rowId: "revenue-other", seasonalPattern: revenueSeasonalPattern },
-      { label: "Total Revenus", isBold: true, isSubtotal: true, seasonalPattern: revenueSeasonalPattern },
-    ]
-    
-    // Add balance accounts to rows that have rowId
-    // Only generate balance accounts if projectionMode is "gl"
-    return rows.map((row) => {
-      if (row.rowId && projectionMode === "gl") {
-        return {
-          ...row,
-          balanceAccounts: generateBalanceAccounts(row.label)
-        }
+    if (seriesRows.length === 0) return []
+
+    const rows: DetailRow[] = []
+    for (const sr of seriesRows) {
+      const isSection = sr.isSection
+      const isResult = sr.isResult
+      const isBold = sr.isBold || isResult
+      const indent = !isBold && !isSection && !isResult
+      const rowId = indent ? sr.id : undefined
+      const pattern = rowId ? (computedSeasonalPatterns[rowId] || evenSeasonalPattern) : evenSeasonalPattern
+
+      const row: DetailRow = {
+        label: sr.label,
+        isBold,
+        isSection,
+        isSubtotal: isResult,
+        indent,
+        rowId,
+        seasonalPattern: pattern,
       }
-      return row
-    })
+
+      // Add real balance accounts from API detail rows
+      if (rowId && projectionMode === "gl" && sr.detailRows.length > 0) {
+        const amounts = getRowAmounts(sr, seriesPeriods)
+        const last12 = amounts.slice(-12)
+        const totalAmount = last12.reduce((s, v) => s + v, 0)
+        row.balanceAccounts = sr.detailRows.map((dr) => {
+          const drAmounts = seriesPeriods.map((p) => dr.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] || 0)
+          const drTotal = drAmounts.slice(-12).reduce((s, v) => s + v, 0)
+          return {
+            accountNumber: dr.id,
+            accountName: dr.label,
+            amount: totalAmount,
+            priorAmount: drTotal,
+          }
+        })
+      }
+
+      rows.push(row)
+    }
+    return rows
   }
 
   // Helper function to capitalize first letter
@@ -521,20 +515,20 @@ export function BaseSeasonalityDetail({
               const isTotalRevenus = row.label === "Total Revenus"
               const pattern = isTotalRevenus 
                 ? getTotalRevenuePattern()
-                : (row.rowId ? getSeasonalityPattern(row.rowId) : (row.seasonalPattern || revenueSeasonalPattern))
+                : (row.rowId ? getSeasonalityPattern(row.rowId) : (row.seasonalPattern || evenSeasonalPattern))
               
               // Calculate percentages and total for this row using adjustments
               // The pattern values are stored as raw values (not normalized)
               // Convert to percentages by dividing by the sum and multiplying by 100
               // But use adjustments if available
-              const patternSum = pattern.reduce((sum, val) => sum + val, 0)
-              const basePercentages = patternSum > 0 
-                ? pattern.map(val => (val / patternSum) * 100)
+              const patternSum = pattern.reduce((sum: number, val: number) => sum + val, 0)
+              const basePercentages = patternSum > 0
+                ? pattern.map((val: number) => (val / patternSum) * 100)
                 : pattern.map(() => 0)
               
               // Use adjustments if available, otherwise use base percentages
               const normalizedPercentages = row.rowId && !isTotalRevenus
-                ? monthIndices.map((monthIdx) => getMonthPercentage(row.rowId, monthIdx))
+                ? monthIndices.map((monthIdx) => getMonthPercentage(row.rowId!, monthIdx))
                 : basePercentages
               
               const rowTotal = normalizedPercentages.reduce((sum, pct) => sum + pct, 0)

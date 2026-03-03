@@ -7,11 +7,11 @@ import type { FinancialStatementRow } from "@/lib/api"
 import { generateId } from "@/lib/seeded-random"
 import { ChevronRight, ChevronDown, StickyNote, TrendingUp } from "lucide-react"
 import { useState, useEffect, useRef, useCallback } from "react"
-import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
+import { listForecastConfigs, upsertForecastConfig, getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
 import { NoteModal } from "@/components/note-modal"
-import { getNoteByRowId } from "@/lib/notes-storage"
+import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -36,6 +36,7 @@ interface IncomeStatementDetailProps {
   fiscalYear?: number
   rows?: FinancialStatementRow[]
   loading?: boolean
+  projectionId?: string | null
 }
 
 interface BalanceAccount {
@@ -79,7 +80,9 @@ export function IncomeStatementDetail({
   fiscalYear,
   rows: backendRows = [],
   loading = false,
+  projectionId,
 }: IncomeStatementDetailProps) {
+  useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [noteModalOpen, setNoteModalOpen] = useState(false)
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null)
@@ -201,7 +204,7 @@ export function IncomeStatementDetail({
     months: seriesMonthsNeeded,
     divisionId: divisionId || undefined,
     subDivisionId: subDivisionId || undefined,
-    enabled: isMultiPeriodView && !isForecastSection,
+    enabled: isMultiPeriodView,
   })
 
   // Debounced save to API
@@ -215,6 +218,7 @@ export function IncomeStatementDetail({
         await upsertForecastConfig(companyId, {
           config_type: "income-statement-detail",
           data,
+          projection_id: projectionId ?? undefined,
         })
       } catch (err) {
         console.error("Error saving income statement config:", err)
@@ -228,7 +232,7 @@ export function IncomeStatementDetail({
 
     const loadConfig = async () => {
       try {
-        const configs = await listForecastConfigs(companyId, { config_type: "income-statement-detail" })
+        const configs = await listForecastConfigs(companyId, { config_type: "income-statement-detail", projection_id: projectionId ?? undefined })
         if (configs.length > 0) {
           const data = configs[0].data as Record<string, unknown>
           if (data.revenueValues) setRevenueValues(data.revenueValues as typeof revenueValues)
@@ -705,79 +709,6 @@ export function IncomeStatementDetail({
     })
   }
 
-  // Helper function to generate balance accounts for a row
-  const generateBalanceAccounts = (label: string, current: number, prior: number): BalanceAccount[] => {
-    // Generate sample balance accounts based on the row label
-    const accounts: BalanceAccount[] = []
-    
-    if (label.includes("Services professionnels")) {
-      accounts.push(
-        { accountNumber: "4000", accountName: "Revenus de services", amount: Math.round(current * 0.6), priorAmount: Math.round(prior * 0.6), proportion: 0.6 },
-        { accountNumber: "4010", accountName: "Revenus de consultation", amount: Math.round(current * 0.4), priorAmount: Math.round(prior * 0.4), proportion: 0.4 }
-      )
-    } else if (label.includes("Produits") && !label.includes("Coût")) {
-      accounts.push(
-        { accountNumber: "4100", accountName: "Revenus de vente de produits", amount: current, priorAmount: prior, proportion: 1.0 }
-      )
-    } else if (label.includes("Autres revenus")) {
-      accounts.push(
-        { accountNumber: "4200", accountName: "Revenus divers", amount: current, priorAmount: prior, proportion: 1.0 }
-      )
-    } else if (label.includes("Coût - Services")) {
-      accounts.push(
-        { accountNumber: "5000", accountName: "Coûts directs - Services", amount: Math.round(current * 0.7), priorAmount: Math.round(prior * 0.7), proportion: 0.7 },
-        { accountNumber: "5010", accountName: "Sous-traitance", amount: Math.round(current * 0.3), priorAmount: Math.round(prior * 0.3), proportion: 0.3 }
-      )
-    } else if (label.includes("Coût - Produits")) {
-      accounts.push(
-        { accountNumber: "5100", accountName: "Coût des marchandises vendues", amount: current, priorAmount: prior, proportion: 1.0 }
-      )
-    } else if (label.includes("Salaires - Administrateurs")) {
-      accounts.push(
-        { accountNumber: "6000", accountName: "Salaires - Direction", amount: Math.round(current * 0.5), priorAmount: Math.round(prior * 0.5), proportion: 0.5 },
-        { accountNumber: "6010", accountName: "Salaires - Administration", amount: Math.round(current * 0.5), priorAmount: Math.round(prior * 0.5), proportion: 0.5 }
-      )
-    } else if (label.includes("Location de bureaux")) {
-      accounts.push(
-        { accountNumber: "6100", accountName: "Loyer - Bureaux", amount: current, priorAmount: prior, proportion: 1.0 }
-      )
-    } else if (label.includes("Fournitures de bureau")) {
-      accounts.push(
-        { accountNumber: "6200", accountName: "Fournitures de bureau", amount: current, priorAmount: prior, proportion: 1.0 }
-      )
-    } else if (label.includes("Services professionnels") && label.includes("FRAIS")) {
-      accounts.push(
-        { accountNumber: "6300", accountName: "Services professionnels", amount: current, priorAmount: prior, proportion: 1.0 }
-      )
-    } else if (label.includes("Salaires - Vente")) {
-      accounts.push(
-        { accountNumber: "7000", accountName: "Salaires - Équipe de vente", amount: current, priorAmount: prior, proportion: 1.0 }
-      )
-    } else if (label.includes("Marketing")) {
-      accounts.push(
-        { accountNumber: "7100", accountName: "Publicité", amount: Math.round(current * 0.6), priorAmount: Math.round(prior * 0.6), proportion: 0.6 },
-        { accountNumber: "7110", accountName: "Marketing digital", amount: Math.round(current * 0.4), priorAmount: Math.round(prior * 0.4), proportion: 0.4 }
-      )
-    } else if (label.includes("Commissions")) {
-      accounts.push(
-        { accountNumber: "7200", accountName: "Commissions de vente", amount: current, priorAmount: prior, proportion: 1.0 }
-      )
-    } else if (label.includes("Intérêts gagnés")) {
-      accounts.push(
-        { accountNumber: "8000", accountName: "Intérêts sur placements", amount: Math.abs(current), priorAmount: Math.abs(prior), proportion: 1.0 }
-      )
-    } else if (label.includes("Revenus de placement")) {
-      accounts.push(
-        { accountNumber: "8010", accountName: "Revenus de placements financiers", amount: Math.abs(current), priorAmount: Math.abs(prior), proportion: 1.0 }
-      )
-    } else if (label.includes("Intérêts débiteurs")) {
-      accounts.push(
-        { accountNumber: "8100", accountName: "Intérêts sur emprunts", amount: current, priorAmount: prior, proportion: 1.0 }
-      )
-    }
-    
-    return accounts
-  }
   // Map backend FinancialStatementRow[] to internal DetailRow[] (for current/comparison views)
   const mapBackendRows = (apiRows: FinancialStatementRow[]): DetailRow[] => {
     const result: DetailRow[] = []
@@ -1010,127 +941,128 @@ export function IncomeStatementDetail({
     }))
   }
 
-  // Helper function to generate trend data for years (6 years for "Revenus", 6 years otherwise)
+  // Helper function to generate projected trend data for years using real API data
   const getYearsData = (): DetailRow[] => {
     const numYears = projectionYears + 1 // +1 for current year (projectionYears is 3, 4, or 5)
-    const generateTrend = (base: number, growthRate: number = 0.05, rowId?: string) => {
+    const defaultGrowthRate = 0.05 // 5% default growth
+
+    // Build projection trend from a base value
+    const generateForecastTrend = (base: number, growthRate: number = defaultGrowthRate, rowId?: string) => {
       return Array.from({ length: numYears }, (_, i) => {
-        if (isForecastSection) {
-          // For forecast sections (Revenus or Dépenses), generate future years (years 0 to 5, starting from current year)
-          const yearIndex = i
-          
-          // Check if this is a fixed expense and use inflation rate instead
-          let effectiveGrowthRate = growthRate
+        const yearIndex = i
+
+        // Check if this is a fixed expense and use inflation rate instead
+        let effectiveGrowthRate = growthRate
+        if (title === "Estimation des dépenses annuelles" && rowId && getExpenseType(rowId) === "fixe") {
+          effectiveGrowthRate = 0 // Will be handled separately
+        }
+
+        // Calculate default value with compound growth
+        let defaultValue: number
+        if (yearIndex === 0) {
+          defaultValue = base
+        } else {
+          // For fixed expenses with inflation, use compound inflation with year-specific rates
           if (title === "Estimation des dépenses annuelles" && rowId && getExpenseType(rowId) === "fixe") {
-            // Use inflation rate for fixed expenses (will be calculated per year)
-            effectiveGrowthRate = 0 // Will be handled separately
-          }
-          
-          // Calculate default value with compound growth
-          let defaultValue: number
-          if (yearIndex === 0) {
-            defaultValue = base
-          } else {
-            // For fixed expenses with inflation, use compound inflation with year-specific rates
-            if (title === "Estimation des dépenses annuelles" && rowId && getExpenseType(rowId) === "fixe") {
-              // Get base value (year 0) - check if edited first
-              const baseKey = `${rowId}-0`
-              const actualBase = revenueValues[baseKey] !== undefined ? revenueValues[baseKey] : base
-              // Calculate with compound inflation using the specific or global rate
-              const rate = getInflationRate(rowId)
-              const compoundValue = actualBase * Math.pow(1 + rate / 100, yearIndex)
-              defaultValue = Math.round(compoundValue)
-            } else if (title === "Estimation des dépenses annuelles" && rowId && getExpenseType(rowId) === "variable") {
-              // For variable expenses, calculate as percentage of revenue
-              const variableRate = getVariableRate(rowId)
-              if (variableRate > 0) {
-                // Find revenue row
-                const revenueRow = data.find(r => 
-                  (r.label.toLowerCase().includes("total revenus") || 
-                   r.label.toLowerCase().includes("revenus totaux") ||
-                   (r.label.toLowerCase().includes("revenu") && r.isSubtotal)) &&
-                  r.trendValues && r.trendValues[yearIndex] !== undefined
-                )
-                if (revenueRow && revenueRow.trendValues) {
-                  const revenueValue = getRevenueValue(revenueRow.rowId || "", yearIndex, revenueRow.trendValues[yearIndex])
-                  defaultValue = Math.round(revenueValue * variableRate / 100)
-                } else {
-                  // Fallback to compound growth if revenue not found
-                  defaultValue = Math.round(base * Math.pow(1 + effectiveGrowthRate, yearIndex))
-                }
+            const baseKey = `${rowId}-0`
+            const actualBase = revenueValues[baseKey] !== undefined ? revenueValues[baseKey] : base
+            const rate = getInflationRate(rowId)
+            const compoundValue = actualBase * Math.pow(1 + rate / 100, yearIndex)
+            defaultValue = Math.round(compoundValue)
+          } else if (title === "Estimation des dépenses annuelles" && rowId && getExpenseType(rowId) === "variable") {
+            // For variable expenses, calculate as percentage of revenue
+            const variableRate = getVariableRate(rowId)
+            if (variableRate > 0) {
+              const revenueRow = data.find(r =>
+                (r.label.toLowerCase().includes("total revenus") ||
+                 r.label.toLowerCase().includes("revenus totaux") ||
+                 (r.label.toLowerCase().includes("revenu") && r.isSubtotal)) &&
+                r.trendValues && r.trendValues[yearIndex] !== undefined
+              )
+              if (revenueRow && revenueRow.trendValues) {
+                const revenueValue = getRevenueValue(revenueRow.rowId || "", yearIndex, revenueRow.trendValues[yearIndex])
+                defaultValue = Math.round(revenueValue * variableRate / 100)
               } else {
-                // No variable rate set, use compound growth
                 defaultValue = Math.round(base * Math.pow(1 + effectiveGrowthRate, yearIndex))
               }
             } else {
-              // Compound growth: base * (1 + rate) ^ yearIndex
               defaultValue = Math.round(base * Math.pow(1 + effectiveGrowthRate, yearIndex))
             }
+          } else {
+            defaultValue = Math.round(base * Math.pow(1 + effectiveGrowthRate, yearIndex))
           }
-
-          // Use edited value if available, otherwise use default
-          return rowId ? getRevenueValue(rowId, yearIndex, defaultValue, base) : defaultValue
-        } else {
-          // For other views, generate past years
-          const yearIndex = (numYears - 1) - i
-          return Math.round(base * (1 + growthRate * yearIndex))
         }
+
+        return rowId ? getRevenueValue(rowId, yearIndex, defaultValue, base) : defaultValue
       })
     }
 
-    const rows: DetailRow[] = [
-      // Revenues
-      { label: "REVENUS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Ventes - Services professionnels", current: 2160000, prior: 1920000, indent: true, trendValues: generateTrend(2160000, 0.06, "revenue-services"), rowId: "revenue-services" },
-      { label: "Ventes - Produits", current: 840000, prior: 720000, indent: true, trendValues: generateTrend(840000, 0.05, "revenue-products"), rowId: "revenue-products" },
-      { label: "Autres revenus", current: 300000, prior: 224000, indent: true, trendValues: generateTrend(300000, 0.06, "revenue-other"), rowId: "revenue-other" },
-      { label: "Total Revenus", current: 3300000, prior: 2864000, isBold: true, isSubtotal: true, trendValues: generateTrend(3300000, 0.06) },
-      { label: "", current: 0, prior: 0 },
+    // Use real API data from series rows
+    if (seriesRows.length > 0 && seriesPeriods.length > 0) {
+      const rows: DetailRow[] = []
 
-      // COGS
-      { label: "COÛT DES PRODUITS VENDUS", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Coût - Services", current: 1080000, prior: 960000, indent: true, trendValues: generateTrend(1080000, 0.05), rowId: "cogs-services" },
-      { label: "Coût - Produits", current: 420000, prior: 360000, indent: true, trendValues: generateTrend(420000, 0.045), rowId: "cogs-products" },
-      { label: "Total COGS", current: 1500000, prior: 1320000, isBold: true, isSubtotal: true, trendValues: generateTrend(1500000, 0.05) },
-      { label: "", current: 0, prior: 0 },
+      for (const sr of seriesRows) {
+        // Get real amounts and aggregate to yearly totals
+        const rawAmounts = getRowAmounts(sr, seriesPeriods)
+        const { amounts: yearlyAmounts } = aggregateToYears(rawAmounts, seriesPeriods)
+        const baseAmount = yearlyAmounts.length > 0 ? yearlyAmounts[yearlyAmounts.length - 1] : 0
+        const priorAmount = yearlyAmounts.length > 1 ? yearlyAmounts[yearlyAmounts.length - 2] : 0
 
-      // Admin expenses
-      { label: "FRAIS D'ADMINISTRATION", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Salaires - Administrateurs", current: 480000, prior: 420000, indent: true, trendValues: generateTrend(480000, 0.03), rowId: "admin-salaries" },
-      { label: "Location de bureaux", current: 96000, prior: 96000, indent: true, trendValues: generateTrend(96000, 0), rowId: "admin-rent" },
-      { label: "Fournitures de bureau", current: 42000, prior: 38400, indent: true, trendValues: generateTrend(42000, 0.02), rowId: "admin-supplies" },
-      { label: "Services professionnels", current: 84000, prior: 78000, indent: true, trendValues: generateTrend(84000, 0.025), rowId: "admin-prof-services" },
-      { label: "Total Frais d'administration", current: 702000, prior: 632400, isBold: true, isSubtotal: true, trendValues: generateTrend(702000, 0.03) },
-      { label: "", current: 0, prior: 0 },
+        const isSection = sr.isSection
+        const isResult = sr.isResult
+        const isBold = sr.isBold || isResult
+        const indent = !isBold && !isSection && !isResult
 
-      // Sales expenses
-      { label: "FRAIS DE VENTE", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Salaires - Vente", current: 216000, prior: 180000, indent: true, trendValues: generateTrend(216000, 0.04), rowId: "sales-salaries" },
-      { label: "Marketing et publicité", current: 144000, prior: 120000, indent: true, trendValues: generateTrend(144000, 0.045), rowId: "sales-marketing" },
-      { label: "Commissions", current: 72000, prior: 87600, indent: true, trendValues: generateTrend(72000, -0.01), rowId: "sales-commissions" },
-      { label: "Total Frais de vente", current: 432000, prior: 387600, isBold: true, isSubtotal: true, trendValues: generateTrend(432000, 0.04) },
-      { label: "", current: 0, prior: 0 },
+        // Generate projected trend: year 0 = latest real annual total, years 1+ = projected
+        const rowId = sr.id
+        const trendValues = isSection ? undefined : generateForecastTrend(baseAmount, defaultGrowthRate, indent ? rowId : undefined)
 
-      // Other expenses/revenues
-      { label: "AUTRES DÉPENSES (REVENUS)", current: 0, prior: 0, isBold: true, isSection: true },
-      { label: "Intérêts gagnés", current: -24000, prior: -24000, indent: true, trendValues: generateTrend(-24000, 0), rowId: "other-interest-earned" },
-      { label: "Revenus de placement", current: -18000, prior: -18000, indent: true, trendValues: generateTrend(-18000, 0), rowId: "other-investment-income" },
-      { label: "Intérêts débiteurs", current: 12000, prior: 12000, indent: true, trendValues: generateTrend(12000, 0), rowId: "other-interest-expense" },
-      { label: "Total Autres dépenses (revenus)", current: -42000, prior: -42000, isBold: true, isSubtotal: true, trendValues: generateTrend(-42000, 0) },
-    ]
-    
-    // Add balance accounts to rows that have rowId
-    // Only generate balance accounts if projectionMode is "gl" or if it's not a forecast section
-    const isForecastSectionForBalanceAccounts = title === "Estimation des revenus annuels" || title === "Estimation des dépenses annuelles" || title === "Estimation des Capex annuels" || title === "États des résultats pro forma"
-    return rows.map((row) => {
-      if (row.rowId && (projectionMode === "gl" || !isForecastSectionForBalanceAccounts)) {
-        return {
-          ...row,
-          balanceAccounts: generateBalanceAccounts(row.label, row.current, row.prior)
+        rows.push({
+          label: sr.label,
+          current: baseAmount,
+          prior: priorAmount,
+          isBold,
+          isSection,
+          isSubtotal: isResult,
+          indent,
+          trendValues,
+          rowId: indent ? rowId : undefined,
+          balanceAccounts: (indent && projectionMode === "gl" && sr.detailRows.length > 0) ? sr.detailRows.map((dr) => {
+            const drAmounts = seriesPeriods.map((p) => dr.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] || 0)
+            const drYearly = aggregateToYears(drAmounts, seriesPeriods)
+            return {
+              accountNumber: dr.id,
+              accountName: dr.label,
+              amount: drYearly.amounts.length > 0 ? drYearly.amounts[drYearly.amounts.length - 1] : 0,
+              priorAmount: drYearly.amounts.length > 1 ? drYearly.amounts[drYearly.amounts.length - 2] : 0,
+            }
+          }) : undefined,
+        })
+
+        // Recalculate subtotal trend values from child rows
+        if (isResult && trendValues) {
+          // Find child rows (non-section, non-result rows above this result)
+          const childRows: DetailRow[] = []
+          for (let j = rows.length - 2; j >= 0; j--) {
+            const prev = rows[j]
+            if (prev.isSection) break
+            if (!prev.isSubtotal && prev.indent && prev.trendValues) {
+              childRows.push(prev)
+            }
+          }
+          if (childRows.length > 0) {
+            for (let y = 0; y < numYears; y++) {
+              trendValues[y] = childRows.reduce((sum, cr) => sum + (cr.trendValues?.[y] || 0), 0)
+            }
+          }
         }
       }
-      return row
-    })
+
+      return rows
+    }
+
+    // No API data available - return empty
+    return []
   }
 
   const getDetailData = (): DetailRow[] => {
@@ -1236,8 +1168,31 @@ export function IncomeStatementDetail({
     })
   }
   
+  // Determine what we're comparing
+  const isCompanyComparison = columnMode === "comparison" && !companyId
+  const isDivisionComparison = columnMode === "comparison" && companyId && !divisionId
+  const isSubDivisionComparison = columnMode === "comparison" && companyId && divisionId && !subDivisionId
+  const isComparisonMode = isCompanyComparison || isDivisionComparison || isSubDivisionComparison
+
+  // Get entities to compare
+  let entitiesToCompare: Array<{ id: string; name: string }> = []
+  if (isCompanyComparison) {
+    entitiesToCompare = companies.map((c) => ({ id: c.id, name: c.name }))
+  } else if (isDivisionComparison) {
+    const selectedCompany = companies.find((c) => c.id === companyId)
+    entitiesToCompare = selectedCompany?.divisions.map((d) => ({ id: d.id, name: d.name })) || []
+  } else if (isSubDivisionComparison) {
+    const selectedCompany = companies.find((c) => c.id === companyId)
+    const selectedDivision = selectedCompany?.divisions.find((d) => d.id === divisionId)
+    entitiesToCompare = selectedDivision?.subDivisions.map((sd) => ({ id: sd.id, name: sd.name })) || []
+  }
+
+  // Fetch real data for each entity in comparison mode
+  const [entityDataMap, setEntityDataMap] = useState<Record<string, DetailRow[]>>({})
+  const [entityDataLoading, setEntityDataLoading] = useState(false)
+
   // Determine loading state early so it can be used in both empty-data and loading checks
-  const isDataLoading = (seriesLoading && isMultiPeriodView && !isForecastSection) || (loading && !isForecastSection && !isMultiPeriodView)
+  const isDataLoading = (seriesLoading && isMultiPeriodView) || (loading && !isForecastSection && !isMultiPeriodView) || entityDataLoading
 
   // Show "no data" state when data is empty and not loading
   if (data.length === 0 && !isDataLoading && !isForecastSection) {
@@ -1256,37 +1211,94 @@ export function IncomeStatementDetail({
     )
   }
 
-  // Determine what we're comparing
-  const isCompanyComparison = columnMode === "comparison" && !companyId
-  const isDivisionComparison = columnMode === "comparison" && companyId && !divisionId
-  const isSubDivisionComparison = columnMode === "comparison" && companyId && divisionId && !subDivisionId
-  const isComparisonMode = isCompanyComparison || isDivisionComparison || isSubDivisionComparison
-  
-  // Get entities to compare
-  let entitiesToCompare: Array<{ id: string; name: string }> = []
-  if (isCompanyComparison) {
-    entitiesToCompare = companies.map((c) => ({ id: c.id, name: c.name }))
-  } else if (isDivisionComparison) {
-    const selectedCompany = companies.find((c) => c.id === companyId)
-    entitiesToCompare = selectedCompany?.divisions.map((d) => ({ id: d.id, name: d.name })) || []
-  } else if (isSubDivisionComparison) {
-    const selectedCompany = companies.find((c) => c.id === companyId)
-    const selectedDivision = selectedCompany?.divisions.find((d) => d.id === divisionId)
-    entitiesToCompare = selectedDivision?.subDivisions.map((sd) => ({ id: sd.id, name: sd.name })) || []
-  }
-  
-  // Generate data for each entity in comparison mode
-  const getEntityData = (entityIndex: number, baseData: DetailRow[]): DetailRow[] => {
-    // Create variation multiplier based on entity index (0.8 to 1.2 range)
-    const multiplier = 0.8 + (entityIndex * 0.2)
-    return baseData.map((row) => ({
-      ...row,
-      current: Math.round(row.current * multiplier),
-      prior: Math.round(row.prior * multiplier),
-      trendValues: row.trendValues?.map((val) => Math.round(val * multiplier)),
-    }))
-  }
-  
+  useEffect(() => {
+    if (!isComparisonMode) {
+      setEntityDataMap(prev => Object.keys(prev).length === 0 ? prev : {})
+      return
+    }
+
+    // Compute entities inside the effect to avoid unstable dependency
+    let entities: Array<{ id: string; name: string }> = []
+    if (isCompanyComparison) {
+      entities = companies.map((c) => ({ id: c.id, name: c.name }))
+    } else if (isDivisionComparison) {
+      const sc = companies.find((c) => c.id === companyId)
+      entities = sc?.divisions.map((d) => ({ id: d.id, name: d.name })) || []
+    } else if (isSubDivisionComparison) {
+      const sc = companies.find((c) => c.id === companyId)
+      const sd = sc?.divisions.find((d) => d.id === divisionId)
+      entities = sd?.subDivisions.map((s) => ({ id: s.id, name: s.name })) || []
+    }
+
+    if (entities.length === 0) {
+      setEntityDataMap(prev => Object.keys(prev).length === 0 ? prev : {})
+      return
+    }
+
+    let cancelled = false
+    setEntityDataLoading(true)
+
+    const fetchEntityData = async () => {
+      const results: Record<string, DetailRow[]> = {}
+      const year = fiscalYear || new Date().getFullYear()
+
+      for (const entity of entities) {
+        try {
+          const params: FinancialStatementSeriesParams = {
+            fiscal_year: year,
+            months: 12,
+          }
+          let entityCompanyId = companyId || ""
+
+          if (isCompanyComparison) {
+            entityCompanyId = entity.id
+          } else if (isDivisionComparison) {
+            params.division_id = entity.id
+          } else if (isSubDivisionComparison) {
+            params.sub_division_id = entity.id
+          }
+
+          if (!entityCompanyId) continue
+
+          const response = await getFinancialStatementSeries(
+            entityCompanyId,
+            "income-statement",
+            params
+          )
+
+          if (!cancelled && response.rows) {
+            const mapped: DetailRow[] = response.rows.map((row) => {
+              const amounts = Object.entries(row.amounts)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([, v]) => v)
+              const lastAmount = amounts[amounts.length - 1] || 0
+              const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
+              return {
+                label: row.label,
+                current: lastAmount,
+                prior: priorAmount,
+                indent: !row.isBold && !row.isSection && !row.isResult,
+                isBold: row.isBold,
+                isSubtotal: row.isResult,
+                isSection: row.isSection,
+              }
+            })
+            results[entity.id] = mapped
+          }
+        } catch (err) {
+          console.error(`Error fetching data for entity ${entity.name}:`, err)
+        }
+      }
+
+      if (!cancelled) {
+        setEntityDataMap(results)
+        setEntityDataLoading(false)
+      }
+    }
+
+    fetchEntityData()
+    return () => { cancelled = true }
+  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, fiscalYear])
 
   // Helper function to calculate percentage of revenue
   const getRevenuePercentage = (value: number, isPrior: boolean): number => {
@@ -1787,17 +1799,15 @@ export function IncomeStatementDetail({
                   )}
                   {view === "comparison" && isComparisonMode && (
                     <>
-                      {entitiesToCompare.map((entity, entityIdx) => {
-                        const entityData = getEntityData(entityIdx, [row])[0]
-                        const entityRevenue = getEntityData(entityIdx, [revenueRow || { current: 1, prior: 1, label: "", isSubtotal: false }])[0]
-                        const entityRevenueValue = entityRevenue?.current || 1
-                        // In comparison mode, always show currency (percentage mode is handled separately)
+                      {entitiesToCompare.map((entity) => {
+                        const entityRows = entityDataMap[entity.id] || []
+                        const entityRow = entityRows.find(r => r.label === row.label) || row
                         return (
                           <td
                             key={entity.id}
                             className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
                           >
-                            {entityData.current !== 0 ? formatCurrency(entityData.current) : "-"}
+                            {entityRow.current !== 0 ? formatCurrency(entityRow.current) : "-"}
                           </td>
                         )
                       })}
@@ -1848,14 +1858,15 @@ export function IncomeStatementDetail({
                   )}
                   {view === "ddm" && isComparisonMode && (
                     <>
-                      {entitiesToCompare.map((entity, entityIdx) => {
-                        const entityData = getEntityData(entityIdx, [row])[0]
+                      {entitiesToCompare.map((entity) => {
+                        const entityRows = entityDataMap[entity.id] || []
+                        const entityRow = entityRows.find(r => r.label === row.label) || row
                         return (
                           <td
                             key={entity.id}
                             className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
                           >
-                            {entityData.current !== 0 ? formatCurrency(entityData.current) : "-"}
+                            {entityRow.current !== 0 ? formatCurrency(entityRow.current) : "-"}
                           </td>
                         )
                       })}
@@ -1907,14 +1918,15 @@ export function IncomeStatementDetail({
                   )}
                   {view === "ytd" && isComparisonMode && (
                     <>
-                      {entitiesToCompare.map((entity, entityIdx) => {
-                        const entityData = getEntityData(entityIdx, [row])[0]
+                      {entitiesToCompare.map((entity) => {
+                        const entityRows = entityDataMap[entity.id] || []
+                        const entityRow = entityRows.find(r => r.label === row.label) || row
                         return (
                           <td
                             key={entity.id}
                             className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
                           >
-                            {entityData.current !== 0 ? formatCurrency(entityData.current) : "-"}
+                            {entityRow.current !== 0 ? formatCurrency(entityRow.current) : "-"}
                           </td>
                         )
                       })}

@@ -7,7 +7,7 @@ import { ChevronRight, ChevronDown, StickyNote, Plus, X } from "lucide-react"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
 import { NoteModal } from "@/components/note-modal"
-import { getNoteByRowId } from "@/lib/notes-storage"
+import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -22,6 +22,7 @@ interface DebtForecastDetailProps {
   companies?: Company[]
   title?: string
   projectionYears?: 3 | 4 | 5
+  projectionId?: string | null
 }
 
 interface Loan {
@@ -54,7 +55,9 @@ export function DebtForecastDetail({
   companies = [],
   title = "Estimation des Dettes annuelles",
   projectionYears = 5,
+  projectionId,
 }: DebtForecastDetailProps) {
+  useNotesCache(companyId ?? null)
   const [noteModalOpen, setNoteModalOpen] = useState(false)
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null)
   const [selectedRowLabel, setSelectedRowLabel] = useState<string>("")
@@ -84,6 +87,7 @@ export function DebtForecastDetail({
         await upsertForecastConfig(companyId, {
           config_type: "debt-forecast",
           data,
+          projection_id: projectionId ?? undefined,
         })
       } catch (err) {
         console.error("Error saving debt forecast config:", err)
@@ -97,7 +101,7 @@ export function DebtForecastDetail({
 
     const loadConfig = async () => {
       try {
-        const configs = await listForecastConfigs(companyId, { config_type: "debt-forecast" })
+        const configs = await listForecastConfigs(companyId, { config_type: "debt-forecast", projection_id: projectionId ?? undefined })
         if (configs.length > 0) {
           const data = configs[0].data as Record<string, unknown>
           if (data.loans && Array.isArray(data.loans)) {
