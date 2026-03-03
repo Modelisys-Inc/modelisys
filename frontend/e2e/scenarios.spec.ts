@@ -5,13 +5,16 @@ const TEST_EMAIL = "playwright@modelisys.com";
 const TEST_PASSWORD = "PlaywrightTest123";
 
 test.describe("Scenarios Comparison", () => {
+  test.describe.configure({ mode: "serial" });
+
   test.beforeEach(async ({ page }) => {
     // Login before each test
     await page.goto("/login");
     await page.fill("#email", TEST_EMAIL);
     await page.fill("#password", TEST_PASSWORD);
     await page.click('button[type="submit"]');
-    await page.waitForURL(/\/(dashboard|financial-statements)/, { timeout: 10000 });
+    // Wait for redirect away from /login (accept any authenticated page)
+    await page.waitForURL((url) => !url.pathname.includes("login"), { timeout: 10000 });
   });
 
   test("can navigate to scenarios comparison page", async ({ page }) => {
