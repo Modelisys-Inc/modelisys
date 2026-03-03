@@ -25,13 +25,17 @@ BALANCE_SHEET_STRUCTURE = [
 ]
 
 
-def test_list_statement_structures_empty(client, auth_headers):
+def test_list_statement_structures_seeded_defaults(client, auth_headers):
+    """A new company should have IS and BS seeded by default."""
     company_id = _create_company(client, auth_headers)
     response = client.get(
         f"/api/companies/{company_id}/statement-structures", headers=auth_headers
     )
     assert response.status_code == 200
-    assert response.json()["structures"] == []
+    structures = response.json()["structures"]
+    types = {s["statement_type"] for s in structures}
+    assert "income-statement" in types
+    assert "balance-sheet" in types
 
 
 def test_upsert_income_statement_structure(client, auth_headers):
@@ -82,11 +86,13 @@ def test_upsert_updates_existing(client, auth_headers):
     assert len(response.json()["structure"]) == 1
     assert response.json()["structure"][0]["label"] == "revenus modifiés"
 
-    # Verify only one record exists
+    # Verify IS was updated (BS default still present → 2 total)
     list_response = client.get(
         f"/api/companies/{company_id}/statement-structures", headers=auth_headers
     )
-    assert len(list_response.json()["structures"]) == 1
+    types = {s["statement_type"] for s in list_response.json()["structures"]}
+    assert "income-statement" in types
+    assert "balance-sheet" in types
 
 
 def test_get_statement_structure(client, auth_headers):
@@ -106,9 +112,10 @@ def test_get_statement_structure(client, auth_headers):
 
 
 def test_get_statement_structure_not_found(client, auth_headers):
+    """cash-flow is not seeded by default, so it should return 404."""
     company_id = _create_company(client, auth_headers)
     response = client.get(
-        f"/api/companies/{company_id}/statement-structures/income-statement",
+        f"/api/companies/{company_id}/statement-structures/cash-flow",
         headers=auth_headers,
     )
     assert response.status_code == 404

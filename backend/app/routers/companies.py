@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.company import Company, Division, SubDivision
+from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.user import User, UserOrganization
+from app.routers.statement_structures import DEFAULT_BALANCE_SHEET, DEFAULT_INCOME_STATEMENT
 from app.schemas.company import (
     CompanyCreate,
     CompanyListResponse,
@@ -101,6 +103,17 @@ def create_company(
     )
     db.add(company)
     db.flush()
+
+    # Seed default statement structures
+    for stmt_type, structure in [
+        ("income-statement", DEFAULT_INCOME_STATEMENT),
+        ("balance-sheet", DEFAULT_BALANCE_SHEET),
+    ]:
+        db.add(CompanyStatementStructure(
+            company_id=company.id,
+            statement_type=stmt_type,
+            structure=structure,
+        ))
 
     for div_data in request.divisions:
         division = Division(company_id=company.id, name=div_data.name)

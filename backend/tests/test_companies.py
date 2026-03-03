@@ -130,3 +130,25 @@ def test_company_not_found(client, auth_headers):
 def test_unauthenticated_access(client):
     response = client.get("/api/companies")
     assert response.status_code == 403
+
+
+def test_create_company_seeds_default_statement_structures(client, auth_headers):
+    """Creating a company should auto-create default IS and BS statement structures."""
+    create = client.post("/api/companies", json={"name": "Seeded Co"}, headers=auth_headers)
+    assert create.status_code == 201
+    company_id = create.json()["id"]
+
+    response = client.get(
+        f"/api/companies/{company_id}/statement-structures",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    structures = response.json()["structures"]
+    types = {s["statement_type"] for s in structures}
+    assert "income-statement" in types
+    assert "balance-sheet" in types
+
+    is_struct = next(s for s in structures if s["statement_type"] == "income-statement")
+    assert len(is_struct["structure"]) > 0
+    bs_struct = next(s for s in structures if s["statement_type"] == "balance-sheet")
+    assert len(bs_struct["structure"]) > 0

@@ -91,8 +91,8 @@ def _setup_income_statement_data(client, auth_headers, fiscal_year=2024):
 # --- Basic income statement ---
 
 
-def test_income_statement_empty_no_structure(client, auth_headers):
-    """Without a statement structure, should return empty rows."""
+def test_income_statement_default_structure_no_data(client, auth_headers):
+    """A new company has a seeded IS structure; with no trial balance data rows return zeros."""
     company_id = _create_company(client, auth_headers)
     response = client.get(
         f"/api/companies/{company_id}/financial-statements/income-statement?fiscal_year=2024",
@@ -103,6 +103,20 @@ def test_income_statement_empty_no_structure(client, auth_headers):
     assert data["companyId"] == company_id
     assert data["statementType"] == "income-statement"
     assert data["fiscalYear"] == 2024
+    assert len(data["rows"]) > 0
+    assert all(r["current"] == 0.0 for r in data["rows"])
+
+
+def test_statement_empty_no_structure(client, auth_headers):
+    """cash-flow is not seeded by default — should return empty rows."""
+    company_id = _create_company(client, auth_headers)
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/cash-flow?fiscal_year=2024",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["statementType"] == "cash-flow"
     assert data["rows"] == []
 
 
@@ -660,7 +674,7 @@ def test_series_empty_no_structure(client, auth_headers):
     """Series without a statement structure should return empty rows and periods."""
     company_id = _create_company(client, auth_headers)
     response = client.get(
-        f"/api/companies/{company_id}/financial-statements/income-statement/series"
+        f"/api/companies/{company_id}/financial-statements/cash-flow/series"
         "?fiscal_year=2024",
         headers=auth_headers,
     )
