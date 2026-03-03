@@ -1075,6 +1075,7 @@ export interface ForecastConfigData {
   company_id: string | null
   division_id: string | null
   sub_division_id: string | null
+  projection_id: string | null
   created_at: string
   updated_at: string
 }
@@ -1085,6 +1086,7 @@ export interface ForecastConfigUpsert {
   company_id?: string | null
   division_id?: string | null
   sub_division_id?: string | null
+  projection_id?: string | null
 }
 
 export async function listForecastConfigs(
@@ -1093,12 +1095,14 @@ export async function listForecastConfigs(
     config_type?: string
     division_id?: string
     sub_division_id?: string
+    projection_id?: string
   } = {}
 ): Promise<ForecastConfigData[]> {
   const query = new URLSearchParams()
   if (filters.config_type) query.set("config_type", filters.config_type)
   if (filters.division_id) query.set("division_id", filters.division_id)
   if (filters.sub_division_id) query.set("sub_division_id", filters.sub_division_id)
+  if (filters.projection_id) query.set("projection_id", filters.projection_id)
   const qs = query.toString() ? `?${query.toString()}` : ""
   const data = await apiFetch<{ configs: ForecastConfigData[] }>(
     `/api/companies/${companyId}/forecast-configs${qs}`
@@ -1123,6 +1127,43 @@ export async function deleteForecastConfig(
   await apiFetch(
     `/api/companies/${companyId}/forecast-configs/${configId}`,
     { method: "DELETE" }
+  )
+}
+
+// --- Projection Compute ---
+
+export interface ProjectionYearResult {
+  year_index: number
+  fiscal_year: number
+  total_revenue: number
+  total_expenses: number
+  ebitda: number
+  ebitda_margin: number
+  depreciation: number
+  ebit: number
+  net_income: number
+  capex: number
+  debt_service: number
+  free_cash_flow: number
+}
+
+export interface ProjectionComputeResult {
+  projection_id: string
+  projection_name: string
+  base_fiscal_year: number
+  projection_years: number
+  computed_at: string
+  years: ProjectionYearResult[]
+}
+
+export async function computeProjection(
+  companyId: string,
+  projectionId: string,
+  baseFiscalYear?: number,
+): Promise<ProjectionComputeResult> {
+  const qs = baseFiscalYear ? `?base_fiscal_year=${baseFiscalYear}` : ""
+  return apiFetch<ProjectionComputeResult>(
+    `/api/companies/${companyId}/projections/${projectionId}/compute${qs}`
   )
 }
 
