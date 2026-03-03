@@ -12,7 +12,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
 import { useProjections } from "@/hooks/use-projections"
-import { listCompanies, type Company as ApiCompany } from "@/lib/api"
+import { listCompanies, computeProjection, type Company as ApiCompany, type ProjectionComputeResult } from "@/lib/api"
 import {
   BarChart,
   Bar,
@@ -65,11 +65,33 @@ export default function ScenariosPage() {
   }, [])
 
   const { projections, loading } = useProjections(selectedCompanyId)
+  const [computedResults, setComputedResults] = useState<Record<string, ProjectionComputeResult>>({})
+  const [isComputing, setIsComputing] = useState(false)
 
   // Clear selection when company changes
   useEffect(() => {
     setSelectedIds([])
+    setComputedResults({})
   }, [selectedCompanyId])
+
+  // Compute projections when selection changes
+  useEffect(() => {
+    if (!selectedCompanyId || selectedIds.length === 0) {
+      setComputedResults({})
+      return
+    }
+    setIsComputing(true)
+    Promise.all(
+      selectedIds.map((id) => computeProjection(selectedCompanyId, id))
+    )
+      .then((results) => {
+        const map: Record<string, ProjectionComputeResult> = {}
+        results.forEach((r) => { map[r.projection_id] = r })
+        setComputedResults(map)
+        setIsComputing(false)
+      })
+      .catch(() => setIsComputing(false))
+  }, [selectedIds, selectedCompanyId])
 
   const companyNameMap = useMemo(() => {
     const map: Record<string, string> = {}
@@ -93,23 +115,20 @@ export default function ScenariosPage() {
     return projections.filter((p) => selectedIds.includes(p.id))
   }, [projections, selectedIds])
 
-  // Build comparison data from projection data fields
+  // Build comparison data from computed projection results
   const comparisonData = useMemo(() => {
     if (selectedProjections.length < 2) return null
 
-    // Determine the max projection years across selected projections
     const maxYears = Math.max(...selectedProjections.map((p) => p.projection_years || 5))
     const currentYear = new Date().getFullYear()
 
-    // Extract key metrics per year from each projection's data
-    // We look for common financial metrics in projection.data
     const metrics = [
-      { key: "revenue", label: "Revenus" },
-      { key: "expenses", label: "Depenses" },
-      { key: "net_income", label: "Resultat net" },
-      { key: "ebitda", label: "BAIIA" },
-      { key: "total_assets", label: "Actifs totaux" },
-      { key: "cash_flow", label: "Flux de tresorerie" },
+      { key: "revenue", label: "Revenus", field: "total_revenue" as const },
+      { key: "expenses", label: "Depenses", field: "total_expenses" as const },
+      { key: "net_income", label: "Resultat net", field: "net_income" as const },
+      { key: "ebitda", label: "BAIIA", field: "ebitda" as const },
+      { key: "capex", label: "CAPEX", field: "capex" as const },
+      { key: "free_cash_flow", label: "Flux de tresorerie libre", field: "free_cash_flow" as const },
     ]
 
     // Build per-year comparison rows
@@ -119,15 +138,12 @@ export default function ScenariosPage() {
         year: `Annee ${y + 1} (${currentYear + y + 1})`,
       }
       for (const proj of selectedProjections) {
-        const data = proj.data as Record<string, unknown> | null
-        if (data && typeof data === "object") {
-          // Try to extract per-year data from projection.data
-          const yearData = (data as Record<string, unknown[]>)[`year_${y + 1}`] as Record<string, number> | undefined
-          if (yearData && typeof yearData === "object") {
+        const computed = computedResults[proj.id]
+        if (computed) {
+          const yearResult = computed.years[y]
+          if (yearResult) {
             for (const metric of metrics) {
-              if (metric.key in yearData) {
-                row[`${proj.name}_${metric.key}`] = yearData[metric.key]
-              }
+              row[`${proj.name}_${metric.key}`] = yearResult[metric.field]
             }
           }
         }
@@ -136,7 +152,7 @@ export default function ScenariosPage() {
     }
 
     return { metrics, yearRows, maxYears }
-  }, [selectedProjections])
+  }, [selectedProjections, computedResults])
 
   // Build chart data for Recharts comparison
   const chartData = useMemo(() => {
@@ -144,29 +160,23 @@ export default function ScenariosPage() {
 
     const maxYears = Math.max(...selectedProjections.map((p) => p.projection_years || 5))
     const currentYear = new Date().getFullYear()
-    const data: Array<Record<string, string | number>> = []
 
-    for (let y = 0; y < maxYears; y++) {
+    return Array.from({ length: maxYears }, (_, yearIdx) => {
       const entry: Record<string, string | number> = {
-        name: `${currentYear + y + 1}`,
+        name: `${currentYear + yearIdx + 1}`,
       }
       for (const proj of selectedProjections) {
-        const projData = proj.data as Record<string, unknown> | null
-        if (projData && typeof projData === "object") {
-          const yearData = (projData as Record<string, unknown[]>)[`year_${y + 1}`] as Record<string, number> | undefined
-          if (yearData && typeof yearData === "object" && "revenue" in yearData) {
-            entry[proj.name] = yearData.revenue
+        const computed = computedResults[proj.id]
+        if (computed) {
+          const yearResult = computed.years[yearIdx]
+          if (yearResult) {
+            entry[proj.name] = yearResult.total_revenue
           }
         }
       }
-      // Only include if we have at least one projection's data
-      if (Object.keys(entry).length > 1) {
-        data.push(entry)
-      }
-    }
-
-    return data
-  }, [selectedProjections])
+      return entry
+    }).filter((entry) => Object.keys(entry).length > 1)
+  }, [selectedProjections, computedResults])
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
@@ -377,6 +387,14 @@ export default function ScenariosPage() {
                   Comparaison des projections
                 </h3>
 
+                {/* Computing spinner */}
+                {isComputing && (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-6 h-6 animate-spin text-slate-400 mr-2" />
+                    <span className="text-sm text-slate-500">Calcul des projections en cours...</span>
+                  </div>
+                )}
+
                 {/* Summary comparison cards */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {selectedProjections.map((proj, idx) => (
@@ -414,8 +432,8 @@ export default function ScenariosPage() {
                   ))}
                 </div>
 
-                {/* Comparison chart - only show if chart data exists */}
-                {chartData.length > 0 && (
+                {/* Comparison chart - only show if chart data exists and not computing */}
+                {!isComputing && chartData.length > 0 && (
                   <Card className="bg-white border-slate-200 shadow-sm">
                     <CardContent className="p-6">
                       <h4 className="font-semibold text-sm text-slate-900 mb-4">
@@ -455,88 +473,90 @@ export default function ScenariosPage() {
                 )}
 
                 {/* Comparison table */}
-                <Card className="bg-white border-slate-200 shadow-sm">
-                  <CardContent className="p-6">
-                    <h4 className="font-semibold text-sm text-slate-900 mb-4">
-                      Tableau comparatif par annee
-                    </h4>
+                {!isComputing && (
+                  <Card className="bg-white border-slate-200 shadow-sm">
+                    <CardContent className="p-6">
+                      <h4 className="font-semibold text-sm text-slate-900 mb-4">
+                        Tableau comparatif par annee
+                      </h4>
 
-                    {comparisonData && comparisonData.yearRows.some((row) => Object.keys(row).length > 1) ? (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="border-b border-slate-200">
-                              <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                                Metrique
-                              </th>
-                              {Array.from({ length: comparisonData.maxYears }, (_, i) => (
-                                <th
-                                  key={i}
-                                  className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider"
-                                  colSpan={selectedProjections.length}
-                                >
-                                  Annee {i + 1}
+                      {comparisonData && comparisonData.yearRows.some((row) => Object.keys(row).length > 1) ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-200">
+                                <th className="text-left py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                                  Metrique
                                 </th>
-                              ))}
-                            </tr>
-                            <tr className="border-b border-slate-100">
-                              <th className="py-2 px-4"></th>
-                              {Array.from({ length: comparisonData.maxYears }, (_, yearIdx) =>
-                                selectedProjections.map((proj, projIdx) => (
+                                {Array.from({ length: comparisonData.maxYears }, (_, i) => (
                                   <th
-                                    key={`${yearIdx}-${proj.id}`}
-                                    className="text-right py-2 px-3 text-xs font-medium"
-                                    style={{ color: COLORS[projIdx] }}
+                                    key={i}
+                                    className="text-right py-3 px-4 text-xs font-semibold text-slate-500 uppercase tracking-wider"
+                                    colSpan={selectedProjections.length}
                                   >
-                                    {proj.name}
+                                    Annee {i + 1}
                                   </th>
-                                ))
-                              )}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {comparisonData.metrics.map((metric) => (
-                              <tr key={metric.key} className="border-b border-slate-50 hover:bg-slate-50/50">
-                                <td className="py-3 px-4 font-medium text-slate-700 text-xs">
-                                  {metric.label}
-                                </td>
+                                ))}
+                              </tr>
+                              <tr className="border-b border-slate-100">
+                                <th className="py-2 px-4"></th>
                                 {Array.from({ length: comparisonData.maxYears }, (_, yearIdx) =>
-                                  selectedProjections.map((proj) => {
-                                    const row = comparisonData.yearRows[yearIdx]
-                                    const value = row?.[`${proj.name}_${metric.key}`]
-                                    return (
-                                      <td
-                                        key={`${yearIdx}-${proj.id}-${metric.key}`}
-                                        className="text-right py-3 px-3 text-xs text-slate-600 font-mono"
-                                      >
-                                        {typeof value === "number"
-                                          ? new Intl.NumberFormat("fr-CA", {
-                                              style: "currency",
-                                              currency: "CAD",
-                                              maximumFractionDigits: 0,
-                                            }).format(value)
-                                          : "—"}
-                                      </td>
-                                    )
-                                  })
+                                  selectedProjections.map((proj, projIdx) => (
+                                    <th
+                                      key={`${yearIdx}-${proj.id}`}
+                                      className="text-right py-2 px-3 text-xs font-medium"
+                                      style={{ color: COLORS[projIdx] }}
+                                    >
+                                      {proj.name}
+                                    </th>
+                                  ))
                                 )}
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <p className="text-sm text-slate-500">
-                          Les projections selectionnees ne contiennent pas encore de donnees detaillees par annee.
-                        </p>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Ajustez vos hypotheses dans Pro Forma pour generer des donnees comparatives.
-                        </p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+                            </thead>
+                            <tbody>
+                              {comparisonData.metrics.map((metric) => (
+                                <tr key={metric.key} className="border-b border-slate-50 hover:bg-slate-50/50">
+                                  <td className="py-3 px-4 font-medium text-slate-700 text-xs">
+                                    {metric.label}
+                                  </td>
+                                  {Array.from({ length: comparisonData.maxYears }, (_, yearIdx) =>
+                                    selectedProjections.map((proj) => {
+                                      const row = comparisonData.yearRows[yearIdx]
+                                      const value = row?.[`${proj.name}_${metric.key}`]
+                                      return (
+                                        <td
+                                          key={`${yearIdx}-${proj.id}-${metric.key}`}
+                                          className="text-right py-3 px-3 text-xs text-slate-600 font-mono"
+                                        >
+                                          {typeof value === "number"
+                                            ? new Intl.NumberFormat("fr-CA", {
+                                                style: "currency",
+                                                currency: "CAD",
+                                                maximumFractionDigits: 0,
+                                              }).format(value)
+                                            : "—"}
+                                        </td>
+                                      )
+                                    })
+                                  )}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="text-center py-8">
+                          <p className="text-sm text-slate-500">
+                            Les projections selectionnees ne contiennent pas encore de donnees detaillees par annee.
+                          </p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            Ajustez vos hypotheses dans Pro Forma pour generer des donnees comparatives.
+                          </p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             )}
 
