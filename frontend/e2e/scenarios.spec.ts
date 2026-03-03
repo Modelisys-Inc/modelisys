@@ -28,8 +28,7 @@ test.describe("Scenarios Comparison", () => {
 
   test("scenarios page has company/entity selector", async ({ page }) => {
     await page.goto("/scenarios");
-    // Wait for page to load
-    await page.waitForTimeout(2000);
+    await page.waitForLoadState("networkidle");
     // Should have entity selector or the "Entite:" label rendered next to it
     await expect(
       page
@@ -50,8 +49,7 @@ test.describe("Scenarios Comparison", () => {
 
   test("scenarios page shows projection list or empty state when company selected", async ({ page }) => {
     await page.goto("/scenarios");
-    // Wait for the entity selector to be present (company is auto-selected)
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2000);
 
     // The page will either show:
     // 1. A loading spinner
@@ -75,8 +73,7 @@ test.describe("Scenarios Comparison", () => {
 
   test("shows comparison section heading or selection prompt", async ({ page }) => {
     await page.goto("/scenarios");
-    // Wait for page data to settle
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(2000);
 
     // The page always shows "Comparaison de scenarios" heading at the top
     const mainHeading = page
@@ -102,8 +99,7 @@ test.describe("Scenarios Comparison", () => {
 
   test("scenarios page shows computing spinner text when projections are being calculated", async ({ page }) => {
     await page.goto("/scenarios");
-    // Wait for the page to settle
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1000);
 
     // The spinner text "Calcul des projections en cours..." only appears when 2+
     // projections are selected and computation is running.  Since we cannot

@@ -43,6 +43,7 @@ def _get_projection_or_404(
         .filter(
             Projection.id == projection_id,
             Projection.organization_id == company.organization_id,
+            Projection.company_id == company.id,
         )
         .first()
     )

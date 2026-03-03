@@ -240,9 +240,8 @@ class ProjectionComputeService:
                     monthly_pmt = _annual_loan_payment(loan) / 12
                     debt_service += monthly_pmt * active_months
 
-            # Free cash flow
-            tax_on_ebit = ebit * cls.TAX_RATE if ebit > 0 else 0.0
-            free_cash_flow = ebitda - tax_on_ebit - capex
+            # Free cash flow: NOPAT + D&A - CapEx = EBITDA - tax - CapEx
+            free_cash_flow = ebitda - tax - capex
 
             ebitda_margin = (ebitda / total_revenue * 100) if total_revenue != 0 else 0.0
             years.append({
