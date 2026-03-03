@@ -499,6 +499,7 @@ export default function ProFormaPage() {
                 title="Estimation des revenus annuels"
                 projectionYears={projectionYears}
                 projectionMode={projectionMode}
+                projectionId={currentProjectionId}
               />
               <BaseSeasonalityDetail
                 companyId={companyId}
@@ -507,6 +508,7 @@ export default function ProFormaPage() {
                 companies={companies}
                 title="Saisonnalité des revenus"
                 projectionMode={projectionMode}
+                projectionId={currentProjectionId}
               />
             </div>
           ) : selectedModule === "expenses" ? (
@@ -521,6 +523,7 @@ export default function ProFormaPage() {
               title="Estimation des dépenses annuelles"
               projectionYears={projectionYears}
               projectionMode={projectionMode}
+              projectionId={currentProjectionId}
             />
           ) : selectedModule === "capex" ? (
             <CapexForecastDetail
@@ -534,6 +537,7 @@ export default function ProFormaPage() {
               title="Estimation des Capex annuels"
               projectionYears={projectionYears}
               projectionMode={projectionMode}
+              projectionId={currentProjectionId}
             />
           ) : selectedModule === "debt" ? (
             <DebtForecastDetail
@@ -546,6 +550,7 @@ export default function ProFormaPage() {
               companies={companies}
               title="Estimation des Dettes annuelles"
               projectionYears={projectionYears}
+              projectionId={currentProjectionId}
             />
           ) : selectedModule === "fdr" ? (
             <FDRForecastDetail
@@ -559,6 +564,7 @@ export default function ProFormaPage() {
               title="Estimation du FDR annuel"
               projectionYears={projectionYears}
               projectionMode={projectionMode}
+              projectionId={currentProjectionId}
             />
           ) : selectedModule === "income-statement" ? (
             section === "summary" ? (
@@ -585,6 +591,7 @@ export default function ProFormaPage() {
                 title="États des résultats pro forma"
                 projectionYears={projectionYears}
                 projectionMode={projectionMode}
+                projectionId={currentProjectionId}
               />
             )
           ) : selectedModule === "balance-sheet" ? (
