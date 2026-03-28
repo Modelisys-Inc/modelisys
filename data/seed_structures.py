@@ -2,7 +2,7 @@
 import json
 import requests
 
-BASE = "http://localhost:8001"
+BASE = "http://localhost:8000"
 EMAIL = "playwright@modelisys.com"
 PASSWORD = "PlaywrightTest123"
 COMPANY_ID = "a17cc179-df90-4f56-a5f9-21ccd232f9f5"

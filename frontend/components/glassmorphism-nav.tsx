@@ -1,17 +1,45 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
-import { Menu, X, ArrowRight } from "lucide-react"
-import Image from "next/image"
+import { useState, useEffect, useRef, type MouseEvent } from "react"
+import { Menu, X, ArrowRight, ChevronDown } from "lucide-react"
 import Link from "next/link"
 
-const navigation = [
-  { name: "Pour qui ?", href: "#problem-solution" },
-  { name: "Fonctionnalités", href: "#features" },
-  { name: "Clés en main", href: "#ai-team" },
-  { name: "Tarification", href: "#pricing-process" },
-  { name: "Contact", href: "/contact" },
+const POUR_QUI_SECTION = "/landing#pour-qui"
+
+const pourQuiSubLinks = [
+  { name: "Entreprises", href: "/landing#audience-entreprises" },
+  { name: "Partenaires conseils", href: "/landing#audience-conseils" },
+  { name: "Partenaires financiers", href: "/landing#audience-financiers" },
+] as const
+
+const mainNavLinks = [
+  { name: "Pourquoi", href: "/landing#problem-solution" },
+  { name: "Mise en place", href: "/landing#platform-setup" },
+  { name: "Tarification", href: "/landing#pricing-process" },
+] as const
+
+/** Ordre du menu mobile (indent = sous-entrées de « Pour qui »). */
+const mobileNavItems = [
+  { name: "Pour qui", href: POUR_QUI_SECTION, indent: false },
+  ...pourQuiSubLinks.map((l) => ({ name: l.name, href: l.href, indent: true as const })),
+  ...mainNavLinks.map((l) => ({ name: l.name, href: l.href, indent: false as const })),
 ]
+
+/** Sur /landing, évite une navigation Next inutile et assure le scroll vers l’ancre. */
+function goToLandingSection(e: MouseEvent<HTMLAnchorElement>, href: string) {
+  if (typeof window === "undefined") return
+  if (!href.startsWith("/landing#")) return
+  if (window.location.pathname !== "/landing") return
+  e.preventDefault()
+  const hash = href.slice("/landing".length)
+  const id = decodeURIComponent(hash.slice(1))
+  const el = document.getElementById(id)
+  if (window.location.hash === hash && el) {
+    el.scrollIntoView({ behavior: "smooth", block: "start" })
+    return
+  }
+  window.location.hash = hash
+}
 
 export function GlassmorphismNav() {
   const [isOpen, setIsOpen] = useState(false)
@@ -56,27 +84,6 @@ export function GlassmorphismNav() {
     return () => clearTimeout(timer)
   }, [])
 
-  const scrollToSection = (href: string) => {
-    if (href.startsWith("/")) {
-      return
-    }
-
-    const element = document.querySelector(href)
-    if (element) {
-      const rect = element.getBoundingClientRect()
-      const currentScrollY = window.pageYOffset || document.documentElement.scrollTop
-      const elementAbsoluteTop = rect.top + currentScrollY
-      const navbarHeight = 100
-      const targetPosition = Math.max(0, elementAbsoluteTop - navbarHeight)
-
-      window.scrollTo({
-        top: targetPosition,
-        behavior: "smooth",
-      })
-    }
-    setIsOpen(false)
-  }
-
   return (
     <>
       <nav
@@ -90,10 +97,10 @@ export function GlassmorphismNav() {
         {/* Main Navigation */}
         <div className="w-full">
             <div
-            className={`backdrop-blur-md border-b border-slate-700/50 px-8 sm:px-12 lg:px-16 xl:px-20 py-3 md:py-4 transition-all duration-300 ${
+            className={`backdrop-blur-md border-b border-white/10 px-8 sm:px-12 lg:px-16 xl:px-20 py-3 md:py-4 transition-all duration-300 ${
               scrolled
-                ? "bg-slate-800/95 shadow-lg"
-                : "bg-slate-800/80 shadow-md"
+                ? "bg-[#2A2F3A]/92 shadow-lg"
+                : "bg-[#2A2F3A]/78 shadow-md"
             }`}
           >
             <div className="flex items-center justify-between">
@@ -101,49 +108,61 @@ export function GlassmorphismNav() {
               <div className="flex items-center gap-6 md:gap-8">
                 {/* Logo */}
                 <Link
-                  href="/"
+                  href="/landing"
                   className="flex items-center hover:scale-105 transition-transform duration-200 cursor-pointer"
+                  onClick={(e) => {
+                    if (typeof window === "undefined") return
+                    if (window.location.pathname !== "/landing") return
+                    e.preventDefault()
+                    window.scrollTo({ top: 0, behavior: "smooth" })
+                  }}
                 >
-                  <div className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center">
-                    <Image
-                      src="/images/modelisys-icon-white.svg"
-                      alt="Modelisys"
-                      width={48}
-                      height={48}
-                      className="w-full h-full object-contain"
-                    />
-                  </div>
+                  <span className="text-lg md:text-xl font-semibold tracking-tight text-[#E6D6C3]">
+                    modelisys<span className="text-[#E0742D]">.</span>
+                  </span>
                 </Link>
+
+                <span
+                  className="hidden md:block h-7 w-px shrink-0 bg-gradient-to-b from-[#E0742D]/80 via-white/15 to-transparent"
+                  aria-hidden
+                />
 
                 {/* Desktop Navigation */}
                 <div className="hidden md:flex items-center space-x-1">
-                  {navigation.map((item) =>
-                    item.href.startsWith("/") ? (
-                      <Link
-                        key={item.name}
-                        href={item.href}
-                        className={`px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer ${
-                          scrolled
-                            ? "text-slate-300 hover:text-white hover:bg-slate-700/50"
-                            : "text-slate-300 hover:text-white hover:bg-slate-700/50"
-                        }`}
-                      >
-                        {item.name}
-                      </Link>
-                    ) : (
-                      <button
-                        key={item.name}
-                        onClick={() => scrollToSection(item.href)}
-                        className={`px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer ${
-                          scrolled
-                            ? "text-slate-300 hover:text-white hover:bg-slate-700/50"
-                            : "text-slate-300 hover:text-white hover:bg-slate-700/50"
-                        }`}
-                      >
-                        {item.name}
-                      </button>
-                    ),
-                  )}
+                  <div className="relative group">
+                    <Link
+                      href={POUR_QUI_SECTION}
+                      onClick={(e) => goToLandingSection(e, POUR_QUI_SECTION)}
+                      className="inline-flex items-center gap-1 px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
+                    >
+                      Pour qui
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
+                    </Link>
+                    <div className="absolute left-0 top-full z-50 pt-2 opacity-0 invisible transition-all duration-150 group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible">
+                      <div className="rounded-lg border border-white/10 bg-[#2A2F3A]/98 py-1.5 shadow-xl backdrop-blur-md min-w-[15rem]">
+                        {pourQuiSubLinks.map((sub) => (
+                          <Link
+                            key={sub.href}
+                            href={sub.href}
+                            onClick={(e) => goToLandingSection(e, sub.href)}
+                            className="block px-3 py-2.5 text-sm font-medium text-[#C9B8A5]/90 transition-colors hover:bg-white/5 hover:text-[#E6D6C3]"
+                          >
+                            {sub.name}
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  {mainNavLinks.map((item) => (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      onClick={(e) => goToLandingSection(e, item.href)}
+                      className="px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
+                    >
+                      {item.name}
+                    </Link>
+                  ))}
                 </div>
               </div>
 
@@ -151,26 +170,19 @@ export function GlassmorphismNav() {
               <div className="hidden md:flex items-center gap-3">
                 <Link
                   href="/login"
-                  className={`px-5 py-2.5 rounded-md font-medium transition-colors duration-200 border ${
-                    scrolled
-                      ? "bg-slate-700/50 text-white border-slate-600/50 hover:bg-slate-700"
-                      : "bg-slate-700/50 text-white border-slate-600/50 hover:bg-slate-700"
-                  }`}
+                  className="px-5 py-2.5 rounded-md font-medium transition-colors duration-200 border border-white/10 bg-white/[0.04] text-[#E6D6C3] hover:bg-white/[0.07]"
                 >
-                  Portail client
+                  Mon Portail
                 </Link>
 
-                <button
-                  className={`px-6 py-2.5 rounded-md font-semibold transition-colors duration-200 group flex items-center gap-2 ${
-                    scrolled
-                      ? "bg-emerald-500 text-white hover:bg-emerald-600 border border-emerald-500"
-                      : "bg-emerald-500 text-white hover:bg-emerald-600 border border-emerald-500"
-                  }`}
-                  onClick={() => scrollToSection("#demo")}
+                <Link
+                  href="/landing#demo"
+                  onClick={(e) => goToLandingSection(e, "/landing#demo")}
+                  className="group inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
                 >
-                  <span>Accéder en priorité au lancement</span>
-                  <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-1" />
-                </button>
+                  <span>RÉSERVER UNE DÉMO</span>
+                  <ArrowRight className="w-4 h-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+                </Link>
               </div>
 
               {/* Mobile Menu Button */}
@@ -215,66 +227,55 @@ export function GlassmorphismNav() {
               isOpen ? "opacity-100 translate-y-0 scale-100" : "opacity-0 -translate-y-8 scale-95 pointer-events-none"
             }`}
           >
-            <div className="bg-slate-800/95 backdrop-blur-md border border-slate-700/50 rounded-lg p-4 shadow-xl">
+            <div className="bg-[#2A2F3A]/92 backdrop-blur-md border border-white/10 rounded-lg p-4 shadow-xl">
               <div className="flex flex-col space-y-1">
-                {navigation.map((item, index) =>
-                  item.href.startsWith("/") ? (
-                    <Link
-                      key={item.name}
-                      href={item.href}
-                      className={`text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-md px-3 py-3 text-left transition-colors duration-200 font-medium cursor-pointer ${
-                        isOpen ? "animate-mobile-menu-item" : ""
-                      }`}
-                      style={{
-                        animationDelay: isOpen ? `${index * 80 + 100}ms` : "0ms",
-                      }}
-                      onClick={() => setIsOpen(false)}
-                    >
-                      {item.name}
-                    </Link>
-                  ) : (
-                    <button
-                      key={item.name}
-                      onClick={() => scrollToSection(item.href)}
-                      className={`text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-md px-3 py-3 text-left transition-colors duration-200 font-medium cursor-pointer ${
-                        isOpen ? "animate-mobile-menu-item" : ""
-                      }`}
-                      style={{
-                        animationDelay: isOpen ? `${index * 80 + 100}ms` : "0ms",
-                      }}
-                    >
-                      {item.name}
-                    </button>
-                  ),
-                )}
-                <div className="h-px bg-slate-700/50 my-2" />
+                {mobileNavItems.map((item, index) => (
+                  <Link
+                    key={`${item.href}-${item.name}`}
+                    href={item.href}
+                    className={`text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5 rounded-md py-3 text-left transition-colors duration-200 font-medium cursor-pointer ${
+                      item.indent ? "pl-8 text-sm text-[#C9B8A5]/80" : "px-3"
+                    } ${isOpen ? "animate-mobile-menu-item" : ""}`}
+                    style={{
+                      animationDelay: isOpen ? `${index * 80 + 100}ms` : "0ms",
+                    }}
+                    onClick={(e) => {
+                      goToLandingSection(e, item.href)
+                      setIsOpen(false)
+                    }}
+                  >
+                    {item.name}
+                  </Link>
+                ))}
+                <div className="h-px bg-white/10 my-2" />
                 <Link
                   href="/login"
-                  className={`relative bg-slate-700/50 hover:bg-slate-700 text-white font-medium px-6 py-3 rounded-md flex items-center transition-colors duration-200 border border-slate-600/50 cursor-pointer ${
+                  className={`relative bg-white/[0.04] hover:bg-white/[0.07] text-[#E6D6C3] font-medium px-6 py-3 rounded-md flex items-center transition-colors duration-200 border border-white/10 cursor-pointer ${
                     isOpen ? "animate-mobile-menu-item" : ""
                   }`}
                   style={{
-                    animationDelay: isOpen ? `${navigation.length * 80 + 100}ms` : "0ms",
+                    animationDelay: isOpen ? `${mobileNavItems.length * 80 + 100}ms` : "0ms",
                   }}
                   onClick={() => setIsOpen(false)}
                 >
-                  <span>Portail client</span>
+                  <span>Mon Portail</span>
                 </Link>
-                <button
-                  className={`relative bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-6 py-3 rounded-md flex items-center transition-colors duration-200 cursor-pointer group border border-emerald-500 ${
+                <Link
+                  href="/landing#demo"
+                  className={`group relative flex cursor-pointer items-center rounded-md border border-white/10 bg-white/[0.04] px-6 py-3 font-semibold text-slate-200 transition-colors duration-200 hover:bg-white/[0.07] hover:text-slate-100 ${
                     isOpen ? "animate-mobile-menu-item" : ""
                   }`}
                   style={{
-                    animationDelay: isOpen ? `${navigation.length * 80 + 150}ms` : "0ms",
+                    animationDelay: isOpen ? `${mobileNavItems.length * 80 + 150}ms` : "0ms",
                   }}
-                  onClick={() => {
-                    scrollToSection("#demo")
+                  onClick={(e) => {
+                    goToLandingSection(e, "/landing#demo")
                     setIsOpen(false)
                   }}
                 >
-                  <span className="mr-2">Accéder en priorité au lancement</span>
-                  <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
-                </button>
+                  <span className="mr-2 text-xs font-semibold tracking-wide">RÉSERVER UNE DÉMO</span>
+                  <ArrowRight className="w-4 h-4 text-[#E0742D] transition-transform duration-300 group-hover:translate-x-0.5" />
+                </Link>
               </div>
             </div>
           </div>

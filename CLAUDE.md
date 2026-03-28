@@ -71,7 +71,7 @@ pnpm install
 pnpm dev
 ```
 
-Backend is exposed on port 8001 (host) -> 8000 (container). Frontend on port 3000.
+Backend is exposed on port 8000 (host and container). Frontend on port 3000.
 
 ## Running Tests
 

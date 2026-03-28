@@ -44,7 +44,7 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  // Financial challenges from "Pour qui ?" section
+  // Financial challenges from "PME" section
   const financialChallenges = [
     "Informations financières trop tardives",
     "Manque de vision consolidée",
@@ -130,30 +130,49 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
   }
 
   return (
-    <section ref={sectionRef} id="demo" className="py-24 sm:py-32 relative z-10 bg-gradient-to-b from-white via-slate-50 to-white overflow-hidden">
-      {/* Subtle Background Effects */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-slate-200/20 rounded-full blur-3xl"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-slate-300/10 rounded-full blur-3xl"></div>
+    <section
+      ref={sectionRef}
+      id="demo"
+      className="relative z-10 scroll-mt-24 overflow-hidden bg-slate-100/50 py-24 sm:py-32"
+    >
+      {/* Fond — même langage que la section « Pourquoi » */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-slate-50/95 to-slate-100/80" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_85%_45%_at_50%_-15%,rgba(224,116,45,0.055),transparent_55%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_100%_50%,rgba(148,163,184,0.12),transparent_65%)]" />
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `
+              linear-gradient(to right, rgb(148 163 184 / 0.1) 1px, transparent 1px),
+              linear-gradient(to bottom, rgb(148 163 184 / 0.1) 1px, transparent 1px)
+            `,
+            backgroundSize: "44px 44px",
+            maskImage: "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
+            WebkitMaskImage:
+              "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-50/30 via-transparent to-slate-100/35" />
+        <div className="absolute left-1/2 top-1/2 h-[min(72vh,520px)] w-[min(92vw,880px)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-200/20 blur-3xl" />
       </div>
 
-      <div className="relative max-w-[1920px] mx-auto px-8 sm:px-12 lg:px-16 xl:px-20">
-        {/* Header */}
+      <div className="relative mx-auto max-w-[1920px] px-8 sm:px-12 lg:px-16 xl:px-20">
+        {/* En-tête — aligné sur « Pourquoi » */}
         <div
           className={`mb-12 transition-all duration-1000 ${
-            isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+            isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          <div className="flex items-start justify-between gap-8 mb-6">
-            <div className="flex-1">
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 mb-4 leading-tight tracking-tight">
-                Accéder en priorité au lancement
-              </h2>
-              <p className="text-lg sm:text-xl text-slate-600 max-w-3xl leading-relaxed">
-                {description || "Découvrez comment Modelisys peut transformer la gestion financière de votre entreprise lors d'une démonstration personnalisée."}
-              </p>
-            </div>
-          </div>
+          <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Démarrer</p>
+          <h2 className="mb-4 max-w-4xl text-3xl font-semibold leading-tight tracking-tight text-[#2A2F3A] sm:text-4xl md:text-5xl">
+            Réservez une démonstration et parlons de votre pilotage financier
+          </h2>
+          <p className="max-w-3xl text-lg leading-relaxed text-[#5C5F66] sm:text-xl">
+            {description ||
+              "Découvrez comment Modelisys peut transformer la gestion financière de votre entreprise lors d'une démonstration personnalisée."}
+          </p>
+          <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
         </div>
 
         {/* Waitlist Process Section */}
@@ -169,21 +188,20 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                 onMouseEnter={() => setIsHoveredWaitlistCard(true)}
                 onMouseLeave={() => setIsHoveredWaitlistCard(false)}
                 className={`
-                  relative h-full flex flex-col
-                  bg-gradient-to-br from-white to-white
-                  rounded-2xl border-2 border-slate-200
-                  shadow-sm hover:shadow-xl
+                  relative flex h-full flex-col overflow-hidden
+                  rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50
+                  shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70
                   transition-all duration-500 ease-out
-                  overflow-hidden
-                  p-8
                   ${
                     isHoveredWaitlistCard
-                      ? "scale-[1.015] border-slate-400 shadow-2xl"
-                      : "hover:border-slate-300"
+                      ? "scale-[1.015] shadow-2xl shadow-slate-900/[0.07] ring-slate-300/80"
+                      : "hover:shadow-xl hover:shadow-slate-900/[0.07]"
                   }
                 `}
               >
-                <h3 className="text-2xl font-bold text-slate-900 mb-6">Notre processus de liste d'attente</h3>
+                <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
+                <div className="relative flex flex-1 flex-col p-8">
+                <h3 className="mb-6 text-2xl font-semibold tracking-tight text-[#2A2F3A]">Notre processus de liste d'attente</h3>
                 
                 {/* Process Steps */}
                 <div className="mb-8">
@@ -197,13 +215,13 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                       const Icon = item.icon
                       return (
                         <div key={index} className="flex items-start gap-4">
-                          <div className="flex-shrink-0 w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
-                            <Icon className="w-5 h-5 text-emerald-600" />
+                          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#E0742D]/12">
+                            <Icon className="h-5 w-5 text-[#E0742D]" />
                           </div>
                           <div className="flex-1 pt-2">
-                            <div className="flex flex-col gap-1 mb-1">
-                              <span className="text-sm font-bold text-slate-900">Étape {item.step}</span>
-                              <span className="text-base font-normal text-slate-900">{item.title}</span>
+                            <div className="mb-1 flex flex-col gap-1">
+                              <span className="text-sm font-semibold text-[#2A2F3A]">Étape {item.step}</span>
+                              <span className="text-base font-normal text-[#5C5F66]">{item.title}</span>
                             </div>
                             {index < 3 && (
                               <div className="flex items-center justify-center w-6 mt-2 mb-2">
@@ -218,24 +236,25 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                 </div>
 
                 {/* Benefits */}
-                <div className="border-t border-slate-200 pt-6">
-                  <h4 className="text-lg font-semibold text-slate-900 mb-4">Avantages de l'inscription sur la liste d'attente</h4>
+                <div className="border-t border-slate-200/80 pt-6">
+                  <h4 className="mb-4 text-lg font-semibold tracking-tight text-[#2A2F3A]">Avantages de l'inscription sur la liste d'attente</h4>
                   <div className="space-y-4">
                     <div className="flex items-start gap-3">
-                      <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                      <CheckCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-[#E0742D]" />
                       <div>
-                        <div className="font-semibold text-slate-900 mb-1">Accès prioritaire pour l'implantation</div>
+                        <div className="mb-1 font-semibold text-[#2A2F3A]">Accès prioritaire pour l'implantation</div>
                         <p className="text-sm text-slate-600">Vous serez parmi les premiers à bénéficier de l'implantation de Modelisys.</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-3">
-                      <CheckCircle className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                      <CheckCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-[#E0742D]" />
                       <div>
-                        <div className="font-semibold text-slate-900 mb-1">Tarif préférentiel</div>
+                        <div className="mb-1 font-semibold text-[#2A2F3A]">Tarif préférentiel</div>
                         <p className="text-sm text-slate-600">Profitez d'un tarif avantageux réservé aux premiers inscrits.</p>
                       </div>
                     </div>
                   </div>
+                </div>
                 </div>
               </div>
 
@@ -245,13 +264,15 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                   isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
                 }`}
               >
-                <div className="bg-white rounded-xl border-2 border-slate-200 shadow-xl p-8 sm:p-10 h-full">
+                <div className="relative h-full overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70">
+                  <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
+                  <div className="relative h-full p-8 sm:p-10">
                   {isSubmitted ? (
                     <div className="text-center py-12">
-                      <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+                      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#E0742D]/12">
+                        <CheckCircle2 className="h-8 w-8 text-[#E0742D]" />
                       </div>
-                      <h3 className="text-2xl font-bold text-slate-900 mb-2">Demande envoyée avec succès!</h3>
+                      <h3 className="mb-2 text-2xl font-semibold tracking-tight text-[#2A2F3A]">Demande envoyée avec succès!</h3>
                       <p className="text-slate-600">
                         Nous vous contacterons sous peu pour planifier votre démonstration.
                       </p>
@@ -260,8 +281,8 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                     /* Calendar and Time Selection */
                     <div className="space-y-6">
                       <div>
-                        <h3 className="text-xl font-bold text-slate-900 mb-2">Sélectionnez une date et une heure</h3>
-                        <p className="text-sm text-slate-600">Choisissez un créneau disponible pour votre démonstration</p>
+                        <h3 className="mb-2 text-xl font-semibold tracking-tight text-[#2A2F3A]">Sélectionnez une date et une heure</h3>
+                        <p className="text-sm text-[#5C5F66]">Choisissez un créneau disponible pour votre démonstration</p>
                       </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -297,8 +318,8 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                                     px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all
                                     ${
                                       selectedTime === time
-                                        ? "bg-slate-900 text-white border-slate-900"
-                                        : "bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                                        ? "border-[#E0742D] bg-[#E0742D] text-white"
+                                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
                                     }
                                   `}
                                 >
@@ -318,14 +339,14 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                         <div className="pt-4 border-t border-slate-200">
                           <div className="bg-slate-50 rounded-lg p-4 mb-4">
                             <p className="text-sm text-slate-600 mb-1">Créneau sélectionné :</p>
-                            <p className="text-base font-semibold text-slate-900">
+                            <p className="text-base font-semibold text-[#2A2F3A]">
                               {selectedDate.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} à {selectedTime}
                             </p>
                           </div>
                           <Button
                             type="button"
                             onClick={() => setShowPersonalInfo(true)}
-                            className="w-full bg-slate-900 hover:bg-slate-800 text-white py-6 text-base font-semibold"
+                            className="w-full bg-[#E0742D] py-6 text-base font-semibold text-white hover:bg-[#c75a26]"
                           >
                             Continuer avec mes informations
                             <ArrowRight className="ml-2 w-4 h-4" />
@@ -338,13 +359,13 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                       {/* Selected Date/Time Display */}
                       <div className="bg-slate-50 rounded-lg p-4 mb-6">
                         <p className="text-sm text-slate-600 mb-1">Créneau sélectionné :</p>
-                        <p className="text-base font-semibold text-slate-900">
+                        <p className="text-base font-semibold text-[#2A2F3A]">
                           {selectedDate?.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} à {selectedTime}
                         </p>
                         <button
                           type="button"
                           onClick={() => setShowPersonalInfo(false)}
-                          className="text-sm text-emerald-600 hover:text-emerald-700 mt-2"
+                          className="mt-2 text-sm font-semibold text-[#E0742D] hover:text-[#c75a26]"
                         >
                           Modifier la date/heure
                         </button>
@@ -485,7 +506,7 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                         <Button
                           type="submit"
                           disabled={isSubmitting}
-                          className="w-full bg-slate-900 hover:bg-slate-800 text-white py-6 text-base font-semibold"
+                          className="w-full bg-[#E0742D] py-6 text-base font-semibold text-white hover:bg-[#c75a26]"
                         >
                           {isSubmitting ? (
                             <span className="flex items-center gap-2">
@@ -502,6 +523,7 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                       </div>
                     </form>
                   )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -517,20 +539,22 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                 isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-12"
               }`}
             >
-              <div className="bg-white rounded-xl border-2 border-slate-200 p-6 hover:border-slate-300 hover:shadow-lg transition-all duration-300 h-full">
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 border border-emerald-100 mb-6">
-                  <Sparkles className="w-4 h-4 text-emerald-600" />
-                  <span className="text-sm font-semibold text-emerald-700">Comment ça fonctionne</span>
+              <div className="relative h-full overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 p-6 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70 transition-all duration-300 hover:shadow-lg hover:shadow-slate-900/[0.07]">
+                <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
+                <div className="relative">
+                <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#E0742D]/25 bg-[#E0742D]/[0.07] px-4 py-2">
+                  <Sparkles className="h-4 w-4 text-[#E0742D]" />
+                  <span className="text-sm font-semibold text-[#2A2F3A]">Comment ça fonctionne</span>
                 </div>
                 
                 <div className="space-y-6">
                   {/* Step 1 */}
                   <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-slate-900 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#E0742D] text-sm font-bold text-white">
                       1
                     </div>
                     <div>
-                      <h4 className="text-base font-bold text-slate-900 mb-1">
+                      <h4 className="mb-1 text-base font-semibold tracking-tight text-[#2A2F3A]">
                         Réservez votre démo
                       </h4>
                       <p className="text-sm text-slate-600 leading-relaxed">
@@ -541,11 +565,11 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
 
                   {/* Step 2 */}
                   <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-slate-900 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#E0742D] text-sm font-bold text-white">
                       2
                     </div>
                     <div>
-                      <h4 className="text-base font-bold text-slate-900 mb-1">
+                      <h4 className="mb-1 text-base font-semibold tracking-tight text-[#2A2F3A]">
                         Rencontre et démonstration
                       </h4>
                       <p className="text-sm text-slate-600 leading-relaxed">
@@ -556,11 +580,11 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
 
                   {/* Step 3 */}
                   <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-slate-900 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#E0742D] text-sm font-bold text-white">
                       3
                     </div>
                     <div>
-                      <h4 className="text-base font-bold text-slate-900 mb-1">
+                      <h4 className="mb-1 text-base font-semibold tracking-tight text-[#2A2F3A]">
                         Structure de tarification
                       </h4>
                       <p className="text-sm text-slate-600 leading-relaxed">
@@ -571,11 +595,11 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
 
                   {/* Step 4 */}
                   <div className="flex items-start gap-4">
-                    <div className="w-10 h-10 rounded-lg bg-slate-900 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#E0742D] text-sm font-bold text-white">
                       4
                     </div>
                     <div>
-                      <h4 className="text-base font-bold text-slate-900 mb-1">
+                      <h4 className="mb-1 text-base font-semibold tracking-tight text-[#2A2F3A]">
                         Implantation
                       </h4>
                       <p className="text-sm text-slate-600 leading-relaxed">
@@ -586,34 +610,35 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                 </div>
 
                 {/* Benefits */}
-                <div className="mt-8 pt-6 border-t border-slate-200 space-y-4">
+                <div className="mt-8 space-y-4 border-t border-slate-200/80 pt-6">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                      <Clock className="w-4 h-4 text-slate-700" />
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#E0742D]/12">
+                      <Clock className="h-4 w-4 text-[#E0742D]" />
                     </div>
                     <div>
-                      <h5 className="text-sm font-semibold text-slate-900">Démo personnalisée</h5>
+                      <h5 className="text-sm font-semibold text-[#2A2F3A]">Démo personnalisée</h5>
                       <p className="text-xs text-slate-600">Adaptée à vos besoins</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                      <User className="w-4 h-4 text-slate-700" />
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#E0742D]/12">
+                      <User className="h-4 w-4 text-[#E0742D]" />
                     </div>
                     <div>
-                      <h5 className="text-sm font-semibold text-slate-900">Expert dédié</h5>
+                      <h5 className="text-sm font-semibold text-[#2A2F3A]">Expert dédié</h5>
                       <p className="text-xs text-slate-600">Accompagnement spécialisé</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                      <CheckCircle2 className="w-4 h-4 text-slate-700" />
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#E0742D]/12">
+                      <CheckCircle2 className="h-4 w-4 text-[#E0742D]" />
                     </div>
                     <div>
-                      <h5 className="text-sm font-semibold text-slate-900">Sans engagement</h5>
+                      <h5 className="text-sm font-semibold text-[#2A2F3A]">Sans engagement</h5>
                       <p className="text-xs text-slate-600">Découvrez sans pression</p>
                     </div>
                   </div>
+                </div>
                 </div>
               </div>
             </div>
@@ -628,13 +653,15 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                 isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
               }`}
             >
-              <div className="bg-white rounded-xl border-2 border-slate-200 shadow-xl p-8 sm:p-10">
+              <div className="relative overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70">
+                <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
+                <div className="relative p-8 sm:p-10">
                 {isSubmitted ? (
                   <div className="text-center py-12">
-                    <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                      <CheckCircle2 className="w-8 h-8 text-emerald-600" />
+                    <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#E0742D]/12">
+                      <CheckCircle2 className="h-8 w-8 text-[#E0742D]" />
                     </div>
-                    <h3 className="text-2xl font-bold text-slate-900 mb-2">Demande envoyée avec succès!</h3>
+                    <h3 className="mb-2 text-2xl font-semibold tracking-tight text-[#2A2F3A]">Demande envoyée avec succès!</h3>
                     <p className="text-slate-600">
                       Nous vous contacterons sous peu pour planifier votre démonstration.
                     </p>
@@ -643,8 +670,8 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                   /* Calendar and Time Selection */
                   <div className="space-y-6">
                     <div>
-                      <h3 className="text-xl font-bold text-slate-900 mb-2">Sélectionnez une date et une heure</h3>
-                      <p className="text-sm text-slate-600">Choisissez un créneau disponible pour votre démonstration</p>
+                      <h3 className="mb-2 text-xl font-semibold tracking-tight text-[#2A2F3A]">Sélectionnez une date et une heure</h3>
+                      <p className="text-sm text-[#5C5F66]">Choisissez un créneau disponible pour votre démonstration</p>
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -680,8 +707,8 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                                   px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all
                                   ${
                                     selectedTime === time
-                                      ? "bg-slate-900 text-white border-slate-900"
-                                      : "bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                                      ? "border-[#E0742D] bg-[#E0742D] text-white"
+                                      : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
                                   }
                                 `}
                               >
@@ -701,14 +728,14 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                       <div className="pt-4 border-t border-slate-200">
                         <div className="bg-slate-50 rounded-lg p-4 mb-4">
                           <p className="text-sm text-slate-600 mb-1">Créneau sélectionné :</p>
-                          <p className="text-base font-semibold text-slate-900">
+                          <p className="text-base font-semibold text-[#2A2F3A]">
                             {selectedDate.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} à {selectedTime}
                           </p>
                         </div>
                         <Button
                           type="button"
                           onClick={() => setShowPersonalInfo(true)}
-                          className="w-full bg-slate-900 hover:bg-slate-800 text-white py-6 text-base font-semibold"
+                          className="w-full bg-[#E0742D] py-6 text-base font-semibold text-white hover:bg-[#c75a26]"
                         >
                           Continuer avec mes informations
                           <ArrowRight className="ml-2 w-4 h-4" />
@@ -721,13 +748,13 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                     {/* Selected Date/Time Display */}
                     <div className="bg-slate-50 rounded-lg p-4 mb-6">
                       <p className="text-sm text-slate-600 mb-1">Créneau sélectionné :</p>
-                      <p className="text-base font-semibold text-slate-900">
+                      <p className="text-base font-semibold text-[#2A2F3A]">
                         {selectedDate?.toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} à {selectedTime}
                       </p>
                       <button
                         type="button"
                         onClick={() => setShowPersonalInfo(false)}
-                        className="text-sm text-emerald-600 hover:text-emerald-700 mt-2"
+                        className="mt-2 text-sm font-semibold text-[#E0742D] hover:text-[#c75a26]"
                       >
                         Modifier la date/heure
                       </button>
@@ -880,7 +907,7 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                               type="checkbox"
                               checked={formData.financialTopics.includes(topic.id)}
                               onChange={() => handleTopicToggle(topic.id)}
-                              className="w-4 h-4 text-slate-900 border-slate-300 rounded focus:ring-slate-500"
+                              className="h-4 w-4 rounded border-slate-300 text-[#E0742D] focus:ring-[#E0742D]/40"
                             />
                             <span className="text-sm text-slate-700">{topic.label}</span>
                           </label>
@@ -910,7 +937,7 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                       <Button
                         type="submit"
                         disabled={isSubmitting}
-                        className="w-full bg-slate-900 hover:bg-slate-800 text-white py-6 text-base font-semibold"
+                        className="w-full bg-[#E0742D] py-6 text-base font-semibold text-white hover:bg-[#c75a26]"
                       >
                         {isSubmitting ? (
                           <span className="flex items-center gap-2">
@@ -927,6 +954,7 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                     </div>
                   </form>
                 )}
+                </div>
               </div>
             </div>
           </div>
@@ -953,7 +981,7 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
                   type="checkbox"
                   checked={formData.financialTopics.includes(challenge)}
                   onChange={() => handleChallengeToggle(challenge)}
-                  className="mt-1 w-4 h-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500"
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-[#E0742D] focus:ring-[#E0742D]/40"
                 />
                 <span className="text-sm text-slate-700 leading-relaxed flex-1">{challenge}</span>
               </label>
@@ -968,6 +996,7 @@ export function DemoBookingSection({ description, showWaitlistProcess = false }:
             </Button>
             <Button
               onClick={() => setIsChallengesModalOpen(false)}
+              className="bg-[#E0742D] text-white hover:bg-[#c75a26]"
             >
               Valider ({formData.financialTopics.length})
             </Button>
