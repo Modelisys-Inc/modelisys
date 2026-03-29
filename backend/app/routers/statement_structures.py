@@ -119,7 +119,17 @@ def get_statement_structure(
         .first()
     )
     if not structure:
-        raise HTTPException(status_code=404, detail="Statement structure not found")
+        # Return a default empty structure instead of 404
+        defaults = {
+            "income-statement": DEFAULT_INCOME_STATEMENT,
+            "balance-sheet": DEFAULT_BALANCE_SHEET,
+        }
+        return StatementStructureResponse(
+            id=None,
+            company_id=company_id,
+            statement_type=statement_type,
+            structure=defaults.get(statement_type, []),
+        )
     return structure
 
 

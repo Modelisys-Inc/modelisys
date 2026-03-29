@@ -113,14 +113,16 @@ export default function CompanyMappingPage() {
   useEffect(() => {
     if (companyId) {
       setLoading(true)
-      Promise.all([
-        getCompany(companyId),
-        listAccountMappings(companyId),
-        listProducts(companyId),
-        listCompanies(),
-      ])
-        .then(([companyData, mappingsData, productsData, companiesData]) => {
+      getCompany(companyId)
+        .then((companyData) => {
           setCompany(mapApiCompany(companyData))
+          return Promise.all([
+            listAccountMappings(companyId).catch(() => []),
+            listProducts(companyId).catch(() => []),
+            listCompanies().catch(() => []),
+          ])
+        })
+        .then(([mappingsData, productsData, companiesData]) => {
           setAccounts(mappingsData.map(mapApiMapping))
           setProducts(productsData.map((p: ProductData) => p.name))
           setAllCompanies(
@@ -130,8 +132,7 @@ export default function CompanyMappingPage() {
           )
         })
         .catch((e) => {
-          console.error("Error loading data:", e)
-          router.push(`/settings/companies/${companyId}`)
+          console.error("Error loading company:", e)
         })
         .finally(() => setLoading(false))
     }

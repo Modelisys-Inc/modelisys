@@ -8,7 +8,7 @@ class StatementStructureUpsert(BaseModel):
 
 
 class StatementStructureResponse(BaseModel):
-    id: uuid.UUID
+    id: uuid.UUID | None = None
     company_id: uuid.UUID
     statement_type: str
     structure: list[dict]

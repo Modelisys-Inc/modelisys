@@ -79,17 +79,16 @@ export default function TrialBalancePage() {
   useEffect(() => {
     if (companyId) {
       setLoading(true)
-      Promise.all([
-        getCompany(companyId),
-        getTrialBalance(companyId),
-      ])
-        .then(([companyData, tbData]) => {
+      getCompany(companyId)
+        .then((companyData) => {
           setCompany(mapApiCompany(companyData))
+          return getTrialBalance(companyId).catch(() => ({ company_id: companyId, fiscal_year: new Date().getFullYear(), accounts: [] } as TrialBalanceData))
+        })
+        .then((tbData) => {
           setAccounts(mapTrialBalanceAccounts(tbData))
         })
         .catch((e) => {
-          console.error("Error loading data:", e)
-          router.push(`/settings/companies/${companyId}`)
+          console.error("Error loading company:", e)
         })
         .finally(() => setLoading(false))
     }
