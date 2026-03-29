@@ -250,7 +250,7 @@ export function AITeamSection() {
   }, [currentConversation])
 
   return (
-    <section id="ai-team" ref={sectionRef} className="relative z-10 bg-gradient-to-b from-white via-slate-50 to-white">
+    <section id="ai-team" ref={sectionRef} className="scroll-mt-24 relative z-10 bg-gradient-to-b from-white via-slate-50 to-white">
       {/* Subtle Background Effects */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl"></div>
@@ -389,7 +389,7 @@ export function AITeamSection() {
                                     : "bg-white text-slate-800 shadow-sm border border-slate-200 rounded-bl-md"
                                 }`}
                               >
-                                {message.text.split("\n").map((line, i) => (
+                                {message.text.split("\n").map((line: string, i: number) => (
                                   <div key={i} className={message.sender === "ai" && line.includes("✓") ? "text-slate-700 font-semibold" : ""}>{line}</div>
                                 ))}
                               </div>

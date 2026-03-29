@@ -20,7 +20,7 @@ interface DashboardHeaderProps {
     { label: "Projections", href: "/projections/pro-forma" },
     { label: "Évaluation", href: "/evaluation/business-model" },
     { label: "Fin d'année CPA", href: "/year-end-cpa" },
-    { label: "Configuration", href: "/" },
+    { label: "Configuration", href: "/settings/companies" },
   ]
 
 export function DashboardHeader({ title = "Gestion Comptable", description }: DashboardHeaderProps) {
@@ -52,9 +52,8 @@ export function DashboardHeader({ title = "Gestion Comptable", description }: Da
                 // Pour "Projections", on vérifie si le pathname commence par /projections
                 // Pour les autres, on vérifie si le pathname commence par le href
                 let isActive
-                if (item.href === "/") {
-                  // Configuration est active si on est sur la page d'accueil ou sur une page société
-                  isActive = pathname === "/" || pathname?.startsWith("/settings/companies") || false
+                if (item.label === "Configuration") {
+                  isActive = pathname?.startsWith("/settings/companies") || false
                 } else if (item.label === "États financiers") {
                   isActive = pathname?.startsWith("/financial-statements") || false
                 } else if (item.label === "Analyse") {

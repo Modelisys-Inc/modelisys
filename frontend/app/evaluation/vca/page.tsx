@@ -74,14 +74,14 @@ export default function VCAPage() {
   // Disclaimer modal
   const [disclaimerOpen, setDisclaimerOpen] = useState(false)
   useEffect(() => {
-    const accepted = sessionStorage.getItem("vca-disclaimer-accepted")
+    const accepted = localStorage.getItem("vca-disclaimer-accepted")
     if (!accepted) {
       setDisclaimerOpen(true)
     }
   }, [])
 
   const acceptDisclaimer = () => {
-    sessionStorage.setItem("vca-disclaimer-accepted", "true")
+    localStorage.setItem("vca-disclaimer-accepted", "true")
     setDisclaimerOpen(false)
   }
 

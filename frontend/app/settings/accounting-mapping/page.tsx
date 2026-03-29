@@ -8,7 +8,7 @@ import { useCompanies } from "@/hooks/use-companies"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Plus, FileSpreadsheet, Edit2, Trash2, X, Check, Upload, Filter, ChevronDown, ChevronUp } from "lucide-react"
 import { useState, useEffect, useRef, useCallback } from "react"
-import { listAccountMappings, upsertAccountMappings, type AccountMappingData } from "@/lib/api"
+import { listAccountMappings, upsertAccountMappings, deleteAccountMapping, type AccountMappingData } from "@/lib/api"
 import * as XLSX from "xlsx"
 
 interface AccountMapping {
@@ -52,8 +52,10 @@ export default function AccountingMappingPage() {
   const [editingDivisionId, setEditingDivisionId] = useState<string | null>(null)
   const [editingSubDivisionId, setEditingSubDivisionId] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [importLoading, setImportLoading] = useState(false)
+  const [importMessage, setImportMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  
+
   // État pour la barre de contrôle d'importation (uniquement l'entité)
   const [importCompanyId, setImportCompanyId] = useState<string | null>(null)
   const [showImportSection, setShowImportSection] = useState(false)
@@ -88,18 +90,18 @@ export default function AccountingMappingPage() {
     return () => { cancelled = true }
   }, [importCompanyId])
 
-  const handleAddMapping = () => {
-    if (newAccountNumber.trim() && newAccountName.trim() && newLinkCodes.trim()) {
-      const newMapping: AccountMapping = {
-        id: Date.now().toString(),
-        accountNumber: newAccountNumber.trim(),
-        accountName: newAccountName.trim(),
-        linkCodes: newLinkCodes.trim(),
-        companyId: newCompanyId,
-        divisionId: newDivisionId,
-        subDivisionId: newSubDivisionId,
-      }
-      setMappings([...mappings, newMapping])
+  const handleAddMapping = async () => {
+    if (!newAccountNumber.trim() || !newAccountName.trim() || !newLinkCodes.trim() || !importCompanyId) return
+    setApiLoading(true)
+    try {
+      const saved = await upsertAccountMappings(importCompanyId, [{
+        account_number: newAccountNumber.trim(),
+        description: newAccountName.trim(),
+        link_code: newLinkCodes.trim(),
+        divisions: newDivisionId,
+        sub_divisions: newSubDivisionId,
+      }])
+      setMappings(saved.map((m) => apiToLocal(m, importCompanyId)))
       setNewAccountNumber("")
       setNewAccountName("")
       setNewLinkCodes("")
@@ -107,6 +109,10 @@ export default function AccountingMappingPage() {
       setNewDivisionId(null)
       setNewSubDivisionId(null)
       setIsAdding(false)
+    } catch {
+      // keep form open on error
+    } finally {
+      setApiLoading(false)
     }
   }
 
@@ -120,23 +126,18 @@ export default function AccountingMappingPage() {
     setEditingSubDivisionId(mapping.subDivisionId || null)
   }
 
-  const handleSaveEdit = (id: string) => {
-    if (editingAccountNumber.trim() && editingAccountName.trim() && editingLinkCodes.trim()) {
-      setMappings(
-        mappings.map((m) =>
-          m.id === id
-            ? {
-                ...m,
-                accountNumber: editingAccountNumber.trim(),
-                accountName: editingAccountName.trim(),
-                linkCodes: editingLinkCodes.trim(),
-                companyId: editingCompanyId,
-                divisionId: editingDivisionId,
-                subDivisionId: editingSubDivisionId,
-              }
-            : m
-        )
-      )
+  const handleSaveEdit = async (id: string) => {
+    if (!editingAccountNumber.trim() || !editingAccountName.trim() || !editingLinkCodes.trim() || !importCompanyId) return
+    setApiLoading(true)
+    try {
+      const saved = await upsertAccountMappings(importCompanyId, [{
+        account_number: editingAccountNumber.trim(),
+        description: editingAccountName.trim(),
+        link_code: editingLinkCodes.trim(),
+        divisions: editingDivisionId,
+        sub_divisions: editingSubDivisionId,
+      }])
+      setMappings(saved.map((m) => apiToLocal(m, importCompanyId)))
       setEditingId(null)
       setEditingAccountNumber("")
       setEditingAccountName("")
@@ -144,6 +145,10 @@ export default function AccountingMappingPage() {
       setEditingCompanyId(null)
       setEditingDivisionId(null)
       setEditingSubDivisionId(null)
+    } catch {
+      // keep edit form open on error
+    } finally {
+      setApiLoading(false)
     }
   }
 
@@ -157,17 +162,18 @@ export default function AccountingMappingPage() {
     setEditingSubDivisionId(null)
   }
 
-  const handleDeleteMapping = (id: string) => {
-    setMappings(mappings.filter((m) => m.id !== id))
-  }
-
-  const handleDeleteAllImports = () => {
-    if (confirm("Êtes-vous sûr de vouloir supprimer toutes les importations ?")) {
-      setMappings(mappings.filter((m) => !m.id.startsWith("imported-")))
+  const handleDeleteMapping = async (id: string) => {
+    if (!importCompanyId) return
+    setApiLoading(true)
+    try {
+      await deleteAccountMapping(importCompanyId, id)
+      setMappings(mappings.filter((m) => m.id !== id))
+    } catch {
+      // no-op
+    } finally {
+      setApiLoading(false)
     }
   }
-
-  const hasImportedMappings = mappings.some((m) => m.id.startsWith("imported-"))
 
   const getCompanyName = (companyId: string | null | undefined): string => {
     if (!companyId) return "-"
@@ -190,7 +196,7 @@ export default function AccountingMappingPage() {
     return subDivision?.name || "-"
   }
 
-  const parseExcelFile = (file: File) => {
+  const parseExcelFile = useCallback((file: File, companyId: string) => {
     const reader = new FileReader()
     reader.onload = (e) => {
       try {
@@ -208,52 +214,68 @@ export default function AccountingMappingPage() {
           accountNumber: String(row[0] || "").trim(),
           accountName: String(row[1] || "").trim(),
           linkCodes: String(row[2] || "").trim(),
-          companyId: importCompanyId,
+          companyId,
           divisionId: null,
           subDivisionId: null,
         })).filter((m) => m.accountNumber && m.accountName)
 
-        if (importedMappings.length > 0 && importCompanyId) {
-          // Persist imported mappings to API
-          const entries = importedMappings.map((m) => ({
-            account_number: m.accountNumber,
-            description: m.accountName,
-            link_code: m.linkCodes || null,
-          }))
-          upsertAccountMappings(importCompanyId, entries)
-            .then((saved) => {
-              setMappings([...mappings, ...saved.map((s) => apiToLocal(s, importCompanyId))])
-            })
-            .catch(() => {
-              // Fallback: add locally without persisting
-              setMappings([...mappings, ...importedMappings])
-            })
+        if (importedMappings.length === 0) {
+          setImportMessage({ type: "error", text: "Aucun compte trouvé. Vérifiez que le fichier contient les colonnes A=Numéro, B=Description, C=Code de liaison." })
+          setImportLoading(false)
+          return
         }
+
+        // Persist imported mappings to API
+        const entries = importedMappings.map((m) => ({
+          account_number: m.accountNumber,
+          description: m.accountName,
+          link_code: m.linkCodes || null,
+        }))
+        upsertAccountMappings(companyId, entries)
+          .then((saved) => {
+            setMappings((prev) => {
+              const savedIds = new Set(saved.map((s) => s.id))
+              const existing = prev.filter((m) => !savedIds.has(m.id))
+              return [...existing, ...saved.map((s) => apiToLocal(s, companyId))]
+            })
+            setImportMessage({ type: "success", text: `${saved.length} comptes importés avec succès.` })
+            setImportLoading(false)
+          })
+          .catch(() => {
+            setImportMessage({ type: "error", text: "Erreur lors de la sauvegarde. Veuillez réessayer." })
+            setImportLoading(false)
+          })
       } catch (error) {
         console.error("Erreur lors de l'importation du fichier Excel:", error)
-        alert("Erreur lors de l'importation du fichier Excel. Veuillez vérifier le format du fichier.")
+        setImportMessage({ type: "error", text: "Erreur lors de la lecture du fichier Excel. Vérifiez le format." })
+        setImportLoading(false)
       }
     }
     reader.readAsArrayBuffer(file)
-  }
+  }, [])
 
-  const handleFileSelect = (file: File) => {
-    if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls")) {
-      parseExcelFile(file)
-    } else {
-      alert("Veuillez sélectionner un fichier Excel (.xlsx ou .xls)")
+  const handleFileSelect = useCallback((file: File, companyId: string | null) => {
+    if (!companyId) {
+      setImportMessage({ type: "error", text: "Veuillez sélectionner une entité avant d'importer." })
+      return
     }
-  }
+    if (!file.name.endsWith(".xlsx") && !file.name.endsWith(".xls")) {
+      setImportMessage({ type: "error", text: "Veuillez sélectionner un fichier Excel (.xlsx ou .xls)" })
+      return
+    }
+    setImportMessage(null)
+    setImportLoading(true)
+    parseExcelFile(file, companyId)
+  }, [parseExcelFile])
 
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>, companyId: string | null) => {
     e.preventDefault()
     setIsDragging(false)
-
     const files = Array.from(e.dataTransfer.files)
     if (files.length > 0) {
-      handleFileSelect(files[0])
+      handleFileSelect(files[0], companyId)
     }
-  }, [])
+  }, [handleFileSelect])
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -265,16 +287,15 @@ export default function AccountingMappingPage() {
     setIsDragging(false)
   }, [])
 
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>, companyId: string | null) => {
     const files = e.target.files
     if (files && files.length > 0) {
-      handleFileSelect(files[0])
+      handleFileSelect(files[0], companyId)
     }
-    // Reset input
     if (fileInputRef.current) {
       fileInputRef.current.value = ""
     }
-  }
+  }, [handleFileSelect])
 
 
   return (
@@ -360,23 +381,21 @@ export default function AccountingMappingPage() {
                     </>
                   )}
                 </Button>
-                {hasImportedMappings && (
-                  <Button
-                    onClick={handleDeleteAllImports}
-                    variant="outline"
-                    size="sm"
-                    className="text-red-600 border-red-300 hover:bg-red-50 hover:border-red-400"
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Supprimer toutes les importations
-                  </Button>
-                )}
-              </div>
+                </div>
               
               {showImportSection && (
                 <div className="space-y-3">
+                  {importMessage && (
+                    <div className={`px-4 py-3 rounded-lg text-sm ${
+                      importMessage.type === "success"
+                        ? "bg-emerald-50 border border-emerald-200 text-emerald-700"
+                        : "bg-red-50 border border-red-200 text-red-700"
+                    }`}>
+                      {importMessage.text}
+                    </div>
+                  )}
                   <div
-                    onDrop={handleDrop}
+                    onDrop={(e) => handleDrop(e, importCompanyId)}
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onClick={() => fileInputRef.current?.click()}
@@ -390,17 +409,23 @@ export default function AccountingMappingPage() {
                       ref={fileInputRef}
                       type="file"
                       accept=".xlsx,.xls"
-                      onChange={handleFileInputChange}
+                      onChange={(e) => handleFileInputChange(e, importCompanyId)}
                       className="hidden"
                     />
                     <div className="flex flex-col items-center justify-center text-center">
-                      <Upload className={`w-8 h-8 mb-3 ${isDragging ? "text-blue-500" : "text-slate-400"}`} />
+                      {importLoading ? (
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mb-3" />
+                      ) : (
+                        <Upload className={`w-8 h-8 mb-3 ${isDragging ? "text-blue-500" : "text-slate-400"}`} />
+                      )}
                       <p className="text-sm font-medium text-slate-900 mb-1">
-                        Glissez-déposez un fichier Excel ici ou cliquez pour sélectionner
+                        {importLoading ? "Importation en cours..." : "Glissez-déposez un fichier Excel ici ou cliquez pour sélectionner"}
                       </p>
-                      <p className="text-xs text-slate-500">
-                        Format attendu : Colonne A = Numéro de compte, Colonne B = Description, Colonne C = Codes de liaison
-                      </p>
+                      {!importLoading && (
+                        <p className="text-xs text-slate-500">
+                          Format attendu : Colonne A = Numéro de compte, Colonne B = Description, Colonne C = Codes de liaison
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>

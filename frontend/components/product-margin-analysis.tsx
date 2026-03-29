@@ -1,22 +1,21 @@
 "use client"
 
-import { useState } from "react"
-import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
+import { useState, useEffect, useMemo } from "react"
+import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
-import type { SeriesRow, SeriesPeriod } from "@/lib/api"
+import type { SeriesRow, SeriesPeriod, AccountMappingData } from "@/lib/api"
+import { listAccountMappings, listProducts } from "@/lib/api"
 import { findRow } from "@/lib/series-utils"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Button } from "@/components/ui/button"
-import { ChevronDown, StickyNote } from "lucide-react"
+import { StickyNote } from "lucide-react"
 import { NoteModal } from "@/components/note-modal"
-import { getNoteByRowId } from "@/lib/notes-storage"
+import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { cn } from "@/lib/utils"
 
 interface ProductMarginAnalysisProps {
   period: "monthly" | "quarterly" | "annual"
   view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "24months" | "quarters" | "years"
   columnMode: "variations" | "percentage" | "comparison"
-  selectedProduct?: "total" | "product_a" | "product_b" | "service_c"
+  selectedProduct?: string
   companyId?: string | null
   divisionId?: string | null
   subDivisionId?: string | null
@@ -47,322 +46,367 @@ interface ProductRow {
   isResult?: boolean
   indent?: boolean
   accountId?: string
-  rowId?: string // Unique ID for notes
+  rowId?: string
 }
 
-// Helper functions to generate data
-const getProductAnalysisData = (
-  period: "monthly" | "quarterly" | "annual",
-  view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "24months" | "quarters" | "years",
-  selectedProduct: "total" | "product_a" | "product_b" | "service_c" = "total"
-): ProductRow[] => {
-  const periodMultiplier = period === "monthly" ? 1 : period === "quarterly" ? 3 : 12
-  
-  // Base values for Product A
-  const baseRevenueA = 120000 * periodMultiplier
-  const baseRevenueA1 = 80000 * periodMultiplier // Ventes - Services
-  const baseRevenueA2 = 40000 * periodMultiplier // Ventes - Produits
-  const baseCostsA = 72000 * periodMultiplier
-  const baseCostsA1 = 48000 * periodMultiplier // Coût - Services
-  const baseCostsA2 = 24000 * periodMultiplier // Coût - Produits
-  
-  // Base values for Product B
-  const baseRevenueB = 95000 * periodMultiplier
-  const baseRevenueB1 = 60000 * periodMultiplier // Ventes - Services
-  const baseRevenueB2 = 35000 * periodMultiplier // Ventes - Produits
-  const baseCostsB = 66500 * periodMultiplier
-  const baseCostsB1 = 42000 * periodMultiplier // Coût - Services
-  const baseCostsB2 = 24500 * periodMultiplier // Coût - Produits
-  
-  // Base values for Service C
-  const baseRevenueC = 60000 * periodMultiplier
-  const baseRevenueC1 = 60000 * periodMultiplier // Ventes - Services
-  const baseCostsC = 36000 * periodMultiplier
-  const baseCostsC1 = 36000 * periodMultiplier // Coût - Services
+/**
+ * For a given link_code, determine which product it belongs to.
+ * Returns the product name if ALL accounts with this link_code share
+ * the same product. Returns null if mixed or unassigned.
+ */
+function getProductForLinkCode(
+  linkCode: string,
+  mappings: AccountMappingData[]
+): string | null {
+  const matchingAccounts = mappings.filter(m => m.link_code === linkCode)
+  if (matchingAccounts.length === 0) return null
 
-  // Calculate totals (used for "total" selection)
-  const totalRevenue = baseRevenueA + baseRevenueB + baseRevenueC
-  const totalCosts = baseCostsA + baseCostsB + baseCostsC
-  const totalGrossProfit = totalRevenue - totalCosts
-  const totalGrossMargin = totalRevenue !== 0 ? (totalGrossProfit / totalRevenue) * 100 : 0
+  const products = new Set(
+    matchingAccounts.map(m => m.product).filter((p): p is string => !!p)
+  )
+  if (products.size === 1) return Array.from(products)[0]
+  return null
+}
 
-  if (view === "12months" || view === "24months" || view === "quarters" || view === "years") {
-    const count = view === "24months" ? 24 : view === "12months" ? 12 : view === "quarters" ? 5 : 6
-    const growthRate = view === "years" ? 0.08 : (view === "12months" || view === "24months") ? 0.02 : 0.03
-    
-    const generateTrend = (base: number) => {
-      return Array.from({ length: count }, (_, i) => {
-        const multiplier = 1 + (i * growthRate)
-        return base * multiplier
+/**
+ * Build per-product data from seriesRows and account mappings.
+ * Groups revenue and COGS detail rows by their product assignment.
+ */
+function buildProductData(
+  seriesRows: SeriesRow[],
+  periods: SeriesPeriod[],
+  mappings: AccountMappingData[],
+  productNames: string[],
+  view: string,
+  selectedProduct: string
+): ProductRow[] {
+  const revenueRow = findRow(seriesRows, "revenus") || findRow(seriesRows, "revenue")
+  const cogsRow = findRow(seriesRows, "coût des ventes") || findRow(seriesRows, "cost of sales")
+
+  if (!revenueRow && !cogsRow) return []
+
+  // Build per-product amounts for each period
+  // Map: productName -> { periodKey -> { revenue, costs } }
+  const productAmounts: Record<string, Record<string, { revenue: number; costs: number }>> = {}
+
+  for (const pName of productNames) {
+    productAmounts[pName] = {}
+    for (const p of periods) {
+      productAmounts[pName][`${p.fiscalYear}-${p.fiscalMonth}`] = { revenue: 0, costs: 0 }
+    }
+  }
+
+  // Process revenue detail rows
+  if (revenueRow?.detailRows) {
+    for (const dr of revenueRow.detailRows) {
+      const product = getProductForLinkCode(dr.id, mappings)
+      if (!product || !productAmounts[product]) continue
+      for (const p of periods) {
+        const key = `${p.fiscalYear}-${p.fiscalMonth}`
+        productAmounts[product][key].revenue += Math.abs(dr.amounts[key] || 0)
+      }
+    }
+  } else if (revenueRow) {
+    // No detail rows - try to assign the whole revenue row
+    // Check if all revenue-mapped accounts share a product
+    const revMappings = mappings.filter(m => m.link_code && revenueRow.id === m.link_code)
+    const product = revMappings.length > 0 ? getProductForLinkCode(revenueRow.id, mappings) : null
+    if (product && productAmounts[product]) {
+      for (const p of periods) {
+        const key = `${p.fiscalYear}-${p.fiscalMonth}`
+        productAmounts[product][key].revenue += Math.abs(revenueRow.amounts[key] || 0)
+      }
+    }
+  }
+
+  // Process COGS detail rows
+  if (cogsRow?.detailRows) {
+    for (const dr of cogsRow.detailRows) {
+      const product = getProductForLinkCode(dr.id, mappings)
+      if (!product || !productAmounts[product]) continue
+      for (const p of periods) {
+        const key = `${p.fiscalYear}-${p.fiscalMonth}`
+        productAmounts[product][key].costs += Math.abs(dr.amounts[key] || 0)
+      }
+    }
+  } else if (cogsRow) {
+    const product = getProductForLinkCode(cogsRow.id, mappings)
+    if (product && productAmounts[product]) {
+      for (const p of periods) {
+        const key = `${p.fiscalYear}-${p.fiscalMonth}`
+        productAmounts[product][key].costs += Math.abs(cogsRow.amounts[key] || 0)
+      }
+    }
+  }
+
+  // Also collect detail rows per product for individual product views
+  const productDetailRevenue: Record<string, Array<{ label: string; id: string; amounts: Record<string, number> }>> = {}
+  const productDetailCosts: Record<string, Array<{ label: string; id: string; amounts: Record<string, number> }>> = {}
+  for (const pName of productNames) {
+    productDetailRevenue[pName] = []
+    productDetailCosts[pName] = []
+  }
+
+  if (revenueRow?.detailRows) {
+    for (const dr of revenueRow.detailRows) {
+      const product = getProductForLinkCode(dr.id, mappings)
+      if (product && productDetailRevenue[product]) {
+        productDetailRevenue[product].push({ label: dr.label, id: dr.id, amounts: dr.amounts })
+      }
+    }
+  }
+  if (cogsRow?.detailRows) {
+    for (const dr of cogsRow.detailRows) {
+      const product = getProductForLinkCode(dr.id, mappings)
+      if (product && productDetailCosts[product]) {
+        productDetailCosts[product].push({ label: dr.label, id: dr.id, amounts: dr.amounts })
+      }
+    }
+  }
+
+  const isTrend = view === "12months" || view === "24months" || view === "quarters" || view === "years"
+
+  // Helper to build trend values for a product
+  const buildTrendValues = (pName: string) => {
+    return periods.map(p => {
+      const key = `${p.fiscalYear}-${p.fiscalMonth}`
+      const data = productAmounts[pName]?.[key] || { revenue: 0, costs: 0 }
+      const grossProfit = data.revenue - data.costs
+      const grossMargin = data.revenue !== 0 ? (grossProfit / data.revenue) * 100 : 0
+      return { revenue: data.revenue, costs: data.costs, grossProfit, grossMargin }
+    })
+  }
+
+  // Helper to get current/prior values for a product
+  const getCurrentPrior = (pName: string) => {
+    const lastP = periods[periods.length - 1]
+    const priorP = periods.length > 1 ? periods[periods.length - 2] : null
+    const lastKey = lastP ? `${lastP.fiscalYear}-${lastP.fiscalMonth}` : ""
+    const priorKey = priorP ? `${priorP.fiscalYear}-${priorP.fiscalMonth}` : ""
+
+    const data = productAmounts[pName] || {}
+    const current = data[lastKey] || { revenue: 0, costs: 0 }
+    const prior = priorKey ? (data[priorKey] || { revenue: 0, costs: 0 }) : { revenue: 0, costs: 0 }
+
+    return { current, prior }
+  }
+
+  const rows: ProductRow[] = []
+
+  if (selectedProduct === "total") {
+    // TOTAL view: aggregate all products
+    if (isTrend) {
+      const totalTrend = periods.map(p => {
+        const key = `${p.fiscalYear}-${p.fiscalMonth}`
+        let totalRev = 0, totalCost = 0
+        for (const pName of productNames) {
+          const d = productAmounts[pName]?.[key] || { revenue: 0, costs: 0 }
+          totalRev += d.revenue
+          totalCost += d.costs
+        }
+        const gp = totalRev - totalCost
+        const gm = totalRev !== 0 ? (gp / totalRev) * 100 : 0
+        return { revenue: totalRev, costs: totalCost, grossProfit: gp, grossMargin: gm }
+      })
+
+      rows.push({
+        label: "Revenus totaux", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        trendValues: totalTrend.map(t => ({ revenue: t.revenue, costs: 0, grossProfit: 0, grossMargin: 0 })),
+        isBold: true, isSubtotal: true, accountId: "total_revenue", rowId: "total_revenue",
+      })
+      rows.push({
+        label: "Coût des produits vendus totaux", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        trendValues: totalTrend.map(t => ({ revenue: 0, costs: t.costs, grossProfit: 0, grossMargin: 0 })),
+        isBold: true, isSubtotal: true, accountId: "total_cogs", rowId: "total_cogs",
+      })
+      rows.push({
+        label: "Bénéfice brut totaux", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        trendValues: totalTrend.map(t => ({ revenue: 0, costs: 0, grossProfit: t.grossProfit, grossMargin: t.grossMargin })),
+        isBold: true, isSubtotal: true, accountId: "total_gross_profit", rowId: "total_gross_profit",
+      })
+      rows.push({
+        label: "Marge brute (%)", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        trendValues: totalTrend.map(t => ({ revenue: 0, costs: 0, grossProfit: 0, grossMargin: t.grossMargin })),
+        isBold: true, isResult: true, accountId: "total_gross_margin", rowId: "total_gross_margin",
+      })
+    } else {
+      // Current/comparison/ytd/ddm
+      let totalRev = 0, totalCost = 0, totalRevPrior = 0, totalCostPrior = 0
+      for (const pName of productNames) {
+        const { current, prior } = getCurrentPrior(pName)
+        totalRev += current.revenue
+        totalCost += current.costs
+        totalRevPrior += prior.revenue
+        totalCostPrior += prior.costs
+      }
+      const gp = totalRev - totalCost
+      const gm = totalRev !== 0 ? (gp / totalRev) * 100 : 0
+      const gpPrior = totalRevPrior - totalCostPrior
+      const gmPrior = totalRevPrior !== 0 ? (gpPrior / totalRevPrior) * 100 : 0
+
+      rows.push({
+        label: "Revenus totaux", revenue: totalRev, costs: 0, grossProfit: 0, grossMargin: 0,
+        revenuePrior: totalRevPrior, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0,
+        isBold: true, isSubtotal: true, accountId: "total_revenue", rowId: "total_revenue",
+      })
+      rows.push({
+        label: "Coût des produits vendus totaux", revenue: 0, costs: totalCost, grossProfit: 0, grossMargin: 0,
+        revenuePrior: 0, costsPrior: totalCostPrior, grossProfitPrior: 0, grossMarginPrior: 0,
+        isBold: true, isSubtotal: true, accountId: "total_cogs", rowId: "total_cogs",
+      })
+      rows.push({
+        label: "Bénéfice brut totaux", revenue: 0, costs: 0, grossProfit: gp, grossMargin: gm,
+        revenuePrior: 0, costsPrior: 0, grossProfitPrior: gpPrior, grossMarginPrior: gmPrior,
+        isBold: true, isSubtotal: true, accountId: "total_gross_profit", rowId: "total_gross_profit",
       })
     }
-    
-    // Calculate totals for trend views
-    const totalRevenueTrend = generateTrend(totalRevenue)
-    const totalCostsTrend = generateTrend(totalCosts)
-    const totalGrossProfitTrend = totalRevenueTrend.map((rev, i) => rev - totalCostsTrend[i])
-    
-    // If "total" is selected, return only totals
-    if (selectedProduct === "total") {
-    return [
-        { label: "Revenus totaux", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: totalRevenueTrend.map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "total_revenue" },
-        { label: "Coût des produits vendus totaux", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: totalCostsTrend.map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "total_cogs" },
-        { label: "Bénéfice brut totaux", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: totalGrossProfitTrend.map((gp, i) => ({ revenue: 0, costs: 0, grossProfit: gp, grossMargin: totalRevenueTrend[i] !== 0 ? (gp / totalRevenueTrend[i]) * 100 : 0 })), isBold: true, isSubtotal: true, accountId: "total_gross_profit" },
-      ]
+  } else {
+    // Individual product view
+    const productName = selectedProduct
+    const revDetails = productDetailRevenue[productName] || []
+    const costDetails = productDetailCosts[productName] || []
+    const slug = productName.toLowerCase().replace(/\s+/g, "_")
+
+    if (isTrend) {
+      // Revenue section
+      rows.push({
+        label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        isBold: true, isSection: true, accountId: `${slug}_revenue_section`,
+      })
+      for (const dr of revDetails) {
+        const trend = periods.map(p => {
+          const key = `${p.fiscalYear}-${p.fiscalMonth}`
+          return { revenue: Math.abs(dr.amounts[key] || 0), costs: 0, grossProfit: 0, grossMargin: 0 }
+        })
+        rows.push({
+          label: dr.label, revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+          trendValues: trend, indent: true,
+          accountId: `${slug}_rev_${dr.id}`, rowId: `${slug}_rev_${dr.id}`,
+        })
+      }
+      // Total revenue
+      const revTrend = buildTrendValues(productName)
+      rows.push({
+        label: "Total Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        trendValues: revTrend.map(t => ({ revenue: t.revenue, costs: 0, grossProfit: 0, grossMargin: 0 })),
+        isBold: true, isSubtotal: true,
+        accountId: `${slug}_revenue_total`, rowId: `${slug}_revenue_total`,
+      })
+      rows.push({ label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 })
+
+      // COGS section
+      rows.push({
+        label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        isBold: true, isSection: true, accountId: `${slug}_cogs_section`,
+      })
+      for (const dr of costDetails) {
+        const trend = periods.map(p => {
+          const key = `${p.fiscalYear}-${p.fiscalMonth}`
+          return { revenue: 0, costs: Math.abs(dr.amounts[key] || 0), grossProfit: 0, grossMargin: 0 }
+        })
+        rows.push({
+          label: dr.label, revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+          trendValues: trend, indent: true,
+          accountId: `${slug}_cost_${dr.id}`, rowId: `${slug}_cost_${dr.id}`,
+        })
+      }
+      // Total COGS
+      rows.push({
+        label: "Total COGS", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        trendValues: revTrend.map(t => ({ revenue: 0, costs: t.costs, grossProfit: 0, grossMargin: 0 })),
+        isBold: true, isSubtotal: true,
+        accountId: `${slug}_cogs_total`, rowId: `${slug}_cogs_total`,
+      })
+      rows.push({ label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 })
+
+      // Gross profit
+      rows.push({
+        label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        trendValues: revTrend.map(t => ({ revenue: 0, costs: 0, grossProfit: t.grossProfit, grossMargin: t.grossMargin })),
+        isBold: true, isResult: true,
+        accountId: `${slug}_gross_profit`, rowId: `${slug}_gross_profit`,
+      })
+      rows.push({
+        label: "Marge brute (%)", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        trendValues: revTrend.map(t => ({ revenue: 0, costs: 0, grossProfit: 0, grossMargin: t.grossMargin })),
+        isBold: true, isResult: true,
+        accountId: `${slug}_gross_margin`, rowId: `${slug}_gross_margin`,
+      })
+    } else {
+      // Current/comparison/ytd/ddm views
+      const { current, prior } = getCurrentPrior(productName)
+      const lastP = periods[periods.length - 1]
+      const priorP = periods.length > 1 ? periods[periods.length - 2] : null
+      const lastKey = lastP ? `${lastP.fiscalYear}-${lastP.fiscalMonth}` : ""
+      const priorKey = priorP ? `${priorP.fiscalYear}-${priorP.fiscalMonth}` : ""
+
+      // Revenue section
+      rows.push({
+        label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0,
+        isBold: true, isSection: true, accountId: `${slug}_revenue_section`,
+      })
+      for (const dr of revDetails) {
+        const val = Math.abs(dr.amounts[lastKey] || 0)
+        const valPrior = priorKey ? Math.abs(dr.amounts[priorKey] || 0) : 0
+        rows.push({
+          label: dr.label, revenue: val, costs: 0, grossProfit: 0, grossMargin: 0,
+          revenuePrior: valPrior, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0,
+          indent: true,
+          accountId: `${slug}_rev_${dr.id}`, rowId: `${slug}_rev_${dr.id}`,
+        })
+      }
+      rows.push({
+        label: "Total Revenus", revenue: current.revenue, costs: 0, grossProfit: 0, grossMargin: 0,
+        revenuePrior: prior.revenue, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0,
+        isBold: true, isSubtotal: true,
+        accountId: `${slug}_revenue_total`, rowId: `${slug}_revenue_total`,
+      })
+      rows.push({
+        label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0,
+      })
+
+      // COGS section
+      rows.push({
+        label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0,
+        isBold: true, isSection: true, accountId: `${slug}_cogs_section`,
+      })
+      for (const dr of costDetails) {
+        const val = Math.abs(dr.amounts[lastKey] || 0)
+        const valPrior = priorKey ? Math.abs(dr.amounts[priorKey] || 0) : 0
+        rows.push({
+          label: dr.label, revenue: 0, costs: val, grossProfit: 0, grossMargin: 0,
+          revenuePrior: 0, costsPrior: valPrior, grossProfitPrior: 0, grossMarginPrior: 0,
+          indent: true,
+          accountId: `${slug}_cost_${dr.id}`, rowId: `${slug}_cost_${dr.id}`,
+        })
+      }
+      rows.push({
+        label: "Total COGS", revenue: 0, costs: current.costs, grossProfit: 0, grossMargin: 0,
+        revenuePrior: 0, costsPrior: prior.costs, grossProfitPrior: 0, grossMarginPrior: 0,
+        isBold: true, isSubtotal: true,
+        accountId: `${slug}_cogs_total`, rowId: `${slug}_cogs_total`,
+      })
+      rows.push({
+        label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0,
+        revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0,
+      })
+
+      // Gross profit
+      const gp = current.revenue - current.costs
+      const gpPrior = prior.revenue - prior.costs
+      rows.push({
+        label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: gp, grossMargin: 0,
+        revenuePrior: 0, costsPrior: 0, grossProfitPrior: gpPrior, grossMarginPrior: 0,
+        isBold: true, isResult: true,
+        accountId: `${slug}_gross_profit`, rowId: `${slug}_gross_profit`,
+      })
     }
-    
-    // Filter by selected product for trend views
-    let productTrendRows: ProductRow[] = []
-    
-    if (selectedProduct === "product_a") {
-      productTrendRows = [
-        // PRODUIT A (section header removed - shown in card title)
-        { label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "product_a_revenue_section" },
-        { label: "Ventes - Services", revenue: baseRevenueA1, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueA1).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_a_revenue_services", rowId: "product_a_revenue_services" },
-        { label: "Ventes - Produits", revenue: baseRevenueA2, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueA2).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_a_revenue_products", rowId: "product_a_revenue_products" },
-        { label: "Total Revenus", revenue: baseRevenueA, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueA).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "product_a_revenue_total", rowId: "product_a_revenue_total" },
-        { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-        { label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "product_a_cogs_section" },
-        { label: "Coût - Services", revenue: 0, costs: baseCostsA1, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsA1).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_a_cogs_services", rowId: "product_a_cogs_services" },
-        { label: "Coût - Produits", revenue: 0, costs: baseCostsA2, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsA2).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_a_cogs_products", rowId: "product_a_cogs_products" },
-        { label: "Total COGS", revenue: 0, costs: baseCostsA, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsA).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "product_a_cogs_total", rowId: "product_a_cogs_total" },
-        { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-        { label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueA).map((r, i) => {
-          const costs = generateTrend(baseCostsA)[i]
-          const grossProfit = r - costs
-          const grossMargin = r !== 0 ? (grossProfit / r) * 100 : 0
-          return { revenue: 0, costs: 0, grossProfit, grossMargin }
-        }), isBold: true, isResult: true, accountId: "product_a_gross_profit", rowId: "product_a_gross_profit" },
-        { label: "Marge brute (%)", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueA).map((r, i) => {
-          const costs = generateTrend(baseCostsA)[i]
-          const grossProfit = r - costs
-          const grossMargin = r !== 0 ? (grossProfit / r) * 100 : 0
-          return { revenue: 0, costs: 0, grossProfit: 0, grossMargin }
-        }), isBold: true, isResult: true, accountId: "product_a_gross_margin", rowId: "product_a_gross_margin" },
-      ]
-    } else if (selectedProduct === "product_b") {
-      productTrendRows = [
-        // PRODUIT B (section header removed - shown in card title)
-        { label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "product_b_revenue_section" },
-        { label: "Ventes - Services", revenue: baseRevenueB1, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueB1).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_b_revenue_services", rowId: "product_b_revenue_services" },
-        { label: "Ventes - Produits", revenue: baseRevenueB2, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueB2).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_b_revenue_products", rowId: "product_b_revenue_products" },
-        { label: "Total Revenus", revenue: baseRevenueB, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueB).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "product_b_revenue_total", rowId: "product_b_revenue_total" },
-        { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-        { label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "product_b_cogs_section" },
-        { label: "Coût - Services", revenue: 0, costs: baseCostsB1, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsB1).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_b_cogs_services", rowId: "product_b_cogs_services" },
-        { label: "Coût - Produits", revenue: 0, costs: baseCostsB2, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsB2).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_b_cogs_products", rowId: "product_b_cogs_products" },
-        { label: "Total COGS", revenue: 0, costs: baseCostsB, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsB).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "product_b_cogs_total", rowId: "product_b_cogs_total" },
-        { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-        { label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueB).map((r, i) => {
-          const costs = generateTrend(baseCostsB)[i]
-          const grossProfit = r - costs
-          const grossMargin = r !== 0 ? (grossProfit / r) * 100 : 0
-          return { revenue: 0, costs: 0, grossProfit, grossMargin }
-        }), isBold: true, isResult: true, accountId: "product_b_gross_profit", rowId: "product_b_gross_profit" },
-        { label: "Marge brute (%)", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueB).map((r, i) => {
-          const costs = generateTrend(baseCostsB)[i]
-          const grossProfit = r - costs
-          const grossMargin = r !== 0 ? (grossProfit / r) * 100 : 0
-          return { revenue: 0, costs: 0, grossProfit: 0, grossMargin }
-        }), isBold: true, isResult: true, accountId: "product_b_gross_margin", rowId: "product_b_gross_margin" },
-      ]
-    } else if (selectedProduct === "service_c") {
-      productTrendRows = [
-        // SERVICE C (section header removed - shown in card title)
-        { label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "service_c_revenue_section" },
-        { label: "Ventes - Services", revenue: baseRevenueC1, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueC1).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "service_c_revenue_services", rowId: "service_c_revenue_services" },
-        { label: "Total Revenus", revenue: baseRevenueC, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueC).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "service_c_revenue_total", rowId: "service_c_revenue_total" },
-        { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-        { label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "service_c_cogs_section" },
-        { label: "Coût - Services", revenue: 0, costs: baseCostsC1, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsC1).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "service_c_cogs_services", rowId: "service_c_cogs_services" },
-        { label: "Total COGS", revenue: 0, costs: baseCostsC, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsC).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "service_c_cogs_total", rowId: "service_c_cogs_total" },
-        { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-        { label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueC).map((r, i) => {
-          const costs = generateTrend(baseCostsC)[i]
-          const grossProfit = r - costs
-          const grossMargin = r !== 0 ? (grossProfit / r) * 100 : 0
-          return { revenue: 0, costs: 0, grossProfit, grossMargin }
-        }), isBold: true, isResult: true, accountId: "service_c_gross_profit", rowId: "service_c_gross_profit" },
-        { label: "Marge brute (%)", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueC).map((r, i) => {
-          const costs = generateTrend(baseCostsC)[i]
-          const grossProfit = r - costs
-          const grossMargin = r !== 0 ? (grossProfit / r) * 100 : 0
-          return { revenue: 0, costs: 0, grossProfit: 0, grossMargin }
-        }), isBold: true, isResult: true, accountId: "service_c_gross_margin", rowId: "service_c_gross_margin" },
-      ]
-    }
-    
-    return productTrendRows.length > 0 ? productTrendRows : [
-      // PRODUIT A
-      { label: "PRODUIT A", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "product_a_section" },
-      { label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "product_a_revenue_section" },
-      { label: "Ventes - Services", revenue: baseRevenueA1, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueA1).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_a_revenue_services" },
-      { label: "Ventes - Produits", revenue: baseRevenueA2, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueA2).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_a_revenue_products" },
-      { label: "Total Revenus", revenue: baseRevenueA, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueA).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "product_a_revenue_total" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-      { label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "product_a_cogs_section" },
-      { label: "Coût - Services", revenue: 0, costs: baseCostsA1, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsA1).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_a_cogs_services" },
-      { label: "Coût - Produits", revenue: 0, costs: baseCostsA2, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsA2).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_a_cogs_products" },
-      { label: "Total COGS", revenue: 0, costs: baseCostsA, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsA).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "product_a_cogs_total" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-      { label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueA).map((r, i) => ({ revenue: 0, costs: 0, grossProfit: r - generateTrend(baseCostsA)[i], grossMargin: 0 })), isBold: true, isResult: true, accountId: "product_a_gross_profit" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-      
-      // PRODUIT B
-      { label: "PRODUIT B", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "product_b_section" },
-      { label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "product_b_revenue_section" },
-      { label: "Ventes - Services", revenue: baseRevenueB1, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueB1).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_b_revenue_services" },
-      { label: "Ventes - Produits", revenue: baseRevenueB2, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueB2).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_b_revenue_products" },
-      { label: "Total Revenus", revenue: baseRevenueB, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueB).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "product_b_revenue_total" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-      { label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "product_b_cogs_section" },
-      { label: "Coût - Services", revenue: 0, costs: baseCostsB1, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsB1).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_b_cogs_services" },
-      { label: "Coût - Produits", revenue: 0, costs: baseCostsB2, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsB2).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "product_b_cogs_products" },
-      { label: "Total COGS", revenue: 0, costs: baseCostsB, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsB).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "product_b_cogs_total" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-      { label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueB).map((r, i) => ({ revenue: 0, costs: 0, grossProfit: r - generateTrend(baseCostsB)[i], grossMargin: 0 })), isBold: true, isResult: true, accountId: "product_b_gross_profit" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-      
-      // SERVICE C
-      { label: "SERVICE C", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "service_c_section" },
-      { label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "service_c_revenue_section" },
-      { label: "Ventes - Services", revenue: baseRevenueC1, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueC1).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "service_c_revenue_services" },
-      { label: "Total Revenus", revenue: baseRevenueC, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueC).map(r => ({ revenue: r, costs: 0, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "service_c_revenue_total" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-      { label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, isBold: true, isSection: true, accountId: "service_c_cogs_section" },
-      { label: "Coût - Services", revenue: 0, costs: baseCostsC1, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsC1).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), indent: true, accountId: "service_c_cogs_services" },
-      { label: "Total COGS", revenue: 0, costs: baseCostsC, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseCostsC).map(c => ({ revenue: 0, costs: c, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "service_c_cogs_total" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0 },
-      { label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: generateTrend(baseRevenueC).map((r, i) => ({ revenue: 0, costs: 0, grossProfit: r - generateTrend(baseCostsC)[i], grossMargin: 0 })), isBold: true, isResult: true, accountId: "service_c_gross_profit" },
-    ]
   }
-  
-  // Current view
-  const priorRevenueA = baseRevenueA * 0.92
-  const priorRevenueA1 = baseRevenueA1 * 0.92
-  const priorRevenueA2 = baseRevenueA2 * 0.92
-  const priorCostsA = baseCostsA * 0.92
-  const priorCostsA1 = baseCostsA1 * 0.92
-  const priorCostsA2 = baseCostsA2 * 0.92
-  
-  const priorRevenueB = baseRevenueB * 0.92
-  const priorRevenueB1 = baseRevenueB1 * 0.92
-  const priorRevenueB2 = baseRevenueB2 * 0.92
-  const priorCostsB = baseCostsB * 0.92
-  const priorCostsB1 = baseCostsB1 * 0.92
-  const priorCostsB2 = baseCostsB2 * 0.92
-  
-  const priorRevenueC = baseRevenueC * 0.92
-  const priorRevenueC1 = baseRevenueC1 * 0.92
-  const priorCostsC = baseCostsC * 0.92
-  const priorCostsC1 = baseCostsC1 * 0.92
-  
-  // Calculate totals for prior period
-  const totalRevenuePrior = priorRevenueA + priorRevenueB + priorRevenueC
-  const totalCostsPrior = priorCostsA + priorCostsB + priorCostsC
-  const totalGrossProfitPrior = totalRevenuePrior - totalCostsPrior
-  const totalGrossMarginPrior = totalRevenuePrior !== 0 ? (totalGrossProfitPrior / totalRevenuePrior) * 100 : 0
-  
-  // If "total" is selected, return only totals
-  if (selectedProduct === "total") {
-  return [
-      { label: "Revenus totaux", revenue: totalRevenue, costs: 0, grossProfit: totalGrossProfit, grossMargin: totalGrossMargin, revenuePrior: totalRevenuePrior, costsPrior: 0, grossProfitPrior: totalGrossProfitPrior, grossMarginPrior: totalGrossMarginPrior, isBold: true, isSubtotal: true, accountId: "total_revenue", rowId: "total_revenue" },
-      { label: "Coût des produits vendus totaux", revenue: 0, costs: totalCosts, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: totalCostsPrior, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "total_cogs", rowId: "total_cogs" },
-      { label: "Bénéfice brut totaux", revenue: 0, costs: 0, grossProfit: totalGrossProfit, grossMargin: totalGrossMargin, revenuePrior: 0, costsPrior: 0, grossProfitPrior: totalGrossProfitPrior, grossMarginPrior: totalGrossMarginPrior, isBold: true, isSubtotal: true, accountId: "total_gross_profit", rowId: "total_gross_profit" },
-    ]
-  }
-  
-  // Filter by selected product
-  let productRows: ProductRow[] = []
-  
-  if (selectedProduct === "product_a") {
-    productRows = [
-      // PRODUIT A (section header removed - shown in card title)
-      { label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "product_a_revenue_section" },
-      { label: "Ventes - Services", revenue: baseRevenueA1, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueA1, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_a_revenue_services", rowId: "product_a_revenue_services" },
-      { label: "Ventes - Produits", revenue: baseRevenueA2, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueA2, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_a_revenue_products", rowId: "product_a_revenue_products" },
-      { label: "Total Revenus", revenue: baseRevenueA, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueA, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "product_a_revenue_total", rowId: "product_a_revenue_total" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-      { label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "product_a_cogs_section" },
-      { label: "Coût - Services", revenue: 0, costs: baseCostsA1, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsA1, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_a_cogs_services", rowId: "product_a_cogs_services" },
-      { label: "Coût - Produits", revenue: 0, costs: baseCostsA2, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsA2, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_a_cogs_products", rowId: "product_a_cogs_products" },
-      { label: "Total COGS", revenue: 0, costs: baseCostsA, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsA, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "product_a_cogs_total", rowId: "product_a_cogs_total" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-      { label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: baseRevenueA - baseCostsA, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: priorRevenueA - priorCostsA, grossMarginPrior: 0, isBold: true, isResult: true, accountId: "product_a_gross_profit", rowId: "product_a_gross_profit" },
-    ]
-  } else if (selectedProduct === "product_b") {
-    productRows = [
-      // PRODUIT B (section header removed - shown in card title)
-      { label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "product_b_revenue_section" },
-      { label: "Ventes - Services", revenue: baseRevenueB1, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueB1, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_b_revenue_services", rowId: "product_b_revenue_services" },
-      { label: "Ventes - Produits", revenue: baseRevenueB2, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueB2, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_b_revenue_products", rowId: "product_b_revenue_products" },
-      { label: "Total Revenus", revenue: baseRevenueB, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueB, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "product_b_revenue_total", rowId: "product_b_revenue_total" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-      { label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "product_b_cogs_section" },
-      { label: "Coût - Services", revenue: 0, costs: baseCostsB1, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsB1, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_b_cogs_services", rowId: "product_b_cogs_services" },
-      { label: "Coût - Produits", revenue: 0, costs: baseCostsB2, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsB2, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_b_cogs_products", rowId: "product_b_cogs_products" },
-      { label: "Total COGS", revenue: 0, costs: baseCostsB, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsB, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "product_b_cogs_total", rowId: "product_b_cogs_total" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-      { label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: baseRevenueB - baseCostsB, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: priorRevenueB - priorCostsB, grossMarginPrior: 0, isBold: true, isResult: true, accountId: "product_b_gross_profit", rowId: "product_b_gross_profit" },
-    ]
-  } else if (selectedProduct === "service_c") {
-    productRows = [
-      // SERVICE C (section header removed - shown in card title)
-      { label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "service_c_revenue_section" },
-      { label: "Ventes - Services", revenue: baseRevenueC1, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueC1, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "service_c_revenue_services", rowId: "service_c_revenue_services" },
-      { label: "Total Revenus", revenue: baseRevenueC, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueC, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "service_c_revenue_total", rowId: "service_c_revenue_total" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-      { label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "service_c_cogs_section" },
-      { label: "Coût - Services", revenue: 0, costs: baseCostsC1, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsC1, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "service_c_cogs_services", rowId: "service_c_cogs_services" },
-      { label: "Total COGS", revenue: 0, costs: baseCostsC, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsC, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "service_c_cogs_total", rowId: "service_c_cogs_total" },
-      { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-      { label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: baseRevenueC - baseCostsC, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: priorRevenueC - priorCostsC, grossMarginPrior: 0, isBold: true, isResult: true, accountId: "service_c_gross_profit", rowId: "service_c_gross_profit" },
-    ]
-  }
-  
-  return productRows.length > 0 ? productRows : [
-    // PRODUIT A
-    { label: "PRODUIT A", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "product_a_section" },
-    { label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "product_a_revenue_section" },
-    { label: "Ventes - Services", revenue: baseRevenueA1, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueA1, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_a_revenue_services" },
-    { label: "Ventes - Produits", revenue: baseRevenueA2, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueA2, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_a_revenue_products" },
-    { label: "Total Revenus", revenue: baseRevenueA, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueA, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "product_a_revenue_total" },
-    { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-    { label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "product_a_cogs_section" },
-    { label: "Coût - Services", revenue: 0, costs: baseCostsA1, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsA1, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_a_cogs_services" },
-    { label: "Coût - Produits", revenue: 0, costs: baseCostsA2, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsA2, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_a_cogs_products" },
-    { label: "Total COGS", revenue: 0, costs: baseCostsA, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsA, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "product_a_cogs_total" },
-    { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-    { label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: baseRevenueA - baseCostsA, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: priorRevenueA - priorCostsA, grossMarginPrior: 0, isBold: true, isResult: true, accountId: "product_a_gross_profit" },
-    { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-    
-    // PRODUIT B
-    { label: "PRODUIT B", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "product_b_section" },
-    { label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "product_b_revenue_section" },
-    { label: "Ventes - Services", revenue: baseRevenueB1, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueB1, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_b_revenue_services" },
-    { label: "Ventes - Produits", revenue: baseRevenueB2, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueB2, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_b_revenue_products" },
-    { label: "Total Revenus", revenue: baseRevenueB, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueB, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "product_b_revenue_total" },
-    { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-    { label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "product_b_cogs_section" },
-    { label: "Coût - Services", revenue: 0, costs: baseCostsB1, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsB1, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_b_cogs_services" },
-    { label: "Coût - Produits", revenue: 0, costs: baseCostsB2, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsB2, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "product_b_cogs_products" },
-    { label: "Total COGS", revenue: 0, costs: baseCostsB, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsB, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "product_b_cogs_total" },
-    { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-    { label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: baseRevenueB - baseCostsB, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: priorRevenueB - priorCostsB, grossMarginPrior: 0, isBold: true, isResult: true, accountId: "product_b_gross_profit" },
-    { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-    
-    // SERVICE C
-    { label: "SERVICE C", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "service_c_section" },
-    { label: "Revenus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "service_c_revenue_section" },
-    { label: "Ventes - Services", revenue: baseRevenueC1, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueC1, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "service_c_revenue_services" },
-    { label: "Total Revenus", revenue: baseRevenueC, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: priorRevenueC, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "service_c_revenue_total" },
-    { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-    { label: "Coût des produits vendus", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSection: true, accountId: "service_c_cogs_section" },
-    { label: "Coût - Services", revenue: 0, costs: baseCostsC1, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsC1, grossProfitPrior: 0, grossMarginPrior: 0, indent: true, accountId: "service_c_cogs_services" },
-    { label: "Total COGS", revenue: 0, costs: baseCostsC, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: priorCostsC, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "service_c_cogs_total" },
-    { label: "", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0 },
-    { label: "Bénéfice brut", revenue: 0, costs: 0, grossProfit: baseRevenueC - baseCostsC, grossMargin: 0, revenuePrior: 0, costsPrior: 0, grossProfitPrior: priorRevenueC - priorCostsC, grossMarginPrior: 0, isBold: true, isResult: true, accountId: "service_c_gross_profit" },
-  ]
+
+  return rows
 }
 
 export function ProductMarginAnalysis({
@@ -377,6 +421,7 @@ export function ProductMarginAnalysis({
   seriesRows = [],
   periods: seriesPeriods = [],
 }: ProductMarginAnalysisProps) {
+  useNotesCache(companyId ?? null)
   const [noteModalOpen, setNoteModalOpen] = useState(false)
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null)
   const [selectedRowLabel, setSelectedRowLabel] = useState<string>("")
@@ -386,106 +431,86 @@ export function ProductMarginAnalysis({
     variationPercent?: number | null
     variationAmount?: number | null
   }>({})
-  const [notesUpdated, setNotesUpdated] = useState(0) // Force re-render when notes change
+  const [notesUpdated, setNotesUpdated] = useState(0)
+
+  // Fetch account mappings and products
+  const [accountMappings, setAccountMappings] = useState<AccountMappingData[]>([])
+  const [productNames, setProductNames] = useState<string[]>([])
+  const [loadingMappings, setLoadingMappings] = useState(false)
+
+  useEffect(() => {
+    if (!companyId) {
+      setAccountMappings([])
+      setProductNames([])
+      return
+    }
+    setLoadingMappings(true)
+    Promise.all([
+      listAccountMappings(companyId),
+      listProducts(companyId),
+    ])
+      .then(([mappings, products]) => {
+        setAccountMappings(mappings)
+        const names = products.map(p => p.name).sort()
+        setProductNames(names)
+      })
+      .catch(() => {
+        setAccountMappings([])
+        setProductNames([])
+      })
+      .finally(() => setLoadingMappings(false))
+  }, [companyId])
 
   const hasRealData = seriesRows.length > 0 && seriesPeriods.length > 0
+  const hasProducts = productNames.length > 0
+  const hasProductMappings = accountMappings.some(m => !!m.product)
 
-  // Build ProductRow[] from real IS series data
-  const buildFromSeries = (): ProductRow[] => {
-    const revenueRow = findRow(seriesRows, "revenus") || findRow(seriesRows, "revenue")
-    const cogsRow = findRow(seriesRows, "coût des ventes") || findRow(seriesRows, "cost of sales")
-    const grossProfitRow = findRow(seriesRows, "bénéfice brut") || findRow(seriesRows, "gross profit")
+  // Build product data from real series + mappings
+  const productData = useMemo<ProductRow[]>(() => {
+    if (!hasRealData || !hasProductMappings) return []
+    return buildProductData(
+      seriesRows, seriesPeriods, accountMappings, productNames, view, selectedProduct
+    )
+  }, [hasRealData, hasProductMappings, seriesRows, seriesPeriods, accountMappings, productNames, view, selectedProduct])
 
-    if (view === "12months" || view === "24months" || view === "quarters" || view === "years") {
-      const trendValues = seriesPeriods.map(p => {
-        const key = `${p.fiscalYear}-${p.fiscalMonth}`
-        const revenue = Math.abs(revenueRow?.amounts[key] || 0)
-        const costs = Math.abs(cogsRow?.amounts[key] || 0)
-        const grossProfit = grossProfitRow?.amounts[key] || (revenue - costs)
-        const grossMargin = revenue !== 0 ? (grossProfit / revenue) * 100 : 0
-        return { revenue, costs, grossProfit, grossMargin }
-      })
-      return [
-        { label: "Revenus totaux", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: trendValues.map(t => ({ revenue: t.revenue, costs: 0, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "total_revenue", rowId: "total_revenue" },
-        { label: "Coût des produits vendus totaux", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: trendValues.map(t => ({ revenue: 0, costs: t.costs, grossProfit: 0, grossMargin: 0 })), isBold: true, isSubtotal: true, accountId: "total_cogs", rowId: "total_cogs" },
-        { label: "Bénéfice brut totaux", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: trendValues.map(t => ({ revenue: 0, costs: 0, grossProfit: t.grossProfit, grossMargin: t.grossMargin })), isBold: true, isSubtotal: true, accountId: "total_gross_profit", rowId: "total_gross_profit" },
-        { label: "Marge brute (%)", revenue: 0, costs: 0, grossProfit: 0, grossMargin: 0, trendValues: trendValues.map(t => ({ revenue: 0, costs: 0, grossProfit: 0, grossMargin: t.grossMargin })), isBold: true, isResult: true, accountId: "total_gross_margin", rowId: "total_gross_margin" },
-      ]
+  // Build per-product data for "comparison" column mode
+  const productDataByName = useMemo<Record<string, ProductRow[]>>(() => {
+    if (!hasRealData || !hasProductMappings || columnMode !== "comparison") return {}
+    const result: Record<string, ProductRow[]> = {}
+    for (const pName of productNames) {
+      result[pName] = buildProductData(
+        seriesRows, seriesPeriods, accountMappings, productNames, view, pName
+      )
     }
+    return result
+  }, [hasRealData, hasProductMappings, seriesRows, seriesPeriods, accountMappings, productNames, view, columnMode])
 
-    // Comparison/ytd/ddm views: current vs prior period
-    const lastP = seriesPeriods[seriesPeriods.length - 1]
-    const priorP = seriesPeriods.length > 1 ? seriesPeriods[seriesPeriods.length - 2] : null
-    const lastKey = lastP ? `${lastP.fiscalYear}-${lastP.fiscalMonth}` : ""
-    const priorKey = priorP ? `${priorP.fiscalYear}-${priorP.fiscalMonth}` : ""
-
-    const rev = Math.abs(revenueRow?.amounts[lastKey] || 0)
-    const cog = Math.abs(cogsRow?.amounts[lastKey] || 0)
-    const gp = grossProfitRow?.amounts[lastKey] || (rev - cog)
-    const gm = rev !== 0 ? (gp / rev) * 100 : 0
-
-    const revPrior = priorKey ? Math.abs(revenueRow?.amounts[priorKey] || 0) : 0
-    const cogPrior = priorKey ? Math.abs(cogsRow?.amounts[priorKey] || 0) : 0
-    const gpPrior = priorKey ? (grossProfitRow?.amounts[priorKey] || (revPrior - cogPrior)) : 0
-    const gmPrior = revPrior !== 0 ? (gpPrior / revPrior) * 100 : 0
-
-    return [
-      { label: "Revenus totaux", revenue: rev, costs: 0, grossProfit: 0, grossMargin: 0, revenuePrior: revPrior, costsPrior: 0, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "total_revenue", rowId: "total_revenue" },
-      { label: "Coût des produits vendus totaux", revenue: 0, costs: cog, grossProfit: 0, grossMargin: 0, revenuePrior: 0, costsPrior: cogPrior, grossProfitPrior: 0, grossMarginPrior: 0, isBold: true, isSubtotal: true, accountId: "total_cogs", rowId: "total_cogs" },
-      { label: "Bénéfice brut totaux", revenue: 0, costs: 0, grossProfit: gp, grossMargin: gm, revenuePrior: 0, costsPrior: 0, grossProfitPrior: gpPrior, grossMarginPrior: gmPrior, isBold: true, isSubtotal: true, accountId: "total_gross_profit", rowId: "total_gross_profit" },
-    ]
-  }
-
-  // Use real data when available, show empty state otherwise
-  const productData = hasRealData ? buildFromSeries() : []
-
-  // Get data for each product for comparison mode (empty when no real data)
-  const productAData: ProductRow[] = []
-  const productBData: ProductRow[] = []
-  const productCData: ProductRow[] = []
-  
   // Helper function to get value for a specific product and row label
-  const getProductValue = (productRows: ProductRow[], label: string): number => {
-    // Map labels from "total" view to individual product labels
+  const getProductValue = (pName: string, label: string): number => {
+    const pRows = productDataByName[pName] || []
     const labelMap: Record<string, string> = {
       "Revenus totaux": "Total Revenus",
       "Coût des produits vendus totaux": "Total COGS",
       "Bénéfice brut totaux": "Bénéfice brut",
     }
-    
-    // Try to find exact match first
-    let row = productRows.find(r => r.label === label)
-    
-    // If not found, try mapped label
+    let row = pRows.find(r => r.label === label)
     if (!row && labelMap[label]) {
-      row = productRows.find(r => r.label === labelMap[label])
+      row = pRows.find(r => r.label === labelMap[label])
     }
-    
-    // If still not found, try to find by partial match (for section headers)
     if (!row) {
-      if (label === "Revenus totaux" || label === "Revenus") {
-        row = productRows.find(r => r.label === "Total Revenus" || r.label === "Revenus")
-      } else if (label === "Coût des produits vendus totaux" || label === "Coût des produits vendus") {
-        row = productRows.find(r => r.label === "Total COGS" || r.label === "Coût des produits vendus")
-      } else if (label === "Bénéfice brut totaux" || label === "Bénéfice brut") {
-        row = productRows.find(r => r.label === "Bénéfice brut")
-      }
+      if (label.includes("Revenus")) row = pRows.find(r => r.label === "Total Revenus")
+      else if (label.includes("Coût")) row = pRows.find(r => r.label === "Total COGS")
+      else if (label.includes("Bénéfice")) row = pRows.find(r => r.label === "Bénéfice brut")
     }
-    
     if (!row) return 0
-    
-    // For current view, use prior values if available, otherwise current
+
     if (view === "comparison" || view === "ytd" || view === "ddm") {
-      const current = row.grossProfit !== 0 ? row.grossProfit : row.revenue !== 0 ? row.revenue : row.costs !== 0 ? row.costs : 0
-      return current
+      return row.grossProfit !== 0 ? row.grossProfit : row.revenue !== 0 ? row.revenue : row.costs !== 0 ? row.costs : 0
     }
-    
-    // For trend views, get the last value
     if (row.trendValues && row.trendValues.length > 0) {
-      const lastTrend = row.trendValues[row.trendValues.length - 1]
-      return lastTrend.grossProfit !== 0 ? lastTrend.grossProfit : lastTrend.revenue !== 0 ? lastTrend.revenue : lastTrend.costs !== 0 ? lastTrend.costs : 0
+      const last = row.trendValues[row.trendValues.length - 1]
+      return last.grossProfit !== 0 ? last.grossProfit : last.revenue !== 0 ? last.revenue : last.costs !== 0 ? last.costs : 0
     }
-    
     return 0
   }
 
@@ -497,6 +522,7 @@ export function ProductMarginAnalysis({
     if (view === "ytd") return "YTD"
     if (view === "ddm") return "DDM"
     if (view === "12months") return "12 mois"
+    if (view === "24months") return "24 mois"
     if (view === "quarters") return "Trimestres"
     if (view === "years") return "Années"
     return "Courant"
@@ -508,15 +534,7 @@ export function ProductMarginAnalysis({
     return ((current - prior) / prior) * 100
   }
 
-  // Get column count based on view
-  const getColumnCount = (): number => {
-    if (view === "current") return 8 // Poste + Revenus + Charges + Bénéfice brut + Marge brute (Courant et Passé)
-    if (view === "12months") return 14 // Poste + 12 mois
-    if (view === "years") return 8 // Poste + 6 années
-    return 8
-  }
-
-  // Get month labels
+  // Get month labels (fallback when no real data)
   const getMonthLabels = (count: number): string[] => {
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
     const labels: string[] = []
@@ -528,7 +546,7 @@ export function ProductMarginAnalysis({
     return labels
   }
 
-  // Get quarter labels
+  // Get quarter labels (fallback)
   const getQuarterLabels = (): string[] => {
     const currentDate = new Date()
     const labels: string[] = []
@@ -540,29 +558,43 @@ export function ProductMarginAnalysis({
     return labels
   }
 
-  // Get year labels
+  // Get year labels (fallback)
   const getYearLabels = (): string[] => {
     const currentYear = new Date().getFullYear()
     return Array.from({ length: 6 }, (_, i) => `${currentYear - 5 + i}`)
   }
 
-  // Get product name for title
+  // Get product display name for title
   const getProductName = (): string => {
-    switch (selectedProduct) {
-      case "product_a":
-        return "Produit A"
-      case "product_b":
-        return "Produit B"
-      case "service_c":
-        return "Service C"
-      case "total":
-      default:
-        return ""
-    }
+    if (selectedProduct === "total" || !selectedProduct) return ""
+    return selectedProduct
   }
 
   const productName = getProductName()
   const title = productName ? `Analyse par produit - ${productName}` : "Analyse par produit"
+
+  // Determine empty state message
+  const getEmptyMessage = () => {
+    if (loadingMappings) {
+      return { title: "Chargement...", description: "Récupération des données produits en cours." }
+    }
+    if (!hasRealData) {
+      return {
+        title: "Aucune donnée disponible",
+        description: "Importez une balance de vérification et configurez les structures d'états financiers pour voir l'analyse des marges.",
+      }
+    }
+    if (!hasProductMappings) {
+      return {
+        title: "Aucun produit configuré",
+        description: "Assignez des produits dans le mapping comptable pour voir l'analyse des marges par produit.",
+      }
+    }
+    return {
+      title: "Aucune donnée disponible",
+      description: "Aucune donnée trouvée pour les filtres sélectionnés.",
+    }
+  }
 
   return (
     <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
@@ -602,17 +634,20 @@ export function ProductMarginAnalysis({
       </div>
 
       {/* Empty state when no data */}
-      {productData.length === 0 && (
-        <div className="bg-white px-8 py-16 text-center">
-          <div className="text-slate-400 mb-2">
-            <svg className="w-12 h-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
+      {productData.length === 0 && (() => {
+        const msg = getEmptyMessage()
+        return (
+          <div className="bg-white px-8 py-16 text-center">
+            <div className="text-slate-400 mb-2">
+              <svg className="w-12 h-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium text-slate-900 mb-1">{msg.title}</h3>
+            <p className="text-sm text-slate-500">{msg.description}</p>
           </div>
-          <h3 className="text-lg font-medium text-slate-900 mb-1">Aucune donnée disponible</h3>
-          <p className="text-sm text-slate-500">Importez une balance de vérification et configurez les mappings de produits pour voir l'analyse des marges.</p>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Table */}
       {productData.length > 0 && (
@@ -640,15 +675,15 @@ export function ProductMarginAnalysis({
               )}
               {view === "comparison" && columnMode === "comparison" && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Produit A</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Produit B</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Service C</th>
+                  {productNames.map(pName => (
+                    <th key={pName} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{pName}</th>
+                  ))}
                 </>
               )}
               {view === "ytd" && columnMode !== "comparison" && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD 2024</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD 2023</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD courant</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD précédent</th>
                   {columnMode === "variations" ? (
                     <>
                       <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
@@ -664,9 +699,9 @@ export function ProductMarginAnalysis({
               )}
               {view === "ytd" && columnMode === "comparison" && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Produit A</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Produit B</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Service C</th>
+                  {productNames.map(pName => (
+                    <th key={pName} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{pName}</th>
+                  ))}
                 </>
               )}
               {view === "ddm" && columnMode !== "comparison" && (
@@ -688,9 +723,9 @@ export function ProductMarginAnalysis({
               )}
               {view === "ddm" && columnMode === "comparison" && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Produit A</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Produit B</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Service C</th>
+                  {productNames.map(pName => (
+                    <th key={pName} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{pName}</th>
+                  ))}
                 </>
               )}
               {view === "12months" && (
@@ -729,15 +764,14 @@ export function ProductMarginAnalysis({
               const isSection = row.isSection || false
               const isSubtotal = row.isSubtotal || false
               const isSpacer = row.label === ""
-              
-              // Check if next row is "Total Revenus", "Total COGS", or "Bénéfice brut"
+
               const nextRow = rowIndex < productData.length - 1 ? productData[rowIndex + 1] : null
               const nextRowIsTotal = nextRow && (
-                nextRow.label === "Total Revenus" || 
+                nextRow.label === "Total Revenus" ||
                 nextRow.label === "Total COGS" ||
                 nextRow.label === "Bénéfice brut"
               )
-              
+
               return (
                 <tr
                   key={rowIndex}
@@ -758,7 +792,7 @@ export function ProductMarginAnalysis({
                         const prior = row.grossProfitPrior !== undefined && row.grossProfitPrior !== 0 ? row.grossProfitPrior : row.revenuePrior !== undefined && row.revenuePrior !== 0 ? row.revenuePrior : row.costsPrior !== undefined && row.costsPrior !== 0 ? row.costsPrior : 0
                         const variation = current && prior ? calculateVariation(current, prior) : null
                         const variationAmount = current && prior ? current - prior : 0
-                        
+
                         return (
                           <button
                             onClick={(e) => {
@@ -797,7 +831,7 @@ export function ProductMarginAnalysis({
                         const totalRevenue = productData.find(r => r.label === "Revenus totaux" || r.label === "Total Revenus")?.revenue || productData.find(r => r.label === "Revenus")?.revenue || 0
                         const currentPercentage = totalRevenue !== 0 ? (current / totalRevenue) * 100 : 0
                         const priorPercentage = totalRevenue !== 0 ? (prior / totalRevenue) * 100 : 0
-                        
+
                         return (
                           <>
                             <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${isSpacer ? "text-white" : ""}`}>
@@ -834,22 +868,16 @@ export function ProductMarginAnalysis({
                   {view === "comparison" && columnMode === "comparison" && (
                     <>
                       {(() => {
-                        // Get values for each product based on row label
-                        const valueA = getProductValue(productAData, row.label)
-                        const valueB = getProductValue(productBData, row.label)
-                        const valueC = getProductValue(productCData, row.label)
-                        
                         return (
                           <>
-                            <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${isSpacer ? "text-white" : ""}`}>
-                              {isSpacer ? "-" : (valueA !== 0 ? formatCurrency(valueA) : "-")}
-                            </td>
-                            <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${isSpacer ? "text-white" : ""}`}>
-                              {isSpacer ? "-" : (valueB !== 0 ? formatCurrency(valueB) : "-")}
-                            </td>
-                            <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${isSpacer ? "text-white" : ""}`}>
-                              {isSpacer ? "-" : (valueC !== 0 ? formatCurrency(valueC) : "-")}
-                            </td>
+                            {productNames.map(pName => {
+                              const val = getProductValue(pName, row.label)
+                              return (
+                                <td key={pName} className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${isSpacer ? "text-white" : ""}`}>
+                                  {isSpacer ? "-" : (val !== 0 ? formatCurrency(val) : "-")}
+                                </td>
+                              )
+                            })}
                           </>
                         )
                       })()}
@@ -865,7 +893,7 @@ export function ProductMarginAnalysis({
                         const totalRevenue = productData.find(r => r.label === "Revenus totaux" || r.label === "Total Revenus")?.revenue || productData.find(r => r.label === "Revenus")?.revenue || 0
                         const currentPercentage = totalRevenue !== 0 ? (current / totalRevenue) * 100 : 0
                         const priorPercentage = totalRevenue !== 0 ? (prior / totalRevenue) * 100 : 0
-                        
+
                         return (
                           <>
                             <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${isSpacer ? "text-white" : ""}`}>
@@ -902,33 +930,26 @@ export function ProductMarginAnalysis({
                   {(view === "ytd" || view === "ddm") && columnMode === "comparison" && (
                     <>
                       {(() => {
-                        // Get values for each product based on row label
-                        const valueA = getProductValue(productAData, row.label)
-                        const valueB = getProductValue(productBData, row.label)
-                        const valueC = getProductValue(productCData, row.label)
-                        
                         return (
                           <>
-                            <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${isSpacer ? "text-white" : ""}`}>
-                              {isSpacer ? "-" : (valueA !== 0 ? formatCurrency(valueA) : "-")}
-                            </td>
-                            <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${isSpacer ? "text-white" : ""}`}>
-                              {isSpacer ? "-" : (valueB !== 0 ? formatCurrency(valueB) : "-")}
-                            </td>
-                            <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${isSpacer ? "text-white" : ""}`}>
-                              {isSpacer ? "-" : (valueC !== 0 ? formatCurrency(valueC) : "-")}
-                            </td>
+                            {productNames.map(pName => {
+                              const val = getProductValue(pName, row.label)
+                              return (
+                                <td key={pName} className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${isSpacer ? "text-white" : ""}`}>
+                                  {isSpacer ? "-" : (val !== 0 ? formatCurrency(val) : "-")}
+                                </td>
+                              )
+                            })}
                           </>
                         )
                       })()}
                     </>
                   )}
-                  {(view === "12months" || view === "quarters" || view === "years") && (
+                  {(view === "12months" || view === "24months" || view === "quarters" || view === "years") && (
                     <>
                       {row.trendValues?.map((trend, idx) => {
-                        // Check if this is the "Marge brute (%)" row
                         const isGrossMarginRow = row.label === "Marge brute (%)"
-                        
+
                         return (
                           <td key={idx} className={`px-4 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${isSpacer ? "text-white" : ""}`}>
                             {isSpacer ? "-" : isGrossMarginRow && trend.grossMargin !== undefined && trend.grossMargin !== 0 ? (
@@ -941,7 +962,7 @@ export function ProductMarginAnalysis({
                       })}
                       {!row.trendValues && (
                         <>
-                          {Array.from({ length: view === "12months" ? 12 : view === "quarters" ? 5 : 6 }).map((_, idx) => (
+                          {Array.from({ length: view === "12months" ? 12 : view === "24months" ? 24 : view === "quarters" ? 5 : 6 }).map((_, idx) => (
                             <td key={idx} className="px-4 py-3 text-right font-semibold text-white">
                               -
                             </td>
@@ -963,7 +984,7 @@ export function ProductMarginAnalysis({
         const selectedCompany = companyId ? companies.find((c) => c.id === companyId) : null
         const selectedDivision = companyId && divisionId ? selectedCompany?.divisions.find((d) => d.id === divisionId) : null
         const selectedSubDivision = companyId && divisionId && subDivisionId ? selectedDivision?.subDivisions.find((sd) => sd.id === subDivisionId) : null
-        
+
         return (
           <NoteModal
             isOpen={noteModalOpen}
@@ -994,4 +1015,3 @@ export function ProductMarginAnalysis({
     </div>
   )
 }
-

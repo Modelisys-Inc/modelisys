@@ -48,8 +48,9 @@ export default function CashFlowPage() {
 
   // Date reference state (month and year)
   const currentDate = new Date()
+  const defaultYear = currentDate.getMonth() < 3 ? currentDate.getFullYear() - 1 : currentDate.getFullYear()
   const [selectedMonth, setSelectedMonth] = useState<number>(currentDate.getMonth() + 1) // 1-12
-  const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear())
+  const [selectedYear, setSelectedYear] = useState<number>(defaultYear)
 
   // Load budgets from API
   const [budgets, setBudgets] = useState<Array<{ id: string; name: string }>>([])
@@ -88,6 +89,7 @@ export default function CashFlowPage() {
   // --- Fetch financial statement data from the API ---
   const [rows, setRows] = useState<FinancialStatementRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [resolvedCompanyId, setResolvedCompanyId] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -95,15 +97,25 @@ export default function CashFlowPage() {
       try {
         const apiCompanies = await listCompanies()
         const companyId = selectedCompanyId || apiCompanies[0]?.id
+        setResolvedCompanyId(companyId || null)
         if (!companyId) {
           setRows([])
           return
         }
 
+        // Determine the API period parameter based on the view
+        // For YTD view, use "ytd" period; for DDM, use "annual" (last 12 months)
+        let apiPeriod: string = period
+        if (view === "ytd") {
+          apiPeriod = "ytd"
+        } else if (view === "ddm") {
+          apiPeriod = "annual"
+        }
+
         const params: FinancialStatementParams = {
           fiscal_year: selectedYear,
           month: selectedMonth,
-          period: period,
+          period: apiPeriod,
           comparison_type: comparisonType,
           budget_id: comparisonType === "budget" && selectedBudgetId ? selectedBudgetId : undefined,
           division_id: selectedDivisionId || undefined,
@@ -463,7 +475,7 @@ export default function CashFlowPage() {
           <CashFlowChart
             period={period}
             view={view}
-            companyId={selectedCompanyId}
+            companyId={selectedCompanyId || resolvedCompanyId}
             divisionId={selectedDivisionId}
             subDivisionId={selectedSubDivisionId}
             companies={companies}
@@ -534,7 +546,7 @@ export default function CashFlowPage() {
               period={period}
               view={view}
               columnMode={columnMode}
-              companyId={selectedCompanyId}
+              companyId={resolvedCompanyId}
               divisionId={selectedDivisionId}
               subDivisionId={selectedSubDivisionId}
               companies={companies}
@@ -550,7 +562,7 @@ export default function CashFlowPage() {
               period={period}
               view={view}
               columnMode={columnMode}
-              companyId={selectedCompanyId}
+              companyId={resolvedCompanyId}
               divisionId={selectedDivisionId}
               subDivisionId={selectedSubDivisionId}
               companies={companies}
@@ -567,3 +579,4 @@ export default function CashFlowPage() {
     </div>
   )
 }
+

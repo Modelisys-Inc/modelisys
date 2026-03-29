@@ -2,57 +2,55 @@
 
 import { useEffect, useRef, useState } from "react"
 import { FileBarChart, TrendingUp, Calculator, FileText, Building2, ArrowRight, Users, CheckCircle2, Calendar, DollarSign, BarChart3, LineChart, PieChart, Shield, AlertTriangle, UserCog, Zap, StickyNote } from "lucide-react"
+import { LANDING_FEATURE_ANCHORS } from "@/lib/landing-feature-anchors"
 
-const features = [
+const featureDetails = [
   {
-    title: "Consolidation financière avancée",
     description: "Consolidez automatiquement toutes vos entités avec élimination des transactions inter-sociétés. Visualisez vos états financiers consolidés en temps réel par société, division ou sous-division avec intégration API simplifiée.",
     icon: FileBarChart,
-    benefits: ["Consolidation multi-niveaux", "Élimination automatique", "Vue en temps réel"]
+    benefits: ["Consolidation multi-niveaux", "Élimination automatique", "Vue en temps réel"],
   },
   {
-    title: "Analyse du fonds de roulement et des capex",
     description: "Suivez en détail vos cycles de conversion (DSO, DIO, DPO, CCC) et analysez votre fonds de roulement net. Optimisez vos investissements en capital avec des analyses de rentabilité et une planification budgétaire précise.",
     icon: TrendingUp,
-    benefits: ["Cycles de conversion", "Optimisation Capex", "Planification budgétaire"]
+    benefits: ["Cycles de conversion", "Optimisation Capex", "Planification budgétaire"],
   },
   {
-    title: "Prévisions financières et budgets",
     description: "Créez des projections financières annuelles et mensuelles avec modélisation multi-scénarios sur 5 ans. Établissez vos budgets par entité avec suivi des écarts et ajustements dynamiques en temps réel.",
     icon: Calculator,
-    benefits: ["Multi-scénarios", "Suivi des écarts", "Ajustements dynamiques"]
+    benefits: ["Multi-scénarios", "Suivi des écarts", "Ajustements dynamiques"],
   },
   {
-    title: "Analyse financière approfondie",
     description: "Analysez votre rentabilité de manière granulaire par produit, client, division ou projet. Calculez automatiquement vos ratios financiers et identifiez les tendances de saisonnalité pour optimiser votre performance.",
     icon: FileText,
-    benefits: ["Rentabilité granulaire", "Ratios automatiques", "Tableaux de bord KPI"]
+    benefits: ["Rentabilité granulaire", "Ratios automatiques", "Tableaux de bord KPI"],
   },
   {
-    title: "Valorisation et diagnostic d'entreprise",
     description: "Suivez l'évolution de votre valeur d'entreprise en temps réel avec calcul automatique des multiples. Effectuez un diagnostic approfondi de votre modèle d'affaires et identifiez les facteurs de risque influençant votre valorisation.",
     icon: Building2,
-    benefits: ["Suivi en temps réel", "Diagnostic approfondi", "Optimisation de la valeur"]
+    benefits: ["Suivi en temps réel", "Diagnostic approfondi", "Optimisation de la valeur"],
   },
   {
-    title: "Documentation comptable structurée",
     description: "Optimisez votre processus de clôture comptable en organisant systématiquement tous les documents justificatifs. Structurez et classez vos pièces comptables par compte, période et catégorie pour une traçabilité complète et une accessibilité optimale.",
     icon: Calendar,
-    benefits: ["Organisation systématique", "Documentation continue", "Traçabilité complète"]
+    benefits: ["Organisation systématique", "Documentation continue", "Traçabilité complète"],
   },
   {
-    title: "Notes d'analyse et variations",
     description: "Prenez des notes lors de vos analyses financières pour documenter les variations importantes et faciliter le suivi. Associez des notes explicatives détaillées à vos comptes, périodes et analyses pour conserver le contexte et le raisonnement derrière vos décisions.",
     icon: StickyNote,
-    benefits: ["Notes contextuelles", "Suivi des variations", "Documentation du raisonnement"]
+    benefits: ["Notes contextuelles", "Suivi des variations", "Documentation du raisonnement"],
   },
   {
-    title: "Portail collaboratif sécurisé",
     description: "Partagez l'accès à votre plateforme avec vos partenaires financiers de confiance via un portail sécurisé. Contrôlez les permissions de manière granulaire et suivez tous les accès pour une collaboration transparente.",
     icon: Users,
-    benefits: ["Accès sécurisé", "Permissions granulaires", "Collaboration en temps réel"]
+    benefits: ["Accès sécurisé", "Permissions granulaires", "Collaboration en temps réel"],
   },
-]
+] as const
+
+const features = LANDING_FEATURE_ANCHORS.map((anchor, i) => ({
+  ...anchor,
+  ...featureDetails[i],
+}))
 
 // Dashboard Visualization Components
 function ConsolidationDashboard() {
@@ -597,7 +595,7 @@ export function FeaturesSection() {
   }, [])
 
   return (
-    <section id="features" ref={sectionRef} className="py-24 sm:py-32 relative z-10 bg-gradient-to-b from-white via-slate-50 to-white overflow-hidden">
+    <section id="features" ref={sectionRef} className="scroll-mt-24 py-24 sm:py-32 relative z-10 bg-gradient-to-b from-white via-slate-50 to-white overflow-hidden">
       {/* Subtle Background Effects */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-slate-200/20 rounded-full blur-3xl"></div>
@@ -635,7 +633,11 @@ export function FeaturesSection() {
             const showIntroSection = index === 5
 
             return (
-              <div key={index} className={showIntroSection ? "mt-64 sm:mt-80 md:mt-96" : ""}>
+              <div
+                key={index}
+                id={feature.slug}
+                className={`scroll-mt-28 ${showIntroSection ? "mt-64 sm:mt-80 md:mt-96" : ""}`}
+              >
                 {showIntroSection && (
                   <div
                     className={`mb-16 transition-all duration-1000 ${

@@ -64,14 +64,14 @@ export default function DCFPage() {
 
   // Check if disclaimer was accepted in session storage
   useEffect(() => {
-    const accepted = sessionStorage.getItem("dcf-disclaimer-accepted")
+    const accepted = localStorage.getItem("dcf-disclaimer-accepted")
     if (accepted === "true") {
       setHasAcceptedDisclaimer(true)
     }
   }, [])
 
   const handleAcceptDisclaimer = () => {
-    sessionStorage.setItem("dcf-disclaimer-accepted", "true")
+    localStorage.setItem("dcf-disclaimer-accepted", "true")
     setHasAcceptedDisclaimer(true)
   }
 

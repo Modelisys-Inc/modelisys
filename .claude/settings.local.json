@@ -5,7 +5,8 @@
       "Bash(git add:*)",
       "Bash(docker compose:*)",
       "Bash(git commit:*)",
-      "Bash(git push)"
+      "Bash(git push)",
+      "Bash(find 'e:/Alex/Documents/Alexandre Moreau Inc/Modelisys/Modelisys' -type f \\\\\\(-name *.sh -o -name Dockerfile -o -name docker-compose.yml -o -name .env* \\\\\\))"
     ]
   }
 }

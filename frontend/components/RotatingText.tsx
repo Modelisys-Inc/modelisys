@@ -63,29 +63,31 @@ const RotatingText = forwardRef<any, RotatingTextProps>((props, ref) => {
     return Array.from(text)
   }
 
-  const elements = useMemo(() => {
+  type WordElement = { characters: string[]; needsSpace: boolean }
+
+  const elements = useMemo((): WordElement[] => {
     const currentText = texts[currentTextIndex]
     if (splitBy === "characters") {
       const words = currentText.split(" ")
-      return words.map((word, i) => ({
+      return words.map((word: string, i: number) => ({
         characters: splitIntoCharacters(word),
         needsSpace: i !== words.length - 1,
       }))
     }
     if (splitBy === "words") {
-      return currentText.split(" ").map((word, i, arr) => ({
+      return currentText.split(" ").map((word: string, i: number, arr: string[]) => ({
         characters: [word],
         needsSpace: i !== arr.length - 1,
       }))
     }
     if (splitBy === "lines") {
-      return currentText.split("\n").map((line, i, arr) => ({
+      return currentText.split("\n").map((line: string, i: number, arr: string[]) => ({
         characters: [line],
         needsSpace: i !== arr.length - 1,
       }))
     }
 
-    return currentText.split(splitBy).map((part, i, arr) => ({
+    return currentText.split(splitBy).map((part: string, i: number, arr: string[]) => ({
       characters: [part],
       needsSpace: i !== arr.length - 1,
     }))
@@ -174,11 +176,11 @@ const RotatingText = forwardRef<any, RotatingTextProps>((props, ref) => {
           layout
           aria-hidden="true"
         >
-          {elements.map((wordObj, wordIndex, array) => {
-            const previousCharsCount = array.slice(0, wordIndex).reduce((sum, word) => sum + word.characters.length, 0)
+          {elements.map((wordObj: WordElement, wordIndex: number, array: WordElement[]) => {
+            const previousCharsCount = array.slice(0, wordIndex).reduce((sum: number, word: WordElement) => sum + word.characters.length, 0)
             return (
               <span key={wordIndex} className={cn("text-rotate-word", splitLevelClassName)}>
-                {wordObj.characters.map((char, charIndex) => (
+                {wordObj.characters.map((char: string, charIndex: number) => (
                   <motion.span
                     key={charIndex}
                     initial={initial}
@@ -188,7 +190,7 @@ const RotatingText = forwardRef<any, RotatingTextProps>((props, ref) => {
                       ...transition,
                       delay: getStaggerDelay(
                         previousCharsCount + charIndex,
-                        array.reduce((sum, word) => sum + word.characters.length, 0),
+                        array.reduce((sum: number, word: WordElement) => sum + word.characters.length, 0),
                       ),
                     }}
                     className={cn("text-rotate-element", elementLevelClassName)}

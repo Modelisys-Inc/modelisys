@@ -392,11 +392,8 @@ export function FDRForecastDetail({
         // Direct amount for manual type
         calculatedValue = adjustment.value
       } else if (fdrType === "percentRevenue" || fdrType === "percentCost") {
-        // For percentage types, the adjustment value is the percentage
-        // We need to calculate based on revenue or cost
-        // For now, we'll use the adjustment value as a direct percentage
-        // This will need to be calculated based on actual revenue/cost values
-        calculatedValue = adjustment.value // This will be the percentage value
+        // Apply the percentage to the base balance sheet value
+        calculatedValue = defaultValue * (adjustment.value / 100)
       }
     }
     
@@ -831,9 +828,18 @@ export function FDRForecastDetail({
         }}
         rowId={selectedRowId || ""}
         rowLabel={selectedRowLabel}
-        financialData={selectedRowFinancialData}
         page="fdr"
-        onNoteSaved={() => {
+        period={period}
+        view={view}
+        companyId={companyId}
+        divisionId={divisionId}
+        subDivisionId={subDivisionId}
+        currentAmount={selectedRowFinancialData.currentAmount}
+        priorAmount={selectedRowFinancialData.priorAmount}
+        variationPercent={selectedRowFinancialData.variationPercent}
+        variationAmount={selectedRowFinancialData.variationAmount}
+        onSave={() => {
+          setNoteModalOpen(false)
           setNotesUpdated((prev) => prev + 1)
         }}
       />

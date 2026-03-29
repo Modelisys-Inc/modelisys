@@ -1,0 +1,25 @@
+[     168ms] [WARNING] OptanonConsent cookie not found @ https://clickup.com/lp?utm_source=google&utm_medium=cpc&utm_campaign=gs_cpc_na_nnc_brand_trial_all-devices_troas_lp_x_all-departments_x_brand&utm_content=all-countries_kw-target_text_all-industries_all-features_all-use-cases_clickup_broad&utm_term=clickup&utm_creative=651395099168_BrandChampion-03072023_rsa&utm_custom1=&utm_custom2=&utm_lptheme=&utm_lpmod=&utm_mt=b&gad_source=1&gad_campaignid=19826757550&gbraid=0AAAAACR5vIIuLkrg9E7Gx3vafJbI2ZI7e&gclid=EAIaIQobChMIt92e262HkwMVOFBHAR0hCCncEAAYASAAEgI6SfD_BwE:376
+[     221ms] [WARNING] Allow attribute will take precedence over 'allowfullscreen'. @ https://clickup.com/lp?utm_source=google&utm_medium=cpc&utm_campaign=gs_cpc_na_nnc_brand_trial_all-devices_troas_lp_x_all-departments_x_brand&utm_content=all-countries_kw-target_text_all-industries_all-features_all-use-cases_clickup_broad&utm_term=clickup&utm_creative=651395099168_BrandChampion-03072023_rsa&utm_custom1=&utm_custom2=&utm_lptheme=&utm_lpmod=&utm_mt=b&gad_source=1&gad_campaignid=19826757550&gbraid=0AAAAACR5vIIuLkrg9E7Gx3vafJbI2ZI7e&gclid=EAIaIQobChMIt92e262HkwMVOFBHAR0hCCncEAAYASAAEgI6SfD_BwE:468
+[     734ms] [WARNING] Datadog Browser SDK: env value doesn't meet tag requirements and will be sanitized. More details: https://docs.datadoghq.com/getting_started/tagging/#defining-tags @ https://clickup.com/_next/static/chunks/pages/_app-493bafdb3e9f9496.js:0
+[     734ms] [WARNING] Datadog Browser SDK: version value doesn't meet tag requirements and will be sanitized. More details: https://docs.datadoghq.com/getting_started/tagging/#defining-tags @ https://clickup.com/_next/static/chunks/pages/_app-493bafdb3e9f9496.js:0
+[    1525ms] SyntaxError: "undefined" is not valid JSON
+    at JSON.parse (<anonymous>)
+    at <anonymous>:1:353
+    at https://www.googletagmanager.com/gtm.js?id=GTM-K6XH984&l=dataLayer:949:429
+    at eR (https://www.googletagmanager.com/gtm.js?id=GTM-K6XH984&l=dataLayer:951:31)
+    at Od.dR (https://www.googletagmanager.com/gtm.js?id=GTM-K6XH984&l=dataLayer:948:92)
+    at Od.<anonymous> (https://www.googletagmanager.com/gtm.js?id=GTM-K6XH984&l=dataLayer:391:187)
+    at k.apply (https://www.googletagmanager.com/gtm.js?id=GTM-K6XH984&l=dataLayer:316:466)
+    at kb (https://www.googletagmanager.com/gtm.js?id=GTM-K6XH984&l=dataLayer:278:209)
+    at jb (https://www.googletagmanager.com/gtm.js?id=GTM-K6XH984&l=dataLayer:277:527)
+    at Od.<anonymous> (https://www.googletagmanager.com/gtm.js?id=GTM-K6XH984&l=dataLayer:340:473)
+[    1800ms] [WARNING] Unsupported tag command "s" @ https://c.amazon-adsystem.com/aat/amzn.js:1
+[    1800ms] [WARNING] Unsupported tag command "a" @ https://c.amazon-adsystem.com/aat/amzn.js:1
+[    1800ms] [WARNING] Unsupported tag command "t" @ https://c.amazon-adsystem.com/aat/amzn.js:1
+[    1800ms] [ERROR] Error processing event queue Unsupported tag command "s" @ https://clickup.com/_next/static/chunks/pages/_app-493bafdb3e9f9496.js:0
+[    1863ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://b.applovin.com/v1/pixel:0
+[    2640ms] Uncaught ReferenceError: revealCallback is not defined
+    at <anonymous> (https://reveal.clearbit.com/v1/companies/reveal?authorization=pk_77a36b09108b9b80c547cddad434b648&callback=revealCallback:0:0)
+[    3245ms] [ERROR] Attestation check for Attribution Reporting on https://www.facebook.com failed. @ https://clickup.com/lp?utm_source=google&utm_medium=cpc&utm_campaign=gs_cpc_na_nnc_brand_trial_all-devices_troas_lp_x_all-departments_x_brand&utm_content=all-countries_kw-target_text_all-industries_all-features_all-use-cases_clickup_broad&utm_term=clickup&utm_creative=651395099168_BrandChampion-03072023_rsa&utm_custom1=&utm_custom2=&utm_lptheme=&utm_lpmod=&utm_mt=b&gad_source=1&gad_campaignid=19826757550&gbraid=0AAAAACR5vIIuLkrg9E7Gx3vafJbI2ZI7e&gclid=EAIaIQobChMIt92e262HkwMVOFBHAR0hCCncEAAYASAAEgI6SfD_BwE:0
+[    3680ms] [WARNING] Amplitude Logger [Warn]: TypeError: Failed to fetch @ https://clickup.com/_next/static/chunks/pages/_app-493bafdb3e9f9496.js:0
+[    3702ms] [ERROR] Attestation check for Attribution Reporting on https://www.facebook.com failed. @ https://app.clickup.com/:0

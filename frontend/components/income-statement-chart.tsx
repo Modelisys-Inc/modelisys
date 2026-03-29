@@ -467,81 +467,13 @@ export function IncomeStatementChart({
                 )
               }}
             />
-            {/* Conditional rendering based on selected chart view */}
-            {selectedChartView === "revenue_ebita_margin" && (
-              <>
-                {/* Revenus - Bar */}
-                {showRevenue && (
-                  <Bar
-                    yAxisId="left"
-                    dataKey="revenue"
-                    fill={chartConfig.revenue.color}
-                    radius={[4, 4, 0, 0]}
-                    opacity={0.8}
-                    name={chartConfig.revenue.label}
-                  />
-                )}
-                {/* BAIIA - Bar */}
-                {showEBITA && (
-                  <Bar
-                    yAxisId="left"
-                    dataKey="ebita"
-                    fill={chartConfig.ebita.color}
-                    radius={[4, 4, 0, 0]}
-                    opacity={0.8}
-                    name={chartConfig.ebita.label}
-                  />
-                )}
-                {/* Marge brute % - Line */}
-                {showGrossMargin && (
-                  <Line
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="grossMarginPercent"
-                    stroke={chartConfig.grossMarginPercent.color}
-                    strokeWidth={3}
-                    dot={{ fill: chartConfig.grossMarginPercent.color, r: 5 }}
-                    activeDot={{ r: 7 }}
-                    name={chartConfig.grossMarginPercent.label}
-                  />
-                )}
-              </>
-            )}
-            {selectedChartView === "cogs_grossprofit_margin" && (
-              <>
-                {/* CMV - Stacked Bar (bottom) */}
-                <Bar
-                  yAxisId="left"
-                  dataKey="cogs"
-                  fill={chartConfig.cogs.color}
-                  radius={[0, 0, 0, 0]}
-                  opacity={0.8}
-                  name={chartConfig.cogs.label}
-                  stackId="revenue"
-                />
-                {/* Bénéfice Brut - Stacked Bar (top) */}
-                <Bar
-                  yAxisId="left"
-                  dataKey="grossProfit"
-                  fill={chartConfig.grossProfit.color}
-                  radius={[4, 4, 0, 0]}
-                  opacity={0.8}
-                  name={chartConfig.grossProfit.label}
-                  stackId="revenue"
-                />
-                {/* Marge brute % - Line */}
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="grossMarginPercent"
-                  stroke={chartConfig.grossMarginPercent.color}
-                  strokeWidth={3}
-                  dot={{ fill: chartConfig.grossMarginPercent.color, r: 5 }}
-                  activeDot={{ r: 7 }}
-                  name={chartConfig.grossMarginPercent.label}
-                />
-              </>
-            )}
+            {/* Conditional rendering — no fragment wrappers (React 19 compat: fragments break Recharts child detection) */}
+            {selectedChartView === "revenue_ebita_margin" && showRevenue && <Bar yAxisId="left" dataKey="revenue" fill={chartConfig.revenue.color} radius={[4, 4, 0, 0]} opacity={0.8} name={chartConfig.revenue.label} />}
+            {selectedChartView === "revenue_ebita_margin" && showEBITA && <Bar yAxisId="left" dataKey="ebita" fill={chartConfig.ebita.color} radius={[4, 4, 0, 0]} opacity={0.8} name={chartConfig.ebita.label} />}
+            {selectedChartView === "revenue_ebita_margin" && showGrossMargin && <Line yAxisId="right" type="monotone" dataKey="grossMarginPercent" stroke={chartConfig.grossMarginPercent.color} strokeWidth={3} dot={{ fill: chartConfig.grossMarginPercent.color, r: 5 }} activeDot={{ r: 7 }} name={chartConfig.grossMarginPercent.label} />}
+            {selectedChartView === "cogs_grossprofit_margin" && <Bar yAxisId="left" dataKey="cogs" fill={chartConfig.cogs.color} radius={[0, 0, 0, 0]} opacity={0.8} name={chartConfig.cogs.label} stackId="revenue" />}
+            {selectedChartView === "cogs_grossprofit_margin" && <Bar yAxisId="left" dataKey="grossProfit" fill={chartConfig.grossProfit.color} radius={[4, 4, 0, 0]} opacity={0.8} name={chartConfig.grossProfit.label} stackId="revenue" />}
+            {selectedChartView === "cogs_grossprofit_margin" && <Line yAxisId="right" type="monotone" dataKey="grossMarginPercent" stroke={chartConfig.grossMarginPercent.color} strokeWidth={3} dot={{ fill: chartConfig.grossMarginPercent.color, r: 5 }} activeDot={{ r: 7 }} name={chartConfig.grossMarginPercent.label} />}
             <ReferenceLine yAxisId="left" y={0} stroke="#cbd5e1" strokeDasharray="3 3" />
           </ComposedChart>
         </ChartContainer>

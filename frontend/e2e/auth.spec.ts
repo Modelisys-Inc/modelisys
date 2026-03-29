@@ -32,9 +32,10 @@ test.describe("Authentication Flow", () => {
   });
 
   test("landing page is accessible without auth", async ({ page }) => {
-    await page.goto("/landing");
-    // Should stay on landing, not redirect to login
-    await expect(page).toHaveURL(/\/landing/);
+    await page.goto("/");
+    // Should stay on root, not redirect to login
+    await expect(page).toHaveURL(/\/$/);
+
   });
 
   test("login form shows error on invalid credentials", async ({ page }) => {

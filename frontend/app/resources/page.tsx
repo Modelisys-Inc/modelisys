@@ -160,23 +160,57 @@ export default function ResourcesPage() {
             </CardContent>
           </Card>
 
-          {/* Modèles et gabarits */}
+          {/* Formats d'importation */}
           <Card className="bg-white border-slate-200">
             <CardHeader>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center">
                   <Download className="w-5 h-5 text-amber-600" />
                 </div>
-                <CardTitle className="text-xl">Modèles et gabarits</CardTitle>
+                <CardTitle className="text-xl">Formats d&apos;importation</CardTitle>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <FileText className="w-12 h-12 text-slate-300 mb-4" />
-                <p className="text-muted-foreground font-medium mb-1">Bientôt disponible</p>
-                <p className="text-sm text-muted-foreground max-w-md">
-                  Des modèles et gabarits téléchargeables seront disponibles prochainement pour faciliter l&apos;importation de vos données.
-                </p>
+              <p className="text-sm text-muted-foreground mb-6">
+                Formats acceptés pour l&apos;importation de vos données dans la plateforme.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-lg border border-slate-200 p-4">
+                  <h4 className="font-semibold text-foreground mb-1">Balance de vérification</h4>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Fichier Excel (.xlsx) avec les colonnes : numéro de compte, description et montants mensuels.
+                  </p>
+                  <p className="text-xs font-mono bg-slate-50 rounded px-2 py-1 text-slate-600 inline-block">
+                    .xlsx | Paramètres &gt; Entreprise &gt; Balance
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-4">
+                  <h4 className="font-semibold text-foreground mb-1">Structures des états financiers</h4>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Fichier CSV avec les colonnes : Nom de compte, Catégorie, Type, Classement, LinkCode.
+                  </p>
+                  <p className="text-xs font-mono bg-slate-50 rounded px-2 py-1 text-slate-600 inline-block">
+                    .csv | États financiers &gt; Importer CSV
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-4">
+                  <h4 className="font-semibold text-foreground mb-1">Codes de liaison</h4>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Fichier Excel (.xlsx) avec les correspondances entre comptes GL et codes de liaison.
+                  </p>
+                  <p className="text-xs font-mono bg-slate-50 rounded px-2 py-1 text-slate-600 inline-block">
+                    .xlsx | Paramètres &gt; Mapping ÉF
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 p-4">
+                  <h4 className="font-semibold text-foreground mb-1">Taux de change</h4>
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Saisie manuelle des taux mensuels par devise dans la section Taux de change.
+                  </p>
+                  <p className="text-xs font-mono bg-slate-50 rounded px-2 py-1 text-slate-600 inline-block">
+                    Saisie manuelle | Taux de change
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>

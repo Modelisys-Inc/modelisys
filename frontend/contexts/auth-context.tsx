@@ -15,9 +15,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const PUBLIC_PATHS = ["/login", "/landing", "/contact"]
+const PUBLIC_PATHS = ["/login", "/contact", "/cabinets-comptables", "/partenaires-institutionnels", "/partenaires-capital"]
 
 function isPublicPath(pathname: string): boolean {
+  if (pathname === "/") return true
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))
 }
 

@@ -39,18 +39,29 @@ export function EmailSubscriptionSection() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
-    
-    // Simuler l'envoi
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    
-    setIsSubmitting(false)
-    setIsSubmitted(true)
-    setEmail("")
-    
-    // Réinitialiser après 3 secondes
-    setTimeout(() => {
-      setIsSubmitted(false)
-    }, 3000)
+
+    try {
+      const response = await fetch("https://formspree.io/f/xzdapzyv", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
+      })
+
+      if (response.ok) {
+        setIsSubmitted(true)
+        setEmail("")
+
+        setTimeout(() => {
+          setIsSubmitted(false)
+        }, 3000)
+      }
+    } catch (error) {
+      console.error("Erreur lors de l'inscription:", error)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (

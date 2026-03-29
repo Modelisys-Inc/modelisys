@@ -1,15 +1,16 @@
 "use client"
 
-import { Fragment, useState } from "react"
+import { Fragment, useState, useEffect } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ChevronRight, ChevronDown, StickyNote } from "lucide-react"
 import { NoteModal } from "@/components/note-modal"
-import { getNoteByRowId } from "@/lib/notes-storage"
+import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
+import { listForecastConfigs } from "@/lib/api"
 
 type ComparisonType = "lastMonth" | "pastMonth" | "budget"
 
@@ -67,6 +68,7 @@ export function CapexDetail({
   selectedBudgetId = null,
   selectedBudgetName = null,
 }: CapexDetailProps) {
+  useNotesCache(companyId ?? null)
   // State to track expanded rows
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   // State for note modal
@@ -80,7 +82,9 @@ export function CapexDetail({
     variationAmount?: number | null
   }>({})
   const [notesUpdated, setNotesUpdated] = useState(0) // Force re-render when notes change
-  
+  // Depreciation factors loaded from forecast_configs (for book_value mode)
+  const [depreciationFactors, setDepreciationFactors] = useState<Record<string, number>>({})
+
   const toggleRow = (rowId: string) => {
     setExpandedRows((prev) => {
       const newSet = new Set(prev)
@@ -123,16 +127,7 @@ export function CapexDetail({
 
   // Helper function to get comparison prior value based on comparisonType
   const getComparisonPriorValue = (basePrior: number): number => {
-    if (comparisonType === "lastMonth") {
-      // For "lastMonth", use the base prior value
-      return basePrior
-    } else if (comparisonType === "pastMonth") {
-      // For "pastMonth", use a slightly different value
-      return Math.round(basePrior * 0.92)
-    } else if (comparisonType === "budget" && selectedBudgetId) {
-      // For "budget", use a budget value (typically higher than actual)
-      return Math.round(basePrior * 1.15)
-    }
+    // Prior values already come correctly from the API based on the comparison type
     return basePrior
   }
 
@@ -150,6 +145,40 @@ export function CapexDetail({
     subDivisionId: subDivisionId || null,
     enabled: isMultiPeriod,
   })
+
+  // Fetch income statement series for real depreciation and EBITDA data
+  const { rows: isSeriesRows, periods: isPeriods } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "income-statement",
+    fiscalYear: currentYear,
+    months: monthsNeeded > 12 ? monthsNeeded : 12,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: true,
+  })
+
+  // Load depreciation factors from forecast_configs on mount
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+
+    const loadFactors = async () => {
+      try {
+        const configs = await listForecastConfigs(companyId, { config_type: "capex-depreciation" })
+        if (!cancelled && configs.length > 0) {
+          const data = configs[0].data as Record<string, unknown>
+          if (data.factors) {
+            setDepreciationFactors(data.factors as Record<string, number>)
+          }
+        }
+      } catch (err) {
+        console.error("Error loading capex depreciation config:", err)
+      }
+    }
+
+    loadFactors()
+    return () => { cancelled = true }
+  }, [companyId])
 
   // Convert series data into DetailRow[] format for multi-period views
   const getSeriesData = (): DetailRow[] | null => {
@@ -232,24 +261,32 @@ export function CapexDetail({
       // Cost mode: keep values as is
       return rows
     } else if (displayMode === "book_value") {
-      // Book value mode: apply depreciation factor (typically 0.7-0.9)
+      // Book value mode: apply depreciation factor from config or computed from data
       const transformed = rows.map((row) => {
         if (row.isSection || row.label === "" || !row.accountId) {
           return row // Keep sections and spacers as is
         }
-        
-        // Apply depreciation factor (varies by asset type)
-        let depreciationFactor = 0.8 // Default
-        if (row.accountId === "land_buildings") {
-          depreciationFactor = 0.85 // Land/buildings depreciate slower
-        } else if (row.accountId === "equipment" || row.accountId === "vehicles") {
-          depreciationFactor = 0.65 // Equipment/vehicles depreciate faster
-        } else if (row.accountId === "intangible_assets" || row.accountId === "patents" || row.accountId === "software") {
-          depreciationFactor = 0.75 // Intangibles depreciate moderately
-        } else if (row.accountId === "goodwill") {
-          depreciationFactor = 0.9 // Goodwill depreciates very slowly
+
+        // Determine depreciation factor: stored config > computed from sub-rows > default 0.8
+        let depreciationFactor = 0.8
+        if (row.accountId && depreciationFactors[row.accountId] !== undefined) {
+          depreciationFactor = depreciationFactors[row.accountId]
+        } else if (row.balanceAccounts && row.balanceAccounts.length > 0) {
+          // Try to compute from accumulated depreciation sub-rows
+          const depAccounts = row.balanceAccounts.filter((a) =>
+            a.accountName.toLowerCase().includes("amortissement") ||
+            a.accountName.toLowerCase().includes("dépréciation") ||
+            a.accountName.toLowerCase().includes("depreciation")
+          )
+          if (depAccounts.length > 0 && row.current !== 0) {
+            const totalDepreciation = depAccounts.reduce((sum, a) => sum + Math.abs(a.amount), 0)
+            const grossAmount = Math.abs(row.current) + totalDepreciation
+            if (grossAmount > 0) {
+              depreciationFactor = Math.abs(row.current) / grossAmount
+            }
+          }
         }
-        
+
         return {
           ...row,
           current: Math.round(row.current * depreciationFactor),
@@ -450,29 +487,55 @@ export function CapexDetail({
     return totalRevenueCurrent
   }
 
-  // Helper function to calculate depreciation (typically 5-10% of fixed assets per year)
+  // Helper function to calculate depreciation from real income statement data
   const calculateDepreciation = (isPrior: boolean, trendIndex?: number): number => {
+    // Find amortization/depreciation row in income statement
+    const depRow = isSeriesRows.find((r) =>
+      r.label.toLowerCase().includes("amortissement") ||
+      r.label.toLowerCase().includes("dépréciation") ||
+      r.label.toLowerCase().includes("depreciation")
+    )
+    if (depRow && isPeriods.length > 0) {
+      const amounts = getRowAmounts(depRow, isPeriods)
+      if (trendIndex !== undefined && amounts[trendIndex] !== undefined) {
+        return Math.abs(amounts[trendIndex])
+      }
+      // For current/prior: use last or second-to-last period
+      if (isPrior && amounts.length > 1) return Math.abs(amounts[amounts.length - 2])
+      if (amounts.length > 0) return Math.abs(amounts[amounts.length - 1])
+    }
+    // Fallback: estimate from total fixed assets at 8%
     const totalAssets = calculateTotalFixedAssets(isPrior, trendIndex)
-    // Assume 8% annual depreciation rate
     return totalAssets * 0.08
   }
 
-  // Helper function to calculate EBITDA (BAIIA)
-  // Estimate as 20% of revenue (typical margin)
+  // Helper function to calculate EBITDA (BAIIA) from real income statement data
   const calculateEBITDA = (isPrior: boolean, trendIndex?: number): number => {
+    // Find EBITDA/BAIIA row in income statement
+    const ebitdaRow = isSeriesRows.find((r) =>
+      r.label.toLowerCase().includes("baiia") ||
+      r.label.toLowerCase().includes("ebitda")
+    )
+    if (ebitdaRow && isPeriods.length > 0) {
+      const amounts = getRowAmounts(ebitdaRow, isPeriods)
+      if (trendIndex !== undefined && amounts[trendIndex] !== undefined) {
+        return amounts[trendIndex]
+      }
+      if (isPrior && amounts.length > 1) return amounts[amounts.length - 2]
+      if (amounts.length > 0) return amounts[amounts.length - 1]
+    }
+    // Fallback: estimate as 20% of revenue
     const revenue = trendIndex !== undefined && totalRevenueRow?.trendValues
       ? totalRevenueRow.trendValues[trendIndex] || totalRevenueCurrent
       : (isPrior ? totalRevenuePrior : totalRevenueCurrent)
-    return revenue * 0.20 // 20% EBITDA margin
+    return revenue * 0.20
   }
 
   // Helper function to calculate Operating Cash Flow (Flux de trésorerie reliés aux opérations)
-  // OCF = EBITDA - Depreciation - Taxes + Working Capital Changes
-  // Simplified: OCF = EBITDA - Depreciation (assuming no taxes and no WC changes for simplicity)
+  // OCF = EBITDA - Depreciation
   const calculateOperatingCashFlow = (isPrior: boolean, trendIndex?: number): number => {
     const ebitda = calculateEBITDA(isPrior, trendIndex)
     const depreciation = calculateDepreciation(isPrior, trendIndex)
-    // Simplified calculation
     return ebitda - depreciation
   }
 

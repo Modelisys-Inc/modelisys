@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Smoke Tests", () => {
   test("landing page loads", async ({ page }) => {
-    await page.goto("/landing");
+    await page.goto("/");
     await expect(page).toHaveTitle(/Financial Dashboard|Modelisys/i);
     await expect(page.locator("body")).toBeVisible();
   });

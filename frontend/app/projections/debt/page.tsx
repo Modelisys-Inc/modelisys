@@ -59,6 +59,8 @@ export default function DebtPage() {
 
         <div className="rounded-xl overflow-hidden shadow-sm border border-slate-200">
           <DebtForecastDetail
+            period="annual"
+            view="years"
             companyId={selectedCompanyId}
             divisionId={selectedDivisionId}
             subDivisionId={selectedSubDivisionId}

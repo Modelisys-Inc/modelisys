@@ -1,4 +1,4 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001"
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 interface FetchOptions extends Omit<RequestInit, "body"> {
   body?: unknown
@@ -340,6 +340,16 @@ export async function listAccountMappings(
     `/api/companies/${companyId}/account-mappings`
   )
   return data.mappings
+}
+
+export async function deleteAccountMapping(
+  companyId: string,
+  mappingId: string
+): Promise<void> {
+  await apiFetch<void>(
+    `/api/companies/${companyId}/account-mappings/${mappingId}`,
+    { method: "DELETE" }
+  )
 }
 
 export async function upsertAccountMappings(

@@ -1,120 +1,206 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import { Zap, Target, Quote } from "lucide-react"
+import { ArrowRight, Quote } from "lucide-react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
 export function PostFeaturesSection() {
   const sectionRef = useRef<HTMLElement>(null)
+  const citationCardRef = useRef<HTMLDivElement>(null)
+  const mFiligraneRef = useRef<HTMLSpanElement>(null)
+  const [mTopPx, setMTopPx] = useState<number | null>(null)
   const [isVisible, setIsVisible] = useState(false)
 
   useEffect(() => {
+    const el = sectionRef.current
+    if (!el) return
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true)
-        }
+        if (entry.isIntersecting) setIsVisible(true)
       },
-      {
-        threshold: 0.1,
-        rootMargin: "0px 0px -100px 0px",
-      },
+      { threshold: 0.12, rootMargin: "0px 0px -80px 0px" },
     )
-
-    if (sectionRef.current) {
-      observer.observe(sectionRef.current)
-    }
-
-    return () => {
-      if (sectionRef.current) {
-        observer.unobserve(sectionRef.current)
-      }
-    }
+    observer.observe(el)
+    return () => observer.unobserve(el)
   }, [])
 
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return
+
+    const alignMToCard = () => {
+      const mq = window.matchMedia("(min-width: 1024px)")
+      if (!mq.matches) {
+        setMTopPx(null)
+        return
+      }
+
+      const section = sectionRef.current
+      const card = citationCardRef.current
+      const mEl = mFiligraneRef.current
+      if (!section || !card || !mEl) return
+
+      const s = section.getBoundingClientRect()
+      const c = card.getBoundingClientRect()
+      const m = mEl.getBoundingClientRect()
+      if (m.height < 1) return
+
+      const cardTopInSection = c.top - s.top
+      setMTopPx(cardTopInSection - m.height)
+    }
+
+    alignMToCard()
+    const afterReveal = window.setTimeout(alignMToCard, 1200)
+
+    const section = sectionRef.current
+    const card = citationCardRef.current
+    const ro = new ResizeObserver(alignMToCard)
+    if (section) ro.observe(section)
+    if (card) ro.observe(card)
+
+    window.addEventListener("resize", alignMToCard)
+    window.addEventListener("scroll", alignMToCard, { passive: true })
+
+    return () => {
+      window.clearTimeout(afterReveal)
+      ro.disconnect()
+      window.removeEventListener("resize", alignMToCard)
+      window.removeEventListener("scroll", alignMToCard)
+    }
+  }, [isVisible])
+
   return (
-    <section ref={sectionRef} className="relative py-16 sm:py-24 overflow-hidden">
-      {/* Background with depth */}
-      <div className="absolute inset-0 bg-gradient-to-b from-white via-slate-50 to-white"></div>
-      
-      {/* Decorative elements for depth */}
-      <div className="absolute inset-0 overflow-hidden">
-        {/* Large gradient orbs for depth */}
-        <div className="absolute -top-20 -left-20 w-96 h-96 bg-emerald-100/30 rounded-full blur-3xl"></div>
-        <div className="absolute -bottom-20 -right-20 w-96 h-96 bg-blue-100/30 rounded-full blur-3xl"></div>
+    <section
+      id="strategie-donnees"
+      ref={sectionRef}
+      className="relative isolate z-10 scroll-mt-24 overflow-hidden"
+    >
+      {/* Transition depuis « Mise en place » : courbe en arrière-plan (sous le contenu / la carte) */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 z-[2] h-24 overflow-hidden bg-white sm:h-28 md:h-32"
+      >
+        <svg
+          viewBox="0 0 1440 120"
+          preserveAspectRatio="none"
+          className="absolute inset-x-0 bottom-0 h-full w-full"
+        >
+          <path
+            d="M0,30 C180,95 360,95 540,60 C720,25 900,25 1080,60 C1230,90 1335,95 1440,75 L1440,120 L0,120 Z"
+            fill="#1F2430"
+          />
+        </svg>
       </div>
 
-      <div className="relative z-10 max-w-[1920px] mx-auto px-8 sm:px-12 lg:px-16 xl:px-20">
+      <div className="absolute inset-0 z-0">
+        <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+          <div className="relative bg-[#2A2F3A]">
+            <div
+              className="pointer-events-none absolute inset-0 opacity-[0.45]"
+              aria-hidden
+              style={{
+                backgroundImage: `linear-gradient(rgb(255 255 255 / 0.055) 1px, transparent 1px),
+                  linear-gradient(90deg, rgb(255 255 255 / 0.055) 1px, transparent 1px)`,
+                backgroundSize: "44px 44px",
+              }}
+            />
+          </div>
+          <div className="relative bg-[#1F2430]">
+            <div
+              className="pointer-events-none absolute inset-0 opacity-[0.4]"
+              aria-hidden
+              style={{
+                backgroundImage: `linear-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px),
+                  linear-gradient(90deg, rgb(255 255 255 / 0.05) 1px, transparent 1px)`,
+                backgroundSize: "44px 44px",
+              }}
+            />
+          </div>
+        </div>
+        <div className="absolute inset-y-0 left-1/2 hidden w-px bg-white/5 lg:block" />
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
+          <div className="absolute -bottom-20 -right-28 h-[480px] w-[480px] rounded-full bg-black/25 blur-3xl" />
+          <div className="absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#E6D6C3]/[0.04] blur-3xl" />
+        </div>
+
+        {/* Filigrane m. — moitié droite ; bas du « m » aligné sur le haut de la carte citation (mesure JS) */}
         <div
-          className={`transition-all duration-1000 ${
-            isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+          className="pointer-events-none absolute inset-y-0 left-1/2 right-0 z-[1] hidden overflow-x-hidden overflow-y-visible lg:block"
+          aria-hidden
+        >
+          <span
+            ref={mFiligraneRef}
+            className="absolute left-1/2 select-none text-[clamp(16rem,min(52vw,68vh),48rem)] font-semibold leading-none tracking-tight text-white/[0.055] xl:text-[clamp(18rem,min(48vw,72vh),56rem)]"
+            style={{
+              top: mTopPx != null ? `${mTopPx}px` : "50%",
+              transform: mTopPx != null ? "translateX(-50%)" : "translate(-50%, -50%)",
+            }}
+          >
+            m<span className="text-[#E0742D]/35">.</span>
+          </span>
+        </div>
+      </div>
+
+      <div className="relative z-10 mx-auto max-w-[1920px] px-8 pb-12 pt-32 sm:px-12 sm:pb-16 sm:pt-36 md:pt-40 lg:px-16 lg:pb-20 lg:pt-44 xl:px-20">
+        <div
+          className={`relative z-20 mb-12 transition-all duration-1000 sm:mb-16 lg:mb-20 ${
+            isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          {/* Main card with 3D effect */}
-          <div className="relative">
-            {/* Shadow layers for depth */}
-            <div className="absolute inset-0 bg-slate-200/50 rounded-2xl blur-xl transform translate-y-4"></div>
-            <div className="absolute inset-0 bg-slate-300/30 rounded-2xl blur-lg transform translate-y-2"></div>
-            
-            {/* Main card */}
-            <div className="relative bg-white rounded-2xl border-2 border-slate-200 shadow-2xl overflow-hidden">
-              {/* Gradient overlay for depth */}
-              <div className="absolute inset-0 bg-gradient-to-br from-white via-slate-50/50 to-white pointer-events-none"></div>
-              
-              {/* Content */}
-              <div className="relative px-8 sm:px-12 lg:px-16 py-12 sm:py-16">
-                <div className="flex flex-col lg:flex-row items-center justify-between gap-8">
-                  {/* Left side - Text */}
-                  <div className="flex-1 space-y-4">
-                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-50 border border-blue-100 mb-4">
-                      <Target className="w-4 h-4 text-blue-600" />
-                      <span className="text-sm font-semibold text-blue-700">Pilotage stratégique</span>
-                    </div>
-                    
-                    <h3 className="text-2xl sm:text-3xl md:text-4xl font-bold text-slate-900 leading-tight">
-                      Transformez vos données en{" "}
-                      <span className="text-slate-600">décisions stratégiques</span>
-                    </h3>
-                    
-                    <p className="text-lg sm:text-xl text-slate-600 leading-relaxed max-w-2xl">
-                      Avec Modelisys, passez de la simple comptabilité à une analyse financière approfondie qui vous donne les clés pour piloter votre entreprise avec confiance.
-                    </p>
-                  </div>
+          <p className="mb-3 text-sm font-semibold tracking-wide text-slate-200">Valeur</p>
+          <h2 className="max-w-3xl text-3xl font-semibold tracking-tight text-[#E6D6C3] sm:text-4xl md:text-[2.5rem] md:leading-tight">
+            Transformez vos données en{" "}
+            <span className="text-[#C9B8A5]/95">décisions stratégiques</span>
+          </h2>
+          <p className="mt-4 max-w-3xl text-base leading-relaxed text-[#C9B8A5]/80 sm:text-lg">
+            Analysez. Projetez. Valorisez. Documentez. Collaborez.
+          </p>
+          <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/80 via-white/15 to-transparent" />
+        </div>
 
-                  {/* Right side - Visual element */}
-                  <div className="flex-shrink-0">
-                    <div className="relative">
-                      {/* Glowing circle behind */}
-                      <div className="absolute inset-0 bg-gradient-to-br from-blue-400/20 to-emerald-400/20 rounded-full blur-2xl transform scale-150"></div>
-                      
-                      {/* Icon container with 3D effect */}
-                      <div className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 shadow-xl flex items-center justify-center transform hover:scale-105 transition-transform duration-300">
-                        <div className="absolute inset-0 bg-gradient-to-br from-white/20 to-transparent rounded-2xl"></div>
-                        <Zap className="w-12 h-12 sm:w-16 sm:h-16 text-white relative z-10" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
+        <div
+          className={`-mt-8 flex w-full justify-center sm:-mt-10 lg:-mt-12 ${
+            isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
+          } transition-all duration-1000 delay-150`}
+        >
+          <div className="relative z-20 w-full max-w-[960px]">
+            <div className="absolute inset-0 -z-20 rounded-[44px] bg-black/45 blur-2xl" />
+            <div className="absolute inset-0 -z-10 rounded-[44px] p-[1px] wow-border">
+              <div className="h-full w-full rounded-[43px] bg-[#141823]" />
+            </div>
+            <div className="relative overflow-hidden rounded-[42px] border-2 border-[#E6D6C3]/55 bg-[#141823] shadow-2xl">
+              <div className="pointer-events-none absolute inset-0 opacity-70 wow-shimmer" />
+              <div className="pointer-events-none absolute inset-0 opacity-[0.10] mix-blend-overlay wow-noise" />
+              <div className="pointer-events-none absolute inset-0 rounded-[42px] ring-1 ring-[#E6D6C3]/30" />
+              <div className="pointer-events-none absolute inset-0 rounded-[42px] ring-1 ring-[#E6B08C]/15" />
+              <div className="pointer-events-none absolute inset-0 rounded-[42px] bg-gradient-to-br from-[#E6D6C3]/10 via-transparent to-[#E6B08C]/12" />
 
-                {/* Quote section with elegant design */}
-                <div className="mt-12 pt-8 border-t border-slate-200">
-                  <div className="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-6">
-                    {/* Quote icon */}
-                    <div className="flex-shrink-0">
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-lg">
-                        <Quote className="w-6 h-6 text-white" />
-                      </div>
+              <div className="relative px-5 py-5 sm:px-7 sm:py-6 lg:px-8 lg:py-7">
+                <div
+                  ref={citationCardRef}
+                  className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5 lg:p-6"
+                >
+                  <div className="flex gap-3 sm:gap-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E0742D]/20 ring-1 ring-[#E0742D]/35 sm:h-11 sm:w-11">
+                      <Quote className="h-4 w-4 text-[#E6B08C] sm:h-5 sm:w-5" aria-hidden />
                     </div>
-                    
-                    {/* Quote content */}
-                    <div className="flex-1 space-y-3">
-                      <blockquote className="text-lg sm:text-xl text-slate-600 leading-relaxed italic">
-                        "Modelisys transforme l'analyse financière en un véritable levier d'efficacité, en mettant en lumière les dynamiques qui façonnent la valeur d'une entreprise."
+                    <div className="min-w-0 flex-1">
+                      <blockquote className="text-sm italic leading-relaxed text-[#C9B8A5]/95 sm:text-[0.9375rem] sm:leading-[1.6] lg:text-base lg:leading-[1.65]">
+                        « Modelisys transforme l&apos;analyse financière en un véritable levier d&apos;efficacité, en mettant
+                        en lumière les dynamiques qui façonnent la valeur d&apos;une entreprise. »
                       </blockquote>
-                      
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
-                        <p className="text-base font-semibold text-slate-900">Tristan Bellerose, CPA, CBV</p>
-                        <span className="hidden sm:inline text-slate-400">•</span>
-                        <p className="text-sm text-slate-600">Président et Fondateur</p>
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-[#E6D6C3]">Tristan Bellerose, CPA, CBV</p>
+                          <p className="mt-0.5 text-xs text-[#C9B8A5]/65">Président et fondateur</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
+                          className="group inline-flex shrink-0 items-center justify-end gap-2 self-end text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100 sm:self-auto"
+                        >
+                          Échanger sur votre cas
+                          <ArrowRight className="h-4 w-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -124,7 +210,81 @@ export function PostFeaturesSection() {
           </div>
         </div>
       </div>
+
+      <div aria-hidden className="relative h-16 overflow-hidden bg-[#1F2430] sm:h-20">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -bottom-8 left-1/3 h-56 w-56 rounded-full bg-[#E6D6C3]/10 blur-3xl" />
+        </div>
+        <svg
+          viewBox="0 0 1440 120"
+          preserveAspectRatio="none"
+          className="absolute inset-x-0 bottom-0 h-full w-full"
+        >
+          <path
+            d="M0,30 C180,95 360,95 540,60 C720,25 900,25 1080,60 C1230,90 1335,95 1440,75 L1440,120 L0,120 Z"
+            fill="#F8FAFC"
+          />
+        </svg>
+      </div>
+
+      <style jsx>{`
+        .wow-border {
+          background: conic-gradient(
+            from 120deg,
+            rgba(230, 214, 195, 0.9),
+            rgba(230, 176, 140, 0.9),
+            rgba(255, 255, 255, 0.25),
+            rgba(230, 214, 195, 0.9)
+          );
+          filter: drop-shadow(0 18px 55px rgba(0, 0, 0, 0.45));
+          animation: wowSpin 10s linear infinite;
+        }
+
+        .wow-shimmer {
+          background: radial-gradient(700px 300px at 20% 15%, rgba(230, 214, 195, 0.16), transparent 60%),
+            radial-gradient(500px 240px at 85% 40%, rgba(230, 176, 140, 0.12), transparent 55%),
+            linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.06) 35%, transparent 70%);
+          transform: translateX(-22%);
+          animation: wowShimmer 6s ease-in-out infinite;
+        }
+
+        .wow-noise {
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
+          background-size: 160px 160px;
+        }
+
+        @keyframes wowSpin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+
+        @keyframes wowShimmer {
+          0% {
+            transform: translateX(-24%);
+            opacity: 0.55;
+          }
+          50% {
+            transform: translateX(12%);
+            opacity: 0.85;
+          }
+          100% {
+            transform: translateX(-24%);
+            opacity: 0.55;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .wow-border,
+          .wow-shimmer {
+            animation: none !important;
+            transform: none !important;
+          }
+          .wow-shimmer {
+            opacity: 0.65 !important;
+          }
+        }
+      `}</style>
     </section>
   )
 }
-

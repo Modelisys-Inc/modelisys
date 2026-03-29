@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useState } from "react"
+import { Fragment, useState, useEffect } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
@@ -8,6 +8,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLe
 import { ComposedChart, Line, Area, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine, ReferenceArea, ResponsiveContainer, Cell } from "recharts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ChevronRight, ChevronDown } from "lucide-react"
+import { getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, getPeriodLabels, aggregateToYears } from "@/lib/series-utils"
 
@@ -217,18 +218,99 @@ export function WorkingCapitalDetail({
     entitiesToCompare = selectedDivision?.subDivisions.map((sd) => ({ id: sd.id, name: sd.name })) || []
   }
   
-  // Generate data for each entity in comparison mode
-  const getEntityData = (entityIndex: number, baseData: DetailRow[]): DetailRow[] => {
-    // Create variation multiplier based on entity index (0.8 to 1.2 range)
-    const multiplier = 0.8 + (entityIndex * 0.2)
-    return baseData.map((row) => ({
-      ...row,
-      current: Math.round(row.current * multiplier),
-      prior: Math.round(row.prior * multiplier),
-      trendValues: row.trendValues?.map((val) => Math.round(val * multiplier)),
-    }))
-  }
-  
+  // Fetch real data for each entity in comparison mode
+  const [entityDataMap, setEntityDataMap] = useState<Record<string, DetailRow[]>>({})
+  const [entityDataLoading, setEntityDataLoading] = useState(false)
+
+  useEffect(() => {
+    if (!isComparisonMode) {
+      setEntityDataMap(prev => Object.keys(prev).length === 0 ? prev : {})
+      return
+    }
+
+    // Compute entities inside the effect to avoid unstable dependency
+    let entities: Array<{ id: string; name: string }> = []
+    if (isCompanyComparison) {
+      entities = companies.map((c) => ({ id: c.id, name: c.name }))
+    } else if (isDivisionComparison) {
+      const sc = companies.find((c) => c.id === companyId)
+      entities = sc?.divisions.map((d) => ({ id: d.id, name: d.name })) || []
+    } else if (isSubDivisionComparison) {
+      const sc = companies.find((c) => c.id === companyId)
+      const sd = sc?.divisions.find((d) => d.id === divisionId)
+      entities = sd?.subDivisions.map((s) => ({ id: s.id, name: s.name })) || []
+    }
+
+    if (entities.length === 0) {
+      setEntityDataMap(prev => Object.keys(prev).length === 0 ? prev : {})
+      return
+    }
+
+    let cancelled = false
+    setEntityDataLoading(true)
+
+    const fetchEntityData = async () => {
+      const results: Record<string, DetailRow[]> = {}
+
+      for (const entity of entities) {
+        try {
+          const params: FinancialStatementSeriesParams = {
+            fiscal_year: currentYear,
+            months: 12,
+          }
+          let entityCompanyId = companyId || ""
+
+          if (isCompanyComparison) {
+            entityCompanyId = entity.id
+          } else if (isDivisionComparison) {
+            params.division_id = entity.id
+          } else if (isSubDivisionComparison) {
+            params.sub_division_id = entity.id
+          }
+
+          if (!entityCompanyId) continue
+
+          const response = await getFinancialStatementSeries(
+            entityCompanyId,
+            "balance-sheet",
+            params
+          )
+
+          if (!cancelled && response.rows) {
+            const mapped: DetailRow[] = response.rows.map((row) => {
+              const amounts = Object.entries(row.amounts)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([, v]) => v)
+              const lastAmount = amounts[amounts.length - 1] || 0
+              const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
+              return {
+                label: row.label,
+                current: lastAmount,
+                prior: priorAmount,
+                indent: !row.isBold && !row.isSection && !row.isResult,
+                isBold: row.isBold,
+                isSubtotal: row.isResult,
+                isSection: row.isSection,
+                isResult: row.isResult,
+              }
+            })
+            results[entity.id] = mapped
+          }
+        } catch (err) {
+          console.error(`Error fetching data for entity ${entity.name}:`, err)
+        }
+      }
+
+      if (!cancelled) {
+        setEntityDataMap(results)
+        setEntityDataLoading(false)
+      }
+    }
+
+    fetchEntityData()
+    return () => { cancelled = true }
+  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, currentYear])
+
   // Find total current assets value for percentage calculations
   const totalCurrentAssetsRow = data.find((row) => row.label.toLowerCase().includes("total actifs courants") && row.isSubtotal)
   const totalCurrentAssetsCurrent = totalCurrentAssetsRow?.current || 1

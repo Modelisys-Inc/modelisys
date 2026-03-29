@@ -110,7 +110,7 @@ export function CollaborationApproachSection() {
                 <div className="p-3 rounded-lg bg-slate-800 w-fit mx-auto mb-4">
                   <FileText className="w-6 h-6 text-white" />
                 </div>
-                <h5 className="text-lg font-bold text-slate-900 mb-3">Cabinets comptables</h5>
+                <h5 className="text-lg font-bold text-slate-900 mb-3">Partenaires comptables</h5>
                 <p className="text-sm text-slate-700 leading-relaxed">
                   Votre cabinet comptable dispose d'un accès continu à votre plateforme via un portail sécurisé, lui permettant d'examiner vos états financiers consolidés et vos analyses en tout temps, et non uniquement lors de la clôture annuelle. Vous pouvez documenter vos observations directement dans la plateforme pour justifier les écarts budgétaires, expliquer les fluctuations mensuelles et contextualiser les transactions significatives. Cette visibilité permanente permet à votre cabinet d'effectuer un suivi proactif de votre situation financière et de vous fournir des recommandations stratégiques en temps réel, améliorant ainsi l'efficacité de vos processus comptables et la qualité de vos décisions opérationnelles.
                 </p>
