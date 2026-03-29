@@ -2,21 +2,14 @@
 
 import { ArrowRight } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { HERO_FEATURE_LABELS, type HeroFeatureLabel } from "@/lib/hero-features"
 
 export function HeroSection() {
   const [isVisible, setIsVisible] = useState(false)
   const sectionRef = useRef<HTMLElement>(null)
-  const features = [
-    "Consolidation",
-    "Reporting financier",
-    "Analyse financière",
-    "Projections",
-    "Valorisation",
-    "Documentation",
-    "Collaboration",
-  ] as const
+  const features = HERO_FEATURE_LABELS
 
-  type Feature = (typeof features)[number]
+  type Feature = HeroFeatureLabel
 
   const [activeFeature, setActiveFeature] = useState<Feature>("Consolidation")
 

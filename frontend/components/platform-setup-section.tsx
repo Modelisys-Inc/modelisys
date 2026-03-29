@@ -114,20 +114,44 @@ export function PlatformSetupSection() {
         </div>
 
         <div
-          className={`mb-10 hidden transition-all duration-1000 delay-100 lg:mb-14 lg:grid lg:grid-cols-5 lg:gap-3 ${
+          className={`mb-10 hidden transition-all duration-1000 delay-100 lg:mb-14 lg:block ${
             isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          {steps.map((item) => (
-            <div key={item.step} className="flex flex-col items-center gap-2 text-center">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2A2F3A] text-sm font-bold text-white shadow-md ring-4 ring-white/80">
-                {item.step}
-              </span>
-              <span className="line-clamp-3 text-[11px] font-medium leading-snug text-slate-600 lg:text-xs">
-                {item.title}
-              </span>
+          <div className="grid grid-cols-5 gap-3">
+            {steps.map((item) => (
+              <div key={item.step} className="flex flex-col items-center gap-2 text-center">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2A2F3A] text-sm font-bold text-white shadow-md ring-4 ring-white/80">
+                  {item.step}
+                </span>
+                <span className="line-clamp-3 text-[11px] font-medium leading-snug text-slate-600 lg:text-xs">
+                  {item.title}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 grid grid-cols-5 gap-3 pt-1">
+            <div className="min-w-0">
+              <div className="rounded-t-xl border-l-2 border-r-2 border-t-2 border-[#E0742D]/45 bg-gradient-to-b from-[#E0742D]/[0.07] to-transparent px-3 pb-3 pt-3 text-center shadow-[inset_0_1px_0_0_rgb(255_255_255_/0.6)]">
+                <p className="text-xs font-semibold tracking-tight text-[#2A2F3A] sm:text-sm">1–2 jours</p>
+                <p className="mx-auto mt-1.5 max-w-[11rem] text-[10px] leading-snug text-[#5C5F66] sm:text-[11px]">
+                  Appel de cadrage
+                </p>
+              </div>
             </div>
-          ))}
+            {/* Bloc visuel : trait supérieur + côtés = les étapes 2 à 5 forment un seul cycle (~4 sem.) */}
+            <div className="col-span-4 min-w-0">
+              <div className="relative rounded-t-xl border-l-2 border-r-2 border-t-2 border-[#E0742D]/45 bg-gradient-to-b from-[#E0742D]/[0.07] to-transparent px-4 pb-3 pt-3 text-center shadow-[inset_0_1px_0_0_rgb(255_255_255_/0.6)]">
+                <p className="text-xs font-semibold tracking-tight text-[#2A2F3A] sm:text-sm">
+                  Environ 4 semaines
+                </p>
+                <p className="mx-auto mt-1.5 max-w-sm text-[10px] leading-snug text-[#5C5F66] sm:text-[11px]">
+                  Durée cumulée pour les étapes <span className="font-semibold text-[#2A2F3A]/90">2 à 5</span>, menées
+                  ensemble
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
         <ol

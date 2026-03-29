@@ -1,11 +1,33 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import { Settings, DollarSign, ArrowRight, CheckCircle2, Sparkles } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { Settings, DollarSign, CheckCircle2, Sparkles, Calculator, ArrowLeft } from "lucide-react"
+import { PricingQuickEstimatePanel } from "@/components/pricing-quick-estimate-panel"
+import {
+  buildQuickCalculatorModuleIds,
+  computePricingEstimate,
+  formatCad,
+} from "@/lib/pricing-estimate"
 
 export function PricingProcessSection() {
   const sectionRef = useRef<HTMLElement>(null)
   const [isVisible, setIsVisible] = useState(false)
+  const [showCalculator, setShowCalculator] = useState(false)
+  const [revenueM, setRevenueM] = useState(10)
+  const [companies, setCompanies] = useState(1)
+  const [addProjections, setAddProjections] = useState(false)
+  const [addEvaluation, setAddEvaluation] = useState(false)
+
+  const estimate = useMemo(
+    () =>
+      computePricingEstimate({
+        revenueM,
+        companies,
+        selectedModuleIds: buildQuickCalculatorModuleIds(addProjections, addEvaluation),
+        includeConsolidationModule: true,
+      }),
+    [revenueM, companies, addProjections, addEvaluation],
+  )
 
   useEffect(() => {
     const el = sectionRef.current
@@ -75,51 +97,96 @@ export function PricingProcessSection() {
               isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
             }`}
           >
-            <div className="rounded-xl border-2 border-slate-200/90 bg-white p-6 shadow-lg sm:p-8">
-              <h3 className="mb-4 text-xl font-semibold text-[#2A2F3A] sm:text-2xl">Une approche personnalisée</h3>
-              <p className="mb-4 text-base leading-relaxed text-[#5C5F66]">
-                Chaque entreprise est unique. La configuration de vos données comptables et des fonctionnalités utiles
-                dépend de votre{" "}
-                <strong className="font-semibold text-[#2A2F3A]">structure organisationnelle</strong> et de vos{" "}
-                <strong className="font-semibold text-[#2A2F3A]">besoins spécifiques</strong>.
-              </p>
-              <p className="text-base leading-relaxed text-[#5C5F66]">
-                Nous analysons votre situation avant de proposer une enveloppe cohérente avec vos enjeux de
-                consolidation, reporting et pilotage.
-              </p>
+            {!showCalculator ? (
+              <>
+                <div className="rounded-xl border-2 border-slate-200/90 bg-white p-6 shadow-lg sm:p-8">
+                  <h3 className="mb-4 text-xl font-semibold text-[#2A2F3A] sm:text-2xl">Une approche personnalisée</h3>
+                  <p className="mb-4 text-base leading-relaxed text-[#5C5F66]">
+                    Chaque entreprise est unique. La configuration de vos données comptables et des fonctionnalités
+                    utiles dépend de votre{" "}
+                    <strong className="font-semibold text-[#2A2F3A]">structure organisationnelle</strong> et de vos{" "}
+                    <strong className="font-semibold text-[#2A2F3A]">besoins spécifiques</strong>.
+                  </p>
+                  <p className="text-base leading-relaxed text-[#5C5F66]">
+                    Nous analysons votre situation avant de proposer une enveloppe cohérente avec vos enjeux de
+                    consolidation, reporting et pilotage.
+                  </p>
 
-              <div className="mt-8 border-t border-slate-200/90 pt-6">
-                <div className="flex gap-4">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50">
-                    <Settings className="h-5 w-5 text-[#2A2F3A]" strokeWidth={1.75} />
-                  </div>
-                  <div>
-                    <h4 className="mb-2 text-lg font-semibold text-[#2A2F3A]">Configuration sur mesure</h4>
-                    <p className="text-sm leading-relaxed text-[#5C5F66]">
-                      Données comptables, périmètre, axes d&apos;analyse et fonctionnalités activées selon votre réalité
-                      opérationnelle.
-                    </p>
+                  <div className="mt-8 border-t border-slate-200/90 pt-6">
+                    <div className="flex gap-4">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50">
+                        <Settings className="h-5 w-5 text-[#2A2F3A]" strokeWidth={1.75} />
+                      </div>
+                      <div>
+                        <h4 className="mb-2 text-lg font-semibold text-[#2A2F3A]">Configuration sur mesure</h4>
+                        <p className="text-sm leading-relaxed text-[#5C5F66]">
+                          Données comptables, périmètre, axes d&apos;analyse et fonctionnalités activées selon votre
+                          réalité opérationnelle.
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </div>
 
-            <div className="rounded-xl border-2 border-slate-200/90 bg-white p-6 shadow-lg sm:p-8">
-              <h3 className="mb-4 text-xl font-semibold text-[#2A2F3A] sm:text-2xl">
-                Passer à l&apos;étape suivante
-              </h3>
-              <p className="mb-6 text-base leading-relaxed text-[#5C5F66]">
-                Échangez avec notre équipe pour voir comment Modelisys peut s&apos;aligner sur votre organisation et
-                obtenir une estimation personnalisée.
-              </p>
-              <a
-                href="#demo"
-                className="inline-flex items-center gap-2 rounded-lg bg-[#E0742D] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-[#E0742D]/20 transition hover:bg-[#c96526]"
-              >
-                Planifier une démonstration
-                <ArrowRight className="h-5 w-5" />
-              </a>
-            </div>
+                <div className="rounded-xl border-2 border-slate-200/90 bg-white p-6 shadow-lg sm:p-8">
+                  <h3 className="mb-4 text-xl font-semibold text-[#2A2F3A] sm:text-2xl">Estimation rapide</h3>
+                  <p className="mb-4 text-base leading-relaxed text-[#5C5F66]">
+                    Utilisez le <strong className="font-semibold text-[#2A2F3A]">calculateur</strong> pour une fourchette
+                    de prix en quelques secondes : revenus consolidés, nombre d&apos;entités, et ajout éventuel des
+                    modules <strong className="font-semibold text-[#2A2F3A]">Projections</strong> et{" "}
+                    <strong className="font-semibold text-[#2A2F3A]">Évaluation</strong> (hors socle — tout le reste est
+                    inclus par défaut).
+                  </p>
+                  <p className="mb-6 text-sm leading-relaxed text-[#5C5F66]">
+                    Pour une démo ou un devis détaillé, vous pouvez aussi{" "}
+                    <a href="#demo" className="font-medium text-[#E0742D] underline-offset-2 hover:underline">
+                      planifier un échange
+                    </a>{" "}
+                    avec l&apos;équipe.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowCalculator(true)}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#E0742D] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-[#E0742D]/20 transition hover:bg-[#c96526]"
+                  >
+                    <Calculator className="h-5 w-5 shrink-0" strokeWidth={1.75} />
+                    Calculateur
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="rounded-xl border-2 border-slate-200/90 bg-white p-6 shadow-lg sm:p-8">
+                <div className="mb-6 flex flex-col gap-4 border-b border-slate-200/90 pb-6 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200/90 bg-slate-50">
+                      <Calculator className="h-5 w-5 text-[#2A2F3A]" strokeWidth={1.75} />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-semibold text-[#2A2F3A] sm:text-2xl">Calculateur</h3>
+                      <p className="mt-0.5 text-sm text-[#5C5F66]">Paramètres</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCalculator(false)}
+                    className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-slate-200/90 bg-white px-4 py-2.5 text-sm font-medium text-[#2A2F3A] shadow-sm transition hover:bg-slate-50 sm:self-auto"
+                  >
+                    <ArrowLeft className="h-4 w-4 shrink-0" />
+                    Retour
+                  </button>
+                </div>
+                <PricingQuickEstimatePanel
+                  revenueM={revenueM}
+                  onRevenueMChange={setRevenueM}
+                  companies={companies}
+                  onCompaniesChange={setCompanies}
+                  addProjections={addProjections}
+                  onAddProjectionsChange={setAddProjections}
+                  addEvaluation={addEvaluation}
+                  onAddEvaluationChange={setAddEvaluation}
+                />
+              </div>
+            )}
           </div>
 
           <div
@@ -144,7 +211,14 @@ export function PricingProcessSection() {
                       <Settings className="h-6 w-6 text-[#2A2F3A]" strokeWidth={1.5} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h4 className="mb-2 text-lg font-semibold text-[#2A2F3A]">Frais d&apos;implantation</h4>
+                      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                        <h4 className="text-lg font-semibold text-[#2A2F3A]">Frais d&apos;implantation</h4>
+                        {showCalculator ? (
+                          <span className="shrink-0 text-sm font-semibold tabular-nums text-[#E0742D]">
+                            {formatCad(estimate.integrationMin)}&nbsp;$ – {formatCad(estimate.integrationMax)}&nbsp;$
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="mb-4 text-sm leading-relaxed text-[#5C5F66]">
                         Montant ponctuel pour la mise en place initiale : paramétrage, intégration des données et
                         préparation au bon usage par vos équipes.
@@ -171,7 +245,14 @@ export function PricingProcessSection() {
                       <DollarSign className="h-6 w-6 text-[#2A2F3A]" strokeWidth={1.5} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h4 className="mb-2 text-lg font-semibold text-[#2A2F3A]">Abonnement</h4>
+                      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                        <h4 className="text-lg font-semibold text-[#2A2F3A]">Abonnement</h4>
+                        {showCalculator ? (
+                          <span className="shrink-0 text-sm font-semibold tabular-nums text-[#E0742D]">
+                            {formatCad(estimate.monthlyMin)}&nbsp;$ – {formatCad(estimate.monthlyMax)}&nbsp;$ / mois
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="text-sm leading-relaxed text-[#5C5F66]">
                         Accès récurrent à la plateforme, mises à jour, évolutions produit et accompagnement dans la durée
                         selon le niveau de service convenu.
@@ -182,8 +263,19 @@ export function PricingProcessSection() {
               </div>
 
               <p className="mt-8 border-t border-slate-200/90 pt-6 text-center text-sm leading-relaxed text-[#5C5F66]">
-                Les montants dépendent de votre structure et de vos usages. Contactez-nous pour une proposition sur
-                mesure.
+                {showCalculator ? (
+                  <>
+                    Fourchettes indicatives hors taxes : borne basse = montant de référence, borne haute = référence
+                    avec deux hausses successives de <span className="font-medium">20&nbsp;%</span> (soit ×
+                    1,44). Les montants finaux dépendent de votre structure et de vos usages — contactez-nous pour une
+                    proposition sur mesure.
+                  </>
+                ) : (
+                  <>
+                    Les montants dépendent de votre structure et de vos usages. Contactez-nous pour une proposition sur
+                    mesure.
+                  </>
+                )}
               </p>
             </div>
           </div>

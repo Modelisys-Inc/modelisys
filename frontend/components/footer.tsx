@@ -5,6 +5,7 @@ import type React from "react"
 import { motion, useReducedMotion } from "framer-motion"
 import { ArrowRight, FacebookIcon, InstagramIcon, LinkedinIcon } from "lucide-react"
 import Link from "next/link"
+import { heroFeatureFooterLinks } from "@/lib/hero-features"
 
 interface FooterLink {
   title: string
@@ -29,8 +30,12 @@ const footerLinks: FooterSection[] = [
       { title: "Pourquoi Modelisys", href: "/#problem-solution" },
       { title: "Mise en place", href: "/#platform-setup" },
       { title: "Tarification", href: "/#pricing-process" },
-      { title: "Démonstration", href: "/#demo" },
+      { title: "Démarrer", href: "/#demo" },
     ],
+  },
+  {
+    label: "Fonctionnalités",
+    links: [...heroFeatureFooterLinks],
   },
   {
     label: "Utilisateurs",

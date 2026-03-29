@@ -3,75 +3,15 @@
 import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ArrowRight, HelpCircle, X, Check, TrendingUp, Clock, DollarSign, Shield, Zap, AlertCircle, CheckCircle2, TrendingDown } from "lucide-react"
-
-// Configuration des modules souhaitées (fonctionnalités)
-const additionalModules = [
-  {
-    id: "fonds-roulement-capex",
-    label: "Analyse du Fonds de Roulement et des Capex",
-    description: "Suivez recevables, payables, inventaire, cycles de conversion et trésorerie. Identifiez instantanément les opportunités d'optimisation à travers toute l'organisation.",
-    price: 25,
-  },
-  {
-    id: "previsions-budgets",
-    label: "Prévisions Financières et Budgets",
-    description: "Créez des budgets annuels ou des projections multi-années. Simulez des scénarios, anticipez les écarts, ajustez votre trajectoire.",
-    price: 50,
-  },
-  {
-    id: "analyse-approfondie",
-    label: "Analyse Financière Approfondie",
-    description: "Marges par produit, analyse de concentration clients et fournisseurs, saisonnalité, ratios financiers, dashboards KPI personnalisés.",
-    price: 25,
-  },
-  {
-    id: "valorisation-diagnostic",
-    label: "Valorisation et Diagnostic d'Entreprise",
-    description: "Suivez l'évolution de la valeur de votre entreprise. Identifiez les facteurs qui influencent votre valorisation, analysez les leviers de valeur et optimisez votre multiple.",
-    price: 50,
-  },
-  {
-    id: "portail-comptable",
-    label: "Portail Comptable et Consultant",
-    description: "Les PME peuvent partager l'accès à leur portail avec leur comptable ou consultant. Accès en temps réel à toutes les analyses pour un conseil optimisé.",
-    price: 25,
-  },
-]
-
-// Fonction pour calculer le multiplicateur selon les revenus
-// Entre 1M$ et 19M$ : aucun multiplicateur (1.0)
-// À partir de 20M$ : un multiplicateur de 10% s'applique à chaque tranche de 10M$
-// 20M$ = 10% (1.1), 30M$ = 20% (1.2), 40M$ = 30% (1.3), 50M$ = 40% (1.4), etc.
-const calculateRevenueMultiplier = (revenue: number): number => {
-  if (revenue < 20) return 1.0
-  // Calculer le nombre de tranches complètes de 10M$ au-dessus de 20M$
-  // Exemple : 20M$ = 0 tranches, 30M$ = 1 tranche, 40M$ = 2 tranches, etc.
-  const tranches = Math.floor((revenue - 20) / 10)
-  // Multiplicateur = 1.0 + (nombre de tranches + 1) * 0.1
-  // +1 car la première tranche (20-30M$) donne déjà 10%
-  return 1.0 + (tranches + 1) * 0.1
-}
-
-// Fonction pour calculer le multiplicateur selon le nombre de sociétés
-// Chaque société supplémentaire ajoute 15% au tarif mensuel
-const calculateCompanyMultiplier = (companies: number): number => {
-  if (companies <= 1) return 1.0
-  // Formule : 1 + (nombre de sociétés - 1) × 0.15
-  return 1 + (companies - 1) * 0.15
-}
-
-// Fonction pour calculer les frais d'intégration ponctuels
-const calculateIntegrationFee = (companies: number, modulesCount: number): number => {
-  const hourlyRate = 200 // $/h
-  const hoursPerCompany = 25 // heures par société/division (module inclus)
-  const hoursPerModule = 5 // heures par module souhaité (fixe, pas multiplié par sociétés)
-  
-  // Calcul : (nombre de sociétés × 25h × 200$/h) + (nombre de modules souhaités × 5h × 200$/h)
-  const companyIntegrationCost = companies * hoursPerCompany * hourlyRate
-  const modulesIntegrationCost = modulesCount * hoursPerModule * hourlyRate
-  
-  return companyIntegrationCost + modulesIntegrationCost
-}
+import {
+  PRICING_ADDITIONAL_MODULES as additionalModules,
+  BASE_SUBSCRIPTION_MONTHLY,
+  DISTINCT_OPTIONAL_MODULE_IDS,
+  calculateRevenueSubscriptionAddon,
+  calculateCompanyMultiplier,
+  calculateIntegrationFee,
+  pricingRangeHigh,
+} from "@/lib/pricing-estimate"
 
 export function PricingSection() {
   const sectionRef = useRef<HTMLElement>(null)
@@ -114,34 +54,33 @@ export function PricingSection() {
 
   // Calcul du prix total
   // Si aucun module n'est sélectionné, le prix est de 0$
-  const includedModulePrice = includedModule === "manual" ? 500 : 0
-  const baseModulesPrice = selectedModules.reduce(
-    (sum, id) => sum + (additionalModules.find((m) => m.id === id)?.price || 0),
-    0,
-  )
+  const includedModulePrice = includedModule === "manual" ? BASE_SUBSCRIPTION_MONTHLY : 0
+  const distinctOptionalSet = new Set<string>([...DISTINCT_OPTIONAL_MODULE_IDS])
+  const baseModulesPrice = selectedModules.reduce((sum, id) => {
+    if (!distinctOptionalSet.has(id)) return sum
+    return sum + (additionalModules.find((m) => m.id === id)?.price || 0)
+  }, 0)
 
   let totalPrice = 0
   let minPrice = 0
   let maxPrice = 0
   let minIntegrationFee = 0
   let maxIntegrationFee = 0
+  let revenueAddon = 0
 
   // Si au moins un module est sélectionné (inclus ou souhaité), calculer le prix
   if (selectedModules.length > 0 || includedModule === "manual") {
-    const revenueMultiplier = calculateRevenueMultiplier(revenue)
     const companyMultiplier = calculateCompanyMultiplier(companies)
-    // Prix = ((module inclus + somme des modules souhaités) * multiplicateur revenus * multiplicateur sociétés)
+    revenueAddon = calculateRevenueSubscriptionAddon(revenue)
+    // Prix = (socle + options + ajustement revenus par tranches de 5 M$) × multiplicateur sociétés
     const totalModulesPrice = includedModulePrice + baseModulesPrice
-    totalPrice = Math.round(totalModulesPrice * revenueMultiplier * companyMultiplier)
-    minPrice = Math.round(totalPrice * 0.8)
-    maxPrice = Math.round(totalPrice * 1.2)
-    
-    // Calcul des frais d'intégration ponctuels avec fourchette de ±20%
-    // Le module inclus nécessite 25h × 200$/h par société
-    // Chaque module souhaité ajoute 5h × 200$/h (fixe, pas multiplié par sociétés)
-    const baseIntegrationFee = calculateIntegrationFee(companies, selectedModules.length)
-    minIntegrationFee = Math.round(baseIntegrationFee * 0.8)
-    maxIntegrationFee = Math.round(baseIntegrationFee * 1.2)
+    totalPrice = Math.round((totalModulesPrice + revenueAddon) * companyMultiplier)
+    minPrice = totalPrice
+    maxPrice = pricingRangeHigh(totalPrice)
+
+    const baseIntegrationFee = calculateIntegrationFee(companies)
+    minIntegrationFee = baseIntegrationFee
+    maxIntegrationFee = pricingRangeHigh(baseIntegrationFee)
   }
 
   const toggleModule = (id: string) => {
@@ -341,7 +280,8 @@ export function PricingSection() {
                   <div className="relative group">
                     <HelpCircle className="w-5 h-5 text-slate-400 cursor-help hover:text-slate-600 transition-colors" />
                     <div className="absolute right-0 top-6 w-64 p-3 bg-slate-900 text-white text-sm rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 shadow-xl">
-                      Les revenus annuels déterminent le plan de base et les fonctionnalités incluses
+                      Chaque tranche de 5&nbsp;M$ de revenus ajoute en moyenne 25&nbsp;$&nbsp;/&nbsp;mois à
+                      l&apos;abonnement (avant multiplicateur sociétés)
                     </div>
                   </div>
                 </div>
@@ -426,7 +366,7 @@ export function PricingSection() {
                           Consolidation Financière Avancée
                         </span>
                         <div className="bg-slate-800 text-white px-3 py-1.5 rounded-lg text-sm font-bold whitespace-nowrap shadow-sm">
-                          +500$/mois
+                          +{BASE_SUBSCRIPTION_MONTHLY}$/mois
                         </div>
                       </div>
                       <p className="text-sm text-slate-600 leading-relaxed">
@@ -476,11 +416,15 @@ export function PricingSection() {
                               {module.label}
                             </span>
                             <div className={`px-3 py-1.5 rounded-lg text-sm font-bold whitespace-nowrap shadow-sm ${
-                              isSelected 
-                                ? "bg-slate-800 text-white" 
+                              isSelected
+                                ? "bg-slate-800 text-white"
                                 : "bg-slate-100 text-slate-700"
                             }`}>
-                              +{module.price}$/mois
+                              {distinctOptionalSet.has(module.id) ? (
+                                <>+{module.price}$/mois</>
+                              ) : (
+                                <>Inclus</>
+                              )}
                             </div>
                           </div>
                           <p className="text-sm text-slate-600 leading-relaxed">{module.description}</p>
@@ -547,12 +491,16 @@ export function PricingSection() {
                           <span className="font-bold text-white bg-slate-800/50 px-3 py-1 rounded-lg">{baseModulesPrice}$</span>
                         </div>
                       )}
-                      {(calculateRevenueMultiplier(revenue) > 1.0 || calculateCompanyMultiplier(companies) > 1.0) && (
+                      {(revenueAddon > 0 || calculateCompanyMultiplier(companies) > 1.0) && (
                         <>
-                          {calculateRevenueMultiplier(revenue) > 1.0 && (
+                          {revenueAddon > 0 && (
                             <div className="flex justify-between items-center py-2 border-b border-slate-600/30">
-                              <span className="text-slate-300">Multiplicateur revenus ({revenue}M$)</span>
-                              <span className="font-bold text-slate-200 bg-slate-700/50 px-3 py-1 rounded-lg">x{calculateRevenueMultiplier(revenue).toFixed(1)}</span>
+                              <span className="text-slate-300">
+                                Ajustement revenus ({revenue}&nbsp;M$, tranches de 5&nbsp;M$)
+                              </span>
+                              <span className="font-bold text-slate-200 bg-slate-700/50 px-3 py-1 rounded-lg">
+                                +{revenueAddon}$
+                              </span>
                             </div>
                           )}
                           {calculateCompanyMultiplier(companies) > 1.0 && (

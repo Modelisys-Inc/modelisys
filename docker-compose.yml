@@ -8,7 +8,8 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
-      - /app/.next
+      # Pas de volume séparé pour .next : avec Next en dev, un volume anonyme peut
+      # garder d’anciens artefacts et donner l’impression que les changements ne s’appliquent pas.
     environment:
       - NODE_ENV=development
       - NEXT_PUBLIC_API_URL=http://localhost:8000
