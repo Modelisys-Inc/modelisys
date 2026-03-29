@@ -48,9 +48,11 @@ export default function IncomeStatementPage() {
   const pathname = usePathname()
 
   // Date reference state (month and year)
+  // Default to previous year in Q1 (Jan-Mar), since current-year data is rarely available yet
   const currentDate = new Date()
+  const defaultYear = currentDate.getMonth() < 3 ? currentDate.getFullYear() - 1 : currentDate.getFullYear()
   const [selectedMonth, setSelectedMonth] = useState<number>(currentDate.getMonth() + 1) // 1-12
-  const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear())
+  const [selectedYear, setSelectedYear] = useState<number>(defaultYear)
 
   // Load budgets from API
   const [budgets, setBudgets] = useState<Array<{ id: string; name: string }>>([])
@@ -496,7 +498,7 @@ export default function IncomeStatementPage() {
           <IncomeStatementChart
             period={period}
             view={view}
-            companyId={selectedCompanyId}
+            companyId={selectedCompanyId || resolvedCompanyId}
             divisionId={selectedDivisionId}
             subDivisionId={selectedSubDivisionId}
             companies={companies}

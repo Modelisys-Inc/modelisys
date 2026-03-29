@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { StickyNote, FileText, Calendar, Building2, Trash2, Edit2, ExternalLink } from "lucide-react"
-import { Note, deleteNote, getNotes } from "@/lib/notes-storage"
+import { Note, deleteNote, getNotes, useNotesCache, refreshNotesCache } from "@/lib/notes-storage"
 import { formatCurrency } from "@/lib/financial-utils"
 import { NoteModal } from "@/components/note-modal"
 import { cn } from "@/lib/utils"
@@ -42,24 +42,31 @@ const pageRoutes: Record<string, string> = {
   "capex": "/analysis/capex",
 }
 
-export function YearEndNotesSection() {
+interface YearEndNotesSectionProps {
+  companyId?: string | null
+}
+
+export function YearEndNotesSection({ companyId }: YearEndNotesSectionProps) {
   const [notes, setNotes] = useState<Note[]>([])
   const [selectedNote, setSelectedNote] = useState<Note | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [filter, setFilter] = useState<string>("all")
 
+  // Initialize notes cache
+  const { version } = useNotesCache(companyId ?? null)
+
   useEffect(() => {
     loadNotes()
-  }, [])
+  }, [version])
 
   const loadNotes = () => {
     const allNotes = getNotes()
     setNotes(allNotes.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()))
   }
 
-  const handleDelete = (note: Note) => {
+  const handleDelete = async (note: Note) => {
     if (confirm("Êtes-vous sûr de vouloir supprimer cette note ?")) {
-      deleteNote(note.id)
+      await deleteNote(note.id, companyId)
       loadNotes()
     }
   }

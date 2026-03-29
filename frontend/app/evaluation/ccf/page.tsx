@@ -52,14 +52,14 @@ export default function CCFPage() {
 
   // Check if disclaimer was accepted in session storage
   useEffect(() => {
-    const accepted = sessionStorage.getItem("ccf-disclaimer-accepted")
+    const accepted = localStorage.getItem("ccf-disclaimer-accepted")
     if (accepted === "true") {
       setHasAcceptedDisclaimer(true)
     }
   }, [])
 
   const handleAcceptDisclaimer = () => {
-    sessionStorage.setItem("ccf-disclaimer-accepted", "true")
+    localStorage.setItem("ccf-disclaimer-accepted", "true")
     setHasAcceptedDisclaimer(true)
   }
 

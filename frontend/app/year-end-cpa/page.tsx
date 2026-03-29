@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
 import { Filter } from "lucide-react"
@@ -34,6 +34,13 @@ export default function YearEndCPAPage() {
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
   const [section, setSection] = useState<SectionType>("documents")
+
+  // Auto-select first company
+  useEffect(() => {
+    if (!companyId && companies.length > 0) {
+      setCompanyId(companies[0].id)
+    }
+  }, [companies, companyId])
 
   const currentContent = sectionContent[section]
 
@@ -116,12 +123,13 @@ export default function YearEndCPAPage() {
       <div className="relative -mt-32 mb-12">
         <div className="max-w-[1920px] mx-auto px-6">
           {section === "documents" ? (
-            <TrialBalanceByGroup 
+            <TrialBalanceByGroup
               title="Documents"
               description="Déposez vos documents comptables par compte GL pour faciliter la clôture annuelle avec votre cabinet."
+              companyId={companyId}
             />
           ) : (
-            <YearEndNotesSection />
+            <YearEndNotesSection companyId={companyId} />
           )}
         </div>
       </div>

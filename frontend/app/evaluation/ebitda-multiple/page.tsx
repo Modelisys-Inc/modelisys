@@ -15,7 +15,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
-import { listEbitdaNotes, upsertEbitdaNote, getIncomeStatement, listCompanies, type Company as ApiCompany } from "@/lib/api"
+import { listEbitdaNotes, upsertEbitdaNote, getIncomeStatement, listCompanies, listForecastConfigs, upsertForecastConfig, type Company as ApiCompany } from "@/lib/api"
 import { generateId } from "@/lib/seeded-random"
 
 const evaluationNav = [
@@ -58,14 +58,14 @@ export default function EBITDAMultiplePage() {
 
   // Check if disclaimer was accepted in session storage
   useEffect(() => {
-    const accepted = sessionStorage.getItem("ebitda-multiple-disclaimer-accepted")
+    const accepted = localStorage.getItem("ebitda-multiple-disclaimer-accepted")
     if (accepted === "true") {
       setHasAcceptedDisclaimer(true)
     }
   }, [])
 
   const handleAcceptDisclaimer = () => {
-    sessionStorage.setItem("ebitda-multiple-disclaimer-accepted", "true")
+    localStorage.setItem("ebitda-multiple-disclaimer-accepted", "true")
     setHasAcceptedDisclaimer(true)
   }
   
@@ -157,14 +157,17 @@ export default function EBITDAMultiplePage() {
       })
 
       setRevenueByYear(newRevenueByYear)
-      // Update years with correct FY labels and EBITDA data
-      setYears(fiscalYears.map((fy, i) => ({
-        year: fy,
-        ebitda: ebitdaByYear[fy] || 0,
-        adjustedEBITDA: ebitdaByYear[fy] || 0,
-        weight: i >= 3 ? (i === 3 ? 0.25 : 0.3) : 0,
-        isRepresentative: i >= 3,
-      })))
+      // Update years with correct FY labels and EBITDA data, preserving user-set weights
+      setYears(prev => fiscalYears.map((fy, i) => {
+        const existing = prev.find(y => y.year === fy)
+        return {
+          year: fy,
+          ebitda: ebitdaByYear[fy] || 0,
+          adjustedEBITDA: ebitdaByYear[fy] || 0,
+          weight: existing?.weight ?? (i >= 3 ? (i === 3 ? 0.25 : 0.3) : 0),
+          isRepresentative: existing?.isRepresentative ?? (i >= 3),
+        }
+      }))
       setIncomeDataLoading(false)
     })
 
@@ -178,7 +181,8 @@ export default function EBITDAMultiplePage() {
 
   // Adjustments shared across all years
   const [adjustments, setAdjustments] = useState<Adjustment[]>([])
-  
+  const [configLoaded, setConfigLoaded] = useState(false)
+
   // Track which input is being edited (for formatting purposes)
   const [editingInput, setEditingInput] = useState<string | null>(null)
 
@@ -343,6 +347,61 @@ export default function EBITDAMultiplePage() {
     setAdjustmentModalAmounts({})
     setAdjustmentNote("")
   }
+
+  // Load adjustments + weights from ForecastConfig when entity changes
+  useEffect(() => {
+    if (!companyId) {
+      setConfigLoaded(true)
+      return
+    }
+    let cancelled = false
+
+    listForecastConfigs(companyId, {
+      config_type: "ebitda-multiple-config",
+      ...(divisionId ? { division_id: divisionId } : {}),
+      ...(subDivisionId ? { sub_division_id: subDivisionId } : {}),
+    })
+      .then((configs) => {
+        if (cancelled) return
+        if (configs.length > 0) {
+          const d = configs[0].data as Record<string, unknown>
+          if (Array.isArray(d.adjustments)) setAdjustments(d.adjustments as Adjustment[])
+          if (typeof d.lowMultiple === "number") setLowMultiple(d.lowMultiple)
+          if (typeof d.highMultiple === "number") setHighMultiple(d.highMultiple)
+          if (Array.isArray(d.weights)) {
+            setYears(prev => prev.map((y, i) => ({
+              ...y,
+              weight: (d.weights as number[])[i] ?? y.weight,
+              isRepresentative: (d.isRepresentative as boolean[])?.[i] ?? y.isRepresentative,
+            })))
+          }
+        }
+        setConfigLoaded(true)
+      })
+      .catch(() => setConfigLoaded(true))
+
+    return () => { cancelled = true }
+  }, [companyId, divisionId, subDivisionId])
+
+  // Debounced auto-save of adjustments + weights
+  useEffect(() => {
+    if (!configLoaded || !companyId) return
+    const timer = setTimeout(() => {
+      upsertForecastConfig(companyId, {
+        config_type: "ebitda-multiple-config",
+        data: {
+          adjustments,
+          lowMultiple,
+          highMultiple,
+          weights: years.map(y => y.weight),
+          isRepresentative: years.map(y => y.isRepresentative),
+        } as Record<string, unknown>,
+        ...(divisionId ? { division_id: divisionId } : {}),
+        ...(subDivisionId ? { sub_division_id: subDivisionId } : {}),
+      }).catch(console.error)
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [adjustments, lowMultiple, highMultiple, years, companyId, divisionId, subDivisionId, configLoaded])
 
   // Load all EBITDA notes from backend when entity changes
   useEffect(() => {

@@ -125,31 +125,55 @@ export default function CapexPage() {
     enabled: !!selectedCompanyId,
   })
 
+  // Fetch income-statement series to get real depreciation/amortization data
+  const { rows: isRows, periods: isPeriods, loading: isLoading } = useFinancialStatementSeries({
+    companyId: selectedCompanyId || null,
+    statementType: "income-statement",
+    fiscalYear: selectedYear,
+    months: monthsNeeded,
+    divisionId: selectedDivisionId || null,
+    subDivisionId: selectedSubDivisionId || null,
+    enabled: !!selectedCompanyId,
+  })
+
   // Build chart data from series
   const buildChartData = (): CapexChartDataPoint[] => {
     if (!isMultiPeriod || seriesRows.length === 0 || periods.length === 0) return []
 
     // Find total non-current assets row (for capex)
-    // Look for rows that indicate total fixed assets
     const totalRow = seriesRows.find((r) => r.isBold && !r.isSection && r.label.toLowerCase().includes("total"))
     if (!totalRow) return []
 
     const amounts = getRowAmounts(totalRow, periods)
+
+    // Find depreciation/amortization row from income statement
+    const depRow = isRows.find((r) =>
+      !r.isSection &&
+      (r.label.toLowerCase().includes("amortissement") || r.label.toLowerCase().includes("depreciation") || r.label.toLowerCase().includes("dépréciation"))
+    )
+    const depAmounts = depRow && isPeriods.length > 0 ? getRowAmounts(depRow, isPeriods) : null
+
     let labels: string[]
     let values: number[]
+    let depValues: number[] | null = null
 
     if (view === "years") {
       const agg = aggregateToYears(amounts, periods)
       labels = agg.labels
       values = agg.amounts
+      if (depAmounts) {
+        const depAgg = aggregateToYears(depAmounts, isPeriods)
+        depValues = depAgg.amounts
+      }
     } else {
       labels = getPeriodLabels(periods)
       values = amounts
+      depValues = depAmounts
     }
 
     return labels.map((label, idx) => {
       const capex = idx > 0 ? values[idx] - values[idx - 1] : 0
-      const depreciation = Math.round(values[idx] * 0.08) // estimate
+      const depreciation = depValues ? Math.abs(depValues[idx] || 0) : 0
       const ratio = depreciation > 0 ? (capex / depreciation) * 100 : 0
       return {
         period: label,

@@ -446,7 +446,7 @@ export function CabinetsPillarsSection() {
 
                         <div className="mt-4 pt-3 border-t border-slate-100">
                           <Link
-                            href="/landing#demo"
+                            href="/#demo"
                             className={`
                               text-xs font-semibold inline-flex items-center gap-2
                               transition-all duration-300

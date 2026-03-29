@@ -4,18 +4,18 @@ import { useState, useEffect, useRef, type MouseEvent } from "react"
 import { Menu, X, ArrowRight, ChevronDown } from "lucide-react"
 import Link from "next/link"
 
-const POUR_QUI_SECTION = "/landing#pour-qui"
+const POUR_QUI_SECTION = "/#pour-qui"
 
 const pourQuiSubLinks = [
-  { name: "Entreprises", href: "/landing#audience-entreprises" },
-  { name: "Partenaires conseils", href: "/landing#audience-conseils" },
-  { name: "Partenaires financiers", href: "/landing#audience-financiers" },
+  { name: "Entreprises", href: "/#audience-entreprises" },
+  { name: "Partenaires conseils", href: "/#audience-conseils" },
+  { name: "Partenaires financiers", href: "/#audience-financiers" },
 ] as const
 
 const mainNavLinks = [
-  { name: "Pourquoi", href: "/landing#problem-solution" },
-  { name: "Mise en place", href: "/landing#platform-setup" },
-  { name: "Tarification", href: "/landing#pricing-process" },
+  { name: "Pourquoi", href: "/#problem-solution" },
+  { name: "Mise en place", href: "/#platform-setup" },
+  { name: "Tarification", href: "/#pricing-process" },
 ] as const
 
 /** Ordre du menu mobile (indent = sous-entrées de « Pour qui »). */
@@ -25,13 +25,13 @@ const mobileNavItems = [
   ...mainNavLinks.map((l) => ({ name: l.name, href: l.href, indent: false as const })),
 ]
 
-/** Sur /landing, évite une navigation Next inutile et assure le scroll vers l’ancre. */
+/** Sur /, évite une navigation Next inutile et assure le scroll vers l’ancre. */
 function goToLandingSection(e: MouseEvent<HTMLAnchorElement>, href: string) {
   if (typeof window === "undefined") return
-  if (!href.startsWith("/landing#")) return
-  if (window.location.pathname !== "/landing") return
+  if (!href.startsWith("/#")) return
+  if (window.location.pathname !== "/") return
   e.preventDefault()
-  const hash = href.slice("/landing".length)
+  const hash = href.slice(1)
   const id = decodeURIComponent(hash.slice(1))
   const el = document.getElementById(id)
   if (window.location.hash === hash && el) {
@@ -108,11 +108,11 @@ export function GlassmorphismNav() {
               <div className="flex items-center gap-6 md:gap-8">
                 {/* Logo */}
                 <Link
-                  href="/landing"
+                  href="/"
                   className="flex items-center hover:scale-105 transition-transform duration-200 cursor-pointer"
                   onClick={(e) => {
                     if (typeof window === "undefined") return
-                    if (window.location.pathname !== "/landing") return
+                    if (window.location.pathname !== "/") return
                     e.preventDefault()
                     window.scrollTo({ top: 0, behavior: "smooth" })
                   }}
@@ -176,8 +176,8 @@ export function GlassmorphismNav() {
                 </Link>
 
                 <Link
-                  href="/landing#demo"
-                  onClick={(e) => goToLandingSection(e, "/landing#demo")}
+                  href="/#demo"
+                  onClick={(e) => goToLandingSection(e, "/#demo")}
                   className="group inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
                 >
                   <span>RÉSERVER UNE DÉMO</span>
@@ -261,7 +261,7 @@ export function GlassmorphismNav() {
                   <span>Mon Portail</span>
                 </Link>
                 <Link
-                  href="/landing#demo"
+                  href="/#demo"
                   className={`group relative flex cursor-pointer items-center rounded-md border border-white/10 bg-white/[0.04] px-6 py-3 font-semibold text-slate-200 transition-colors duration-200 hover:bg-white/[0.07] hover:text-slate-100 ${
                     isOpen ? "animate-mobile-menu-item" : ""
                   }`}
@@ -269,7 +269,7 @@ export function GlassmorphismNav() {
                     animationDelay: isOpen ? `${mobileNavItems.length * 80 + 150}ms` : "0ms",
                   }}
                   onClick={(e) => {
-                    goToLandingSection(e, "/landing#demo")
+                    goToLandingSection(e, "/#demo")
                     setIsOpen(false)
                   }}
                 >

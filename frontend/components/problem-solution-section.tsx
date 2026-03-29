@@ -21,6 +21,7 @@ import {
   ArrowRight,
   ChevronLeft,
   ChevronRight,
+  Presentation,
 } from "lucide-react"
 
 interface Challenge {

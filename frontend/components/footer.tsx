@@ -26,18 +26,18 @@ const footerLinks: FooterSection[] = [
   {
     label: "Parcours",
     links: [
-      { title: "Pourquoi Modelisys", href: "/landing#problem-solution" },
-      { title: "Mise en place", href: "/landing#platform-setup" },
-      { title: "Tarification", href: "/landing#pricing-process" },
-      { title: "Démonstration", href: "/landing#demo" },
+      { title: "Pourquoi Modelisys", href: "/#problem-solution" },
+      { title: "Mise en place", href: "/#platform-setup" },
+      { title: "Tarification", href: "/#pricing-process" },
+      { title: "Démonstration", href: "/#demo" },
     ],
   },
   {
     label: "Utilisateurs",
     links: [
-      { title: "PME", href: "/landing#problem-solution" },
-      { title: "Partenaires comptables", href: "/landing/cabinets-comptables" },
-      { title: "Partenaires institutionnels", href: "/landing/partenaires-institutionnels" },
+      { title: "PME", href: "/#problem-solution" },
+      { title: "Partenaires comptables", href: "/cabinets-comptables" },
+      { title: "Partenaires institutionnels", href: "/partenaires-institutionnels" },
     ],
   },
   {

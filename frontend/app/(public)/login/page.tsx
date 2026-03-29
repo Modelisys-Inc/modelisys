@@ -188,7 +188,7 @@ export default function LoginPage() {
                   <p className="mt-5 text-center text-[11px] text-[#C9B8A5]/75">
                     Pas encore de compte ?{" "}
                     <Link
-                      href="/landing"
+                      href="/"
                       className="text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
                     >
                       Contactez-nous
@@ -200,7 +200,7 @@ export default function LoginPage() {
 
             <div className="mt-8 text-center">
               <Link
-                href="/landing"
+                href="/"
                 className="inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
               >
                 <ArrowRight className="h-4 w-4 rotate-180 text-[#E0742D]" />

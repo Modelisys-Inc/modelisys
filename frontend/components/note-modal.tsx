@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { X, Save, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Note, saveNote, updateNote, deleteNote, getNoteByRowId } from "@/lib/notes-storage"
+import { Note, saveNote, updateNote, deleteNote, getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { formatCurrency } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 
@@ -52,6 +52,10 @@ export function NoteModal({
   const [content, setContent] = useState("")
   const [existingNote, setExistingNote] = useState<Note | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+
+  // Initialize notes cache for this company
+  useNotesCache(companyId ?? null)
 
   useEffect(() => {
     if (isOpen) {
@@ -66,61 +70,64 @@ export function NoteModal({
     }
   }, [isOpen, rowId, page, period, view, companyId, divisionId, subDivisionId])
 
-  const handleSave = () => {
-    if (!content.trim()) return
+  const handleSave = async () => {
+    if (!content.trim() || isSaving) return
+    setIsSaving(true)
 
-    if (existingNote) {
-      updateNote(existingNote.id, {
-        content: content.trim(),
-        rowLabel,
-        page,
-        period,
-        view,
-        companyId,
-        companyName,
-        divisionId,
-        divisionName,
-        subDivisionId,
-        subDivisionName,
-        // Keep existing financial data when updating (don't overwrite)
-        currentAmount: existingNote.currentAmount ?? currentAmount,
-        priorAmount: existingNote.priorAmount ?? priorAmount,
-        variationPercent: existingNote.variationPercent ?? variationPercent,
-        variationAmount: existingNote.variationAmount ?? variationAmount,
-      })
-    } else {
-      saveNote({
-        rowId,
-        rowLabel,
-        page,
-        period,
-        view,
-        companyId,
-        companyName,
-        divisionId,
-        divisionName,
-        subDivisionId,
-        subDivisionName,
-        currentAmount,
-        priorAmount,
-        variationPercent,
-        variationAmount,
-        content: content.trim(),
-      })
+    try {
+      if (existingNote) {
+        await updateNote(existingNote.id, {
+          content: content.trim(),
+          currentAmount: existingNote.currentAmount ?? currentAmount,
+          priorAmount: existingNote.priorAmount ?? priorAmount,
+          variationPercent: existingNote.variationPercent ?? variationPercent,
+          variationAmount: existingNote.variationAmount ?? variationAmount,
+        }, companyId)
+      } else {
+        await saveNote({
+          rowId,
+          rowLabel,
+          page,
+          period,
+          view,
+          companyId,
+          companyName,
+          divisionId,
+          divisionName,
+          subDivisionId,
+          subDivisionName,
+          currentAmount,
+          priorAmount,
+          variationPercent,
+          variationAmount,
+          content: content.trim(),
+        })
+      }
+
+      onSave?.()
+      onClose()
+    } catch (err) {
+      console.error("Error saving note:", err)
+    } finally {
+      setIsSaving(false)
     }
-
-    onSave?.()
-    onClose()
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!existingNote || !confirm("Êtes-vous sûr de vouloir supprimer cette note ?")) return
+    setIsDeleting(true)
 
-    deleteNote(existingNote.id)
-    setExistingNote(null)
-    setContent("")
-    onSave?.()
-    onClose()
+    try {
+      await deleteNote(existingNote.id, companyId)
+      setExistingNote(null)
+      setContent("")
+      onSave?.()
+      onClose()
+    } catch (err) {
+      console.error("Error deleting note:", err)
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   if (!isOpen) return null
@@ -229,11 +236,11 @@ export function NoteModal({
             </Button>
             <Button
               onClick={handleSave}
-              disabled={!content.trim()}
+              disabled={!content.trim() || isSaving}
               className="bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4 mr-2" />
-              {existingNote ? "Mettre à jour" : "Enregistrer"}
+              {isSaving ? "Enregistrement..." : existingNote ? "Mettre à jour" : "Enregistrer"}
             </Button>
           </div>
         </div>

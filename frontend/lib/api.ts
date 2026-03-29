@@ -342,6 +342,16 @@ export async function listAccountMappings(
   return data.mappings
 }
 
+export async function deleteAccountMapping(
+  companyId: string,
+  mappingId: string
+): Promise<void> {
+  await apiFetch<void>(
+    `/api/companies/${companyId}/account-mappings/${mappingId}`,
+    { method: "DELETE" }
+  )
+}
+
 export async function upsertAccountMappings(
   companyId: string,
   entries: Array<{

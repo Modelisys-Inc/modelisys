@@ -49,15 +49,7 @@ const getDefaultMappingsBilan = (): Mapping[] => [
     id: "1",
     name: "Actif",
     categories: [
-      {
-        id: "cat-1",
-        name: "Court terme",
-        postes: [
-          { id: "poste-1", name: "Encaisse", linkCode: "ACT-001" },
-          { id: "poste-2", name: "Débiteurs", linkCode: "ACT-002" },
-          { id: "poste-3", name: "Frais payés d'avance", linkCode: "ACT-003" },
-        ],
-      },
+      { id: "cat-1", name: "Court terme", postes: [] },
       { id: "cat-2", name: "Long terme", postes: [] },
     ],
   },
@@ -77,10 +69,7 @@ const getDefaultMappingsResultats = (): Mapping[] => [
     id: "1",
     name: "Revenus",
     categories: [],
-    postes: [
-      { id: "poste-1", name: "Ventes", linkCode: "REV-001" },
-      { id: "poste-2", name: "Services", linkCode: "REV-002" },
-    ],
+    postes: [],
   },
   {
     id: "2",
@@ -91,10 +80,7 @@ const getDefaultMappingsResultats = (): Mapping[] => [
   {
     id: "3",
     name: "Charges",
-    categories: [
-      { id: "cat-1", name: "Charges d'exploitation", postes: [] },
-      { id: "cat-2", name: "Charges financières", postes: [] },
-    ],
+    categories: [],
   },
 ]
 
@@ -430,7 +416,7 @@ export default function FinancialStatementsPage() {
     }
   }
 
-  const handleStartEditPoste = (mappingId: string, categoryId: string, poste: Poste) => {
+  const handleStartEditPoste = (mappingId: string, categoryId: string | null, poste: Poste) => {
     setEditingPosteId(poste.id)
     setEditingPosteName(poste.name)
     setEditingPosteLinkCode(poste.linkCode)
@@ -974,7 +960,7 @@ export default function FinancialStatementsPage() {
                           {/* Add Category Form for Charges, Coûts des produits vendus, and Capex */}
                           {isExpanded && ((mappingType === "resultats" && (mapping.name === "Charges" || mapping.name === "Coûts des produits vendus")) || (mappingType === "capex" && mapping.name === "Capex")) && isAddingCategory && (
                             <tr className="bg-slate-50 border-b border-slate-200">
-                              <td colSpan={mappingType === "bilan" ? 4 : 3} className="px-6 py-3">
+                              <td colSpan={3} className="px-6 py-3">
                                 <div className="flex items-center gap-3 pl-12">
                                   <Input
                                     placeholder="Nom de la catégorie"
@@ -1089,7 +1075,7 @@ export default function FinancialStatementsPage() {
                                           >
                                             <Edit2 className="w-3.5 h-3.5" />
                                           </Button>
-                                          {(mappingType !== "bilan" || (mappingType === "resultats" && mapping.name === "Coûts des produits vendus")) && (
+                                          {(mappingType !== "bilan") && (
                                             <Button
                                               onClick={() => handleDeleteCategory(mapping.id, category.id)}
                                               size="sm"

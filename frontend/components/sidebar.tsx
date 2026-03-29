@@ -204,7 +204,7 @@ export function Sidebar() {
       sessionStorage.clear()
       
       // Rediriger vers la landing page
-      router.push("/landing")
+      router.push("/")
     }
   }
   

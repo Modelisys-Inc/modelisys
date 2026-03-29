@@ -61,7 +61,7 @@ export function BalanceSheetChart({
     months: monthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
-    enabled: isMultiPeriod,
+    enabled: !chartData,
   })
 
   // Transform series data into chart data points
@@ -148,9 +148,9 @@ export function BalanceSheetChart({
     }))
   }, [seriesRows, periods, view])
 
-  // Use series chart data when in multi-period mode, otherwise use prop
-  const effectiveChartData = isMultiPeriod ? seriesChartData : chartData
-  const effectiveLoading = loading || (isMultiPeriod && seriesLoading)
+  // Use series chart data when no chartData prop provided
+  const effectiveChartData = chartData || (seriesChartData.length > 0 ? seriesChartData : undefined)
+  const effectiveLoading = loading || (!chartData && seriesLoading)
 
   // Loading state
   if (effectiveLoading) {
@@ -413,7 +413,6 @@ export function BalanceSheetChart({
               axisLine={{ stroke: "#cbd5e1" }}
             />
             <YAxis
-              yAxisId="left"
               tick={{ fill: "#64748b", fontSize: 12 }}
               tickLine={{ stroke: "#cbd5e1" }}
               axisLine={{ stroke: "#cbd5e1" }}
@@ -454,115 +453,21 @@ export function BalanceSheetChart({
               content={<ChartLegendContent />}
               className="-mt-2"
             />
-            {selectedChartView === "assets_liabilities_equity" && (
-              <>
-                {/* Histogramme 1 : Actif (empilé) */}
-                <Bar
-                  yAxisId="left"
-                  dataKey="currentAssets"
-                  fill="#3b82f6"
-                  name="Actif à court terme"
-                  stackId="assets"
-                  radius={[0, 0, 0, 0]}
-                />
-                <Bar
-                  yAxisId="left"
-                  dataKey="nonCurrentAssets"
-                  fill="#60a5fa"
-                  name="Actif à long terme"
-                  stackId="assets"
-                  radius={[4, 4, 0, 0]}
-                />
-                {/* Histogramme 2 : Passif (empilé) */}
-                <Bar
-                  yAxisId="left"
-                  dataKey="currentLiabilities"
-                  fill="#ef4444"
-                  name="Passif à court terme"
-                  stackId="liabilities"
-                  radius={[0, 0, 0, 0]}
-                />
-                <Bar
-                  yAxisId="left"
-                  dataKey="nonCurrentLiabilities"
-                  fill="#f87171"
-                  name="Passif à long terme"
-                  stackId="liabilities"
-                  radius={[4, 4, 0, 0]}
-                />
-                {/* Histogramme 3 : Capitaux propres (seul) */}
-                <Bar
-                  yAxisId="left"
-                  dataKey="equity"
-                  fill="#10b981"
-                  name="Capitaux propres"
-                  radius={[4, 4, 0, 0]}
-                />
-              </>
-            )}
-            {selectedChartView === "current_noncurrent" && (
-              <>
-                <Bar
-                  yAxisId="left"
-                  dataKey="currentAssets"
-                  fill="#3b82f6"
-                  name="Actifs courants"
-                  radius={[4, 4, 0, 0]}
-                />
-                <Bar
-                  yAxisId="left"
-                  dataKey="nonCurrentAssets"
-                  fill="#60a5fa"
-                  name="Actifs non courants"
-                  radius={[4, 4, 0, 0]}
-                />
-                <Bar
-                  yAxisId="left"
-                  dataKey="currentLiabilities"
-                  fill="#ef4444"
-                  name="Passifs courants"
-                  radius={[4, 4, 0, 0]}
-                />
-                <Bar
-                  yAxisId="left"
-                  dataKey="nonCurrentLiabilities"
-                  fill="#f87171"
-                  name="Passifs non courants"
-                  radius={[4, 4, 0, 0]}
-                />
-              </>
-            )}
-            {selectedChartView === "debt_equity_ratio" && (
-              <>
-                <defs>
-                  <linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/>
-                  </linearGradient>
-                </defs>
-                <Area
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="equity"
-                  stroke="#10b981"
-                  strokeWidth={3}
-                  fill="url(#equityGradient)"
-                  fillOpacity={0.6}
-                  dot={{ fill: "#10b981", r: 5 }}
-                  activeDot={{ r: 7 }}
-                  name="Capitaux propres"
-                />
-                <ReferenceLine
-                  yAxisId="left"
-                  y={avgEquity}
-                  stroke="#10b981"
-                  strokeDasharray="6 4"
-                  strokeWidth={2}
-                  strokeOpacity={0.6}
-                  label={{ value: `Moyenne: ${formatCurrency(avgEquity)}`, position: "right", fill: "#10b981", fontSize: 11 }}
-                />
-              </>
-            )}
+            {/* assets_liabilities_equity view — no fragment wrapper (React 19 compat) */}
+            {selectedChartView === "assets_liabilities_equity" && <Bar dataKey="currentAssets" fill="#3b82f6" name="Actif à court terme" stackId="assets" radius={[0, 0, 0, 0]} />}
+            {selectedChartView === "assets_liabilities_equity" && <Bar dataKey="nonCurrentAssets" fill="#60a5fa" name="Actif à long terme" stackId="assets" radius={[4, 4, 0, 0]} />}
+            {selectedChartView === "assets_liabilities_equity" && <Bar dataKey="currentLiabilities" fill="#ef4444" name="Passif à court terme" stackId="liabilities" radius={[0, 0, 0, 0]} />}
+            {selectedChartView === "assets_liabilities_equity" && <Bar dataKey="nonCurrentLiabilities" fill="#f87171" name="Passif à long terme" stackId="liabilities" radius={[4, 4, 0, 0]} />}
+            {selectedChartView === "assets_liabilities_equity" && <Bar dataKey="equity" fill="#10b981" name="Capitaux propres" radius={[4, 4, 0, 0]} />}
+            {/* current_noncurrent view */}
+            {selectedChartView === "current_noncurrent" && <Bar dataKey="currentAssets" fill="#3b82f6" name="Actifs courants" radius={[4, 4, 0, 0]} />}
+            {selectedChartView === "current_noncurrent" && <Bar dataKey="nonCurrentAssets" fill="#60a5fa" name="Actifs non courants" radius={[4, 4, 0, 0]} />}
+            {selectedChartView === "current_noncurrent" && <Bar dataKey="currentLiabilities" fill="#ef4444" name="Passifs courants" radius={[4, 4, 0, 0]} />}
+            {selectedChartView === "current_noncurrent" && <Bar dataKey="nonCurrentLiabilities" fill="#f87171" name="Passifs non courants" radius={[4, 4, 0, 0]} />}
+            {/* debt_equity_ratio view */}
+            {selectedChartView === "debt_equity_ratio" && <defs><linearGradient id="equityGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/><stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/></linearGradient></defs>}
+            {selectedChartView === "debt_equity_ratio" && <Area type="monotone" dataKey="equity" stroke="#10b981" strokeWidth={3} fill="url(#equityGradient)" fillOpacity={0.6} dot={{ fill: "#10b981", r: 5 }} activeDot={{ r: 7 }} name="Capitaux propres" />}
+            {selectedChartView === "debt_equity_ratio" && <ReferenceLine y={avgEquity} stroke="#10b981" strokeDasharray="6 4" strokeWidth={2} strokeOpacity={0.6} label={{ value: `Moyenne: ${formatCurrency(avgEquity)}`, position: "right", fill: "#10b981", fontSize: 11 }} />}
           </ComposedChart>
         </ChartContainer>
           </div>

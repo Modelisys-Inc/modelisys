@@ -149,12 +149,41 @@ export function PricingSection() {
   }
 
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isSubmitted, setIsSubmitted] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // TODO: Implement form submission to backend
-    alert("Merci pour votre demande ! Nous vous contacterons sous peu.")
-    setShowForm(false)
-    setFormData({ name: "", email: "", phone: "", company: "" })
+    setIsSubmitting(true)
+
+    try {
+      const response = await fetch("https://formspree.io/f/xzdapzyv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...formData,
+          type: "pricing_inquiry",
+          revenue: `${revenue}M$`,
+          companies,
+          selectedModules: selectedModules.map(id => additionalModules.find(m => m.id === id)?.label).filter(Boolean),
+          estimatedMonthlyPrice: `${minPrice}$ - ${maxPrice}$`,
+          estimatedIntegrationFee: `${minIntegrationFee}$ - ${maxIntegrationFee}$`,
+        }),
+      })
+
+      if (response.ok) {
+        setIsSubmitted(true)
+        setTimeout(() => {
+          setIsSubmitted(false)
+          setShowForm(false)
+          setFormData({ name: "", email: "", phone: "", company: "" })
+        }, 3000)
+      }
+    } catch {
+      // Silently handle — form stays open for retry
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -702,14 +731,22 @@ export function PricingSection() {
               </div>
 
               <div className="pt-4">
-                <Button
-                  type="submit"
-                  size="lg"
-                  className="w-full bg-slate-800 text-white hover:bg-slate-700 rounded-lg py-6 text-base font-semibold transition-colors duration-200"
-                >
-                  Envoyer la demande
-                  <ArrowRight className="ml-2 h-5 w-5" />
-                </Button>
+                {isSubmitted ? (
+                  <div className="flex items-center justify-center gap-2 py-6 text-emerald-600 font-semibold">
+                    <CheckCircle2 className="w-5 h-5" />
+                    Merci ! Nous vous contacterons sous peu.
+                  </div>
+                ) : (
+                  <Button
+                    type="submit"
+                    size="lg"
+                    disabled={isSubmitting}
+                    className="w-full bg-slate-800 text-white hover:bg-slate-700 rounded-lg py-6 text-base font-semibold transition-colors duration-200"
+                  >
+                    {isSubmitting ? "Envoi en cours..." : "Envoyer la demande"}
+                    {!isSubmitting && <ArrowRight className="ml-2 h-5 w-5" />}
+                  </Button>
+                )}
               </div>
             </form>
           </div>

@@ -1,4 +1,4 @@
-/** Slugs & titres alignés sur la section Fonctionnalités de la landing (`/landing#features`). */
+/** Slugs & titres alignés sur la section Fonctionnalités de la landing (`/#features`). */
 export const LANDING_FEATURE_ANCHORS = [
   { slug: "consolidation-financiere", title: "Consolidation financière avancée" },
   { slug: "fonds-de-roulement-capex", title: "Analyse du fonds de roulement et des capex" },
@@ -12,5 +12,5 @@ export const LANDING_FEATURE_ANCHORS = [
 
 export const landingFeatureFooterLinks = LANDING_FEATURE_ANCHORS.map((a) => ({
   title: a.title,
-  href: `/landing#${a.slug}`,
+  href: `/#${a.slug}`,
 }))

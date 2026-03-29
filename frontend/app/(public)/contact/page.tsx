@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Mail, Phone, MapPin, Send, CheckCircle2, Building2, User } from "lucide-react"
+import { Mail, Phone, MapPin, Send, CheckCircle2, Building2, User, MessageSquare } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export default function ContactPage() {
@@ -26,22 +26,34 @@ export default function ContactPage() {
     e.preventDefault()
     setIsSubmitting(true)
 
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-
-    setIsSubmitted(true)
-    setIsSubmitting(false)
-
-    setTimeout(() => {
-      setIsSubmitted(false)
-      setFormData({
-        name: "",
-        email: "",
-        company: "",
-        phone: "",
-        subject: "",
-        message: "",
+    try {
+      const response = await fetch("https://formspree.io/f/xzdapzyv", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(formData),
       })
-    }, 3000)
+
+      if (response.ok) {
+        setIsSubmitted(true)
+        setTimeout(() => {
+          setIsSubmitted(false)
+          setFormData({
+            name: "",
+            email: "",
+            company: "",
+            phone: "",
+            subject: "",
+            message: "",
+          })
+        }, 3000)
+      }
+    } catch (error) {
+      console.error("Erreur lors de l'envoi:", error)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -51,341 +63,271 @@ export default function ContactPage() {
     }))
   }
 
-  const inputClass =
-    "h-12 border-slate-200/90 bg-white shadow-sm focus-visible:border-[#E0742D]/50 focus-visible:ring-[#E0742D]/25"
-
   return (
-    <div className="min-h-screen overflow-hidden bg-slate-50">
+    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
       <GlassmorphismNav />
-
-      <main className="relative z-10">
-        {/* Hero : fond jusqu’au menu (pas d’espace slate) ; pt = hauteur approx. du nav fixe */}
-        <section className="relative overflow-hidden pt-20 sm:pt-24">
-          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
-            <div className="bg-[#2A2F3A]" />
-            <div className="bg-[#1F2430]" />
-          </div>
-          <div className="absolute inset-y-0 left-1/2 hidden w-px bg-white/5 lg:block" />
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -left-28 -top-24 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
-            <div className="absolute -bottom-28 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
-          </div>
-
-          <div className="relative z-10 mx-auto max-w-[1920px] px-8 pb-16 pt-6 sm:px-12 sm:pb-20 sm:pt-8 lg:px-16 lg:pb-24 lg:pt-10 xl:px-20">
-            <p className="text-sm font-semibold tracking-wide text-slate-200">Contact</p>
-            <h1 className="mt-6 max-w-3xl text-4xl font-semibold leading-[0.95] tracking-tight text-[#E6D6C3] sm:text-5xl md:text-6xl">
-              Parlons de
-              <br />
-              <span className="text-[#C9B8A5]/90">votre projet</span>
-            </h1>
-            <p className="mt-8 max-w-xl text-base leading-relaxed text-[#C9B8A5]/80 sm:text-lg">
-              Notre équipe est prête à vous accompagner dans la transformation de votre analyse financière. Discutons de
-              vos besoins et découvrons comment Modelisys peut répondre à vos défis.
-            </p>
-            <div className="mt-10 h-px max-w-md bg-gradient-to-r from-[#E0742D]/80 via-white/15 to-transparent" />
+      
+      <main className="relative pt-24 pb-16">
+        {/* Hero Section */}
+        <section className="relative py-12 lg:py-16">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="text-center max-w-3xl mx-auto mb-8">
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-800 text-white text-sm font-medium mb-6">
+                <MessageSquare className="w-4 h-4" />
+                <span>Contactez-nous</span>
+              </div>
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-slate-900 mb-6">
+                Parlons de votre projet
+              </h1>
+              <p className="text-xl text-slate-600 leading-relaxed">
+                Notre équipe est prête à vous accompagner dans la transformation de votre analyse financière. 
+                Discutons de vos besoins et découvrons comment Modelisys peut répondre à vos défis.
+              </p>
+            </div>
           </div>
         </section>
 
-        {/* Transition courbe — même path que sous le hero-marquee (landing) ; enchaîne vers la section claire */}
-        <section aria-hidden className="relative h-20 overflow-hidden sm:h-24">
-          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
-            <div className="bg-[#2A2F3A]" />
-            <div className="bg-[#1F2430]" />
-          </div>
-          <svg
-            viewBox="0 0 1440 120"
-            preserveAspectRatio="none"
-            className="absolute inset-x-0 bottom-0 h-full w-full"
-          >
-            <path
-              d="M0,30 C180,95 360,95 540,60 C720,25 900,25 1080,60 C1230,90 1335,95 1440,75 L1440,120 L0,120 Z"
-              fill="#f2f6fa"
-            />
-          </svg>
-        </section>
-
-        {/* Contenu — fond type « Mise en place » */}
-        <section className="relative overflow-hidden bg-gradient-to-b from-slate-100/80 via-slate-50/95 to-white py-16 sm:py-20 lg:py-24">
-          <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-            <div
-              className="absolute inset-0 opacity-[0.35]"
-              style={{
-                backgroundImage: `radial-gradient(circle at 85% 15%, rgb(224 116 45 / 0.06) 0%, transparent 45%),
-                  radial-gradient(circle at 15% 85%, rgb(148 163 184 / 0.12) 0%, transparent 48%)`,
-              }}
-            />
-            <div
-              className="absolute inset-0"
-              style={{
-                backgroundImage: `
-                  linear-gradient(to right, rgb(148 163 184 / 0.1) 1px, transparent 1px),
-                  linear-gradient(to bottom, rgb(148 163 184 / 0.1) 1px, transparent 1px)
-                `,
-                backgroundSize: "44px 44px",
-                maskImage: "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
-                WebkitMaskImage:
-                  "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
-              }}
-            />
-          </div>
-
-          <div className="relative z-10 mx-auto max-w-[1920px] px-8 sm:px-12 lg:px-16 xl:px-20">
-            <div className="grid gap-12 lg:grid-cols-12 lg:gap-16">
-              {/* Colonne infos — cadrillage léger (même esprit que la grille de la section) */}
-              <div className="relative lg:col-span-4">
-                <div
-                  className="pointer-events-none absolute inset-0 overflow-hidden rounded-[28px] opacity-[0.55]"
-                  aria-hidden
-                  style={{
-                    backgroundImage: `
-                      linear-gradient(to right, rgb(148 163 184 / 0.09) 1px, transparent 1px),
-                      linear-gradient(to bottom, rgb(148 163 184 / 0.09) 1px, transparent 1px)
-                    `,
-                    backgroundSize: "44px 44px",
-                    maskImage:
-                      "radial-gradient(ellipse 95% 85% at 15% 25%, black 18%, transparent 68%)",
-                    WebkitMaskImage:
-                      "radial-gradient(ellipse 95% 85% at 15% 25%, black 18%, transparent 68%)",
-                  }}
-                />
-                <div className="relative z-10 space-y-10">
+        {/* Contact Section */}
+        <section className="py-8 lg:py-12">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="grid lg:grid-cols-3 gap-8 lg:gap-12">
+              {/* Contact Information */}
+              <div className="lg:col-span-1 space-y-8">
                 <div>
-                  <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Coordonnées</p>
-                  <h2 className="text-2xl font-semibold tracking-tight text-[#2A2F3A] sm:text-3xl">
-                    Informations de <span className="text-[#5C5F66]">contact</span>
-                  </h2>
-                  <p className="mt-4 text-base leading-relaxed text-[#5C5F66] sm:text-lg">
-                    N&apos;hésitez pas à nous écrire ou à nous appeler. Nous vous répondrons dans les plus brefs délais.
+                  <h2 className="text-2xl font-bold text-slate-900 mb-6">Informations de contact</h2>
+                  <p className="text-slate-600 mb-8">
+                    N'hésitez pas à nous contacter pour toute question ou demande d'information. 
+                    Nous vous répondrons dans les plus brefs délais.
                   </p>
-                  <div className="mt-6 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
                 </div>
 
-                <div className="space-y-4">
-                  {[
-                    {
-                      icon: Mail,
-                      title: "Courriel",
-                      content: (
-                        <a href="mailto:contact@modelisys.com" className="text-[#5C5F66] transition hover:text-[#E0742D]">
-                          contact@modelisys.com
-                        </a>
-                      ),
-                    },
-                    {
-                      icon: Phone,
-                      title: "Téléphone",
-                      content: (
-                        <a href="tel:+14508222436" className="text-[#5C5F66] transition hover:text-[#E0742D]">
-                          +1 (450) 822-2436
-                        </a>
-                      ),
-                    },
-                    {
-                      icon: MapPin,
-                      title: "Localisation",
-                      content: <p className="text-[#5C5F66]">Québec</p>,
-                    },
-                  ].map((item) => (
-                    <div
-                      key={item.title}
-                      className="relative overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70 transition hover:shadow-md"
-                    >
-                      <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
-                      <div className="relative flex gap-4">
-                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-white text-[#E0742D] shadow-sm">
-                          <item.icon className="h-6 w-6" strokeWidth={1.5} />
-                        </div>
-                        <div className="min-w-0">
-                          <h3 className="font-semibold tracking-tight text-[#2A2F3A]">{item.title}</h3>
-                          <div className="mt-1 text-sm sm:text-base">{item.content}</div>
-                        </div>
-                      </div>
+                <div className="space-y-6">
+                  {/* Email */}
+                  <div className="flex items-start gap-4 p-6 bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-slate-800 flex items-center justify-center">
+                      <Mail className="w-6 h-6 text-white" />
                     </div>
-                  ))}
-                </div>
+                    <div>
+                      <h3 className="font-semibold text-slate-900 mb-1">Email</h3>
+                      <a 
+                        href="mailto:contact@modelisys.com" 
+                        className="text-slate-600 hover:text-slate-900 transition-colors"
+                      >
+                        contact@modelisys.com
+                      </a>
+                    </div>
+                  </div>
 
-                <div className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-slate-50/95 p-5 sm:p-6">
-                  <h3 className="font-semibold tracking-tight text-[#2A2F3A]">Heures d&apos;ouverture</h3>
-                  <div className="mt-4 space-y-2 text-sm text-[#5C5F66]">
-                    <div className="flex justify-between gap-4 border-b border-slate-200/80 pb-2">
-                      <span>Lundi - Vendredi</span>
-                      <span className="font-medium text-[#2A2F3A]">9h00 - 17h00</span>
+                  {/* Phone */}
+                  <div className="flex items-start gap-4 p-6 bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-slate-800 flex items-center justify-center">
+                      <Phone className="w-6 h-6 text-white" />
                     </div>
-                    <div className="flex justify-between gap-4 pt-1">
-                      <span>Samedi - Dimanche</span>
-                      <span className="font-medium text-[#2A2F3A]">Fermé</span>
+                    <div>
+                      <h3 className="font-semibold text-slate-900 mb-1">Téléphone</h3>
+                      <a 
+                        href="tel:+14508222436" 
+                        className="text-slate-600 hover:text-slate-900 transition-colors"
+                      >
+                        +1 (450) 822-2436
+                      </a>
+                    </div>
+                  </div>
+
+                  {/* Address */}
+                  <div className="flex items-start gap-4 p-6 bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-slate-800 flex items-center justify-center">
+                      <MapPin className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-slate-900 mb-1">Localisation</h3>
+                      <p className="text-slate-600">
+                        Québec
+                      </p>
                     </div>
                   </div>
                 </div>
+
+                {/* Business Hours */}
+                <div className="p-6 bg-slate-100 rounded-xl border border-slate-200">
+                  <h3 className="font-semibold text-slate-900 mb-4">Heures d'ouverture</h3>
+                  <div className="space-y-2 text-sm text-slate-600">
+                    <div className="flex justify-between">
+                      <span>Lundi - Vendredi</span>
+                      <span className="font-medium">9h00 - 17h00</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Samedi - Dimanche</span>
+                      <span className="font-medium">Fermé</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Formulaire */}
-              <div className="lg:col-span-8">
-                <div className="relative overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 p-8 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70 sm:p-10 lg:p-12">
-                  <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
-                  <div className="relative">
-                    <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Message</p>
-                    <h2 className="text-2xl font-semibold tracking-tight text-[#2A2F3A] sm:text-3xl">
-                      Envoyez-nous un <span className="text-[#5C5F66]">message</span>
-                    </h2>
-                    <p className="mt-4 text-[#5C5F66]">
-                      Remplissez le formulaire ci-dessous et nous vous répondrons dans les 24 heures.
-                    </p>
-                    <div className="mt-6 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
+              {/* Contact Form */}
+              <div className="lg:col-span-2">
+                <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-8 lg:p-10">
+                  <h2 className="text-2xl font-bold text-slate-900 mb-2">Envoyez-nous un message</h2>
+                  <p className="text-slate-600 mb-8">
+                    Remplissez le formulaire ci-dessous et nous vous répondrons dans les 24 heures.
+                  </p>
 
-                    {isSubmitted ? (
-                      <div className="flex flex-col items-center justify-center py-14 text-center">
-                        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#E0742D]/12">
-                          <CheckCircle2 className="h-8 w-8 text-[#E0742D]" />
-                        </div>
-                        <h3 className="text-xl font-semibold tracking-tight text-[#2A2F3A]">Message envoyé !</h3>
-                        <p className="mt-2 max-w-md text-[#5C5F66]">
-                          Merci pour votre message. Nous vous répondrons dans les plus brefs délais.
-                        </p>
+                  {isSubmitted ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
+                        <CheckCircle2 className="w-8 h-8 text-emerald-600" />
                       </div>
-                    ) : (
-                      <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-                        <div className="grid gap-6 sm:grid-cols-2">
-                          <div className="space-y-2">
-                            <Label htmlFor="name" className="text-[#2A2F3A]">
-                              Nom complet <span className="text-red-500">*</span>
-                            </Label>
-                            <div className="relative">
-                              <User className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-                              <Input
-                                id="name"
-                                name="name"
-                                type="text"
-                                required
-                                value={formData.name}
-                                onChange={handleChange}
-                                className={cn("pl-10", inputClass)}
-                                placeholder="Jean Dupont"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="email" className="text-[#2A2F3A]">
-                              Courriel <span className="text-red-500">*</span>
-                            </Label>
-                            <div className="relative">
-                              <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-                              <Input
-                                id="email"
-                                name="email"
-                                type="email"
-                                required
-                                value={formData.email}
-                                onChange={handleChange}
-                                className={cn("pl-10", inputClass)}
-                                placeholder="jean.dupont@entreprise.com"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="grid gap-6 sm:grid-cols-2">
-                          <div className="space-y-2">
-                            <Label htmlFor="company" className="text-[#2A2F3A]">
-                              Entreprise
-                            </Label>
-                            <div className="relative">
-                              <Building2 className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-                              <Input
-                                id="company"
-                                name="company"
-                                type="text"
-                                value={formData.company}
-                                onChange={handleChange}
-                                className={cn("pl-10", inputClass)}
-                                placeholder="Nom de votre entreprise"
-                              />
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="phone" className="text-[#2A2F3A]">
-                              Téléphone
-                            </Label>
-                            <div className="relative">
-                              <Phone className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-                              <Input
-                                id="phone"
-                                name="phone"
-                                type="tel"
-                                value={formData.phone}
-                                onChange={handleChange}
-                                className={cn("pl-10", inputClass)}
-                                placeholder="+1 (450) 822-2436"
-                              />
-                            </div>
-                          </div>
-                        </div>
-
+                      <h3 className="text-xl font-semibold text-slate-900 mb-2">Message envoyé !</h3>
+                      <p className="text-slate-600">
+                        Merci pour votre message. Nous vous répondrons dans les plus brefs délais.
+                      </p>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleSubmit} className="space-y-6">
+                      <div className="grid sm:grid-cols-2 gap-6">
+                        {/* Name */}
                         <div className="space-y-2">
-                          <Label htmlFor="subject" className="text-[#2A2F3A]">
-                            Sujet <span className="text-red-500">*</span>
+                          <Label htmlFor="name" className="text-slate-700">
+                            Nom complet <span className="text-red-500">*</span>
                           </Label>
-                          <Input
-                            id="subject"
-                            name="subject"
-                            type="text"
-                            required
-                            value={formData.subject}
-                            onChange={handleChange}
-                            className={inputClass}
-                            placeholder="Demande d'information sur vos services"
-                          />
+                          <div className="relative">
+                            <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                            <Input
+                              id="name"
+                              name="name"
+                              type="text"
+                              required
+                              value={formData.name}
+                              onChange={handleChange}
+                              className="pl-10 h-12 border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                              placeholder="Jean Dupont"
+                            />
+                          </div>
                         </div>
 
+                        {/* Email */}
                         <div className="space-y-2">
-                          <Label htmlFor="message" className="text-[#2A2F3A]">
-                            Message <span className="text-red-500">*</span>
+                          <Label htmlFor="email" className="text-slate-700">
+                            Email <span className="text-red-500">*</span>
                           </Label>
-                          <Textarea
-                            id="message"
-                            name="message"
-                            required
-                            value={formData.message}
-                            onChange={handleChange}
-                            rows={6}
-                            className="resize-none border-slate-200/90 bg-white shadow-sm focus-visible:border-[#E0742D]/50 focus-visible:ring-[#E0742D]/25"
-                            placeholder="Décrivez votre projet ou vos questions..."
-                          />
+                          <div className="relative">
+                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                            <Input
+                              id="email"
+                              name="email"
+                              type="email"
+                              required
+                              value={formData.email}
+                              onChange={handleChange}
+                              className="pl-10 h-12 border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                              placeholder="jean.dupont@entreprise.com"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid sm:grid-cols-2 gap-6">
+                        {/* Company */}
+                        <div className="space-y-2">
+                          <Label htmlFor="company" className="text-slate-700">
+                            Entreprise
+                          </Label>
+                          <div className="relative">
+                            <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                            <Input
+                              id="company"
+                              name="company"
+                              type="text"
+                              value={formData.company}
+                              onChange={handleChange}
+                              className="pl-10 h-12 border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                              placeholder="Nom de votre entreprise"
+                            />
+                          </div>
                         </div>
 
-                        <Button
-                          type="submit"
-                          disabled={isSubmitting}
-                          className={cn(
-                            "h-12 w-full bg-[#E0742D] font-semibold text-white hover:bg-[#c75a26]",
-                            isSubmitting && "cursor-not-allowed opacity-60",
-                          )}
-                        >
-                          {isSubmitting ? (
-                            <span className="flex items-center justify-center gap-2">
-                              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                              Envoi en cours...
-                            </span>
-                          ) : (
-                            <span className="flex items-center justify-center gap-2">
-                              <Send className="h-5 w-5" />
-                              Envoyer le message
-                            </span>
-                          )}
-                        </Button>
+                        {/* Phone */}
+                        <div className="space-y-2">
+                          <Label htmlFor="phone" className="text-slate-700">
+                            Téléphone
+                          </Label>
+                          <div className="relative">
+                            <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                            <Input
+                              id="phone"
+                              name="phone"
+                              type="tel"
+                              value={formData.phone}
+                              onChange={handleChange}
+                              className="pl-10 h-12 border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                              placeholder="+1 (450) 822-2436"
+                            />
+                          </div>
+                        </div>
+                      </div>
 
-                        <p className="text-center text-xs text-slate-500">
-                          En soumettant ce formulaire, vous acceptez que nous traitions vos données personnelles
-                          conformément à notre{" "}
-                          <a href="/privacy" className="font-medium text-[#E0742D] underline-offset-2 hover:underline">
-                            politique de confidentialité
-                          </a>
-                          .
-                        </p>
-                      </form>
-                    )}
-                  </div>
+                      {/* Subject */}
+                      <div className="space-y-2">
+                        <Label htmlFor="subject" className="text-slate-700">
+                          Sujet <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          id="subject"
+                          name="subject"
+                          type="text"
+                          required
+                          value={formData.subject}
+                          onChange={handleChange}
+                          className="h-12 border-slate-300 focus:border-slate-500 focus:ring-slate-500"
+                          placeholder="Demande d'information sur vos services"
+                        />
+                      </div>
+
+                      {/* Message */}
+                      <div className="space-y-2">
+                        <Label htmlFor="message" className="text-slate-700">
+                          Message <span className="text-red-500">*</span>
+                        </Label>
+                        <Textarea
+                          id="message"
+                          name="message"
+                          required
+                          value={formData.message}
+                          onChange={handleChange}
+                          rows={6}
+                          className="border-slate-300 focus:border-slate-500 focus:ring-slate-500 resize-none"
+                          placeholder="Décrivez votre projet ou vos questions..."
+                        />
+                      </div>
+
+                      {/* Submit Button */}
+                      <Button
+                        type="submit"
+                        disabled={isSubmitting}
+                        className={cn(
+                          "w-full h-12 bg-slate-800 hover:bg-slate-900 text-white font-semibold transition-all duration-200",
+                          isSubmitting && "opacity-50 cursor-not-allowed"
+                        )}
+                      >
+                        {isSubmitting ? (
+                          <>
+                            <span className="animate-spin mr-2">⏳</span>
+                            Envoi en cours...
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-5 h-5 mr-2" />
+                            Envoyer le message
+                          </>
+                        )}
+                      </Button>
+
+                      <p className="text-xs text-slate-500 text-center">
+                        En soumettant ce formulaire, vous acceptez que nous traitions vos données personnelles 
+                        conformément à notre politique de confidentialité.
+                      </p>
+                    </form>
+                  )}
                 </div>
               </div>
             </div>
@@ -397,3 +339,4 @@ export default function ContactPage() {
     </div>
   )
 }
+

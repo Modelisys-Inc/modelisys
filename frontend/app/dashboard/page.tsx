@@ -2,9 +2,11 @@
 
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Card, CardContent } from "@/components/ui/card"
-import { Home, TrendingUp, BarChart3, Scale, Waves, LineChart, Target, Building2, Settings, BookOpen, FileSpreadsheet, ArrowRight, CheckCircle2, Clock, Zap, Calendar } from "lucide-react"
+import { TrendingUp, BarChart3, LineChart, Target, Building2, Settings, BookOpen, FileSpreadsheet, ArrowRight, CheckCircle2, Clock, Calendar, Plus } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useCompanies } from "@/hooks/use-companies"
+import { listAccountMappings, listStatementStructures } from "@/lib/api"
 
 const quickLinks = [
   {
@@ -44,27 +46,52 @@ const quickLinks = [
   },
 ]
 
-const setupTasks = [
-  {
-    id: "accounting-mapping",
-    title: "Mapping de la comptabilité",
-    description: "Configurez les correspondances entre vos comptes comptables",
-    icon: FileSpreadsheet,
-    href: "/settings/accounting-mapping",
-    completed: false,
-  },
-  {
-    id: "financial-statements-mapping",
-    title: "Mapping des états financiers",
-    description: "Définissez les mappings pour vos états financiers",
-    icon: BarChart3,
-    href: "/financial-statements",
-    completed: false,
-  },
-]
-
 export default function DashboardPage() {
   const [hoveredCard, setHoveredCard] = useState<string | null>(null)
+  const { companies, loading: companiesLoading } = useCompanies()
+  const [setupTasks, setSetupTasks] = useState([
+    {
+      id: "accounting-mapping",
+      title: "Mapping de la comptabilité",
+      description: "Configurez les correspondances entre vos comptes comptables",
+      icon: FileSpreadsheet,
+      href: "/settings/accounting-mapping",
+      completed: false,
+    },
+    {
+      id: "financial-statements-mapping",
+      title: "Mapping des états financiers",
+      description: "Définissez les mappings pour vos états financiers",
+      icon: BarChart3,
+      href: "/financial-statements",
+      completed: false,
+    },
+  ])
+
+  useEffect(() => {
+    if (companies.length === 0) return
+    const companyId = companies[0].id
+
+    listAccountMappings(companyId)
+      .then((mappings) => {
+        setSetupTasks((prev) =>
+          prev.map((t) =>
+            t.id === "accounting-mapping" ? { ...t, completed: mappings.length > 0 } : t
+          )
+        )
+      })
+      .catch(() => {})
+
+    listStatementStructures(companyId)
+      .then((structures) => {
+        setSetupTasks((prev) =>
+          prev.map((t) =>
+            t.id === "financial-statements-mapping" ? { ...t, completed: structures.length > 0 } : t
+          )
+        )
+      })
+      .catch(() => {})
+  }, [companies])
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -159,13 +186,40 @@ export default function DashboardPage() {
                 Complétez ces étapes pour configurer votre plateforme et commencer à utiliser toutes les fonctionnalités.
               </p>
               <div className="space-y-4">
+                {!companiesLoading && companies.length === 0 && (
+                  <Link
+                    href="/settings/companies"
+                    className="flex items-start gap-4 p-4 rounded-lg border-2 border-amber-300 bg-amber-50 hover:bg-amber-100 transition-all duration-200 group"
+                  >
+                    <div className="flex-shrink-0 mt-1">
+                      <div className="w-6 h-6 rounded-full bg-amber-200 flex items-center justify-center">
+                        <Plus className="w-4 h-4 text-amber-700" />
+                      </div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 mb-1">
+                        <Building2 className="w-5 h-5 text-amber-700 flex-shrink-0" />
+                        <h3 className="font-semibold text-amber-900">Créer votre première entreprise</h3>
+                      </div>
+                      <p className="text-sm text-amber-800 leading-relaxed">
+                        Toutes les fonctionnalités nécessitent une entreprise. Commencez par en créer une.
+                      </p>
+                    </div>
+                    <ArrowRight className="w-5 h-5 text-amber-500 group-hover:text-amber-700 transition-colors flex-shrink-0 mt-1" />
+                  </Link>
+                )}
                 {setupTasks.map((task) => {
                   const Icon = task.icon
+                  const locked = !companiesLoading && companies.length === 0
                   return (
                     <Link
                       key={task.id}
-                      href={task.href}
-                      className="flex items-start gap-4 p-4 rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all duration-200 group"
+                      href={locked ? "/settings/companies" : task.href}
+                      className={`flex items-start gap-4 p-4 rounded-lg border transition-all duration-200 group ${
+                        locked
+                          ? "border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed pointer-events-none"
+                          : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                      }`}
                     >
                       <div className="flex-shrink-0 mt-1">
                         {task.completed ? (

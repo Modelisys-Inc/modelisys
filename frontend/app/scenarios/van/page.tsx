@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Calculator, Loader2, TrendingUp } from "lucide-react"
+import { ArrowLeft, Calculator, Calendar, Loader2, TrendingUp } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatCurrency } from "@/lib/financial-utils"
 import {
@@ -32,6 +32,8 @@ import {
   listCompanies,
   type Company as ApiCompany,
 } from "@/lib/api"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { getRowAmounts, aggregateToYears } from "@/lib/series-utils"
 
 const scenariosNav = [
   { label: "Comparaison", href: "/scenarios" },
@@ -127,6 +129,11 @@ export default function VANPage() {
     }
   }, [projections, selectedProjectionId])
 
+  // Fiscal year for historical data — default to previous year in Q1
+  const now = new Date()
+  const defaultFiscalYear = now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear()
+  const [selectedFiscalYear, setSelectedFiscalYear] = useState<number>(defaultFiscalYear)
+
   // VAN assumptions
   const [discountRate, setDiscountRate] = useState<number>(10)
   const [investment, setInvestment] = useState<number>(0)
@@ -180,22 +187,55 @@ export default function VANPage() {
   const selectedProjection = projections.find((p) => p.id === selectedProjectionId)
   const projectionYears = selectedProjection?.projection_years ?? 5
 
-  // Generate simulated cash flows based on projection info
-  // If real cash flow data were available from a projection detail endpoint, we would use that.
-  // For now we derive a simple model: assume a base annual cash flow that grows moderately.
+  // Fetch income-statement series to derive EBITDA-based cash flows
+  const { rows: isRows, periods: isPeriods } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "income-statement",
+    fiscalYear: selectedFiscalYear,
+    months: 60, // 5 years of history
+    enabled: !!companyId,
+  })
+
+  // Derive cash flows from real EBITDA data (annualized historical data projected forward)
   const cashFlows = useMemo<number[]>(() => {
     if (!selectedProjection) return []
 
-    // Use projection_years to determine the number of periods.
-    // We generate cash flows as a simple growth model.
-    // A base CF is estimated as 20% of investment (reasonable proxy) growing 5% per year.
-    const baseCF = investment > 0 ? investment * 0.2 : 100000
-    const growthRate = 0.05
-
-    return Array.from({ length: projectionYears }, (_, i) =>
-      Math.round(baseCF * Math.pow(1 + growthRate, i))
+    // Find EBITDA or operating income row from income statement
+    const ebitdaRow = isRows.find((r) =>
+      !r.isSection &&
+      (r.label.toLowerCase().includes("baiia") ||
+       r.label.toLowerCase().includes("ebitda") ||
+       r.label.toLowerCase().includes("bénéfice d'exploitation") ||
+       r.label.toLowerCase().includes("résultat d'exploitation") ||
+       (r.isBold && r.label.toLowerCase().includes("bénéfice")))
     )
-  }, [selectedProjection, projectionYears, investment])
+
+    if (ebitdaRow && isPeriods.length > 0) {
+      // Get monthly amounts and annualize
+      const monthlyAmounts = getRowAmounts(ebitdaRow, isPeriods)
+      const yearAgg = aggregateToYears(monthlyAmounts, isPeriods)
+      const annualAmounts = yearAgg.amounts.filter((a) => a !== 0)
+
+      if (annualAmounts.length > 0) {
+        // Use the most recent annual EBITDA as base, with observed growth rate
+        const lastEBITDA = Math.abs(annualAmounts[annualAmounts.length - 1])
+        let growthRate = 0.03 // default 3%
+        if (annualAmounts.length >= 2) {
+          const prevEBITDA = Math.abs(annualAmounts[annualAmounts.length - 2])
+          if (prevEBITDA > 0) {
+            growthRate = Math.max(-0.1, Math.min(0.2, (lastEBITDA - prevEBITDA) / prevEBITDA))
+          }
+        }
+
+        return Array.from({ length: projectionYears }, (_, i) =>
+          Math.round(lastEBITDA * Math.pow(1 + growthRate, i + 1))
+        )
+      }
+    }
+
+    // Fallback: if no EBITDA data available, show zeros (no simulated data)
+    return Array.from({ length: projectionYears }, () => 0)
+  }, [selectedProjection, projectionYears, isRows, isPeriods])
 
   // Calculations
   const rate = discountRate / 100
@@ -255,8 +295,8 @@ export default function VANPage() {
                   Calculez la VAN, le TRI et le delai de recuperation de vos projets d'investissement
                 </p>
 
-                {/* Entity Selector */}
-                <div className="mb-6">
+                {/* Entity Selector + Fiscal Year */}
+                <div className="mb-6 flex items-center gap-4">
                   <EntitySelector
                     companies={companies}
                     selectedCompanyId={companyId}
@@ -266,6 +306,28 @@ export default function VANPage() {
                     onDivisionChange={setDivisionId}
                     onSubDivisionChange={setSubDivisionId}
                   />
+                  <div className="flex items-center gap-2 bg-slate-800/70 border border-slate-700 rounded-lg px-3 py-1.5">
+                    <Calendar className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-medium text-slate-300">Année:</span>
+                    <Select
+                      value={selectedFiscalYear.toString()}
+                      onValueChange={(v) => setSelectedFiscalYear(parseInt(v))}
+                    >
+                      <SelectTrigger className="h-8 w-[100px] bg-white/10 border-slate-600 text-white text-xs hover:bg-white/20">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 10 }, (_, i) => {
+                          const year = now.getFullYear() - 7 + i
+                          return (
+                            <SelectItem key={year} value={year.toString()}>
+                              {year}
+                            </SelectItem>
+                          )
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
                 {/* Navigation tabs */}

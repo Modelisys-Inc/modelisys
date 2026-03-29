@@ -85,6 +85,9 @@ export default function NetTangibleAssetsPage() {
 
   // Notes storage: key = rowId-column -> note
   const [notes, setNotes] = useState<Record<string, string>>({})
+  // Values storage: key = rowId-column -> number
+  const [savedValues, setSavedValues] = useState<Record<string, number>>({})
+  const [valuesConfigId, setValuesConfigId] = useState<string | null>(null)
 
   // Balance sheet data - populated from API
   const [balanceData, setBalanceData] = useState<BalanceRow[]>([])
@@ -143,7 +146,21 @@ export default function NetTangibleAssetsPage() {
           }
         })
 
-        setBalanceData(rows)
+        // Merge saved numeric values into rows
+        setSavedValues(prev => {
+          const merged = rows.map(row =>
+            row.rowId
+              ? {
+                  ...row,
+                  adjustments: prev[`${row.rowId}-adjustments`] ?? 0,
+                  debts: prev[`${row.rowId}-debts`] ?? 0,
+                  assets: prev[`${row.rowId}-assets`] ?? 0,
+                }
+              : row
+          )
+          setBalanceData(merged)
+          return prev
+        })
       })
       .catch(err => {
         if (!cancelled) {
@@ -177,11 +194,13 @@ export default function NetTangibleAssetsPage() {
     .filter(row => row.rowId && !row.isSection && !row.isSubtotal && row.label !== "")
     .reduce((sum, row) => sum + row.assets, 0)
 
-  // Load notes from API
+  // Load notes and values from API
   useEffect(() => {
     if (!companyId) {
       setNotes({})
       setNotesConfigId(null)
+      setSavedValues({})
+      setValuesConfigId(null)
       return
     }
 
@@ -199,10 +218,35 @@ export default function NetTangibleAssetsPage() {
           setNotesConfigId(null)
         }
       })
-      .catch((err) => {
-        console.error("Error loading notes:", err)
+      .catch(() => {
         setNotes({})
         setNotesConfigId(null)
+      })
+
+    listForecastConfigs(companyId, {
+      config_type: "net-tangible-assets-values",
+      ...(divisionId ? { division_id: divisionId } : {}),
+      ...(subDivisionId ? { sub_division_id: subDivisionId } : {}),
+    })
+      .then((configs) => {
+        const vals = configs.length > 0 ? (configs[0].data as Record<string, number>) || {} : {}
+        setValuesConfigId(configs.length > 0 ? configs[0].id : null)
+        setSavedValues(vals)
+        // Apply to any already-loaded balance data
+        setBalanceData(prev => prev.map(row =>
+          row.rowId
+            ? {
+                ...row,
+                adjustments: vals[`${row.rowId}-adjustments`] ?? row.adjustments,
+                debts: vals[`${row.rowId}-debts`] ?? row.debts,
+                assets: vals[`${row.rowId}-assets`] ?? row.assets,
+              }
+            : row
+        ))
+      })
+      .catch(() => {
+        setSavedValues({})
+        setValuesConfigId(null)
       })
   }, [companyId, divisionId, subDivisionId])
 
@@ -219,6 +263,22 @@ export default function NetTangibleAssetsPage() {
       setNotesConfigId(result.id)
     } catch (err) {
       console.error("Error saving notes:", err)
+    }
+  }, [companyId, divisionId, subDivisionId])
+
+  // Save numeric values to API
+  const saveValuesToApi = useCallback(async (updatedValues: Record<string, number>) => {
+    if (!companyId) return
+    try {
+      const result = await upsertForecastConfig(companyId, {
+        config_type: "net-tangible-assets-values",
+        data: updatedValues as Record<string, unknown>,
+        division_id: divisionId || null,
+        sub_division_id: subDivisionId || null,
+      })
+      setValuesConfigId(result.id)
+    } catch (err) {
+      console.error("Error saving values:", err)
     }
   }, [companyId, divisionId, subDivisionId])
 
@@ -239,21 +299,22 @@ export default function NetTangibleAssetsPage() {
   const saveValue = () => {
     if (!editingRowId || !editingColumn) return
 
-    // Update value
-    setBalanceData(prev => prev.map(row => {
-      if (row.rowId === editingRowId) {
-        return { ...row, [editingColumn]: modalValue }
-      }
-      return row
-    }))
+    // Update balance data
+    setBalanceData(prev => prev.map(row =>
+      row.rowId === editingRowId ? { ...row, [editingColumn]: modalValue } : row
+    ))
 
-    // Update note
+    // Update and persist notes
     const noteKey = `${editingRowId}-${editingColumn}`
     const updatedNotes = { ...notes, [noteKey]: modalNote }
     setNotes(updatedNotes)
-
-    // Save to API
     saveNotesToApi(updatedNotes)
+
+    // Update and persist numeric values
+    const valueKey = `${editingRowId}-${editingColumn}`
+    const updatedValues = { ...savedValues, [valueKey]: modalValue }
+    setSavedValues(updatedValues)
+    saveValuesToApi(updatedValues)
 
     setModalOpen(false)
     setEditingRowId(null)

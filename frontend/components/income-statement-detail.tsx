@@ -1422,7 +1422,7 @@ export function IncomeStatementDetail({
     if (view === "ytd") return "YTD"
     if (view === "ddm") return "DDM"
     if (view === "12months") return "12 mois"
-    if (view === "24months") return "24 mois"
+    if ((view as string) === "24months") return "24 mois"
     if (view === "quarters") return "Trimestres"
     if (view === "years") return "Années"
     return "Courant"
@@ -1564,8 +1564,8 @@ export function IncomeStatementDetail({
               )}
               {view === "ytd" && !isComparisonMode && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD 2024</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD 2023</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD {fiscalYear}</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD {(fiscalYear ?? new Date().getFullYear()) - 1}</th>
                   {columnMode === "variations" ? (
                     <>
                       <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>

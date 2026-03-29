@@ -39,7 +39,7 @@ const audienceContent: Record<
       "Une plateforme structurée pour faciliter la collaboration et produire des analyses cohérentes pour vos clients.",
     acteurs: ["Cabinets comptables", "Consultants", "Autres conseils"],
     ctaKind: "route",
-    ctaTarget: "/landing/cabinets-comptables",
+    ctaTarget: "/cabinets-comptables",
   },
   financiers: {
     title: "Analyse & diligence. Crédit & surveillance. Investissement & valorisation. IA.",
@@ -47,7 +47,7 @@ const audienceContent: Record<
       "Des informations à jour et exploitables pour vos revues, échanges et décisions avec les PME.",
     acteurs: ["Prêteurs", "Firmes d’investissement", "Autres institutions"],
     ctaKind: "route",
-    ctaTarget: "/landing/partenaires-institutionnels",
+    ctaTarget: "/partenaires-institutionnels",
   },
 }
 

@@ -1,9 +1,11 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import type { FinancialStatementRow } from "@/lib/api"
+import { getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
 
@@ -196,18 +198,101 @@ export function IncomeStatementSummary({
     entitiesToCompare = selectedDivision?.subDivisions.map((sd) => ({ id: sd.id, name: sd.name })) || []
   }
   
-  // Generate data for each entity in comparison mode
-  const getEntityData = (entityIndex: number, baseData: SummaryRow[]): SummaryRow[] => {
-    // Create variation multiplier based on entity index (0.8 to 1.2 range)
-    const multiplier = 0.8 + (entityIndex * 0.2)
-    return baseData.map((row) => ({
-      ...row,
-      current: Math.round(row.current * multiplier),
-      prior: Math.round(row.prior * multiplier),
-      trendValues: row.trendValues?.map((val) => Math.round(val * multiplier)),
-    }))
-  }
-  
+  // Fetch real data for each entity in comparison mode
+  const [entityDataMap, setEntityDataMap] = useState<Record<string, SummaryRow[]>>({})
+  const [entityDataLoading, setEntityDataLoading] = useState(false)
+
+  useEffect(() => {
+    if (!isComparisonMode) {
+      setEntityDataMap(prev => Object.keys(prev).length === 0 ? prev : {})
+      return
+    }
+
+    // Compute entities inside the effect to avoid unstable dependency
+    let entities: Array<{ id: string; name: string }> = []
+    if (isCompanyComparison) {
+      entities = companies.map((c) => ({ id: c.id, name: c.name }))
+    } else if (isDivisionComparison) {
+      const sc = companies.find((c) => c.id === companyId)
+      entities = sc?.divisions.map((d) => ({ id: d.id, name: d.name })) || []
+    } else if (isSubDivisionComparison) {
+      const sc = companies.find((c) => c.id === companyId)
+      const sd = sc?.divisions.find((d) => d.id === divisionId)
+      entities = sd?.subDivisions.map((s) => ({ id: s.id, name: s.name })) || []
+    }
+
+    if (entities.length === 0) {
+      setEntityDataMap(prev => Object.keys(prev).length === 0 ? prev : {})
+      return
+    }
+
+    let cancelled = false
+    setEntityDataLoading(true)
+
+    const fetchEntityData = async () => {
+      const results: Record<string, SummaryRow[]> = {}
+      const currentYear = fiscalYear || new Date().getFullYear()
+
+      for (const entity of entities) {
+        try {
+          const params: FinancialStatementSeriesParams = {
+            fiscal_year: currentYear,
+            months: 12,
+          }
+          let entityCompanyId = companyId || ""
+
+          if (isCompanyComparison) {
+            entityCompanyId = entity.id
+          } else if (isDivisionComparison) {
+            params.division_id = entity.id
+          } else if (isSubDivisionComparison) {
+            params.sub_division_id = entity.id
+          }
+
+          if (!entityCompanyId) continue
+
+          const response = await getFinancialStatementSeries(
+            entityCompanyId,
+            "income-statement",
+            params
+          )
+
+          if (!cancelled && response.rows) {
+            const mapped: SummaryRow[] = response.rows.map((row) => {
+              const amounts = Object.entries(row.amounts)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([, v]) => v)
+              const lastAmount = amounts[amounts.length - 1] || 0
+              const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
+              return {
+                label: row.label,
+                current: lastAmount,
+                prior: priorAmount,
+                isBold: row.isBold,
+                isSection: row.isSection,
+                isResult: row.isResult,
+                isNetIncome: row.label.toLowerCase().includes("bénéfice net") && row.isResult,
+                isEBITA: row.label.toLowerCase() === "baiia",
+                indent: !row.isBold && !row.isSection && !row.isResult,
+              }
+            })
+            results[entity.id] = mapped
+          }
+        } catch (err) {
+          console.error(`Error fetching data for entity ${entity.name}:`, err)
+        }
+      }
+
+      if (!cancelled) {
+        setEntityDataMap(results)
+        setEntityDataLoading(false)
+      }
+    }
+
+    fetchEntityData()
+    return () => { cancelled = true }
+  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, fiscalYear])
+
   // Find revenue value for percentage calculations
   const revenueRow = data.find((row) => row.label.toLowerCase() === "revenus")
   const revenueCurrent = revenueRow?.current || 1
@@ -348,7 +433,7 @@ export function IncomeStatementSummary({
     return "Courant"
   }
 
-  if (loading || (seriesLoading && isMultiPeriodView && !isForecastSection)) {
+  if (loading || (seriesLoading && isMultiPeriodView && !isForecastSection) || entityDataLoading) {
     return (
       <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
         <div className="px-8 py-16 text-center">
@@ -473,8 +558,8 @@ export function IncomeStatementSummary({
               )}
               {view === "ytd" && !isComparisonMode && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD 2024</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD 2023</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD {fiscalYear}</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD {(fiscalYear ?? new Date().getFullYear()) - 1}</th>
                   {columnMode === "variations" ? (
                     <>
                       <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
@@ -625,15 +710,15 @@ export function IncomeStatementSummary({
                   )}
                   {view === "comparison" && isComparisonMode && (
                     <>
-                      {entitiesToCompare.map((entity, entityIdx) => {
-                        const entityData = getEntityData(entityIdx, [row])[0]
-                        // In comparison mode, always show currency
+                      {entitiesToCompare.map((entity) => {
+                        const entityRows = entityDataMap[entity.id] || []
+                        const entityRow = entityRows.find(r => r.label === row.label) || row
                         return (
                           <td
                             key={entity.id}
                             className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
                           >
-                            {entityData.current !== 0 ? formatCurrency(entityData.current) : "-"}
+                            {entityRow.current !== 0 ? formatCurrency(entityRow.current) : "-"}
                           </td>
                         )
                       })}
@@ -688,14 +773,15 @@ export function IncomeStatementSummary({
                   )}
                   {view === "ddm" && isComparisonMode && (
                     <>
-                      {entitiesToCompare.map((entity, entityIdx) => {
-                        const entityData = getEntityData(entityIdx, [row])[0]
+                      {entitiesToCompare.map((entity) => {
+                        const entityRows = entityDataMap[entity.id] || []
+                        const entityRow = entityRows.find(r => r.label === row.label) || row
                         return (
                           <td
                             key={entity.id}
                             className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
                           >
-                            {entityData.current !== 0 ? formatCurrency(entityData.current) : "-"}
+                            {entityRow.current !== 0 ? formatCurrency(entityRow.current) : "-"}
                           </td>
                         )
                       })}
@@ -751,14 +837,15 @@ export function IncomeStatementSummary({
                   )}
                   {view === "ytd" && isComparisonMode && (
                     <>
-                      {entitiesToCompare.map((entity, entityIdx) => {
-                        const entityData = getEntityData(entityIdx, [row])[0]
+                      {entitiesToCompare.map((entity) => {
+                        const entityRows = entityDataMap[entity.id] || []
+                        const entityRow = entityRows.find(r => r.label === row.label) || row
                         return (
                           <td
                             key={entity.id}
                             className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
                           >
-                            {entityData.current !== 0 ? formatCurrency(entityData.current) : "-"}
+                            {entityRow.current !== 0 ? formatCurrency(entityRow.current) : "-"}
                           </td>
                         )
                       })}

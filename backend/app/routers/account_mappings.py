@@ -63,6 +63,24 @@ def list_account_mappings(
     )
 
 
+@router.delete("/account-mappings/{mapping_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account_mapping(
+    company_id: uuid.UUID,
+    mapping_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _verify_company_access(db, current_user, company_id)
+    mapping = db.query(AccountMapping).filter(
+        AccountMapping.id == mapping_id,
+        AccountMapping.company_id == company_id,
+    ).first()
+    if not mapping:
+        raise HTTPException(status_code=404, detail="Account mapping not found")
+    db.delete(mapping)
+    db.commit()
+
+
 @router.put("/account-mappings", response_model=AccountMappingListResponse)
 def upsert_account_mappings(
     company_id: uuid.UUID,

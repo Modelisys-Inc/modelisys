@@ -73,7 +73,7 @@ export function CashFlowChart({
     months: monthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
-    enabled: isMultiPeriod,
+    enabled: !chartData,
   })
 
   // Transform series data into chart data points
@@ -138,9 +138,9 @@ export function CashFlowChart({
     }))
   }, [seriesRows, periods, view])
 
-  // Use series chart data when in multi-period mode, otherwise use prop
-  const effectiveChartData = isMultiPeriod ? seriesChartData : chartData
-  const effectiveLoading = loading || (isMultiPeriod && seriesLoading)
+  // Use series chart data when no chartData prop provided
+  const effectiveChartData = chartData || (seriesChartData.length > 0 ? seriesChartData : undefined)
+  const effectiveLoading = loading || (!chartData && seriesLoading)
 
   // Loading state
   if (effectiveLoading) {
@@ -357,7 +357,7 @@ export function CashFlowChart({
               axisLine={{ stroke: "#cbd5e1" }}
             />
             <YAxis
-              yAxisId="left"
+
               tick={{ fill: "#64748b", fontSize: 12 }}
               tickLine={{ stroke: "#cbd5e1" }}
               axisLine={{ stroke: "#cbd5e1" }}
@@ -389,45 +389,11 @@ export function CashFlowChart({
             />
             <ChartLegend content={<ChartLegendContent />} />
             
-            {selectedChartView === "operating_investing_financing" && (
-              <>
-                {/* Operating Cash Flow - Bar */}
-                <Bar
-                  yAxisId="left"
-                  dataKey="operating"
-                  fill={chartConfig.operating.color}
-                  radius={[4, 4, 0, 0]}
-                  name={chartConfig.operating.label}
-                />
-                {/* Investing Cash Flow - Bar */}
-                <Bar
-                  yAxisId="left"
-                  dataKey="investing"
-                  fill={chartConfig.investing.color}
-                  radius={[4, 4, 0, 0]}
-                  name={chartConfig.investing.label}
-                />
-                {/* Financing Cash Flow - Bar */}
-                <Bar
-                  yAxisId="left"
-                  dataKey="financing"
-                  fill={chartConfig.financing.color}
-                  radius={[4, 4, 0, 0]}
-                  name={chartConfig.financing.label}
-                />
-                {/* Net Cash Flow - Line */}
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="netCashFlow"
-                  stroke={chartConfig.netCashFlow.color}
-                  strokeWidth={3}
-                  dot={{ fill: chartConfig.netCashFlow.color, r: 5 }}
-                  activeDot={{ r: 7 }}
-                  name={chartConfig.netCashFlow.label}
-                />
-              </>
-            )}
+            {/* No fragment wrappers — React 19 breaks Recharts fragment detection (react-is@18.3.1 incompatibility) */}
+            {selectedChartView === "operating_investing_financing" && <Bar dataKey="operating" fill={chartConfig.operating.color} radius={[4, 4, 0, 0]} name={chartConfig.operating.label} />}
+            {selectedChartView === "operating_investing_financing" && <Bar dataKey="investing" fill={chartConfig.investing.color} radius={[4, 4, 0, 0]} name={chartConfig.investing.label} />}
+            {selectedChartView === "operating_investing_financing" && <Bar dataKey="financing" fill={chartConfig.financing.color} radius={[4, 4, 0, 0]} name={chartConfig.financing.label} />}
+            {selectedChartView === "operating_investing_financing" && <Line type="monotone" dataKey="netCashFlow" stroke={chartConfig.netCashFlow.color} strokeWidth={3} dot={{ fill: chartConfig.netCashFlow.color, r: 5 }} activeDot={{ r: 7 }} name={chartConfig.netCashFlow.label} />}
           </ComposedChart>
         </ChartContainer>
           </div>

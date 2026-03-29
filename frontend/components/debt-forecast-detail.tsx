@@ -824,8 +824,13 @@ export function DebtForecastDetail({
 
       {/* Note Modal */}
       <NoteModal
-        open={noteModalOpen}
-        onOpenChange={setNoteModalOpen}
+        isOpen={noteModalOpen}
+        onClose={() => {
+          setNoteModalOpen(false)
+          setSelectedRowId(null)
+          setSelectedRowLabel("")
+          setSelectedRowFinancialData({})
+        }}
         rowId={selectedRowId || ""}
         rowLabel={selectedRowLabel}
         page="debt"
@@ -834,8 +839,12 @@ export function DebtForecastDetail({
         companyId={companyId}
         divisionId={divisionId}
         subDivisionId={subDivisionId}
-        financialData={selectedRowFinancialData}
-        onNoteSaved={() => {
+        currentAmount={selectedRowFinancialData.currentAmount}
+        priorAmount={selectedRowFinancialData.priorAmount}
+        variationPercent={selectedRowFinancialData.variationPercent}
+        variationAmount={selectedRowFinancialData.variationAmount}
+        onSave={() => {
+          setNoteModalOpen(false)
           setNotesUpdated((prev) => prev + 1)
         }}
       />
