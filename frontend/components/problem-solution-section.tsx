@@ -291,10 +291,13 @@ export function ProblemSolutionSection() {
             <div className="mb-6">
               <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Pourquoi</p>
               <h2 className="text-3xl sm:text-4xl md:text-5xl mb-4 font-semibold leading-tight tracking-tight text-[#2A2F3A]">
-                Les enjeux financiers du quotidien et ce que la plateforme change concrètement
+                Les enjeux financiers du quotidien et ce que nous changeons concrètement
               </h2>
               <p className="text-lg sm:text-xl text-[#5C5F66] max-w-3xl leading-relaxed">
-                Retards d&apos;information, silos de données et outils peu robustes pèsent souvent sur le pilotage financier. Modelisys mutualise la donnée comptable et fiabilise consolidation, reporting et projections. Sans alignement avec votre situation, inutile de poursuivre ; sinon, chaque carte résume l&apos;enjeu et la réponse.
+                Retards d&apos;information, silos de données et outils peu robustes freinent vos décisions. Modelisys
+                centralise vos données et structure vos analyses pour vous rendre plus rapide, plus efficace et plus
+                stratégique. Parce qu&apos;au bout de chaque décision financière, un seul enjeu compte : créer et
+                maximiser la valeur de votre entreprise.
               </p>
               <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
             </div>

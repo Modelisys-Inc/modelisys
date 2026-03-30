@@ -19,21 +19,14 @@ const excelItems = [
   "Macros qui plantent au moindre changement",
 ]
 
-/** Ligne 2 — autres frictions du quotidien en pilotage / finance */
+/** Ligne 2 — enjeux liés à la valeur d’entreprise (Quotidien) */
 const dailyItems = [
-  "Chiffres en attente de validation",
-  "Réunion sans décision claire",
-  "Dernière version du fichier ?",
-  "Échanges par e-mail qui se perdent",
-  "PDF déjà obsolète à l’envoi",
-  "Reporting demandé à la dernière minute",
-  "Données éclatées entre plusieurs outils",
-  "Priorités qui changent sans trace",
-  "Clôture qui repousse encore",
-  "Personne ne lit le même indicateur",
-  "Consolidation refaite à la main",
-  "Tableau de bord jamais tout à fait à jour",
-  "Réunion de suivi sans ordre du jour",
+  "Quelle est la valeur de votre entreprise ?",
+  "Comment maximisez-vous la valeur de votre entreprise ?",
+  "Quelles divisions performent le mieux ?",
+  "Quels sont vos risques opérationnels majeurs ?",
+  "Quel impact vos décisions ont-elles sur votre multiple ?",
+  "Où sont vos leviers pour créer et protéger de la valeur ?",
 ]
 
 function TrackCells({ list }: { list: string[] }) {
@@ -64,7 +57,7 @@ export function ExcelFrustrationsMarquee() {
   return (
     <section
       className="relative isolate z-0 overflow-hidden border-y border-slate-200/80 bg-gradient-to-b from-slate-50 via-slate-100/90 to-slate-50"
-      aria-label="Frictions liées à Excel et au quotidien du pilotage"
+      aria-label="Frictions Excel et questions sur la valeur d’entreprise"
     >
       <div className="relative py-6 sm:py-8">
         <div className="excel-marquee-mask">

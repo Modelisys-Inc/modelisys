@@ -40,7 +40,7 @@ export const PRICING_ADDITIONAL_MODULES = [
 export type PricingModuleId = (typeof PRICING_ADDITIONAL_MODULES)[number]["id"]
 
 /** Abonnement socle (hors Projections et Évaluation), avant multiplicateurs revenus / sociétés. */
-export const BASE_SUBSCRIPTION_MONTHLY = 200
+export const BASE_SUBSCRIPTION_MONTHLY = 125
 
 /** @deprecated alias — préférer BASE_SUBSCRIPTION_MONTHLY */
 export const CONSOLIDATION_MODULE_MONTHLY = BASE_SUBSCRIPTION_MONTHLY
@@ -68,13 +68,12 @@ export function getBaseIncludedModuleIds(): string[] {
   return PRICING_ADDITIONAL_MODULES.filter((m) => !distinct.has(m.id)).map((m) => m.id)
 }
 
-/** Liste des modules pour l’estimateur rapide (socle + options Projections / Évaluation). */
-export function buildQuickCalculatorModuleIds(addProjections: boolean, addEvaluation: boolean): string[] {
-  return [
-    ...getBaseIncludedModuleIds(),
-    ...(addProjections ? ["previsions-budgets"] : []),
-    ...(addEvaluation ? ["valorisation-diagnostic"] : []),
-  ]
+/**
+ * Modules pris en compte par l’estimateur rapide : socle complet, incluant toujours Prévisions / budgets et
+ * Valorisation / diagnostic (aligné sur l’objectif de valeur d’entreprise).
+ */
+export function buildQuickCalculatorModuleIds(): string[] {
+  return [...getBaseIncludedModuleIds(), "previsions-budgets", "valorisation-diagnostic"]
 }
 
 export function formatCad(n: number) {

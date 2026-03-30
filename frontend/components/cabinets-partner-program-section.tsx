@@ -78,15 +78,28 @@ export function CabinetsPartnerProgramSection() {
     <section
       id="cabinet-partner-program"
       ref={sectionRef}
-      className="scroll-mt-24 relative z-10 border-t border-emerald-200/60 bg-gradient-to-b from-emerald-50/70 via-white to-slate-50 py-20 sm:py-28 overflow-hidden"
+      className="scroll-mt-24 relative z-10 overflow-hidden border-t border-slate-200/80 bg-slate-100/50 py-20 sm:py-28"
     >
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.35]"
-        style={{
-          backgroundImage: `radial-gradient(circle at 20% 20%, rgb(16 185 129 / 0.12) 0%, transparent 45%),
-            radial-gradient(circle at 80% 80%, rgb(148 163 184 / 0.15) 0%, transparent 40%)`,
-        }}
-      />
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-slate-50/95 to-slate-100/80" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_85%_45%_at_50%_-15%,rgba(224,116,45,0.055),transparent_55%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_100%_50%,rgba(148,163,184,0.12),transparent_65%)]" />
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `
+              linear-gradient(to right, rgb(148 163 184 / 0.1) 1px, transparent 1px),
+              linear-gradient(to bottom, rgb(148 163 184 / 0.1) 1px, transparent 1px)
+            `,
+            backgroundSize: "44px 44px",
+            maskImage: "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
+            WebkitMaskImage:
+              "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-50/30 via-transparent to-slate-100/35" />
+        <div className="absolute left-1/2 top-1/2 h-[min(72vh,520px)] w-[min(92vw,880px)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-200/20 blur-3xl" />
+      </div>
 
       <div className="relative z-10 mx-auto max-w-[1920px] px-8 sm:px-12 lg:px-16 xl:px-20">
         <div className="lg:grid lg:grid-cols-12 lg:gap-12 xl:gap-16">
@@ -95,15 +108,16 @@ export function CabinetsPartnerProgramSection() {
               isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
             }`}
           >
-            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-700/90">Programme partenaire</p>
-            <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+            <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Programme partenaire</p>
+            <h2 className="text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-5xl">
               Les avantages de devenir{" "}
-              <span className="text-emerald-800/90">partenaire Modelisys</span>
+              <span className="text-[#5C5F66]">partenaire Modelisys</span>
             </h2>
-            <p className="mt-5 text-base leading-relaxed text-slate-600 sm:text-lg">
+            <p className="mt-5 text-base leading-relaxed text-[#5C5F66] sm:text-lg">
               Un programme conçu pour soutenir votre croissance : rémunération, formation, vente et marketing, ressources
               dédiées et opportunités de mandats.
             </p>
+            <div className="mx-auto mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent lg:mx-0" />
           </div>
 
           <div
@@ -111,7 +125,7 @@ export function CabinetsPartnerProgramSection() {
               isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
             }`}
           >
-            <div className="rounded-2xl border border-emerald-200/90 bg-white/90 p-6 shadow-sm backdrop-blur-sm sm:p-8">
+            <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50/90 p-6 shadow-sm backdrop-blur-sm sm:p-8">
               <ul className="space-y-0">
                 {programItems.map((item, index) => {
                   const Icon = item.icon
@@ -119,19 +133,19 @@ export function CabinetsPartnerProgramSection() {
                   return (
                     <li key={item.title} className="flex gap-4 sm:gap-5">
                       <div className="flex shrink-0 flex-col items-center">
-                        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-600 to-emerald-700 text-white shadow-md shadow-emerald-900/10">
+                        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#2A2F3A] text-white shadow-md shadow-slate-900/10 ring-1 ring-slate-200/80">
                           <Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden />
                         </span>
                         {!isLast ? (
                           <div
-                            className="mt-2 w-0.5 flex-1 min-h-[1.25rem] bg-gradient-to-b from-emerald-200 to-emerald-100"
+                            className="mt-2 min-h-[1.25rem] w-0.5 flex-1 bg-gradient-to-b from-[#E0742D]/35 via-slate-200 to-slate-100"
                             aria-hidden
                           />
                         ) : null}
                       </div>
                       <div className={`min-w-0 flex-1 ${!isLast ? "pb-8 sm:pb-10" : ""}`}>
-                        <h3 className="text-base font-bold leading-snug text-slate-900 sm:text-lg">{item.title}</h3>
-                        <p className="mt-2 text-sm leading-relaxed text-slate-600 sm:text-[15px]">{item.description}</p>
+                        <h3 className="text-base font-semibold leading-snug text-[#2A2F3A] sm:text-lg">{item.title}</h3>
+                        <p className="mt-2 text-sm leading-relaxed text-[#5C5F66] sm:text-[15px]">{item.description}</p>
                       </div>
                     </li>
                   )

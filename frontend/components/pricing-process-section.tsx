@@ -1,13 +1,37 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
-import { Settings, DollarSign, CheckCircle2, Sparkles, Calculator, ArrowLeft } from "lucide-react"
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
+import {
+  Settings,
+  DollarSign,
+  CheckCircle2,
+  Sparkles,
+  Calculator,
+  ArrowLeft,
+  Send,
+  CalendarClock,
+  User,
+  Mail,
+} from "lucide-react"
 import { PricingQuickEstimatePanel } from "@/components/pricing-quick-estimate-panel"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 import {
   buildQuickCalculatorModuleIds,
   computePricingEstimate,
   formatCad,
 } from "@/lib/pricing-estimate"
+
+const FORMSPREE_PRICING = "https://formspree.io/f/xzdapzyv"
+
+/** Aligné sur la carte formulaire « Démarrer » (`demo-booking-section`). */
+const estimateFormCardShell =
+  "relative overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70"
+const estimateFormCardAccent = "pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]"
+const estimateFieldClass =
+  "h-12 border-slate-200 bg-white/80 focus-visible:border-[#E0742D]/80 focus-visible:ring-[#E0742D]/25"
 
 export function PricingProcessSection() {
   const sectionRef = useRef<HTMLElement>(null)
@@ -15,18 +39,20 @@ export function PricingProcessSection() {
   const [showCalculator, setShowCalculator] = useState(false)
   const [revenueM, setRevenueM] = useState(10)
   const [companies, setCompanies] = useState(1)
-  const [addProjections, setAddProjections] = useState(false)
-  const [addEvaluation, setAddEvaluation] = useState(false)
+  const [estimateEmail, setEstimateEmail] = useState("")
+  const [estimateName, setEstimateName] = useState("")
+  const [estimateSubmitting, setEstimateSubmitting] = useState(false)
+  const [estimateSent, setEstimateSent] = useState(false)
 
   const estimate = useMemo(
     () =>
       computePricingEstimate({
         revenueM,
         companies,
-        selectedModuleIds: buildQuickCalculatorModuleIds(addProjections, addEvaluation),
+        selectedModuleIds: buildQuickCalculatorModuleIds(),
         includeConsolidationModule: true,
       }),
-    [revenueM, companies, addProjections, addEvaluation],
+    [revenueM, companies],
   )
 
   useEffect(() => {
@@ -43,6 +69,38 @@ export function PricingProcessSection() {
     observer.observe(el)
     return () => observer.unobserve(el)
   }, [])
+
+  const handleSendEstimate = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!estimateName.trim() || !estimateEmail.trim()) return
+    setEstimateSubmitting(true)
+    try {
+      const response = await fetch(FORMSPREE_PRICING, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "pricing_estimate",
+          _subject: "Estimation tarifaire — Modelisys",
+          name: estimateName.trim(),
+          email: estimateEmail.trim(),
+          revenus_consolides_M$: revenueM,
+          societes_divisions: companies,
+          frais_implantation_fourchette$: `${formatCad(estimate.integrationMin)} – ${formatCad(estimate.integrationMax)}`,
+          abonnement_fourchette_mensuelle$: `${formatCad(estimate.monthlyMin)} – ${formatCad(estimate.monthlyMax)}`,
+          message:
+            "Le client souhaite être recontacté suite à son estimation en ligne (paramètres ci-dessus). Engagement : prise de contact sous 24 h.",
+        }),
+      })
+      if (response.ok) {
+        setEstimateSent(true)
+        setEstimateEmail("")
+        setEstimateName("")
+        window.setTimeout(() => setEstimateSent(false), 8000)
+      }
+    } finally {
+      setEstimateSubmitting(false)
+    }
+  }
 
   return (
     <section
@@ -132,10 +190,10 @@ export function PricingProcessSection() {
                   <h3 className="mb-4 text-xl font-semibold text-[#2A2F3A] sm:text-2xl">Estimation rapide</h3>
                   <p className="mb-4 text-base leading-relaxed text-[#5C5F66]">
                     Utilisez le <strong className="font-semibold text-[#2A2F3A]">calculateur</strong> pour une fourchette
-                    de prix en quelques secondes : revenus consolidés, nombre d&apos;entités, et ajout éventuel des
-                    modules <strong className="font-semibold text-[#2A2F3A]">Projections</strong> et{" "}
-                    <strong className="font-semibold text-[#2A2F3A]">Évaluation</strong> (hors socle — tout le reste est
-                    inclus par défaut).
+                    de prix en quelques secondes à partir de vos revenus consolidés et du nombre d&apos;entités. L&apos;
+                    estimation intègre l&apos;ensemble des leviers utiles à la{" "}
+                    <strong className="font-semibold text-[#2A2F3A]">valorisation</strong>, dont les prévisions et
+                    l&apos;évaluation.
                   </p>
                   <p className="mb-6 text-sm leading-relaxed text-[#5C5F66]">
                     Pour une démo ou un devis détaillé, vous pouvez aussi{" "}
@@ -180,10 +238,6 @@ export function PricingProcessSection() {
                   onRevenueMChange={setRevenueM}
                   companies={companies}
                   onCompaniesChange={setCompanies}
-                  addProjections={addProjections}
-                  onAddProjectionsChange={setAddProjections}
-                  addEvaluation={addEvaluation}
-                  onAddEvaluationChange={setAddEvaluation}
                 />
               </div>
             )}
@@ -262,21 +316,113 @@ export function PricingProcessSection() {
                 </div>
               </div>
 
-              <p className="mt-8 border-t border-slate-200/90 pt-6 text-center text-sm leading-relaxed text-[#5C5F66]">
+              <div className="mt-8 border-t border-slate-200/90 pt-6">
                 {showCalculator ? (
-                  <>
-                    Fourchettes indicatives hors taxes : borne basse = montant de référence, borne haute = référence
-                    avec deux hausses successives de <span className="font-medium">20&nbsp;%</span> (soit ×
-                    1,44). Les montants finaux dépendent de votre structure et de vos usages — contactez-nous pour une
-                    proposition sur mesure.
-                  </>
+                  <div className={cn(estimateFormCardShell, "p-6 sm:p-8")}>
+                    <div className={estimateFormCardAccent} aria-hidden />
+                    <div className="relative">
+                      <div className="mb-2 flex items-center gap-2 text-[#5C5F66]">
+                        <CalendarClock className="h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
+                        <span className="text-sm font-semibold tracking-wide">Démarrer</span>
+                      </div>
+                      <h3 className="mb-2 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
+                        Envoyer mon estimation
+                      </h3>
+                      <p className="mb-8 leading-relaxed text-[#5C5F66]">
+                        Transmettez-nous cette fourchette calculée selon vos paramètres : notre équipe vous contactera
+                        dans un délai de <span className="font-semibold text-[#2A2F3A]">24&nbsp;heures</span> (jours
+                        ouvrables) pour affiner votre besoin.
+                      </p>
+
+                      {estimateSent ? (
+                        <div className="flex flex-col items-center justify-center py-10 text-center sm:py-12">
+                          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-[#E0742D]/25 bg-[#E0742D]/10">
+                            <CheckCircle2 className="h-8 w-8 text-[#E0742D]" strokeWidth={2} />
+                          </div>
+                          <h4 className="mb-2 text-xl font-semibold text-[#2A2F3A]">Estimation bien reçue</h4>
+                          <p className="max-w-md text-[#5C5F66]">
+                            Merci ! Nous vous recontactons très bientôt pour convenir d’un échange.
+                          </p>
+                        </div>
+                      ) : (
+                        <form onSubmit={handleSendEstimate} className="space-y-6">
+                          <div className="grid gap-6 sm:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label htmlFor="estimate-name" className="text-[#2A2F3A]">
+                                Nom complet <span className="text-[#E0742D]">*</span>
+                              </Label>
+                              <div className="relative">
+                                <User className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                                <Input
+                                  id="estimate-name"
+                                  name="name"
+                                  type="text"
+                                  autoComplete="name"
+                                  required
+                                  value={estimateName}
+                                  onChange={(e) => setEstimateName(e.target.value)}
+                                  placeholder="Jean Dupont"
+                                  className={cn("pl-10", estimateFieldClass)}
+                                />
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="estimate-email" className="text-[#2A2F3A]">
+                                Courriel <span className="text-[#E0742D]">*</span>
+                              </Label>
+                              <div className="relative">
+                                <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                                <Input
+                                  id="estimate-email"
+                                  name="email"
+                                  type="email"
+                                  autoComplete="email"
+                                  required
+                                  value={estimateEmail}
+                                  onChange={(e) => setEstimateEmail(e.target.value)}
+                                  placeholder="vous@entreprise.com"
+                                  className={cn("pl-10", estimateFieldClass)}
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <Button
+                            type="submit"
+                            disabled={estimateSubmitting}
+                            className={cn(
+                              "h-12 w-full bg-[#E0742D] text-base font-semibold text-white shadow-lg shadow-[#E0742D]/20 transition-all duration-200 hover:bg-[#c96526]",
+                              estimateSubmitting && "cursor-not-allowed opacity-50",
+                            )}
+                          >
+                            {estimateSubmitting ? (
+                              <>
+                                <span className="mr-2 animate-spin">⏳</span>
+                                Envoi en cours…
+                              </>
+                            ) : (
+                              <>
+                                <Send className="mr-2 h-5 w-5" strokeWidth={2} />
+                                Envoyer mon estimation
+                              </>
+                            )}
+                          </Button>
+
+                          <p className="text-center text-xs text-[#5C5F66]/90">
+                            En envoyant ce formulaire, vous acceptez que nous utilisions ces informations pour vous
+                            recontacter au sujet de votre estimation.
+                          </p>
+                        </form>
+                      )}
+                    </div>
+                  </div>
                 ) : (
-                  <>
-                    Les montants dépendent de votre structure et de vos usages. Contactez-nous pour une proposition sur
-                    mesure.
-                  </>
+                  <p className="text-center text-sm leading-relaxed text-[#5C5F66] sm:text-left">
+                    Les montants dépendent de votre structure et de vos usages. Ouvrez le calculateur pour obtenir une
+                    fourchette et l&apos;envoyer à notre équipe.
+                  </p>
                 )}
-              </p>
+              </div>
             </div>
           </div>
         </div>
