@@ -42,7 +42,7 @@ const footerLinks: FooterSection[] = [
     links: [
       { title: "PME", href: "/#problem-solution" },
       { title: "Partenaires comptables", href: "/cabinets-comptables" },
-      { title: "Partenaires institutionnels", href: "/partenaires-institutionnels" },
+      { title: "Partenaires financiers", href: "/partenaires-financiers" },
     ],
   },
   {

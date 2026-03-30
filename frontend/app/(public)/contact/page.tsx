@@ -7,8 +7,29 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Mail, Phone, MapPin, Send, CheckCircle2, Building2, User, MessageSquare } from "lucide-react"
+import {
+  Mail,
+  Phone,
+  MapPin,
+  Send,
+  CheckCircle2,
+  Building2,
+  User,
+  MessageSquare,
+  ChevronDown,
+} from "lucide-react"
 import { cn } from "@/lib/utils"
+
+const SUBJECT_OPTIONS = [
+  "Réserver une démo",
+  "Support",
+  "Fonctionnalités",
+  "Demande de partenariat",
+  "Autres",
+] as const
+
+const subjectSelectClassName =
+  "flex h-12 w-full cursor-pointer appearance-none rounded-md border border-slate-200 bg-white/80 px-3 py-2 pr-10 text-sm text-[#2A2F3A] shadow-sm outline-none transition-[color,box-shadow] focus-visible:border-[#E0742D]/80 focus-visible:ring-[3px] focus-visible:ring-[#E0742D]/25 disabled:cursor-not-allowed disabled:opacity-50"
 
 export default function ContactPage() {
   const [formData, setFormData] = useState({
@@ -56,10 +77,13 @@ export default function ContactPage() {
     }
   }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
+  ) => {
+    const { name, value } = e.target
     setFormData((prev) => ({
       ...prev,
-      [e.target.name]: e.target.value,
+      [name]: value,
     }))
   }
 
@@ -299,16 +323,31 @@ export default function ContactPage() {
                           <Label htmlFor="subject" className="text-[#2A2F3A]">
                             Sujet <span className="text-[#E0742D]">*</span>
                           </Label>
-                          <Input
-                            id="subject"
-                            name="subject"
-                            type="text"
-                            required
-                            value={formData.subject}
-                            onChange={handleChange}
-                            className="h-12 border-slate-200 bg-white/80 focus-visible:border-[#E0742D]/80 focus-visible:ring-[#E0742D]/25"
-                            placeholder="Demande d'information sur vos services"
-                          />
+                          <div className="relative">
+                            <select
+                              id="subject"
+                              name="subject"
+                              required
+                              value={formData.subject}
+                              onChange={handleChange}
+                              className={cn(subjectSelectClassName, "[&>option]:bg-white")}
+                              aria-label="Sujet du message"
+                            >
+                              <option value="" disabled>
+                                Choisir un sujet
+                              </option>
+                              {SUBJECT_OPTIONS.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                            <ChevronDown
+                              className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                              aria-hidden
+                              strokeWidth={2}
+                            />
+                          </div>
                         </div>
 
                         <div className="space-y-2">

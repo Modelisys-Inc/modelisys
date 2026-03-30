@@ -20,7 +20,7 @@ const steps: {
     icon: MessageCircle,
     title: "Cadrage stratégique",
     description:
-      "Nous alignons vos objectifs institutionnels (segments PME, lignes métiers, exigences de conformité et d'intégration) avec les usages de Modelisys et les attentes de vos équipes.",
+      "Nous alignons vos objectifs financiers (segments PME, lignes métiers, exigences de conformité et d'intégration) avec les usages de Modelisys et les attentes de vos équipes.",
   },
   {
     step: 2,
@@ -48,7 +48,7 @@ const steps: {
     icon: Rocket,
     title: "Partenariat actif",
     description:
-      "Suivi régulier, feuille de route produit et optimisation continue des usages au sein de votre institution et avec vos clientèles PME.",
+      "Suivi régulier, feuille de route produit et optimisation continue des usages au sein de votre organisation et avec vos clientèles PME.",
   },
 ]
 
@@ -77,15 +77,30 @@ export function InstitutionalPartnersProcessSection() {
     <section
       id="institutional-partner-process"
       ref={sectionRef}
-      className="scroll-mt-24 relative z-10 border-t border-slate-200/90 bg-gradient-to-b from-white via-slate-50/90 to-slate-100/40 py-20 sm:py-28 overflow-hidden"
+      className="scroll-mt-24 relative z-10 overflow-hidden border-t border-slate-200/90 bg-gradient-to-b from-slate-100/80 via-slate-50/95 to-white py-20 sm:py-28"
     >
-      <div
-        className="pointer-events-none absolute inset-0 opacity-[0.4]"
-        style={{
-          backgroundImage: `radial-gradient(circle at 90% 10%, rgb(148 163 184 / 0.2) 0%, transparent 42%),
-            radial-gradient(circle at 10% 90%, rgb(16 185 129 / 0.08) 0%, transparent 45%)`,
-        }}
-      />
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+        <div
+          className="absolute inset-0 opacity-[0.35]"
+          style={{
+            backgroundImage: `radial-gradient(circle at 85% 15%, rgb(224 116 45 / 0.06) 0%, transparent 45%),
+              radial-gradient(circle at 15% 85%, rgb(148 163 184 / 0.12) 0%, transparent 48%)`,
+          }}
+        />
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `
+              linear-gradient(to right, rgb(148 163 184 / 0.1) 1px, transparent 1px),
+              linear-gradient(to bottom, rgb(148 163 184 / 0.1) 1px, transparent 1px)
+            `,
+            backgroundSize: "44px 44px",
+            maskImage: "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
+            WebkitMaskImage:
+              "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
+          }}
+        />
+      </div>
 
       <div className="relative z-10 mx-auto max-w-[1920px] px-8 sm:px-12 lg:px-16 xl:px-20">
         <div
@@ -93,32 +108,35 @@ export function InstitutionalPartnersProcessSection() {
             isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Parcours</p>
-          <h2 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl md:text-5xl">
+          <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Parcours</p>
+          <h2 className="text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-5xl">
             Notre processus pour devenir{" "}
-            <span className="text-slate-600">partenaire institutionnel</span>
+            <span className="text-[#5C5F66]">partenaire financier Modelisys</span>
           </h2>
-          <p className="mt-5 text-lg leading-relaxed text-slate-600 sm:text-xl">
+          <p className="mt-5 text-lg leading-relaxed text-[#5C5F66] sm:text-xl">
             Un parcours structuré pour intégrer Modelisys dans votre organisation : de la première discussion aux premières
-            clientèles accompagnées, avec des étapes claires à chaque phase.
+            clientèles accompagnées, avec des étapes claires et un accompagnement à chaque phase.
           </p>
+          <div className="mx-auto mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent lg:mx-0" />
         </div>
 
         <div
-          className={`mb-10 hidden transition-all duration-1000 delay-100 lg:mb-14 lg:grid lg:grid-cols-5 lg:gap-3 ${
+          className={`mb-10 hidden transition-all duration-1000 delay-100 lg:mb-14 lg:block ${
             isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          {steps.map((item) => (
-            <div key={item.step} className="flex flex-col items-center gap-2 text-center">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white shadow-md ring-4 ring-slate-100">
-                {item.step}
-              </span>
-              <span className="line-clamp-3 text-[11px] font-medium leading-snug text-slate-600 lg:text-xs">
-                {item.title}
-              </span>
-            </div>
-          ))}
+          <div className="grid grid-cols-5 gap-3">
+            {steps.map((item) => (
+              <div key={item.step} className="flex flex-col items-center gap-2 text-center">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2A2F3A] text-sm font-bold text-white shadow-md ring-4 ring-white/80">
+                  {item.step}
+                </span>
+                <span className="line-clamp-3 text-[11px] font-medium leading-snug text-slate-600 lg:text-xs">
+                  {item.title}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
 
         <ol
@@ -137,16 +155,16 @@ export function InstitutionalPartnersProcessSection() {
                 }`}
               >
                 <div className="flex items-start gap-4 sm:flex-col sm:items-stretch sm:gap-3">
-                  <span className="font-mono text-4xl font-bold leading-none tabular-nums text-emerald-600/25 sm:text-5xl">
+                  <span className="font-mono text-4xl font-bold leading-none tabular-nums text-[#E0742D]/20 sm:text-5xl">
                     {String(item.step).padStart(2, "0")}
                   </span>
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-800 shadow-sm sm:h-14 sm:w-14">
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-white text-[#2A2F3A] shadow-sm sm:h-14 sm:w-14">
                     <Icon className="h-6 w-6 sm:h-7 sm:w-7" strokeWidth={1.5} />
                   </span>
                 </div>
                 <div className="min-w-0 pt-0.5">
-                  <h3 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">{item.title}</h3>
-                  <p className="mt-3 text-base leading-relaxed text-slate-600 sm:text-[17px]">{item.description}</p>
+                  <h3 className="text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">{item.title}</h3>
+                  <p className="mt-3 text-base leading-relaxed text-[#5C5F66] sm:text-[17px]">{item.description}</p>
                 </div>
               </li>
             )
