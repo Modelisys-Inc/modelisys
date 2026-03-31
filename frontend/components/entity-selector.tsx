@@ -27,6 +27,7 @@ interface EntitySelectorProps {
   onCompanyChange: (companyId: string | null) => void
   onDivisionChange: (divisionId: string | null) => void
   onSubDivisionChange: (subDivisionId: string | null) => void
+  disableCompanySelection?: boolean
 }
 
 export function EntitySelector({
@@ -37,6 +38,7 @@ export function EntitySelector({
   onCompanyChange,
   onDivisionChange,
   onSubDivisionChange,
+  disableCompanySelection = false,
 }: EntitySelectorProps) {
   const selectedCompany = companies.find((c) => c.id === selectedCompanyId)
   const availableDivisions = selectedCompany?.divisions || []
@@ -62,19 +64,21 @@ export function EntitySelector({
 
   return (
     <div className="flex gap-2 flex-wrap items-center">
-      <Select value={selectedCompanyId || "all"} onValueChange={handleCompanyChange}>
-        <SelectTrigger className="w-[180px] h-8 bg-slate-800/50 border-slate-700 text-slate-300 text-xs hover:bg-slate-700/50">
-          <SelectValue placeholder="Société" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">Toutes les sociétés</SelectItem>
-          {companies.map((company) => (
-            <SelectItem key={company.id} value={company.id}>
-              {company.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {!disableCompanySelection && (
+        <Select value={selectedCompanyId || "all"} onValueChange={handleCompanyChange}>
+          <SelectTrigger className="w-[180px] h-8 bg-slate-800/50 border-slate-700 text-slate-300 text-xs hover:bg-slate-700/50">
+            <SelectValue placeholder="Société" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toutes les sociétés</SelectItem>
+            {companies.map((company) => (
+              <SelectItem key={company.id} value={company.id}>
+                {company.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       <Select
         value={selectedDivisionId || "all"}

@@ -2,11 +2,11 @@
 
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Card, CardContent } from "@/components/ui/card"
-import { TrendingUp, BarChart3, LineChart, Target, Building2, Settings, BookOpen, FileSpreadsheet, ArrowRight, CheckCircle2, Clock, Calendar, Plus } from "lucide-react"
+import { TrendingUp, LineChart, Target, Building2, ArrowRight, Calendar } from "lucide-react"
 import Link from "next/link"
-import { useState, useEffect } from "react"
+import { useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
-import { listAccountMappings, listStatementStructures } from "@/lib/api"
 
 const quickLinks = [
   {
@@ -48,69 +48,43 @@ const quickLinks = [
 
 export default function DashboardPage() {
   const [hoveredCard, setHoveredCard] = useState<string | null>(null)
-  const { companies, loading: companiesLoading } = useCompanies()
-  const [setupTasks, setSetupTasks] = useState([
-    {
-      id: "accounting-mapping",
-      title: "Mapping de la comptabilité",
-      description: "Configurez les correspondances entre vos comptes comptables",
-      icon: FileSpreadsheet,
-      href: "/settings/accounting-mapping",
-      completed: false,
-    },
-    {
-      id: "financial-statements-mapping",
-      title: "Mapping des états financiers",
-      description: "Définissez les mappings pour vos états financiers",
-      icon: BarChart3,
-      href: "/financial-statements",
-      completed: false,
-    },
-  ])
-
-  useEffect(() => {
-    if (companies.length === 0) return
-    const companyId = companies[0].id
-
-    listAccountMappings(companyId)
-      .then((mappings) => {
-        setSetupTasks((prev) =>
-          prev.map((t) =>
-            t.id === "accounting-mapping" ? { ...t, completed: mappings.length > 0 } : t
-          )
-        )
-      })
-      .catch(() => {})
-
-    listStatementStructures(companyId)
-      .then((structures) => {
-        setSetupTasks((prev) =>
-          prev.map((t) =>
-            t.id === "financial-statements-mapping" ? { ...t, completed: structures.length > 0 } : t
-          )
-        )
-      })
-      .catch(() => {})
-  }, [companies])
+  const { companies } = useCompanies()
+  const searchParams = useSearchParams()
+  const companyIdFromUrl = searchParams.get("companyId")
+  const effectiveCompanyId = companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl)
+    ? companyIdFromUrl
+    : companies[0]?.id
+  const companyQuery = effectiveCompanyId ? `?companyId=${effectiveCompanyId}` : ""
 
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
       
       {/* Dark Header Section */}
-      <div className="w-full bg-slate-900 pt-15 pb-40">
-        <div className="max-w-[1920px] mx-auto px-6">
+      <div className="relative w-full pt-15 pb-40 overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+            <div className="bg-[#2A2F3A]" />
+            <div className="bg-[#1F2430]" />
+          </div>
+          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
+          </div>
+        </div>
+        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
           <div className="flex items-start gap-3 mb-8">
             <div className="w-2"></div>
             <div className="flex-1">
-              <h2 className="text-4xl font-normal text-white mb-2 tracking-tight">Tableau de bord</h2>
-              <p className="text-base text-slate-300 mb-6">
+              <h2 className="text-4xl font-semibold text-[#E6D6C3] mb-2 tracking-tight">Tableau de bord</h2>
+              <p className="text-base text-[#C9B8A5]/90 mb-6">
                 Vue d'ensemble de votre plateforme d'intelligence financière
               </p>
-              <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Accédez à vos états financiers consolidés en temps réel, analysez vos performances avec des ratios avancés, 
-                créez des projections financières précises, évaluez votre entreprise selon différentes méthodes, 
-                et optimisez votre processus de clôture comptable avec une documentation structurée. 
+              <p className="text-base text-[#C9B8A5]/80 mb-6 leading-relaxed max-w-4xl">
+                Accédez à vos états financiers consolidés en temps réel, analysez vos performances avec des ratios avancés,
+                créez des projections financières précises, évaluez votre entreprise selon différentes méthodes,
+                et optimisez votre processus de clôture comptable avec une documentation structurée.
                 Tous vos outils d'analyse financière en un seul endroit.
               </p>
             </div>
@@ -128,32 +102,37 @@ export default function DashboardPage() {
               const isHovered = hoveredCard === link.id
 
               return (
-                <Link key={link.id} href={link.href}>
+                <Link key={link.id} href={`${link.href}${companyQuery}`}>
                   <Card
-                    className="group cursor-pointer transition-all duration-300 hover:shadow-xl hover:scale-[1.02] border border-slate-200 hover:border-slate-300 bg-white"
+                    className={`group relative cursor-pointer overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 transition-all duration-500 ease-out hover:shadow-xl hover:shadow-slate-900/[0.07] ${
+                      isHovered ? "scale-[1.015] shadow-2xl" : ""
+                    }`}
                     onMouseEnter={() => setHoveredCard(link.id)}
                     onMouseLeave={() => setHoveredCard(null)}
                   >
-                    <CardContent className="p-8">
+                    <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
+                    <CardContent className="relative p-6 sm:p-7">
                       <div className="flex flex-col h-full">
                         <div
-                          className={`w-16 h-16 rounded-xl bg-slate-100 group-hover:bg-slate-800 flex items-center justify-center mb-5 transition-all duration-300 ${
-                            isHovered ? "scale-110 shadow-lg" : ""
+                          className={`w-14 h-14 rounded-xl bg-slate-100 group-hover:bg-[#2A2F3A] flex items-center justify-center mb-5 transition-all duration-300 ${
+                            isHovered ? "scale-105" : ""
                           }`}
                         >
-                          <Icon className="w-8 h-8 text-slate-700 group-hover:text-white transition-colors duration-300" />
+                          <Icon className="w-7 h-7 text-black group-hover:text-[#E6D6C3] transition-colors duration-300" />
                         </div>
 
-                        <h3 className="text-xl font-bold text-slate-900 mb-3 text-balance">{link.title}</h3>
+                        <h3 className="text-xl font-semibold leading-tight tracking-tight text-[#2A2F3A] mb-3 text-balance">
+                          {link.title}
+                        </h3>
 
-                        <p className="text-slate-600 text-sm mb-6 flex-grow leading-relaxed text-pretty">
+                        <p className="text-[#5C5F66] text-sm mb-6 flex-grow leading-relaxed text-pretty">
                           {link.description}
                         </p>
 
-                        <div className="flex items-center text-slate-700 group-hover:text-slate-900 font-semibold text-sm group-hover:gap-3 gap-2 transition-all duration-300">
+                        <div className="flex items-center text-[#5C5F66] font-semibold text-sm group-hover:gap-3 gap-2 transition-all duration-300">
                           <span>Accéder</span>
                           <ArrowRight
-                            className={`w-4 h-4 transition-transform duration-300 ${isHovered ? "translate-x-1" : ""}`}
+                            className={`w-4 h-4 text-[#E0742D] transition-transform duration-300 ${isHovered ? "translate-x-1" : ""}`}
                           />
                         </div>
                       </div>
@@ -165,130 +144,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-
-      <main className="w-full pt-24 pb-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-
-          {/* Setup Tasks Section */}
-          <div className="mb-12">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-slate-900">Configuration initiale</h2>
-              <Link
-                href="/settings"
-                className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors flex items-center gap-2"
-              >
-                <Settings className="w-4 h-4" />
-                <span>Gérer la configuration</span>
-              </Link>
-            </div>
-            <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-6">
-              <p className="text-slate-600 mb-6">
-                Complétez ces étapes pour configurer votre plateforme et commencer à utiliser toutes les fonctionnalités.
-              </p>
-              <div className="space-y-4">
-                {!companiesLoading && companies.length === 0 && (
-                  <Link
-                    href="/settings/companies"
-                    className="flex items-start gap-4 p-4 rounded-lg border-2 border-amber-300 bg-amber-50 hover:bg-amber-100 transition-all duration-200 group"
-                  >
-                    <div className="flex-shrink-0 mt-1">
-                      <div className="w-6 h-6 rounded-full bg-amber-200 flex items-center justify-center">
-                        <Plus className="w-4 h-4 text-amber-700" />
-                      </div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-1">
-                        <Building2 className="w-5 h-5 text-amber-700 flex-shrink-0" />
-                        <h3 className="font-semibold text-amber-900">Créer votre première entreprise</h3>
-                      </div>
-                      <p className="text-sm text-amber-800 leading-relaxed">
-                        Toutes les fonctionnalités nécessitent une entreprise. Commencez par en créer une.
-                      </p>
-                    </div>
-                    <ArrowRight className="w-5 h-5 text-amber-500 group-hover:text-amber-700 transition-colors flex-shrink-0 mt-1" />
-                  </Link>
-                )}
-                {setupTasks.map((task) => {
-                  const Icon = task.icon
-                  const locked = !companiesLoading && companies.length === 0
-                  return (
-                    <Link
-                      key={task.id}
-                      href={locked ? "/settings/companies" : task.href}
-                      className={`flex items-start gap-4 p-4 rounded-lg border transition-all duration-200 group ${
-                        locked
-                          ? "border-slate-100 bg-slate-50 opacity-50 cursor-not-allowed pointer-events-none"
-                          : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex-shrink-0 mt-1">
-                        {task.completed ? (
-                          <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                          </div>
-                        ) : (
-                          <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center group-hover:bg-slate-300 transition-colors">
-                            <Clock className="w-4 h-4 text-slate-600" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 mb-1">
-                          <Icon className="w-5 h-5 text-slate-600 flex-shrink-0" />
-                          <h3 className="font-semibold text-slate-900">{task.title}</h3>
-                        </div>
-                        <p className="text-sm text-slate-600 leading-relaxed">{task.description}</p>
-                      </div>
-                      <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-slate-600 transition-colors flex-shrink-0 mt-1" />
-                    </Link>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Help & Resources Section */}
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center">
-                  <BookOpen className="w-6 h-6 text-slate-700" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-900">Ressources</h3>
-              </div>
-              <p className="text-slate-600 text-sm mb-6 leading-relaxed">
-                Accédez à la documentation, aux guides et aux ressources pour maximiser l'utilisation de la plateforme.
-              </p>
-              <Link
-                href="/resources"
-                className="inline-flex items-center gap-2 text-slate-700 font-semibold text-sm hover:text-slate-900 transition-colors"
-              >
-                <span>Consulter les ressources</span>
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 shadow-lg p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center">
-                  <Settings className="w-6 h-6 text-slate-700" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-900">Paramètres</h3>
-              </div>
-              <p className="text-slate-600 text-sm mb-6 leading-relaxed">
-                Gérez les paramètres de votre compte, configurez vos préférences et personnalisez votre expérience.
-              </p>
-              <Link
-                href="/settings"
-                className="inline-flex items-center gap-2 text-slate-700 font-semibold text-sm hover:text-slate-900 transition-colors"
-              >
-                <span>Accéder aux paramètres</span>
-                <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
-          </div>
-        </div>
-      </main>
     </div>
   )
 }

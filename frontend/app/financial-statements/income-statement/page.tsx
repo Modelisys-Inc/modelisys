@@ -10,7 +10,7 @@ import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Filter, Calendar, TrendingUp, TrendingDown, ChevronRight } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
 import {
   listBudgets,
@@ -46,6 +46,10 @@ export default function IncomeStatementPage() {
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
   const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const companyIdFromUrl = searchParams.get("companyId")
+  const companyQuery = companyIdFromUrl ? `?companyId=${companyIdFromUrl}` : ""
+  const lockedCompanyId = companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
 
   // Date reference state (month and year)
   // Default to previous year in Q1 (Jan-Mar), since current-year data is rarely available yet
@@ -95,11 +99,19 @@ export default function IncomeStatementPage() {
   const [resolvedCompanyId, setResolvedCompanyId] = useState<string | null>(null)
 
   useEffect(() => {
+    if (lockedCompanyId && selectedCompanyId !== lockedCompanyId) {
+      setSelectedCompanyId(lockedCompanyId)
+      setSelectedDivisionId(null)
+      setSelectedSubDivisionId(null)
+    }
+  }, [lockedCompanyId, selectedCompanyId])
+
+  useEffect(() => {
     const fetchData = async () => {
       setLoading(true)
       try {
         const apiCompanies = await listCompanies()
-        const companyId = selectedCompanyId || apiCompanies[0]?.id
+        const companyId = lockedCompanyId || selectedCompanyId || apiCompanies[0]?.id
         setResolvedCompanyId(companyId || null)
         if (!companyId) {
           setRows([])
@@ -135,7 +147,7 @@ export default function IncomeStatementPage() {
       }
     }
     fetchData()
-  }, [selectedCompanyId, selectedYear, selectedMonth, period, view, comparisonType, selectedBudgetId, selectedDivisionId, selectedSubDivisionId])
+  }, [lockedCompanyId, selectedCompanyId, selectedYear, selectedMonth, period, view, comparisonType, selectedBudgetId, selectedDivisionId, selectedSubDivisionId])
 
   // --- Compute top 3 variations from fetched rows ---
   const topVariations = useMemo(() => {
@@ -227,18 +239,29 @@ export default function IncomeStatementPage() {
     <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
       <DashboardHeader title="Modelisys" />
       {/* New Section between Header and Cards - Black Background - Full Width */}
-      <div className="w-full bg-slate-900 pt-15 pb-32">
-        <div className="max-w-[1920px] mx-auto px-6">
+      <div className="relative w-full pt-15 pb-32 overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+            <div className="bg-[#2A2F3A]" />
+            <div className="bg-[#1F2430]" />
+          </div>
+          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
+          </div>
+        </div>
+        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
           <div className="flex items-start mb-4">
             {/* Espace équivalent au bouton menu du header pour l'alignement */}
             <div className="w-2 flex-shrink-0"></div>
             <div className="flex-1">
               <div className="flex items-center justify-between mb-2">
-                <h2 className="text-4xl font-normal text-white tracking-tight">Résultats comparatifs</h2>
+                <h2 className="text-4xl font-semibold text-[#E6D6C3] tracking-tight">Résultats comparatifs</h2>
                 {/* Date Reference Selector */}
                 <div className="flex items-center gap-3 bg-slate-800/70 border border-slate-700 rounded-lg px-4 py-2.5 shadow-lg">
                   <Calendar className="w-4 h-4 text-emerald-400" />
-                  <span className="text-sm font-medium text-white whitespace-nowrap">Référence:</span>
+                  <span className="text-sm font-medium text-[#E6D6C3] whitespace-nowrap">Référence:</span>
                   <Select 
                     value={selectedMonth.toString()} 
                     onValueChange={(value) => setSelectedMonth(parseInt(value))}
@@ -281,7 +304,7 @@ export default function IncomeStatementPage() {
                   </Select>
                 </div>
               </div>
-              <p className="text-base text-slate-300 mb-6">Analysez vos revenus, dépenses et résultats nets avec des comparaisons périodiques détaillées</p>
+              <p className="text-base text-[#C9B8A5]/90 mb-6">Analysez vos revenus, dépenses et résultats nets avec des comparaisons périodiques détaillées</p>
               {/* Navigation Menu - Style like photo - Below description */}
               <div className="flex items-end gap-8 mb-2">
                 {financialStatementsNav.map((item) => {
@@ -289,20 +312,20 @@ export default function IncomeStatementPage() {
                   return (
                     <Link
                       key={item.href}
-                      href={item.href}
+                      href={`${item.href}${companyQuery}`}
                       className="relative pb-4 border-b border-slate-600/30"
                     >
                       <span
                         className={`text-sm font-normal transition-colors ${
                           isActive
-                            ? "text-white"
-                            : "text-slate-300 hover:text-white"
+                            ? "text-[#E6D6C3]"
+                            : "text-[#C9B8A5]/90 hover:text-[#E6D6C3]"
                         }`}
                       >
                         {item.label}
                       </span>
                       {isActive && (
-                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
+                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
                       )}
                     </Link>
                   )
@@ -315,13 +338,13 @@ export default function IncomeStatementPage() {
           <div className="mb-6 p-4">
             <div className="flex flex-wrap items-center gap-4">
               {/* Filter Icon */}
-              <div className="flex items-center gap-2 text-slate-300">
+              <div className="flex items-center gap-2 text-[#C9B8A5]/90">
                 <Filter className="w-4 h-4" />
               </div>
 
               {/* View Toggle */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Vue:</span>
+                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Vue:</span>
                 <div className="inline-flex rounded-lg border border-slate-700 bg-slate-800/50 p-1">
                   <Button
                     variant="ghost"
@@ -353,7 +376,7 @@ export default function IncomeStatementPage() {
 
               {/* Horizon and Comparison Group */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Horizon:</span>
+                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Horizon:</span>
                 <div className="flex gap-2 items-center">
                   <Select value={getCurrentHorizon()} onValueChange={handleHorizonChange}>
                     <SelectTrigger className="h-8 w-[140px] bg-slate-800/50 border-slate-700 text-slate-300 text-xs hover:bg-slate-700/50">
@@ -423,7 +446,7 @@ export default function IncomeStatementPage() {
 
               {/* Display Mode Buttons */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Affichage:</span>
+                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Affichage:</span>
                 <div className="inline-flex rounded-lg border border-slate-700 bg-slate-800/50 p-1">
                   <Button
                     variant="ghost"
@@ -476,15 +499,19 @@ export default function IncomeStatementPage() {
 
               {/* Entity Selector */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Entité:</span>
+                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Entité:</span>
                 <EntitySelector
                   companies={companies}
                   selectedCompanyId={selectedCompanyId}
                   selectedDivisionId={selectedDivisionId}
                   selectedSubDivisionId={selectedSubDivisionId}
-                  onCompanyChange={setSelectedCompanyId}
+                  onCompanyChange={(companyId) => {
+                    if (lockedCompanyId) return
+                    setSelectedCompanyId(companyId)
+                  }}
                   onDivisionChange={setSelectedDivisionId}
                   onSubDivisionChange={setSelectedSubDivisionId}
+                  disableCompanySelection={!!lockedCompanyId}
                 />
               </div>
             </div>
@@ -511,22 +538,33 @@ export default function IncomeStatementPage() {
       </main>
 
       {/* Dark Section between Chart and Summary/Detail */}
-      <div className="w-full bg-slate-900 pt-12 pb-32">
-        <div className="max-w-[1920px] mx-auto px-6">
+      <div className="relative w-full pt-12 pb-32 overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+            <div className="bg-[#2A2F3A]" />
+            <div className="bg-[#1F2430]" />
+          </div>
+          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
+          </div>
+        </div>
+        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
           <div className="flex items-start gap-3">
             <div className="w-2 flex-shrink-0"></div>
             <div className="flex-1">
               <div className="flex items-start justify-between mb-6">
                 <div className="flex-1">
-                  <h3 className="text-2xl font-normal text-white mb-3">Documentation comptable continue</h3>
-                  <p className="text-base text-slate-300 leading-relaxed max-w-4xl">
+                  <h3 className="text-2xl font-semibold text-[#E6D6C3] mb-3">Documentation comptable continue</h3>
+                  <p className="text-base text-[#C9B8A5]/90 leading-relaxed max-w-4xl">
                     Documentez les variations importantes tout au long de l'exercice pour faciliter votre clôture comptable annuelle et optimiser les processus d'évaluation d'entreprise et de transactions stratégiques.
                   </p>
                 </div>
                 <div className="flex items-center gap-4 ml-8">
                   <div className="text-right">
-                    <div className="text-sm text-slate-400 mb-1">Notes documentées</div>
-                    <div className="text-3xl font-semibold text-white">{notesCount}</div>
+                    <div className="text-sm text-[#C9B8A5]/80 mb-1">Notes documentées</div>
+                    <div className="text-3xl font-semibold text-[#E6D6C3]">{notesCount}</div>
                   </div>
                 </div>
               </div>

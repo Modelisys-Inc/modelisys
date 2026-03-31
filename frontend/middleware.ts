@@ -29,10 +29,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // Redirect authenticated users away from login to dashboard
+  // Redirect authenticated users away from login to portal
   if (hasSession && pathname === "/login") {
-    const dashboardUrl = new URL("/dashboard", request.url)
-    return NextResponse.redirect(dashboardUrl)
+    const portalUrl = new URL("/mon-portail", request.url)
+    return NextResponse.redirect(portalUrl)
   }
 
   return NextResponse.next()
