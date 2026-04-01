@@ -85,7 +85,7 @@ export function DashboardHeader({ title = "Gestion Comptable", description }: Da
               aria-hidden
             />
           )}
-          {!isPortalHeader && (
+          {!isPortalHeader && !selectedCompanyId && (
             <>
               <Link
                 href="/resources"

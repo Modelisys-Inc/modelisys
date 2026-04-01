@@ -12,6 +12,7 @@ import {
   CalendarClock,
   User,
   Mail,
+  AlertCircle,
 } from "lucide-react"
 import { PricingQuickEstimatePanel } from "@/components/pricing-quick-estimate-panel"
 import { Button } from "@/components/ui/button"
@@ -38,22 +39,65 @@ export function PricingProcessSection() {
   const [isVisible, setIsVisible] = useState(false)
   const [showCalculator, setShowCalculator] = useState(false)
   const [revenueM, setRevenueM] = useState(10)
-  const [companies, setCompanies] = useState(1)
+  const [entityBand, setEntityBand] = useState<"1" | "2-4" | "5-9" | "10+">("1")
+  const [implementationOption, setImplementationOption] = useState<"full" | "partial">("full")
   const [estimateEmail, setEstimateEmail] = useState("")
   const [estimateName, setEstimateName] = useState("")
   const [estimateSubmitting, setEstimateSubmitting] = useState(false)
   const [estimateSent, setEstimateSent] = useState(false)
 
-  const estimate = useMemo(
-    () =>
-      computePricingEstimate({
-        revenueM,
-        companies,
-        selectedModuleIds: buildQuickCalculatorModuleIds(),
-        includeConsolidationModule: true,
-      }),
-    [revenueM, companies],
-  )
+  const companies = useMemo(() => {
+    if (entityBand === "1") return 1
+    if (entityBand === "2-4") return 3
+    if (entityBand === "5-9") return 7
+    return 10
+  }, [entityBand])
+
+  const isContactBand = entityBand === "10+"
+  const isAutonomousOption = implementationOption === "partial"
+  const revenueBrackets = Math.max(0, Math.ceil(revenueM / 5) - 1)
+  const revenueIntegrationMultiplier = 1 + revenueBrackets * 0.05
+
+  const estimate = useMemo(() => {
+    if (isContactBand) {
+      return { monthlyMin: 0, monthlyMax: 0, integrationMin: 0, integrationMax: 0 }
+    }
+    const base = computePricingEstimate({
+      revenueM,
+      companies,
+      selectedModuleIds: buildQuickCalculatorModuleIds(),
+      includeConsolidationModule: true,
+    })
+    if (entityBand === "1") {
+      return {
+        ...base,
+        integrationMin: Math.round(3000 * revenueIntegrationMultiplier),
+        integrationMax: Math.round(4320 * revenueIntegrationMultiplier),
+      }
+    }
+    if (entityBand === "2-4") {
+      return {
+        ...base,
+        integrationMin: Math.round(6000 * revenueIntegrationMultiplier),
+        integrationMax: Math.round(12000 * revenueIntegrationMultiplier),
+      }
+    }
+    if (entityBand === "5-9") {
+      return {
+        ...base,
+        integrationMin: Math.round(15000 * revenueIntegrationMultiplier),
+        integrationMax: Math.round(27000 * revenueIntegrationMultiplier),
+      }
+    }
+    return base
+  }, [isContactBand, companies, entityBand, revenueIntegrationMultiplier])
+
+  const integrationMinDisplay = isAutonomousOption
+    ? Math.round(estimate.integrationMin * 0.75)
+    : estimate.integrationMin
+  const integrationMaxDisplay = isAutonomousOption
+    ? Math.round(estimate.integrationMax * 0.75)
+    : estimate.integrationMax
 
   useEffect(() => {
     const el = sectionRef.current
@@ -84,9 +128,13 @@ export function PricingProcessSection() {
           name: estimateName.trim(),
           email: estimateEmail.trim(),
           revenus_consolides_M$: revenueM,
-          societes_divisions: companies,
-          frais_implantation_fourchette$: `${formatCad(estimate.integrationMin)} – ${formatCad(estimate.integrationMax)}`,
-          abonnement_fourchette_mensuelle$: `${formatCad(estimate.monthlyMin)} – ${formatCad(estimate.monthlyMax)}`,
+          societes_divisions: entityBand,
+          frais_implantation_fourchette$: isContactBand
+            ? "Nous contacter"
+            : `${formatCad(integrationMinDisplay)} – ${formatCad(integrationMaxDisplay)}`,
+          abonnement_fourchette_mensuelle$: isContactBand
+            ? "Nous contacter"
+            : `${formatCad(estimate.monthlyMin)} – ${formatCad(estimate.monthlyMax)}`,
           message:
             "Le client souhaite être recontacté suite à son estimation en ligne (paramètres ci-dessus). Engagement : prise de contact sous 24 h.",
         }),
@@ -236,8 +284,8 @@ export function PricingProcessSection() {
                 <PricingQuickEstimatePanel
                   revenueM={revenueM}
                   onRevenueMChange={setRevenueM}
-                  companies={companies}
-                  onCompaniesChange={setCompanies}
+                  entityBand={entityBand}
+                  onEntityBandChange={setEntityBand}
                 />
               </div>
             )}
@@ -260,7 +308,7 @@ export function PricingProcessSection() {
 
               <div className="space-y-5">
                 <div className="rounded-xl border border-slate-200/90 bg-slate-50/60 p-5 sm:p-6">
-                  <div className="flex gap-4">
+                  <div className="mb-4 flex gap-4">
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-200/90 bg-white shadow-sm">
                       <Settings className="h-6 w-6 text-[#2A2F3A]" strokeWidth={1.5} />
                     </div>
@@ -269,27 +317,84 @@ export function PricingProcessSection() {
                         <h4 className="text-lg font-semibold text-[#2A2F3A]">Frais d&apos;implantation</h4>
                         {showCalculator ? (
                           <span className="shrink-0 text-sm font-semibold tabular-nums text-[#E0742D]">
-                            {formatCad(estimate.integrationMin)}&nbsp;$ – {formatCad(estimate.integrationMax)}&nbsp;$
+                            {isContactBand
+                              ? "Nous contacter"
+                              : `${formatCad(integrationMinDisplay)} $ – ${formatCad(integrationMaxDisplay)} $`}
                           </span>
                         ) : null}
                       </div>
-                      <p className="mb-4 text-sm leading-relaxed text-[#5C5F66]">
+                      <p className="text-sm leading-relaxed text-[#5C5F66]">
                         Montant ponctuel pour la mise en place initiale : paramétrage, intégration des données et
                         préparation au bon usage par vos équipes.
                       </p>
-                      <ul className="space-y-2.5">
-                        {[
-                          "Paramétrage des données et périmètres comptables",
-                          "Activation des modules et règles adaptés à vos besoins",
-                          "Formation des utilisateurs et transfert de méthode",
-                        ].map((line) => (
-                          <li key={line} className="flex items-start gap-2.5 text-sm text-[#5C5F66]">
-                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
-                            <span>{line}</span>
-                          </li>
-                        ))}
-                      </ul>
                     </div>
+                  </div>
+
+                  <div className="w-full">
+                    <div className="mb-4 rounded-xl border border-slate-200 bg-white p-1.5">
+                      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => setImplementationOption("full")}
+                          className={cn(
+                            "rounded-lg px-3 py-2.5 text-left transition",
+                            implementationOption === "full"
+                              ? "bg-[#E0742D]/12 ring-1 ring-[#E0742D]/40"
+                              : "hover:bg-slate-50",
+                          )}
+                        >
+                          <p className="text-sm font-semibold text-[#2A2F3A]">Option 1 - Clé en main</p>
+                          <p className="mt-0.5 text-xs text-[#5C5F66]">Forfait clé en main (recommandé)</p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setImplementationOption("partial")}
+                          className={cn(
+                            "rounded-lg px-3 py-2.5 text-left transition",
+                            implementationOption === "partial"
+                              ? "bg-[#E0742D]/12 ring-1 ring-[#E0742D]/40"
+                              : "hover:bg-slate-50",
+                          )}
+                        >
+                          <p className="text-sm font-semibold text-[#2A2F3A]">Option 2 - Autonome</p>
+                          <p className="mt-0.5 text-xs text-[#5C5F66]">Client autonome, support ponctuel</p>
+                        </button>
+                      </div>
+                    </div>
+                    {implementationOption === "partial" && (
+                      <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                        <p className="text-xs leading-relaxed text-amber-800">
+                            Cette option s’adresse aux équipes expérimentées en finance et comptabilité. Vous
+                            construisez et configurez votre environnement financier en vous appuyant sur notre cadre
+                            structuré, afin d’exploiter pleinement les capacités de la plateforme.
+                        </p>
+                      </div>
+                    )}
+                    <ul className="space-y-2.5">
+                      {(
+                        implementationOption === "full"
+                          ? [
+                              "Structuration complète de vos données et de votre périmètre financier",
+                              "Configuration de chacune des fonctionnalitées et contrôle qualité",
+                              "Mise en place des règles, modules et logiques adaptées à votre réalité",
+                              "Prise en charge des éléments complexes (mapping, consolidation, intercos)",
+                              "Formation des équipes et transfert d’une méthodologie claire et durable",
+                            ]
+                          : [
+                              "Accès à un cadre structuré pour configurer votre modèle financier",
+                              "Configuration réalisée par vos équipes, selon vos besoins et votre rythme",
+                              "Formation initiale pour maîtriser la logique de structuration et de paramétrage",
+                              "Support ciblé pour valider les étapes clés et sécuriser vos décisions",
+                              "Accompagnement ponctuel en cas de blocage ou de situation complexe",
+                            ]
+                      ).map((line) => (
+                        <li key={line} className="flex items-start gap-2.5 text-sm text-[#5C5F66]">
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
+                          <span>{line}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 </div>
 
@@ -303,7 +408,9 @@ export function PricingProcessSection() {
                         <h4 className="text-lg font-semibold text-[#2A2F3A]">Abonnement</h4>
                         {showCalculator ? (
                           <span className="shrink-0 text-sm font-semibold tabular-nums text-[#E0742D]">
-                            {formatCad(estimate.monthlyMin)}&nbsp;$ – {formatCad(estimate.monthlyMax)}&nbsp;$ / mois
+                            {isContactBand
+                              ? "Nous contacter"
+                              : `${formatCad(estimate.monthlyMin)} $ – ${formatCad(estimate.monthlyMax)} $ / mois`}
                           </span>
                         ) : null}
                       </div>

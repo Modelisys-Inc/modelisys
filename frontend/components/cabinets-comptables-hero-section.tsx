@@ -379,7 +379,7 @@ export function CabinetsComptablesHeroSection() {
           display: flex;
           width: max-content;
           will-change: transform;
-          animation: cabinetMarqueeLeft 32s linear infinite;
+          animation: cabinetMarqueeLeft 48s linear infinite;
         }
 
         .cabinet-marquee-row {

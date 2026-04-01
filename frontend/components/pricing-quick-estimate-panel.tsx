@@ -1,20 +1,19 @@
 "use client"
 
-import { Minus, Plus } from "lucide-react"
 import { Label } from "@/components/ui/label"
 
 export type PricingQuickEstimatePanelProps = {
   revenueM: number
   onRevenueMChange: (value: number) => void
-  companies: number
-  onCompaniesChange: (value: number) => void
+  entityBand: "1" | "2-4" | "5-9" | "10+"
+  onEntityBandChange: (value: "1" | "2-4" | "5-9" | "10+") => void
 }
 
 export function PricingQuickEstimatePanel({
   revenueM,
   onRevenueMChange,
-  companies,
-  onCompaniesChange,
+  entityBand,
+  onEntityBandChange,
 }: PricingQuickEstimatePanelProps) {
   return (
     <div className="space-y-8">
@@ -53,29 +52,18 @@ export function PricingQuickEstimatePanel({
 
       <div>
         <Label className="mb-3 block text-base font-semibold text-[#2A2F3A]">
-          Sociétés / divisions rattachées
+          Nombre d&apos;entités
         </Label>
-        <div className="flex items-center justify-center gap-4 sm:justify-start">
-          <button
-            type="button"
-            onClick={() => onCompaniesChange(Math.max(1, companies - 1))}
-            className="flex h-11 w-11 items-center justify-center rounded-xl border-2 border-slate-200 bg-white text-[#2A2F3A] shadow-sm transition hover:bg-slate-50"
-            aria-label="Diminuer"
-          >
-            <Minus className="h-5 w-5" />
-          </button>
-          <div className="min-w-[4rem] rounded-xl border border-slate-200/90 bg-slate-50 py-2 text-center text-2xl font-bold tabular-nums text-[#2A2F3A]">
-            {companies}
-          </div>
-          <button
-            type="button"
-            onClick={() => onCompaniesChange(companies + 1)}
-            className="flex h-11 w-11 items-center justify-center rounded-xl border-2 border-slate-200 bg-white text-[#2A2F3A] shadow-sm transition hover:bg-slate-50"
-            aria-label="Augmenter"
-          >
-            <Plus className="h-5 w-5" />
-          </button>
-        </div>
+        <select
+          value={entityBand}
+          onChange={(e) => onEntityBandChange(e.target.value as "1" | "2-4" | "5-9" | "10+")}
+          className="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-base font-semibold text-[#2A2F3A] shadow-sm transition focus:border-[#E0742D]/70 focus:outline-none"
+        >
+          <option value="1">1 Entité</option>
+          <option value="2-4">2 à 4 Entités</option>
+          <option value="5-9">5 à 9 Entités</option>
+          <option value="10+">10 Entités +</option>
+        </select>
       </div>
 
       <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 p-4">

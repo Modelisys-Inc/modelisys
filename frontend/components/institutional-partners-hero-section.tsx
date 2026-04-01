@@ -376,7 +376,7 @@ export function InstitutionalPartnersHeroSection() {
           display: flex;
           width: max-content;
           will-change: transform;
-          animation: financialMarqueeLeft 32s linear infinite;
+          animation: financialMarqueeLeft 48s linear infinite;
         }
 
         .financial-marquee-row {

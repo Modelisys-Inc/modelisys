@@ -149,13 +149,22 @@ export default function MonPortailPage() {
                 Cette vue vous permet de retrouver rapidement les sociétés de votre espace et d'accéder à leur fiche
                 de configuration.
               </p>
-              <Button
-                onClick={() => setIsDialogOpen(true)}
-                className="bg-[#E0742D] hover:bg-[#c96526] text-white"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Nouvelle société
-              </Button>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  onClick={() => setIsDialogOpen(true)}
+                  className="bg-[#E0742D] hover:bg-[#c96526] text-white"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nouvelle société
+                </Button>
+                <Button
+                  onClick={() => setIsGroupDialogOpen(true)}
+                  className="bg-[#E0742D] hover:bg-[#c96526] text-white"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Nouveau groupe consolidé
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -165,11 +174,14 @@ export default function MonPortailPage() {
       <main className="relative -mt-32 mb-12">
         <div className="max-w-[1920px] mx-auto px-6">
           {loading ? (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden mb-6">
-              <div className="bg-white px-8 py-6 border-b border-slate-200">
+            <div className="group relative overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 shadow-lg mb-6">
+              <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
+              <div className="relative bg-white/90 px-8 py-6 border-b border-slate-200">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className="w-1 h-12 bg-[#E0742D] rounded-full flex-shrink-0"></div>
+                  <div className="w-12 h-12 rounded-xl bg-slate-100 group-hover:bg-[#2A2F3A] flex items-center justify-center transition-all duration-300">
+                    <FolderOpen className="w-6 h-6 text-black group-hover:text-[#E6D6C3] transition-colors duration-300" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">Mes sociétés</h2>
                     <p className="text-sm text-slate-600">Liste des sociétés créées dans votre portail.</p>
@@ -177,16 +189,19 @@ export default function MonPortailPage() {
                 </div>
               </div>
               </div>
-              <div className="p-6 bg-white">
+              <div className="relative p-6 bg-white">
                 <p className="text-sm text-slate-500">Chargement des sociétés...</p>
               </div>
             </div>
           ) : companies.length === 0 ? (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden mb-6">
-              <div className="bg-white px-8 py-6 border-b border-slate-200">
+            <div className="group relative overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 shadow-lg mb-6">
+              <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
+              <div className="relative bg-white/90 px-8 py-6 border-b border-slate-200">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className="w-1 h-12 bg-[#E0742D] rounded-full flex-shrink-0"></div>
+                  <div className="w-12 h-12 rounded-xl bg-slate-100 group-hover:bg-[#2A2F3A] flex items-center justify-center transition-all duration-300">
+                    <FolderOpen className="w-6 h-6 text-black group-hover:text-[#E6D6C3] transition-colors duration-300" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">Mes sociétés</h2>
                     <p className="text-sm text-slate-600">Liste des sociétés créées dans votre portail.</p>
@@ -194,7 +209,7 @@ export default function MonPortailPage() {
                 </div>
               </div>
               </div>
-              <div className="p-10 text-center bg-white">
+              <div className="relative p-10 text-center bg-white">
                 <FolderOpen className="w-12 h-12 mx-auto mb-4 text-slate-400" />
                 <p className="text-base font-medium text-slate-700 mb-2">Aucune société créée</p>
                 <p className="text-sm text-slate-500 mb-6">
@@ -206,11 +221,14 @@ export default function MonPortailPage() {
               </div>
             </div>
           ) : (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden mb-6">
-              <div className="bg-white px-8 py-6 border-b border-slate-200">
+            <div className="group relative overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 shadow-lg mb-6">
+              <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
+              <div className="relative bg-white/90 px-8 py-6 border-b border-slate-200">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className="w-1 h-12 bg-[#E0742D] rounded-full flex-shrink-0"></div>
+                  <div className="w-12 h-12 rounded-xl bg-slate-100 group-hover:bg-[#2A2F3A] flex items-center justify-center transition-all duration-300">
+                    <FolderOpen className="w-6 h-6 text-black group-hover:text-[#E6D6C3] transition-colors duration-300" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">Mes sociétés</h2>
                     <p className="text-sm text-slate-600">Liste des sociétés créées dans votre portail.</p>
@@ -218,7 +236,7 @@ export default function MonPortailPage() {
                 </div>
               </div>
               </div>
-              <div className="overflow-x-auto bg-white">
+              <div className="relative overflow-x-auto bg-white">
                   <table className="w-full">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200">
@@ -246,11 +264,15 @@ export default function MonPortailPage() {
             </div>
           )}
 
-          <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden mb-6">
-            <div className="bg-white px-8 py-6 border-b border-slate-200">
+          {groups.length > 0 && (
+          <div className="group relative overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 shadow-lg mb-6">
+            <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
+            <div className="relative bg-white/90 px-8 py-6 border-b border-slate-200">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className="w-1 h-12 bg-[#E0742D] rounded-full flex-shrink-0"></div>
+                  <div className="w-12 h-12 rounded-xl bg-slate-100 group-hover:bg-[#2A2F3A] flex items-center justify-center transition-all duration-300">
+                    <FolderOpen className="w-6 h-6 text-black group-hover:text-[#E6D6C3] transition-colors duration-300" />
+                  </div>
                   <div className="flex-1 min-w-0">
                     <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">Sommaire des groupes consolidés</h2>
                     <p className="text-sm text-slate-600">
@@ -258,18 +280,10 @@ export default function MonPortailPage() {
                     </p>
                   </div>
                 </div>
-                <Button
-                  onClick={() => setIsGroupDialogOpen(true)}
-                  className="bg-[#E0742D] hover:bg-[#c96526] text-white"
-                  size="sm"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Nouveau groupe consolidé
-                </Button>
               </div>
             </div>
 
-            <div className="overflow-x-auto bg-white">
+            <div className="relative overflow-x-auto bg-white">
               <table className="w-full">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
@@ -280,35 +294,24 @@ export default function MonPortailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {groups.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-14 text-center">
-                        <FolderOpen className="w-10 h-10 mx-auto mb-3 text-slate-300" />
-                        <p className="text-sm font-medium text-slate-500">Aucun groupe consolidé pour le moment.</p>
-                        <p className="text-xs text-slate-400 mt-1">
-                          Créez un groupe consolidé pour regrouper plusieurs sociétés d&apos;un même client.
-                        </p>
+                  {groups.map((group, idx) => (
+                    <tr key={group.id} className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-3 text-sm text-slate-700">{idx + 1}</td>
+                      <td className="px-6 py-3 font-semibold text-slate-900">{group.name}</td>
+                      <td className="px-6 py-3 text-sm text-slate-700">
+                        {group.companyIds
+                          .map((id) => companies.find((c) => c.id === id)?.name)
+                          .filter(Boolean)
+                          .join(", ")}
                       </td>
+                      <td className="px-6 py-3 text-right text-sm text-slate-500">-</td>
                     </tr>
-                  ) : (
-                    groups.map((group, idx) => (
-                      <tr key={group.id} className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-3 text-sm text-slate-700">{idx + 1}</td>
-                        <td className="px-6 py-3 font-semibold text-slate-900">{group.name}</td>
-                        <td className="px-6 py-3 text-sm text-slate-700">
-                          {group.companyIds
-                            .map((id) => companies.find((c) => c.id === id)?.name)
-                            .filter(Boolean)
-                            .join(", ")}
-                        </td>
-                        <td className="px-6 py-3 text-right text-sm text-slate-500">-</td>
-                      </tr>
-                    ))
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
           </div>
+          )}
         </div>
       </main>
 
