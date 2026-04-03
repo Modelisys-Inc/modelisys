@@ -65,7 +65,7 @@ export default function DashboardPage() {
         <div className="absolute inset-0">
           <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
             <div className="bg-[#2A2F3A]" />
-            <div className="bg-[#1F2430]" />
+            <div className="bg-[#2A2F3A]" />
           </div>
           <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
           <div className="pointer-events-none absolute inset-0">

@@ -2,6 +2,8 @@
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+/* v4 wraps hover: in @media (hover: hover); Chromium/Windows can fail that check — restore plain :hover (tailwindlabs/tailwindcss#17466). */
+@custom-variant hover (&:hover);
 
 :root {
   --background: oklch(1 0 0);

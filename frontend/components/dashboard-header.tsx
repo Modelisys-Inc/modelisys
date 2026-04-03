@@ -8,6 +8,11 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useUser } from "@/hooks/use-user"
 import { useCompanies } from "@/hooks/use-companies"
 import { logout } from "@/lib/api"
+import {
+  isFinancialStatementPath,
+  useFinancialStatementReferenceDate,
+} from "@/hooks/use-financial-statement-reference-date"
+import { FinancialStatementReferenceControls } from "@/components/financial-statement-reference-controls"
 
 interface DashboardHeaderProps {
   title?: string
@@ -67,55 +72,71 @@ export function DashboardHeader({ title = "Gestion Comptable", description }: Da
     }
   })
 
+  const showFsRefInHeader = !isPortalHeader && isFinancialStatementPath(pathname)
+  const fsRefDate = useFinancialStatementReferenceDate()
+
   return (
     <header className="w-full border-b border-white/10 bg-[#2A2F3A]/92 backdrop-blur-md shadow-md">
-      <div className="w-full px-6 py-0.5 border-b border-white/10">
-        <div className="flex items-center justify-end gap-2">
-          {!isPortalHeader && (
-            <Link
-              href={selectedCompanyId ? `/dashboard?companyId=${selectedCompanyId}` : "/dashboard"}
-              className="text-sm font-semibold tracking-tight text-[#E6D6C3] hover:text-white transition-colors leading-none"
-            >
-              modelisys<span className="text-[#E0742D]">.</span>
-            </Link>
-          )}
-          {!isPortalHeader && (
-            <span
-              className="h-5 w-px shrink-0 bg-gradient-to-b from-[#E0742D]/80 via-white/15 to-transparent"
-              aria-hidden
+      <div className="w-full border-b border-white/10 px-6 py-0.5">
+        <div
+          className={`flex min-h-0 items-center gap-2 ${showFsRefInHeader ? "justify-between" : "justify-end"}`}
+        >
+          {showFsRefInHeader && (
+            <FinancialStatementReferenceControls
+              variant="header"
+              selectedMonth={fsRefDate.selectedMonth}
+              selectedYear={fsRefDate.selectedYear}
+              onMonthChange={fsRefDate.setSelectedMonth}
+              onYearChange={fsRefDate.setSelectedYear}
             />
           )}
-          {!isPortalHeader && !selectedCompanyId && (
-            <>
+          <div className="flex shrink-0 items-center justify-end gap-2">
+            {!isPortalHeader && (
               <Link
-                href="/resources"
-                className="p-2 rounded-md hover:bg-white/5 transition-colors"
-                aria-label="Ressources"
+                href={selectedCompanyId ? `/dashboard?companyId=${selectedCompanyId}` : "/dashboard"}
+                className="text-sm font-semibold leading-none tracking-tight text-[#E6D6C3] transition-colors hover:text-white"
               >
-                <Book className="w-5 h-5 text-[#C9B8A5]/90 hover:text-[#E6D6C3]" />
+                modelisys<span className="text-[#E0742D]">.</span>
               </Link>
-              <Link
-                href="/settings"
-                className="p-2 rounded-md hover:bg-white/5 transition-colors"
-                aria-label="Paramètres"
-              >
-                <Settings className="w-5 h-5 text-[#C9B8A5]/90 hover:text-[#E6D6C3]" />
-              </Link>
-            </>
-          )}
-          <span className="text-xs font-medium text-[#E6D6C3]/90">{userName}</span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="w-7 h-7 rounded-md hover:bg-white/5 text-[#C9B8A5]/90 group"
-            onClick={() => {
-              logout()
-              router.push("/login")
-            }}
-            aria-label="Déconnexion"
-          >
-            <LogOut className="w-5 h-5 group-hover:text-[#E0742D]" />
-          </Button>
+            )}
+            {!isPortalHeader && (
+              <span
+                className="h-5 w-px shrink-0 bg-gradient-to-b from-[#E0742D]/80 via-white/15 to-transparent"
+                aria-hidden
+              />
+            )}
+            {!isPortalHeader && !selectedCompanyId && (
+              <>
+                <Link
+                  href="/resources"
+                  className="rounded-md p-2 transition-colors hover:bg-white/5"
+                  aria-label="Ressources"
+                >
+                  <Book className="h-5 w-5 text-[#C9B8A5]/90 hover:text-[#E6D6C3]" />
+                </Link>
+                <Link
+                  href="/settings"
+                  className="rounded-md p-2 transition-colors hover:bg-white/5"
+                  aria-label="Paramètres"
+                >
+                  <Settings className="h-5 w-5 text-[#C9B8A5]/90 hover:text-[#E6D6C3]" />
+                </Link>
+              </>
+            )}
+            <span className="text-xs font-medium text-[#E6D6C3]/90">{userName}</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="group h-7 w-7 rounded-md text-[#C9B8A5]/90 hover:bg-white/5"
+              onClick={() => {
+                logout()
+                router.push("/login")
+              }}
+              aria-label="Déconnexion"
+            >
+              <LogOut className="h-5 w-5 group-hover:text-[#E0742D]" />
+            </Button>
+          </div>
         </div>
       </div>
 

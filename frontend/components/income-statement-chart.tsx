@@ -36,6 +36,11 @@ interface IncomeStatementChartProps {
 
 type ChartViewType = "revenue_ebita_margin" | "cogs_grossprofit_margin"
 
+/** Aligné sur les cartes « Accès rapide » du tableau de bord */
+const dashboardStyleCard =
+  "relative z-10 overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 transition-all duration-500 ease-out hover:shadow-xl hover:shadow-slate-900/[0.07]"
+const dashboardStyleCardAccent = "pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]"
+
 export function IncomeStatementChart({
   period,
   view,
@@ -130,8 +135,9 @@ export function IncomeStatementChart({
   // Loading state
   if (effectiveLoading) {
     return (
-      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      <div className={`mb-6 flex h-64 items-center justify-center ${dashboardStyleCard}`}>
+        <div className={dashboardStyleCardAccent} aria-hidden />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#E0742D]" />
       </div>
     )
   }
@@ -139,8 +145,9 @@ export function IncomeStatementChart({
   // Empty state
   if (!effectiveChartData || effectiveChartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
-        <p className="text-slate-400">Aucune donnée disponible</p>
+      <div className={`mb-6 flex h-64 items-center justify-center ${dashboardStyleCard}`}>
+        <div className={dashboardStyleCardAccent} aria-hidden />
+        <p className="relative text-sm text-[#5C5F66]">Aucune donnée disponible</p>
       </div>
     )
   }
@@ -236,42 +243,45 @@ export function IncomeStatementChart({
   }
 
   return (
-    <div className="bg-gradient-to-br from-white to-slate-50/50 rounded-2xl border border-slate-200/80 shadow-lg mb-6 overflow-hidden relative z-10">
+    <div className={`group mb-6 ${dashboardStyleCard}`}>
+      <div className={dashboardStyleCardAccent} aria-hidden />
       {/* Header Section */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
+      <div className="relative border-b border-slate-200 bg-white/90 px-6 py-5 sm:px-7">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 flex-1 items-center gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-slate-100">
+              <TrendingUp className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1">
               <Select value={selectedChartView} onValueChange={(value) => setSelectedChartView(value as ChartViewType)}>
                 <SelectTrigger className="h-auto p-0 border-0 bg-transparent hover:bg-transparent focus:ring-0 focus:ring-offset-0 w-auto inline-flex items-center gap-2 mb-1 [&>svg:last-child]:hidden">
-                  <h3 className="text-xl font-semibold text-slate-900 tracking-tight">{getBaseTitle()}</h3>
-                  <ChevronDown className="w-4 h-4 text-slate-500" />
+                  <h3 className="text-xl font-semibold leading-tight tracking-tight text-[#2A2F3A] text-balance">{getBaseTitle()}</h3>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="revenue_ebita_margin">Revenus, BAIIA et Marge brute</SelectItem>
                   <SelectItem value="cogs_grossprofit_margin">CMV, Bénéfice Brut et Marge brute</SelectItem>
                 </SelectContent>
               </Select>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                <span className="font-medium">{getHorizonText()}</span>
-                <span className="text-slate-400">•</span>
+              <div className="flex flex-wrap items-center gap-3 text-sm text-[#5C5F66]">
+                <span className="font-medium text-slate-700">{getHorizonText()}</span>
+                <span className="text-slate-300">•</span>
                 {subDivisionId && divisionId && companyId ? (
                   <>
                     <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">•</span>
+                    <span className="text-slate-300">•</span>
                     <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
+                    <span className="text-slate-300">•</span>
+                    <span className="font-semibold text-[#2A2F3A]">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
                   </>
                 ) : divisionId && companyId ? (
                   <>
                     <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
+                    <span className="text-slate-300">•</span>
+                    <span className="font-semibold text-[#2A2F3A]">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
                   </>
                 ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
+                  <span className="font-semibold text-[#2A2F3A]">{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
                 ) : (
                   <span className="truncate">Toutes les sociétés</span>
                 )}
@@ -323,14 +333,14 @@ export function IncomeStatementChart({
       </div>
 
       {/* Chart Section - Two Column Layout */}
-      <div className="px-8 py-6 bg-white">
+      <div className="relative bg-white px-6 py-6 sm:px-7">
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           {/* Left Panel - Key Metrics */}
           <div className="lg:col-span-1">
             {/* Total Revenue */}
             <div className="pb-3">
-              <div className="text-xs font-medium text-slate-500 mb-1">Revenus totaux</div>
-              <div className="text-xl font-semibold text-slate-900 mb-1.5">
+              <div className="mb-1 text-xs font-medium text-[#5C5F66]">Revenus totaux</div>
+              <div className="mb-1.5 text-xl font-semibold text-[#2A2F3A]">
                 {formatCurrency(effectiveChartData.reduce((sum, d) => sum + (d.revenue || 0), 0))}
               </div>
               {(() => {
@@ -385,8 +395,8 @@ export function IncomeStatementChart({
             
             {/* Gross Margin */}
             <div>
-              <div className="text-xs font-medium text-slate-500 mb-1">Marge brute</div>
-              <div className="text-xl font-semibold text-slate-900 mb-1.5">
+              <div className="mb-1 text-xs font-medium text-[#5C5F66]">Marge brute</div>
+              <div className="mb-1.5 text-xl font-semibold text-[#2A2F3A]">
                 {formatCurrency(
                   (effectiveChartData.reduce((sum, d) => sum + (d.grossProfit || 0), 0) / effectiveChartData.length)
                 )}
