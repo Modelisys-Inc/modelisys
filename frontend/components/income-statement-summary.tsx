@@ -8,6 +8,32 @@ import type { FinancialStatementRow } from "@/lib/api"
 import { getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
+import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
+import {
+  CHARGES_SECTION_LABEL,
+  TOTAL_CHARGES_LABEL,
+  isDefineMappingChecked,
+  isStructureRowEmptyLabel,
+  isStructureRowHidden,
+  normLabel,
+  normalizeAnnexLetter,
+} from "@/lib/income-statement-structure-utils"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
+import { Separator } from "@/components/ui/separator"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { BookMarked, EyeOff, Link2, Loader2, Plus, Settings, Sparkles, Trash2 } from "lucide-react"
+import {
+  dashboardCardAccentBarClass,
+  dashboardCardAccentClass,
+  dashboardCardBodyMutedClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardRingClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 
 interface IncomeStatementSummaryProps {
   period: "monthly" | "quarterly" | "annual"
@@ -25,6 +51,10 @@ interface IncomeStatementSummaryProps {
   fiscalYear?: number
   rows?: FinancialStatementRow[]
   loading?: boolean
+  showIncomeStatementStructureSettings?: boolean
+  /** Synchronise les séries API après sauvegarde de la structure (avec la page parente). */
+  structureVersion?: number
+  onIncomeStatementStructureSaved?: () => void
 }
 
 interface SummaryRow {
@@ -58,7 +88,11 @@ export function IncomeStatementSummary({
   fiscalYear,
   rows: backendRows = [],
   loading = false,
+  showIncomeStatementStructureSettings = false,
+  structureVersion = 0,
+  onIncomeStatementStructureSaved,
 }: IncomeStatementSummaryProps) {
+  const [structureEditMode, setStructureEditMode] = useState(false)
   const isForecastSection = title === "États des résultats pro forma"
 
   // Determine months needed for series API based on view
@@ -74,6 +108,7 @@ export function IncomeStatementSummary({
     divisionId: divisionId || undefined,
     subDivisionId: subDivisionId || undefined,
     enabled: isMultiPeriodView && !isForecastSection,
+    structureVersion,
   })
 
   // Helper function to get comparison label
@@ -184,7 +219,14 @@ export function IncomeStatementSummary({
   const isDivisionComparison = columnMode === "comparison" && companyId && !divisionId
   const isSubDivisionComparison = columnMode === "comparison" && companyId && divisionId && !subDivisionId
   const isComparisonMode = isCompanyComparison || isDivisionComparison || isSubDivisionComparison
-  
+
+  const canInlineStructureEdit =
+    showIncomeStatementStructureSettings && !!companyId && !isComparisonMode
+  const structEdit = useIncomeStatementStructureEdit(
+    companyId ?? null,
+    structureEditMode && canInlineStructureEdit
+  )
+
   // Get entities to compare
   let entitiesToCompare: Array<{ id: string; name: string }> = []
   if (isCompanyComparison) {
@@ -238,6 +280,7 @@ export function IncomeStatementSummary({
           const params: FinancialStatementSeriesParams = {
             fiscal_year: currentYear,
             months: 12,
+            structure_rev: structureVersion > 0 ? structureVersion : undefined,
           }
           let entityCompanyId = companyId || ""
 
@@ -291,7 +334,17 @@ export function IncomeStatementSummary({
 
     fetchEntityData()
     return () => { cancelled = true }
-  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, fiscalYear])
+  }, [
+    isComparisonMode,
+    companies,
+    companyId,
+    divisionId,
+    isCompanyComparison,
+    isDivisionComparison,
+    isSubDivisionComparison,
+    fiscalYear,
+    structureVersion,
+  ])
 
   // Find revenue value for percentage calculations
   const revenueRow = data.find((row) => row.label.toLowerCase() === "revenus")
@@ -433,16 +486,52 @@ export function IncomeStatementSummary({
     return "Courant"
   }
 
+  const trendLen = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
+  const showStructureCols =
+    structureEditMode &&
+    canInlineStructureEdit &&
+    !structEdit.loading &&
+    structEdit.structure.length > 0
+  const tableRowCount = showStructureCols ? structEdit.structure.length : data.length
+
+  const padSummaryRow = (structRow: Record<string, unknown>): SummaryRow => ({
+    label: String(structRow.label ?? ""),
+    current: 0,
+    prior: 0,
+    isBold: false,
+    isSection: false,
+    isResult: false,
+    isNetIncome: false,
+    isEBITA: false,
+    isMargin: false,
+    indent: !!structRow.indent,
+    trendValues: trendLen > 0 ? Array(trendLen).fill(0) : undefined,
+  })
+
+  /** En édition structure, `data[idx]` est décalé après insertion : aligner par libellé (index d’abord). */
+  const summaryRowForStructureIndex = (
+    i: number,
+    structRow: Record<string, unknown>
+  ): SummaryRow => {
+    const sl = normLabel(String(structRow.label ?? ""))
+    const atIdx = data[i]
+    if (atIdx && normLabel(atIdx.label) === sl) return atIdx
+    const found = data.find((r) => normLabel(r.label) === sl)
+    if (found) return found
+    return padSummaryRow(structRow)
+  }
+
   if (loading || (seriesLoading && isMultiPeriodView && !isForecastSection) || entityDataLoading) {
     return (
-      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-        <div className="px-8 py-16 text-center">
+      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+        <div className={dashboardCardRingClass} aria-hidden />
+        <div className="relative px-8 py-16 text-center">
           <div className="animate-pulse space-y-4">
-            <div className="h-4 bg-slate-200 rounded w-1/3 mx-auto"></div>
-            <div className="h-4 bg-slate-200 rounded w-2/3 mx-auto"></div>
-            <div className="h-4 bg-slate-200 rounded w-1/2 mx-auto"></div>
+            <div className="mx-auto h-4 w-1/3 rounded bg-slate-200"></div>
+            <div className="mx-auto h-4 w-2/3 rounded bg-slate-200"></div>
+            <div className="mx-auto h-4 w-1/2 rounded bg-slate-200"></div>
           </div>
-          <p className="text-sm text-slate-500 mt-4">Chargement des données...</p>
+          <p className={cn("mt-4 text-sm", dashboardCardBodyMutedClass)}>Chargement des données...</p>
         </div>
       </div>
     )
@@ -450,61 +539,301 @@ export function IncomeStatementSummary({
 
   if (data.length === 0) {
     return (
-      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-        <div className="px-8 py-16 text-center">
-          <p className="text-sm text-slate-500">Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.</p>
+      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+        <div className={dashboardCardRingClass} aria-hidden />
+        <div className="relative px-8 py-16 text-center">
+          <p className={cn("text-sm", dashboardCardBodyMutedClass)}>
+            Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états
+            financiers.
+          </p>
         </div>
       </div>
     )
   }
 
+  const isStructureStudio = structureEditMode && canInlineStructureEdit
+
   return (
-    <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+    <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+      <div className={dashboardCardRingClass} aria-hidden />
+      <div className="relative">
       {/* Header */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">{title || "Sommaire"}</h2>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                <span className="font-medium">{getHorizonText()}</span>
-                <span className="text-slate-400">•</span>
-                {subDivisionId && divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
-                  </>
-                ) : divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                  </>
-                ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
-                ) : (
-                  <span className="truncate">Toutes les sociétés</span>
+      <div
+        className={cn("border-b px-6 py-5 sm:px-8", dashboardCardHeaderBarClass)}
+      >
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div className={cn("mt-0.5 h-12 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <h2 className={cn("text-xl", dashboardCardTitleClass)}>{title || "Sommaire"}</h2>
+                {isStructureStudio && (
+                  <Badge
+                    variant="secondary"
+                    className="border border-slate-200 bg-slate-100 font-medium text-[#2A2F3A] shadow-none"
+                  >
+                    <Sparkles className="h-3 w-3 text-[#E0742D]" />
+                    Édition structure
+                  </Badge>
                 )}
               </div>
+              {isStructureStudio ? (
+                <p className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
+                  Ajustez les libellés. <span className="font-medium text-[#2A2F3A]">Masquer</span> retire la ligne du
+                  sommaire et du détail (les totaux restent cohérents).{" "}
+                  <span className="font-medium text-[#2A2F3A]">Définir</span> expose la ligne au détail avec liaison et
+                  annexe — désactivé si la ligne est masquée. Enregistrez pour appliquer partout.
+                </p>
+              ) : (
+                <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+                  <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
+                  <span className="text-slate-400">•</span>
+                  {subDivisionId && divisionId && companyId ? (
+                    <>
+                      <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                      <span className="text-slate-400">•</span>
+                      <span>
+                        {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name ||
+                          "Division"}
+                      </span>
+                      <span className="text-slate-400">•</span>
+                      <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                        {companies
+                          .find((c) => c.id === companyId)
+                          ?.divisions.find((d) => d.id === divisionId)
+                          ?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
+                      </span>
+                    </>
+                  ) : divisionId && companyId ? (
+                    <>
+                      <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                      <span className="text-slate-400">•</span>
+                      <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                        {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name ||
+                          "Division"}
+                      </span>
+                    </>
+                  ) : companyId ? (
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                      {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+                    </span>
+                  ) : (
+                    <span className="truncate">Toutes les sociétés</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
+          {canInlineStructureEdit && !structureEditMode && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0 gap-2 border-slate-300 bg-white text-[#2A2F3A] transition-colors hover:border-slate-500 hover:bg-slate-50"
+              onClick={() => setStructureEditMode(true)}
+            >
+              <Settings className="h-4 w-4" />
+              Paramètres
+            </Button>
+          )}
+          {canInlineStructureEdit && structureEditMode && (
+            <div className="flex w-full shrink-0 flex-col gap-3 sm:w-auto sm:items-end">
+              <div className="flex w-full flex-wrap items-center justify-end gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 rounded-xl text-[#2A2F3A] hover:bg-slate-100"
+                  disabled={!structEdit.chargeRange || structEdit.loading}
+                  onClick={() => structEdit.addChargeLine()}
+                >
+                  <Plus className={cn("h-4 w-4", dashboardCardAccentClass)} />
+                  Ajouter une ligne
+                </Button>
+                <Separator orientation="vertical" className="hidden h-7 sm:block" />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-xl text-[#5C5F66] hover:bg-slate-100"
+                  disabled={structEdit.saving}
+                  onClick={() => {
+                    structEdit.discard()
+                    setStructureEditMode(false)
+                  }}
+                >
+                  Annuler
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-xl bg-[#2A2F3A] px-4 font-semibold text-[#E6D6C3] shadow-sm transition hover:bg-[#353b47] disabled:opacity-60"
+                  disabled={structEdit.saving || structEdit.loading || !companyId}
+                  onClick={async () => {
+                    const ok = await structEdit.save()
+                    if (ok) {
+                      onIncomeStatementStructureSaved?.()
+                      structEdit.discard()
+                      setStructureEditMode(false)
+                    }
+                  }}
+                >
+                  {structEdit.saving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Enregistrement…
+                    </>
+                  ) : (
+                    "Enregistrer"
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
+      {structureEditMode && canInlineStructureEdit && structEdit.loading && (
+        <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50/90 px-6 py-3.5 text-sm text-[#2A2F3A] sm:px-8">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+            <Loader2 className={cn("h-4 w-4 animate-spin", dashboardCardAccentClass)} />
+          </div>
+          <span className="font-medium">Chargement de la structure…</span>
+        </div>
+      )}
+      {structureEditMode && canInlineStructureEdit && structEdit.error && (
+        <div className="border-b border-red-200/80 bg-gradient-to-r from-red-50 to-white px-6 py-3 text-sm font-medium text-red-800 sm:px-8">
+          {structEdit.error}
+        </div>
+      )}
+      {structureEditMode &&
+        canInlineStructureEdit &&
+        !structEdit.loading &&
+        structEdit.structure.length > 0 &&
+        !structEdit.chargeRange && (
+          <div className="border-b border-amber-200/90 bg-gradient-to-r from-amber-50 to-amber-50/30 px-6 py-3 text-sm text-amber-950 sm:px-8">
+            Structure inattendue : « {CHARGES_SECTION_LABEL} » ou « {TOTAL_CHARGES_LABEL} » introuvable.
+          </div>
+        )}
+
       {/* Table */}
-      <div className="overflow-x-auto bg-white">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Poste</th>
-              {view === "current" && (
+      <div className={cn("overflow-x-auto", isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white")}>
+        <table
+          className={cn(
+            "w-full",
+            showStructureCols && "table-fixed",
+            isStructureStudio ? "border-separate border-spacing-0" : "border-collapse"
+          )}
+        >
+            {showStructureCols && (
+              <colgroup>
+                <col />
+                <col style={{ width: "7rem" }} />
+                <col style={{ width: "7rem" }} />
+                <col style={{ width: "7rem" }} />
+                <col style={{ width: "7rem" }} />
+                <col style={{ width: "2.75rem" }} />
+              </colgroup>
+            )}
+            <thead>
+              <tr
+                className={cn(
+                  "border-b",
+                  showStructureCols
+                    ? "border-slate-200 bg-gradient-to-r from-slate-50 via-slate-100/40 to-slate-50"
+                    : "border-b-2 border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80"
+                )}
+              >
+                <th
+                  className={cn(
+                    "px-6 py-4 text-left text-sm font-semibold text-slate-900",
+                    !showStructureCols && "w-2/5",
+                    showStructureCols && "min-w-0 pl-4 pr-3"
+                  )}
+                >
+                  {showStructureCols ? (
+                    <span className="flex items-center gap-2">
+                      <span className="rounded-lg bg-white/80 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 ring-1 ring-slate-200/80">
+                        Libellé
+                      </span>
+                      <span className="font-semibold text-slate-800">Poste</span>
+                    </span>
+                  ) : (
+                    "Poste"
+                  )}
+                </th>
+                {showStructureCols && (
+                  <>
+                    <th className="box-border w-[7rem] px-2 py-4 text-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-300/80">
+                              <EyeOff className="h-4 w-4 text-slate-600" />
+                            </span>
+                            <span className="text-[11px] font-semibold leading-tight text-slate-800">
+                              Masquer
+                            </span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[240px] text-balance">
+                          Masque la ligne au sommaire et au détail. Désactive « Définir » pour cette ligne.
+                        </TooltipContent>
+                      </Tooltip>
+                    </th>
+                    <th className="box-border w-[7rem] px-2 py-4 text-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+                              <Sparkles className="h-4 w-4 text-[#E0742D]" />
+                            </span>
+                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Définir</span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[220px] text-balance">
+                          Active la liaison et l’annexe pour cette ligne (visible au détail). Indisponible si la ligne
+                          est masquée.
+                        </TooltipContent>
+                      </Tooltip>
+                    </th>
+                    <th className="box-border w-[7rem] px-2 py-4 text-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                              <Link2 className="h-4 w-4 text-slate-600" />
+                            </span>
+                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Liaison</span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[220px] text-balance">
+                          Code rattaché au poste lorsque « Définir » est coché.
+                        </TooltipContent>
+                      </Tooltip>
+                    </th>
+                    <th className="box-border w-[7rem] px-2 py-4 text-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                              <BookMarked className="h-4 w-4 text-slate-600" />
+                            </span>
+                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Annexe</span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[220px] text-balance">
+                          Lettre d’annexe (ex. A, B) pour le détail et les exports.
+                        </TooltipContent>
+                      </Tooltip>
+                    </th>
+                    <th className="box-border w-11 px-0 py-4" aria-label="Actions" />
+                  </>
+                )}
+              {!showStructureCols && view === "current" && (
                 <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Montant</th>
               )}
-              {view === "comparison" && !isComparisonMode && (
+              {!showStructureCols && view === "comparison" && !isComparisonMode && (
                 <>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
@@ -521,7 +850,7 @@ export function IncomeStatementSummary({
                   ) : null}
                 </>
               )}
-              {view === "comparison" && isComparisonMode && (
+              {!showStructureCols && view === "comparison" && isComparisonMode && (
                 <>
                   {entitiesToCompare.map((entity) => (
                     <th key={entity.id} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">
@@ -530,7 +859,7 @@ export function IncomeStatementSummary({
                   ))}
                 </>
               )}
-              {view === "ddm" && !isComparisonMode && (
+              {!showStructureCols && view === "ddm" && !isComparisonMode && (
                 <>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
@@ -547,7 +876,7 @@ export function IncomeStatementSummary({
                   ) : null}
                 </>
               )}
-              {view === "ddm" && isComparisonMode && (
+              {!showStructureCols && view === "ddm" && isComparisonMode && (
                 <>
                   {entitiesToCompare.map((entity) => (
                     <th key={entity.id} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">
@@ -556,7 +885,7 @@ export function IncomeStatementSummary({
                   ))}
                 </>
               )}
-              {view === "ytd" && !isComparisonMode && (
+              {!showStructureCols && view === "ytd" && !isComparisonMode && (
                 <>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD {fiscalYear}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD {(fiscalYear ?? new Date().getFullYear()) - 1}</th>
@@ -573,7 +902,7 @@ export function IncomeStatementSummary({
                   ) : null}
                 </>
               )}
-              {view === "ytd" && isComparisonMode && (
+              {!showStructureCols && view === "ytd" && isComparisonMode && (
                 <>
                   {entitiesToCompare.map((entity) => (
                     <th key={entity.id} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">
@@ -582,7 +911,7 @@ export function IncomeStatementSummary({
                   ))}
                 </>
               )}
-              {view === "12months" && (
+              {!showStructureCols && view === "12months" && (
                 <>
                   {getMonthLabels().map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
@@ -591,7 +920,7 @@ export function IncomeStatementSummary({
                   ))}
                 </>
               )}
-              {view === "24months" && (
+              {!showStructureCols && view === "24months" && (
                 <>
                   {getMonthLabels(24).map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
@@ -600,7 +929,7 @@ export function IncomeStatementSummary({
                   ))}
                 </>
               )}
-              {view === "quarters" && (
+              {!showStructureCols && view === "quarters" && (
                 <>
                   {getQuarterLabels().map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
@@ -609,7 +938,7 @@ export function IncomeStatementSummary({
                   ))}
                 </>
               )}
-              {view === "years" && (
+              {!showStructureCols && view === "years" && (
                 <>
                   {getYearLabels().map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
@@ -621,7 +950,11 @@ export function IncomeStatementSummary({
             </tr>
           </thead>
           <tbody>
-            {data.map((row, idx) => {
+            {Array.from({ length: tableRowCount }, (_, idx) => {
+              const structRow = showStructureCols ? structEdit.structure[idx]! : null
+              const row = showStructureCols
+                ? summaryRowForStructureIndex(idx, structRow!)
+                : data[idx]!
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const isBoldRow = shouldBeBold(row.label, row)
@@ -632,27 +965,210 @@ export function IncomeStatementSummary({
               const shouldHideAmounts =
                 isSpacer || (!isSectionException && !!row.isSection) || row.label.toLowerCase() === "charges d'exploitation"
               
-              // Check if next row is a key result line (Bénéfice brut, Total des charges, Bénéfice net)
-              // But NOT "Bénéfice avant impôts"
-              const nextRow = idx < data.length - 1 ? data[idx + 1] : null
+              // Ligne suivante pour styles (montants / isResult) : aligner sur la structure en édition
+              const nextRow =
+                idx < tableRowCount - 1
+                  ? showStructureCols
+                    ? summaryRowForStructureIndex(idx + 1, structEdit.structure[idx + 1]!)
+                    : data[idx + 1]!
+                  : null
               const nextRowLabel = nextRow?.label?.toLowerCase() || ""
-              const nextRowIsKeyResult = nextRow && (
-                (nextRow.isResult && nextRowLabel !== "bénéfice avant impôts") || 
-                nextRow.isNetIncome || 
-                nextRowLabel === "total des charges"
-              )
+              // Séparation épaisse avant « Total des charges » : libellé suivant selon la structure en
+              // paramètres (sinon data[idx+1] est décalé tant que l’API n’a pas refetch).
+              const nextLabelForTotalCharges =
+                idx < tableRowCount - 1
+                  ? normLabel(
+                      showStructureCols
+                        ? String(structEdit.structure[idx + 1]?.label ?? "")
+                        : String(data[idx + 1]?.label ?? "")
+                    )
+                  : ""
+              const separatesChargesFromTotal =
+                nextLabelForTotalCharges === normLabel(TOTAL_CHARGES_LABEL)
+              const nextRowIsKeyResult =
+                separatesChargesFromTotal ||
+                (nextRow &&
+                  ((nextRow.isResult && nextRowLabel !== "bénéfice avant impôts") ||
+                    nextRow.isNetIncome))
 
               return (
-                <tr key={idx} className={cn(
-                  "border-b",
-                  row.label === "" ? "h-2 border-slate-200" : "",
-                  nextRowIsKeyResult ? "border-slate-900 border-b-2" : "border-slate-200"
-                )}>
-                  <td className={`px-6 py-3 ${isBoldRow ? "font-bold text-slate-900" : "text-slate-700"} ${row.indent ? "pl-12" : ""} ${row.isMargin ? "italic" : ""}`}>
-                    {displayLabel}
+                <tr
+                  key={idx}
+                  className={cn(
+                    "border-b transition-colors duration-150",
+                    row.label === "" ? "h-2 border-slate-200" : "",
+                    nextRowIsKeyResult
+                      ? "border-slate-900 border-b-2"
+                      : showStructureCols
+                        ? "border-slate-200/80"
+                        : "border-slate-200",
+                    showStructureCols && row.label !== "" && "hover:bg-slate-100/70",
+                    showStructureCols && idx % 2 === 1 && row.label !== "" && "bg-slate-50/50",
+                    !showStructureCols && row.label !== "" && "hover:bg-slate-50/90"
+                  )}
+                >
+                  <td
+                    className={cn(
+                      "min-w-0 py-3 align-middle",
+                      showStructureCols ? "px-3 pl-4" : "px-6",
+                      isBoldRow ? "font-bold text-slate-900" : "text-slate-700",
+                      row.indent ? "pl-12" : "",
+                      row.isMargin ? "italic" : "",
+                      showStructureCols && structRow && row.label !== "" && "py-3.5"
+                    )}
+                  >
+                    {showStructureCols && structRow ? (
+                      String(structRow.label ?? "").trim() === "" ? (
+                        <span className="inline-flex items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-xs font-medium text-slate-400">
+                          Ligne vide — renommez ou supprimez
+                        </span>
+                      ) : (
+                        <Input
+                          value={String(structRow.label ?? "")}
+                          onChange={(e) => structEdit.updateRow(idx, { label: e.target.value })}
+                          className={cn(
+                            "h-9 w-full max-w-full rounded-xl border-slate-200/90 bg-white text-sm shadow-sm transition-shadow focus-visible:border-[#E0742D]/50 focus-visible:ring-2 focus-visible:ring-[#E0742D]/20",
+                            isBoldRow ? "font-semibold" : "font-normal"
+                          )}
+                        />
+                      )
+                    ) : (
+                      displayLabel
+                    )}
                   </td>
+                  {showStructureCols && structRow && (
+                    <>
+                      <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+                        {isStructureRowEmptyLabel(structRow) ? (
+                          <span className="text-sm text-slate-300">—</span>
+                        ) : (
+                          <div className="flex justify-center">
+                            <label
+                              className={cn(
+                                "flex cursor-pointer items-center justify-center rounded-xl p-1.5 transition-colors",
+                                isStructureRowHidden(structRow)
+                                  ? "bg-slate-200/80 ring-2 ring-slate-400/35"
+                                  : "bg-slate-100/60 hover:bg-slate-200/60"
+                              )}
+                            >
+                              <Checkbox
+                                checked={isStructureRowHidden(structRow)}
+                                onCheckedChange={(v) => {
+                                  if (v === true) {
+                                    structEdit.updateRow(idx, {
+                                      hidden: true,
+                                      defineMapping: false,
+                                      linkCode: undefined,
+                                      annexLetter: undefined,
+                                    })
+                                  } else {
+                                    structEdit.updateRow(idx, { hidden: false })
+                                  }
+                                }}
+                                aria-label="Masquer la ligne au sommaire"
+                                className="border-slate-300 data-[state=checked]:border-slate-700 data-[state=checked]:bg-slate-700"
+                              />
+                            </label>
+                          </div>
+                        )}
+                      </td>
+                      <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+                        {isStructureRowEmptyLabel(structRow) ? (
+                          <span className="text-sm text-slate-300">—</span>
+                        ) : (
+                          <div className="flex justify-center">
+                            <label
+                              className={cn(
+                                "flex items-center justify-center rounded-xl p-1.5 transition-colors",
+                                isStructureRowHidden(structRow)
+                                  ? "cursor-not-allowed opacity-40"
+                                  : "cursor-pointer",
+                                !isStructureRowHidden(structRow) &&
+                                  isDefineMappingChecked(structRow) &&
+                                  "bg-orange-50/90 ring-2 ring-[#E0742D]/35",
+                                !isStructureRowHidden(structRow) &&
+                                  !isDefineMappingChecked(structRow) &&
+                                  "bg-slate-100/60 hover:bg-slate-200/60"
+                              )}
+                            >
+                              <Checkbox
+                                checked={isDefineMappingChecked(structRow)}
+                                disabled={isStructureRowHidden(structRow)}
+                                onCheckedChange={(v) => {
+                                  if (isStructureRowHidden(structRow)) return
+                                  if (v === true) {
+                                    structEdit.updateRow(idx, { defineMapping: true })
+                                  } else {
+                                    structEdit.updateRow(idx, {
+                                      defineMapping: false,
+                                      linkCode: undefined,
+                                      annexLetter: undefined,
+                                    })
+                                  }
+                                }}
+                                aria-label="Définir code de liaison et annexe"
+                                className="border-slate-300 data-[state=checked]:border-[#E0742D] data-[state=checked]:bg-[#E0742D]"
+                              />
+                            </label>
+                          </div>
+                        )}
+                      </td>
+                      <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
+                        {isDefineMappingChecked(structRow) && !isStructureRowHidden(structRow) ? (
+                          <Input
+                            value={String(structRow.linkCode ?? "")}
+                            onChange={(e) =>
+                              structEdit.updateRow(idx, { linkCode: e.target.value || undefined })
+                            }
+                            placeholder="REV"
+                            className="h-9 w-full min-w-0 rounded-xl border-slate-200/90 bg-white px-2 font-mono text-xs shadow-sm focus-visible:border-[#E0742D]/50 focus-visible:ring-2 focus-visible:ring-[#E0742D]/20"
+                          />
+                        ) : (
+                          <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
+                        {isDefineMappingChecked(structRow) && !isStructureRowHidden(structRow) ? (
+                          <Input
+                            value={String(structRow.annexLetter ?? "")}
+                            onChange={(e) =>
+                              structEdit.updateRow(idx, {
+                                annexLetter: normalizeAnnexLetter(e.target.value) || undefined,
+                              })
+                            }
+                            placeholder="A"
+                            className="h-9 w-full min-w-0 rounded-xl border-slate-200/90 bg-white px-2 text-center text-xs font-bold uppercase tracking-widest shadow-sm focus-visible:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-500/25"
+                            maxLength={8}
+                          />
+                        ) : (
+                          <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
+                            —
+                          </span>
+                        )}
+                      </td>
+                      <td className="box-border w-11 px-0 py-2.5 align-middle">
+                        {structEdit.chargeRange &&
+                        idx >= structEdit.chargeRange.start &&
+                        idx < structEdit.chargeRange.end &&
+                        structEdit.chargeRange.end - structEdit.chargeRange.start > 1 ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 rounded-xl text-red-500 opacity-70 transition hover:bg-red-50 hover:text-red-600 hover:opacity-100"
+                            title="Supprimer la ligne"
+                            onClick={() => structEdit.removeChargeLine(idx)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                      </td>
+                    </>
+                  )}
 
-                  {view === "current" && (
+                  {!showStructureCols && view === "current" && (
                     <td className={`px-6 py-3 text-right ${row.isMargin ? "italic" : (isBoldRow ? "font-semibold font-bold" : "text-slate-500")} ${shouldHideAmounts ? "text-white" : ""}`}>
                       {row.isMargin 
                         ? (row.current !== 0 ? `${row.current.toFixed(1)}%` : "-")
@@ -661,7 +1177,7 @@ export function IncomeStatementSummary({
                     </td>
                   )}
 
-                  {view === "comparison" && !isComparisonMode && (
+                  {!showStructureCols && view === "comparison" && !isComparisonMode && (
                     <>
                       <td className={`px-6 py-3 text-right ${row.isMargin ? "italic" : (isBoldRow ? "font-semibold font-bold" : "text-slate-500")} ${shouldHideAmounts ? "text-white" : ""}`}>
                         {row.isMargin 
@@ -708,7 +1224,7 @@ export function IncomeStatementSummary({
                       ) : null}
                     </>
                   )}
-                  {view === "comparison" && isComparisonMode && (
+                  {!showStructureCols && view === "comparison" && isComparisonMode && (
                     <>
                       {entitiesToCompare.map((entity) => {
                         const entityRows = entityDataMap[entity.id] || []
@@ -724,7 +1240,7 @@ export function IncomeStatementSummary({
                       })}
                     </>
                   )}
-                  {view === "ddm" && !isComparisonMode && (
+                  {!showStructureCols && view === "ddm" && !isComparisonMode && (
                     <>
                       <td className={`px-6 py-3 text-right ${row.isMargin ? "italic" : (isBoldRow ? "font-semibold font-bold" : "text-slate-500")} ${shouldHideAmounts ? "text-white" : ""}`}>
                         {row.isMargin 
@@ -771,7 +1287,7 @@ export function IncomeStatementSummary({
                       ) : null}
                     </>
                   )}
-                  {view === "ddm" && isComparisonMode && (
+                  {!showStructureCols && view === "ddm" && isComparisonMode && (
                     <>
                       {entitiesToCompare.map((entity) => {
                         const entityRows = entityDataMap[entity.id] || []
@@ -788,7 +1304,7 @@ export function IncomeStatementSummary({
                     </>
                   )}
 
-                  {view === "ytd" && !isComparisonMode && (
+                  {!showStructureCols && view === "ytd" && !isComparisonMode && (
                     <>
                       <td className={`px-6 py-3 text-right ${row.isMargin ? "italic" : (isBoldRow ? "font-semibold font-bold" : "text-slate-500")} ${shouldHideAmounts ? "text-white" : ""}`}>
                         {row.isMargin 
@@ -835,7 +1351,7 @@ export function IncomeStatementSummary({
                       ) : null}
                     </>
                   )}
-                  {view === "ytd" && isComparisonMode && (
+                  {!showStructureCols && view === "ytd" && isComparisonMode && (
                     <>
                       {entitiesToCompare.map((entity) => {
                         const entityRows = entityDataMap[entity.id] || []
@@ -853,7 +1369,7 @@ export function IncomeStatementSummary({
                   )}
 
                   {/* Trend Views - 12 months, quarters, years */}
-                  {view === "12months" && row.trendValues && (
+                  {!showStructureCols && view === "12months" && row.trendValues && (
                     <>
                       {row.trendValues.map((value, valueIdx) => (
                         <td
@@ -868,7 +1384,7 @@ export function IncomeStatementSummary({
                       ))}
                     </>
                   )}
-                  {view === "quarters" && row.trendValues && (
+                  {!showStructureCols && view === "quarters" && row.trendValues && (
                     <>
                       {row.trendValues.map((value, valueIdx) => (
                         <td
@@ -883,7 +1399,7 @@ export function IncomeStatementSummary({
                       ))}
                     </>
                   )}
-                  {view === "years" && row.trendValues && (
+                  {!showStructureCols && view === "years" && row.trendValues && (
                     <>
                       {row.trendValues.map((value, valueIdx) => (
                         <td
@@ -919,7 +1435,9 @@ export function IncomeStatementSummary({
                     </>
                   )}
                   {/* Empty cells for spacer rows in trend views */}
-                  {(view === "12months" || view === "24months" || view === "quarters" || view === "years") && !row.trendValues && (
+                  {!showStructureCols &&
+                    (view === "12months" || view === "24months" || view === "quarters" || view === "years") &&
+                    !row.trendValues && (
                     <>
                       {Array.from({ length: view === "12months" ? 12 : view === "24months" ? 24 : view === "quarters" ? 5 : (isForecastSection && view === "years" ? projectionYears + 1 : 6) }).map((_, idx) => (
                         <td 
@@ -942,8 +1460,11 @@ export function IncomeStatementSummary({
       </div>
 
       {/* Footer note */}
-      <div className="bg-slate-50 px-8 py-4 border-t border-slate-200">
-        <p className="text-xs text-slate-600">Note: BAIIA = Bénéfice avant intérêts, impôts et amortissement</p>
+      <div className="border-t border-slate-200 bg-slate-50/80 px-8 py-4">
+        <p className={cn("text-xs", dashboardCardBodyMutedClass)}>
+          Note: BAIIA = Bénéfice avant intérêts, impôts et amortissement
+        </p>
+      </div>
       </div>
     </div>
   )

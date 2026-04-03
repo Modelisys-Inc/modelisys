@@ -46,6 +46,11 @@ export default function IncomeStatementPage() {
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
+  /**
+   * Incrémenté après sauvegarde de la structure (Paramètres) pour relancer le fetch.
+   * Déclaré ici avec les autres useState pour éviter « Cannot access before initialization ».
+   */
+  const [structureVersion, setStructureVersion] = useState(0)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const companyIdFromUrl = searchParams.get("companyId")
@@ -142,7 +147,10 @@ export default function IncomeStatementPage() {
           sub_division_id: selectedSubDivisionId || undefined,
         }
 
-        const response = await getIncomeStatement(companyId, params)
+        const response = await getIncomeStatement(companyId, {
+          ...params,
+          structure_rev: structureVersion,
+        })
         setRows(response.rows)
       } catch (err) {
         console.error("Error fetching income statement data:", err)
@@ -152,7 +160,7 @@ export default function IncomeStatementPage() {
       }
     }
     fetchData()
-  }, [lockedCompanyId, selectedCompanyId, selectedYear, selectedMonth, period, view, comparisonType, selectedBudgetId, selectedDivisionId, selectedSubDivisionId])
+  }, [lockedCompanyId, selectedCompanyId, selectedYear, selectedMonth, period, view, comparisonType, selectedBudgetId, selectedDivisionId, selectedSubDivisionId, structureVersion])
 
   // --- Compute top 3 variations from fetched rows ---
   const topVariations = useMemo(() => {
@@ -488,6 +496,7 @@ export default function IncomeStatementPage() {
             selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
             selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
             fiscalYear={selectedYear}
+            structureVersion={structureVersion}
           />
         </div>
       </main>
@@ -583,6 +592,9 @@ export default function IncomeStatementPage() {
               fiscalYear={selectedYear}
               rows={rows}
               loading={loading}
+              showIncomeStatementStructureSettings
+              structureVersion={structureVersion}
+              onIncomeStatementStructureSaved={() => setStructureVersion((v) => v + 1)}
             />
           ) : (
             <IncomeStatementDetail
@@ -599,6 +611,7 @@ export default function IncomeStatementPage() {
               fiscalYear={selectedYear}
               rows={rows}
               loading={loading}
+              structureVersion={structureVersion}
             />
           )}
         </div>

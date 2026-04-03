@@ -3,13 +3,35 @@
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
-import type { FinancialStatementRow } from "@/lib/api"
+import type { FinancialStatementRow, SeriesRow } from "@/lib/api"
 import { generateId } from "@/lib/seeded-random"
 import { ChevronRight, ChevronDown, StickyNote, TrendingUp } from "lucide-react"
-import { useState, useEffect, useRef, useCallback } from "react"
-import { listForecastConfigs, upsertForecastConfig, getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
+import { useState, useEffect, useRef, useCallback, Fragment } from "react"
+import {
+  listForecastConfigs,
+  upsertForecastConfig,
+  getFinancialStatementSeries,
+  getStatementStructure,
+  type FinancialStatementSeriesParams,
+} from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
+import {
+  compareAnnexLetters,
+  findStructureRowForStatementLine,
+  formatDetailLabelWithAnnex,
+  isDefineMappingChecked,
+  normLabel,
+} from "@/lib/income-statement-structure-utils"
+import {
+  dashboardCardAccentBarClass,
+  dashboardCardAccentClass,
+  dashboardCardBodyMutedClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardRingClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
@@ -37,6 +59,7 @@ interface IncomeStatementDetailProps {
   rows?: FinancialStatementRow[]
   loading?: boolean
   projectionId?: string | null
+  structureVersion?: number
 }
 
 interface BalanceAccount {
@@ -56,6 +79,7 @@ interface DetailRow {
   isBold?: boolean
   isSubtotal?: boolean
   isSection?: boolean
+  isAnnexHeader?: boolean
   // For trend views (12months, quarters, years)
   trendValues?: number[]
   // Balance accounts for this row
@@ -81,6 +105,7 @@ export function IncomeStatementDetail({
   rows: backendRows = [],
   loading = false,
   projectionId,
+  structureVersion = 0,
 }: IncomeStatementDetailProps) {
   useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -205,7 +230,31 @@ export function IncomeStatementDetail({
     divisionId: divisionId || undefined,
     subDivisionId: subDivisionId || undefined,
     enabled: isMultiPeriodView,
+    structureVersion,
   })
+
+  const [incomeStatementStructure, setIncomeStatementStructure] = useState<Record<
+    string,
+    unknown
+  >[] | null>(null)
+
+  useEffect(() => {
+    if (!companyId || isForecastSection) {
+      setIncomeStatementStructure(null)
+      return
+    }
+    let cancelled = false
+    getStatementStructure(companyId, "income-statement")
+      .then((d) => {
+        if (!cancelled) setIncomeStatementStructure(d.structure ?? [])
+      })
+      .catch(() => {
+        if (!cancelled) setIncomeStatementStructure([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, isForecastSection, structureVersion])
 
   // Debounced save to API
   const saveConfigRef = useRef<NodeJS.Timeout>()
@@ -709,66 +758,60 @@ export function IncomeStatementDetail({
     })
   }
 
-  // Map backend FinancialStatementRow[] to internal DetailRow[] (for current/comparison views)
-  const mapBackendRows = (apiRows: FinancialStatementRow[]): DetailRow[] => {
-    const result: DetailRow[] = []
-    const slugify = (label: string) => label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-
-    for (const row of apiRows) {
-      // Push the section/result header row
-      result.push({
-        label: row.label,
-        current: row.isSection ? 0 : (row.current ?? 0),
-        prior: row.isSection ? 0 : (row.prior ?? 0),
-        indent: false,
-        isBold: row.isBold || row.isResult,
-        isSubtotal: row.isResult,
-        isSection: row.isSection,
-      })
-
-      // Flatten children as indented rows
-      if (row.detailRows && row.detailRows.length > 0) {
-        for (const dr of row.detailRows) {
-          result.push({
-            label: dr.label,
-            current: dr.current ?? 0,
-            prior: dr.prior ?? 0,
-            indent: true,
-            rowId: slugify(dr.label),
-          })
-        }
-        // Add subtotal for section rows
-        if (row.isSection) {
-          result.push({
-            label: `Total ${row.label}`,
-            current: row.current ?? 0,
-            prior: row.prior ?? 0,
-            isBold: true,
-            isSubtotal: true,
-          })
-          // Add spacer row
-          result.push({ label: "", current: 0, prior: 0 })
-        }
-      }
-    }
-    return result
+  /** Détail : uniquement les postes « Définir » cochés en paramètres ; annexe + libellé sur une ligne. */
+  const mapBackendRowsDefinedOnly = (
+    apiRows: FinancialStatementRow[],
+    structure: Record<string, unknown>[]
+  ): DetailRow[] => {
+    const defined = apiRows.filter((row) => {
+      const sr = findStructureRowForStatementLine(row.id, row.label, structure)
+      return sr !== undefined && isDefineMappingChecked(sr)
+    })
+    const sorted = [...defined].sort((a, b) => {
+      const c = compareAnnexLetters(a.annexLetter, b.annexLetter)
+      if (c !== 0) return c
+      return normLabel(a.label).localeCompare(normLabel(b.label), "fr")
+    })
+    return sorted.map((row) => ({
+      label: formatDetailLabelWithAnnex(row.label, row.annexLetter),
+      current: row.current ?? 0,
+      prior: row.prior ?? 0,
+      indent: false,
+      isBold: true,
+      isSubtotal: row.isResult,
+      isSection: false,
+      rowId: row.id,
+    }))
   }
+
+  const filterSeriesRowsDefinedOnly = useCallback((rows: SeriesRow[], structure: Record<string, unknown>[]) => {
+    const defined = rows.filter((row) => {
+      const sr = findStructureRowForStatementLine(row.id, row.label, structure)
+      return sr !== undefined && isDefineMappingChecked(sr)
+    })
+    return [...defined].sort((a, b) => {
+      const c = compareAnnexLetters(a.annexLetter, b.annexLetter)
+      if (c !== 0) return c
+      return normLabel(a.label).localeCompare(normLabel(b.label), "fr")
+    })
+  }, [])
 
   // Convert series API data to DetailRow[] for monthly views (12months)
   const getSeriesDetailRows = (): DetailRow[] => {
-    if (!seriesRows.length || !seriesPeriods.length) return []
-    return seriesRows.map((row) => {
+    if (!seriesRows.length || !seriesPeriods.length || !incomeStatementStructure) return []
+    const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
+    return sorted.map((row) => {
       const amounts = getRowAmounts(row, seriesPeriods)
       const lastAmount = amounts[amounts.length - 1] || 0
       const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
       return {
-        label: row.label,
+        label: formatDetailLabelWithAnnex(row.label, row.annexLetter),
         current: lastAmount,
         prior: priorAmount,
-        isBold: row.isBold || row.isResult,
-        isSection: row.isSection,
+        isBold: true,
+        isSection: false,
         isSubtotal: row.isResult,
-        indent: !row.isBold && !row.isSection && !row.isResult,
+        indent: false,
         trendValues: amounts,
         rowId: row.id,
       }
@@ -777,20 +820,21 @@ export function IncomeStatementDetail({
 
   // Convert series API data to DetailRow[] for quarterly views
   const getSeriesQuarterRows = (): DetailRow[] => {
-    if (!seriesRows.length || !seriesPeriods.length) return []
-    return seriesRows.map((row) => {
+    if (!seriesRows.length || !seriesPeriods.length || !incomeStatementStructure) return []
+    const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
+    return sorted.map((row) => {
       const amounts = getRowAmounts(row, seriesPeriods)
       const { amounts: qAmounts } = aggregateToQuarters(amounts, seriesPeriods)
       const lastAmount = qAmounts[qAmounts.length - 1] || 0
       const priorAmount = qAmounts.length >= 2 ? qAmounts[qAmounts.length - 2] || 0 : 0
       return {
-        label: row.label,
+        label: formatDetailLabelWithAnnex(row.label, row.annexLetter),
         current: lastAmount,
         prior: priorAmount,
-        isBold: row.isBold || row.isResult,
-        isSection: row.isSection,
+        isBold: true,
+        isSection: false,
         isSubtotal: row.isResult,
-        indent: !row.isBold && !row.isSection && !row.isResult,
+        indent: false,
         trendValues: qAmounts,
         rowId: row.id,
       }
@@ -799,20 +843,21 @@ export function IncomeStatementDetail({
 
   // Convert series API data to DetailRow[] for yearly views
   const getSeriesYearRows = (): DetailRow[] => {
-    if (!seriesRows.length || !seriesPeriods.length) return []
-    return seriesRows.map((row) => {
+    if (!seriesRows.length || !seriesPeriods.length || !incomeStatementStructure) return []
+    const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
+    return sorted.map((row) => {
       const amounts = getRowAmounts(row, seriesPeriods)
       const { amounts: yAmounts } = aggregateToYears(amounts, seriesPeriods)
       const lastAmount = yAmounts[yAmounts.length - 1] || 0
       const priorAmount = yAmounts.length >= 2 ? yAmounts[yAmounts.length - 2] || 0 : 0
       return {
-        label: row.label,
+        label: formatDetailLabelWithAnnex(row.label, row.annexLetter),
         current: lastAmount,
         prior: priorAmount,
-        isBold: row.isBold || row.isResult,
-        isSection: row.isSection,
+        isBold: true,
+        isSection: false,
         isSubtotal: row.isResult,
-        indent: !row.isBold && !row.isSection && !row.isResult,
+        indent: false,
         trendValues: yAmounts,
         rowId: row.id,
       }
@@ -1084,7 +1129,8 @@ export function IncomeStatementDetail({
     // The parent page fetches with the appropriate period parameter (monthly, quarterly, annual, ytd)
     // and comparison type, so backendRows already contain the correct data for all these views.
     if (!isForecastSection && backendRows.length > 0) {
-      return mapBackendRows(backendRows)
+      if (incomeStatementStructure === null) return []
+      return mapBackendRowsDefinedOnly(backendRows, incomeStatementStructure)
     }
     // No data available
     return []
@@ -1191,21 +1237,31 @@ export function IncomeStatementDetail({
   const [entityDataMap, setEntityDataMap] = useState<Record<string, DetailRow[]>>({})
   const [entityDataLoading, setEntityDataLoading] = useState(false)
 
+  const awaitingIncomeStatementStructure =
+    !isForecastSection && !!companyId && incomeStatementStructure === null
+
   // Determine loading state early so it can be used in both empty-data and loading checks
-  const isDataLoading = (seriesLoading && isMultiPeriodView) || (loading && !isForecastSection && !isMultiPeriodView) || entityDataLoading
+  const isDataLoading =
+    awaitingIncomeStatementStructure ||
+    (seriesLoading && isMultiPeriodView) ||
+    (loading && !isForecastSection && !isMultiPeriodView) ||
+    entityDataLoading
 
   // Show "no data" state when data is empty and not loading
   if (data.length === 0 && !isDataLoading && !isForecastSection) {
     return (
-      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-        <div className="bg-white px-8 py-5 border-b border-slate-200">
-          <div className="flex items-center gap-3">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <h2 className="text-xl font-semibold text-slate-900 tracking-tight">{title}</h2>
+      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+        <div className={dashboardCardRingClass} aria-hidden />
+        <div className="relative">
+          <div className={cn("px-8 py-5", dashboardCardHeaderBarClass)}>
+            <div className="flex items-center gap-3">
+              <div className={cn("h-12 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
+              <h2 className={cn("text-xl", dashboardCardTitleClass)}>{title}</h2>
+            </div>
           </div>
-        </div>
-        <div className="px-8 py-16 text-center">
-          <p className="text-sm text-slate-500">Aucune donnée disponible pour cette période.</p>
+          <div className="px-8 py-16 text-center">
+            <p className={cn("text-sm", dashboardCardBodyMutedClass)}>Aucune donnée disponible pour cette période.</p>
+          </div>
         </div>
       </div>
     )
@@ -1247,6 +1303,7 @@ export function IncomeStatementDetail({
           const params: FinancialStatementSeriesParams = {
             fiscal_year: year,
             months: 12,
+            structure_rev: structureVersion > 0 ? structureVersion : undefined,
           }
           let entityCompanyId = companyId || ""
 
@@ -1266,21 +1323,22 @@ export function IncomeStatementDetail({
             params
           )
 
-          if (!cancelled && response.rows) {
-            const mapped: DetailRow[] = response.rows.map((row) => {
+          if (!cancelled && response.rows && incomeStatementStructure) {
+            const sorted = filterSeriesRowsDefinedOnly(response.rows, incomeStatementStructure)
+            const mapped: DetailRow[] = sorted.map((row) => {
               const amounts = Object.entries(row.amounts)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([, v]) => v)
               const lastAmount = amounts[amounts.length - 1] || 0
               const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
               return {
-                label: row.label,
+                label: formatDetailLabelWithAnnex(row.label, row.annexLetter),
                 current: lastAmount,
                 prior: priorAmount,
-                indent: !row.isBold && !row.isSection && !row.isResult,
-                isBold: row.isBold,
+                indent: false,
+                isBold: true,
                 isSubtotal: row.isResult,
-                isSection: row.isSection,
+                isSection: false,
               }
             })
             results[entity.id] = mapped
@@ -1298,7 +1356,19 @@ export function IncomeStatementDetail({
 
     fetchEntityData()
     return () => { cancelled = true }
-  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, fiscalYear])
+  }, [
+    isComparisonMode,
+    companies,
+    companyId,
+    divisionId,
+    isCompanyComparison,
+    isDivisionComparison,
+    isSubDivisionComparison,
+    fiscalYear,
+    structureVersion,
+    incomeStatementStructure,
+    filterSeriesRowsDefinedOnly,
+  ])
 
   // Helper function to calculate percentage of revenue
   const getRevenuePercentage = (value: number, isPrior: boolean): number => {
@@ -1431,30 +1501,33 @@ export function IncomeStatementDetail({
   // Show loading state when fetching data
   if (isDataLoading) {
     return (
-      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-        <div className="px-8 py-16 text-center">
+      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+        <div className={dashboardCardRingClass} aria-hidden />
+        <div className="relative px-8 py-16 text-center">
           <div className="animate-pulse space-y-4">
-            <div className="h-4 bg-slate-200 rounded w-1/3 mx-auto"></div>
-            <div className="h-4 bg-slate-200 rounded w-2/3 mx-auto"></div>
-            <div className="h-4 bg-slate-200 rounded w-1/2 mx-auto"></div>
+            <div className="mx-auto h-4 w-1/3 rounded bg-slate-200"></div>
+            <div className="mx-auto h-4 w-2/3 rounded bg-slate-200"></div>
+            <div className="mx-auto h-4 w-1/2 rounded bg-slate-200"></div>
           </div>
-          <p className="text-sm text-slate-500 mt-4">Chargement des données...</p>
+          <p className={cn("mt-4 text-sm", dashboardCardBodyMutedClass)}>Chargement des données...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+    <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+      <div className={dashboardCardRingClass} aria-hidden />
+      <div className="relative">
       {/* Header */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
+      <div className={cn("border-b px-8 py-5", dashboardCardHeaderBarClass)}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">{title}</h2>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                <span className="font-medium">{getHorizonText()}</span>
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className={cn("h-12 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
+            <div className="min-w-0 flex-1">
+              <h2 className={cn("mb-1 text-xl", dashboardCardTitleClass)}>{title}</h2>
+              <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+                <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
                 <span className="text-slate-400">•</span>
                 {subDivisionId && divisionId && companyId ? (
                   <>
@@ -1462,16 +1535,22 @@ export function IncomeStatementDetail({
                     <span className="text-slate-400">•</span>
                     <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
                     <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                      {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
+                    </span>
                   </>
                 ) : divisionId && companyId ? (
                   <>
                     <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
                     <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                      {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}
+                    </span>
                   </>
                 ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
+                  <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                    {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+                  </span>
                 ) : (
                   <span className="truncate">Toutes les sociétés</span>
                 )}
@@ -1486,8 +1565,8 @@ export function IncomeStatementDetail({
                 size="sm"
                 onClick={() => setShowGrowthRate(!showGrowthRate)}
                 className={cn(
-                  "h-8 text-xs px-3 text-white hover:bg-white hover:text-slate-900 border border-slate-600",
-                  showGrowthRate && "bg-slate-700"
+                  "h-8 border border-slate-600 bg-[#2A2F3A] px-3 text-xs text-[#E6D6C3] hover:bg-[#353b47] hover:text-white",
+                  showGrowthRate && "bg-[#353b47]"
                 )}
               >
                 <TrendingUp className="w-3.5 h-3.5 mr-1.5" />
@@ -1505,8 +1584,8 @@ export function IncomeStatementDetail({
       <div className="overflow-x-auto bg-white">
         <table className="w-full">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Compte</th>
+            <tr className="border-b-2 border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80">
+              <th className="w-2/5 px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]">Compte</th>
               {view === "current" && (
                 <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Montant</th>
               )}
@@ -1675,7 +1754,12 @@ export function IncomeStatementDetail({
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const isSpacer = row.label === ""
               const shouldHideAmounts = isSpacer || !!row.isSection
-              const displayLabel = row.isSection ? capitalizeFirst(row.label) : row.label
+              const displayLabel =
+                row.isAnnexHeader
+                  ? row.label
+                  : row.isSection
+                    ? capitalizeFirst(row.label)
+                    : row.label
               
               // Check if next row is a subtotal to add dark border above it
               const nextRowIsSubtotal = idx < data.length - 1 && data[idx + 1].isSubtotal
@@ -1694,15 +1778,19 @@ export function IncomeStatementDetail({
                 ? getNoteByRowId(row.rowId, "income-statement", period, view, companyId, divisionId, subDivisionId) !== null
                 : false
 
+              const detailRowListKey = row.rowId ? `${row.rowId}-${idx}` : `detail-row-${idx}`
+
               return (
-                <>
-                  <tr key={idx} className={cn(
-                    "border-b",
-                    row.label === "" ? "h-2 border-slate-200" : "",
-                    nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
-                    canExpand && "hover:bg-slate-50 cursor-pointer"
-                  )}
-                  onClick={() => canExpand && toggleRow(row.rowId!)}
+                <Fragment key={detailRowListKey}>
+                  <tr
+                    className={cn(
+                      "border-b",
+                      row.label === "" ? "h-2 border-slate-200" : "",
+                      nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
+                      row.isAnnexHeader && "bg-amber-50/90",
+                      canExpand && "cursor-pointer hover:bg-slate-50"
+                    )}
+                    onClick={() => canExpand && toggleRow(row.rowId!)}
                   >
                     <td
                       className={`px-6 py-3 ${row.isBold ? "font-bold text-slate-900" : "text-slate-700"} ${row.indent ? "pl-12" : ""}`}
@@ -2460,7 +2548,7 @@ export function IncomeStatementDetail({
                       })}
                     </>
                   )}
-                </>
+                </Fragment>
               )
             })}
           </tbody>
@@ -2468,8 +2556,8 @@ export function IncomeStatementDetail({
       </div>
 
       {/* Footer note */}
-      <div className="bg-slate-50 px-8 py-4 border-t border-slate-200">
-        <p className="text-xs text-slate-600">
+      <div className="border-t border-slate-200 bg-slate-50/80 px-8 py-4">
+        <p className={cn("text-xs", dashboardCardBodyMutedClass)}>
           Note: Les données affichées sont à titre informatif. Consulter les états financiers audités pour les montants
           officiels.
         </p>
@@ -3011,6 +3099,7 @@ export function IncomeStatementDetail({
           </Dialog>
         )
       })()}
+      </div>
     </div>
   )
 }

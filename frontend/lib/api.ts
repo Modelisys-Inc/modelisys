@@ -506,6 +506,7 @@ export interface FinancialStatementRow {
   isSection: boolean
   isResult: boolean
   detailRows: FinancialStatementDetailRow[]
+  annexLetter?: string
 }
 
 export interface FinancialStatementParams {
@@ -518,6 +519,8 @@ export interface FinancialStatementParams {
   sub_division_id?: string
   customer?: string
   supplier?: string
+  /** Client-only: change l’URL après sauvegarde de la structure (évite cache). L’API l’ignore. */
+  structure_rev?: number
 }
 
 export interface FinancialStatementResponse {
@@ -541,6 +544,9 @@ function buildFinancialStatementQuery(params: FinancialStatementParams): string 
   if (params.sub_division_id) query.set("sub_division_id", params.sub_division_id)
   if (params.customer) query.set("customer", params.customer)
   if (params.supplier) query.set("supplier", params.supplier)
+  if (params.structure_rev != null && params.structure_rev > 0) {
+    query.set("_sr", params.structure_rev.toString())
+  }
   return `?${query.toString()}`
 }
 
@@ -1250,6 +1256,7 @@ export interface SeriesRow {
   isResult: boolean
   amounts: Record<string, number>  // key: "YYYY-M"
   detailRows: SeriesDetailRow[]
+  annexLetter?: string
 }
 
 export interface FinancialStatementSeriesResponse {
@@ -1267,6 +1274,8 @@ export interface FinancialStatementSeriesParams {
   sub_division_id?: string
   customer?: string
   supplier?: string
+  /** Client-only: invalidation cache après sauvegarde structure. L’API l’ignore. */
+  structure_rev?: number
 }
 
 export async function getFinancialStatementSeries(
@@ -1281,6 +1290,9 @@ export async function getFinancialStatementSeries(
   if (params.sub_division_id) query.set("sub_division_id", params.sub_division_id)
   if (params.customer) query.set("customer", params.customer)
   if (params.supplier) query.set("supplier", params.supplier)
+  if (params.structure_rev != null && params.structure_rev > 0) {
+    query.set("_sr", params.structure_rev.toString())
+  }
   return apiFetch<FinancialStatementSeriesResponse>(
     `/api/companies/${companyId}/financial-statements/${statementType}/series?${query.toString()}`
   )

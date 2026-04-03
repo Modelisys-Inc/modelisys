@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { TrendingUp, TrendingDown, ChevronDown } from "lucide-react"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, getPeriodLabels, findRow, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
+import { cn } from "@/lib/utils"
+import { dashboardCardFrameClass, dashboardCardRingClass } from "@/lib/dashboard-card-style"
 
 export interface IncomeStatementChartDataPoint {
   period: string
@@ -32,14 +34,13 @@ interface IncomeStatementChartProps {
   fiscalYear?: number
   chartData?: IncomeStatementChartDataPoint[]
   loading?: boolean
+  structureVersion?: number
 }
 
 type ChartViewType = "revenue_ebita_margin" | "cogs_grossprofit_margin"
 
-/** Aligné sur les cartes « Accès rapide » du tableau de bord */
-const dashboardStyleCard =
-  "relative z-10 overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 transition-all duration-500 ease-out hover:shadow-xl hover:shadow-slate-900/[0.07]"
-const dashboardStyleCardAccent = "pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]"
+const dashboardStyleCard = cn(dashboardCardFrameClass, "z-10 transition-all duration-500 ease-out")
+const dashboardStyleCardAccent = dashboardCardRingClass
 
 export function IncomeStatementChart({
   period,
@@ -54,6 +55,7 @@ export function IncomeStatementChart({
   fiscalYear,
   chartData,
   loading = false,
+  structureVersion = 0,
 }: IncomeStatementChartProps) {
   const [selectedChartView, setSelectedChartView] = useState<ChartViewType>("revenue_ebita_margin")
   const [showRevenue, setShowRevenue] = useState(true)
@@ -70,6 +72,7 @@ export function IncomeStatementChart({
     divisionId: divisionId || undefined,
     subDivisionId: subDivisionId || undefined,
     enabled: !chartData,
+    structureVersion,
   })
 
   // Build chart data from series API when no chartData prop
@@ -202,20 +205,20 @@ export function IncomeStatementChart({
       const comparisonLabel = getComparisonLabel()
       switch (selectedChartView) {
         case "revenue_ebita_margin":
-          return `Revenus, BAIIA et Marge brute - Mois courant vs ${comparisonLabel}`
+          return "Performance financière"
         case "cogs_grossprofit_margin":
           return `CMV, Bénéfice Brut et Marge brute - Mois courant vs ${comparisonLabel}`
         default:
-          return `Revenus, BAIIA et Marge brute - Mois courant vs ${comparisonLabel}`
+          return "Performance financière"
       }
     }
     switch (selectedChartView) {
       case "revenue_ebita_margin":
-        return "Revenus, BAIIA et Marge brute"
+        return "Performance financière"
       case "cogs_grossprofit_margin":
         return "CMV, Bénéfice Brut et Marge brute"
       default:
-        return "Revenus, BAIIA et Marge brute"
+        return "Performance financière"
     }
   }
 
@@ -259,7 +262,7 @@ export function IncomeStatementChart({
                   <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="revenue_ebita_margin">Revenus, BAIIA et Marge brute</SelectItem>
+                  <SelectItem value="revenue_ebita_margin">Performance financière</SelectItem>
                   <SelectItem value="cogs_grossprofit_margin">CMV, Bénéfice Brut et Marge brute</SelectItem>
                 </SelectContent>
               </Select>
