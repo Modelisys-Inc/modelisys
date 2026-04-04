@@ -3,7 +3,11 @@
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Mail, CheckCircle2, Sparkles } from "lucide-react"
+import { Label } from "@/components/ui/label"
+import { Mail, CheckCircle2, Send } from "lucide-react"
+import { cn } from "@/lib/utils"
+
+const FORMSPREE_URL = "https://formspree.io/f/xzdapzyv"
 
 export function EmailSubscriptionSection() {
   const sectionRef = useRef<HTMLElement>(null)
@@ -41,12 +45,15 @@ export function EmailSubscriptionSection() {
     setIsSubmitting(true)
 
     try {
-      const response = await fetch("https://formspree.io/f/xzdapzyv", {
+      const response = await fetch(FORMSPREE_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({
+          email,
+          _subject: "Inscription infolettre — Modelisys",
+        }),
       })
 
       if (response.ok) {
@@ -55,7 +62,7 @@ export function EmailSubscriptionSection() {
 
         setTimeout(() => {
           setIsSubmitted(false)
-        }, 3000)
+        }, 4000)
       }
     } catch (error) {
       console.error("Erreur lors de l'inscription:", error)
@@ -65,88 +72,109 @@ export function EmailSubscriptionSection() {
   }
 
   return (
-    <section ref={sectionRef} className="relative pt-8 pb-16 sm:pt-12 sm:pb-24 overflow-hidden">
-      {/* Background with depth */}
-      <div className="absolute inset-0 bg-gradient-to-b from-white via-slate-50 to-white"></div>
-      
-      {/* Decorative elements for depth */}
-      <div className="absolute inset-0 overflow-hidden">
-        {/* Large gradient orbs for depth */}
-        <div className="absolute -top-20 -left-20 w-96 h-96 bg-emerald-100/30 rounded-full blur-3xl"></div>
-        <div className="absolute -bottom-20 -right-20 w-96 h-96 bg-blue-100/30 rounded-full blur-3xl"></div>
+    <section
+      ref={sectionRef}
+      className="relative z-10 overflow-hidden bg-slate-100/50 py-16 sm:py-24"
+    >
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-slate-50/95 to-slate-100/80" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_85%_45%_at_50%_-15%,rgba(224,116,45,0.055),transparent_55%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_100%_50%,rgba(148,163,184,0.12),transparent_65%)]" />
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `
+              linear-gradient(to right, rgb(148 163 184 / 0.1) 1px, transparent 1px),
+              linear-gradient(to bottom, rgb(148 163 184 / 0.1) 1px, transparent 1px)
+            `,
+            backgroundSize: "44px 44px",
+            maskImage: "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
+            WebkitMaskImage:
+              "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
+          }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-50/30 via-transparent to-slate-100/35" />
+        <div className="absolute left-1/2 top-1/2 h-[min(56vh,420px)] w-[min(92vw,720px)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-200/20 blur-3xl" />
       </div>
 
-      <div className="relative z-10 max-w-[1920px] mx-auto px-8 sm:px-12 lg:px-16 xl:px-20">
+      <div className="relative z-10 mx-auto max-w-[1920px] px-8 sm:px-12 lg:px-16 xl:px-20">
         <div
           className={`transition-all duration-1000 ${
-            isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+            isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          {/* Main card with 3D effect */}
-          <div className="relative">
-            {/* Shadow layers for depth */}
-            <div className="absolute inset-0 bg-slate-200/50 rounded-2xl blur-xl transform translate-y-4"></div>
-            <div className="absolute inset-0 bg-slate-300/30 rounded-2xl blur-lg transform translate-y-2"></div>
-            
-            {/* Main card */}
-            <div className="relative bg-white rounded-2xl border-2 border-slate-200 shadow-2xl overflow-hidden">
-              {/* Gradient overlay for depth */}
-              <div className="absolute inset-0 bg-gradient-to-br from-white via-slate-50/50 to-white pointer-events-none"></div>
-              
-              {/* Content */}
-              <div className="relative px-8 sm:px-12 lg:px-16 py-12 sm:py-16">
-                <div className="space-y-4">
-                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 border border-emerald-100 mb-4">
-                    <Sparkles className="w-4 h-4 text-emerald-600" />
-                    <span className="text-sm font-semibold text-emerald-700">Restez à l'affût</span>
-                  </div>
-                  
-                  <h3 className="text-2xl sm:text-3xl md:text-4xl font-bold text-slate-900 leading-tight">
-                    Inscrivez votre courriel pour{" "}
-                    <span className="text-slate-600">rester informé</span>
-                  </h3>
-                  
-                  <p className="text-lg sm:text-xl text-slate-600 leading-relaxed max-w-2xl">
-                    Soyez parmi les premiers informés des nouveautés, des opportunités et des développements de Modelisys.
-                  </p>
+          <div>
+            <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Infolettre</p>
+            <h2 className="mb-4 max-w-3xl text-3xl font-semibold leading-tight tracking-tight text-[#2A2F3A] sm:text-4xl md:text-5xl">
+              Inscrivez votre courriel pour rester informé
+            </h2>
+            <p className="max-w-3xl text-lg leading-relaxed text-[#5C5F66] sm:text-xl">
+              Soyez parmi les premiers informés des nouveautés, des opportunités et des développements de Modelisys.
+            </p>
+            <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
+          </div>
 
-                  {/* Email Form */}
-                  {isSubmitted ? (
-                    <div className="mt-6 py-4">
-                      <div className="flex items-center gap-3 text-emerald-600">
-                        <CheckCircle2 className="w-5 h-5" />
-                        <p className="text-base font-medium">Merci pour votre inscription!</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <form onSubmit={handleSubmit} className="mt-6 flex flex-col sm:flex-row gap-3 max-w-lg">
-                      <div className="flex-1 relative">
-                        <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-                        <Input
-                          type="email"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          placeholder="votre@courriel.com"
-                          required
-                          className="pl-10 h-12 border-slate-300 focus:border-slate-500"
-                        />
-                      </div>
-                      <Button
-                        type="submit"
-                        disabled={isSubmitting}
-                        className="h-12 px-6 bg-slate-900 hover:bg-slate-800 text-white font-semibold whitespace-nowrap"
-                      >
-                        {isSubmitting ? "Inscription..." : "S'inscrire"}
-                      </Button>
-                    </form>
-                  )}
+          <div className="relative mt-10 max-w-2xl">
+            {isSubmitted ? (
+              <div className="flex flex-col items-start gap-4 py-2 sm:flex-row sm:items-center">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-[#E0742D]/25 bg-[#E0742D]/10">
+                  <CheckCircle2 className="h-7 w-7 text-[#E0742D]" />
+                </div>
+                <div>
+                  <p className="text-lg font-semibold text-[#2A2F3A]">Merci pour votre inscription</p>
+                  <p className="mt-1 text-[#5C5F66]">Vous recevrez nos prochaines actualités à cette adresse.</p>
                 </div>
               </div>
-            </div>
+            ) : (
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="newsletter-email" className="text-[#2A2F3A]">
+                    Courriel <span className="text-[#E0742D]">*</span>
+                  </Label>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
+                    <div className="relative min-w-0 flex-1">
+                      <Mail className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                      <Input
+                        id="newsletter-email"
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="vous@entreprise.com"
+                        required
+                        autoComplete="email"
+                        className="h-12 border-slate-200 bg-white/90 pl-10 shadow-sm focus-visible:border-[#E0742D]/80 focus-visible:ring-[#E0742D]/25"
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className={cn(
+                        "h-12 shrink-0 bg-[#E0742D] px-8 text-base font-semibold text-white shadow-lg shadow-[#E0742D]/20 transition-all duration-200 hover:bg-[#c96526] sm:min-w-[11rem]",
+                        isSubmitting && "cursor-not-allowed opacity-50",
+                      )}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <span className="mr-2 animate-spin">⏳</span>
+                          Inscription...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="mr-2 h-4 w-4" />
+                          S&apos;inscrire
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-xs text-[#5C5F66]/90">
+                  Une seule adresse, pas de spam : vous pourrez vous désinscrire à tout moment.
+                </p>
+              </form>
+            )}
           </div>
         </div>
       </div>
     </section>
   )
 }
-

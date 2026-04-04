@@ -7,9 +7,9 @@ import Link from "next/link"
 const POUR_QUI_SECTION = "/#pour-qui"
 
 const pourQuiSubLinks = [
-  { name: "Entreprises", href: "/#audience-entreprises" },
-  { name: "Partenaires conseils", href: "/#audience-conseils" },
-  { name: "Partenaires financiers", href: "/#audience-financiers" },
+  { name: "Entreprises", href: "/#problem-solution" },
+  { name: "Partenaires conseils", href: "/cabinets-comptables" },
+  { name: "Partenaires financiers", href: "/partenaires-financiers" },
 ] as const
 
 const mainNavLinks = [

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Upload, X, Loader2, FileSpreadsheet } from "lucide-react"
+import { Upload, X, Loader2, FileSpreadsheet } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import {
@@ -179,24 +179,29 @@ export default function TrialBalancePage() {
       <DashboardHeader title="Modelisys" />
 
       {/* Dark Header Section */}
-      <div className="w-full bg-slate-900 pt-15 pb-40">
-        <div className="max-w-[1920px] mx-auto px-6">
+      <div className="relative w-full pt-15 pb-40 overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+            <div className="bg-[#2A2F3A]" />
+            <div className="bg-[#1F2430]" />
+          </div>
+          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
+          </div>
+        </div>
+        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
           <div className="flex items-start gap-3 mb-8">
             <div className="w-2"></div>
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-4">
-                <Link
-                  href={`/settings/companies/${companyId}`}
-                  className="p-2 rounded-lg hover:bg-slate-800 transition-colors text-slate-300 hover:text-white"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </Link>
-                <h2 className="text-4xl font-normal text-white mb-2 tracking-tight">{company.name}</h2>
+                <h2 className="text-4xl font-semibold text-[#E6D6C3] mb-2 tracking-tight">{company.name}</h2>
               </div>
-              <p className="text-base text-slate-300 mb-6">
+              <p className="text-base text-[#C9B8A5]/90 mb-6">
                 Configuration et paramètres de la société
               </p>
-              <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
+              <p className="text-base text-[#C9B8A5]/90 mb-6 leading-relaxed max-w-4xl">
                 Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres
                 comptables et accédez aux différents modules de configuration pour cette entité.
               </p>
@@ -206,7 +211,7 @@ export default function TrialBalancePage() {
                   href={`/settings/companies/${companyId}`}
                   className="relative pb-4 border-b border-slate-600/30"
                 >
-                  <span className="text-sm font-normal transition-colors text-slate-300 hover:text-white">
+                  <span className="text-sm font-normal transition-colors text-slate-200 hover:text-[#E6D6C3]">
                     Information de base
                   </span>
                 </Link>
@@ -214,7 +219,7 @@ export default function TrialBalancePage() {
                   href={`/settings/companies/${companyId}/mapping`}
                   className="relative pb-4 border-b border-slate-600/30"
                 >
-                  <span className="text-sm font-normal transition-colors text-slate-300 hover:text-white">
+                  <span className="text-sm font-normal transition-colors text-slate-200 hover:text-[#E6D6C3]">
                     Mapping comptable
                   </span>
                 </Link>
@@ -222,15 +227,15 @@ export default function TrialBalancePage() {
                   href={`/settings/companies/${companyId}/financial-statements-mapping`}
                   className="relative pb-4 border-b border-slate-600/30"
                 >
-                  <span className="text-sm font-normal transition-colors text-slate-300 hover:text-white">
+                  <span className="text-sm font-normal transition-colors text-slate-200 hover:text-[#E6D6C3]">
                     Mapping états financiers
                   </span>
                 </Link>
                 <div className="relative pb-4 border-b border-slate-600/30">
-                  <span className="text-sm font-normal transition-colors text-white">
+                  <span className="text-sm font-normal transition-colors text-slate-200 hover:text-[#E6D6C3]">
                     Balance de vérification
                   </span>
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
                 </div>
               </div>
             </div>

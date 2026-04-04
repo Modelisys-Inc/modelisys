@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
 
-const PUBLIC_PATHS = ["/login", "/contact", "/cabinets-comptables", "/partenaires-institutionnels", "/partenaires-capital"]
+const PUBLIC_PATHS = [
+  "/login",
+  "/contact",
+  "/cabinets-comptables",
+  "/partenaires-financiers",
+  "/partenaires-institutionnels",
+  "/partenaires-capital",
+]
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))
@@ -22,10 +29,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
 
-  // Redirect authenticated users away from login to dashboard
+  // Redirect authenticated users away from login to portal
   if (hasSession && pathname === "/login") {
-    const dashboardUrl = new URL("/dashboard", request.url)
-    return NextResponse.redirect(dashboardUrl)
+    const portalUrl = new URL("/mon-portail", request.url)
+    return NextResponse.redirect(portalUrl)
   }
 
   return NextResponse.next()

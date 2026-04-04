@@ -2,21 +2,14 @@
 
 import { ArrowRight } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
+import { HERO_FEATURE_LABELS, type HeroFeatureLabel } from "@/lib/hero-features"
 
 export function HeroSection() {
   const [isVisible, setIsVisible] = useState(false)
   const sectionRef = useRef<HTMLElement>(null)
-  const features = [
-    "Consolidation",
-    "Reporting financier",
-    "Analyse financière",
-    "Projections",
-    "Valorisation",
-    "Documentation",
-    "Collaboration",
-  ] as const
+  const features = HERO_FEATURE_LABELS
 
-  type Feature = (typeof features)[number]
+  type Feature = HeroFeatureLabel
 
   const [activeFeature, setActiveFeature] = useState<Feature>("Consolidation")
 
@@ -217,16 +210,15 @@ export function HeroSection() {
                 Plateforme d&apos;intelligence financière
               </p>
 
-              <h1 className="mt-10 text-5xl sm:text-6xl font-semibold leading-[0.95] tracking-tight text-[#E6D6C3]">
-                La performance
-                <br />
-                financière
-                <br />à portée.
+              <h1 className="mt-10 flex flex-col font-semibold leading-[0.95] tracking-tight text-[#E6D6C3]">
+                <span className="text-4xl sm:text-5xl">Analysez.</span>
+                <span className="mt-1 text-5xl sm:text-6xl">Projetez.</span>
+                <span className="mt-1 text-6xl sm:text-7xl">Valorisez.</span>
               </h1>
 
               <p className="mt-10 text-sm sm:text-base leading-relaxed text-[#C9B8A5]/80 max-w-md">
-                Transformez vos données comptables en analyse stratégique pour mieux piloter, projetez et créer de la
-                valeur dans votre entreprise.
+                Comprenez votre performance actuelle, projetez vos budgets et flux futurs, simulez différents scénarios et
+                mesurez l&apos;impact de chaque décision sur la valeur de votre entreprise.
               </p>
 
               <div className="mt-10 flex items-center gap-6">

@@ -396,6 +396,16 @@ def _compute_variation(current: float, prior: float) -> float:
     return round(((current - prior) / abs(prior)) * 100, 2)
 
 
+def _structure_row_hidden(row: dict) -> bool:
+    """When true, row is omitted from API output but still participates in totals / formulas."""
+    return bool(row.get("hidden"))
+
+
+def _child_row_id(child: dict) -> str:
+    link = child.get("linkCode")
+    return child.get("id", link or child.get("label", ""))
+
+
 def _process_structure_rows(
     rows: list[dict],
     mapping_index: dict[str, list[str]],
@@ -417,6 +427,7 @@ def _process_structure_rows(
     Each row in the structure JSON can have:
       - label: display label
       - linkCode: code linking to account mappings
+      - hidden: if true, row is excluded from output (still in totals when parent sums children)
       - isBold, isSection, isResult: display flags
       - children: nested rows (detail rows)
       - formula: list of "+id" / "-id" references to other rows for computed results
@@ -467,10 +478,14 @@ def _process_structure_rows(
                 computed_values, customer_filter, supplier_filter,
             )
             # If this is a section row without its own linkCode or formula,
-            # sum up the children
+            # sum up the children (include hidden children via computed_values)
             if not link_code and not formula:
-                current = sum(r["current"] for r in detail_rows)
-                prior = sum(r["prior"] for r in detail_rows)
+                current = sum(
+                    computed_values.get(_child_row_id(c), (0.0, 0.0))[0] for c in children
+                )
+                prior = sum(
+                    computed_values.get(_child_row_id(c), (0.0, 0.0))[1] for c in children
+                )
 
         # Resolve formula references: e.g. ["+revenue", "-cogs"]
         if formula and isinstance(formula, list):
@@ -499,10 +514,14 @@ def _process_structure_rows(
             "isSection": is_section,
             "isResult": is_result,
         }
+        annex_letter = row.get("annexLetter")
+        if annex_letter:
+            output_row["annexLetter"] = annex_letter
         if detail_rows:
             output_row["detailRows"] = detail_rows
 
-        result.append(output_row)
+        if not _structure_row_hidden(row):
+            result.append(output_row)
 
     return result
 
@@ -788,6 +807,7 @@ def _process_structure_rows_series(
 
     Instead of computing current/prior, computes the amount for each period.
     For balance-sheet rows, amounts are cumulative (YTD through that fiscal month).
+    Rows with hidden=true are omitted from output but still in computed_values for formulas / parent sums.
     """
     if computed_values is None:
         computed_values = {}
@@ -837,11 +857,12 @@ def _process_structure_rows_series(
                 customer_filter, supplier_filter,
             )
             if not link_code and not formula:
-                # Sum children for each period
+                # Sum children for each period (include hidden children)
                 for p in periods:
                     key = f"{p['fiscalYear']}-{p['fiscalMonth']}"
                     amounts[key] = round(sum(
-                        dr["amounts"].get(key, 0.0) for dr in detail_rows
+                        computed_values.get(_child_row_id(c), {}).get(key, 0.0)
+                        for c in children
                     ), 2)
 
         # Resolve formula references: e.g. ["+revenue", "-cogs"]
@@ -868,13 +889,17 @@ def _process_structure_rows_series(
             "isResult": is_result,
             "amounts": amounts,
         }
+        annex_letter = row.get("annexLetter")
+        if annex_letter:
+            output_row["annexLetter"] = annex_letter
         if detail_rows:
             output_row["detailRows"] = [
                 {"id": dr["id"], "label": dr["label"], "amounts": dr["amounts"]}
                 for dr in detail_rows
             ]
 
-        result.append(output_row)
+        if not _structure_row_hidden(row):
+            result.append(output_row)
 
     return result
 

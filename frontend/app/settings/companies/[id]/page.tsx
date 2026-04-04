@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Building2, Calendar, DollarSign, ArrowLeft, Folder, FolderTree, ChevronDown, ChevronRight, Plus, Edit2, Trash2, X, Check, Loader2 } from "lucide-react"
+import { Building2, Calendar, DollarSign, Plus, Edit2, Trash2, X, Check, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter, usePathname } from "next/navigation"
 import {
@@ -90,7 +90,6 @@ export default function CompanySettingsPage() {
   const companyId = params.id as string
   const [company, setCompany] = useState<Company | null>(null)
   const [loading, setLoading] = useState(true)
-  const [expandedDivisions, setExpandedDivisions] = useState<Set<string>>(new Set())
   const [addingDivisionTo, setAddingDivisionTo] = useState(false)
   const [newDivisionName, setNewDivisionName] = useState("")
   const [editingDivisionId, setEditingDivisionId] = useState<string | null>(null)
@@ -114,18 +113,6 @@ export default function CompanySettingsPage() {
         .finally(() => setLoading(false))
     }
   }, [companyId, router])
-
-  const toggleDivisionExpanded = (divisionId: string) => {
-    setExpandedDivisions((prev) => {
-      const newSet = new Set(prev)
-      if (newSet.has(divisionId)) {
-        newSet.delete(divisionId)
-      } else {
-        newSet.add(divisionId)
-      }
-      return newSet
-    })
-  }
 
   const handleAddDivision = async () => {
     if (newDivisionName.trim() && company) {
@@ -181,11 +168,6 @@ export default function CompanySettingsPage() {
           ...company,
           divisions: company.divisions.filter((d) => d.id !== divisionId),
         })
-        setExpandedDivisions((prev) => {
-          const newSet = new Set(prev)
-          newSet.delete(divisionId)
-          return newSet
-        })
       } catch (e) {
         console.error("Error deleting division:", e)
       }
@@ -205,9 +187,6 @@ export default function CompanySettingsPage() {
         })
         setNewSubDivisionName("")
         setAddingSubDivisionTo(null)
-        if (!expandedDivisions.has(divisionId)) {
-          setExpandedDivisions((prev) => new Set(prev).add(divisionId))
-        }
       } catch (e) {
         console.error("Error creating sub-division:", e)
       }
@@ -369,68 +348,29 @@ export default function CompanySettingsPage() {
       <DashboardHeader title="Modelisys" />
 
       {/* Dark Header Section */}
-      <div className="w-full bg-slate-900 pt-15 pb-40">
-        <div className="max-w-[1920px] mx-auto px-6">
+      <div className="relative w-full pt-15 pb-40 overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+            <div className="bg-[#2A2F3A]" />
+            <div className="bg-[#1F2430]" />
+          </div>
+          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
+          </div>
+        </div>
+        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
           <div className="flex items-start gap-3 mb-8">
             <div className="w-2"></div>
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-4">
-                <Link
-                  href="/"
-                  className="p-2 rounded-lg hover:bg-slate-800 transition-colors text-slate-300 hover:text-white"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </Link>
-                {editingCompanyName ? (
-                  <div className="flex items-center gap-3 flex-1">
-                    <Input
-                      value={editingName}
-                      onChange={(e) => setEditingName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          handleSaveCompanyName()
-                        } else if (e.key === "Escape") {
-                          handleCancelEditCompanyName()
-                        }
-                      }}
-                      className="flex-1 text-4xl font-normal bg-slate-800 border-slate-700 text-white"
-                      autoFocus
-                    />
-                    <Button
-                      onClick={handleSaveCompanyName}
-                      disabled={!editingName.trim()}
-                      size="sm"
-                      className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                    >
-                      <Check className="w-4 h-4" />
-                    </Button>
-                    <Button
-                      onClick={handleCancelEditCompanyName}
-                      size="sm"
-                      variant="ghost"
-                      className="text-slate-300 hover:text-white"
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    <h2 className="text-4xl font-normal text-white mb-2 tracking-tight">{company.name}</h2>
-                    <Button
-                      onClick={handleStartEditCompanyName}
-                      size="sm"
-                      variant="ghost"
-                      className="text-slate-300 hover:text-white"
-                    >
-                      <Edit2 className="w-5 h-5" />
-                    </Button>
-                  </div>
-                )}
+                <h2 className="text-4xl font-semibold text-[#E6D6C3] mb-2 tracking-tight">Information de base</h2>
               </div>
-              <p className="text-base text-slate-300 mb-6">
+              <p className="text-base text-[#C9B8A5]/90 mb-6">
                 Configuration et paramètres de la société
               </p>
-              <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
+              <p className="text-base text-[#C9B8A5]/90 mb-6 leading-relaxed max-w-4xl">
                 Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres
                 comptables et accédez aux différents modules de configuration pour cette entité.
               </p>
@@ -443,14 +383,14 @@ export default function CompanySettingsPage() {
                   <span
                     className={`text-sm font-normal transition-colors ${
                       pathname === `/settings/companies/${companyId}`
-                        ? "text-white"
-                        : "text-slate-300 hover:text-white"
+                        ? "text-slate-200"
+                        : "text-slate-200 hover:text-[#E6D6C3]"
                     }`}
                   >
                     Information de base
                   </span>
                   {pathname === `/settings/companies/${companyId}` && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
                   )}
                 </Link>
                 <Link
@@ -460,14 +400,14 @@ export default function CompanySettingsPage() {
                   <span
                     className={`text-sm font-normal transition-colors ${
                       pathname?.includes("/mapping")
-                        ? "text-white"
-                        : "text-slate-300 hover:text-white"
+                        ? "text-slate-200"
+                        : "text-slate-200 hover:text-[#E6D6C3]"
                     }`}
                   >
                     Mapping comptable
                   </span>
                   {pathname?.includes("/mapping") && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
                   )}
                 </Link>
                 <Link
@@ -477,14 +417,14 @@ export default function CompanySettingsPage() {
                   <span
                     className={`text-sm font-normal transition-colors ${
                       pathname?.includes("/financial-statements-mapping")
-                        ? "text-white"
-                        : "text-slate-300 hover:text-white"
+                        ? "text-slate-200"
+                        : "text-slate-200 hover:text-[#E6D6C3]"
                     }`}
                   >
                     Mapping états financiers
                   </span>
                   {pathname?.includes("/financial-statements-mapping") && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
                   )}
                 </Link>
                 <Link
@@ -494,14 +434,14 @@ export default function CompanySettingsPage() {
                   <span
                     className={`text-sm font-normal transition-colors ${
                       pathname?.includes("/trial-balance")
-                        ? "text-white"
-                        : "text-slate-300 hover:text-white"
+                        ? "text-slate-200"
+                        : "text-slate-200 hover:text-[#E6D6C3]"
                     }`}
                   >
                     Balance de vérification
                   </span>
                   {pathname?.includes("/trial-balance") && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
                   )}
                 </Link>
               </div>
@@ -515,19 +455,76 @@ export default function CompanySettingsPage() {
         <div className="max-w-[1920px] mx-auto px-6">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Company Info Card */}
-            <Card className="bg-white border border-slate-200 shadow-sm">
-              <CardContent className="p-6">
+            <Card className="group relative overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 transition-all duration-500 ease-out hover:shadow-xl hover:shadow-slate-900/[0.07]">
+              <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
+              <CardContent className="relative p-6 sm:p-7">
                 <div className="flex items-center gap-3 mb-6">
-                  <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
-                    <Building2 className="w-6 h-6 text-emerald-600" />
+                  <div className="w-12 h-12 rounded-xl bg-slate-100 group-hover:bg-[#2A2F3A] flex items-center justify-center transition-all duration-300">
+                    <Building2 className="w-6 h-6 text-black group-hover:text-[#E6D6C3] transition-colors duration-300" />
                   </div>
                   <div>
                     <h3 className="text-lg font-semibold text-slate-900">Informations</h3>
                     <p className="text-sm text-slate-500">Détails de la société</p>
                   </div>
                 </div>
+                <div className="h-px w-full bg-gradient-to-r from-[#E0742D]/80 via-white/15 to-transparent mb-6" />
 
                 <div className="space-y-4">
+                  {/* Nom de la société */}
+                  <div className="p-3 bg-slate-50 rounded-lg">
+                    <div className="flex items-center gap-3 mb-2">
+                      <Building2 className="w-5 h-5 text-slate-400 flex-shrink-0" />
+                      <div className="flex-1">
+                        <p className="text-xs text-slate-500 mb-1">Nom de la société</p>
+                        {editingCompanyName ? (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  handleSaveCompanyName()
+                                } else if (e.key === "Escape") {
+                                  handleCancelEditCompanyName()
+                                }
+                              }}
+                              className="flex-1 h-8"
+                              autoFocus
+                            />
+                            <Button
+                              onClick={handleSaveCompanyName}
+                              disabled={!editingName.trim()}
+                              size="sm"
+                              className="bg-emerald-500 hover:bg-emerald-600 text-white h-8 w-8 p-0"
+                            >
+                              <Check className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              onClick={handleCancelEditCompanyName}
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0"
+                            >
+                              <X className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-medium text-slate-900">{company.name}</p>
+                            <Button
+                              onClick={handleStartEditCompanyName}
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 w-6 p-0"
+                            >
+                              <Edit2 className="w-3.5 h-3.5 text-slate-500" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Fin d'année comptable */}
                   <div className="p-3 bg-slate-50 rounded-lg">
                     <div className="flex items-center gap-3 mb-2">
@@ -649,12 +646,13 @@ export default function CompanySettingsPage() {
             </Card>
 
             {/* Structure Card */}
-            <Card className="lg:col-span-2 bg-white border border-slate-200 shadow-sm">
-              <CardContent className="p-6">
+            <Card className="group relative lg:col-span-2 overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 transition-all duration-500 ease-out hover:shadow-xl hover:shadow-slate-900/[0.07]">
+              <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
+              <CardContent className="relative p-6 sm:p-7">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
-                      <FolderTree className="w-6 h-6 text-blue-600" />
+                    <div className="w-12 h-12 rounded-xl bg-slate-100 group-hover:bg-[#2A2F3A] flex items-center justify-center transition-all duration-300">
+                      <Building2 className="w-6 h-6 text-black group-hover:text-[#E6D6C3] transition-colors duration-300" />
                     </div>
                     <div>
                       <h3 className="text-lg font-semibold text-slate-900">Structure organisationnelle</h3>
@@ -665,19 +663,20 @@ export default function CompanySettingsPage() {
                     <Button
                       onClick={() => setAddingDivisionTo(true)}
                       size="sm"
-                      className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                      className="rounded-lg bg-[#E0742D] hover:bg-[#c96526] text-white shadow-sm"
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       Ajouter une division
                     </Button>
                   )}
                 </div>
+                <div className="h-px w-full bg-gradient-to-r from-[#E0742D]/80 via-white/15 to-transparent mb-6" />
 
                 {/* Add Division Form */}
                 {addingDivisionTo && (
                   <div className="mb-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
                     <div className="flex items-center gap-3">
-                      <Folder className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                      <Building2 className="w-4 h-4 text-slate-500 flex-shrink-0" />
                       <Input
                         placeholder="Nom de la division"
                         value={newDivisionName}
@@ -716,28 +715,14 @@ export default function CompanySettingsPage() {
                 )}
 
                 {company.divisions && company.divisions.length > 0 ? (
-                  <div className="space-y-3">
+                  <div className="space-y-6">
                     {company.divisions.map((division) => {
-                      const isDivisionExpanded = expandedDivisions.has(division.id)
                       const isAddingSubDivision = addingSubDivisionTo === division.id
 
                       return (
-                        <div key={division.id} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-                          {/* Division Header */}
-                          <div className="flex items-center gap-3 p-4 bg-slate-50 hover:bg-slate-100 transition-colors">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => toggleDivisionExpanded(division.id)}
-                              className="h-6 w-6 p-0"
-                            >
-                              {isDivisionExpanded ? (
-                                <ChevronDown className="w-4 h-4 text-slate-600" />
-                              ) : (
-                                <ChevronRight className="w-4 h-4 text-slate-600" />
-                              )}
-                            </Button>
-                            <Folder className="w-5 h-5 text-slate-500 flex-shrink-0" />
+                        <div key={division.id} className="rounded-2xl border border-slate-200/90 bg-white shadow-sm overflow-hidden">
+                          <div className="relative flex items-center gap-3 p-4 bg-gradient-to-r from-slate-50 to-white border-b border-slate-200">
+                            <span className="h-2.5 w-2.5 rounded-full bg-[#E0742D] shrink-0" />
                             {editingDivisionId === division.id ? (
                               <>
                                 <Input
@@ -761,24 +746,15 @@ export default function CompanySettingsPage() {
                                 >
                                   <Check className="w-4 h-4" />
                                 </Button>
-                                <Button
-                                  onClick={handleCancelEditDivision}
-                                  size="sm"
-                                  variant="ghost"
-                                >
+                                <Button onClick={handleCancelEditDivision} size="sm" variant="ghost">
                                   <X className="w-4 h-4" />
                                 </Button>
                               </>
                             ) : (
                               <>
-                                <span className="flex-1 text-slate-900 font-medium">{division.name}</span>
+                                <span className="flex-1 text-slate-900 font-semibold">{division.name}</span>
                                 <Button
-                                  onClick={() => {
-                                    setAddingSubDivisionTo(division.id)
-                                    if (!isDivisionExpanded) {
-                                      setExpandedDivisions((prev) => new Set(prev).add(division.id))
-                                    }
-                                  }}
+                                  onClick={() => setAddingSubDivisionTo(division.id)}
                                   size="sm"
                                   variant="ghost"
                                   className="text-slate-600 hover:text-slate-900 h-7 px-2"
@@ -806,130 +782,121 @@ export default function CompanySettingsPage() {
                             )}
                           </div>
 
-                          {/* Sub-Divisions Section */}
-                          {isDivisionExpanded && (
-                            <div className="bg-white border-t border-slate-200">
-                              {/* Add Sub-Division Form */}
+                          <div className="px-4 py-4 bg-slate-50/40">
+                            <div className="ml-3 border-l-2 border-slate-200 pl-5 space-y-2.5">
                               {isAddingSubDivision && (
-                                <div className="p-2 bg-slate-50 border-b border-slate-200">
-                                  <div className="flex items-center gap-3">
-                                    <FolderTree className="w-3.5 h-3.5 text-slate-500 flex-shrink-0 ml-7" />
-                                    <Input
-                                      placeholder="Nom de la sous-division"
-                                      value={newSubDivisionName}
-                                      onChange={(e) => setNewSubDivisionName(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") {
-                                          handleAddSubDivision(division.id)
-                                        } else if (e.key === "Escape") {
-                                          setAddingSubDivisionTo(null)
-                                          setNewSubDivisionName("")
-                                        }
-                                      }}
-                                      className="flex-1"
-                                      autoFocus
-                                    />
-                                    <Button
-                                      onClick={() => handleAddSubDivision(division.id)}
-                                      disabled={!newSubDivisionName.trim()}
-                                      size="sm"
-                                      className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                                    >
-                                      <Check className="w-3.5 h-3.5" />
-                                    </Button>
-                                    <Button
-                                      onClick={() => {
+                                <div className="relative flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-2.5">
+                                  <span className="h-px w-4 bg-slate-300 absolute -left-5 top-1/2" />
+                                  <span className="h-2 w-2 rounded-full bg-slate-400 shrink-0" />
+                                  <Input
+                                    placeholder="Nom de la sous-division"
+                                    value={newSubDivisionName}
+                                    onChange={(e) => setNewSubDivisionName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        handleAddSubDivision(division.id)
+                                      } else if (e.key === "Escape") {
                                         setAddingSubDivisionTo(null)
                                         setNewSubDivisionName("")
-                                      }}
-                                      size="sm"
-                                      variant="ghost"
-                                    >
-                                      <X className="w-3.5 h-3.5" />
-                                    </Button>
-                                  </div>
+                                      }
+                                    }}
+                                    className="flex-1"
+                                    autoFocus
+                                  />
+                                  <Button
+                                    onClick={() => handleAddSubDivision(division.id)}
+                                    disabled={!newSubDivisionName.trim()}
+                                    size="sm"
+                                    className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                  </Button>
+                                  <Button
+                                    onClick={() => {
+                                      setAddingSubDivisionTo(null)
+                                      setNewSubDivisionName("")
+                                    }}
+                                    size="sm"
+                                    variant="ghost"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </Button>
                                 </div>
                               )}
 
-                              {/* Sub-Divisions List */}
-                              <div className="p-2 space-y-1.5">
-                                {division.subDivisions.length === 0 && !isAddingSubDivision ? (
-                                  <div className="text-center py-4 text-slate-400">
-                                    <FolderTree className="w-6 h-6 mx-auto mb-1 opacity-50" />
-                                    <p className="text-xs">Aucune sous-division</p>
+                              {division.subDivisions.length === 0 && !isAddingSubDivision ? (
+                                <div className="relative rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-xs text-slate-500">
+                                  <span className="h-px w-4 bg-slate-300 absolute -left-5 top-1/2" />
+                                  Aucune sous-division
+                                </div>
+                              ) : (
+                                division.subDivisions.map((subDivision) => (
+                                  <div
+                                    key={subDivision.id}
+                                    className="relative flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+                                  >
+                                    <span className="h-px w-4 bg-slate-300 absolute -left-5 top-1/2" />
+                                    <span className="h-2 w-2 rounded-full bg-slate-400 shrink-0" />
+                                    {editingSubDivisionId === subDivision.id ? (
+                                      <>
+                                        <Input
+                                          value={editingSubDivisionName}
+                                          onChange={(e) => setEditingSubDivisionName(e.target.value)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === "Enter") {
+                                              handleSaveEditSubDivision(division.id, subDivision.id)
+                                            } else if (e.key === "Escape") {
+                                              handleCancelEditSubDivision()
+                                            }
+                                          }}
+                                          className="flex-1"
+                                          autoFocus
+                                        />
+                                        <Button
+                                          onClick={() => handleSaveEditSubDivision(division.id, subDivision.id)}
+                                          disabled={!editingSubDivisionName.trim()}
+                                          size="sm"
+                                          className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                                        >
+                                          <Check className="w-3.5 h-3.5" />
+                                        </Button>
+                                        <Button onClick={handleCancelEditSubDivision} size="sm" variant="ghost">
+                                          <X className="w-3.5 h-3.5" />
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span className="flex-1 text-slate-700 text-sm">{subDivision.name}</span>
+                                        <Button
+                                          onClick={() => handleStartEditSubDivision(subDivision)}
+                                          size="sm"
+                                          variant="ghost"
+                                          className="text-slate-600 hover:text-slate-900 h-6 w-6 p-0"
+                                        >
+                                          <Edit2 className="w-3 h-3" />
+                                        </Button>
+                                        <Button
+                                          onClick={() => handleDeleteSubDivision(division.id, subDivision.id)}
+                                          size="sm"
+                                          variant="ghost"
+                                          className="text-red-600 hover:text-red-700 hover:bg-red-50 h-6 w-6 p-0"
+                                        >
+                                          <Trash2 className="w-3 h-3" />
+                                        </Button>
+                                      </>
+                                    )}
                                   </div>
-                                ) : (
-                                  division.subDivisions.map((subDivision) => (
-                                    <div
-                                      key={subDivision.id}
-                                      className="flex items-center gap-3 p-2 bg-slate-50 rounded-lg border border-slate-200 hover:border-slate-300 transition-colors ml-7"
-                                    >
-                                      <FolderTree className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                                      {editingSubDivisionId === subDivision.id ? (
-                                        <>
-                                          <Input
-                                            value={editingSubDivisionName}
-                                            onChange={(e) => setEditingSubDivisionName(e.target.value)}
-                                            onKeyDown={(e) => {
-                                              if (e.key === "Enter") {
-                                                handleSaveEditSubDivision(division.id, subDivision.id)
-                                              } else if (e.key === "Escape") {
-                                                handleCancelEditSubDivision()
-                                              }
-                                            }}
-                                            className="flex-1"
-                                            autoFocus
-                                          />
-                                          <Button
-                                            onClick={() => handleSaveEditSubDivision(division.id, subDivision.id)}
-                                            disabled={!editingSubDivisionName.trim()}
-                                            size="sm"
-                                            className="bg-emerald-500 hover:bg-emerald-600 text-white"
-                                          >
-                                            <Check className="w-3.5 h-3.5" />
-                                          </Button>
-                                          <Button
-                                            onClick={handleCancelEditSubDivision}
-                                            size="sm"
-                                            variant="ghost"
-                                          >
-                                            <X className="w-3.5 h-3.5" />
-                                          </Button>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <span className="flex-1 text-slate-600 text-xs">{subDivision.name}</span>
-                                          <Button
-                                            onClick={() => handleStartEditSubDivision(subDivision)}
-                                            size="sm"
-                                            variant="ghost"
-                                            className="text-slate-600 hover:text-slate-900 h-6 w-6 p-0"
-                                          >
-                                            <Edit2 className="w-3 h-3" />
-                                          </Button>
-                                          <Button
-                                            onClick={() => handleDeleteSubDivision(division.id, subDivision.id)}
-                                            size="sm"
-                                            variant="ghost"
-                                            className="text-red-600 hover:text-red-700 hover:bg-red-50 h-6 w-6 p-0"
-                                          >
-                                            <Trash2 className="w-3 h-3" />
-                                          </Button>
-                                        </>
-                                      )}
-                                    </div>
-                                  ))
-                                )}
-                              </div>
+                                ))
+                              )}
                             </div>
-                          )}
+                          </div>
                         </div>
                       )
                     })}
                   </div>
                 ) : (
                   <div className="text-center py-12 text-slate-500">
-                    <Folder className="w-12 h-12 mx-auto mb-4 text-slate-400" />
+                    <Building2 className="w-12 h-12 mx-auto mb-4 text-slate-400" />
                     <p className="text-sm font-medium">Aucune division configurée</p>
                     <p className="text-xs mt-1 text-slate-400">
                       Cliquez sur "Ajouter une division" pour commencer

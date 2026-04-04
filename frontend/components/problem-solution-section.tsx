@@ -76,14 +76,6 @@ export function ProblemSolutionSection() {
       name: "Consolidation",
       challenges: [
         {
-          icon: Clock,
-          title: "Informations financières trop tardives",
-          description:
-            "Décisions stratégiques prises sur des données comptables obsolètes, impactant la réactivité opérationnelle et la prise de décision.",
-          solution:
-            "Synchronisation automatique avec votre logiciel comptable pour des données financières actualisées en continu et accessibles en temps réel.",
-        },
-        {
           icon: LayoutDashboard,
           title: "Manque de vision consolidée",
           description:
@@ -93,19 +85,19 @@ export function ProblemSolutionSection() {
         },
         {
           icon: FileSpreadsheet,
-          title: "Dépendance aux fichiers Excel instables",
+          title: "Élimination intercos complexe",
           description:
-            "Risques d'erreurs, formules brisées et versions multiples compromettant l'intégrité des données financières et la fiabilité des analyses.",
+            "Les opérations intercompagnies sont difficiles à repérer et à éliminer de façon fiable, ce qui peut fausser les résultats consolidés.",
           solution:
-            "Remplacement d'Excel par une plateforme cloud sécurisée, éliminant les risques de perte de données et garantissant la cohérence des informations.",
+            "Règles d'élimination intercos structurées avec contrôles automatiques pour fiabiliser les écritures de consolidation et accélérer les clôtures.",
         },
         {
-          icon: Users,
-          title: "Risque lié aux employés clés",
+          icon: BarChart3,
+          title: "Prise en compte des taux de change insuffisante",
           description:
-            "Concentration des connaissances financières sur une seule personne, créant un risque opérationnel et une dépendance critique pour l'organisation.",
+            "La conversion multi-devises est souvent manuelle et incohérente, créant des écarts de consolidation et des analyses moins fiables.",
           solution:
-            "Processus financiers standardisés et documentés, garantissant la continuité opérationnelle et la transmission des connaissances au sein de l'équipe.",
+            "Gestion des taux de change par période avec conversion automatisée et suivi des impacts pour une consolidation multi-devises cohérente.",
         },
       ],
     },
@@ -114,6 +106,14 @@ export function ProblemSolutionSection() {
       name: "Reporting financier",
       icon: Presentation,
       challenges: [
+        {
+          icon: Clock,
+          title: "Informations financières trop tardives",
+          description:
+            "Décisions stratégiques prises sur des données comptables obsolètes, impactant la réactivité opérationnelle et la prise de décision.",
+          solution:
+            "Synchronisation automatique avec votre logiciel comptable pour des données financières actualisées en continu et accessibles en temps réel.",
+        },
         {
           icon: FileText,
           title: "Perte de temps à produire des rapports",
@@ -124,11 +124,19 @@ export function ProblemSolutionSection() {
         },
         {
           icon: BarChart3,
-          title: "Indicateurs clés absents ou peu fiables",
+          title: "Comparaisons historiques et budgétaires limitées",
           description:
-            "KPI financiers non standardisés ou calculés manuellement, réduisant la fiabilité des analyses et la qualité des décisions stratégiques.",
+            "Difficulté à comparer rapidement la performance actuelle avec les périodes passées ou le budget, ce qui ralentit l'interprétation des écarts.",
           solution:
-            "Bibliothèque complète d'indicateurs financiers standards (ratios, marges, cycles) calculés automatiquement et mis à jour en temps réel.",
+            "Comparaison instantanée réel vs passé et réel vs budget avec visualisation des écarts pour accélérer l'analyse et la prise de décision.",
+        },
+        {
+          icon: History,
+          title: "Historique financier inexploitable",
+          description:
+            "Données historiques mal structurées, limitant les analyses comparatives et les tendances, réduisant la capacité d'apprentissage organisationnel.",
+          solution:
+            "Archivage automatique et structuré de vos données financières pour analyses comparatives et tendances avec visualisations temporelles détaillées.",
         },
       ],
     },
@@ -145,20 +153,36 @@ export function ProblemSolutionSection() {
             "Reconstruction automatique de la rentabilité par division, produit, client ou projet avec allocation précise des coûts et visualisation détaillée des marges.",
         },
         {
-          icon: PieChart,
-          title: "Absence d'analyses financières avancées",
+          icon: Calendar,
+          title: "Manque de suivi des Capex",
           description:
-            "Manque d'analyses approfondies du fonds de roulement, des capex et des flux de trésorerie, limitant la compréhension de la santé financière.",
+            "Difficulté à planifier et prioriser les investissements, avec une visibilité limitée sur les impacts financiers à court et moyen terme.",
           solution:
-            "Modules dédiés pour le fonds de roulement, les capex, les flux de trésorerie et les ratios financiers avec analyses prédictives et recommandations.",
+            "Analyse dédiée des capex avec suivi des scénarios, impacts sur la trésorerie et priorisation des projets d'investissement.",
         },
         {
-          icon: History,
-          title: "Historique financier inexploitable",
+          icon: DollarSign,
+          title: "Fonds de roulement mal maîtrisé",
           description:
-            "Données historiques mal structurées, limitant les analyses comparatives et les tendances, réduisant la capacité d'apprentissage organisationnel.",
+            "Manque de suivi structuré des leviers du fonds de roulement (clients, fournisseurs, inventaires), ce qui réduit la liquidité disponible.",
           solution:
-            "Archivage automatique et structuré de vos données financières pour analyses comparatives et tendances avec visualisations temporelles détaillées.",
+            "Module fonds de roulement pour suivre les cycles d'encaissement et de décaissement, et identifier les leviers d'optimisation.",
+        },
+        {
+          icon: PieChart,
+          title: "Ratios financiers non exploités",
+          description:
+            "Absence de lecture continue des ratios clés (liquidité, solvabilité, rentabilité), limitant l'anticipation des risques et la prise de décision.",
+          solution:
+            "Bibliothèque de ratios financiers avec suivi temporel, comparatifs et alertes pour orienter les décisions financières.",
+        },
+        {
+          icon: FileSpreadsheet,
+          title: "Dépendance aux fichiers Excel instables",
+          description:
+            "Risques d'erreurs, formules brisées et versions multiples compromettant l'intégrité des données financières et la fiabilité des analyses.",
+          solution:
+            "Remplacement d'Excel par une plateforme cloud sécurisée, éliminant les risques de perte de données et garantissant la cohérence des informations.",
         },
       ],
     },
@@ -168,11 +192,27 @@ export function ProblemSolutionSection() {
       challenges: [
         {
           icon: Calendar,
-          title: "Budgets et prévisions rudimentaires",
+          title: "Budget mensuel difficile à piloter",
           description:
-            "Processus de budgétisation manuel et fragile, limitant la capacité de projection stratégique et la réactivité face aux changements.",
+            "Le suivi budgétaire mensuel est souvent manuel, dispersé et peu réactif, ce qui ralentit les ajustements en cours d'année.",
           solution:
-            "Prévisions multi-scénarios basées sur vos moteurs de revenus réels avec ajustements dynamiques et alertes automatiques sur les écarts significatifs.",
+            "Budget mensuel structuré avec suivi des écarts en continu pour ajuster rapidement vos actions opérationnelles.",
+        },
+        {
+          icon: History,
+          title: "Projections 2-5 ans limitées",
+          description:
+            "La planification à moyen terme manque de structure, rendant difficile l'anticipation des besoins financiers et des trajectoires de croissance.",
+          solution:
+            "Projections financières sur 2 à 5 ans avec hypothèses claires et vues synthétiques pour soutenir les décisions stratégiques.",
+        },
+        {
+          icon: PieChart,
+          title: "Création de scénarios possibles insuffisante",
+          description:
+            "L'absence de scénarios comparatifs limite la capacité à tester les impacts d'options stratégiques avant de prendre des décisions.",
+          solution:
+            "Création rapide de scénarios (prudent, réaliste, ambitieux) avec comparaison des impacts pour éclairer vos choix.",
         },
       ],
     },
@@ -188,6 +228,22 @@ export function ProblemSolutionSection() {
           solution:
             "Suivi en temps réel de la valeur d'entreprise avec calcul automatique des multiples et analyse des déterminants pour optimiser la valorisation.",
         },
+        {
+          icon: Briefcase,
+          title: "Évaluation du modèle d'affaires insuffisante",
+          description:
+            "Le modèle d'affaires est rarement évalué de manière structurée, ce qui limite la compréhension des forces, faiblesses et axes d'amélioration.",
+          solution:
+            "Cadre d'évaluation du modèle d'affaires avec indicateurs clés et lecture synthétique pour guider les décisions de positionnement.",
+        },
+        {
+          icon: BarChart3,
+          title: "Leviers créant de la valeur peu identifiés",
+          description:
+            "Les principaux leviers de création de valeur ne sont pas clairement quantifiés, rendant difficile la priorisation des initiatives stratégiques.",
+          solution:
+            "Identification des leviers créant de la valeur avec scénarios comparatifs pour estimer les impacts et orienter les priorités.",
+        },
       ],
     },
     {
@@ -195,20 +251,28 @@ export function ProblemSolutionSection() {
       name: "Documentation",
       challenges: [
         {
-          icon: AlertTriangle,
-          title: "Détection tardive des anomalies",
+          icon: MessageSquare,
+          title: "Possibilité de prendre des notes sur les écarts",
           description:
-            "Identification tardive des écarts budgétaires et anomalies financières, limitant la réactivité et augmentant les risques opérationnels.",
+            "Les explications d'écarts sont souvent dispersées dans des courriels ou fichiers non centralisés, ce qui nuit au suivi et à la compréhension collective.",
           solution:
-            "Système d'alertes automatiques pour identifier immédiatement les écarts budgétaires et anomalies avec notifications personnalisables et priorités.",
+            "Ajout de notes directement sur les écarts pour documenter les causes, conserver l'historique et faciliter les revues mensuelles.",
         },
         {
-          icon: Briefcase,
-          title: "Dépendance excessive aux consultants",
+          icon: FileSpreadsheet,
+          title: "Dépôt des documents comptables par GL limité",
           description:
-            "Coûts récurrents élevés pour des analyses financières qui pourraient être automatisées, impactant négativement la rentabilité de l'entreprise.",
+            "Le classement des pièces justificatives n'est pas toujours lié aux bons comptes GL, ce qui ralentit les validations et la clôture annuelle.",
           solution:
-            "Réduction significative des coûts d'analyse grâce à l'automatisation des calculs et rapports financiers, tout en maintenant une qualité professionnelle élevée.",
+            "Dépôt des documents comptables par GL pour centraliser les preuves, accélérer la revue et faciliter la clôture annuelle.",
+        },
+        {
+          icon: UserCog,
+          title: "Traçabilité des mises à jour insuffisante",
+          description:
+            "Il est difficile de savoir qui a modifié quoi et quand, ce qui réduit la transparence et complique les contrôles internes.",
+          solution:
+            "Journal des modifications indiquant qui a effectué les dernières mises à jour et à quel moment, pour une traçabilité complète.",
         },
       ],
     },
@@ -217,20 +281,36 @@ export function ProblemSolutionSection() {
       name: "Collaboration",
       challenges: [
         {
-          icon: MessageSquare,
-          title: "Communication difficile avec le cabinet comptable",
+          icon: Users,
+          title: "Risque lié aux employés clés",
           description:
-            "Échanges de documents multiples et risques d'erreurs dans la transmission d'informations financières, compliquant la collaboration efficace.",
+            "Concentration des connaissances financières sur une seule personne, créant un risque opérationnel et une dépendance critique pour l'organisation.",
           solution:
-            "Espace de travail partagé permettant la collaboration en temps réel avec votre cabinet comptable, avec accès sécurisé et traçabilité complète.",
+            "Processus financiers standardisés et documentés, garantissant la continuité opérationnelle et la transmission des connaissances au sein de l'équipe.",
+        },
+        {
+          icon: MessageSquare,
+          title: "Communication avec son comptable difficile",
+          description:
+            "Les échanges avec le cabinet comptable sont souvent fragmentés, ce qui ralentit le traitement des demandes et la validation des informations.",
+          solution:
+            "Espace partagé centralisant les échanges et documents avec votre comptable pour fluidifier la collaboration et réduire les délais.",
+        },
+        {
+          icon: Building2,
+          title: "Communication avec sa banque limitée",
+          description:
+            "Les informations financières demandées par la banque ne sont pas toujours prêtes ou bien structurées, ce qui peut nuire aux discussions de financement.",
+          solution:
+            "Production rapide d'informations financières claires et partageables pour améliorer les échanges avec votre institution bancaire.",
         },
         {
           icon: UserCog,
-          title: "Manque de ressources pour un CFO analytique",
+          title: "Suivi interne des modifications insuffisant",
           description:
-            "Coût prohibitif d'un CFO expérimenté pour les PME, limitant l'accès à l'expertise financière avancée et aux analyses stratégiques approfondies.",
+            "L'équipe manque de visibilité sur les changements récents, ce qui complique les validations internes et le contrôle de qualité.",
           solution:
-            "Accès à des fonctionnalités d'analyse financière avancée à une fraction du coût d'un CFO à temps plein, avec support et formation inclus.",
+            "Historique des modifications avec utilisateur, date et détail des changements pour renforcer la coordination et la gouvernance interne.",
         },
       ],
     },
@@ -291,10 +371,13 @@ export function ProblemSolutionSection() {
             <div className="mb-6">
               <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Pourquoi</p>
               <h2 className="text-3xl sm:text-4xl md:text-5xl mb-4 font-semibold leading-tight tracking-tight text-[#2A2F3A]">
-                Les enjeux financiers du quotidien et ce que la plateforme change concrètement
+                Les enjeux financiers du quotidien et ce que nous changeons concrètement
               </h2>
               <p className="text-lg sm:text-xl text-[#5C5F66] max-w-3xl leading-relaxed">
-                Retards d&apos;information, silos de données et outils peu robustes pèsent souvent sur le pilotage financier. Modelisys mutualise la donnée comptable et fiabilise consolidation, reporting et projections. Sans alignement avec votre situation, inutile de poursuivre ; sinon, chaque carte résume l&apos;enjeu et la réponse.
+                Retards d&apos;information, silos de données et outils peu robustes freinent vos décisions. Modelisys
+                centralise vos données et structure vos analyses pour vous rendre plus rapide, plus efficace et plus
+                stratégique. Parce qu&apos;au bout de chaque décision financière, un seul enjeu compte : créer et
+                maximiser la valeur de votre entreprise.
               </p>
               <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
             </div>

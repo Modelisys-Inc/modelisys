@@ -26,6 +26,7 @@ class FinancialStatementRow(BaseModel):
     isSection: bool = False
     isResult: bool = False
     detailRows: list[FinancialStatementDetailRow] = []
+    annexLetter: str | None = None
 
 
 class FinancialStatementResponse(BaseModel):

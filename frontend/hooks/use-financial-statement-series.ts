@@ -18,6 +18,8 @@ interface UseFinancialStatementSeriesParams {
   customer?: string | null
   supplier?: string | null
   enabled?: boolean  // skip fetch when false
+  /** Incrémenté après sauvegarde de la structure (compte de résultat, etc.) pour refetch. */
+  structureVersion?: number
 }
 
 interface UseFinancialStatementSeriesReturn {
@@ -39,6 +41,7 @@ export function useFinancialStatementSeries({
   customer,
   supplier,
   enabled = true,
+  structureVersion = 0,
 }: UseFinancialStatementSeriesParams): UseFinancialStatementSeriesReturn {
   const [data, setData] = useState<FinancialStatementSeriesResponse | null>(null)
   const [loading, setLoading] = useState(false)
@@ -62,6 +65,7 @@ export function useFinancialStatementSeries({
       sub_division_id: subDivisionId || undefined,
       customer: customer || undefined,
       supplier: supplier || undefined,
+      structure_rev: structureVersion > 0 ? structureVersion : undefined,
     })
       .then((response) => {
         if (!cancelled) {
@@ -79,7 +83,19 @@ export function useFinancialStatementSeries({
       })
 
     return () => { cancelled = true }
-  }, [companyId, statementType, fiscalYear, months, divisionId, subDivisionId, customer, supplier, enabled, reloadCounter])
+  }, [
+    companyId,
+    statementType,
+    fiscalYear,
+    months,
+    divisionId,
+    subDivisionId,
+    customer,
+    supplier,
+    enabled,
+    reloadCounter,
+    structureVersion,
+  ])
 
   return {
     data,

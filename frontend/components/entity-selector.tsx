@@ -1,6 +1,7 @@
 "use client"
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { cn } from "@/lib/utils"
 
 export interface Company {
   id: string
@@ -27,6 +28,9 @@ interface EntitySelectorProps {
   onCompanyChange: (companyId: string | null) => void
   onDivisionChange: (divisionId: string | null) => void
   onSubDivisionChange: (subDivisionId: string | null) => void
+  disableCompanySelection?: boolean
+  /** Même style que les sélecteurs Horizon / comparaison sur les pages états financiers (fond #2A2F3A, bordure claire). */
+  darkControlBar?: boolean
 }
 
 export function EntitySelector({
@@ -37,6 +41,8 @@ export function EntitySelector({
   onCompanyChange,
   onDivisionChange,
   onSubDivisionChange,
+  disableCompanySelection = false,
+  darkControlBar = false,
 }: EntitySelectorProps) {
   const selectedCompany = companies.find((c) => c.id === selectedCompanyId)
   const availableDivisions = selectedCompany?.divisions || []
@@ -60,28 +66,39 @@ export function EntitySelector({
     onSubDivisionChange(value === "all" ? null : value)
   }
 
+  const triggerClass = (extra?: string) =>
+    cn(
+      "h-8 w-[180px] text-xs",
+      darkControlBar
+        ? "border border-white/10 bg-[#2A2F3A]/55 text-[#C9B8A5] hover:bg-white/5 focus:ring-2 focus:ring-[#E0742D]/35"
+        : "border-slate-700 bg-slate-800/50 text-slate-300 hover:bg-slate-700/50",
+      extra,
+    )
+
   return (
-    <div className="flex gap-2 flex-wrap items-center">
-      <Select value={selectedCompanyId || "all"} onValueChange={handleCompanyChange}>
-        <SelectTrigger className="w-[180px] h-8 bg-slate-800/50 border-slate-700 text-slate-300 text-xs hover:bg-slate-700/50">
-          <SelectValue placeholder="Société" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">Toutes les sociétés</SelectItem>
-          {companies.map((company) => (
-            <SelectItem key={company.id} value={company.id}>
-              {company.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+    <div className="flex flex-wrap items-center gap-2">
+      {!disableCompanySelection && (
+        <Select value={selectedCompanyId || "all"} onValueChange={handleCompanyChange}>
+          <SelectTrigger className={triggerClass()}>
+            <SelectValue placeholder="Société" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Toutes les sociétés</SelectItem>
+            {companies.map((company) => (
+              <SelectItem key={company.id} value={company.id}>
+                {company.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       <Select
         value={selectedDivisionId || "all"}
         onValueChange={handleDivisionChange}
         disabled={!selectedCompanyId}
       >
-        <SelectTrigger className="w-[180px] h-8 bg-slate-800/50 border-slate-700 text-slate-300 text-xs hover:bg-slate-700/50 disabled:opacity-30" disabled={!selectedCompanyId}>
+        <SelectTrigger className={triggerClass("disabled:opacity-30")} disabled={!selectedCompanyId}>
           <SelectValue placeholder={selectedCompanyId ? "Division" : "Sélectionner une société"} />
         </SelectTrigger>
         <SelectContent>
@@ -99,7 +116,7 @@ export function EntitySelector({
         onValueChange={handleSubDivisionChange}
         disabled={!selectedDivisionId}
       >
-        <SelectTrigger className="w-[180px] h-8 bg-slate-800/50 border-slate-700 text-slate-300 text-xs hover:bg-slate-700/50 disabled:opacity-30" disabled={!selectedDivisionId}>
+        <SelectTrigger className={triggerClass("disabled:opacity-30")} disabled={!selectedDivisionId}>
           <SelectValue placeholder={selectedDivisionId ? "Sous-division" : "Sélectionner une division"} />
         </SelectTrigger>
         <SelectContent>

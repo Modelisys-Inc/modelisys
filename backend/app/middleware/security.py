@@ -13,6 +13,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
 
+        # Skip security headers on CORS preflight requests
+        if request.method == "OPTIONS":
+            return response
+
         # Prevent clickjacking
         response.headers["X-Frame-Options"] = "DENY"
 

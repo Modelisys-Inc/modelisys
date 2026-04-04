@@ -45,9 +45,9 @@ const audienceContent: Record<
     title: "Analyse & diligence. Crédit & surveillance. Investissement & valorisation. IA.",
     description:
       "Des informations à jour et exploitables pour vos revues, échanges et décisions avec les PME.",
-    acteurs: ["Prêteurs", "Firmes d’investissement", "Autres institutions"],
+    acteurs: ["Prêteurs", "Firmes d’investissement", "Autres acteurs financiers"],
     ctaKind: "route",
-    ctaTarget: "/partenaires-institutionnels",
+    ctaTarget: "/partenaires-financiers",
   },
 }
 
