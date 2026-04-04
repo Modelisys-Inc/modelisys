@@ -1247,26 +1247,6 @@ export function IncomeStatementDetail({
     (loading && !isForecastSection && !isMultiPeriodView) ||
     entityDataLoading
 
-  // Show "no data" state when data is empty and not loading
-  if (data.length === 0 && !isDataLoading && !isForecastSection) {
-    return (
-      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
-        <div className={dashboardCardRingClass} aria-hidden />
-        <div className="relative">
-          <div className={cn("px-8 py-5", dashboardCardHeaderBarClass)}>
-            <div className="flex items-center gap-3">
-              <div className={cn("h-12 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
-              <h2 className={cn("text-xl", dashboardCardTitleClass)}>{title}</h2>
-            </div>
-          </div>
-          <div className="px-8 py-16 text-center">
-            <p className={cn("text-sm", dashboardCardBodyMutedClass)}>Aucune donnée disponible pour cette période.</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   useEffect(() => {
     if (!isComparisonMode) {
       setEntityDataMap(prev => Object.keys(prev).length === 0 ? prev : {})
@@ -1369,6 +1349,26 @@ export function IncomeStatementDetail({
     incomeStatementStructure,
     filterSeriesRowsDefinedOnly,
   ])
+
+  // Show "no data" state when data is empty and not loading
+  if (data.length === 0 && !isDataLoading && !isForecastSection) {
+    return (
+      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+        <div className={dashboardCardRingClass} aria-hidden />
+        <div className="relative">
+          <div className={cn("px-8 py-5", dashboardCardHeaderBarClass)}>
+            <div className="flex items-center gap-3">
+              <div className={cn("h-12 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
+              <h2 className={cn("text-xl", dashboardCardTitleClass)}>{title}</h2>
+            </div>
+          </div>
+          <div className="px-8 py-16 text-center">
+            <p className={cn("text-sm", dashboardCardBodyMutedClass)}>Aucune donnée disponible pour cette période.</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Helper function to calculate percentage of revenue
   const getRevenuePercentage = (value: number, isPrior: boolean): number => {

@@ -1,4 +1,5 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+// Use relative URLs — Next.js rewrites proxy /api/* to the backend, avoiding CORS.
+const API_URL = ""
 
 interface FetchOptions extends Omit<RequestInit, "body"> {
   body?: unknown
