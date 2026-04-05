@@ -63,12 +63,17 @@ info "ACR login server: $ACR_LOGIN_SERVER"
 
 # --- PostgreSQL Flexible Server ----------------------------------------------
 info "Creating PostgreSQL Flexible Server: $DB_SERVER"
-DB_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
 
-# Check if server already exists
+DB_ALREADY_EXISTS=false
 if az postgres flexible-server show --name "$DB_SERVER" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
+  DB_ALREADY_EXISTS=true
   info "PostgreSQL server already exists, skipping creation"
+  info "NOTE: You must provide the existing DB password when prompted."
+  read -sp "Enter existing PostgreSQL admin password: " DB_PASSWORD
+  echo ""
 else
+  DB_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
+
   az postgres flexible-server create \
     --resource-group "$RESOURCE_GROUP" \
     --name "$DB_SERVER" \
@@ -79,7 +84,7 @@ else
     --tier Burstable \
     --version 16 \
     --storage-size 32 \
-    --public-access 0.0.0.0 \
+    --public-access none \
     --output none
 
   info "Creating database: $DB_NAME"
@@ -109,52 +114,97 @@ az containerapp env create \
 JWT_SECRET=$(openssl rand -hex 32)
 
 # --- Backend Container App ---------------------------------------------------
-info "Creating backend container app: $BACKEND_APP"
-az containerapp create \
-  --resource-group "$RESOURCE_GROUP" \
-  --name "$BACKEND_APP" \
-  --environment "$CONTAINER_ENV" \
-  --image "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest" \
-  --target-port 8000 \
-  --ingress external \
-  --min-replicas 0 \
-  --max-replicas 2 \
-  --cpu 0.25 \
-  --memory 0.5Gi \
-  --registry-server "$ACR_LOGIN_SERVER" \
-  --registry-username "$ACR_USERNAME" \
-  --registry-password "$ACR_PASSWORD" \
-  --secrets \
-    "database-url=$DATABASE_URL" \
-    "jwt-secret=$JWT_SECRET" \
-  --env-vars \
-    "DATABASE_URL=secretref:database-url" \
-    "JWT_SECRET_KEY=secretref:jwt-secret" \
-    "ENVIRONMENT=production" \
-    "CORS_ORIGINS=https://app.modelisys.com" \
-    "FRONTEND_URL=https://app.modelisys.com" \
-  --output none
+if az containerapp show --name "$BACKEND_APP" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
+  info "Backend container app already exists, updating..."
+  az containerapp update \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$BACKEND_APP" \
+    --set-env-vars \
+      "DATABASE_URL=secretref:database-url" \
+      "JWT_SECRET_KEY=secretref:jwt-secret" \
+      "ENVIRONMENT=production" \
+      "CORS_ORIGINS=https://app.modelisys.com" \
+      "FRONTEND_URL=https://app.modelisys.com" \
+    --output none
+else
+  info "Creating backend container app: $BACKEND_APP"
+  az containerapp create \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$BACKEND_APP" \
+    --environment "$CONTAINER_ENV" \
+    --image "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest" \
+    --target-port 8000 \
+    --ingress external \
+    --min-replicas 0 \
+    --max-replicas 2 \
+    --cpu 0.25 \
+    --memory 0.5Gi \
+    --registry-server "$ACR_LOGIN_SERVER" \
+    --registry-username "$ACR_USERNAME" \
+    --registry-password "$ACR_PASSWORD" \
+    --secrets \
+      "database-url=$DATABASE_URL" \
+      "jwt-secret=$JWT_SECRET" \
+    --env-vars \
+      "DATABASE_URL=secretref:database-url" \
+      "JWT_SECRET_KEY=secretref:jwt-secret" \
+      "ENVIRONMENT=production" \
+      "CORS_ORIGINS=https://app.modelisys.com" \
+      "FRONTEND_URL=https://app.modelisys.com" \
+    --output none
+fi
 
 # --- Frontend Container App --------------------------------------------------
-info "Creating frontend container app: $FRONTEND_APP"
-az containerapp create \
+if az containerapp show --name "$FRONTEND_APP" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
+  info "Frontend container app already exists, updating..."
+  az containerapp update \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$FRONTEND_APP" \
+    --set-env-vars \
+      "NEXT_PUBLIC_API_URL=https://api.modelisys.com" \
+      "NODE_ENV=production" \
+    --output none
+else
+  info "Creating frontend container app: $FRONTEND_APP"
+  az containerapp create \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$FRONTEND_APP" \
+    --environment "$CONTAINER_ENV" \
+    --image "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest" \
+    --target-port 3000 \
+    --ingress external \
+    --min-replicas 0 \
+    --max-replicas 2 \
+    --cpu 0.25 \
+    --memory 0.5Gi \
+    --registry-server "$ACR_LOGIN_SERVER" \
+    --registry-username "$ACR_USERNAME" \
+    --registry-password "$ACR_PASSWORD" \
+    --env-vars \
+      "NEXT_PUBLIC_API_URL=https://api.modelisys.com" \
+      "NODE_ENV=production" \
+    --output none
+fi
+
+# --- PostgreSQL Firewall: Allow Container Apps outbound IPs -------------------
+info "Configuring PostgreSQL firewall for Container Apps..."
+OUTBOUND_IPS=$(az containerapp env show \
+  --name "$CONTAINER_ENV" \
   --resource-group "$RESOURCE_GROUP" \
-  --name "$FRONTEND_APP" \
-  --environment "$CONTAINER_ENV" \
-  --image "mcr.microsoft.com/azuredocs/containerapps-helloworld:latest" \
-  --target-port 3000 \
-  --ingress external \
-  --min-replicas 0 \
-  --max-replicas 2 \
-  --cpu 0.25 \
-  --memory 0.5Gi \
-  --registry-server "$ACR_LOGIN_SERVER" \
-  --registry-username "$ACR_USERNAME" \
-  --registry-password "$ACR_PASSWORD" \
-  --env-vars \
-    "NEXT_PUBLIC_API_URL=https://api.modelisys.com" \
-    "NODE_ENV=production" \
-  --output none
+  --query "properties.staticIp" -o tsv 2>/dev/null || true)
+
+if [ -n "$OUTBOUND_IPS" ]; then
+  az postgres flexible-server firewall-rule create \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$DB_SERVER" \
+    --rule-name "AllowContainerApps" \
+    --start-ip-address "$OUTBOUND_IPS" \
+    --end-ip-address "$OUTBOUND_IPS" \
+    --output none 2>/dev/null || info "Firewall rule already exists"
+  info "PostgreSQL firewall configured for Container Apps IP: $OUTBOUND_IPS"
+else
+  info "WARNING: Could not determine Container Apps outbound IP. You may need to configure the PostgreSQL firewall manually."
+fi
 
 # --- Service Principal for GitHub Actions ------------------------------------
 info "Creating service principal: $SP_NAME"
@@ -162,7 +212,7 @@ SP_JSON=$(az ad sp create-for-rbac \
   --name "$SP_NAME" \
   --role Contributor \
   --scopes "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP" \
-  --sdk-auth 2>/dev/null || true)
+  --json-auth 2>/dev/null || true)
 
 if [ -z "$SP_JSON" ]; then
   info "Service principal may already exist. Resetting credentials..."
@@ -171,7 +221,7 @@ if [ -z "$SP_JSON" ]; then
     --name "$SP_NAME" \
     --role Contributor \
     --scopes "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP" \
-    --sdk-auth)
+    --json-auth)
 fi
 
 # --- Get Container App FQDNs ------------------------------------------------
