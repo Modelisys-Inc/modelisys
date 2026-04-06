@@ -7,7 +7,7 @@ import type { FinancialStatementRow, SeriesRow } from "@/lib/api"
 import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { generateId } from "@/lib/seeded-random"
-import { ChevronRight, ChevronDown, StickyNote, TrendingUp } from "lucide-react"
+import { ChevronRight, ChevronDown, ListTree, StickyNote, TrendingUp } from "lucide-react"
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react"
 import {
   listForecastConfigs,
@@ -19,6 +19,7 @@ import {
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
 import {
+  collectDistinctLinkCodesFromStructure,
   compareAnnexLetters,
   findStructureRowForStatementLine,
   formatDetailLabelWithAnnex,
@@ -26,7 +27,8 @@ import {
   isShowInDetail,
   isStructureRowDetailOnly,
   isStructureRowInDetailAnnexEditor,
-  listAnnexLettersForDetailSubLines,
+  isSummaryAnnexRowLockedInDetailEdit,
+  listAnnexOptionsForDetailSubLineModal,
   normLabel,
   normalizeAnnexLetter,
 } from "@/lib/income-statement-structure-utils"
@@ -36,7 +38,9 @@ import {
   dashboardCardBodyMutedClass,
   dashboardCardFrameStaticClass,
   dashboardCardHeaderBarClass,
+  dashboardCardHeaderIconBoxClass,
   dashboardCardRingClass,
+  dashboardCardStructureSettingsButtonClass,
   dashboardCardTitleClass,
 } from "@/lib/dashboard-card-style"
 import { NoteModal } from "@/components/note-modal"
@@ -46,7 +50,7 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { Settings, Plus, Edit2, Trash2, Loader2, Sparkles } from "lucide-react"
+import { BookMarked, Settings, Plus, Edit2, Trash2, Loader2, Sparkles } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 
@@ -112,8 +116,12 @@ type DetailAnnexStructureLayoutEntry =
   | { kind: "annexSubtotal"; letter: string }
   | { kind: "placeholder"; letter: string }
 
-const ANNEX_DETAIL_PLACEHOLDER_LABEL =
-  "Ligne vide — renommez ou supprimez dans le bouton Paramètres"
+/** Aligné sur `income-statement-summary.tsx` (Paramètres Sommaire). */
+const EMPTY_STRUCTURE_LINE_LABEL = "Ligne vide — renommez ou supprimez"
+const EMPTY_STRUCTURE_LINE_BADGE_CLASS =
+  "inline-flex items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-xs font-medium text-slate-400"
+
+const ANNEX_DETAIL_PLACEHOLDER_LABEL = EMPTY_STRUCTURE_LINE_LABEL
 
 function buildAnnexPlaceholderDetailRow(letter: string, trendValuesLength?: number): DetailRow {
   const pad =
@@ -353,6 +361,17 @@ export function IncomeStatementDetail({
   const structEdit = useIncomeStatementStructureEdit(
     companyId ?? null,
     structureEditMode && canInlineStructureEdit
+  )
+
+  const allLiaisonCodes = useMemo(
+    () => collectDistinctLinkCodesFromStructure(structEdit.structure),
+    [structEdit.structure]
+  )
+
+  /** Annexes pour la modale « Choisir une annexe » (lettre + libellé du poste au Sommaire). */
+  const detailAnnexOptionsForSubLineModal = useMemo(
+    () => listAnnexOptionsForDetailSubLineModal(structEdit.structure),
+    [structEdit.structure]
   )
 
   const detailAnnexEditorGlobalIndices = useMemo(() => {
@@ -1581,10 +1600,12 @@ export function IncomeStatementDetail({
       <div className={cn("w-full", dashboardCardFrameStaticClass)}>
         <div className={dashboardCardRingClass} aria-hidden />
         <div className="relative">
-          <div className={cn("px-8 py-5", dashboardCardHeaderBarClass)}>
-            <div className="flex items-center gap-3">
-              <div className={cn("h-12 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
-              <h2 className={cn("text-xl", dashboardCardTitleClass)}>{title}</h2>
+          <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+            <div className="flex items-center gap-4">
+              <div className={dashboardCardHeaderIconBoxClass}>
+                <ListTree className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+              </div>
+              <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
             </div>
           </div>
           <div className="px-8 py-16 text-center">
@@ -1727,6 +1748,10 @@ export function IncomeStatementDetail({
   const showStructureCols =
     isStructureStudio && !structEdit.loading && detailAnnexEditorGlobalIndices.length > 0
 
+  useEffect(() => {
+    if (showStructureCols && noteModalOpen) setNoteModalOpen(false)
+  }, [showStructureCols, noteModalOpen])
+
   const trendLenForPad = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
 
   const padDetailRowForStructure = (structRow: Record<string, unknown>): DetailRow => {
@@ -1805,13 +1830,15 @@ export function IncomeStatementDetail({
       <div className={dashboardCardRingClass} aria-hidden />
       <div className="relative">
       {/* Header */}
-      <div className={cn("border-b px-8 py-5", dashboardCardHeaderBarClass)}>
+      <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
-            <div className={cn("mt-0.5 h-12 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
+          <div className="flex min-w-0 flex-1 items-start gap-4">
+            <div className={dashboardCardHeaderIconBoxClass}>
+              <ListTree className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+            </div>
             <div className="min-w-0 flex-1">
               <div className="mb-1 flex flex-wrap items-center gap-2">
-                <h2 className={cn("text-xl", dashboardCardTitleClass)}>{title}</h2>
+                <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
                 {isStructureStudio && (
                   <Badge
                     variant="secondary"
@@ -1866,10 +1893,10 @@ export function IncomeStatementDetail({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="shrink-0 gap-2 border-slate-300 bg-white text-[#2A2F3A] transition-colors hover:border-slate-500 hover:bg-slate-50"
+                className={dashboardCardStructureSettingsButtonClass}
                 onClick={() => setStructureEditMode(true)}
               >
-                <Settings className="h-4 w-4" />
+                <Settings className={cn("h-4 w-4", dashboardCardAccentClass)} />
                 Paramètres
               </Button>
             )}
@@ -1880,7 +1907,7 @@ export function IncomeStatementDetail({
                   variant="ghost"
                   size="sm"
                   className="gap-1.5 rounded-xl text-[#2A2F3A] hover:bg-slate-100"
-                  disabled={structEdit.loading || listAnnexLettersForDetailSubLines(structEdit.structure).length === 0}
+                  disabled={structEdit.loading || detailAnnexOptionsForSubLineModal.length === 0}
                   onClick={() => setDetailAddModalOpen(true)}
                 >
                   <Plus className={cn("h-4 w-4", dashboardCardAccentClass)} />
@@ -1962,35 +1989,65 @@ export function IncomeStatementDetail({
         canInlineStructureEdit &&
         !structEdit.loading &&
         structEdit.structure.length > 0 &&
-        listAnnexLettersForDetailSubLines(structEdit.structure).length === 0 && (
+        detailAnnexOptionsForSubLineModal.length === 0 && (
           <div className="border-b border-amber-200/90 bg-gradient-to-r from-amber-50 to-amber-50/30 px-8 py-3 text-sm text-amber-950">
             Aucune annexe disponible : définissez d&apos;abord des postes avec liaison et annexe dans la vue Sommaire.
           </div>
         )}
 
       <Dialog open={detailAddModalOpen} onOpenChange={setDetailAddModalOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Choisir une annexe</DialogTitle>
-            <DialogDescription>
-              La nouvelle ligne sera insérée comme sous-catégorie sous cette annexe.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-2 py-2">
-            {listAnnexLettersForDetailSubLines(structEdit.structure).map((letter) => (
-              <Button
-                key={letter}
-                type="button"
-                variant="outline"
-                className="justify-start"
-                onClick={() => {
-                  structEdit.addDetailSubLine(letter)
-                  setDetailAddModalOpen(false)
-                }}
-              >
-                Annexe {letter}
-              </Button>
-            ))}
+        <DialogContent
+          showCloseButton
+          className="top-[max(0.75rem,env(safe-area-inset-top))] flex max-h-[calc(100dvh-1.5rem)] w-[min(100%,calc(100vw-1rem))] max-w-2xl translate-y-0 flex-col gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl shadow-slate-900/10 sm:max-w-2xl"
+        >
+          <div className="flex shrink-0 items-start gap-3 border-b border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 px-5 pb-4 pt-5 sm:px-6 sm:pb-5 sm:pt-6">
+            <div className={cn("mt-0.5 h-11 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
+            <DialogHeader className="min-w-0 flex-1 gap-0 space-y-2 text-left sm:text-left">
+              <div className="flex flex-wrap items-center gap-2">
+                <DialogTitle className={cn("text-lg", dashboardCardTitleClass)}>Choisir une annexe</DialogTitle>
+                <Badge
+                  variant="secondary"
+                  className="border border-slate-200 bg-slate-100/90 font-medium text-[#2A2F3A] shadow-none"
+                >
+                  <Sparkles className="h-3 w-3 text-[#E0742D]" />
+                  Détail
+                </Badge>
+              </div>
+              <DialogDescription className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
+                La nouvelle ligne sera insérée comme{" "}
+                <span className="font-medium text-[#2A2F3A]">sous-catégorie</span> sous l&apos;annexe sélectionnée (sous
+                les postes déjà liés à cette lettre).
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6 sm:py-5">
+            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Annexes disponibles</p>
+            <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-slate-50/80 to-white p-1.5 shadow-inner shadow-slate-900/[0.03]">
+              {detailAnnexOptionsForSubLineModal.map(({ letter, title }) => (
+                <button
+                  key={letter}
+                  type="button"
+                  className="group flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left transition hover:border-slate-200/90 hover:bg-white hover:shadow-sm"
+                  onClick={() => {
+                    structEdit.addDetailSubLine(letter)
+                    setDetailAddModalOpen(false)
+                  }}
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80 transition group-hover:bg-[#E0742D]/[0.08] group-hover:ring-[#E0742D]/30">
+                    <BookMarked className="h-4 w-4 text-[#E0742D]" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-400">Annexe</span>
+                    <span className="mt-0.5 block truncate text-sm font-semibold leading-snug text-[#2A2F3A]">{title}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            {detailAnnexOptionsForSubLineModal.length === 0 && (
+              <p className={cn("mt-4 text-center text-sm", dashboardCardBodyMutedClass)}>
+                Aucune annexe : configurez d&apos;abord des postes avec liaison et annexe dans le Sommaire.
+              </p>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -2049,7 +2106,7 @@ export function IncomeStatementDetail({
                     Liaison
                   </th>
                   <th className="box-border w-[7rem] px-2 py-4 text-center text-[11px] font-semibold text-slate-800">
-                    Annexe
+                    Lettre
                   </th>
                   <th className="w-11 px-0 py-4" aria-hidden />
                 </>
@@ -2225,6 +2282,8 @@ export function IncomeStatementDetail({
                 showStructureCols && layoutEntry?.kind === "structure"
                   ? structEdit.structure[globalIdx]!
                   : null
+              const summaryAnnexLockedInDetail =
+                structRow != null && isSummaryAnnexRowLockedInDetailEdit(structRow)
               const row = showStructureCols
                 ? layoutEntry?.kind === "placeholder"
                   ? buildAnnexPlaceholderDetailRow(layoutEntry.letter, trendLenForPad)
@@ -2297,18 +2356,36 @@ export function IncomeStatementDetail({
                   ? `${row.statementLabel}-${idx}`
                   : `detail-row-${idx}`
 
+              /** Survol en mode Paramètres (pas de zébrage : fond uniforme). */
+              const detailParamRowHover =
+                row.label !== "" ||
+                row.isAnnexPlaceholder ||
+                (layoutEntry?.kind === "structure" &&
+                  structRow != null &&
+                  String(structRow.label ?? "").trim() === "")
+
               return (
                 <Fragment key={detailRowListKey}>
                   <tr
                     className={cn(
-                      "border-b",
-                      row.label === "" && !row.isAnnexPlaceholder ? "h-2 border-slate-200" : "",
-                      row.isAnnexPlaceholder && showStructureCols && "bg-slate-50/50",
-                      row.isAnnexPlaceholder && !showStructureCols && "bg-white",
-                      annexSubtotalDarkNumbers && "bg-white",
-                      nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
-                      row.isAnnexHeader && "bg-amber-50/90",
-                      canExpand && "cursor-pointer hover:bg-slate-50"
+                      "border-b transition-colors duration-150",
+                      showStructureCols
+                        ? cn(
+                            nextRowIsSubtotal
+                              ? "border-b-2 border-b-slate-900"
+                              : "border-b border-b-slate-200/80",
+                            detailParamRowHover && "hover:bg-slate-100/70",
+                            row.isAnnexHeader && "bg-amber-50/90",
+                            annexSubtotalDarkNumbers && "bg-white"
+                          )
+                        : cn(
+                            row.label === "" && !row.isAnnexPlaceholder ? "h-2 border-slate-200" : "",
+                            row.isAnnexPlaceholder && "bg-white",
+                            annexSubtotalDarkNumbers && "bg-white",
+                            nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
+                            row.isAnnexHeader && "bg-amber-50/90",
+                            canExpand && "cursor-pointer hover:bg-slate-50"
+                          )
                     )}
                     onClick={() => canExpand && toggleRow(row.rowId!)}
                   >
@@ -2338,23 +2415,33 @@ export function IncomeStatementDetail({
                         {!canExpand && row.indent && <span className="w-4"></span>}
                         {row.isAnnexPlaceholder ? (
                           showStructureCols ? (
-                            <span className="inline-flex max-w-full flex-1 items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-xs font-medium leading-snug text-slate-400">
-                              {row.label}
-                            </span>
+                            <span className={EMPTY_STRUCTURE_LINE_BADGE_CLASS}>{row.label}</span>
                           ) : null
                         ) : row.isAnnexSubtotal ? (
-                          <span
-                            className={cn(
-                              "flex-1 font-semibold",
-                              annexSubtotalDarkNumbers ? "text-white" : "text-slate-900"
-                            )}
-                          >
-                            {row.label}
-                          </span>
+                          showStructureCols ? (
+                            <span
+                              className="flex-1 block min-h-[1.125rem]"
+                              aria-hidden
+                            />
+                          ) : (
+                            <span
+                              className={cn(
+                                "flex-1 font-semibold",
+                                annexSubtotalDarkNumbers ? "text-white" : "text-slate-900"
+                              )}
+                            >
+                              {row.label}
+                            </span>
+                          )
                         ) : showStructureCols && structRow ? (
                           String(structRow.label ?? "").trim() === "" ? (
-                            <span className="inline-flex items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-xs font-medium text-slate-400">
-                              Ligne vide — renommez ou supprimez
+                            <span className={EMPTY_STRUCTURE_LINE_BADGE_CLASS}>{EMPTY_STRUCTURE_LINE_LABEL}</span>
+                          ) : summaryAnnexLockedInDetail ? (
+                            <span
+                              className="flex-1 rounded-xl border border-slate-200/90 bg-slate-50/90 px-3 py-2 text-sm text-slate-800"
+                              title="Libellé modifiable dans la vue Sommaire (Paramètres)"
+                            >
+                              {String(structRow.label ?? "")}
                             </span>
                           ) : (
                             <Input
@@ -2366,7 +2453,7 @@ export function IncomeStatementDetail({
                         ) : (
                           <span className="flex-1">{displayLabel}</span>
                         )}
-                        {row.rowId && isNoteAllowed() && (
+                        {row.rowId && isNoteAllowed() && !showStructureCols && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
@@ -2427,8 +2514,11 @@ export function IncomeStatementDetail({
                     <IncomeStatementStructureStudioCols
                       rowIndex={globalIdx}
                       structRow={structRow}
+                      allLinkCodes={allLiaisonCodes}
                       updateRow={structEdit.updateRow}
-                      showRemoveButton={structEdit.canRemoveRowAt(globalIdx)}
+                      showRemoveButton={
+                        structEdit.canRemoveRowAt(globalIdx) && !summaryAnnexLockedInDetail
+                      }
                       onRemoveRow={structEdit.removeStructureRowAt}
                       mappingColumnsReadOnly={!isStructureRowDetailOnly(structRow)}
                       annexReadOnly={isStructureRowDetailOnly(structRow)}

@@ -325,6 +325,87 @@ def _sum_for_link_code_single_month(
     return float(total)
 
 
+def _sum_for_link_codes_single_month_aggregate(
+    codes: list[str],
+    mapping_index: dict[str, list[str]],
+    amount_index: dict[str, dict[int, Decimal]],
+    fiscal_month: int,
+    division_filter: str | None = None,
+    sub_division_filter: str | None = None,
+    mappings_by_account: dict[str, AccountMapping] | None = None,
+    customer_filter: str | None = None,
+    supplier_filter: str | None = None,
+) -> float:
+    total = 0.0
+    for c in codes:
+        total += _sum_for_link_code_single_month(
+            c,
+            mapping_index,
+            amount_index,
+            fiscal_month,
+            division_filter,
+            sub_division_filter,
+            mappings_by_account,
+            customer_filter,
+            supplier_filter,
+        )
+    return total
+
+
+def _normalize_liaison_mode(row: dict) -> str:
+    """na | single | sum | difference — aligné sur le frontend."""
+    raw = row.get("liaisonMode")
+    if isinstance(raw, str) and raw.strip():
+        m = raw.strip().lower()
+        if m in ("na", "n/a", "none"):
+            return "na"
+        if m in ("single", "unique", "code"):
+            return "single"
+        if m in ("sum", "addition", "add"):
+            return "sum"
+        if m in ("difference", "subtraction", "subtract"):
+            return "difference"
+    lc = str(row.get("linkCode") or "").strip()
+    if lc:
+        return "single"
+    sc = row.get("liaisonSumCodes") or []
+    if isinstance(sc, list) and any(str(x).strip() for x in sc):
+        return "sum"
+    nums = row.get("liaisonNumeratorCodes") or []
+    dens = row.get("liaisonDenominatorCodes") or []
+    if isinstance(nums, list) and any(str(x).strip() for x in nums):
+        return "difference"
+    if isinstance(dens, list) and any(str(x).strip() for x in dens):
+        return "difference"
+    return "na"
+
+
+def _normalize_code_list(val) -> list[str]:
+    if not val:
+        return []
+    if isinstance(val, str):
+        s = val.strip()
+        return [s] if s else []
+    out: list[str] = []
+    for x in val:
+        s = str(x).strip() if x is not None else ""
+        if s:
+            out.append(s)
+    return out
+
+
+def _row_suppresses_children_sum(row: dict) -> bool:
+    """Ligne qui ne doit pas hériter de la somme des enfants (formule / liaison explicite)."""
+    if row.get("formula"):
+        return True
+    if str(row.get("linkCode") or "").strip():
+        return True
+    mode = _normalize_liaison_mode(row)
+    if mode in ("single", "sum", "difference"):
+        return True
+    return False
+
+
 def _sum_for_link_code(
     link_code: str | None,
     mapping_index: dict[str, list[str]],
@@ -389,6 +470,45 @@ def _sum_budget_for_link_code(
     return float(total)
 
 
+def _sum_for_link_codes_aggregate(
+    codes: list[str],
+    mapping_index: dict[str, list[str]],
+    amount_index: dict[str, dict[int, Decimal]],
+    fiscal_months: list[int],
+    division_filter: str | None = None,
+    sub_division_filter: str | None = None,
+    mappings_by_account: dict[str, AccountMapping] | None = None,
+    customer_filter: str | None = None,
+    supplier_filter: str | None = None,
+) -> float:
+    total = 0.0
+    for c in codes:
+        total += _sum_for_link_code(
+            c,
+            mapping_index,
+            amount_index,
+            fiscal_months,
+            division_filter,
+            sub_division_filter,
+            mappings_by_account,
+            customer_filter,
+            supplier_filter,
+        )
+    return total
+
+
+def _sum_budget_for_link_codes_aggregate(
+    codes: list[str],
+    mapping_index: dict[str, list[str]],
+    budget_amount_index: dict[str, dict[int, Decimal]],
+    fiscal_months: list[int],
+) -> float:
+    total = 0.0
+    for c in codes:
+        total += _sum_budget_for_link_code(c, mapping_index, budget_amount_index, fiscal_months)
+    return total
+
+
 def _compute_variation(current: float, prior: float) -> float:
     """Compute percentage variation. Returns 0 if prior is 0."""
     if prior == 0:
@@ -426,7 +546,10 @@ def _process_structure_rows(
 
     Each row in the structure JSON can have:
       - label: display label
-      - linkCode: code linking to account mappings
+      - linkCode: single mapping code (mode single)
+      - liaisonMode: na | single | sum | difference
+      - liaisonSumCodes: list of codes to sum (mode sum)
+      - liaisonNumeratorCodes / liaisonDenominatorCodes: lists for num - den (mode difference)
       - hidden: if true, row is excluded from output (still in totals when parent sums children)
       - isBold, isSection, isResult: display flags
       - children: nested rows (detail rows)
@@ -449,22 +572,97 @@ def _process_structure_rows(
         current = 0.0
         prior = 0.0
 
-        if link_code:
-            current = _sum_for_link_code(
-                link_code, mapping_index, current_amount_index,
-                current_months, division_filter, sub_division_filter,
-                mappings_by_account, customer_filter, supplier_filter,
-            )
-            if use_budget_as_prior and budget_amount_index is not None:
-                prior = _sum_budget_for_link_code(
-                    link_code, mapping_index, budget_amount_index, current_months,
-                )
-            else:
-                prior = _sum_for_link_code(
-                    link_code, mapping_index, prior_amount_index,
-                    prior_months, division_filter, sub_division_filter,
+        mode = _normalize_liaison_mode(row)
+        if mode == "single":
+            lc = str(row.get("linkCode") or "").strip()
+            if lc:
+                current = _sum_for_link_code(
+                    lc, mapping_index, current_amount_index,
+                    current_months, division_filter, sub_division_filter,
                     mappings_by_account, customer_filter, supplier_filter,
                 )
+                if use_budget_as_prior and budget_amount_index is not None:
+                    prior = _sum_budget_for_link_code(
+                        lc, mapping_index, budget_amount_index, current_months,
+                    )
+                else:
+                    prior = _sum_for_link_code(
+                        lc, mapping_index, prior_amount_index,
+                        prior_months, division_filter, sub_division_filter,
+                        mappings_by_account, customer_filter, supplier_filter,
+                    )
+        elif mode == "sum":
+            codes = _normalize_code_list(row.get("liaisonSumCodes"))
+            if codes:
+                current = _sum_for_link_codes_aggregate(
+                    codes, mapping_index, current_amount_index,
+                    current_months, division_filter, sub_division_filter,
+                    mappings_by_account, customer_filter, supplier_filter,
+                )
+                if use_budget_as_prior and budget_amount_index is not None:
+                    prior = _sum_budget_for_link_codes_aggregate(
+                        codes, mapping_index, budget_amount_index, current_months,
+                    )
+                else:
+                    prior = _sum_for_link_codes_aggregate(
+                        codes, mapping_index, prior_amount_index,
+                        prior_months, division_filter, sub_division_filter,
+                        mappings_by_account, customer_filter, supplier_filter,
+                    )
+        elif mode == "difference":
+            nums = _normalize_code_list(row.get("liaisonNumeratorCodes"))
+            dens = _normalize_code_list(row.get("liaisonDenominatorCodes"))
+            cur_n = (
+                _sum_for_link_codes_aggregate(
+                    nums, mapping_index, current_amount_index,
+                    current_months, division_filter, sub_division_filter,
+                    mappings_by_account, customer_filter, supplier_filter,
+                )
+                if nums
+                else 0.0
+            )
+            cur_d = (
+                _sum_for_link_codes_aggregate(
+                    dens, mapping_index, current_amount_index,
+                    current_months, division_filter, sub_division_filter,
+                    mappings_by_account, customer_filter, supplier_filter,
+                )
+                if dens
+                else 0.0
+            )
+            current = cur_n - cur_d
+            if use_budget_as_prior and budget_amount_index is not None:
+                pri_n = (
+                    _sum_budget_for_link_codes_aggregate(nums, mapping_index, budget_amount_index, current_months)
+                    if nums
+                    else 0.0
+                )
+                pri_d = (
+                    _sum_budget_for_link_codes_aggregate(dens, mapping_index, budget_amount_index, current_months)
+                    if dens
+                    else 0.0
+                )
+                prior = pri_n - pri_d
+            else:
+                pri_n = (
+                    _sum_for_link_codes_aggregate(
+                        nums, mapping_index, prior_amount_index,
+                        prior_months, division_filter, sub_division_filter,
+                        mappings_by_account, customer_filter, supplier_filter,
+                    )
+                    if nums
+                    else 0.0
+                )
+                pri_d = (
+                    _sum_for_link_codes_aggregate(
+                        dens, mapping_index, prior_amount_index,
+                        prior_months, division_filter, sub_division_filter,
+                        mappings_by_account, customer_filter, supplier_filter,
+                    )
+                    if dens
+                    else 0.0
+                )
+                prior = pri_n - pri_d
 
         detail_rows = []
         if children:
@@ -479,7 +677,7 @@ def _process_structure_rows(
             )
             # If this is a section row without its own linkCode or formula,
             # sum up the children (include hidden children via computed_values)
-            if not link_code and not formula:
+            if not _row_suppresses_children_sum(row):
                 current = sum(
                     computed_values.get(_child_row_id(c), (0.0, 0.0))[0] for c in children
                 )
@@ -514,6 +712,10 @@ def _process_structure_rows(
             "isSection": is_section,
             "isResult": is_result,
         }
+        if "indent" in row:
+            output_row["indent"] = bool(row.get("indent"))
+        if bool(row.get("separatorAbove")):
+            output_row["separatorAbove"] = True
         if bool(row.get("detailOnly")):
             output_row["detailOnly"] = True
         annex_letter = row.get("annexLetter")
@@ -827,28 +1029,97 @@ def _process_structure_rows_series(
 
         amounts: dict[str, float] = {}
 
-        if link_code:
+        mode = _normalize_liaison_mode(row)
+        if mode == "single" and str(row.get("linkCode") or "").strip():
+            lc = str(row.get("linkCode") or "").strip()
             for p in periods:
                 fy = p["fiscalYear"]
                 fm = p["fiscalMonth"]
                 key = f"{fy}-{fm}"
                 amt_index = amount_indices.get(fy, {})
                 if statement_type == "balance-sheet":
-                    # Cumulative YTD for balance sheet
                     total = 0.0
                     for m in range(1, fm + 1):
                         total += _sum_for_link_code_single_month(
-                            link_code, mapping_index, amt_index, m,
+                            lc, mapping_index, amt_index, m,
                             division_filter, sub_division_filter, mappings_by_account,
                             customer_filter, supplier_filter,
                         )
                     amounts[key] = round(total, 2)
                 else:
                     amounts[key] = round(_sum_for_link_code_single_month(
-                        link_code, mapping_index, amt_index, fm,
+                        lc, mapping_index, amt_index, fm,
                         division_filter, sub_division_filter, mappings_by_account,
                         customer_filter, supplier_filter,
                     ), 2)
+        elif mode == "sum":
+            codes = _normalize_code_list(row.get("liaisonSumCodes"))
+            if codes:
+                for p in periods:
+                    fy = p["fiscalYear"]
+                    fm = p["fiscalMonth"]
+                    key = f"{fy}-{fm}"
+                    amt_index = amount_indices.get(fy, {})
+                    if statement_type == "balance-sheet":
+                        total = 0.0
+                        for m in range(1, fm + 1):
+                            total += _sum_for_link_codes_single_month_aggregate(
+                                codes, mapping_index, amt_index, m,
+                                division_filter, sub_division_filter, mappings_by_account,
+                                customer_filter, supplier_filter,
+                            )
+                        amounts[key] = round(total, 2)
+                    else:
+                        amounts[key] = round(_sum_for_link_codes_single_month_aggregate(
+                            codes, mapping_index, amt_index, fm,
+                            division_filter, sub_division_filter, mappings_by_account,
+                            customer_filter, supplier_filter,
+                        ), 2)
+        elif mode == "difference":
+            nums = _normalize_code_list(row.get("liaisonNumeratorCodes"))
+            dens = _normalize_code_list(row.get("liaisonDenominatorCodes"))
+            for p in periods:
+                fy = p["fiscalYear"]
+                fm = p["fiscalMonth"]
+                key = f"{fy}-{fm}"
+                amt_index = amount_indices.get(fy, {})
+                if statement_type == "balance-sheet":
+                    total_n = 0.0
+                    total_d = 0.0
+                    for m in range(1, fm + 1):
+                        if nums:
+                            total_n += _sum_for_link_codes_single_month_aggregate(
+                                nums, mapping_index, amt_index, m,
+                                division_filter, sub_division_filter, mappings_by_account,
+                                customer_filter, supplier_filter,
+                            )
+                        if dens:
+                            total_d += _sum_for_link_codes_single_month_aggregate(
+                                dens, mapping_index, amt_index, m,
+                                division_filter, sub_division_filter, mappings_by_account,
+                                customer_filter, supplier_filter,
+                            )
+                    amounts[key] = round(total_n - total_d, 2)
+                else:
+                    val_n = (
+                        _sum_for_link_codes_single_month_aggregate(
+                            nums, mapping_index, amt_index, fm,
+                            division_filter, sub_division_filter, mappings_by_account,
+                            customer_filter, supplier_filter,
+                        )
+                        if nums
+                        else 0.0
+                    )
+                    val_d = (
+                        _sum_for_link_codes_single_month_aggregate(
+                            dens, mapping_index, amt_index, fm,
+                            division_filter, sub_division_filter, mappings_by_account,
+                            customer_filter, supplier_filter,
+                        )
+                        if dens
+                        else 0.0
+                    )
+                    amounts[key] = round(val_n - val_d, 2)
 
         detail_rows = []
         if children:
@@ -858,7 +1129,7 @@ def _process_structure_rows_series(
                 mappings_by_account, computed_values,
                 customer_filter, supplier_filter,
             )
-            if not link_code and not formula:
+            if not _row_suppresses_children_sum(row):
                 # Sum children for each period (include hidden children)
                 for p in periods:
                     key = f"{p['fiscalYear']}-{p['fiscalMonth']}"
@@ -891,6 +1162,10 @@ def _process_structure_rows_series(
             "isResult": is_result,
             "amounts": amounts,
         }
+        if "indent" in row:
+            output_row["indent"] = bool(row.get("indent"))
+        if bool(row.get("separatorAbove")):
+            output_row["separatorAbove"] = True
         if bool(row.get("detailOnly")):
             output_row["detailOnly"] = True
         annex_letter = row.get("annexLetter")

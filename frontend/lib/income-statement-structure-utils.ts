@@ -39,15 +39,17 @@ export function cloneStructure(s: Record<string, unknown>[]): Record<string, unk
   return JSON.parse(JSON.stringify(s)) as Record<string, unknown>[]
 }
 
-export function newChargeRow(): Record<string, unknown> {
+export function newChargeRow(options?: { indent?: boolean; isBold?: boolean }): Record<string, unknown> {
   const id =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? `charge-${crypto.randomUUID()}`
       : `charge-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
   return {
     label: "Nouvelle charge",
-    indent: true,
+    indent: options?.indent ?? true,
+    isBold: options?.isBold ?? false,
     hidden: false,
+    separatorAbove: false,
     defineMapping: false,
     showInDetail: true,
     linkCode: "",
@@ -164,7 +166,7 @@ export function newDetailSubLineRow(annexLetter: string): Record<string, unknown
   }
 }
 
-/** Dernière ligne de structure portant cette annexe (pour insérer une sous-ligne après). */
+/** Dernière ligne de structure portant cette annexe (parcours global — préférer findStructureInsertIndexAfterAnnexContiguousBlock pour le Détail). */
 export function findLastStructureIndexForAnnexLetter(
   structure: Record<string, unknown>[],
   letter: string
@@ -173,6 +175,47 @@ export function findLastStructureIndexForAnnexLetter(
   let last = -1
   for (let i = 0; i < structure.length; i++) {
     if (normalizeAnnexLetter(String(structure[i]?.annexLetter ?? "")) === target) last = i
+  }
+  return last
+}
+
+/**
+ * Dernier indice du bloc contigu pour cette lettre d’annexe, en partant de la ligne sommaire
+ * (non `detailOnly`). Les sous-lignes Détail doivent rester juste sous ce bloc, sans être
+ * poussées après d’autres postes du sommaire intercalés.
+ */
+export function findStructureInsertIndexAfterAnnexContiguousBlock(
+  structure: Record<string, unknown>[],
+  letter: string
+): number {
+  const target = normalizeAnnexLetter(letter)
+  if (!target) return -1
+
+  let anchor = -1
+  for (let i = 0; i < structure.length; i++) {
+    const r = structure[i]!
+    if (isStructureRowDetailOnly(r)) continue
+    if (normalizeAnnexLetter(String(r.annexLetter ?? "")) === target) {
+      anchor = i
+      break
+    }
+  }
+  if (anchor < 0) {
+    for (let i = 0; i < structure.length; i++) {
+      const r = structure[i]!
+      if (normalizeAnnexLetter(String(r.annexLetter ?? "")) === target) {
+        anchor = i
+        break
+      }
+    }
+  }
+  if (anchor < 0) return -1
+
+  let last = anchor
+  for (let i = anchor + 1; i < structure.length; i++) {
+    const r = structure[i]!
+    if (normalizeAnnexLetter(String(r.annexLetter ?? "")) === target) last = i
+    else break
   }
   return last
 }
@@ -195,6 +238,112 @@ export function listAnnexLettersForDetailSubLines(structure: Record<string, unkn
   return out
 }
 
+/** Même périmètre que `listAnnexLettersForDetailSubLines`, avec le libellé du poste sommaire pour l’UI. */
+export function listAnnexOptionsForDetailSubLineModal(
+  structure: Record<string, unknown>[]
+): { letter: string; title: string }[] {
+  const seen = new Set<string>()
+  const out: { letter: string; title: string }[] = []
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    if (isStructureRowDetailOnly(row)) continue
+    if (!isCodeMappingEnabled(row)) continue
+    const a = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+    if (!a) continue
+    if (seen.has(a)) continue
+    seen.add(a)
+    const raw = String(row.label ?? "").trim()
+    out.push({ letter: a, title: raw || `Annexe ${a}` })
+  }
+  out.sort((x, y) => compareAnnexLetters(x.letter, y.letter))
+  return out
+}
+
+/** Modes de la colonne Liaison (Sommaire / structure). */
+export type LiaisonMode = "na" | "single" | "sum" | "difference"
+
+export function normalizeCodeList(val: unknown): string[] {
+  if (val == null) return []
+  if (Array.isArray(val)) {
+    const out: string[] = []
+    for (const x of val) {
+      const s = String(x ?? "").trim()
+      if (s) out.push(s)
+    }
+    return out
+  }
+  const s = String(val).trim()
+  return s ? [s] : []
+}
+
+export function normalizeLiaisonMode(row: Record<string, unknown>): LiaisonMode {
+  const raw = row.liaisonMode
+  if (typeof raw === "string" && raw.trim()) {
+    const m = raw.trim().toLowerCase()
+    if (m === "na" || m === "n/a" || m === "none") return "na"
+    if (m === "single" || m === "unique" || m === "code") return "single"
+    if (m === "sum" || m === "addition" || m === "add") return "sum"
+    if (m === "difference" || m === "subtraction" || m === "subtract") return "difference"
+  }
+  if (String(row.linkCode ?? "").trim()) return "single"
+  if (normalizeCodeList(row.liaisonSumCodes).length) return "sum"
+  const n = normalizeCodeList(row.liaisonNumeratorCodes)
+  const d = normalizeCodeList(row.liaisonDenominatorCodes)
+  if (n.length || d.length) return "difference"
+  return "na"
+}
+
+/** Tous les codes de liaison utilisés dans la structure (pour listes à cocher). */
+export function collectDistinctLinkCodesFromStructure(
+  structure: Record<string, unknown>[]
+): string[] {
+  const seen = new Set<string>()
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    const add = (s: string) => {
+      const t = s.trim()
+      if (t) seen.add(t)
+    }
+    add(String(row.linkCode ?? ""))
+    for (const c of normalizeCodeList(row.liaisonSumCodes)) add(c)
+    for (const c of normalizeCodeList(row.liaisonNumeratorCodes)) add(c)
+    for (const c of normalizeCodeList(row.liaisonDenominatorCodes)) add(c)
+  }
+  return Array.from(seen).sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+}
+
+/**
+ * Champ « Lettre » : saisie uniquement si la case Annexe est activée (`showInDetail === true`),
+ * et interdite pour les liaisons en addition ou soustraction. Les sous-lignes détail (`detailOnly`)
+ * restent éditables pour la lettre (hors lecture seule parent).
+ */
+export function isAnnexLetterInputEditable(row: Record<string, unknown>): boolean {
+  if (isStructureRowEmptyLabel(row)) return false
+  if (isStructureRowHidden(row)) return false
+  if (!isCodeMappingEnabled(row)) return false
+  const m = normalizeLiaisonMode(row)
+  if (m === "sum" || m === "difference") return false
+  if (isStructureRowDetailOnly(row)) return true
+  return row.showInDetail === true
+}
+
+export function formatLiaisonCellHint(row: Record<string, unknown>): string {
+  const mode = normalizeLiaisonMode(row)
+  if (mode === "na") return "n/a"
+  if (mode === "single") {
+    const c = String(row.linkCode ?? "").trim()
+    return c || "…"
+  }
+  if (mode === "sum") {
+    const n = normalizeCodeList(row.liaisonSumCodes).length
+    return n ? `Σ ${n} code${n > 1 ? "s" : ""}` : "Σ …"
+  }
+  const nn = normalizeCodeList(row.liaisonNumeratorCodes).length
+  const nd = normalizeCodeList(row.liaisonDenominatorCodes).length
+  if (nn || nd) return `N${nn} − D${nd}`
+  return "N − D …"
+}
+
 /** Ligne affichée dans la grille Paramètres du Détail (titres d’annexe + sous-lignes detailOnly). */
 export function isStructureRowInDetailAnnexEditor(row: Record<string, unknown>): boolean {
   if (isStructureRowEmptyLabel(row)) return false
@@ -204,6 +353,18 @@ export function isStructureRowInDetailAnnexEditor(row: Record<string, unknown>):
     isCodeMappingEnabled(row) &&
     normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
   )
+}
+
+/**
+ * Annexe activée au Sommaire (case « Annexe » cochée + lettre) : le libellé du titre et la ligne
+ * ne se modifient pas depuis les Paramètres du Détail (uniquement au Sommaire). Les sous-lignes
+ * `detailOnly` ajoutées au Détail restent modifiables.
+ */
+export function isSummaryAnnexRowLockedInDetailEdit(row: Record<string, unknown>): boolean {
+  if (isStructureRowDetailOnly(row)) return false
+  if (isStructureRowEmptyLabel(row)) return false
+  if (row.showInDetail !== true) return false
+  return normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
 }
 
 /** Retire les libellés obsolètes (ex. Produits A) — aligné sur le backend. */

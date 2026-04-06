@@ -510,6 +510,10 @@ export interface FinancialStatementRow {
   annexLetter?: string
   /** Présent uniquement côté API : ligne réservée au tableau Détail. */
   detailOnly?: boolean
+  /** Alignement sommaire (structure enregistrée). */
+  indent?: boolean
+  /** Trait épais au-dessus de la ligne (structure). */
+  separatorAbove?: boolean
 }
 
 export interface FinancialStatementParams {
@@ -1261,6 +1265,8 @@ export interface SeriesRow {
   detailRows: SeriesDetailRow[]
   annexLetter?: string
   detailOnly?: boolean
+  indent?: boolean
+  separatorAbove?: boolean
 }
 
 export interface FinancialStatementSeriesResponse {

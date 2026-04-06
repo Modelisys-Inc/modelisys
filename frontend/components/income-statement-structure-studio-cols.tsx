@@ -3,7 +3,9 @@
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { IncomeStatementLiaisonCell } from "@/components/income-statement-liaison-cell"
 import {
+  isAnnexLetterInputEditable,
   isCodeMappingEnabled,
   isShowInDetail,
   isStructureRowEmptyLabel,
@@ -16,6 +18,8 @@ import { Trash2 } from "lucide-react"
 interface IncomeStatementStructureStudioColsProps {
   rowIndex: number
   structRow: Record<string, unknown>
+  /** Codes de liaison collectés dans la structure (Sommaire) pour les listes multi-sélection. */
+  allLinkCodes: string[]
   updateRow: (index: number, patch: Record<string, unknown>) => void
   showRemoveButton: boolean
   onRemoveRow?: (index: number) => void
@@ -27,6 +31,7 @@ interface IncomeStatementStructureStudioColsProps {
 export function IncomeStatementStructureStudioCols({
   rowIndex: idx,
   structRow,
+  allLinkCodes,
   updateRow,
   showRemoveButton,
   onRemoveRow,
@@ -83,7 +88,8 @@ export function IncomeStatementStructureStudioCols({
                       defineMapping: false,
                       showInDetail: false,
                       linkCode: undefined,
-                      annexLetter: undefined,
+                      // Détail Paramètres : conserver la lettre d’annexe (réglée au Sommaire ou pour le bloc).
+                      ...(hideDefineColumn ? {} : { annexLetter: undefined }),
                     })
                   } else {
                     updateRow(idx, { hidden: false })
@@ -97,160 +103,156 @@ export function IncomeStatementStructureStudioCols({
         )}
       </td>
       {!hideDefineColumn && (
-        <>
-          <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
-            {isStructureRowEmptyLabel(structRow) ? (
-              <span className="text-sm text-slate-300">—</span>
-            ) : readOnly ? (
-              <div className="flex justify-center">
-                <span
-                  className={cn(
-                    "inline-flex items-center justify-center rounded-xl p-1.5",
-                    isStructureRowHidden(structRow) && "opacity-50",
-                    !isStructureRowHidden(structRow) &&
-                      isCodeMappingEnabled(structRow) &&
-                      "bg-orange-50/60 ring-1 ring-[#E0742D]/25",
-                    !isStructureRowHidden(structRow) &&
-                      !isCodeMappingEnabled(structRow) &&
-                      "bg-slate-50 ring-1 ring-slate-200/80"
-                  )}
-                  title="Modifiable dans la vue Sommaire"
-                >
-                  <Checkbox
-                    checked={isCodeMappingEnabled(structRow)}
-                    disabled
-                    aria-label="Code (lecture seule)"
-                    className="pointer-events-none border-slate-300 opacity-70 data-[state=checked]:border-[#E0742D] data-[state=checked]:bg-[#E0742D]"
-                  />
-                </span>
-              </div>
-            ) : (
-              <div className="flex justify-center">
-                <label
-                  className={cn(
-                    "flex items-center justify-center rounded-xl p-1.5 transition-colors",
-                    isStructureRowHidden(structRow)
-                      ? "cursor-not-allowed opacity-40"
-                      : "cursor-pointer",
-                    !isStructureRowHidden(structRow) &&
-                      isCodeMappingEnabled(structRow) &&
-                      "bg-orange-50/90 ring-2 ring-[#E0742D]/35",
-                    !isStructureRowHidden(structRow) &&
-                      !isCodeMappingEnabled(structRow) &&
-                      "bg-slate-100/60 hover:bg-slate-200/60"
-                  )}
-                >
-                  <Checkbox
-                    checked={isCodeMappingEnabled(structRow)}
-                    disabled={isStructureRowHidden(structRow)}
-                    onCheckedChange={(v) => {
-                      if (isStructureRowHidden(structRow)) return
-                      if (v === true) {
-                        updateRow(idx, { defineMapping: true })
-                      } else {
-                        updateRow(idx, {
-                          defineMapping: false,
-                          showInDetail: false,
-                          linkCode: undefined,
-                          annexLetter: undefined,
-                        })
-                      }
-                    }}
-                    aria-label="Code : liaison et lettre modifiables"
-                    className="border-slate-300 data-[state=checked]:border-[#E0742D] data-[state=checked]:bg-[#E0742D]"
-                  />
-                </label>
-              </div>
-            )}
-          </td>
-          <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
-            {isStructureRowEmptyLabel(structRow) ? (
-              <span className="text-sm text-slate-300">—</span>
-            ) : readOnly ? (
-              <div className="flex justify-center">
-                <span
-                  className={cn(
-                    "inline-flex items-center justify-center rounded-xl p-1.5",
-                    isStructureRowHidden(structRow) && "opacity-50",
-                    !isStructureRowHidden(structRow) &&
-                      isShowInDetail(structRow) &&
-                      "bg-sky-50/70 ring-1 ring-sky-300/60",
-                    !isStructureRowHidden(structRow) &&
-                      !isShowInDetail(structRow) &&
-                      "bg-slate-50 ring-1 ring-slate-200/80"
-                  )}
-                  title="Modifiable dans la vue Sommaire"
-                >
-                  <Checkbox
-                    checked={isShowInDetail(structRow)}
-                    disabled
-                    aria-label="Annexe (lecture seule)"
-                    className="pointer-events-none border-slate-300 opacity-70 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"
-                  />
-                </span>
-              </div>
-            ) : (
-              <div className="flex justify-center">
-                <label
-                  className={cn(
-                    "flex items-center justify-center rounded-xl p-1.5 transition-colors",
-                    isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)
-                      ? "cursor-not-allowed opacity-40"
-                      : "cursor-pointer",
-                    !isStructureRowHidden(structRow) &&
-                      isCodeMappingEnabled(structRow) &&
-                      isShowInDetail(structRow) &&
-                      "bg-sky-50/90 ring-2 ring-sky-400/40",
-                    !isStructureRowHidden(structRow) &&
-                      isCodeMappingEnabled(structRow) &&
-                      !isShowInDetail(structRow) &&
-                      "bg-slate-100/60 hover:bg-slate-200/60"
-                  )}
-                >
-                  <Checkbox
-                    checked={isShowInDetail(structRow)}
-                    disabled={isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)}
-                    onCheckedChange={(v) => {
-                      if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
-                      updateRow(idx, { showInDetail: v === true })
-                    }}
-                    aria-label="Annexe : afficher au détail"
-                    className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"
-                  />
-                </label>
-              </div>
-            )}
-          </td>
-        </>
-      )}
-      <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
-        {showLinkAnnexCells ? (
-          readOnly ? (
-            <span
-              className="block truncate rounded-lg bg-slate-100/70 px-1.5 py-2 text-center font-mono text-xs text-slate-600"
-              title="Modifiable dans la vue Sommaire"
-            >
-              {String(structRow.linkCode ?? "").trim() || "—"}
-            </span>
+        <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+          {isStructureRowEmptyLabel(structRow) ? (
+            <span className="text-sm text-slate-300">—</span>
+          ) : readOnly ? (
+            <div className="flex justify-center">
+              <span
+                className={cn(
+                  "inline-flex items-center justify-center rounded-xl p-1.5",
+                  isStructureRowHidden(structRow) && "opacity-50",
+                  !isStructureRowHidden(structRow) &&
+                    isCodeMappingEnabled(structRow) &&
+                    "bg-orange-50/60 ring-1 ring-[#E0742D]/25",
+                  !isStructureRowHidden(structRow) &&
+                    !isCodeMappingEnabled(structRow) &&
+                    "bg-slate-50 ring-1 ring-slate-200/80"
+                )}
+                title="Modifiable dans la vue Sommaire"
+              >
+                <Checkbox
+                  checked={isCodeMappingEnabled(structRow)}
+                  disabled
+                  aria-label="Code (lecture seule)"
+                  className="pointer-events-none border-slate-300 opacity-70 data-[state=checked]:border-[#E0742D] data-[state=checked]:bg-[#E0742D]"
+                />
+              </span>
+            </div>
           ) : (
-            <Input
-              value={String(structRow.linkCode ?? "")}
-              onChange={(e) =>
-                updateRow(idx, {
-                  linkCode: e.target.value || undefined,
-                  ...(hideDefineColumn ? { defineMapping: true } : {}),
-                })
-              }
-              placeholder="REV"
-              className="h-9 w-full min-w-0 rounded-xl border-slate-200/90 bg-white px-2 font-mono text-xs shadow-sm focus-visible:border-[#E0742D]/50 focus-visible:ring-2 focus-visible:ring-[#E0742D]/20"
-            />
-          )
+            <div className="flex justify-center">
+              <label
+                className={cn(
+                  "flex items-center justify-center rounded-xl p-1.5 transition-colors",
+                  isStructureRowHidden(structRow)
+                    ? "cursor-not-allowed opacity-40"
+                    : "cursor-pointer",
+                  !isStructureRowHidden(structRow) &&
+                    isCodeMappingEnabled(structRow) &&
+                    "bg-orange-50/90 ring-2 ring-[#E0742D]/35",
+                  !isStructureRowHidden(structRow) &&
+                    !isCodeMappingEnabled(structRow) &&
+                    "bg-slate-100/60 hover:bg-slate-200/60"
+                )}
+              >
+                <Checkbox
+                  checked={isCodeMappingEnabled(structRow)}
+                  disabled={isStructureRowHidden(structRow)}
+                  onCheckedChange={(v) => {
+                    if (isStructureRowHidden(structRow)) return
+                    if (v === true) {
+                      updateRow(idx, { defineMapping: true })
+                    } else {
+                      updateRow(idx, {
+                        defineMapping: false,
+                        showInDetail: false,
+                        linkCode: undefined,
+                        annexLetter: undefined,
+                        liaisonMode: undefined,
+                        liaisonSumCodes: undefined,
+                        liaisonNumeratorCodes: undefined,
+                        liaisonDenominatorCodes: undefined,
+                      })
+                    }
+                  }}
+                  aria-label="Code : liaison et lettre modifiables"
+                  className="border-slate-300 data-[state=checked]:border-[#E0742D] data-[state=checked]:bg-[#E0742D]"
+                />
+              </label>
+            </div>
+          )}
+        </td>
+      )}
+      <td className="box-border min-w-[8.5rem] max-w-[10rem] px-2 py-2.5 align-middle">
+        {showLinkAnnexCells ? (
+          <IncomeStatementLiaisonCell
+            structRow={structRow}
+            rowIndex={idx}
+            allLinkCodes={allLinkCodes}
+            updateRow={updateRow}
+            readOnly={readOnly}
+            hideDefineColumn={hideDefineColumn}
+            singleLiaisonModeOnly={hideDefineColumn}
+          />
         ) : (
           <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
             —
           </span>
         )}
       </td>
+      {!hideDefineColumn && (
+        <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+          {isStructureRowEmptyLabel(structRow) ? (
+            <span className="text-sm text-slate-300">—</span>
+          ) : readOnly ? (
+            <div className="flex justify-center">
+              <span
+                className={cn(
+                  "inline-flex items-center justify-center rounded-xl p-1.5",
+                  isStructureRowHidden(structRow) && "opacity-50",
+                  !isStructureRowHidden(structRow) &&
+                    isShowInDetail(structRow) &&
+                    "bg-sky-50/70 ring-1 ring-sky-300/60",
+                  !isStructureRowHidden(structRow) &&
+                    !isShowInDetail(structRow) &&
+                    "bg-slate-50 ring-1 ring-slate-200/80"
+                )}
+                title="Modifiable dans la vue Sommaire"
+              >
+                <Checkbox
+                  checked={isShowInDetail(structRow)}
+                  disabled
+                  aria-label="Annexe (lecture seule)"
+                  className="pointer-events-none border-slate-300 opacity-70 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"
+                />
+              </span>
+            </div>
+          ) : (
+            <div className="flex justify-center">
+              <label
+                className={cn(
+                  "flex items-center justify-center rounded-xl p-1.5 transition-colors",
+                  isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)
+                    ? "cursor-not-allowed opacity-40"
+                    : "cursor-pointer",
+                  !isStructureRowHidden(structRow) &&
+                    isCodeMappingEnabled(structRow) &&
+                    isShowInDetail(structRow) &&
+                    "bg-sky-50/90 ring-2 ring-sky-400/40",
+                  !isStructureRowHidden(structRow) &&
+                    isCodeMappingEnabled(structRow) &&
+                    !isShowInDetail(structRow) &&
+                    "bg-slate-100/60 hover:bg-slate-200/60"
+                )}
+              >
+                <Checkbox
+                  checked={isShowInDetail(structRow)}
+                  disabled={isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)}
+                  onCheckedChange={(v) => {
+                    if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
+                    updateRow(idx, {
+                      showInDetail: v === true,
+                      ...(v === false ? { annexLetter: undefined } : {}),
+                    })
+                  }}
+                  aria-label="Annexe : afficher au détail"
+                  className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"
+                />
+              </label>
+            </div>
+          )}
+        </td>
+      )}
       <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
         {isStructureRowHidden(structRow) && normalizeAnnexLetter(String(structRow.annexLetter ?? "")) ? (
           <span
@@ -272,6 +274,7 @@ export function IncomeStatementStructureStudioCols({
           ) : (
             <Input
               value={String(structRow.annexLetter ?? "")}
+              disabled={!isAnnexLetterInputEditable(structRow)}
               onChange={(e) =>
                 updateRow(idx, {
                   annexLetter: normalizeAnnexLetter(e.target.value) || undefined,
@@ -279,7 +282,17 @@ export function IncomeStatementStructureStudioCols({
                 })
               }
               placeholder="A"
-              className="h-9 w-full min-w-0 rounded-xl border-slate-200/90 bg-white px-2 text-center text-xs font-bold uppercase tracking-widest shadow-sm focus-visible:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-500/25"
+              title={
+                !isAnnexLetterInputEditable(structRow)
+                  ? "Activez « Annexe » pour saisir une lettre (inutile pour addition / soustraction)."
+                  : undefined
+              }
+              className={cn(
+                "h-9 w-full min-w-0 rounded-xl border-slate-200/90 px-2 text-center text-xs font-bold uppercase tracking-widest shadow-sm focus-visible:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-500/25",
+                isAnnexLetterInputEditable(structRow)
+                  ? "bg-white"
+                  : "cursor-not-allowed bg-slate-100/80 text-slate-400"
+              )}
               maxLength={8}
             />
           )
