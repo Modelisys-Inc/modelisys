@@ -508,6 +508,8 @@ export interface FinancialStatementRow {
   isResult: boolean
   detailRows: FinancialStatementDetailRow[]
   annexLetter?: string
+  /** Présent uniquement côté API : ligne réservée au tableau Détail. */
+  detailOnly?: boolean
 }
 
 export interface FinancialStatementParams {
@@ -1258,6 +1260,7 @@ export interface SeriesRow {
   amounts: Record<string, number>  // key: "YYYY-M"
   detailRows: SeriesDetailRow[]
   annexLetter?: string
+  detailOnly?: boolean
 }
 
 export interface FinancialStatementSeriesResponse {

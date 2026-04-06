@@ -514,6 +514,8 @@ def _process_structure_rows(
             "isSection": is_section,
             "isResult": is_result,
         }
+        if bool(row.get("detailOnly")):
+            output_row["detailOnly"] = True
         annex_letter = row.get("annexLetter")
         if annex_letter:
             output_row["annexLetter"] = annex_letter
@@ -889,6 +891,8 @@ def _process_structure_rows_series(
             "isResult": is_result,
             "amounts": amounts,
         }
+        if bool(row.get("detailOnly")):
+            output_row["detailOnly"] = True
         annex_letter = row.get("annexLetter")
         if annex_letter:
             output_row["annexLetter"] = annex_letter

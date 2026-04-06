@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
@@ -12,7 +12,10 @@ import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-st
 import {
   CHARGES_SECTION_LABEL,
   TOTAL_CHARGES_LABEL,
-  isDefineMappingChecked,
+  isCodeMappingEnabled,
+  isOmittedIncomeStatementSummaryRowLabel,
+  isShowInDetail,
+  isStructureRowDetailOnly,
   isStructureRowEmptyLabel,
   isStructureRowHidden,
   normLabel,
@@ -23,8 +26,27 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { BookMarked, EyeOff, Link2, Loader2, Plus, Settings, Sparkles, Trash2 } from "lucide-react"
+import {
+  BookMarked,
+  Eye,
+  EyeOff,
+  Hash,
+  Link2,
+  Loader2,
+  PanelTop,
+  Plus,
+  Settings,
+  Sparkles,
+  Trash2,
+} from "lucide-react"
 import {
   dashboardCardAccentBarClass,
   dashboardCardAccentClass,
@@ -93,6 +115,7 @@ export function IncomeStatementSummary({
   onIncomeStatementStructureSaved,
 }: IncomeStatementSummaryProps) {
   const [structureEditMode, setStructureEditMode] = useState(false)
+  const [addSpaceDialogOpen, setAddSpaceDialogOpen] = useState(false)
   const isForecastSection = title === "États des résultats pro forma"
 
   // Determine months needed for series API based on view
@@ -145,17 +168,22 @@ export function IncomeStatementSummary({
   
   // Map backend FinancialStatementRow[] to internal SummaryRow[]
   const mapBackendRows = (apiRows: FinancialStatementRow[]): SummaryRow[] => {
-    return apiRows.map((row) => ({
-      label: row.label,
-      current: row.current,
-      prior: row.prior,
-      isBold: row.isBold,
-      isSection: row.isSection,
-      isResult: row.isResult,
-      isNetIncome: row.label.toLowerCase().includes("bénéfice net") && row.isResult,
-      isEBITA: row.label.toLowerCase() === "baiia",
-      indent: !row.isBold && !row.isSection && !row.isResult,
-    }))
+    return apiRows
+      .filter(
+        (row) =>
+          !row.detailOnly && !isOmittedIncomeStatementSummaryRowLabel(row.label)
+      )
+      .map((row) => ({
+        label: row.label,
+        current: row.current,
+        prior: row.prior,
+        isBold: row.isBold,
+        isSection: row.isSection,
+        isResult: row.isResult,
+        isNetIncome: row.label.toLowerCase().includes("bénéfice net") && row.isResult,
+        isEBITA: row.label.toLowerCase() === "baiia",
+        indent: !row.isBold && !row.isSection && !row.isResult,
+      }))
   }
 
   // Helper function to capitalize first letter
@@ -183,7 +211,12 @@ export function IncomeStatementSummary({
   // Build data: use series API for multi-period views, backend rows for single-period
   const buildSeriesData = (): SummaryRow[] => {
     if (!seriesRows.length || !seriesPeriods.length) return []
-    return seriesRows.map((row) => {
+    return seriesRows
+      .filter(
+        (row) =>
+          !row.detailOnly && !isOmittedIncomeStatementSummaryRowLabel(row.label)
+      )
+      .map((row) => {
       const rawAmounts = getRowAmounts(row, seriesPeriods)
       let trendValues: number[]
       if (view === "quarters") {
@@ -226,6 +259,21 @@ export function IncomeStatementSummary({
     companyId ?? null,
     structureEditMode && canInlineStructureEdit
   )
+
+  /** Postes du sommaire (libellé non vide) pour placer une ligne vide au-dessus. */
+  const spacerTargetPosts = useMemo(() => {
+    const s = structEdit.structure
+    if (!s.length) return []
+    const out: { globalIdx: number; label: string }[] = []
+    for (let i = 0; i < s.length; i++) {
+      const r = s[i]!
+      if (isStructureRowDetailOnly(r)) continue
+      if (isStructureRowEmptyLabel(r)) continue
+      const label = String(r.label ?? "").trim()
+      out.push({ globalIdx: i, label: label || `Poste ${i + 1}` })
+    }
+    return out
+  }, [structEdit.structure])
 
   // Get entities to compare
   let entitiesToCompare: Array<{ id: string; name: string }> = []
@@ -301,7 +349,12 @@ export function IncomeStatementSummary({
           )
 
           if (!cancelled && response.rows) {
-            const mapped: SummaryRow[] = response.rows.map((row) => {
+            const mapped: SummaryRow[] = response.rows
+              .filter(
+                (row) =>
+                  !row.detailOnly && !isOmittedIncomeStatementSummaryRowLabel(row.label)
+              )
+              .map((row) => {
               const amounts = Object.entries(row.amounts)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([, v]) => v)
@@ -318,7 +371,7 @@ export function IncomeStatementSummary({
                 isEBITA: row.label.toLowerCase() === "baiia",
                 indent: !row.isBold && !row.isSection && !row.isResult,
               }
-            })
+              })
             results[entity.id] = mapped
           }
         } catch (err) {
@@ -491,8 +544,10 @@ export function IncomeStatementSummary({
     structureEditMode &&
     canInlineStructureEdit &&
     !structEdit.loading &&
-    structEdit.structure.length > 0
-  const tableRowCount = showStructureCols ? structEdit.structure.length : data.length
+    structEdit.summaryStructureDisplayIndices.length > 0
+  const tableRowCount = showStructureCols
+    ? structEdit.summaryStructureDisplayIndices.length
+    : data.length
 
   const padSummaryRow = (structRow: Record<string, unknown>): SummaryRow => ({
     label: String(structRow.label ?? ""),
@@ -508,14 +563,9 @@ export function IncomeStatementSummary({
     trendValues: trendLen > 0 ? Array(trendLen).fill(0) : undefined,
   })
 
-  /** En édition structure, `data[idx]` est décalé après insertion : aligner par libellé (index d’abord). */
-  const summaryRowForStructureIndex = (
-    i: number,
-    structRow: Record<string, unknown>
-  ): SummaryRow => {
+  /** En édition structure : aligner sur `data` par libellé (le sommaire exclut les lignes detailOnly). */
+  const summaryRowForStructureIndex = (structRow: Record<string, unknown>): SummaryRow => {
     const sl = normLabel(String(structRow.label ?? ""))
-    const atIdx = data[i]
-    if (atIdx && normLabel(atIdx.label) === sl) return atIdx
     const found = data.find((r) => normLabel(r.label) === sl)
     if (found) return found
     return padSummaryRow(structRow)
@@ -581,8 +631,9 @@ export function IncomeStatementSummary({
                 <p className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
                   Ajustez les libellés. <span className="font-medium text-[#2A2F3A]">Masquer</span> retire la ligne du
                   sommaire et du détail (les totaux restent cohérents).{" "}
-                  <span className="font-medium text-[#2A2F3A]">Définir</span> expose la ligne au détail avec liaison et
-                  annexe — désactivé si la ligne est masquée. Enregistrez pour appliquer partout.
+                  <span className="font-medium text-[#2A2F3A]">Code</span> active la liaison et la lettre ;{" "}
+                  <span className="font-medium text-[#2A2F3A]">Annexe</span> contrôle l’affichage au détail — indépendant
+                  l’un de l’autre. Enregistrez pour appliquer partout.
                 </p>
               ) : (
                 <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
@@ -644,11 +695,23 @@ export function IncomeStatementSummary({
                   variant="ghost"
                   size="sm"
                   className="gap-1.5 rounded-xl text-[#2A2F3A] hover:bg-slate-100"
+                  disabled={structEdit.loading || spacerTargetPosts.length === 0}
+                  title="Insérer une ligne vide au-dessus d’un poste du sommaire"
+                  onClick={() => setAddSpaceDialogOpen(true)}
+                >
+                  <PanelTop className={cn("h-4 w-4", dashboardCardAccentClass)} />
+                  Ajouter un espace
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 rounded-xl text-[#2A2F3A] hover:bg-slate-100"
                   disabled={!structEdit.chargeRange || structEdit.loading}
                   onClick={() => structEdit.addChargeLine()}
                 >
                   <Plus className={cn("h-4 w-4", dashboardCardAccentClass)} />
-                  Ajouter une ligne
+                  Ajouter un poste
                 </Button>
                 <Separator orientation="vertical" className="hidden h-7 sm:block" />
                 <Button
@@ -732,6 +795,7 @@ export function IncomeStatementSummary({
                 <col style={{ width: "7rem" }} />
                 <col style={{ width: "7rem" }} />
                 <col style={{ width: "7rem" }} />
+                <col style={{ width: "7rem" }} />
                 <col style={{ width: "2.75rem" }} />
               </colgroup>
             )}
@@ -777,7 +841,7 @@ export function IncomeStatementSummary({
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[240px] text-balance">
-                          Masque la ligne au sommaire et au détail. Désactive « Définir » pour cette ligne.
+                          Masque la ligne au sommaire et au détail. Désactive Code et Annexe pour cette ligne.
                         </TooltipContent>
                       </Tooltip>
                     </th>
@@ -786,14 +850,29 @@ export function IncomeStatementSummary({
                         <TooltipTrigger asChild>
                           <span className="inline-flex cursor-help flex-col items-center gap-1.5">
                             <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
-                              <Sparkles className="h-4 w-4 text-[#E0742D]" />
+                              <Hash className="h-4 w-4 text-[#E0742D]" />
                             </span>
-                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Définir</span>
+                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Code</span>
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[220px] text-balance">
-                          Active la liaison et l’annexe pour cette ligne (visible au détail). Indisponible si la ligne
-                          est masquée.
+                          Active la modification du code de liaison et de la lettre d’annexe. Indisponible si la ligne est
+                          masquée.
+                        </TooltipContent>
+                      </Tooltip>
+                    </th>
+                    <th className="box-border w-[7rem] px-2 py-4 text-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+                              <Eye className="h-4 w-4 text-sky-600" />
+                            </span>
+                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Annexe</span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[220px] text-balance">
+                          Affiche cette ligne au détail (avec liaison et lettre). Nécessite « Code » et une ligne visible.
                         </TooltipContent>
                       </Tooltip>
                     </th>
@@ -808,7 +887,7 @@ export function IncomeStatementSummary({
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[220px] text-balance">
-                          Code rattaché au poste lorsque « Définir » est coché.
+                          Code rattaché au poste lorsque « Code » est coché.
                         </TooltipContent>
                       </Tooltip>
                     </th>
@@ -819,7 +898,7 @@ export function IncomeStatementSummary({
                             <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
                               <BookMarked className="h-4 w-4 text-slate-600" />
                             </span>
-                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Annexe</span>
+                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Lettre</span>
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[220px] text-balance">
@@ -951,9 +1030,10 @@ export function IncomeStatementSummary({
           </thead>
           <tbody>
             {Array.from({ length: tableRowCount }, (_, idx) => {
-              const structRow = showStructureCols ? structEdit.structure[idx]! : null
+              const globalIdx = showStructureCols ? structEdit.summaryStructureDisplayIndices[idx]! : -1
+              const structRow = showStructureCols ? structEdit.structure[globalIdx]! : null
               const row = showStructureCols
-                ? summaryRowForStructureIndex(idx, structRow!)
+                ? summaryRowForStructureIndex(structRow!)
                 : data[idx]!
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
@@ -969,7 +1049,9 @@ export function IncomeStatementSummary({
               const nextRow =
                 idx < tableRowCount - 1
                   ? showStructureCols
-                    ? summaryRowForStructureIndex(idx + 1, structEdit.structure[idx + 1]!)
+                    ? summaryRowForStructureIndex(
+                        structEdit.structure[structEdit.summaryStructureDisplayIndices[idx + 1]!]!
+                      )
                     : data[idx + 1]!
                   : null
               const nextRowLabel = nextRow?.label?.toLowerCase() || ""
@@ -979,7 +1061,10 @@ export function IncomeStatementSummary({
                 idx < tableRowCount - 1
                   ? normLabel(
                       showStructureCols
-                        ? String(structEdit.structure[idx + 1]?.label ?? "")
+                        ? String(
+                            structEdit.structure[structEdit.summaryStructureDisplayIndices[idx + 1]!]?.label ??
+                              ""
+                          )
                         : String(data[idx + 1]?.label ?? "")
                     )
                   : ""
@@ -1025,7 +1110,7 @@ export function IncomeStatementSummary({
                       ) : (
                         <Input
                           value={String(structRow.label ?? "")}
-                          onChange={(e) => structEdit.updateRow(idx, { label: e.target.value })}
+                          onChange={(e) => structEdit.updateRow(globalIdx, { label: e.target.value })}
                           className={cn(
                             "h-9 w-full max-w-full rounded-xl border-slate-200/90 bg-white text-sm shadow-sm transition-shadow focus-visible:border-[#E0742D]/50 focus-visible:ring-2 focus-visible:ring-[#E0742D]/20",
                             isBoldRow ? "font-semibold" : "font-normal"
@@ -1039,38 +1124,35 @@ export function IncomeStatementSummary({
                   {showStructureCols && structRow && (
                     <>
                       <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
-                        {isStructureRowEmptyLabel(structRow) ? (
-                          <span className="text-sm text-slate-300">—</span>
-                        ) : (
-                          <div className="flex justify-center">
-                            <label
-                              className={cn(
-                                "flex cursor-pointer items-center justify-center rounded-xl p-1.5 transition-colors",
-                                isStructureRowHidden(structRow)
-                                  ? "bg-slate-200/80 ring-2 ring-slate-400/35"
-                                  : "bg-slate-100/60 hover:bg-slate-200/60"
-                              )}
-                            >
-                              <Checkbox
-                                checked={isStructureRowHidden(structRow)}
-                                onCheckedChange={(v) => {
-                                  if (v === true) {
-                                    structEdit.updateRow(idx, {
-                                      hidden: true,
-                                      defineMapping: false,
-                                      linkCode: undefined,
-                                      annexLetter: undefined,
-                                    })
-                                  } else {
-                                    structEdit.updateRow(idx, { hidden: false })
-                                  }
-                                }}
-                                aria-label="Masquer la ligne au sommaire"
-                                className="border-slate-300 data-[state=checked]:border-slate-700 data-[state=checked]:bg-slate-700"
-                              />
-                            </label>
-                          </div>
-                        )}
+                        <div className="flex justify-center">
+                          <label
+                            className={cn(
+                              "flex cursor-pointer items-center justify-center rounded-xl p-1.5 transition-colors",
+                              isStructureRowHidden(structRow)
+                                ? "bg-slate-200/80 ring-2 ring-slate-400/35"
+                                : "bg-slate-100/60 hover:bg-slate-200/60"
+                            )}
+                          >
+                            <Checkbox
+                              checked={isStructureRowHidden(structRow)}
+                              onCheckedChange={(v) => {
+                                if (v === true) {
+                                  structEdit.updateRow(globalIdx, {
+                                    hidden: true,
+                                    defineMapping: false,
+                                    showInDetail: false,
+                                    linkCode: undefined,
+                                    annexLetter: undefined,
+                                  })
+                                } else {
+                                  structEdit.updateRow(globalIdx, { hidden: false })
+                                }
+                              }}
+                              aria-label="Masquer la ligne au sommaire"
+                              className="border-slate-300 data-[state=checked]:border-slate-700 data-[state=checked]:bg-slate-700"
+                            />
+                          </label>
+                        </div>
                       </td>
                       <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
                         {isStructureRowEmptyLabel(structRow) ? (
@@ -1084,41 +1166,79 @@ export function IncomeStatementSummary({
                                   ? "cursor-not-allowed opacity-40"
                                   : "cursor-pointer",
                                 !isStructureRowHidden(structRow) &&
-                                  isDefineMappingChecked(structRow) &&
+                                  isCodeMappingEnabled(structRow) &&
                                   "bg-orange-50/90 ring-2 ring-[#E0742D]/35",
                                 !isStructureRowHidden(structRow) &&
-                                  !isDefineMappingChecked(structRow) &&
+                                  !isCodeMappingEnabled(structRow) &&
                                   "bg-slate-100/60 hover:bg-slate-200/60"
                               )}
                             >
                               <Checkbox
-                                checked={isDefineMappingChecked(structRow)}
+                                checked={isCodeMappingEnabled(structRow)}
                                 disabled={isStructureRowHidden(structRow)}
                                 onCheckedChange={(v) => {
                                   if (isStructureRowHidden(structRow)) return
                                   if (v === true) {
-                                    structEdit.updateRow(idx, { defineMapping: true })
+                                    structEdit.updateRow(globalIdx, { defineMapping: true })
                                   } else {
-                                    structEdit.updateRow(idx, {
+                                    structEdit.updateRow(globalIdx, {
                                       defineMapping: false,
+                                      showInDetail: false,
                                       linkCode: undefined,
                                       annexLetter: undefined,
                                     })
                                   }
                                 }}
-                                aria-label="Définir code de liaison et annexe"
+                                aria-label="Code : liaison et lettre modifiables"
                                 className="border-slate-300 data-[state=checked]:border-[#E0742D] data-[state=checked]:bg-[#E0742D]"
                               />
                             </label>
                           </div>
                         )}
                       </td>
+                      <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+                        {isStructureRowEmptyLabel(structRow) ? (
+                          <span className="text-sm text-slate-300">—</span>
+                        ) : (
+                          <div className="flex justify-center">
+                            <label
+                              className={cn(
+                                "flex items-center justify-center rounded-xl p-1.5 transition-colors",
+                                isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)
+                                  ? "cursor-not-allowed opacity-40"
+                                  : "cursor-pointer",
+                                !isStructureRowHidden(structRow) &&
+                                  isCodeMappingEnabled(structRow) &&
+                                  isShowInDetail(structRow) &&
+                                  "bg-sky-50/90 ring-2 ring-sky-400/40",
+                                !isStructureRowHidden(structRow) &&
+                                  isCodeMappingEnabled(structRow) &&
+                                  !isShowInDetail(structRow) &&
+                                  "bg-slate-100/60 hover:bg-slate-200/60"
+                              )}
+                            >
+                              <Checkbox
+                                checked={isShowInDetail(structRow)}
+                                disabled={
+                                  isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)
+                                }
+                                onCheckedChange={(v) => {
+                                  if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
+                                  structEdit.updateRow(globalIdx, { showInDetail: v === true })
+                                }}
+                                aria-label="Annexe : afficher au détail"
+                                className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"
+                              />
+                            </label>
+                          </div>
+                        )}
+                      </td>
                       <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
-                        {isDefineMappingChecked(structRow) && !isStructureRowHidden(structRow) ? (
+                        {isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
                           <Input
                             value={String(structRow.linkCode ?? "")}
                             onChange={(e) =>
-                              structEdit.updateRow(idx, { linkCode: e.target.value || undefined })
+                              structEdit.updateRow(globalIdx, { linkCode: e.target.value || undefined })
                             }
                             placeholder="REV"
                             className="h-9 w-full min-w-0 rounded-xl border-slate-200/90 bg-white px-2 font-mono text-xs shadow-sm focus-visible:border-[#E0742D]/50 focus-visible:ring-2 focus-visible:ring-[#E0742D]/20"
@@ -1130,11 +1250,11 @@ export function IncomeStatementSummary({
                         )}
                       </td>
                       <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
-                        {isDefineMappingChecked(structRow) && !isStructureRowHidden(structRow) ? (
+                        {isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
                           <Input
                             value={String(structRow.annexLetter ?? "")}
                             onChange={(e) =>
-                              structEdit.updateRow(idx, {
+                              structEdit.updateRow(globalIdx, {
                                 annexLetter: normalizeAnnexLetter(e.target.value) || undefined,
                               })
                             }
@@ -1149,17 +1269,14 @@ export function IncomeStatementSummary({
                         )}
                       </td>
                       <td className="box-border w-11 px-0 py-2.5 align-middle">
-                        {structEdit.chargeRange &&
-                        idx >= structEdit.chargeRange.start &&
-                        idx < structEdit.chargeRange.end &&
-                        structEdit.chargeRange.end - structEdit.chargeRange.start > 1 ? (
+                        {structEdit.canRemoveRowAt(globalIdx) ? (
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
                             className="h-9 w-9 rounded-xl text-red-500 opacity-70 transition hover:bg-red-50 hover:text-red-600 hover:opacity-100"
                             title="Supprimer la ligne"
-                            onClick={() => structEdit.removeChargeLine(idx)}
+                            onClick={() => structEdit.removeStructureRowAt(globalIdx)}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -1465,6 +1582,32 @@ export function IncomeStatementSummary({
           Note: BAIIA = Bénéfice avant intérêts, impôts et amortissement
         </p>
       </div>
+
+      <Dialog open={addSpaceDialogOpen} onOpenChange={setAddSpaceDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Ajouter un espace</DialogTitle>
+            <DialogDescription>
+              Choisissez le poste du sommaire au-dessus duquel insérer une ligne vide.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[min(60vh,420px)] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50/60 p-1">
+            {spacerTargetPosts.map(({ globalIdx, label }) => (
+              <button
+                key={`spacer-above-${globalIdx}`}
+                type="button"
+                className="flex w-full rounded-lg px-3 py-2.5 text-left text-sm text-[#2A2F3A] transition hover:bg-white hover:shadow-sm"
+                onClick={() => {
+                  structEdit.insertEmptySpacerAbove(globalIdx)
+                  setAddSpaceDialogOpen(false)
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
       </div>
     </div>
   )

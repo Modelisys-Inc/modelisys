@@ -59,13 +59,22 @@ export function aggregateToYears(
 }
 
 /**
- * Find a row by ID or partial label match.
+ * Find a row by ID, exact label (trim/case), then substring match.
+ * Prefers an exact « revenus » line over another line that merely contains the word.
  */
 export function findRow(rows: SeriesRow[], idOrLabel: string): SeriesRow | undefined {
-  const lower = idOrLabel.toLowerCase()
-  return rows.find(
-    (r) => r.id === idOrLabel || r.label.toLowerCase().includes(lower)
-  )
+  const raw = idOrLabel.trim()
+  const lower = raw.toLowerCase()
+  const byId = rows.find((r) => r.id === idOrLabel)
+  if (byId) return byId
+  const exact = rows.find((r) => r.label.trim().toLowerCase() === lower)
+  if (exact) return exact
+  const revenueAliases = ["revenus", "chiffre d'affaires", "chiffre d affaires", "revenue"]
+  if (revenueAliases.some((a) => a === lower)) {
+    const rev = rows.find((r) => revenueAliases.includes(r.label.trim().toLowerCase()))
+    if (rev) return rev
+  }
+  return rows.find((r) => r.label.toLowerCase().includes(lower))
 }
 
 /**

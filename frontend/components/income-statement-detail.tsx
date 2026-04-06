@@ -4,9 +4,11 @@ import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import type { FinancialStatementRow, SeriesRow } from "@/lib/api"
+import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
+import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { generateId } from "@/lib/seeded-random"
 import { ChevronRight, ChevronDown, StickyNote, TrendingUp } from "lucide-react"
-import { useState, useEffect, useRef, useCallback, Fragment } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react"
 import {
   listForecastConfigs,
   upsertForecastConfig,
@@ -20,8 +22,13 @@ import {
   compareAnnexLetters,
   findStructureRowForStatementLine,
   formatDetailLabelWithAnnex,
-  isDefineMappingChecked,
+  isCodeMappingEnabled,
+  isShowInDetail,
+  isStructureRowDetailOnly,
+  isStructureRowInDetailAnnexEditor,
+  listAnnexLettersForDetailSubLines,
   normLabel,
+  normalizeAnnexLetter,
 } from "@/lib/income-statement-structure-utils"
 import {
   dashboardCardAccentBarClass,
@@ -39,7 +46,9 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { Settings, Plus, Edit2, Trash2 } from "lucide-react"
+import { Settings, Plus, Edit2, Trash2, Loader2, Sparkles } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
 
 interface IncomeStatementDetailProps {
   period: "monthly" | "quarterly" | "annual"
@@ -60,6 +69,8 @@ interface IncomeStatementDetailProps {
   loading?: boolean
   projectionId?: string | null
   structureVersion?: number
+  showIncomeStatementStructureSettings?: boolean
+  onIncomeStatementStructureSaved?: () => void
 }
 
 interface BalanceAccount {
@@ -80,11 +91,120 @@ interface DetailRow {
   isSubtotal?: boolean
   isSection?: boolean
   isAnnexHeader?: boolean
+  /** Lettre d’annexe (API / structure), pour regrouper et insérer les lignes indicatives. */
+  annexLetter?: string
+  isAnnexTitle?: boolean
+  statementLabel?: string
+  /** Ligne indicatif après un bloc d’annexe (hors mode Paramètres). */
+  isAnnexPlaceholder?: boolean
+  /** Sous-total des montants du bloc d’annexe (au-dessus de la ligne vide). */
+  isAnnexSubtotal?: boolean
   // For trend views (12months, quarters, years)
   trendValues?: number[]
   // Balance accounts for this row
   balanceAccounts?: BalanceAccount[]
   rowId?: string // Unique ID for expansion
+}
+
+/** Lignes du tableau Paramètres : entrées structure, sous-total annexe, ligne indicatif. */
+type DetailAnnexStructureLayoutEntry =
+  | { kind: "structure"; globalIdx: number }
+  | { kind: "annexSubtotal"; letter: string }
+  | { kind: "placeholder"; letter: string }
+
+const ANNEX_DETAIL_PLACEHOLDER_LABEL =
+  "Ligne vide — renommez ou supprimez dans le bouton Paramètres"
+
+function buildAnnexPlaceholderDetailRow(letter: string, trendValuesLength?: number): DetailRow {
+  const pad =
+    trendValuesLength && trendValuesLength > 0 ? Array(trendValuesLength).fill(0) : undefined
+  return {
+    label: ANNEX_DETAIL_PLACEHOLDER_LABEL,
+    statementLabel: `__annex_placeholder__${letter}`,
+    current: 0,
+    prior: 0,
+    isAnnexPlaceholder: true,
+    ...(pad ? { trendValues: [...pad] } : {}),
+  }
+}
+
+function sumAnnexGroupRows(rows: DetailRow[]): { current: number; prior: number; trendValues?: number[] } {
+  let current = 0
+  let prior = 0
+  let trendLen = 0
+  for (const r of rows) {
+    current += r.current ?? 0
+    prior += r.prior ?? 0
+    if (r.trendValues?.length) {
+      trendLen = Math.max(trendLen, r.trendValues.length)
+    }
+  }
+  if (trendLen === 0) {
+    return { current, prior }
+  }
+  const trendValues = Array(trendLen).fill(0)
+  for (const r of rows) {
+    if (!r.trendValues?.length) continue
+    for (let k = 0; k < r.trendValues.length; k++) {
+      trendValues[k] = (trendValues[k] ?? 0) + (r.trendValues[k] ?? 0)
+    }
+  }
+  return { current, prior, trendValues }
+}
+
+function buildAnnexSubtotalDetailRow(
+  letter: string,
+  agg: { current: number; prior: number; trendValues?: number[] }
+): DetailRow {
+  return {
+    label: `Sous-total — Annexe ${letter}`,
+    statementLabel: `__annex_subtotal__${letter}`,
+    current: agg.current,
+    prior: agg.prior,
+    isBold: true,
+    isSubtotal: true,
+    isAnnexSubtotal: true,
+    annexLetter: letter,
+    ...(agg.trendValues ? { trendValues: [...agg.trendValues] } : {}),
+  }
+}
+
+/** Somme des lignes « réelles » d’une annexe (hors sous-total / ligne vide déjà injectés). */
+function sumAnnexGroupRowsForLetter(dataRows: DetailRow[], letter: string) {
+  const L = normalizeAnnexLetter(letter)
+  const groupRows = dataRows.filter(
+    (r) =>
+      normalizeAnnexLetter(String(r.annexLetter ?? "")) === L &&
+      !r.isAnnexPlaceholder &&
+      !r.isAnnexSubtotal
+  )
+  return sumAnnexGroupRows(groupRows)
+}
+
+/** Après chaque bloc d’annexe : sous-total, puis ligne indicatif (Paramètres). */
+function insertAnnexDetailPlaceholderRows(rows: DetailRow[], trendValuesLength?: number): DetailRow[] {
+  const out: DetailRow[] = []
+  let i = 0
+  while (i < rows.length) {
+    const letter = normalizeAnnexLetter(String(rows[i].annexLetter ?? ""))
+    if (letter) {
+      let j = i
+      const groupRows: DetailRow[] = []
+      while (j < rows.length && normalizeAnnexLetter(String(rows[j].annexLetter ?? "")) === letter) {
+        groupRows.push(rows[j])
+        out.push(rows[j])
+        j++
+      }
+      const agg = sumAnnexGroupRows(groupRows)
+      out.push(buildAnnexSubtotalDetailRow(letter, agg))
+      out.push(buildAnnexPlaceholderDetailRow(letter, trendValuesLength))
+      i = j
+    } else {
+      out.push(rows[i])
+      i++
+    }
+  }
+  return out
 }
 
 export function IncomeStatementDetail({
@@ -106,6 +226,8 @@ export function IncomeStatementDetail({
   loading = false,
   projectionId,
   structureVersion = 0,
+  showIncomeStatementStructureSettings = false,
+  onIncomeStatementStructureSaved,
 }: IncomeStatementDetailProps) {
   useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -216,6 +338,62 @@ export function IncomeStatementDetail({
 
   // Check if this is a forecast section (Revenus, Dépenses, or États des résultats pro forma)
   const isForecastSection = title === "Estimation des revenus annuels" || title === "Estimation des dépenses annuelles" || title === "États des résultats pro forma"
+
+  const isCompanyComparison = columnMode === "comparison" && !companyId
+  const isDivisionComparison = columnMode === "comparison" && !!companyId && !divisionId
+  const isSubDivisionComparison = columnMode === "comparison" && !!companyId && !!divisionId && !subDivisionId
+  const isComparisonMode = isCompanyComparison || isDivisionComparison || isSubDivisionComparison
+
+  const [structureEditMode, setStructureEditMode] = useState(false)
+  const [detailAddModalOpen, setDetailAddModalOpen] = useState(false)
+
+  const canInlineStructureEdit =
+    !!showIncomeStatementStructureSettings && !!companyId && !isComparisonMode && !isForecastSection
+
+  const structEdit = useIncomeStatementStructureEdit(
+    companyId ?? null,
+    structureEditMode && canInlineStructureEdit
+  )
+
+  const detailAnnexEditorGlobalIndices = useMemo(() => {
+    if (!structureEditMode || !canInlineStructureEdit) return []
+    return structEdit.structure
+      .map((r, i) => (isStructureRowInDetailAnnexEditor(r as Record<string, unknown>) ? i : -1))
+      .filter((i) => i >= 0)
+  }, [structureEditMode, canInlineStructureEdit, structEdit.structure])
+
+  const detailAnnexStructureTableLayout = useMemo((): DetailAnnexStructureLayoutEntry[] => {
+    if (!structureEditMode || !canInlineStructureEdit) return []
+    const indices = detailAnnexEditorGlobalIndices
+    if (indices.length === 0) return []
+    if (title !== "Détail" || isForecastSection) {
+      return indices.map((globalIdx) => ({ kind: "structure" as const, globalIdx }))
+    }
+    const struct = structEdit.structure
+    const out: DetailAnnexStructureLayoutEntry[] = []
+    let i = 0
+    while (i < indices.length) {
+      const g0 = indices[i]!
+      const letter = normalizeAnnexLetter(String((struct[g0] as Record<string, unknown>)?.annexLetter ?? ""))
+      if (letter) {
+        let j = i
+        while (j < indices.length) {
+          const gj = indices[j]!
+          const l2 = normalizeAnnexLetter(String((struct[gj] as Record<string, unknown>)?.annexLetter ?? ""))
+          if (l2 !== letter) break
+          out.push({ kind: "structure", globalIdx: gj })
+          j++
+        }
+        out.push({ kind: "annexSubtotal", letter })
+        out.push({ kind: "placeholder", letter })
+        i = j
+      } else {
+        out.push({ kind: "structure", globalIdx: g0 })
+        i++
+      }
+    }
+    return out
+  }, [structureEditMode, canInlineStructureEdit, detailAnnexEditorGlobalIndices, structEdit.structure, title, isForecastSection])
 
   // Determine months needed for series API based on view
   const isMultiPeriodView = view === "12months" || view === "quarters" || view === "years"
@@ -758,40 +936,63 @@ export function IncomeStatementDetail({
     })
   }
 
-  /** Détail : uniquement les postes « Définir » cochés en paramètres ; annexe + libellé sur une ligne. */
+  const capitalizeFirst = (str: string): string => {
+    if (!str) return str
+    if (str.toLowerCase() === "baiia") return "BAIIA"
+    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
+  }
+
+  /** Détail : postes « Annexe » (sommaire) ; sous-lignes detailOnly indentées sous l’annexe. */
   const mapBackendRowsDefinedOnly = (
     apiRows: FinancialStatementRow[],
     structure: Record<string, unknown>[]
   ): DetailRow[] => {
     const defined = apiRows.filter((row) => {
       const sr = findStructureRowForStatementLine(row.id, row.label, structure)
-      return sr !== undefined && isDefineMappingChecked(sr)
+      return sr !== undefined && isShowInDetail(sr) && isCodeMappingEnabled(sr)
     })
     const sorted = [...defined].sort((a, b) => {
+      const srA = findStructureRowForStatementLine(a.id, a.label, structure)!
+      const srB = findStructureRowForStatementLine(b.id, b.label, structure)!
       const c = compareAnnexLetters(a.annexLetter, b.annexLetter)
       if (c !== 0) return c
+      const subA = isStructureRowDetailOnly(srA) ? 1 : 0
+      const subB = isStructureRowDetailOnly(srB) ? 1 : 0
+      if (subA !== subB) return subA - subB
       return normLabel(a.label).localeCompare(normLabel(b.label), "fr")
     })
-    return sorted.map((row) => ({
-      label: formatDetailLabelWithAnnex(row.label, row.annexLetter),
-      current: row.current ?? 0,
-      prior: row.prior ?? 0,
-      indent: false,
-      isBold: true,
-      isSubtotal: row.isResult,
-      isSection: false,
-      rowId: row.id,
-    }))
+    return sorted.map((row) => {
+      const sr = findStructureRowForStatementLine(row.id, row.label, structure)!
+      const sub = isStructureRowDetailOnly(sr)
+      return {
+        label: sub ? capitalizeFirst(row.label) : formatDetailLabelWithAnnex(row.label, row.annexLetter),
+        statementLabel: row.label,
+        annexLetter: String(row.annexLetter ?? ""),
+        current: row.current ?? 0,
+        prior: row.prior ?? 0,
+        indent: sub,
+        isBold: sub ? false : true,
+        isSubtotal: row.isResult,
+        isSection: false,
+        isAnnexTitle: !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== "",
+        rowId: row.id,
+      }
+    })
   }
 
   const filterSeriesRowsDefinedOnly = useCallback((rows: SeriesRow[], structure: Record<string, unknown>[]) => {
     const defined = rows.filter((row) => {
       const sr = findStructureRowForStatementLine(row.id, row.label, structure)
-      return sr !== undefined && isDefineMappingChecked(sr)
+      return sr !== undefined && isShowInDetail(sr) && isCodeMappingEnabled(sr)
     })
     return [...defined].sort((a, b) => {
+      const srA = findStructureRowForStatementLine(a.id, a.label, structure)!
+      const srB = findStructureRowForStatementLine(b.id, b.label, structure)!
       const c = compareAnnexLetters(a.annexLetter, b.annexLetter)
       if (c !== 0) return c
+      const subA = isStructureRowDetailOnly(srA) ? 1 : 0
+      const subB = isStructureRowDetailOnly(srB) ? 1 : 0
+      if (subA !== subB) return subA - subB
       return normLabel(a.label).localeCompare(normLabel(b.label), "fr")
     })
   }, [])
@@ -804,14 +1005,19 @@ export function IncomeStatementDetail({
       const amounts = getRowAmounts(row, seriesPeriods)
       const lastAmount = amounts[amounts.length - 1] || 0
       const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
+      const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
+      const sub = sr ? isStructureRowDetailOnly(sr) : false
       return {
-        label: formatDetailLabelWithAnnex(row.label, row.annexLetter),
+        label: sub ? capitalizeFirst(row.label) : formatDetailLabelWithAnnex(row.label, row.annexLetter),
+        statementLabel: row.label,
+        annexLetter: String(row.annexLetter ?? ""),
         current: lastAmount,
         prior: priorAmount,
-        isBold: true,
+        isBold: !sub,
         isSection: false,
         isSubtotal: row.isResult,
-        indent: false,
+        indent: sub,
+        isAnnexTitle: !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== "",
         trendValues: amounts,
         rowId: row.id,
       }
@@ -827,14 +1033,19 @@ export function IncomeStatementDetail({
       const { amounts: qAmounts } = aggregateToQuarters(amounts, seriesPeriods)
       const lastAmount = qAmounts[qAmounts.length - 1] || 0
       const priorAmount = qAmounts.length >= 2 ? qAmounts[qAmounts.length - 2] || 0 : 0
+      const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
+      const sub = sr ? isStructureRowDetailOnly(sr) : false
       return {
-        label: formatDetailLabelWithAnnex(row.label, row.annexLetter),
+        label: sub ? capitalizeFirst(row.label) : formatDetailLabelWithAnnex(row.label, row.annexLetter),
+        statementLabel: row.label,
+        annexLetter: String(row.annexLetter ?? ""),
         current: lastAmount,
         prior: priorAmount,
-        isBold: true,
+        isBold: !sub,
         isSection: false,
         isSubtotal: row.isResult,
-        indent: false,
+        indent: sub,
+        isAnnexTitle: !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== "",
         trendValues: qAmounts,
         rowId: row.id,
       }
@@ -850,14 +1061,19 @@ export function IncomeStatementDetail({
       const { amounts: yAmounts } = aggregateToYears(amounts, seriesPeriods)
       const lastAmount = yAmounts[yAmounts.length - 1] || 0
       const priorAmount = yAmounts.length >= 2 ? yAmounts[yAmounts.length - 2] || 0 : 0
+      const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
+      const sub = sr ? isStructureRowDetailOnly(sr) : false
       return {
-        label: formatDetailLabelWithAnnex(row.label, row.annexLetter),
+        label: sub ? capitalizeFirst(row.label) : formatDetailLabelWithAnnex(row.label, row.annexLetter),
+        statementLabel: row.label,
+        annexLetter: String(row.annexLetter ?? ""),
         current: lastAmount,
         prior: priorAmount,
-        isBold: true,
+        isBold: !sub,
         isSection: false,
         isSubtotal: row.isResult,
-        indent: false,
+        indent: sub,
+        isAnnexTitle: !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== "",
         trendValues: yAmounts,
         rowId: row.id,
       }
@@ -1137,11 +1353,6 @@ export function IncomeStatementDetail({
   }
 
   // Helper function to capitalize first letter
-  const capitalizeFirst = (str: string): string => {
-    if (!str) return str
-    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
-  }
-
   let data = getDetailData()
   
   // Find revenue value for percentage calculations BEFORE filtering data
@@ -1213,12 +1424,11 @@ export function IncomeStatementDetail({
       return row
     })
   }
-  
-  // Determine what we're comparing
-  const isCompanyComparison = columnMode === "comparison" && !companyId
-  const isDivisionComparison = columnMode === "comparison" && companyId && !divisionId
-  const isSubDivisionComparison = columnMode === "comparison" && companyId && divisionId && !subDivisionId
-  const isComparisonMode = isCompanyComparison || isDivisionComparison || isSubDivisionComparison
+
+  if (title === "Détail" && !isForecastSection) {
+    const trendLen = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
+    data = insertAnnexDetailPlaceholderRows(data, trendLen > 0 ? trendLen : undefined)
+  }
 
   // Get entities to compare
   let entitiesToCompare: Array<{ id: string; name: string }> = []
@@ -1311,17 +1521,31 @@ export function IncomeStatementDetail({
                 .map(([, v]) => v)
               const lastAmount = amounts[amounts.length - 1] || 0
               const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
+              const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
+              const sub = sr ? isStructureRowDetailOnly(sr) : false
               return {
-                label: formatDetailLabelWithAnnex(row.label, row.annexLetter),
+                label: sub ? capitalizeFirst(row.label) : formatDetailLabelWithAnnex(row.label, row.annexLetter),
+                statementLabel: row.label,
+                annexLetter: String(row.annexLetter ?? ""),
                 current: lastAmount,
                 prior: priorAmount,
-                indent: false,
-                isBold: true,
+                indent: sub,
+                isBold: !sub,
                 isSubtotal: row.isResult,
                 isSection: false,
+                isAnnexTitle: !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== "",
+                rowId: row.id,
               }
             })
-            results[entity.id] = mapped
+            if (title === "Détail" && !isForecastSection) {
+              const trendLen = mapped.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
+              results[entity.id] = insertAnnexDetailPlaceholderRows(
+                mapped,
+                trendLen > 0 ? trendLen : undefined
+              )
+            } else {
+              results[entity.id] = mapped
+            }
           }
         } catch (err) {
           console.error(`Error fetching data for entity ${entity.name}:`, err)
@@ -1348,6 +1572,7 @@ export function IncomeStatementDetail({
     structureVersion,
     incomeStatementStructure,
     filterSeriesRowsDefinedOnly,
+    title,
   ])
 
   // Show "no data" state when data is empty and not loading
@@ -1498,6 +1723,66 @@ export function IncomeStatementDetail({
     return "Courant"
   }
 
+  const isStructureStudio = structureEditMode && canInlineStructureEdit
+  const showStructureCols =
+    isStructureStudio && !structEdit.loading && detailAnnexEditorGlobalIndices.length > 0
+
+  const trendLenForPad = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
+
+  const padDetailRowForStructure = (structRow: Record<string, unknown>): DetailRow => {
+    const sub = isStructureRowDetailOnly(structRow)
+    return {
+      label: String(structRow.label ?? ""),
+      statementLabel: String(structRow.label ?? ""),
+      current: 0,
+      prior: 0,
+      indent: sub,
+      isBold: sub ? false : true,
+      isSubtotal: false,
+      isSection: false,
+      isAnnexTitle:
+        !sub &&
+        isStructureRowInDetailAnnexEditor(structRow) &&
+        normalizeAnnexLetter(String(structRow.annexLetter ?? "")) !== "",
+      trendValues: trendLenForPad > 0 ? Array(trendLenForPad).fill(0) : undefined,
+      rowId: String(structRow.id ?? "").trim() || undefined,
+    }
+  }
+
+  const detailFinancialRowForStructure = (structRow: Record<string, unknown>): DetailRow => {
+    const sl = normLabel(String(structRow.label ?? ""))
+    const matches = (r: DetailRow) => {
+      if (r.statementLabel && normLabel(r.statementLabel) === sl) return true
+      if (normLabel(r.label) === sl) return true
+      const stripped = r.label.replace(/^Annexe\s+[A-Z0-9]+\s*[—–-]\s*/i, "").trim()
+      return normLabel(stripped) === sl
+    }
+    const found = data.find(matches)
+    if (found) return found
+    return padDetailRowForStructure(structRow)
+  }
+
+  const structureStudioLabelBold = (structRow: Record<string, unknown>, displayRow: DetailRow): boolean => {
+    const lab = normLabel(String(structRow.label ?? ""))
+    const boldLabels = [
+      "revenus",
+      "bénéfice brut",
+      "charges d'exploitation",
+      "bénéfice avant impôts",
+      "total des charges",
+      "bénéfice net",
+      "baiia",
+    ]
+    return (
+      boldLabels.includes(lab) ||
+      !!displayRow.isSubtotal ||
+      (lab.includes("bénéfice net") && !!displayRow.isSubtotal) ||
+      lab === "baiia"
+    )
+  }
+
+  const detailTableRowCount = showStructureCols ? detailAnnexStructureTableLayout.length : data.length
+
   // Show loading state when fetching data
   if (isDataLoading) {
     return (
@@ -1521,45 +1806,126 @@ export function IncomeStatementDetail({
       <div className="relative">
       {/* Header */}
       <div className={cn("border-b px-8 py-5", dashboardCardHeaderBarClass)}>
-        <div className="flex items-center justify-between">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className={cn("h-12 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <div className={cn("mt-0.5 h-12 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
             <div className="min-w-0 flex-1">
-              <h2 className={cn("mb-1 text-xl", dashboardCardTitleClass)}>{title}</h2>
-              <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
-                <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
-                <span className="text-slate-400">•</span>
-                {subDivisionId && divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
-                      {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
-                    </span>
-                  </>
-                ) : divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
-                      {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}
-                    </span>
-                  </>
-                ) : companyId ? (
-                  <span className={cn("font-semibold", dashboardCardAccentClass)}>
-                    {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
-                  </span>
-                ) : (
-                  <span className="truncate">Toutes les sociétés</span>
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <h2 className={cn("text-xl", dashboardCardTitleClass)}>{title}</h2>
+                {isStructureStudio && (
+                  <Badge
+                    variant="secondary"
+                    className="border border-slate-200 bg-slate-100 font-medium text-[#2A2F3A] shadow-none"
+                  >
+                    <Sparkles className="h-3 w-3 text-[#E0742D]" />
+                    Édition structure
+                  </Badge>
                 )}
               </div>
+              {isStructureStudio ? (
+                <p className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
+                  Ajoutez des sous-lignes par annexe (comme sous Charges d&apos;exploitation). Elles n&apos;apparaissent
+                  qu&apos;ici, pas au Sommaire. Configurez d&apos;abord annexes et liaisons au Sommaire si besoin.
+                </p>
+              ) : (
+                <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+                  <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
+                  <span className="text-slate-400">•</span>
+                  {subDivisionId && divisionId && companyId ? (
+                    <>
+                      <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                      <span className="text-slate-400">•</span>
+                      <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
+                      <span className="text-slate-400">•</span>
+                      <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                        {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
+                      </span>
+                    </>
+                  ) : divisionId && companyId ? (
+                    <>
+                      <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                      <span className="text-slate-400">•</span>
+                      <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                        {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}
+                      </span>
+                    </>
+                  ) : companyId ? (
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                      {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+                    </span>
+                  ) : (
+                    <span className="truncate">Toutes les sociétés</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
-          {/* Toggle button for growth rate - only show for forecast sections with years view, but not for "États des résultats pro forma" */}
-          {isForecastSection && view === "years" && title !== "États des résultats pro forma" && (
-            <div className="flex-shrink-0">
+          <div className="flex w-full shrink-0 flex-col gap-3 sm:w-auto sm:items-end">
+            {canInlineStructureEdit && !structureEditMode && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0 gap-2 border-slate-300 bg-white text-[#2A2F3A] transition-colors hover:border-slate-500 hover:bg-slate-50"
+                onClick={() => setStructureEditMode(true)}
+              >
+                <Settings className="h-4 w-4" />
+                Paramètres
+              </Button>
+            )}
+            {canInlineStructureEdit && structureEditMode && (
+              <div className="flex w-full flex-wrap items-center justify-end gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 rounded-xl text-[#2A2F3A] hover:bg-slate-100"
+                  disabled={structEdit.loading || listAnnexLettersForDetailSubLines(structEdit.structure).length === 0}
+                  onClick={() => setDetailAddModalOpen(true)}
+                >
+                  <Plus className={cn("h-4 w-4", dashboardCardAccentClass)} />
+                  Ajouter un poste
+                </Button>
+                <Separator orientation="vertical" className="hidden h-7 sm:block" />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="rounded-xl text-[#5C5F66] hover:bg-slate-100"
+                  disabled={structEdit.saving}
+                  onClick={() => {
+                    structEdit.discard()
+                    setStructureEditMode(false)
+                  }}
+                >
+                  Annuler
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-xl bg-[#2A2F3A] px-4 font-semibold text-[#E6D6C3] shadow-sm transition hover:bg-[#353b47] disabled:opacity-60"
+                  disabled={structEdit.saving || structEdit.loading || !companyId}
+                  onClick={async () => {
+                    const ok = await structEdit.save()
+                    if (ok) {
+                      onIncomeStatementStructureSaved?.()
+                      structEdit.discard()
+                      setStructureEditMode(false)
+                    }
+                  }}
+                >
+                  {structEdit.saving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Enregistrement…
+                    </>
+                  ) : (
+                    "Enregistrer"
+                  )}
+                </Button>
+              </div>
+            )}
+            {isForecastSection && view === "years" && title !== "États des résultats pro forma" && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -1569,27 +1935,129 @@ export function IncomeStatementDetail({
                   showGrowthRate && "bg-[#353b47]"
                 )}
               >
-                <TrendingUp className="w-3.5 h-3.5 mr-1.5" />
-                {showGrowthRate 
-                  ? "Montants" 
-                  : (title === "Estimation des revenus annuels" ? "Croissance" : "% des revenus")}
+                <TrendingUp className="mr-1.5 h-3.5 w-3.5" />
+                {showGrowthRate
+                  ? "Montants"
+                  : title === "Estimation des revenus annuels"
+                    ? "Croissance"
+                    : "% des revenus"}
               </Button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
+      {structureEditMode && canInlineStructureEdit && structEdit.loading && (
+        <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50/90 px-8 py-3.5 text-sm text-[#2A2F3A]">
+          <Loader2 className={cn("h-4 w-4 animate-spin", dashboardCardAccentClass)} />
+          <span className="font-medium">Chargement de la structure…</span>
+        </div>
+      )}
+      {structureEditMode && canInlineStructureEdit && structEdit.error && (
+        <div className="border-b border-red-200/80 bg-gradient-to-r from-red-50 to-white px-8 py-3 text-sm font-medium text-red-800">
+          {structEdit.error}
+        </div>
+      )}
+      {structureEditMode &&
+        canInlineStructureEdit &&
+        !structEdit.loading &&
+        structEdit.structure.length > 0 &&
+        listAnnexLettersForDetailSubLines(structEdit.structure).length === 0 && (
+          <div className="border-b border-amber-200/90 bg-gradient-to-r from-amber-50 to-amber-50/30 px-8 py-3 text-sm text-amber-950">
+            Aucune annexe disponible : définissez d&apos;abord des postes avec liaison et annexe dans la vue Sommaire.
+          </div>
+        )}
+
+      <Dialog open={detailAddModalOpen} onOpenChange={setDetailAddModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Choisir une annexe</DialogTitle>
+            <DialogDescription>
+              La nouvelle ligne sera insérée comme sous-catégorie sous cette annexe.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 py-2">
+            {listAnnexLettersForDetailSubLines(structEdit.structure).map((letter) => (
+              <Button
+                key={letter}
+                type="button"
+                variant="outline"
+                className="justify-start"
+                onClick={() => {
+                  structEdit.addDetailSubLine(letter)
+                  setDetailAddModalOpen(false)
+                }}
+              >
+                Annexe {letter}
+              </Button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
 
       {/* Table */}
-      <div className="overflow-x-auto bg-white">
-        <table className="w-full">
+      <div
+        className={cn(
+          "overflow-x-auto",
+          isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
+        )}
+      >
+        <table className={cn("w-full", showStructureCols && "table-fixed")}>
+          {showStructureCols && (
+            <colgroup>
+              <col />
+              <col style={{ width: "7rem" }} />
+              <col style={{ width: "7rem" }} />
+              <col style={{ width: "7rem" }} />
+              <col style={{ width: "2.75rem" }} />
+            </colgroup>
+          )}
           <thead>
-            <tr className="border-b-2 border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80">
-              <th className="w-2/5 px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]">Compte</th>
-              {view === "current" && (
+            <tr
+              className={cn(
+                "border-b-2",
+                showStructureCols
+                  ? "border-slate-200 bg-gradient-to-r from-slate-50 via-slate-100/40 to-slate-50"
+                  : "border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80"
+              )}
+            >
+              <th
+                className={cn(
+                  "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
+                  !showStructureCols && "w-2/5",
+                  showStructureCols && "min-w-0 pl-4 pr-3"
+                )}
+              >
+                {showStructureCols ? (
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-lg bg-white/80 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-slate-500 ring-1 ring-slate-200/80">
+                      Annexes
+                    </span>
+                    <span className="font-semibold text-slate-800">Postes liés aux annexes</span>
+                  </span>
+                ) : (
+                  "Compte"
+                )}
+              </th>
+              {showStructureCols && (
+                <>
+                  <th className="box-border w-[7rem] px-2 py-4 text-center text-[11px] font-semibold text-slate-800">
+                    Masquer
+                  </th>
+                  <th className="box-border w-[7rem] px-2 py-4 text-center text-[11px] font-semibold text-slate-800">
+                    Liaison
+                  </th>
+                  <th className="box-border w-[7rem] px-2 py-4 text-center text-[11px] font-semibold text-slate-800">
+                    Annexe
+                  </th>
+                  <th className="w-11 px-0 py-4" aria-hidden />
+                </>
+              )}
+              {!showStructureCols && view === "current" && (
                 <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Montant</th>
               )}
-              {view === "comparison" && !isComparisonMode && (
+              {!showStructureCols && view === "comparison" && !isComparisonMode && (
                 <>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
@@ -1606,7 +2074,7 @@ export function IncomeStatementDetail({
                   ) : null}
                 </>
               )}
-              {view === "comparison" && isComparisonMode && (
+              {!showStructureCols && view === "comparison" && isComparisonMode && (
                 <>
                   {entitiesToCompare.map((entity) => (
                     <th key={entity.id} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">
@@ -1615,7 +2083,7 @@ export function IncomeStatementDetail({
                   ))}
                 </>
               )}
-              {view === "ddm" && !isComparisonMode && (
+              {!showStructureCols && view === "ddm" && !isComparisonMode && (
                 <>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
@@ -1632,7 +2100,7 @@ export function IncomeStatementDetail({
                   ) : null}
                 </>
               )}
-              {view === "ddm" && isComparisonMode && (
+              {!showStructureCols && view === "ddm" && isComparisonMode && (
                 <>
                   {entitiesToCompare.map((entity) => (
                     <th key={entity.id} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">
@@ -1641,7 +2109,7 @@ export function IncomeStatementDetail({
                   ))}
                 </>
               )}
-              {view === "ytd" && !isComparisonMode && (
+              {!showStructureCols && view === "ytd" && !isComparisonMode && (
                 <>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD {fiscalYear}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD {(fiscalYear ?? new Date().getFullYear()) - 1}</th>
@@ -1658,7 +2126,7 @@ export function IncomeStatementDetail({
                   ) : null}
                 </>
               )}
-              {view === "ytd" && isComparisonMode && (
+              {!showStructureCols && view === "ytd" && isComparisonMode && (
                 <>
                   {entitiesToCompare.map((entity) => (
                     <th key={entity.id} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">
@@ -1667,7 +2135,7 @@ export function IncomeStatementDetail({
                   ))}
                 </>
               )}
-              {view === "12months" && (
+              {!showStructureCols && view === "12months" && (
                 <>
                   {getMonthLabels().map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
@@ -1676,7 +2144,7 @@ export function IncomeStatementDetail({
                   ))}
                 </>
               )}
-              {view === "quarters" && (
+              {!showStructureCols && view === "quarters" && (
                 <>
                   {getQuarterLabels().map((label, idx) => (
                     <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
@@ -1685,7 +2153,7 @@ export function IncomeStatementDetail({
                   ))}
                 </>
               )}
-              {view === "years" && (
+              {!showStructureCols && view === "years" && (
                 <>
                   {/* Type column for Dépenses section */}
                   {title === "Estimation des dépenses annuelles" && (
@@ -1716,7 +2184,7 @@ export function IncomeStatementDetail({
               )}
             </tr>
             {/* Inflation rate row for Dépenses section */}
-            {title === "Estimation des dépenses annuelles" && view === "years" && (
+            {!showStructureCols && title === "Estimation des dépenses annuelles" && view === "years" && (
               <tr className="bg-slate-50 border-b border-slate-200">
                 {/* Label cell */}
                 <th className="px-6 py-2 text-left">
@@ -1749,28 +2217,73 @@ export function IncomeStatementDetail({
             )}
           </thead>
           <tbody>
-            {data.map((row, idx) => {
+            {Array.from({ length: detailTableRowCount }, (_, idx) => {
+              const layoutEntry = showStructureCols ? detailAnnexStructureTableLayout[idx] : undefined
+              const globalIdx =
+                showStructureCols && layoutEntry?.kind === "structure" ? layoutEntry.globalIdx : -1
+              const structRow =
+                showStructureCols && layoutEntry?.kind === "structure"
+                  ? structEdit.structure[globalIdx]!
+                  : null
+              const row = showStructureCols
+                ? layoutEntry?.kind === "placeholder"
+                  ? buildAnnexPlaceholderDetailRow(layoutEntry.letter, trendLenForPad)
+                  : layoutEntry?.kind === "annexSubtotal"
+                    ? buildAnnexSubtotalDetailRow(
+                        layoutEntry.letter,
+                        sumAnnexGroupRowsForLetter(data, layoutEntry.letter)
+                      )
+                    : layoutEntry?.kind === "structure"
+                      ? detailFinancialRowForStructure(structEdit.structure[layoutEntry.globalIdx]!)
+                      : data[idx]!
+                : data[idx]!
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
-              const isSpacer = row.label === ""
-              const shouldHideAmounts = isSpacer || !!row.isSection
+              const isSpacer = row.label === "" && !row.isAnnexPlaceholder
+              const shouldHideAmounts = isSpacer || !!row.isSection || !!row.isAnnexPlaceholder
+              /** Hors Paramètres : libellé sous-total masqué (blanc) mais chiffres en noir. */
+              const annexSubtotalDarkNumbers = row.isAnnexSubtotal && !showStructureCols
               const displayLabel =
                 row.isAnnexHeader
                   ? row.label
                   : row.isSection
                     ? capitalizeFirst(row.label)
                     : row.label
-              
+
+              const isBoldForStyle =
+                showStructureCols && structRow && !row.isAnnexPlaceholder && !row.isAnnexSubtotal
+                  ? structureStudioLabelBold(structRow, row)
+                  : !!row.isBold
+
+              const nextLayoutEntry =
+                showStructureCols && idx + 1 < detailAnnexStructureTableLayout.length
+                  ? detailAnnexStructureTableLayout[idx + 1]
+                  : undefined
               // Check if next row is a subtotal to add dark border above it
-              const nextRowIsSubtotal = idx < data.length - 1 && data[idx + 1].isSubtotal
+              const nextRowIsSubtotal =
+                idx < detailTableRowCount - 1 &&
+                (showStructureCols
+                  ? nextLayoutEntry?.kind === "annexSubtotal"
+                    ? true
+                    : nextLayoutEntry?.kind === "structure"
+                      ? detailFinancialRowForStructure(structEdit.structure[nextLayoutEntry.globalIdx]!)
+                          .isSubtotal
+                      : false
+                  : data[idx + 1]!.isSubtotal)
               
               // Check if this row can be expanded and if it's expanded
               // If projectionMode is "account", disable expansion for forecast sections (revenus, dépenses, capex, états des résultats pro forma)
               const isForecastSectionForExpansion = title === "Estimation des revenus annuels" || title === "Estimation des dépenses annuelles" || title === "Estimation des Capex annuels" || title === "États des résultats pro forma"
               // Force canExpand to false if in "account" mode for forecast sections - this is the primary check
-              const canExpand = (projectionMode === "account" && isForecastSectionForExpansion) 
-                ? false 
-                : (!!row.rowId && !!row.balanceAccounts && Array.isArray(row.balanceAccounts) && row.balanceAccounts.length > 0)
+              const canExpand =
+                showStructureCols
+                  ? false
+                  : (projectionMode === "account" && isForecastSectionForExpansion)
+                    ? false
+                    : !!row.rowId &&
+                      !!row.balanceAccounts &&
+                      Array.isArray(row.balanceAccounts) &&
+                      row.balanceAccounts.length > 0
               const isExpanded = row.rowId ? expandedRows.has(row.rowId) : false
               
               // Check if this row has a note
@@ -1778,14 +2291,21 @@ export function IncomeStatementDetail({
                 ? getNoteByRowId(row.rowId, "income-statement", period, view, companyId, divisionId, subDivisionId) !== null
                 : false
 
-              const detailRowListKey = row.rowId ? `${row.rowId}-${idx}` : `detail-row-${idx}`
+              const detailRowListKey = row.rowId
+                ? `${row.rowId}-${idx}`
+                : row.statementLabel && (row.isAnnexPlaceholder || row.isAnnexSubtotal)
+                  ? `${row.statementLabel}-${idx}`
+                  : `detail-row-${idx}`
 
               return (
                 <Fragment key={detailRowListKey}>
                   <tr
                     className={cn(
                       "border-b",
-                      row.label === "" ? "h-2 border-slate-200" : "",
+                      row.label === "" && !row.isAnnexPlaceholder ? "h-2 border-slate-200" : "",
+                      row.isAnnexPlaceholder && showStructureCols && "bg-slate-50/50",
+                      row.isAnnexPlaceholder && !showStructureCols && "bg-white",
+                      annexSubtotalDarkNumbers && "bg-white",
                       nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
                       row.isAnnexHeader && "bg-amber-50/90",
                       canExpand && "cursor-pointer hover:bg-slate-50"
@@ -1793,7 +2313,17 @@ export function IncomeStatementDetail({
                     onClick={() => canExpand && toggleRow(row.rowId!)}
                   >
                     <td
-                      className={`px-6 py-3 ${row.isBold ? "font-bold text-slate-900" : "text-slate-700"} ${row.indent ? "pl-12" : ""}`}
+                      className={cn(
+                        "px-6 py-3",
+                        showStructureCols ? "py-3.5 pl-4 pr-3" : "",
+                        row.isAnnexPlaceholder && !showStructureCols && "py-2",
+                        annexSubtotalDarkNumbers
+                          ? "font-bold"
+                          : isBoldForStyle
+                            ? "font-bold text-slate-900"
+                            : "text-slate-700",
+                        row.indent ? "pl-12" : ""
+                      )}
                     >
                       <div className="flex items-center gap-2">
                         {canExpand && (
@@ -1806,7 +2336,36 @@ export function IncomeStatementDetail({
                           </span>
                         )}
                         {!canExpand && row.indent && <span className="w-4"></span>}
-                        <span className="flex-1">{displayLabel}</span>
+                        {row.isAnnexPlaceholder ? (
+                          showStructureCols ? (
+                            <span className="inline-flex max-w-full flex-1 items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-xs font-medium leading-snug text-slate-400">
+                              {row.label}
+                            </span>
+                          ) : null
+                        ) : row.isAnnexSubtotal ? (
+                          <span
+                            className={cn(
+                              "flex-1 font-semibold",
+                              annexSubtotalDarkNumbers ? "text-white" : "text-slate-900"
+                            )}
+                          >
+                            {row.label}
+                          </span>
+                        ) : showStructureCols && structRow ? (
+                          String(structRow.label ?? "").trim() === "" ? (
+                            <span className="inline-flex items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-xs font-medium text-slate-400">
+                              Ligne vide — renommez ou supprimez
+                            </span>
+                          ) : (
+                            <Input
+                              value={String(structRow.label ?? "")}
+                              onChange={(e) => structEdit.updateRow(globalIdx, { label: e.target.value })}
+                              className="h-9 w-full max-w-full rounded-xl border-slate-200/90 bg-white text-sm shadow-sm focus-visible:border-[#E0742D]/50 focus-visible:ring-2 focus-visible:ring-[#E0742D]/20"
+                            />
+                          )
+                        ) : (
+                          <span className="flex-1">{displayLabel}</span>
+                        )}
                         {row.rowId && isNoteAllowed() && (
                           <button
                             onClick={(e) => {
@@ -1836,19 +2395,60 @@ export function IncomeStatementDetail({
                       </div>
                     </td>
 
-                  {view === "current" && (
-                    <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                  {showStructureCols && row.isAnnexPlaceholder && (
+                    <>
+                      <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+                        <span className="text-sm text-slate-300">—</span>
+                      </td>
+                      <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
+                        <span className="text-sm text-slate-300">—</span>
+                      </td>
+                      <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
+                        <span className="text-sm text-slate-300">—</span>
+                      </td>
+                      <td className="box-border w-11 px-0 py-2.5 align-middle" />
+                    </>
+                  )}
+                  {showStructureCols && row.isAnnexSubtotal && (
+                    <>
+                      <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+                        <span className="text-sm text-slate-300">—</span>
+                      </td>
+                      <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
+                        <span className="text-sm text-slate-300">—</span>
+                      </td>
+                      <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
+                        <span className="text-sm text-slate-300">—</span>
+                      </td>
+                      <td className="box-border w-11 px-0 py-2.5 align-middle" />
+                    </>
+                  )}
+                  {showStructureCols && structRow && !row.isAnnexPlaceholder && !row.isAnnexSubtotal && (
+                    <IncomeStatementStructureStudioCols
+                      rowIndex={globalIdx}
+                      structRow={structRow}
+                      updateRow={structEdit.updateRow}
+                      showRemoveButton={structEdit.canRemoveRowAt(globalIdx)}
+                      onRemoveRow={structEdit.removeStructureRowAt}
+                      mappingColumnsReadOnly={!isStructureRowDetailOnly(structRow)}
+                      annexReadOnly={isStructureRowDetailOnly(structRow)}
+                      hideDefineColumn
+                    />
+                  )}
+
+                  {!showStructureCols && view === "current" && (
+                    <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
                       {row.current !== 0 ? formatCurrency(row.current) : "-"}
                     </td>
                   )}
 
-                  {view === "comparison" && !isComparisonMode && (
+                  {!showStructureCols && view === "comparison" && !isComparisonMode && (
                     <>
-                      <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                      <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
                         {row.current !== 0 ? formatCurrency(row.current) : "-"}
                       </td>
                       <td
-                        className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
+                        className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                       >
                         {row.prior !== 0 ? formatCurrency(row.prior) : "-"}
                       </td>
@@ -1857,7 +2457,7 @@ export function IncomeStatementDetail({
                           <td
                             className={`px-6 py-3 text-right ${row.isBold ? "font-semibold " : ""}${
                               variation && variation >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}`}
+                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                           >
                             {variation !== null && row.current !== 0
                               ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
@@ -1866,7 +2466,7 @@ export function IncomeStatementDetail({
                           <td
                             className={`px-6 py-3 text-right font-semibold ${
                               variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}`}
+                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                           >
                             {row.current !== 0
                               ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
@@ -1875,25 +2475,30 @@ export function IncomeStatementDetail({
                         </>
                       ) : columnMode === "percentage" ? (
                         <>
-                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
                             {row.current !== 0 ? `${getRevenuePercentage(row.current, false).toFixed(1)}%` : "-"}
                           </td>
-                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
                             {row.prior !== 0 ? `${getRevenuePercentage(row.prior, true).toFixed(1)}%` : "-"}
                           </td>
                         </>
                       ) : null}
                     </>
                   )}
-                  {view === "comparison" && isComparisonMode && (
+                  {!showStructureCols && view === "comparison" && isComparisonMode && (
                     <>
                       {entitiesToCompare.map((entity) => {
                         const entityRows = entityDataMap[entity.id] || []
-                        const entityRow = entityRows.find(r => r.label === row.label) || row
+                        const entityRow =
+                          entityRows.find(
+                            (r) =>
+                              (row.statementLabel && r.statementLabel === row.statementLabel) ||
+                              r.label === row.label
+                          ) || row
                         return (
                           <td
                             key={entity.id}
-                            className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
+                            className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                           >
                             {entityRow.current !== 0 ? formatCurrency(entityRow.current) : "-"}
                           </td>
@@ -1901,13 +2506,13 @@ export function IncomeStatementDetail({
                       })}
                     </>
                   )}
-                  {view === "ddm" && !isComparisonMode && (
+                  {!showStructureCols && view === "ddm" && !isComparisonMode && (
                     <>
-                      <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                      <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
                         {row.current !== 0 ? formatCurrency(row.current) : "-"}
                       </td>
                       <td
-                        className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
+                        className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                       >
                         {row.prior !== 0 ? formatCurrency(row.prior) : "-"}
                       </td>
@@ -1916,7 +2521,7 @@ export function IncomeStatementDetail({
                           <td
                             className={`px-6 py-3 text-right ${row.isBold ? "font-semibold " : ""}${
                               variation && variation >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}`}
+                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                           >
                             {variation !== null && row.current !== 0
                               ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
@@ -1925,7 +2530,7 @@ export function IncomeStatementDetail({
                           <td
                             className={`px-6 py-3 text-right font-semibold ${
                               variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}`}
+                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                           >
                             {row.current !== 0
                               ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
@@ -1934,25 +2539,30 @@ export function IncomeStatementDetail({
                         </>
                       ) : columnMode === "percentage" ? (
                         <>
-                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
                             {row.current !== 0 ? `${getRevenuePercentage(row.current, false).toFixed(1)}%` : "-"}
                           </td>
-                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
                             {row.prior !== 0 ? `${getRevenuePercentage(row.prior, true).toFixed(1)}%` : "-"}
                           </td>
                         </>
                       ) : null}
                     </>
                   )}
-                  {view === "ddm" && isComparisonMode && (
+                  {!showStructureCols && view === "ddm" && isComparisonMode && (
                     <>
                       {entitiesToCompare.map((entity) => {
                         const entityRows = entityDataMap[entity.id] || []
-                        const entityRow = entityRows.find(r => r.label === row.label) || row
+                        const entityRow =
+                          entityRows.find(
+                            (r) =>
+                              (row.statementLabel && r.statementLabel === row.statementLabel) ||
+                              r.label === row.label
+                          ) || row
                         return (
                           <td
                             key={entity.id}
-                            className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
+                            className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                           >
                             {entityRow.current !== 0 ? formatCurrency(entityRow.current) : "-"}
                           </td>
@@ -1961,13 +2571,13 @@ export function IncomeStatementDetail({
                     </>
                   )}
 
-                  {view === "ytd" && !isComparisonMode && (
+                  {!showStructureCols && view === "ytd" && !isComparisonMode && (
                     <>
-                      <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                      <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
                         {row.current !== 0 ? formatCurrency(row.current) : "-"}
                       </td>
                       <td
-                        className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
+                        className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                       >
                         {row.prior !== 0 ? formatCurrency(row.prior) : "-"}
                       </td>
@@ -1976,7 +2586,7 @@ export function IncomeStatementDetail({
                           <td
                             className={`px-6 py-3 text-right ${row.isBold ? "font-semibold " : ""}${
                               variation && variation >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}`}
+                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                           >
                             {variation !== null && row.current !== 0
                               ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
@@ -1985,7 +2595,7 @@ export function IncomeStatementDetail({
                           <td
                             className={`px-6 py-3 text-right font-semibold ${
                               variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}`}
+                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                           >
                             {row.current !== 0
                               ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
@@ -1994,25 +2604,30 @@ export function IncomeStatementDetail({
                         </>
                       ) : columnMode === "percentage" ? (
                         <>
-                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
                             {row.current !== 0 ? `${getRevenuePercentage(row.current, false).toFixed(1)}%` : "-"}
                           </td>
-                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
                             {row.prior !== 0 ? `${getRevenuePercentage(row.prior, true).toFixed(1)}%` : "-"}
                           </td>
                         </>
                       ) : null}
                     </>
                   )}
-                  {view === "ytd" && isComparisonMode && (
+                  {!showStructureCols && view === "ytd" && isComparisonMode && (
                     <>
                       {entitiesToCompare.map((entity) => {
                         const entityRows = entityDataMap[entity.id] || []
-                        const entityRow = entityRows.find(r => r.label === row.label) || row
+                        const entityRow =
+                          entityRows.find(
+                            (r) =>
+                              (row.statementLabel && r.statementLabel === row.statementLabel) ||
+                              r.label === row.label
+                          ) || row
                         return (
                           <td
                             key={entity.id}
-                            className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
+                            className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                           >
                             {entityRow.current !== 0 ? formatCurrency(entityRow.current) : "-"}
                           </td>
@@ -2022,31 +2637,31 @@ export function IncomeStatementDetail({
                   )}
 
                   {/* Trend Views - 12 months, quarters, years */}
-                  {view === "12months" && row.trendValues && (
+                  {!showStructureCols && view === "12months" && row.trendValues && (
                     <>
                       {row.trendValues.map((value, valueIdx) => (
                         <td
                           key={valueIdx}
-                          className={`px-4 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
+                          className={`px-4 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                         >
                           {value !== 0 ? formatCurrency(value) : "-"}
                         </td>
                       ))}
                     </>
                   )}
-                  {view === "quarters" && row.trendValues && (
+                  {!showStructureCols && view === "quarters" && row.trendValues && (
                     <>
                       {row.trendValues.map((value, valueIdx) => (
                         <td
                           key={valueIdx}
-                          className={`px-4 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
+                          className={`px-4 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                         >
                           {value !== 0 ? formatCurrency(value) : "-"}
                         </td>
                       ))}
                     </>
                   )}
-                  {view === "years" && row.trendValues && (
+                  {!showStructureCols && view === "years" && row.trendValues && (
                     <>
                       {/* Type cell for Dépenses section */}
                       {title === "Estimation des dépenses annuelles" && (
@@ -2145,7 +2760,8 @@ export function IncomeStatementDetail({
                               isEditable && !isEditing && "hover:bg-slate-50 cursor-pointer",
                               showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && title === "Estimation des revenus annuels" ? "text-slate-900" : "",
                               showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate >= 0 && title !== "Estimation des revenus annuels" ? "text-emerald-600 font-semibold" : "",
-                              showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate < 0 && title !== "Estimation des revenus annuels" ? "text-red-600 font-semibold" : ""
+                              showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate < 0 && title !== "Estimation des revenus annuels" ? "text-red-600 font-semibold" : "",
+                              annexSubtotalDarkNumbers && "text-slate-900"
                             )}
                             onClick={() => {
                               // Only allow editing if not in "Estimation des dépenses annuelles" or "États des résultats pro forma"

@@ -49,15 +49,29 @@ export function newChargeRow(): Record<string, unknown> {
     indent: true,
     hidden: false,
     defineMapping: false,
+    showInDetail: true,
     linkCode: "",
     annexLetter: "",
     id,
   }
 }
 
-/** Ligne structure sans libellé (espacement) — pas de case « Définir » */
+/** Ligne structure sans libellé (espacement) — pas de case « Annexe » */
 export function isStructureRowEmptyLabel(row: Record<string, unknown>): boolean {
   return String(row.label ?? "").trim() === ""
+}
+
+/** Ligne d’espacement vide entre les postes (Sommaire). */
+export function newEmptySpacerSummaryRow(): Record<string, unknown> {
+  const id =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? `spacer-${crypto.randomUUID()}`
+      : `spacer-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  return {
+    id,
+    label: "",
+    hidden: false,
+  }
 }
 
 /** Ligne masquée au sommaire / détail (champ structure `hidden`). */
@@ -66,10 +80,9 @@ export function isStructureRowHidden(row: Record<string, unknown>): boolean {
 }
 
 /**
- * Case « Définir » cochée : explicitement true, ou données existantes (liaison / annexe),
- * sauf si explicitement désactivée (false).
+ * Case « Code » : liaison + lettre modifiables (defineMapping ou données existantes).
  */
-export function isDefineMappingChecked(row: Record<string, unknown>): boolean {
+export function isCodeMappingEnabled(row: Record<string, unknown>): boolean {
   if (isStructureRowEmptyLabel(row)) return false
   if (isStructureRowHidden(row)) return false
   if (row.defineMapping === false) return false
@@ -77,6 +90,24 @@ export function isDefineMappingChecked(row: Record<string, unknown>): boolean {
   const hasLink = String(row.linkCode ?? "").trim() !== ""
   const hasAnnex = String(row.annexLetter ?? "").trim() !== ""
   return hasLink || hasAnnex
+}
+
+/** @deprecated utiliser isCodeMappingEnabled — alias conservé pour les imports existants */
+export function isDefineMappingChecked(row: Record<string, unknown>): boolean {
+  return isCodeMappingEnabled(row)
+}
+
+/**
+ * Case « Annexe » (affichage au Détail). Si absent (données anciennes), même comportement
+ * qu’avant : visible au détail lorsque le code de liaison est actif.
+ */
+export function isShowInDetail(row: Record<string, unknown>): boolean {
+  if (isStructureRowEmptyLabel(row)) return false
+  if (isStructureRowHidden(row)) return false
+  if (isStructureRowDetailOnly(row)) return true
+  if (row.showInDetail === false) return false
+  if (row.showInDetail === true) return true
+  return isCodeMappingEnabled(row)
 }
 
 /** Associe une ligne d’état (id / code liaison / libellé) à une entrée de structure sauvegardée. */
@@ -107,4 +138,110 @@ export function formatDetailLabelWithAnnex(lineLabel: string, annexLetter?: stri
   const ann = annexLetter?.trim().toUpperCase()
   if (ann) return `Annexe ${ann} — ${lineLabel}`
   return lineLabel
+}
+
+/** Ligne réservée au tableau Détail (sous-catégorie d’annexe), absente du Sommaire. */
+export function isStructureRowDetailOnly(row: Record<string, unknown>): boolean {
+  return row.detailOnly === true
+}
+
+export function newDetailSubLineRow(annexLetter: string): Record<string, unknown> {
+  const id =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? `detail-${crypto.randomUUID()}`
+      : `detail-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  const letter = normalizeAnnexLetter(annexLetter)
+  return {
+    id,
+    label: "Nouvelle ligne",
+    detailOnly: true,
+    hidden: false,
+    defineMapping: true,
+    showInDetail: true,
+    linkCode: "",
+    annexLetter: letter,
+    indent: true,
+  }
+}
+
+/** Dernière ligne de structure portant cette annexe (pour insérer une sous-ligne après). */
+export function findLastStructureIndexForAnnexLetter(
+  structure: Record<string, unknown>[],
+  letter: string
+): number {
+  const target = normalizeAnnexLetter(letter)
+  let last = -1
+  for (let i = 0; i < structure.length; i++) {
+    if (normalizeAnnexLetter(String(structure[i]?.annexLetter ?? "")) === target) last = i
+  }
+  return last
+}
+
+/** Lettres d’annexe disponibles pour ajouter une sous-ligne (postes « Annexe » au sommaire, hors detailOnly). */
+export function listAnnexLettersForDetailSubLines(structure: Record<string, unknown>[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    if (isStructureRowDetailOnly(row)) continue
+    if (!isCodeMappingEnabled(row)) continue
+    const a = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+    if (!a) continue
+    if (seen.has(a)) continue
+    seen.add(a)
+    out.push(a)
+  }
+  out.sort((x, y) => compareAnnexLetters(x, y))
+  return out
+}
+
+/** Ligne affichée dans la grille Paramètres du Détail (titres d’annexe + sous-lignes detailOnly). */
+export function isStructureRowInDetailAnnexEditor(row: Record<string, unknown>): boolean {
+  if (isStructureRowEmptyLabel(row)) return false
+  if (isStructureRowDetailOnly(row)) return true
+  return (
+    isShowInDetail(row) &&
+    isCodeMappingEnabled(row) &&
+    normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+  )
+}
+
+/** Retire les libellés obsolètes (ex. Produits A) — aligné sur le backend. */
+export function stripObsoleteIncomeStatementStructureRows(
+  structure: Record<string, unknown>[]
+): Record<string, unknown>[] {
+  const rows = cloneStructure(structure)
+
+  const isObsoleteLabel = (label: string): boolean => {
+    const n = normLabel(label)
+    if (n === "produits a" || n === "produit a") return true
+    if (n.startsWith("produit") && n.endsWith(" a") && n.length <= 12) return true
+    return false
+  }
+
+  const stripBlock = (block: Record<string, unknown>[]): Record<string, unknown>[] => {
+    const res: Record<string, unknown>[] = []
+    for (const row of block) {
+      if (isObsoleteLabel(String(row.label ?? ""))) continue
+      const next: Record<string, unknown> = { ...row }
+      for (const key of ["children", "detailRows"] as const) {
+        const ch = next[key] as Record<string, unknown>[] | undefined
+        if (Array.isArray(ch) && ch.length) next[key] = stripBlock(ch)
+      }
+      res.push(next)
+    }
+    return res
+  }
+
+  return stripBlock(rows)
+}
+
+export function isOmittedIncomeStatementSummaryRowLabel(label: string): boolean {
+  return isObsoleteLabelSummary(normLabel(label))
+}
+
+function isObsoleteLabelSummary(n: string): boolean {
+  if (n === "produits a" || n === "produit a") return true
+  if (n.startsWith("produit") && n.endsWith(" a")) return true
+  return false
 }

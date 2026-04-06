@@ -612,6 +612,8 @@ export default function IncomeStatementPage() {
               rows={rows}
               loading={loading}
               structureVersion={structureVersion}
+              showIncomeStatementStructureSettings
+              onIncomeStatementStructureSaved={() => setStructureVersion((v) => v + 1)}
             />
           )}
         </div>
