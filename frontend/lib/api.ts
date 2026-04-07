@@ -283,6 +283,8 @@ export interface TrialBalanceAccount {
 export interface TrialBalanceData {
   company_id: string
   fiscal_year: number
+  /** Mois (1–12) pour lesquels au moins une écriture existe pour cet exercice. */
+  months_with_data: number[]
   accounts: TrialBalanceAccount[]
 }
 
@@ -309,6 +311,56 @@ export async function upsertTrialBalance(
   return apiFetch<TrialBalanceData>(
     `/api/companies/${companyId}/trial-balance${params}`,
     { method: "PUT", body: entries }
+  )
+}
+
+/** Exercices fiscaux ayant au moins une écriture de balance (du plus récent au plus ancien). */
+export async function getTrialBalanceFiscalYears(
+  companyId: string
+): Promise<number[]> {
+  return apiFetch<number[]>(
+    `/api/companies/${companyId}/trial-balance/fiscal-years`
+  )
+}
+
+/** Couples (exercice, mois) pour lesquels une balance a été importée — du plus récent au plus ancien. */
+export type TrialBalanceReferencePeriod = {
+  fiscal_year: number
+  month: number
+}
+
+export async function listTrialBalanceReferencePeriods(
+  companyId: string
+): Promise<TrialBalanceReferencePeriod[]> {
+  const years = await getTrialBalanceFiscalYears(companyId)
+  const out: TrialBalanceReferencePeriod[] = []
+  for (const y of years) {
+    const tb = await getTrialBalance(companyId, y)
+    for (const m of tb.months_with_data ?? []) {
+      if (m >= 1 && m <= 12) {
+        out.push({ fiscal_year: y, month: m })
+      }
+    }
+  }
+  out.sort((a, b) =>
+    a.fiscal_year !== b.fiscal_year ? b.fiscal_year - a.fiscal_year : b.month - a.month
+  )
+  return out
+}
+
+/** Supprime toutes les écritures de balance pour un mois donné (exercice + mois). */
+export async function deleteTrialBalanceMonth(
+  companyId: string,
+  fiscalYear: number,
+  month: number
+): Promise<TrialBalanceData> {
+  const params = new URLSearchParams({
+    fiscal_year: fiscalYear.toString(),
+    month: month.toString(),
+  })
+  return apiFetch<TrialBalanceData>(
+    `/api/companies/${companyId}/trial-balance?${params.toString()}`,
+    { method: "DELETE" }
   )
 }
 
@@ -1336,6 +1388,41 @@ export async function getFinancialStatementSummarySeries(
 
 // --- Upload ---
 
+export interface TrialBalanceUnknownAccountPreview {
+  account_number: string
+  description: string
+  amount: number
+}
+
+export interface TrialBalanceUploadPreview {
+  company_id: string
+  fiscal_year: number
+  month: number
+  amount_sum: number
+  balance_is_valid: boolean
+  row_count: number
+  unknown_accounts: TrialBalanceUnknownAccountPreview[]
+}
+
+export async function previewTrialBalanceUpload(
+  companyId: string,
+  file: File,
+  fiscalYear?: number,
+  month?: number
+): Promise<TrialBalanceUploadPreview> {
+  const formData = new FormData()
+  formData.append("file", file)
+  const params = new URLSearchParams()
+  if (fiscalYear != null) params.set("fiscal_year", fiscalYear.toString())
+  if (month != null) params.set("month", month.toString())
+  const query = params.toString() ? `?${params.toString()}` : ""
+
+  return apiFetch<TrialBalanceUploadPreview>(
+    `/api/companies/${companyId}/trial-balance/upload-preview${query}`,
+    { method: "POST", body: formData }
+  )
+}
+
 export async function uploadTrialBalance(
   companyId: string,
   file: File,
@@ -1345,8 +1432,8 @@ export async function uploadTrialBalance(
   const formData = new FormData()
   formData.append("file", file)
   const params = new URLSearchParams()
-  if (fiscalYear) params.set("fiscal_year", fiscalYear.toString())
-  if (month) params.set("month", month.toString())
+  if (fiscalYear != null) params.set("fiscal_year", fiscalYear.toString())
+  if (month != null) params.set("month", month.toString())
   const query = params.toString() ? `?${params.toString()}` : ""
 
   return apiFetch(

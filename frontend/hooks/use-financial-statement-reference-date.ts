@@ -82,10 +82,21 @@ export function useFinancialStatementReferenceDate() {
     [searchParams, pathname, router, selectedMonth],
   )
 
+  const setRefDate = useCallback(
+    (month: number, year: number) => {
+      const p = new URLSearchParams(searchParams.toString())
+      p.set(REF_MONTH, String(month))
+      p.set(REF_YEAR, String(year))
+      router.replace(`${pathname}?${p.toString()}`, { scroll: false })
+    },
+    [searchParams, pathname, router],
+  )
+
   return {
     selectedMonth,
     selectedYear,
     setSelectedMonth,
     setSelectedYear,
+    setRefDate,
   }
 }

@@ -8,10 +8,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useUser } from "@/hooks/use-user"
 import { useCompanies } from "@/hooks/use-companies"
 import { logout } from "@/lib/api"
-import {
-  isFinancialStatementPath,
-  useFinancialStatementReferenceDate,
-} from "@/hooks/use-financial-statement-reference-date"
+import { isFinancialStatementPath } from "@/hooks/use-financial-statement-reference-date"
 import { FinancialStatementReferenceControls } from "@/components/financial-statement-reference-controls"
 
 interface DashboardHeaderProps {
@@ -73,7 +70,7 @@ export function DashboardHeader({ title = "Gestion Comptable", description }: Da
   })
 
   const showFsRefInHeader = !isPortalHeader && isFinancialStatementPath(pathname)
-  const fsRefDate = useFinancialStatementReferenceDate()
+  const fsRefCompanyId = selectedCompanyId ?? companies[0]?.id ?? null
 
   return (
     <header className="w-full border-b border-white/10 bg-[#2A2F3A]/92 backdrop-blur-md shadow-md">
@@ -82,13 +79,7 @@ export function DashboardHeader({ title = "Gestion Comptable", description }: Da
           className={`flex min-h-0 items-center gap-2 ${showFsRefInHeader ? "justify-between" : "justify-end"}`}
         >
           {showFsRefInHeader && (
-            <FinancialStatementReferenceControls
-              variant="header"
-              selectedMonth={fsRefDate.selectedMonth}
-              selectedYear={fsRefDate.selectedYear}
-              onMonthChange={fsRefDate.setSelectedMonth}
-              onYearChange={fsRefDate.setSelectedYear}
-            />
+            <FinancialStatementReferenceControls variant="header" companyId={fsRefCompanyId} />
           )}
           <div className="flex shrink-0 items-center justify-end gap-2">
             {!isPortalHeader && (

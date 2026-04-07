@@ -3,6 +3,9 @@
 export const CHARGES_SECTION_LABEL = "charges d'exploitation"
 export const TOTAL_CHARGES_LABEL = "total des charges"
 
+/** Provenance pour les codes issus de la structure compte de résultat (Income statement). */
+export const LINK_CODE_PROVENANCE_RESULTATS = "Résultats"
+
 export function normLabel(s: string): string {
   return s.trim().toLowerCase()
 }
@@ -135,11 +138,48 @@ export function findStructureRowForStatementLine(
   ) as Record<string, unknown> | undefined
 }
 
+/**
+ * Position globale de la ligne dans le tableau structure (ordre Paramètres / API).
+ * Utilisé pour afficher le Détail dans le même ordre que la configuration.
+ */
+export function getStructureRowGlobalIndex(
+  row: Record<string, unknown>,
+  structure: Record<string, unknown>[]
+): number {
+  const id = String(row.id ?? "").trim()
+  if (id) {
+    const byId = structure.findIndex((s) => String((s as Record<string, unknown>).id ?? "").trim() === id)
+    if (byId >= 0) return byId
+  }
+  const lbl = normLabel(String(row.label ?? ""))
+  const byLabel = structure.findIndex(
+    (s) => normLabel(String((s as Record<string, unknown>).label ?? "")) === lbl
+  )
+  return byLabel >= 0 ? byLabel : Number.MAX_SAFE_INTEGER
+}
+
 /** Libellé unique pour le détail : « Annexe X — Poste » ou seulement le poste. */
 export function formatDetailLabelWithAnnex(lineLabel: string, annexLetter?: string | null): string {
   const ann = annexLetter?.trim().toUpperCase()
   if (ann) return `Annexe ${ann} — ${lineLabel}`
   return lineLabel
+}
+
+/**
+ * Libellé affiché au Détail (hors édition paramètres) : reprend le texte saisi dans la
+ * structure pour préserver casse et ponctuation (ex. « Produits - CS-SS »).
+ */
+export function detailLineLabelForDisplay(
+  structureRow: Record<string, unknown> | undefined,
+  apiLineLabel: string,
+  annexLetter?: string | null
+): string {
+  const raw = structureRow ? String(structureRow.label ?? "").trim() : ""
+  const base = raw || apiLineLabel
+  if (structureRow && isStructureRowDetailOnly(structureRow)) {
+    return base
+  }
+  return formatDetailLabelWithAnnex(base, annexLetter)
 }
 
 /** Ligne réservée au tableau Détail (sous-catégorie d’annexe), absente du Sommaire. */
@@ -405,4 +445,112 @@ function isObsoleteLabelSummary(n: string): boolean {
   if (n === "produits a" || n === "produit a") return true
   if (n.startsWith("produit") && n.endsWith(" a")) return true
   return false
+}
+
+/**
+ * Associe chaque code de liaison utilisé dans la vue Détail du compte de résultat
+ * au libellé du poste. Par défaut, préfixe « Annexe X — » si applicable ; désactiver avec
+ * `{ includeAnnexPrefix: false }` pour n’afficher que le libellé de ligne brut.
+ */
+export function mapLinkCodesToDetailLabels(
+  structure: Record<string, unknown>[],
+  options?: { includeAnnexPrefix?: boolean }
+): Map<string, string> {
+  const includeAnnexPrefix = options?.includeAnnexPrefix !== false
+  const map = new Map<string, string>()
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    if (!isShowInDetail(row)) continue
+    const rawLabel = String(row.label ?? "").trim()
+    if (!rawLabel) continue
+    const label = includeAnnexPrefix
+      ? formatDetailLabelWithAnnex(rawLabel, String(row.annexLetter ?? ""))
+      : rawLabel
+
+    const mode = normalizeLiaisonMode(row)
+    const add = (code: string) => {
+      const t = code.trim()
+      if (!t) return
+      if (!map.has(t)) map.set(t, label)
+    }
+
+    if (mode === "single") {
+      add(String(row.linkCode ?? ""))
+    } else if (mode === "sum") {
+      for (const c of normalizeCodeList(row.liaisonSumCodes)) add(c)
+    } else if (mode === "difference") {
+      for (const c of normalizeCodeList(row.liaisonNumeratorCodes)) add(c)
+      for (const c of normalizeCodeList(row.liaisonDenominatorCodes)) add(c)
+    }
+  }
+  return map
+}
+
+/**
+ * Pour chaque lettre d’annexe, libellé de la ligne **Sommaire** (non `detailOnly`) qui porte cette lettre
+ * (ex. A → « Revenus »).
+ */
+export function mapAnnexLetterToSummaryLabel(
+  structure: Record<string, unknown>[]
+): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    if (isStructureRowDetailOnly(row)) continue
+    const a = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+    if (!a) continue
+    const raw = String(row.label ?? "").trim()
+    if (!raw) continue
+    if (!map.has(a)) map.set(a, raw)
+  }
+  return map
+}
+
+function summaryLabelForLinkedRow(
+  row: Record<string, unknown>,
+  annexToSummary: Map<string, string>
+): string {
+  const letter = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+  if (letter) {
+    const s = annexToSummary.get(letter)
+    if (s) return s
+  }
+  if (!isStructureRowDetailOnly(row)) {
+    const raw = String(row.label ?? "").trim()
+    if (raw) return raw
+  }
+  return "—"
+}
+
+/**
+ * Libellé affiché au **Sommaire** pour chaque code de liaison (même périmètre que `mapLinkCodesToDetailLabels`).
+ * Avec annexe : libellé du poste sommaire pour cette lettre. Sans annexe : libellé de la ligne elle-même si elle est au sommaire.
+ */
+export function mapLinkCodesToSummaryLabels(
+  structure: Record<string, unknown>[]
+): Map<string, string> {
+  const annexToSummary = mapAnnexLetterToSummaryLabel(structure)
+  const map = new Map<string, string>()
+
+  const addCode = (code: string, row: Record<string, unknown>) => {
+    const t = code.trim()
+    if (!t || map.has(t)) return
+    map.set(t, summaryLabelForLinkedRow(row, annexToSummary))
+  }
+
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    if (!isShowInDetail(row)) continue
+
+    const mode = normalizeLiaisonMode(row)
+    if (mode === "single") {
+      addCode(String(row.linkCode ?? ""), row)
+    } else if (mode === "sum") {
+      for (const c of normalizeCodeList(row.liaisonSumCodes)) addCode(c, row)
+    } else if (mode === "difference") {
+      for (const c of normalizeCodeList(row.liaisonNumeratorCodes)) addCode(c, row)
+      for (const c of normalizeCodeList(row.liaisonDenominatorCodes)) addCode(c, row)
+    }
+  }
+  return map
 }

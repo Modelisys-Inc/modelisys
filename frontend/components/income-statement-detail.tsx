@@ -20,9 +20,9 @@ import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-ser
 import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
 import {
   collectDistinctLinkCodesFromStructure,
-  compareAnnexLetters,
+  detailLineLabelForDisplay,
   findStructureRowForStatementLine,
-  formatDetailLabelWithAnnex,
+  getStructureRowGlobalIndex,
   isCodeMappingEnabled,
   isShowInDetail,
   isStructureRowDetailOnly,
@@ -955,12 +955,6 @@ export function IncomeStatementDetail({
     })
   }
 
-  const capitalizeFirst = (str: string): string => {
-    if (!str) return str
-    if (str.toLowerCase() === "baiia") return "BAIIA"
-    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
-  }
-
   /** Détail : postes « Annexe » (sommaire) ; sous-lignes detailOnly indentées sous l’annexe. */
   const mapBackendRowsDefinedOnly = (
     apiRows: FinancialStatementRow[],
@@ -973,18 +967,13 @@ export function IncomeStatementDetail({
     const sorted = [...defined].sort((a, b) => {
       const srA = findStructureRowForStatementLine(a.id, a.label, structure)!
       const srB = findStructureRowForStatementLine(b.id, b.label, structure)!
-      const c = compareAnnexLetters(a.annexLetter, b.annexLetter)
-      if (c !== 0) return c
-      const subA = isStructureRowDetailOnly(srA) ? 1 : 0
-      const subB = isStructureRowDetailOnly(srB) ? 1 : 0
-      if (subA !== subB) return subA - subB
-      return normLabel(a.label).localeCompare(normLabel(b.label), "fr")
+      return getStructureRowGlobalIndex(srA, structure) - getStructureRowGlobalIndex(srB, structure)
     })
     return sorted.map((row) => {
       const sr = findStructureRowForStatementLine(row.id, row.label, structure)!
       const sub = isStructureRowDetailOnly(sr)
       return {
-        label: sub ? capitalizeFirst(row.label) : formatDetailLabelWithAnnex(row.label, row.annexLetter),
+        label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
         statementLabel: row.label,
         annexLetter: String(row.annexLetter ?? ""),
         current: row.current ?? 0,
@@ -1007,12 +996,7 @@ export function IncomeStatementDetail({
     return [...defined].sort((a, b) => {
       const srA = findStructureRowForStatementLine(a.id, a.label, structure)!
       const srB = findStructureRowForStatementLine(b.id, b.label, structure)!
-      const c = compareAnnexLetters(a.annexLetter, b.annexLetter)
-      if (c !== 0) return c
-      const subA = isStructureRowDetailOnly(srA) ? 1 : 0
-      const subB = isStructureRowDetailOnly(srB) ? 1 : 0
-      if (subA !== subB) return subA - subB
-      return normLabel(a.label).localeCompare(normLabel(b.label), "fr")
+      return getStructureRowGlobalIndex(srA, structure) - getStructureRowGlobalIndex(srB, structure)
     })
   }, [])
 
@@ -1027,7 +1011,7 @@ export function IncomeStatementDetail({
       const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
       const sub = sr ? isStructureRowDetailOnly(sr) : false
       return {
-        label: sub ? capitalizeFirst(row.label) : formatDetailLabelWithAnnex(row.label, row.annexLetter),
+        label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
         statementLabel: row.label,
         annexLetter: String(row.annexLetter ?? ""),
         current: lastAmount,
@@ -1055,7 +1039,7 @@ export function IncomeStatementDetail({
       const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
       const sub = sr ? isStructureRowDetailOnly(sr) : false
       return {
-        label: sub ? capitalizeFirst(row.label) : formatDetailLabelWithAnnex(row.label, row.annexLetter),
+        label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
         statementLabel: row.label,
         annexLetter: String(row.annexLetter ?? ""),
         current: lastAmount,
@@ -1083,7 +1067,7 @@ export function IncomeStatementDetail({
       const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
       const sub = sr ? isStructureRowDetailOnly(sr) : false
       return {
-        label: sub ? capitalizeFirst(row.label) : formatDetailLabelWithAnnex(row.label, row.annexLetter),
+        label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
         statementLabel: row.label,
         annexLetter: String(row.annexLetter ?? ""),
         current: lastAmount,
@@ -1543,7 +1527,7 @@ export function IncomeStatementDetail({
               const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
               const sub = sr ? isStructureRowDetailOnly(sr) : false
               return {
-                label: sub ? capitalizeFirst(row.label) : formatDetailLabelWithAnnex(row.label, row.annexLetter),
+                label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
                 statementLabel: row.label,
                 annexLetter: String(row.annexLetter ?? ""),
                 current: lastAmount,
@@ -2302,12 +2286,7 @@ export function IncomeStatementDetail({
               const shouldHideAmounts = isSpacer || !!row.isSection || !!row.isAnnexPlaceholder
               /** Hors Paramètres : libellé sous-total masqué (blanc) mais chiffres en noir. */
               const annexSubtotalDarkNumbers = row.isAnnexSubtotal && !showStructureCols
-              const displayLabel =
-                row.isAnnexHeader
-                  ? row.label
-                  : row.isSection
-                    ? capitalizeFirst(row.label)
-                    : row.label
+              const displayLabel = row.label
 
               const isBoldForStyle =
                 showStructureCols && structRow && !row.isAnnexPlaceholder && !row.isAnnexSubtotal
@@ -2384,7 +2363,11 @@ export function IncomeStatementDetail({
                             annexSubtotalDarkNumbers && "bg-white",
                             nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
                             row.isAnnexHeader && "bg-amber-50/90",
-                            canExpand && "cursor-pointer hover:bg-slate-50"
+                            canExpand && "cursor-pointer",
+                            !isSpacer &&
+                              (row.isAnnexHeader
+                                ? "hover:bg-amber-100/85"
+                                : "hover:bg-slate-50/90")
                           )
                     )}
                     onClick={() => canExpand && toggleRow(row.rowId!)}
@@ -2986,7 +2969,10 @@ export function IncomeStatementDetail({
                           : 0
                         
                         return (
-                          <tr key={`${idx}-account-${accIdx}`} className="bg-slate-50 border-b border-slate-200">
+                          <tr
+                            key={`${idx}-account-${accIdx}`}
+                            className="border-b border-slate-200 bg-slate-50 transition-colors duration-150 hover:bg-slate-100/80"
+                          >
                             <td className="px-6 py-2 text-slate-600 pl-20">
                               <div className="flex items-center gap-3">
                                 <span className="text-xs font-semibold text-slate-500">{account.accountNumber}</span>

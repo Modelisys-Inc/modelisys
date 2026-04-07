@@ -52,7 +52,13 @@ def _setup_income_statement_data(client, auth_headers, fiscal_year=2024):
     Returns company_id."""
     company_id = _create_company(client, auth_headers)
 
-    # Trial balance data
+    # Mapping comptable requis avant les montants de balance
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "Sales Revenue", "link_code": "REV-001"},
+        {"account_number": "5000", "description": "Cost of Goods Sold", "link_code": "COGS-001"},
+        {"account_number": "6000", "description": "Operating Expenses", "link_code": "OPEX-001"},
+    ])
+
     _upsert_trial_balance(client, auth_headers, company_id, [
         {
             "account_number": "4000",
@@ -70,13 +76,6 @@ def _setup_income_statement_data(client, auth_headers, fiscal_year=2024):
             "monthly_amounts": {"Janvier": 2000.0, "Février": 2500.0, "Mars": 2200.0},
         },
     ], fiscal_year=fiscal_year)
-
-    # Account mappings with link codes
-    _upsert_account_mappings(client, auth_headers, company_id, [
-        {"account_number": "4000", "description": "Sales Revenue", "link_code": "REV-001"},
-        {"account_number": "5000", "description": "Cost of Goods Sold", "link_code": "COGS-001"},
-        {"account_number": "6000", "description": "Operating Expenses", "link_code": "OPEX-001"},
-    ])
 
     # Income statement structure
     _upsert_structure(client, auth_headers, company_id, "income-statement", [
@@ -213,6 +212,10 @@ def test_income_statement_prior_year_comparison(client, auth_headers):
     """Should compute variation against prior year."""
     company_id = _create_company(client, auth_headers)
 
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "Sales Revenue", "link_code": "REV-001"},
+    ])
+
     # Prior year data (2023)
     _upsert_trial_balance(client, auth_headers, company_id, [
         {
@@ -230,10 +233,6 @@ def test_income_statement_prior_year_comparison(client, auth_headers):
             "monthly_amounts": {"Janvier": 10000.0},
         },
     ], fiscal_year=2024)
-
-    _upsert_account_mappings(client, auth_headers, company_id, [
-        {"account_number": "4000", "description": "Sales Revenue", "link_code": "REV-001"},
-    ])
     _upsert_structure(client, auth_headers, company_id, "income-statement", [
         {"label": "revenus", "isBold": True, "linkCode": "REV-001"},
     ])
@@ -259,6 +258,10 @@ def test_balance_sheet_basic(client, auth_headers):
     """Balance sheet uses YTD (cumulative) through the requested month."""
     company_id = _create_company(client, auth_headers)
 
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "1000", "description": "Cash", "link_code": "AC-001"},
+    ])
+
     _upsert_trial_balance(client, auth_headers, company_id, [
         {
             "account_number": "1000",
@@ -266,10 +269,6 @@ def test_balance_sheet_basic(client, auth_headers):
             "monthly_amounts": {"Janvier": 50000.0, "Février": 5000.0},
         },
     ], fiscal_year=2024)
-
-    _upsert_account_mappings(client, auth_headers, company_id, [
-        {"account_number": "1000", "description": "Cash", "link_code": "AC-001"},
-    ])
     _upsert_structure(client, auth_headers, company_id, "balance-sheet", [
         {"label": "actifs courants", "isSection": True, "linkCode": "AC-001"},
     ])
@@ -307,6 +306,10 @@ def test_summary_metrics_basic(client, auth_headers):
     """Summary should extract revenue and net income from income statement."""
     company_id = _create_company(client, auth_headers)
 
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "Sales Revenue", "link_code": "REV-001"},
+    ])
+
     _upsert_trial_balance(client, auth_headers, company_id, [
         {
             "account_number": "4000",
@@ -314,10 +317,6 @@ def test_summary_metrics_basic(client, auth_headers):
             "monthly_amounts": {"Janvier": 10000.0},
         },
     ], fiscal_year=2024)
-
-    _upsert_account_mappings(client, auth_headers, company_id, [
-        {"account_number": "4000", "description": "Sales Revenue", "link_code": "REV-001"},
-    ])
     _upsert_structure(client, auth_headers, company_id, "income-statement", [
         {"label": "revenus", "isBold": True, "linkCode": "REV-001"},
     ])
@@ -356,6 +355,11 @@ def test_income_statement_with_children(client, auth_headers):
     """Structure rows without linkCode but with children should sum their children."""
     company_id = _create_company(client, auth_headers)
 
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4100", "description": "Product Sales", "link_code": "REV-PROD"},
+        {"account_number": "4200", "description": "Service Sales", "link_code": "REV-SVC"},
+    ])
+
     _upsert_trial_balance(client, auth_headers, company_id, [
         {
             "account_number": "4100",
@@ -368,11 +372,6 @@ def test_income_statement_with_children(client, auth_headers):
             "monthly_amounts": {"Janvier": 4000.0},
         },
     ], fiscal_year=2024)
-
-    _upsert_account_mappings(client, auth_headers, company_id, [
-        {"account_number": "4100", "description": "Product Sales", "link_code": "REV-PROD"},
-        {"account_number": "4200", "description": "Service Sales", "link_code": "REV-SVC"},
-    ])
 
     # Parent row has children instead of its own linkCode
     _upsert_structure(client, auth_headers, company_id, "income-statement", [
@@ -408,6 +407,11 @@ def test_multiple_accounts_same_link_code(client, auth_headers):
     """Multiple accounts mapped to the same link code should be summed."""
     company_id = _create_company(client, auth_headers)
 
+    # Both accounts have the same link code
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4100", "description": "Product Revenue", "link_code": "REV-001"},
+        {"account_number": "4200", "description": "Service Revenue", "link_code": "REV-001"},
+    ])
     _upsert_trial_balance(client, auth_headers, company_id, [
         {
             "account_number": "4100",
@@ -420,12 +424,6 @@ def test_multiple_accounts_same_link_code(client, auth_headers):
             "monthly_amounts": {"Janvier": 7000.0},
         },
     ], fiscal_year=2024)
-
-    # Both accounts have the same link code
-    _upsert_account_mappings(client, auth_headers, company_id, [
-        {"account_number": "4100", "description": "Product Revenue", "link_code": "REV-001"},
-        {"account_number": "4200", "description": "Service Revenue", "link_code": "REV-001"},
-    ])
     _upsert_structure(client, auth_headers, company_id, "income-statement", [
         {"label": "revenus", "isBold": True, "linkCode": "REV-001"},
     ])
@@ -447,6 +445,10 @@ def test_variation_zero_prior(client, auth_headers):
     """When prior is zero, variation should be 0."""
     company_id = _create_company(client, auth_headers)
 
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "Revenue", "link_code": "REV-001"},
+    ])
+
     # Only current year data, no prior year
     _upsert_trial_balance(client, auth_headers, company_id, [
         {
@@ -455,10 +457,6 @@ def test_variation_zero_prior(client, auth_headers):
             "monthly_amounts": {"Janvier": 5000.0},
         },
     ], fiscal_year=2024)
-
-    _upsert_account_mappings(client, auth_headers, company_id, [
-        {"account_number": "4000", "description": "Revenue", "link_code": "REV-001"},
-    ])
     _upsert_structure(client, auth_headers, company_id, "income-statement", [
         {"label": "revenus", "linkCode": "REV-001"},
     ])
@@ -576,6 +574,10 @@ def test_series_24_months_spans_two_years(client, auth_headers):
     """Series with months=24 should include data from two fiscal years."""
     company_id = _create_company(client, auth_headers)
 
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "Sales Revenue", "link_code": "REV-001"},
+    ])
+
     # Year 2023 data
     _upsert_trial_balance(client, auth_headers, company_id, [
         {
@@ -593,10 +595,6 @@ def test_series_24_months_spans_two_years(client, auth_headers):
             "monthly_amounts": {"Janvier": 10000.0, "Février": 12000.0},
         },
     ], fiscal_year=2024)
-
-    _upsert_account_mappings(client, auth_headers, company_id, [
-        {"account_number": "4000", "description": "Sales Revenue", "link_code": "REV-001"},
-    ])
     _upsert_structure(client, auth_headers, company_id, "income-statement", [
         {"label": "revenus", "isBold": True, "linkCode": "REV-001"},
     ])
@@ -623,6 +621,11 @@ def test_series_with_children(client, auth_headers):
     """Series should handle structure rows with children correctly."""
     company_id = _create_company(client, auth_headers)
 
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4100", "description": "Product Sales", "link_code": "REV-PROD"},
+        {"account_number": "4200", "description": "Service Sales", "link_code": "REV-SVC"},
+    ])
+
     _upsert_trial_balance(client, auth_headers, company_id, [
         {
             "account_number": "4100",
@@ -635,11 +638,6 @@ def test_series_with_children(client, auth_headers):
             "monthly_amounts": {"Janvier": 4000.0, "Février": 5000.0},
         },
     ], fiscal_year=2024)
-
-    _upsert_account_mappings(client, auth_headers, company_id, [
-        {"account_number": "4100", "description": "Product Sales", "link_code": "REV-PROD"},
-        {"account_number": "4200", "description": "Service Sales", "link_code": "REV-SVC"},
-    ])
 
     _upsert_structure(client, auth_headers, company_id, "income-statement", [
         {

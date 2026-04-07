@@ -1,6 +1,6 @@
 import uuid
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TrialBalanceAccountResponse(BaseModel):
@@ -12,6 +12,10 @@ class TrialBalanceAccountResponse(BaseModel):
 class TrialBalanceResponse(BaseModel):
     company_id: uuid.UUID
     fiscal_year: int
+    months_with_data: list[int] = Field(
+        ...,
+        description="Mois (1–12) pour lesquels au moins une écriture de balance existe pour cet exercice.",
+    )
     accounts: list[TrialBalanceAccountResponse]
 
 
@@ -26,3 +30,19 @@ class TrialBalanceUploadResponse(BaseModel):
     fiscal_year: int
     accounts_imported: int
     message: str
+
+
+class TrialBalanceUnknownAccountPreview(BaseModel):
+    account_number: str
+    description: str
+    amount: float
+
+
+class TrialBalanceUploadPreviewResponse(BaseModel):
+    company_id: uuid.UUID
+    fiscal_year: int
+    month: int
+    amount_sum: float
+    balance_is_valid: bool
+    row_count: int
+    unknown_accounts: list[TrialBalanceUnknownAccountPreview]
