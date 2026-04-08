@@ -17,7 +17,7 @@ set -euo pipefail
 
 # --- Configuration -----------------------------------------------------------
 RESOURCE_GROUP="modelisys-rg"
-LOCATION="canadaeast"
+LOCATION="eastus"
 ACR_NAME="modelisysacr"
 CONTAINER_ENV="modelisys-env"
 BACKEND_APP="modelisys-backend"

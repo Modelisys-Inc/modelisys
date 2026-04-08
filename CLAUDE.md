@@ -151,7 +151,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - **Container Apps:** `modelisys-backend` (port 8000) + `modelisys-frontend` (port 3000) in `modelisys-env`
 - **Container Registry:** `modelisysacr` (Basic SKU)
 - **PostgreSQL:** `modelisys-db` (Flexible Server, Burstable B1ms, PostgreSQL 16)
-- **Resource Group:** `modelisys-rg` (Canada East)
+- **Resource Group:** `modelisys-rg` (East US)
 - **Domains:** `app.modelisys.com` (frontend), `api.modelisys.com` (backend)
 
 ### Infrastructure Scripts
