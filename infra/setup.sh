@@ -39,6 +39,27 @@ az account show >/dev/null 2>&1 || error "Not logged in to Azure. Run: az login"
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
 info "Using subscription: $SUBSCRIPTION_ID"
 
+# --- Register required resource providers ------------------------------------
+PROVIDERS=("Microsoft.ContainerRegistry" "Microsoft.App" "Microsoft.DBforPostgreSQL" "Microsoft.OperationalInsights")
+for PROVIDER in "${PROVIDERS[@]}"; do
+  STATE=$(az provider show --namespace "$PROVIDER" --query "registrationState" -o tsv 2>/dev/null)
+  if [ "$STATE" != "Registered" ]; then
+    info "Registering provider: $PROVIDER"
+    az provider register --namespace "$PROVIDER" --output none
+  fi
+done
+
+# Wait for providers to register
+for PROVIDER in "${PROVIDERS[@]}"; do
+  STATE=$(az provider show --namespace "$PROVIDER" --query "registrationState" -o tsv 2>/dev/null)
+  while [ "$STATE" != "Registered" ]; do
+    info "Waiting for $PROVIDER to register..."
+    sleep 10
+    STATE=$(az provider show --namespace "$PROVIDER" --query "registrationState" -o tsv 2>/dev/null)
+  done
+done
+info "All resource providers registered"
+
 # --- Resource Group ----------------------------------------------------------
 info "Creating resource group: $RESOURCE_GROUP"
 az group create \
