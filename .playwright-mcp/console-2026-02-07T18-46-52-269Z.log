@@ -1,6 +1,0 @@
-[    2266ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
-
-Check the render method of `DashboardHeader`.  @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
-[   39453ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
-
-Check the render method of `IncomeStatementDetail`.  @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127

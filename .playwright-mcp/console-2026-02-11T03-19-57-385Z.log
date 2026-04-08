@@ -1,2 +1,0 @@
-[    4115ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8001/api/auth/me:0
-[   13910ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8001/api/auth/login:0

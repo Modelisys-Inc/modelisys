@@ -1,9 +1,0 @@
-[ 9368677ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=WnKgP5CjIDmI7uX1bSeD3' failed: Connection closed before receiving a handshake response @ http://localhost:3000/_next/static/chunks/9febf_next_dist_client_921f39ed._.js:10878
-[ 9372050ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=WnKgP5CjIDmI7uX1bSeD3' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/9febf_next_dist_client_921f39ed._.js:10878
-[ 9375411ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=WnKgP5CjIDmI7uX1bSeD3' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/9febf_next_dist_client_921f39ed._.js:10878
-[ 9378772ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=WnKgP5CjIDmI7uX1bSeD3' failed: Error in connection establishment: net::ERR_CONNECTION_REFUSED @ http://localhost:3000/_next/static/chunks/9febf_next_dist_client_921f39ed._.js:10878
-[ 9381127ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=WnKgP5CjIDmI7uX1bSeD3' failed: Connection closed before receiving a handshake response @ http://localhost:3000/_next/static/chunks/9febf_next_dist_client_921f39ed._.js:10878
-[ 9393305ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8001/api/auth/me:0
-[ 9393306ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8001/api/companies:0
-[ 9393306ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8001/api/companies:0
-[ 9393306ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:8001/api/auth/me:0

@@ -1,2 +1,0 @@
-[   93391ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=kT0SVQVSbRSsQXr9TZ6D-' failed: Connection closed before receiving a handshake response @ http://localhost:3000/_next/static/chunks/9febf_next_dist_client_921f39ed._.js:10878
-[   94399ms] [ERROR] WebSocket connection to 'ws://localhost:3000/_next/webpack-hmr?id=kT0SVQVSbRSsQXr9TZ6D-' failed: Connection closed before receiving a handshake response @ http://localhost:3000/_next/static/chunks/9febf_next_dist_client_921f39ed._.js:10878
