@@ -23,8 +23,10 @@ import {
 } from "@/lib/api"
 import {
   collectDistinctLinkCodesFromStructure,
+  groupeDisplayForAccountLinkCode,
   LINK_CODE_PROVENANCE_RESULTATS,
   mapLinkCodesToDetailLabels,
+  mapLinkCodesToGroupeLinkCodes,
   mapLinkCodesToSummaryLabels,
 } from "@/lib/income-statement-structure-utils"
 import { cn } from "@/lib/utils"
@@ -153,6 +155,7 @@ type MappingSearchScope =
   | "accountNumber"
   | "description"
   | "provenance"
+  | "groupe"
   | "linkCode"
   | "sommaireEf"
   | "detailEf"
@@ -168,6 +171,7 @@ const MAPPING_SEARCH_SCOPE_OPTIONS: { value: MappingSearchScope; label: string }
   { value: "all", label: "Toutes les colonnes" },
   { value: "accountNumber", label: "Compte" },
   { value: "description", label: "Description" },
+  { value: "groupe", label: "Groupe" },
   { value: "linkCode", label: "Code" },
   { value: "provenance", label: "Type" },
   { value: "sommaireEf", label: "Poste" },
@@ -330,6 +334,11 @@ export default function CompanyMappingPage() {
     return new Set(collectDistinctLinkCodesFromStructure(incomeStatementStructure))
   }, [incomeStatementStructure])
 
+  const groupeByLinkCode = useMemo(() => {
+    if (!incomeStatementStructure?.length) return new Map<string, string>()
+    return mapLinkCodesToGroupeLinkCodes(incomeStatementStructure)
+  }, [incomeStatementStructure])
+
   const filteredAccounts = useMemo(() => {
     const q = mappingSearch.trim().toLowerCase()
     if (!q) return accounts
@@ -339,6 +348,7 @@ export default function CompanyMappingPage() {
       const provenance = provenanceFromLinkCode(account.linkCode, incomeStatementLinkCodes)
       const sum = efLabelFromLinkCode(account.linkCode, summaryEfByLinkCode)
       const det = efLabelFromLinkCode(account.linkCode, detailEfByLinkCode)
+      const groupeLabel = groupeDisplayForAccountLinkCode(account.linkCode, groupeByLinkCode)
       const intercoLabel = account.interco
         ? allCompanies.find((c) => c.id === account.interco)?.name ?? account.interco
         : ""
@@ -347,6 +357,7 @@ export default function CompanyMappingPage() {
         const blob = [
           account.accountNumber,
           account.description,
+          groupeLabel,
           account.linkCode,
           provenance,
           sum,
@@ -372,6 +383,8 @@ export default function CompanyMappingPage() {
             return String(account.description ?? "")
           case "provenance":
             return provenance
+          case "groupe":
+            return groupeLabel
           case "linkCode":
             return String(account.linkCode ?? "")
           case "sommaireEf":
@@ -404,6 +417,7 @@ export default function CompanyMappingPage() {
     mappingSearch,
     mappingSearchScope,
     incomeStatementLinkCodes,
+    groupeByLinkCode,
     summaryEfByLinkCode,
     detailEfByLinkCode,
     allCompanies,
@@ -723,6 +737,7 @@ export default function CompanyMappingPage() {
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Compte</th>
                     <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Description</th>
+                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Groupe</th>
                     <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Code</th>
                     <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Type</th>
                     <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Poste</th>
@@ -744,13 +759,13 @@ export default function CompanyMappingPage() {
                 <tbody>
                   {accounts.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="px-8 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={15} className="px-8 py-12 text-center text-sm text-slate-500">
                         <p>Aucun compte configuré. Importez votre balance de vérification pour commencer.</p>
                       </td>
                     </tr>
                   ) : filteredAccounts.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="px-8 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={15} className="px-8 py-12 text-center text-sm text-slate-500">
                         <p>Aucun compte ne correspond à votre recherche.</p>
                       </td>
                     </tr>
@@ -759,6 +774,9 @@ export default function CompanyMappingPage() {
                       <tr key={account.accountNumber} className="border-b border-slate-100 hover:bg-slate-50">
                         <td className="px-6 py-4 text-sm text-slate-600 font-mono">{account.accountNumber}</td>
                         <td className="px-6 py-4 text-sm text-slate-900">{account.description}</td>
+                        <td className="px-6 py-4 text-sm font-mono text-slate-600">
+                          {groupeDisplayForAccountLinkCode(account.linkCode, groupeByLinkCode)}
+                        </td>
                         <td className="px-6 py-2 align-middle">
                           {editingLinkCodeAccountNumber === account.accountNumber ? (
                             <Input

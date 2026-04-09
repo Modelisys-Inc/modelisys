@@ -150,6 +150,46 @@ def test_income_statement_monthly(client, auth_headers):
     assert opex_row["current"] == 2000.0
 
 
+def test_income_statement_group_row_aggregates_mapping_by_groupe(client, auth_headers):
+    """Ligne sommaire avec code Groupe uniquement numérique (ex. 20) = somme des comptes
+    dont le code de liaison appartient à ce groupe (ex. 20.1 + 20.2 → groupe 20)."""
+    company_id = _create_company(client, auth_headers)
+
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "A", "link_code": "20.1"},
+        {"account_number": "4001", "description": "B", "link_code": "20.2"},
+    ])
+
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "4000",
+            "description": "A",
+            "monthly_amounts": {"Janvier": 100.0, "Février": 0.0, "Mars": 0.0},
+        },
+        {
+            "account_number": "4001",
+            "description": "B",
+            "monthly_amounts": {"Janvier": 300.0, "Février": 0.0, "Mars": 0.0},
+        },
+    ], fiscal_year=2024)
+
+    _upsert_structure(client, auth_headers, company_id, "income-statement", [
+        {"label": "revenus", "isBold": True, "isSection": True, "linkCode": "20", "defineMapping": True},
+    ])
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement"
+        "?fiscal_year=2024&month=1&period=monthly",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["rows"]) >= 1
+    rev_row = data["rows"][0]
+    assert rev_row["label"] == "revenus"
+    assert rev_row["current"] == 400.0
+
+
 def test_income_statement_quarterly(client, auth_headers):
     """Quarterly should sum 3 months."""
     company_id = _setup_income_statement_data(client, auth_headers)

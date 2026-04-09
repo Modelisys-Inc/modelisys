@@ -554,3 +554,121 @@ export function mapLinkCodesToSummaryLabels(
   }
   return map
 }
+
+/** Code de liaison « Groupe » au sommaire : uniquement des chiffres (ex. 20, 32). */
+function isGroupOnlyLinkCode(linkCode: string): boolean {
+  return /^\d+$/.test(linkCode.trim())
+}
+
+/**
+ * Préfixe numérique initial d’un code de liaison (ex. 20.1 → 20, 32A.1 → 32).
+ */
+export function extractGroupePrefixFromCompositeLinkCode(linkCode: string): string | undefined {
+  const t = linkCode.trim()
+  if (!t) return undefined
+  const m = t.match(/^(\d+)/)
+  return m ? m[1] : undefined
+}
+
+/**
+ * Pour chaque lettre d’annexe, code de liaison du **Groupe** (ligne sommaire dont le code est
+ * uniquement numérique) actif au moment où l’annexe apparaît dans la structure.
+ */
+export function mapAnnexLetterToGroupeLinkCode(
+  structure: Record<string, unknown>[]
+): Map<string, string> {
+  let currentGroupe: string | undefined
+  const annexToGroupe = new Map<string, string>()
+
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    if (isStructureRowHidden(row)) continue
+
+    if (!isStructureRowDetailOnly(row)) {
+      const mode = normalizeLiaisonMode(row)
+      if (mode === "single") {
+        const lc = String(row.linkCode ?? "").trim()
+        if (isGroupOnlyLinkCode(lc)) currentGroupe = lc
+      }
+      const letter = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+      if (letter && currentGroupe && !annexToGroupe.has(letter)) {
+        annexToGroupe.set(letter, currentGroupe)
+      }
+    } else {
+      const letter = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+      if (letter && currentGroupe && !annexToGroupe.has(letter)) {
+        annexToGroupe.set(letter, currentGroupe)
+      }
+    }
+  }
+
+  return annexToGroupe
+}
+
+function groupeForStructureRowAndCode(
+  row: Record<string, unknown>,
+  code: string,
+  annexToGroupe: Map<string, string>
+): string | undefined {
+  const letter = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+  if (letter) {
+    const g = annexToGroupe.get(letter)
+    if (g) return g
+  }
+  const mode = normalizeLiaisonMode(row)
+  if (mode === "single") {
+    const lc = String(row.linkCode ?? "").trim()
+    if (isGroupOnlyLinkCode(lc)) return lc
+    return extractGroupePrefixFromCompositeLinkCode(lc)
+  }
+  return extractGroupePrefixFromCompositeLinkCode(code)
+}
+
+/**
+ * Pour chaque code de liaison du périmètre Détail (même clés que `mapLinkCodesToDetailLabels`),
+ * le code de liaison du **Groupe** (ex. 20 pour 20.1 rattaché à l’annexe A du groupe 20).
+ */
+export function mapLinkCodesToGroupeLinkCodes(
+  structure: Record<string, unknown>[]
+): Map<string, string> {
+  const annexToGroupe = mapAnnexLetterToGroupeLinkCode(structure)
+  const map = new Map<string, string>()
+
+  const addCode = (code: string, row: Record<string, unknown>) => {
+    const t = code.trim()
+    if (!t || map.has(t)) return
+    const g = groupeForStructureRowAndCode(row, t, annexToGroupe)
+    if (g) map.set(t, g)
+  }
+
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    if (!isShowInDetail(row)) continue
+
+    const mode = normalizeLiaisonMode(row)
+    if (mode === "single") {
+      addCode(String(row.linkCode ?? ""), row)
+    } else if (mode === "sum") {
+      for (const c of normalizeCodeList(row.liaisonSumCodes)) addCode(c, row)
+    } else if (mode === "difference") {
+      for (const c of normalizeCodeList(row.liaisonNumeratorCodes)) addCode(c, row)
+      for (const c of normalizeCodeList(row.liaisonDenominatorCodes)) addCode(c, row)
+    }
+  }
+  return map
+}
+
+/**
+ * Affichage du Groupe pour le mapping comptable : priorité à la structure, sinon préfixe numérique du code.
+ */
+export function groupeDisplayForAccountLinkCode(
+  linkCode: string | undefined,
+  groupeByLinkCode: Map<string, string>
+): string {
+  const lc = linkCode?.trim()
+  if (!lc) return "—"
+  const fromStructure = groupeByLinkCode.get(lc)
+  if (fromStructure) return fromStructure
+  const fallback = extractGroupePrefixFromCompositeLinkCode(lc)
+  return fallback ?? "—"
+}

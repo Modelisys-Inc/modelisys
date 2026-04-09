@@ -125,6 +125,13 @@
   }
 }
 
+/* Windows/Edge: icône native "révéler mot de passe" plus visible sur fonds sombres */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  filter: invert(1);
+  opacity: 0.85;
+}
+
 @keyframes slide-left {
   0% {
     transform: translateX(0);
