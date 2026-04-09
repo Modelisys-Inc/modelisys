@@ -50,15 +50,13 @@ const footerLinks: FooterSection[] = [
     links: [
       { title: "Contact", href: "/contact" },
       { title: "Politique de confidentialité", href: "/privacy" },
+      { title: "Clause de non-responsabilité", href: "/clause-de-non-responsabilite" },
     ],
   },
   {
     label: "Ressources",
     links: [
       { title: "Blog", href: "/blog" },
-      { title: "Études de cas", href: "/case-studies" },
-      { title: "Documentation", href: "/docs" },
-      { title: "Support", href: "/support" },
     ],
   },
 ]

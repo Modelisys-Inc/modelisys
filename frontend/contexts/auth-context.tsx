@@ -17,6 +17,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 const PUBLIC_PATHS = [
   "/login",
+  "/privacy",
+  "/clause-de-non-responsabilite",
+  "/blog",
   "/contact",
   "/cabinets-comptables",
   "/partenaires-financiers",
