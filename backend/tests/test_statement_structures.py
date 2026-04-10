@@ -112,10 +112,10 @@ def test_get_statement_structure(client, auth_headers):
 
 
 def test_get_statement_structure_not_found(client, auth_headers):
-    """cash-flow is not seeded by default, so it should return 404."""
+    """A non-existent statement type should return 404."""
     company_id = _create_company(client, auth_headers)
     response = client.get(
-        f"/api/companies/{company_id}/statement-structures/cash-flow",
+        f"/api/companies/{company_id}/statement-structures/nonexistent-type",
         headers=auth_headers,
     )
     assert response.status_code == 404
