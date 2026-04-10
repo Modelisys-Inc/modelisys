@@ -46,3 +46,10 @@ ENV/
 
 # Docker
 .docker/
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# Playwright test output
+frontend/playwright-report/
+frontend/test-results/

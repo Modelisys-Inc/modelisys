@@ -140,6 +140,38 @@ JWT_SECRET_KEY=<change-in-production>
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
+## CI/CD & Deployment
+
+### Pipeline
+- **GitHub Actions** deploys automatically on every push to `main`
+- Pipeline: test (pytest + pnpm build) -> build Docker images -> push to ACR -> deploy to Azure Container Apps
+- Workflow file: `.github/workflows/deploy.yml`
+
+### Azure Resources
+- **Container Apps:** `modelisys-backend` (port 8000) + `modelisys-frontend` (port 3000) in `modelisys-env`
+- **Container Registry:** `modelisysacr` (Basic SKU)
+- **PostgreSQL:** `modelisys-db` (Flexible Server, Burstable B1ms, PostgreSQL 16)
+- **Resource Group:** `modelisys-rg` (East US)
+- **Domains:** `app.modelisys.com` (frontend), `api.modelisys.com` (backend)
+
+### Infrastructure Scripts
+```bash
+# First-time setup (requires az login)
+./infra/setup.sh
+
+# Destroy all resources
+./infra/teardown.sh
+```
+
+### Rollback
+```bash
+# List revisions
+az containerapp revision list --name modelisys-backend --resource-group modelisys-rg -o table
+
+# Activate a previous revision
+az containerapp revision activate --name modelisys-backend --resource-group modelisys-rg --revision <revision-name>
+```
+
 ## Git Workflow
 
 - **Main branch:** `main`

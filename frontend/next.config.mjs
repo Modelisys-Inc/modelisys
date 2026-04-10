@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: "standalone",
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -16,6 +17,8 @@ const nextConfig = {
       },
     ]
   },
+  // Silence Next.js 16 Turbopack/webpack co-existence warning.
+  turbopack: {},
   // Docker + volume monté (Windows) : le file watcher natif échoue souvent ; le polling fiabilise le hot reload.
   webpack: (config, { dev }) => {
     if (dev) {
