@@ -83,16 +83,24 @@ ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query "passwords[0].v
 info "ACR login server: $ACR_LOGIN_SERVER"
 
 # --- PostgreSQL Flexible Server ----------------------------------------------
-info "Creating PostgreSQL Flexible Server: $DB_SERVER"
+# The DB may have been created manually via the Azure Portal (e.g., if the CLI
+# is restricted for your subscription). The script detects it and prompts for
+# the password. If it doesn't exist, it attempts CLI creation.
+info "Checking PostgreSQL Flexible Server: $DB_SERVER"
 
-DB_ALREADY_EXISTS=false
 if az postgres flexible-server show --name "$DB_SERVER" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
-  DB_ALREADY_EXISTS=true
   info "PostgreSQL server already exists, skipping creation"
-  info "NOTE: You must provide the existing DB password when prompted."
-  read -sp "Enter existing PostgreSQL admin password: " DB_PASSWORD
+  read -sp "Enter PostgreSQL admin password for $DB_ADMIN_USER: " DB_PASSWORD
   echo ""
+
+  # Ensure the modelisys database exists
+  az postgres flexible-server db create \
+    --resource-group "$RESOURCE_GROUP" \
+    --server-name "$DB_SERVER" \
+    --database-name "$DB_NAME" \
+    --output none 2>/dev/null || info "Database '$DB_NAME' already exists"
 else
+  info "Creating PostgreSQL Flexible Server: $DB_SERVER"
   DB_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
 
   az postgres flexible-server create \
