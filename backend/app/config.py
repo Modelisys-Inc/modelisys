@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
 
     # CORS - comma-separated list of origins
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: str = "http://localhost:3000"
 
     # App
     app_name: str = "Modelisys API"
@@ -54,12 +54,9 @@ class Settings(BaseSettings):
             )
         return v
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v):
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
-        return v
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 settings = Settings()
