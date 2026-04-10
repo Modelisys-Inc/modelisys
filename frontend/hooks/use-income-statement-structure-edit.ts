@@ -7,6 +7,7 @@ import {
   findChargeLineRange,
   findStructureInsertIndexAfterAnnexContiguousBlock,
   isCodeMappingEnabled,
+  isDetailParamsDtCtRequired,
   isStructureRowDetailOnly,
   isStructureRowEmptyLabel,
   isStructureRowHidden,
@@ -14,6 +15,7 @@ import {
   newDetailSubLineRow,
   newEmptySpacerSummaryRow,
   normalizeCodeList,
+  normalizeDtCt,
   normalizeLiaisonMode,
   stripObsoleteIncomeStatementStructureRows,
 } from "@/lib/income-statement-structure-utils"
@@ -223,6 +225,11 @@ export function useIncomeStatementStructureEdit(
             setSaving(false)
             return false
           }
+        }
+        if (isDetailParamsDtCtRequired(r) && !normalizeDtCt(r.dtCt)) {
+          setError(`« ${lab} » : sélectionnez DT ou CT (Paramètres Détail).`)
+          setSaving(false)
+          return false
         }
         if (r.showInDetail === true) {
           if (!String(r.annexLetter ?? "").trim()) {

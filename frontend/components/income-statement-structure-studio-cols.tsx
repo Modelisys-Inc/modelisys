@@ -3,6 +3,13 @@
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { IncomeStatementLiaisonCell } from "@/components/income-statement-liaison-cell"
 import {
   isAnnexLetterInputEditable,
@@ -10,7 +17,9 @@ import {
   isShowInDetail,
   isStructureRowEmptyLabel,
   isStructureRowHidden,
+  isSummaryAnnexRowLockedInDetailEdit,
   normalizeAnnexLetter,
+  normalizeDtCt,
 } from "@/lib/income-statement-structure-utils"
 import { cn } from "@/lib/utils"
 import { Trash2 } from "lucide-react"
@@ -88,6 +97,7 @@ export function IncomeStatementStructureStudioCols({
                       defineMapping: false,
                       showInDetail: false,
                       linkCode: undefined,
+                      ...(hideDefineColumn ? { dtCt: undefined } : {}),
                       // Détail Paramètres : conserver la lettre d’annexe (réglée au Sommaire ou pour le bloc).
                       ...(hideDefineColumn ? {} : { annexLetter: undefined }),
                     })
@@ -190,6 +200,36 @@ export function IncomeStatementStructureStudioCols({
           </span>
         )}
       </td>
+      {hideDefineColumn && (
+        <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
+          {isStructureRowEmptyLabel(structRow) ? (
+            <span className="block text-center text-sm text-slate-300">—</span>
+          ) : !showLinkAnnexCells ? (
+            <span className="block text-center text-sm text-slate-300">—</span>
+          ) : isSummaryAnnexRowLockedInDetailEdit(structRow) ? (
+            <span className="block text-center text-sm text-slate-300">—</span>
+          ) : (
+            <Select
+              value={(() => {
+                const d = normalizeDtCt(structRow.dtCt)
+                return d === "DT" || d === "CT" ? d : undefined
+              })()}
+              onValueChange={(v) => updateRow(idx, { dtCt: v })}
+            >
+              <SelectTrigger
+                className="h-9 w-full min-w-0 rounded-xl border-slate-200/90 px-2 text-xs font-semibold uppercase shadow-sm focus-visible:ring-[#E0742D]/25 data-[placeholder]:text-slate-400"
+                aria-label="DT ou CT"
+              >
+                <SelectValue placeholder="Choisir" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="DT">DT</SelectItem>
+                <SelectItem value="CT">CT</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </td>
+      )}
       {!hideDefineColumn && (
         <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
           {isStructureRowEmptyLabel(structRow) ? (

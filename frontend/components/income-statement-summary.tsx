@@ -4,10 +4,21 @@ import { Fragment, useState, useEffect, useMemo } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
-import type { FinancialStatementRow } from "@/lib/api"
-import { getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
+import {
+  getFinancialStatementSeries,
+  type FinancialStatementSeriesParams,
+  type FinancialStatementRow,
+} from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
+import { reverseSeriesOrderForDisplay } from "@/lib/series-utils"
+import {
+  monthShortLabelsFromReference,
+  monthTrendFromReference,
+  quarterLabelsFromReference,
+  quarterTrendFromReference,
+  yearLabelsFromReference,
+  yearTrendFromReference,
+} from "@/lib/series-reference-columns"
 import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import {
   TOTAL_CHARGES_LABEL,
@@ -75,6 +86,14 @@ import {
   dashboardCardStructureSettingsButtonClass,
   dashboardCardTitleClass,
 } from "@/lib/dashboard-card-style"
+import {
+  calendarQuarterFromMonth,
+  formatCalendarMonthYear,
+  formatPriorCalendarMonth,
+  formatQuarterShortLabel,
+  formatSameMonthPriorYear,
+  priorCalendarQuarter,
+} from "@/lib/financial-period-labels"
 
 interface IncomeStatementSummaryProps {
   period: "monthly" | "quarterly" | "annual"
@@ -90,6 +109,8 @@ interface IncomeStatementSummaryProps {
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
   fiscalYear?: number
+  /** Mois calendaire (1–12) de la date de référence — pour les en-têtes « Avril 2025 », etc. */
+  referenceMonth?: number
   rows?: FinancialStatementRow[]
   loading?: boolean
   showIncomeStatementStructureSettings?: boolean
@@ -141,6 +162,7 @@ export function IncomeStatementSummary({
   selectedBudgetId = null,
   selectedBudgetName = null,
   fiscalYear,
+  referenceMonth,
   rows: backendRows = [],
   loading = false,
   showIncomeStatementStructureSettings = false,
@@ -193,21 +215,43 @@ export function IncomeStatementSummary({
     structureVersion,
   })
 
+  const isCompanyComparison = columnMode === "comparison" && !companyId
+  const isDivisionComparison = columnMode === "comparison" && companyId && !divisionId
+  const isSubDivisionComparison = columnMode === "comparison" && companyId && divisionId && !subDivisionId
+  const isComparisonMode = isCompanyComparison || isDivisionComparison || isSubDivisionComparison
+
+  const canInlineStructureEdit =
+    showIncomeStatementStructureSettings && !!companyId && !isComparisonMode
+  const structEdit = useIncomeStatementStructureEdit(
+    companyId ?? null,
+    structureEditMode && canInlineStructureEdit
+  )
+
+  const refMonth = referenceMonth ?? new Date().getMonth() + 1
+  const refYear = fiscalYear ?? new Date().getFullYear()
+
   // Helper function to get comparison label
   const getComparisonLabel = (): string => {
     if (view !== "comparison" && view !== "ytd" && view !== "ddm") return "Passé"
     if (comparisonType === "lastMonth") {
       if (view === "ytd") return "YTD dernier"
       if (view === "ddm") return "DDM dernier"
-      if (period === "monthly") return "Mois dernier"
-      if (period === "quarterly") return "Trimestre dernier"
+      if (period === "monthly") return formatPriorCalendarMonth(refMonth, refYear)
+      if (period === "quarterly") {
+        const q = calendarQuarterFromMonth(refMonth)
+        const pq = priorCalendarQuarter(q, refYear)
+        return formatQuarterShortLabel(pq.quarter, pq.year)
+      }
       return "Année dernière"
     }
     if (comparisonType === "pastMonth") {
       if (view === "ytd") return "YTD passé"
       if (view === "ddm") return "DDM passé"
-      if (period === "monthly") return "Mois passé"
-      if (period === "quarterly") return "Trimestre passé"
+      if (period === "monthly") return formatSameMonthPriorYear(refMonth, refYear)
+      if (period === "quarterly") {
+        const q = calendarQuarterFromMonth(refMonth)
+        return formatQuarterShortLabel(q, refYear - 1)
+      }
       return "Année passée"
     }
     if (comparisonType === "budget") {
@@ -223,6 +267,21 @@ export function IncomeStatementSummary({
       return "Année budgetée"
     }
     return "Passé"
+  }
+
+  /** Colonne « Courant » : libellé daté (référence) pour comparaison / DDM. */
+  const getCurrentColumnLabel = (): string => {
+    if ((view === "comparison" || view === "ddm") && period === "monthly") {
+      return formatCalendarMonthYear(refMonth, refYear)
+    }
+    if ((view === "comparison" || view === "ddm") && period === "quarterly") {
+      const q = calendarQuarterFromMonth(refMonth)
+      return formatQuarterShortLabel(q, refYear)
+    }
+    if ((view === "comparison" || view === "ddm") && period === "annual") {
+      return String(refYear)
+    }
+    return "Courant"
   }
   
   // Map backend FinancialStatementRow[] to internal SummaryRow[]
@@ -283,19 +342,18 @@ export function IncomeStatementSummary({
           !row.detailOnly && !isOmittedIncomeStatementSummaryRowLabel(row.label)
       )
       .map((row) => {
-      const rawAmounts = getRowAmounts(row, seriesPeriods)
       let trendValues: number[]
       if (view === "quarters") {
-        const { amounts: qAmounts } = aggregateToQuarters(rawAmounts, seriesPeriods)
-        trendValues = qAmounts
+        trendValues = quarterTrendFromReference(row, seriesPeriods, refMonth, refYear, 5)
       } else if (view === "years") {
-        const { amounts: yAmounts } = aggregateToYears(rawAmounts, seriesPeriods)
-        trendValues = yAmounts
+        trendValues = yearTrendFromReference(row, seriesPeriods, refYear, 6)
+      } else if (view === "24months") {
+        trendValues = monthTrendFromReference(row, seriesPeriods, refMonth, refYear, 24)
       } else {
-        trendValues = rawAmounts
+        trendValues = monthTrendFromReference(row, seriesPeriods, refMonth, refYear, 12)
       }
-      const lastAmount = trendValues[trendValues.length - 1] || 0
-      const priorAmount = trendValues.length >= 2 ? trendValues[trendValues.length - 2] || 0 : 0
+      const lastAmount = trendValues[0] || 0
+      const priorAmount = trendValues.length >= 2 ? trendValues[1] || 0 : 0
       return {
         label: row.label,
         current: lastAmount,
@@ -317,20 +375,19 @@ export function IncomeStatementSummary({
     })
   }
 
-  const data = isMultiPeriodView && !isForecastSection ? buildSeriesData() : mapBackendRows(backendRows)
-  
-  // Determine what we're comparing
-  const isCompanyComparison = columnMode === "comparison" && !companyId
-  const isDivisionComparison = columnMode === "comparison" && companyId && !divisionId
-  const isSubDivisionComparison = columnMode === "comparison" && companyId && divisionId && !subDivisionId
-  const isComparisonMode = isCompanyComparison || isDivisionComparison || isSubDivisionComparison
-
-  const canInlineStructureEdit =
-    showIncomeStatementStructureSettings && !!companyId && !isComparisonMode
-  const structEdit = useIncomeStatementStructureEdit(
-    companyId ?? null,
-    structureEditMode && canInlineStructureEdit
-  )
+  const data = useMemo(() => {
+    if (isMultiPeriodView && !isForecastSection) return buildSeriesData()
+    return mapBackendRows(backendRows)
+  }, [
+    isMultiPeriodView,
+    isForecastSection,
+    backendRows,
+    seriesRows,
+    seriesPeriods,
+    view,
+    refMonth,
+    refYear,
+  ])
 
   /** Postes du sommaire (libellé non vide) pour placer une ligne vide au-dessus. */
   const spacerTargetPosts = useMemo(() => {
@@ -482,8 +539,10 @@ export function IncomeStatementSummary({
     structureVersion,
   ])
 
-  // Find revenue value for percentage calculations
-  const revenueRow = data.find((row) => row.label.toLowerCase() === "revenus")
+  // Ligne « Revenus » (poste, pas en-tête de section « REVENUS » si les deux matchent)
+  const revenueRow =
+    data.find((row) => row.label.toLowerCase() === "revenus" && !row.isSection) ??
+    data.find((row) => row.label.toLowerCase() === "revenus")
   const revenueCurrent = revenueRow?.current || 1
   const revenuePrior = revenueRow?.prior || 1
 
@@ -556,7 +615,7 @@ export function IncomeStatementSummary({
   // Helper function to generate month labels (12 or 24 months)
   const getMonthLabels = (monthsCount: number = 12): string[] => {
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      return getPeriodLabels(seriesPeriods)
+      return monthShortLabelsFromReference(refMonth, refYear, monthsCount)
     }
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
     const currentDate = new Date()
@@ -565,15 +624,13 @@ export function IncomeStatementSummary({
       const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
       labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
     }
-    return labels
+    return reverseSeriesOrderForDisplay(labels)
   }
 
   // Helper function to generate quarter labels (5 quarters)
   const getQuarterLabels = (): string[] => {
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      const dummyAmounts = seriesPeriods.map(() => 0)
-      const { labels } = aggregateToQuarters(dummyAmounts, seriesPeriods)
-      return labels
+      return quarterLabelsFromReference(refMonth, refYear, 5)
     }
     const currentDate = new Date()
     const labels: string[] = []
@@ -582,15 +639,13 @@ export function IncomeStatementSummary({
       const quarter = Math.floor(date.getMonth() / 3) + 1
       labels.push(`T${quarter} ${date.getFullYear()}`)
     }
-    return labels
+    return reverseSeriesOrderForDisplay(labels)
   }
 
   // Helper function to generate year labels (projectionYears + 1 for forecast sections)
   const getYearLabels = (): string[] => {
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      const dummyAmounts = seriesPeriods.map(() => 0)
-      const { labels } = aggregateToYears(dummyAmounts, seriesPeriods)
-      return labels
+      return yearLabelsFromReference(refYear, 6)
     }
     const currentYear = new Date().getFullYear()
     const labels: string[] = []
@@ -600,20 +655,22 @@ export function IncomeStatementSummary({
         labels.push(`${currentYear + i}`)
       }
     } else {
-      // For other views, generate past years (unchanged for historical data)
       for (let i = 5; i >= 0; i--) {
         labels.push(`${currentYear - i}`)
       }
     }
-    return labels
+    return isForecastSection ? labels : reverseSeriesOrderForDisplay(labels)
   }
 
   // Helper function to get horizon text
   const getHorizonText = (): string => {
-    if (view === "comparison" && period === "monthly") return "Courant"
-    if (view === "comparison" && period === "quarterly") return "Trimestriel"
-    if (view === "comparison" && period === "annual") return "Annuel"
+    if (view === "comparison" && (period === "monthly" || period === "quarterly" || period === "annual")) {
+      return getCurrentColumnLabel()
+    }
     if (view === "ytd") return "YTD"
+    if (view === "ddm" && (period === "monthly" || period === "quarterly" || period === "annual")) {
+      return getCurrentColumnLabel()
+    }
     if (view === "ddm") return "DDM"
     if (view === "12months") return "12 mois"
     if (view === "24months") return "24 mois"
@@ -652,6 +709,8 @@ export function IncomeStatementSummary({
     seriesPeriods,
     isForecastSection,
     projectionYears,
+    refMonth,
+    refYear,
   ])
 
   const padSummaryRow = (structRow: Record<string, unknown>): SummaryRow => {
@@ -969,7 +1028,10 @@ export function IncomeStatementSummary({
                 <th
                   className={cn(
                     "px-6 py-4 text-left text-sm font-semibold text-slate-900",
-                    !showStructureCols && "w-2/5",
+                    !showStructureCols &&
+                      (view === "12months"
+                        ? "min-w-[20rem] sm:min-w-[24rem] lg:min-w-[30rem]"
+                        : "w-2/5"),
                     showStructureCols && "min-w-0 pl-4 pr-3"
                   )}
                 >
@@ -1090,7 +1152,7 @@ export function IncomeStatementSummary({
               )}
               {!showStructureCols && view === "comparison" && !isComparisonMode && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getCurrentColumnLabel()}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
                   {columnMode === "variations" ? (
                     <>
@@ -1116,7 +1178,7 @@ export function IncomeStatementSummary({
               )}
               {!showStructureCols && view === "ddm" && !isComparisonMode && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getCurrentColumnLabel()}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
                   {columnMode === "variations" ? (
                     <>
@@ -1289,8 +1351,12 @@ export function IncomeStatementSummary({
                   >
                   <td
                     className={cn(
-                      "min-w-0 py-3 align-middle",
-                      showStructureCols ? "px-3 pl-4" : "px-6",
+                      "py-3 align-middle",
+                      showStructureCols
+                        ? "min-w-0 px-3 pl-4"
+                        : view === "12months"
+                          ? "min-w-[20rem] sm:min-w-[24rem] lg:min-w-[30rem] px-6"
+                          : "min-w-0 px-6",
                       isBoldRow ? "font-bold text-slate-900" : "text-slate-700",
                       row.indent ? "pl-12" : "",
                       row.isMargin ? "italic" : "",

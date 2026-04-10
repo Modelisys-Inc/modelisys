@@ -407,6 +407,33 @@ export function isSummaryAnnexRowLockedInDetailEdit(row: Record<string, unknown>
   return normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
 }
 
+/**
+ * Paramètres Détail : DT/CT obligatoire pour les postes affichés dans la grille,
+ * sauf les titres d’annexe (ligne sommaire avec lettre, verrouillée au Détail).
+ */
+export function isDetailParamsDtCtRequired(row: Record<string, unknown>): boolean {
+  if (isStructureRowEmptyLabel(row)) return false
+  if (isStructureRowHidden(row)) return false
+  if (!isStructureRowInDetailAnnexEditor(row)) return false
+  if (isSummaryAnnexRowLockedInDetailEdit(row)) return false
+  return true
+}
+
+/** Valeur stockée côté structure pour la colonne DT/CT (Paramètres Détail). */
+export function normalizeDtCt(raw: unknown): "DT" | "CT" | undefined {
+  const t = String(raw ?? "").trim().toUpperCase()
+  if (t === "DT" || t === "CT") return t
+  return undefined
+}
+
+/**
+ * Signe d’affichage des montants (Détail / Sommaire) : **CT** → −1, **DT** ou non défini → 1.
+ */
+export function dtCtSignMultiplier(structureRow: Record<string, unknown> | undefined): number {
+  if (!structureRow) return 1
+  return normalizeDtCt(structureRow.dtCt) === "CT" ? -1 : 1
+}
+
 /** Retire les libellés obsolètes (ex. Produits A) — aligné sur le backend. */
 export function stripObsoleteIncomeStatementStructureRows(
   structure: Record<string, unknown>[]
@@ -656,6 +683,51 @@ export function mapLinkCodesToGroupeLinkCodes(
     }
   }
   return map
+}
+
+/**
+ * Pour chaque code de liaison du périmètre Détail (même clés que `mapLinkCodesToDetailLabels`),
+ * **DT** ou **CT** tel que défini sur la ligne de structure (Paramètres Détail).
+ */
+export function mapLinkCodesToDtCt(
+  structure: Record<string, unknown>[]
+): Map<string, "DT" | "CT"> {
+  const map = new Map<string, "DT" | "CT">()
+
+  const addCode = (code: string, row: Record<string, unknown>) => {
+    const t = code.trim()
+    if (!t || map.has(t)) return
+    const dt = normalizeDtCt(row.dtCt)
+    if (dt) map.set(t, dt)
+  }
+
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    if (!isShowInDetail(row)) continue
+
+    const mode = normalizeLiaisonMode(row)
+    if (mode === "single") {
+      addCode(String(row.linkCode ?? ""), row)
+    } else if (mode === "sum") {
+      for (const c of normalizeCodeList(row.liaisonSumCodes)) addCode(c, row)
+    } else if (mode === "difference") {
+      for (const c of normalizeCodeList(row.liaisonNumeratorCodes)) addCode(c, row)
+      for (const c of normalizeCodeList(row.liaisonDenominatorCodes)) addCode(c, row)
+    }
+  }
+  return map
+}
+
+/**
+ * Affichage DT/CT pour le mapping comptable : valeur issue de la structure pour ce code de liaison.
+ */
+export function dtCtDisplayForAccountLinkCode(
+  linkCode: string | undefined,
+  dtCtByLinkCode: Map<string, "DT" | "CT">
+): string {
+  const lc = linkCode?.trim()
+  if (!lc) return "—"
+  return dtCtByLinkCode.get(lc) ?? "—"
 }
 
 /**

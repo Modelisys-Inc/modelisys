@@ -15,6 +15,16 @@ export function getPeriodLabels(periods: SeriesPeriod[]): string[] {
 }
 
 /**
+ * Affiche la date / période de référence en première colonne (à gauche).
+ * L’API renvoie les séries en ordre chronologique (du plus ancien au plus récent) ;
+ * pour l’UI on veut le plus récent à gauche (ex. 2025, 2024, 2023…).
+ */
+export function reverseSeriesOrderForDisplay<T>(items: T[]): T[] {
+  if (items.length <= 1) return items
+  return [...items].reverse()
+}
+
+/**
  * Aggregate monthly data into quarterly data.
  * Groups consecutive sets of 3 periods.
  */

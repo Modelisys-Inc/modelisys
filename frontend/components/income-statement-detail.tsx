@@ -3,11 +3,11 @@
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
-import type { FinancialStatementRow, SeriesRow } from "@/lib/api"
+import type { FinancialStatementRow, SeriesPeriod, SeriesRow } from "@/lib/api"
 import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { generateId } from "@/lib/seeded-random"
-import { ChevronRight, ChevronDown, ListTree, StickyNote, TrendingUp } from "lucide-react"
+import { BarChart3, ListTree, StickyNote, Table2, TrendingUp, X } from "lucide-react"
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react"
 import {
   listForecastConfigs,
@@ -17,13 +17,22 @@ import {
   type FinancialStatementSeriesParams,
 } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
+import { aggregateToYears, getRowAmounts, reverseSeriesOrderForDisplay } from "@/lib/series-utils"
+import {
+  monthShortLabelsFromReference,
+  monthTrendFromReference,
+  quarterLabelsFromReference,
+  quarterTrendFromReference,
+  yearLabelsFromReference,
+  yearTrendFromReference,
+} from "@/lib/series-reference-columns"
 import {
   collectDistinctLinkCodesFromStructure,
   detailLineLabelForDisplay,
   findStructureRowForStatementLine,
   getStructureRowGlobalIndex,
   isCodeMappingEnabled,
+  isOmittedIncomeStatementSummaryRowLabel,
   isShowInDetail,
   isStructureRowDetailOnly,
   isStructureRowInDetailAnnexEditor,
@@ -43,6 +52,14 @@ import {
   dashboardCardStructureSettingsButtonClass,
   dashboardCardTitleClass,
 } from "@/lib/dashboard-card-style"
+import {
+  calendarQuarterFromMonth,
+  formatCalendarMonthYear,
+  formatPriorCalendarMonth,
+  formatQuarterShortLabel,
+  formatSameMonthPriorYear,
+  priorCalendarQuarter,
+} from "@/lib/financial-period-labels"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
@@ -53,6 +70,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { BookMarked, Settings, Plus, Edit2, Trash2, Loader2, Sparkles } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { Sheet, SheetContent } from "@/components/ui/sheet"
 
 interface IncomeStatementDetailProps {
   period: "monthly" | "quarterly" | "annual"
@@ -69,6 +87,8 @@ interface IncomeStatementDetailProps {
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
   fiscalYear?: number
+  /** Mois calendaire (1–12) de la date de référence — pour les en-têtes « Avril 2025 », etc. */
+  referenceMonth?: number
   rows?: FinancialStatementRow[]
   loading?: boolean
   projectionId?: string | null
@@ -84,6 +104,64 @@ interface BalanceAccount {
   priorAmount?: number
   // For trend views, store the proportion of the parent row's amount
   proportion?: number
+  /** Montants par colonne (horizons multi-périodes), alignés sur la ligne parente */
+  trendValues?: number[]
+}
+
+/** Instantané d’une ligne pour le panneau d’analyse (indépendant du scroll / re-render du tableau). */
+interface LineAnalysisSnapshot {
+  rowId: string
+  label: string
+  current: number
+  prior: number
+  balanceAccounts?: BalanceAccount[]
+  trendValues?: number[]
+}
+
+/** Évite d'afficher le # deux fois quand le libellé API est déjà du type « 405001 — Description ». */
+function accountLabelAlreadyIncludesNumber(accountNumber: string, accountName: string): boolean {
+  const n = accountNumber.trim()
+  const name = (accountName || "").trim()
+  if (!n || !name) return false
+  if (name === n) return true
+  if (!name.startsWith(n)) return false
+  const rest = name.slice(n.length)
+  return rest === "" || /^[\s\u2014\u2013\-:]/.test(rest)
+}
+
+/** Comptes GL issus des `detailRows` de série — mêmes agrégations que la ligne parente. */
+function balanceAccountsFromSeriesRowDetail(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  horizon: "12months" | "quarters" | "years",
+  refMonth: number,
+  refYear: number
+): BalanceAccount[] | undefined {
+  if (!row.detailRows?.length) return undefined
+  return row.detailRows.map((dr) => {
+    const pseudo: SeriesRow = {
+      id: dr.id,
+      label: dr.label,
+      isBold: false,
+      isSection: false,
+      isResult: false,
+      amounts: dr.amounts,
+      detailRows: [],
+    }
+    const trendValues =
+      horizon === "12months"
+        ? monthTrendFromReference(pseudo, periods, refMonth, refYear, 12)
+        : horizon === "quarters"
+          ? quarterTrendFromReference(pseudo, periods, refMonth, refYear, 5)
+          : yearTrendFromReference(pseudo, periods, refYear, 6)
+    return {
+      accountNumber: dr.id,
+      accountName: dr.label,
+      amount: trendValues[0] ?? 0,
+      priorAmount: trendValues[1],
+      trendValues,
+    }
+  })
 }
 
 interface DetailRow {
@@ -108,6 +186,17 @@ interface DetailRow {
   // Balance accounts for this row
   balanceAccounts?: BalanceAccount[]
   rowId?: string // Unique ID for expansion
+}
+
+/** Titres d’annexe (ligne sommaire avec lettre) : pas de montants affichés — le sous-total couvre les sous-lignes. */
+function zeroAmountsForAnnexTitleRow<T extends DetailRow>(row: T): T {
+  if (!row.isAnnexTitle) return row
+  return {
+    ...row,
+    current: 0,
+    prior: 0,
+    trendValues: row.trendValues ? row.trendValues.map(() => 0) : undefined,
+  }
 }
 
 /** Lignes du tableau Paramètres : entrées structure, sous-total annexe, ligne indicatif. */
@@ -141,6 +230,7 @@ function sumAnnexGroupRows(rows: DetailRow[]): { current: number; prior: number;
   let prior = 0
   let trendLen = 0
   for (const r of rows) {
+    if (r.isAnnexTitle) continue
     current += r.current ?? 0
     prior += r.prior ?? 0
     if (r.trendValues?.length) {
@@ -152,6 +242,7 @@ function sumAnnexGroupRows(rows: DetailRow[]): { current: number; prior: number;
   }
   const trendValues = Array(trendLen).fill(0)
   for (const r of rows) {
+    if (r.isAnnexTitle) continue
     if (!r.trendValues?.length) continue
     for (let k = 0; k < r.trendValues.length; k++) {
       trendValues[k] = (trendValues[k] ?? 0) + (r.trendValues[k] ?? 0)
@@ -230,6 +321,7 @@ export function IncomeStatementDetail({
   selectedBudgetId = null,
   selectedBudgetName = null,
   fiscalYear,
+  referenceMonth,
   rows: backendRows = [],
   loading = false,
   projectionId,
@@ -239,6 +331,10 @@ export function IncomeStatementDetail({
 }: IncomeStatementDetailProps) {
   useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [lineAnalysis, setLineAnalysis] = useState<LineAnalysisSnapshot | null>(null)
+  const [analysisPanelNarrow, setAnalysisPanelNarrow] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches
+  )
   const [noteModalOpen, setNoteModalOpen] = useState(false)
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null)
   const [selectedRowLabel, setSelectedRowLabel] = useState<string>("")
@@ -251,21 +347,39 @@ export function IncomeStatementDetail({
   const [notesUpdated, setNotesUpdated] = useState(0) // Force re-render when notes change
   const [showGrowthRate, setShowGrowthRate] = useState(false) // Toggle between amounts and growth rate for years view
   
+  const refMonth = referenceMonth ?? new Date().getMonth() + 1
+  const refYear = fiscalYear ?? new Date().getFullYear()
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)")
+    const sync = () => setAnalysisPanelNarrow(mq.matches)
+    sync()
+    mq.addEventListener("change", sync)
+    return () => mq.removeEventListener("change", sync)
+  }, [])
+
   // Helper function to get comparison label
   const getComparisonLabel = (): string => {
     if (view !== "comparison" && view !== "ytd" && view !== "ddm") return "Passé"
     if (comparisonType === "lastMonth") {
       if (view === "ytd") return "YTD dernier"
       if (view === "ddm") return "DDM dernier"
-      if (period === "monthly") return "Mois dernier"
-      if (period === "quarterly") return "Trimestre dernier"
+      if (period === "monthly") return formatPriorCalendarMonth(refMonth, refYear)
+      if (period === "quarterly") {
+        const q = calendarQuarterFromMonth(refMonth)
+        const pq = priorCalendarQuarter(q, refYear)
+        return formatQuarterShortLabel(pq.quarter, pq.year)
+      }
       return "Année dernière"
     }
     if (comparisonType === "pastMonth") {
       if (view === "ytd") return "YTD passé"
       if (view === "ddm") return "DDM passé"
-      if (period === "monthly") return "Mois passé"
-      if (period === "quarterly") return "Trimestre passé"
+      if (period === "monthly") return formatSameMonthPriorYear(refMonth, refYear)
+      if (period === "quarterly") {
+        const q = calendarQuarterFromMonth(refMonth)
+        return formatQuarterShortLabel(q, refYear - 1)
+      }
       return "Année passée"
     }
     if (comparisonType === "budget") {
@@ -281,6 +395,21 @@ export function IncomeStatementDetail({
       return "Année budgetée"
     }
     return "Passé"
+  }
+
+  /** Colonne « Courant » : libellé daté (référence) pour comparaison / DDM. */
+  const getCurrentColumnLabel = (): string => {
+    if ((view === "comparison" || view === "ddm") && period === "monthly") {
+      return formatCalendarMonthYear(refMonth, refYear)
+    }
+    if ((view === "comparison" || view === "ddm") && period === "quarterly") {
+      const q = calendarQuarterFromMonth(refMonth)
+      return formatQuarterShortLabel(q, refYear)
+    }
+    if ((view === "comparison" || view === "ddm") && period === "annual") {
+      return String(refYear)
+    }
+    return "Courant"
   }
   
   // State for Type/Taux modal
@@ -955,6 +1084,10 @@ export function IncomeStatementDetail({
     })
   }
 
+  const openOrToggleLineAnalysis = useCallback((snapshot: LineAnalysisSnapshot) => {
+    setLineAnalysis((prev) => (prev?.rowId === snapshot.rowId ? null : snapshot))
+  }, [])
+
   /** Détail : postes « Annexe » (sommaire) ; sous-lignes detailOnly indentées sous l’annexe. */
   const mapBackendRowsDefinedOnly = (
     apiRows: FinancialStatementRow[],
@@ -972,7 +1105,17 @@ export function IncomeStatementDetail({
     return sorted.map((row) => {
       const sr = findStructureRowForStatementLine(row.id, row.label, structure)!
       const sub = isStructureRowDetailOnly(sr)
-      return {
+      const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+      const balanceAccounts =
+        row.detailRows && row.detailRows.length > 0
+          ? row.detailRows.map((dr) => ({
+              accountNumber: dr.id,
+              accountName: dr.label,
+              amount: dr.current ?? 0,
+              priorAmount: dr.prior,
+            }))
+          : undefined
+      return zeroAmountsForAnnexTitleRow({
         label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
         statementLabel: row.label,
         annexLetter: String(row.annexLetter ?? ""),
@@ -981,10 +1124,11 @@ export function IncomeStatementDetail({
         indent: sub,
         isBold: sub ? false : true,
         isSubtotal: row.isResult,
-        isSection: false,
-        isAnnexTitle: !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== "",
+        isSection: row.isSection ?? false,
+        isAnnexTitle,
+        balanceAccounts,
         rowId: row.id,
-      }
+      })
     })
   }
 
@@ -1005,25 +1149,34 @@ export function IncomeStatementDetail({
     if (!seriesRows.length || !seriesPeriods.length || !incomeStatementStructure) return []
     const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
     return sorted.map((row) => {
-      const amounts = getRowAmounts(row, seriesPeriods)
-      const lastAmount = amounts[amounts.length - 1] || 0
-      const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
+      const trend = monthTrendFromReference(row, seriesPeriods, refMonth, refYear, 12)
+      const lastAmount = trend[0] || 0
+      const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
       const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
       const sub = sr ? isStructureRowDetailOnly(sr) : false
-      return {
+      const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+      const balanceAccounts = balanceAccountsFromSeriesRowDetail(
+        row,
+        seriesPeriods,
+        "12months",
+        refMonth,
+        refYear
+      )
+      return zeroAmountsForAnnexTitleRow({
         label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
         statementLabel: row.label,
         annexLetter: String(row.annexLetter ?? ""),
         current: lastAmount,
         prior: priorAmount,
         isBold: !sub,
-        isSection: false,
+        isSection: row.isSection ?? false,
         isSubtotal: row.isResult,
         indent: sub,
-        isAnnexTitle: !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== "",
-        trendValues: amounts,
+        isAnnexTitle,
+        trendValues: trend,
+        balanceAccounts,
         rowId: row.id,
-      }
+      })
     })
   }
 
@@ -1032,26 +1185,34 @@ export function IncomeStatementDetail({
     if (!seriesRows.length || !seriesPeriods.length || !incomeStatementStructure) return []
     const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
     return sorted.map((row) => {
-      const amounts = getRowAmounts(row, seriesPeriods)
-      const { amounts: qAmounts } = aggregateToQuarters(amounts, seriesPeriods)
-      const lastAmount = qAmounts[qAmounts.length - 1] || 0
-      const priorAmount = qAmounts.length >= 2 ? qAmounts[qAmounts.length - 2] || 0 : 0
+      const trend = quarterTrendFromReference(row, seriesPeriods, refMonth, refYear, 5)
       const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
+      const lastAmount = trend[0] || 0
+      const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
       const sub = sr ? isStructureRowDetailOnly(sr) : false
-      return {
+      const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+      const balanceAccounts = balanceAccountsFromSeriesRowDetail(
+        row,
+        seriesPeriods,
+        "quarters",
+        refMonth,
+        refYear
+      )
+      return zeroAmountsForAnnexTitleRow({
         label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
         statementLabel: row.label,
         annexLetter: String(row.annexLetter ?? ""),
         current: lastAmount,
         prior: priorAmount,
         isBold: !sub,
-        isSection: false,
+        isSection: row.isSection ?? false,
         isSubtotal: row.isResult,
         indent: sub,
-        isAnnexTitle: !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== "",
-        trendValues: qAmounts,
+        isAnnexTitle,
+        trendValues: trend,
+        balanceAccounts,
         rowId: row.id,
-      }
+      })
     })
   }
 
@@ -1060,26 +1221,34 @@ export function IncomeStatementDetail({
     if (!seriesRows.length || !seriesPeriods.length || !incomeStatementStructure) return []
     const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
     return sorted.map((row) => {
-      const amounts = getRowAmounts(row, seriesPeriods)
-      const { amounts: yAmounts } = aggregateToYears(amounts, seriesPeriods)
-      const lastAmount = yAmounts[yAmounts.length - 1] || 0
-      const priorAmount = yAmounts.length >= 2 ? yAmounts[yAmounts.length - 2] || 0 : 0
+      const trend = yearTrendFromReference(row, seriesPeriods, refYear, 6)
       const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
+      const lastAmount = trend[0] || 0
+      const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
       const sub = sr ? isStructureRowDetailOnly(sr) : false
-      return {
+      const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+      const balanceAccounts = balanceAccountsFromSeriesRowDetail(
+        row,
+        seriesPeriods,
+        "years",
+        refMonth,
+        refYear
+      )
+      return zeroAmountsForAnnexTitleRow({
         label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
         statementLabel: row.label,
         annexLetter: String(row.annexLetter ?? ""),
         current: lastAmount,
         prior: priorAmount,
         isBold: !sub,
-        isSection: false,
+        isSection: row.isSection ?? false,
         isSubtotal: row.isResult,
         indent: sub,
-        isAnnexTitle: !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== "",
-        trendValues: yAmounts,
+        isAnnexTitle,
+        trendValues: trend,
+        balanceAccounts,
         rowId: row.id,
-      }
+      })
     })
   }
 
@@ -1357,12 +1526,39 @@ export function IncomeStatementDetail({
 
   // Helper function to capitalize first letter
   let data = getDetailData()
-  
-  // Find revenue value for percentage calculations BEFORE filtering data
-  // (look for "Total Revenus" with isSubtotal)
-  const revenueRow = data.find((row) => row.label.toLowerCase().includes("total revenus") && row.isSubtotal)
-  const revenueCurrent = revenueRow?.current || 1
-  const revenuePrior = revenueRow?.prior || 1
+
+  // Dénominateur « % des revenus » : **même source que le Sommaire** (`backendRows` de l’API), pas les lignes
+  // du Détail (tri / filtres `showInDetail` / ordre structure). Sinon le premier poste du Détail peut être
+  // une autre ligne (ex. autre montant que la ligne « Revenus » du sommaire).
+  const revenueDenominator = (() => {
+    if (!isForecastSection && backendRows.length > 0) {
+      const isRevenusLabel = (r: FinancialStatementRow) =>
+        normLabel(String(r.label ?? "")) === "revenus"
+      const ligneRevenus = backendRows.find((r) => isRevenusLabel(r) && !r.isSection)
+      if (ligneRevenus) {
+        return { current: ligneRevenus.current ?? 0, prior: ligneRevenus.prior ?? 0 }
+      }
+      const anyRevenus = backendRows.find((r) => isRevenusLabel(r))
+      if (anyRevenus) {
+        return { current: anyRevenus.current ?? 0, prior: anyRevenus.prior ?? 0 }
+      }
+      const firstSummary = backendRows.find(
+        (r) => !r.detailOnly && !isOmittedIncomeStatementSummaryRowLabel(r.label)
+      )
+      if (firstSummary) {
+        return { current: firstSummary.current ?? 0, prior: firstSummary.prior ?? 0 }
+      }
+    }
+    const fromMapped =
+      data.find((row) => normLabel(String(row.statementLabel ?? "")) === "revenus") ??
+      data.find((row) => normLabel(row.label) === "revenus")
+    if (fromMapped) {
+      return { current: fromMapped.current ?? 0, prior: fromMapped.prior ?? 0 }
+    }
+    return { current: 1, prior: 1 }
+  })()
+  const revenueCurrent = revenueDenominator.current
+  const revenuePrior = revenueDenominator.prior
   
   // Filter data to show only REVENUS section if title is "Estimation des revenus annuels"
   if (title === "Estimation des revenus annuels") {
@@ -1517,6 +1713,15 @@ export function IncomeStatementDetail({
           )
 
           if (!cancelled && response.rows && incomeStatementStructure) {
+            const seriesHorizon =
+              view === "12months"
+                ? ("12months" as const)
+                : view === "quarters"
+                  ? ("quarters" as const)
+                  : view === "years"
+                    ? ("years" as const)
+                    : null
+            const periods = response.periods ?? []
             const sorted = filterSeriesRowsDefinedOnly(response.rows, incomeStatementStructure)
             const mapped: DetailRow[] = sorted.map((row) => {
               const amounts = Object.entries(row.amounts)
@@ -1526,7 +1731,12 @@ export function IncomeStatementDetail({
               const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
               const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
               const sub = sr ? isStructureRowDetailOnly(sr) : false
-              return {
+              const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+              const balanceAccounts =
+                seriesHorizon && periods.length > 0
+                  ? balanceAccountsFromSeriesRowDetail(row, periods, seriesHorizon, refMonth, refYear)
+                  : undefined
+              return zeroAmountsForAnnexTitleRow({
                 label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
                 statementLabel: row.label,
                 annexLetter: String(row.annexLetter ?? ""),
@@ -1535,10 +1745,11 @@ export function IncomeStatementDetail({
                 indent: sub,
                 isBold: !sub,
                 isSubtotal: row.isResult,
-                isSection: false,
-                isAnnexTitle: !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== "",
+                isSection: row.isSection ?? false,
+                isAnnexTitle,
+                balanceAccounts,
                 rowId: row.id,
-              }
+              })
             })
             if (title === "Détail" && !isForecastSection) {
               const trendLen = mapped.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
@@ -1576,7 +1787,19 @@ export function IncomeStatementDetail({
     incomeStatementStructure,
     filterSeriesRowsDefinedOnly,
     title,
+    view,
+    refMonth,
+    refYear,
   ])
+
+  // Toujours avant tout return : sinon la vue « 12 mois » (data vide transitoire) saute ce hook.
+  const isStructureStudio = structureEditMode && canInlineStructureEdit
+  const showStructureCols =
+    isStructureStudio && !structEdit.loading && detailAnnexEditorGlobalIndices.length > 0
+
+  useEffect(() => {
+    if (showStructureCols && noteModalOpen) setNoteModalOpen(false)
+  }, [showStructureCols, noteModalOpen])
 
   // Show "no data" state when data is empty and not loading
   if (data.length === 0 && !isDataLoading && !isForecastSection) {
@@ -1662,7 +1885,7 @@ export function IncomeStatementDetail({
   // Helper function to generate month labels (12 months)
   const getMonthLabels = (): string[] => {
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      return getPeriodLabels(seriesPeriods)
+      return monthShortLabelsFromReference(refMonth, refYear, 12)
     }
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
     const currentDate = new Date()
@@ -1671,15 +1894,13 @@ export function IncomeStatementDetail({
       const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
       labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
     }
-    return labels
+    return reverseSeriesOrderForDisplay(labels)
   }
 
   // Helper function to generate quarter labels (5 quarters)
   const getQuarterLabels = (): string[] => {
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      const dummyAmounts = seriesPeriods.map(() => 0)
-      const { labels } = aggregateToQuarters(dummyAmounts, seriesPeriods)
-      return labels
+      return quarterLabelsFromReference(refMonth, refYear, 5)
     }
     const currentDate = new Date()
     const labels: string[] = []
@@ -1688,15 +1909,13 @@ export function IncomeStatementDetail({
       const quarter = Math.floor(date.getMonth() / 3) + 1
       labels.push(`T${quarter} ${date.getFullYear()}`)
     }
-    return labels
+    return reverseSeriesOrderForDisplay(labels)
   }
 
   // Helper function to generate year labels (projectionYears + 1 for forecast sections)
   const getYearLabels = (): string[] => {
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      const dummyAmounts = seriesPeriods.map(() => 0)
-      const { labels } = aggregateToYears(dummyAmounts, seriesPeriods)
-      return labels
+      return yearLabelsFromReference(refYear, 6)
     }
     const currentYear = new Date().getFullYear()
     const labels: string[] = []
@@ -1706,20 +1925,22 @@ export function IncomeStatementDetail({
         labels.push(`${currentYear + i}`)
       }
     } else {
-      // Generate 6 past years (unchanged for historical data)
       for (let i = 5; i >= 0; i--) {
         labels.push(`${currentYear - i}`)
       }
     }
-    return labels
+    return isForecastSection ? labels : reverseSeriesOrderForDisplay(labels)
   }
 
   // Helper function to get horizon text
   const getHorizonText = (): string => {
-    if (view === "comparison" && period === "monthly") return "Courant"
-    if (view === "comparison" && period === "quarterly") return "Trimestriel"
-    if (view === "comparison" && period === "annual") return "Annuel"
+    if (view === "comparison" && (period === "monthly" || period === "quarterly" || period === "annual")) {
+      return getCurrentColumnLabel()
+    }
     if (view === "ytd") return "YTD"
+    if (view === "ddm" && (period === "monthly" || period === "quarterly" || period === "annual")) {
+      return getCurrentColumnLabel()
+    }
     if (view === "ddm") return "DDM"
     if (view === "12months") return "12 mois"
     if ((view as string) === "24months") return "24 mois"
@@ -1727,14 +1948,6 @@ export function IncomeStatementDetail({
     if (view === "years") return "Années"
     return "Courant"
   }
-
-  const isStructureStudio = structureEditMode && canInlineStructureEdit
-  const showStructureCols =
-    isStructureStudio && !structEdit.loading && detailAnnexEditorGlobalIndices.length > 0
-
-  useEffect(() => {
-    if (showStructureCols && noteModalOpen) setNoteModalOpen(false)
-  }, [showStructureCols, noteModalOpen])
 
   const trendLenForPad = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
 
@@ -1806,6 +2019,155 @@ export function IncomeStatementDetail({
           <p className={cn("mt-4 text-sm", dashboardCardBodyMutedClass)}>Chargement des données...</p>
         </div>
       </div>
+    )
+  }
+
+  const renderLineAnalysisCard = (opts?: { hideCloseButton?: boolean }) => {
+    if (!lineAnalysis) return null
+    const ctx = lineAnalysis
+    const variation =
+      ctx.current != null && ctx.prior != null ? calculateVariation(ctx.current, ctx.prior) : null
+    const variationAmount = ctx.current - ctx.prior
+    const accountsSorted = [...(ctx.balanceAccounts ?? [])].sort(
+      (a, b) => Math.abs(b.amount) - Math.abs(a.amount)
+    )
+    const lineDenom = Math.abs(ctx.current) > 1e-9 ? Math.abs(ctx.current) : 1
+    const showComparisonAmounts =
+      (view === "comparison" || view === "ytd" || view === "ddm") && !showStructureCols
+
+    return (
+      <>
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200/90 pb-4">
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[#E0742D]">
+              <BarChart3 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Analyse du poste
+            </p>
+            <h3 className="mt-2 text-base font-semibold leading-snug text-[#2A2F3A]">{ctx.label}</h3>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">{getDescriptionText()}</p>
+          </div>
+          {!opts?.hideCloseButton && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+              onClick={() => setLineAnalysis(null)}
+              aria-label="Fermer le panneau d'analyse"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+
+        <div className="space-y-4 py-4">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Synthèse</p>
+            <dl className="mt-2 space-y-2 text-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-slate-600">
+                  {view === "current" ? "Montant" : getHorizonText()}
+                </dt>
+                <dd className="text-right font-semibold tabular-nums text-slate-900">
+                  {ctx.current !== 0 ? formatCurrency(ctx.current) : "—"}
+                </dd>
+              </div>
+              {showComparisonAmounts && (
+                <>
+                  <div className="flex justify-between gap-4">
+                    <dt className="text-slate-600">{getComparisonLabel()}</dt>
+                    <dd className="text-right font-medium tabular-nums text-slate-700">
+                      {ctx.prior !== 0 ? formatCurrency(ctx.prior) : "—"}
+                    </dd>
+                  </div>
+                  {columnMode === "variations" && (
+                    <>
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-slate-600">Variation %</dt>
+                        <dd
+                          className={cn(
+                            "text-right font-semibold tabular-nums",
+                            variation != null && variation >= 0 ? "text-emerald-600" : "text-red-600"
+                          )}
+                        >
+                          {variation != null && ctx.current !== 0
+                            ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
+                            : "—"}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-4">
+                        <dt className="text-slate-600">Variation $</dt>
+                        <dd
+                          className={cn(
+                            "text-right font-semibold tabular-nums",
+                            variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
+                          )}
+                        >
+                          {ctx.current !== 0 && ctx.prior !== 0
+                            ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
+                            : "—"}
+                        </dd>
+                      </div>
+                    </>
+                  )}
+                  {columnMode === "percentage" && (
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-slate-600">% des revenus (période courante)</dt>
+                      <dd className="text-right font-medium tabular-nums text-slate-800">
+                        {ctx.current !== 0 ? `${getRevenuePercentage(ctx.current, false).toFixed(1)}%` : "—"}
+                      </dd>
+                    </div>
+                  )}
+                </>
+              )}
+            </dl>
+          </div>
+
+          {accountsSorted.length > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                Ventilation du grand livre ({accountsSorted.length} compte{accountsSorted.length > 1 ? "s" : ""})
+              </p>
+              <ul className="mt-2 max-h-[min(22rem,45vh)] space-y-2 overflow-y-auto pr-1 lg:max-h-[min(28rem,55vh)]">
+                {accountsSorted.slice(0, 12).map((acc, i) => {
+                  const line =
+                    accountLabelAlreadyIncludesNumber(acc.accountNumber, acc.accountName)
+                      ? acc.accountName.trim()
+                      : `${acc.accountNumber} — ${acc.accountName}`
+                  const pct = (Math.abs(acc.amount) / lineDenom) * 100
+                  return (
+                    <li
+                      key={`${acc.accountNumber}-${i}`}
+                      className="rounded-lg border border-slate-200/90 bg-white/90 px-3 py-2 text-xs shadow-sm"
+                    >
+                      <div className="flex justify-between gap-2">
+                        <span className="min-w-0 flex-1 leading-snug text-slate-700">{line}</span>
+                        <span className="shrink-0 font-semibold tabular-nums text-slate-900">
+                          {acc.amount !== 0 ? formatCurrency(acc.amount) : "—"}
+                        </span>
+                      </div>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-[#E0742D]/80"
+                          style={{ width: `${Math.min(100, pct)}%` }}
+                        />
+                      </div>
+                      <p className="mt-1 text-[10px] text-slate-400 tabular-nums">
+                        {pct.toFixed(0)} % du montant du poste (valeur absolue)
+                      </p>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+
+          <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-xs leading-relaxed text-slate-500">
+            Astuce : cliquez sur le <span className="font-medium text-slate-600">libellé</span> de la ligne pour
+            afficher ou masquer le détail des comptes dans le tableau.
+          </p>
+        </div>
+      </>
     )
   }
 
@@ -2037,17 +2399,19 @@ export function IncomeStatementDetail({
       </Dialog>
 
 
-      {/* Table */}
-      <div
-        className={cn(
-          "overflow-x-auto",
-          isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
-        )}
-      >
+      {/* Table + panneau d'analyse (icône tableau) */}
+      <div className="flex flex-col border-t border-slate-200/80 lg:flex-row lg:items-stretch">
+        <div
+          className={cn(
+            "min-w-0 flex-1 overflow-x-auto",
+            isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
+          )}
+        >
         <table className={cn("w-full", showStructureCols && "table-fixed")}>
           {showStructureCols && (
             <colgroup>
               <col />
+              <col style={{ width: "7rem" }} />
               <col style={{ width: "7rem" }} />
               <col style={{ width: "7rem" }} />
               <col style={{ width: "7rem" }} />
@@ -2066,7 +2430,10 @@ export function IncomeStatementDetail({
               <th
                 className={cn(
                   "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
-                  !showStructureCols && "w-2/5",
+                  !showStructureCols &&
+                    (view === "12months"
+                      ? "min-w-[20rem] sm:min-w-[24rem] lg:min-w-[30rem]"
+                      : "w-2/5"),
                   showStructureCols && "min-w-0 pl-4 pr-3"
                 )}
               >
@@ -2090,6 +2457,9 @@ export function IncomeStatementDetail({
                     Liaison
                   </th>
                   <th className="box-border w-[7rem] px-2 py-4 text-center text-[11px] font-semibold text-slate-800">
+                    DT/CT
+                  </th>
+                  <th className="box-border w-[7rem] px-2 py-4 text-center text-[11px] font-semibold text-slate-800">
                     Lettre
                   </th>
                   <th className="w-11 px-0 py-4" aria-hidden />
@@ -2100,7 +2470,7 @@ export function IncomeStatementDetail({
               )}
               {!showStructureCols && view === "comparison" && !isComparisonMode && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getCurrentColumnLabel()}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
                   {columnMode === "variations" ? (
                     <>
@@ -2126,7 +2496,7 @@ export function IncomeStatementDetail({
               )}
               {!showStructureCols && view === "ddm" && !isComparisonMode && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getCurrentColumnLabel()}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
                   {columnMode === "variations" ? (
                     <>
@@ -2283,7 +2653,8 @@ export function IncomeStatementDetail({
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const isSpacer = row.label === "" && !row.isAnnexPlaceholder
-              const shouldHideAmounts = isSpacer || !!row.isSection || !!row.isAnnexPlaceholder
+              const shouldHideAmounts =
+                isSpacer || !!row.isSection || !!row.isAnnexPlaceholder || !!row.isAnnexTitle
               /** Hors Paramètres : libellé sous-total masqué (blanc) mais chiffres en noir. */
               const annexSubtotalDarkNumbers = row.isAnnexSubtotal && !showStructureCols
               const displayLabel = row.label
@@ -2312,6 +2683,14 @@ export function IncomeStatementDetail({
               // Check if this row can be expanded and if it's expanded
               // If projectionMode is "account", disable expansion for forecast sections (revenus, dépenses, capex, états des résultats pro forma)
               const isForecastSectionForExpansion = title === "Estimation des revenus annuels" || title === "Estimation des dépenses annuelles" || title === "Estimation des Capex annuels" || title === "États des résultats pro forma"
+              // Pas d’icône / expansion sur titres de section, titres d’annexe, en-têtes annexe, etc.
+              const isGlBreakdownExcludedRow =
+                isSpacer ||
+                !!row.isAnnexPlaceholder ||
+                !!row.isAnnexSubtotal ||
+                !!row.isAnnexTitle ||
+                !!row.isSection ||
+                !!row.isAnnexHeader
               // Force canExpand to false if in "account" mode for forecast sections - this is the primary check
               const canExpand =
                 showStructureCols
@@ -2321,7 +2700,8 @@ export function IncomeStatementDetail({
                     : !!row.rowId &&
                       !!row.balanceAccounts &&
                       Array.isArray(row.balanceAccounts) &&
-                      row.balanceAccounts.length > 0
+                      row.balanceAccounts.length > 0 &&
+                      !isGlBreakdownExcludedRow
               const isExpanded = row.rowId ? expandedRows.has(row.rowId) : false
               
               // Check if this row has a note
@@ -2363,19 +2743,21 @@ export function IncomeStatementDetail({
                             annexSubtotalDarkNumbers && "bg-white",
                             nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
                             row.isAnnexHeader && "bg-amber-50/90",
-                            canExpand && "cursor-pointer",
                             !isSpacer &&
                               (row.isAnnexHeader
                                 ? "hover:bg-amber-100/85"
                                 : "hover:bg-slate-50/90")
                           )
                     )}
-                    onClick={() => canExpand && toggleRow(row.rowId!)}
                   >
                     <td
                       className={cn(
                         "px-6 py-3",
-                        showStructureCols ? "py-3.5 pl-4 pr-3" : "",
+                        showStructureCols
+                          ? "py-3.5 pl-4 pr-3"
+                          : view === "12months"
+                            ? "min-w-[20rem] sm:min-w-[24rem] lg:min-w-[30rem]"
+                            : "",
                         row.isAnnexPlaceholder && !showStructureCols && "py-2",
                         annexSubtotalDarkNumbers
                           ? "font-bold"
@@ -2385,17 +2767,8 @@ export function IncomeStatementDetail({
                         row.indent ? "pl-12" : ""
                       )}
                     >
-                      <div className="flex items-center gap-2">
-                        {canExpand && (
-                          <span className="flex-shrink-0">
-                            {isExpanded ? (
-                              <ChevronDown className="w-4 h-4 text-slate-500" />
-                            ) : (
-                              <ChevronRight className="w-4 h-4 text-slate-500" />
-                            )}
-                          </span>
-                        )}
-                        {!canExpand && row.indent && <span className="w-4"></span>}
+                      <div className="flex min-w-0 w-full items-center gap-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
                         {row.isAnnexPlaceholder ? (
                           showStructureCols ? (
                             <span className={EMPTY_STRUCTURE_LINE_BADGE_CLASS}>{row.label}</span>
@@ -2434,10 +2807,67 @@ export function IncomeStatementDetail({
                             />
                           )
                         ) : (
-                          <span className="flex-1">{displayLabel}</span>
+                          <span
+                            className={cn(
+                              "flex-1",
+                              canExpand &&
+                                row.rowId &&
+                                "cursor-pointer rounded-sm outline-offset-2 hover:bg-slate-100/90"
+                            )}
+                            onClick={canExpand && row.rowId ? () => toggleRow(row.rowId!) : undefined}
+                            onKeyDown={
+                              canExpand && row.rowId
+                                ? (e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault()
+                                      toggleRow(row.rowId!)
+                                    }
+                                  }
+                                : undefined
+                            }
+                            role={canExpand && row.rowId ? "button" : undefined}
+                            tabIndex={canExpand && row.rowId ? 0 : undefined}
+                            aria-expanded={canExpand && row.rowId ? isExpanded : undefined}
+                          >
+                            {displayLabel}
+                          </span>
                         )}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-0.5">
+                        {/* Même largeur que le bouton pour aligner les libellés sur toutes les lignes */}
+                        <div className="flex h-8 w-9 shrink-0 items-center justify-center">
+                          {canExpand ? (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openOrToggleLineAnalysis({
+                                  rowId: row.rowId!,
+                                  label: displayLabel,
+                                  current: row.current,
+                                  prior: row.prior,
+                                  balanceAccounts: row.balanceAccounts,
+                                  trendValues: row.trendValues,
+                                })
+                              }}
+                              className={cn(
+                                "rounded-md p-1.5 text-[#E0742D] transition-colors ring-1 ring-[#E0742D]/25 hover:bg-orange-50 hover:ring-[#E0742D]/50",
+                                lineAnalysis?.rowId === row.rowId && "bg-[#E0742D]/10 ring-[#E0742D]/45"
+                              )}
+                              aria-pressed={lineAnalysis?.rowId === row.rowId}
+                              title={
+                                lineAnalysis?.rowId === row.rowId
+                                  ? "Fermer l'analyse du poste"
+                                  : "Analyser ce poste (synthèse et ventilation à droite)"
+                              }
+                            >
+                              <Table2 className="h-4 w-4 shrink-0" aria-hidden />
+                            </button>
+                          ) : null}
+                        </div>
                         {row.rowId && isNoteAllowed() && !showStructureCols && (
                           <button
+                            type="button"
                             onClick={(e) => {
                               e.stopPropagation()
                               setSelectedRowId(row.rowId!)
@@ -2462,6 +2892,7 @@ export function IncomeStatementDetail({
                             <StickyNote className={cn("w-4 h-4", hasNote && "fill-current")} />
                           </button>
                         )}
+                        </div>
                       </div>
                     </td>
 
@@ -2476,12 +2907,18 @@ export function IncomeStatementDetail({
                       <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
                         <span className="text-sm text-slate-300">—</span>
                       </td>
+                      <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
+                        <span className="text-sm text-slate-300">—</span>
+                      </td>
                       <td className="box-border w-11 px-0 py-2.5 align-middle" />
                     </>
                   )}
                   {showStructureCols && row.isAnnexSubtotal && (
                     <>
                       <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+                        <span className="text-sm text-slate-300">—</span>
+                      </td>
+                      <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
                         <span className="text-sm text-slate-300">—</span>
                       </td>
                       <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
@@ -2974,10 +3411,14 @@ export function IncomeStatementDetail({
                             className="border-b border-slate-200 bg-slate-50 transition-colors duration-150 hover:bg-slate-100/80"
                           >
                             <td className="px-6 py-2 text-slate-600 pl-20">
-                              <div className="flex items-center gap-3">
-                                <span className="text-xs font-semibold text-slate-500">{account.accountNumber}</span>
-                                <span className="text-sm">{account.accountName}</span>
-                              </div>
+                              {accountLabelAlreadyIncludesNumber(account.accountNumber, account.accountName) ? (
+                                <span className="text-sm">{account.accountName.trim() || account.accountNumber}</span>
+                              ) : (
+                                <div className="flex items-center gap-3">
+                                  <span className="text-xs font-semibold text-slate-500">{account.accountNumber}</span>
+                                  <span className="text-sm">{account.accountName}</span>
+                                </div>
+                              )}
                             </td>
                             
                             {view === "comparison" && !isComparisonMode && (
@@ -3104,11 +3545,14 @@ export function IncomeStatementDetail({
                             {view === "12months" && row.trendValues && (
                               <>
                                 {row.trendValues.map((rowTrendValue, valueIdx) => {
-                                  // Calculate account amount based on proportion
-                                  const accountTrendValue = account.proportion !== undefined
-                                    ? Math.round(rowTrendValue * account.proportion)
-                                    : rowTrendValue
-                                  
+                                  const accountTrendValue =
+                                    account.trendValues != null &&
+                                    account.trendValues[valueIdx] !== undefined
+                                      ? account.trendValues[valueIdx]!
+                                      : account.proportion !== undefined
+                                        ? Math.round(rowTrendValue * account.proportion)
+                                        : rowTrendValue
+
                                   return (
                                     <td key={valueIdx} className="px-4 py-2 text-right font-semibold text-sm text-slate-700">
                                       {accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-"}
@@ -3121,11 +3565,14 @@ export function IncomeStatementDetail({
                             {view === "quarters" && row.trendValues && (
                               <>
                                 {row.trendValues.map((rowTrendValue, valueIdx) => {
-                                  // Calculate account amount based on proportion
-                                  const accountTrendValue = account.proportion !== undefined
-                                    ? Math.round(rowTrendValue * account.proportion)
-                                    : rowTrendValue
-                                  
+                                  const accountTrendValue =
+                                    account.trendValues != null &&
+                                    account.trendValues[valueIdx] !== undefined
+                                      ? account.trendValues[valueIdx]!
+                                      : account.proportion !== undefined
+                                        ? Math.round(rowTrendValue * account.proportion)
+                                        : rowTrendValue
+
                                   return (
                                     <td key={valueIdx} className="px-4 py-2 text-right font-semibold text-sm text-slate-700">
                                       {accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-"}
@@ -3178,10 +3625,13 @@ export function IncomeStatementDetail({
                                     ? getRevenueValue(row.rowId, valueIdx, rowTrendValue)
                                     : rowTrendValue
                                   
-                                  // Calculate account amount based on proportion
-                                  const accountTrendValue = account.proportion !== undefined
-                                    ? Math.round(actualRowValue * account.proportion)
-                                    : actualRowValue
+                                  const accountTrendValue =
+                                    account.trendValues != null &&
+                                    account.trendValues[valueIdx] !== undefined
+                                      ? account.trendValues[valueIdx]!
+                                      : account.proportion !== undefined
+                                        ? Math.round(actualRowValue * account.proportion)
+                                        : actualRowValue
                                   
                                   // Get previous value for growth calculation
                                   const previousRowValue = valueIdx > 0 && row.trendValues
@@ -3194,9 +3644,14 @@ export function IncomeStatementDetail({
                                   let displayValue: string | number = accountTrendValue
                                   let growthRate: number | null = null
                                   if (showGrowthRate && isForecastSection && valueIdx > 0 && previousRowValue !== null) {
-                                    const previousAccountValue = account.proportion !== undefined
-                                      ? Math.round(previousRowValue * account.proportion)
-                                      : previousRowValue
+                                    const previousAccountValue =
+                                      account.trendValues != null &&
+                                      valueIdx > 0 &&
+                                      account.trendValues[valueIdx - 1] !== undefined
+                                        ? account.trendValues[valueIdx - 1]!
+                                        : account.proportion !== undefined
+                                          ? Math.round(previousRowValue * account.proportion)
+                                          : previousRowValue
                                     if (previousAccountValue !== 0) {
                                       growthRate = calculateVariation(accountTrendValue, previousAccountValue)
                                       displayValue = growthRate !== null ? `${growthRate >= 0 ? "+" : ""}${growthRate.toFixed(1)}%` : "-"
@@ -3245,7 +3700,23 @@ export function IncomeStatementDetail({
             })}
           </tbody>
         </table>
+        </div>
+
+        {lineAnalysis && !analysisPanelNarrow && (
+          <aside
+            className="w-full shrink-0 border-t border-slate-200 bg-gradient-to-b from-slate-50/95 to-white px-5 py-5 lg:w-[min(22rem,100%)] lg:max-w-md lg:border-l lg:border-t-0 lg:shadow-[inset_1px_0_0_0_rgba(226,232,240,0.85)]"
+            aria-label="Analyse du poste"
+          >
+            {renderLineAnalysisCard()}
+          </aside>
+        )}
       </div>
+
+      <Sheet open={lineAnalysis != null && analysisPanelNarrow} onOpenChange={(open) => !open && setLineAnalysis(null)}>
+        <SheetContent side="right" className="flex w-full max-w-md flex-col gap-0 overflow-y-auto border-slate-200 p-6 sm:max-w-lg">
+          {renderLineAnalysisCard({ hideCloseButton: true })}
+        </SheetContent>
+      </Sheet>
 
       {/* Footer note */}
       <div className="border-t border-slate-200 bg-slate-50/80 px-8 py-4">

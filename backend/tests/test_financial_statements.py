@@ -190,6 +190,63 @@ def test_income_statement_group_row_aggregates_mapping_by_groupe(client, auth_he
     assert rev_row["current"] == 400.0
 
 
+def test_income_statement_groupe_row_applies_dt_ct_per_mapped_account(client, auth_headers):
+    """Sommaire groupe (ex. 20) : somme des montants balance par compte, CT -> ×(-1), DT inchangé."""
+    company_id = _create_company(client, auth_headers)
+
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "A", "link_code": "20.1"},
+        {"account_number": "4001", "description": "B", "link_code": "20.2"},
+    ])
+
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "4000",
+            "description": "A",
+            "monthly_amounts": {"Janvier": 100.0, "Février": 0.0, "Mars": 0.0},
+        },
+        {
+            "account_number": "4001",
+            "description": "B",
+            "monthly_amounts": {"Janvier": 300.0, "Février": 0.0, "Mars": 0.0},
+        },
+    ], fiscal_year=2024)
+
+    _upsert_structure(client, auth_headers, company_id, "income-statement", [
+        {"label": "revenus", "isBold": True, "isSection": True, "linkCode": "20", "defineMapping": True},
+        {
+            "label": "L20.1",
+            "detailOnly": True,
+            "linkCode": "20.1",
+            "defineMapping": True,
+            "showInDetail": True,
+            "dtCt": "CT",
+            "annexLetter": "A",
+        },
+        {
+            "label": "L20.2",
+            "detailOnly": True,
+            "linkCode": "20.2",
+            "defineMapping": True,
+            "showInDetail": True,
+            "dtCt": "DT",
+            "annexLetter": "A",
+        },
+    ])
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement"
+        "?fiscal_year=2024&month=1&period=monthly",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    rev_row = data["rows"][0]
+    assert rev_row["label"] == "revenus"
+    # -100 (CT) + 300 (DT) = 200
+    assert rev_row["current"] == 200.0
+
+
 def test_income_statement_quarterly(client, auth_headers):
     """Quarterly should sum 3 months."""
     company_id = _setup_income_statement_data(client, auth_headers)

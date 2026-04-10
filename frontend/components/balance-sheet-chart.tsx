@@ -8,7 +8,14 @@ import { ComposedChart, Line, Bar, Area, XAxis, YAxis, CartesianGrid, ReferenceL
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ChevronDown, TrendingUp, TrendingDown } from "lucide-react"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears, findRow } from "@/lib/series-utils"
+import {
+  aggregateToQuarters,
+  aggregateToYears,
+  findRow,
+  getPeriodLabels,
+  getRowAmounts,
+  reverseSeriesOrderForDisplay,
+} from "@/lib/series-utils"
 
 export interface BalanceSheetChartDataPoint {
   period: string
@@ -97,17 +104,19 @@ export function BalanceSheetChart({
       const tl = aggregateToQuarters(totalLiabilitiesAmounts, periods).amounts
       const eq = aggregateToQuarters(equityAmounts, periods).amounts
 
-      return labels.map((label, i) => ({
-        period: label,
-        currentAssets: ca[i],
-        nonCurrentAssets: nca[i],
-        totalAssets: ta[i],
-        currentLiabilities: cl[i],
-        nonCurrentLiabilities: ncl[i],
-        totalLiabilities: tl[i],
-        equity: eq[i],
-        debtToEquityRatio: eq[i] !== 0 ? (tl[i] / eq[i]) * 100 : 0,
-      }))
+      return reverseSeriesOrderForDisplay(
+        labels.map((label, i) => ({
+          period: label,
+          currentAssets: ca[i],
+          nonCurrentAssets: nca[i],
+          totalAssets: ta[i],
+          currentLiabilities: cl[i],
+          nonCurrentLiabilities: ncl[i],
+          totalLiabilities: tl[i],
+          equity: eq[i],
+          debtToEquityRatio: eq[i] !== 0 ? (tl[i] / eq[i]) * 100 : 0,
+        }))
+      )
     }
 
     if (view === "years") {
@@ -120,32 +129,36 @@ export function BalanceSheetChart({
       const tl = aggregateToYears(totalLiabilitiesAmounts, periods).amounts
       const eq = aggregateToYears(equityAmounts, periods).amounts
 
-      return labels.map((label, i) => ({
-        period: label,
-        currentAssets: ca[i],
-        nonCurrentAssets: nca[i],
-        totalAssets: ta[i],
-        currentLiabilities: cl[i],
-        nonCurrentLiabilities: ncl[i],
-        totalLiabilities: tl[i],
-        equity: eq[i],
-        debtToEquityRatio: eq[i] !== 0 ? (tl[i] / eq[i]) * 100 : 0,
-      }))
+      return reverseSeriesOrderForDisplay(
+        labels.map((label, i) => ({
+          period: label,
+          currentAssets: ca[i],
+          nonCurrentAssets: nca[i],
+          totalAssets: ta[i],
+          currentLiabilities: cl[i],
+          nonCurrentLiabilities: ncl[i],
+          totalLiabilities: tl[i],
+          equity: eq[i],
+          debtToEquityRatio: eq[i] !== 0 ? (tl[i] / eq[i]) * 100 : 0,
+        }))
+      )
     }
 
     // 12months - monthly
     const labels = getPeriodLabels(periods)
-    return labels.map((label, i) => ({
-      period: label,
-      currentAssets: currentAssetsAmounts[i],
-      nonCurrentAssets: nonCurrentAssetsAmounts[i],
-      totalAssets: totalAssetsAmounts[i],
-      currentLiabilities: currentLiabilitiesAmounts[i],
-      nonCurrentLiabilities: nonCurrentLiabilitiesAmounts[i],
-      totalLiabilities: totalLiabilitiesAmounts[i],
-      equity: equityAmounts[i],
-      debtToEquityRatio: equityAmounts[i] !== 0 ? (totalLiabilitiesAmounts[i] / equityAmounts[i]) * 100 : 0,
-    }))
+    return reverseSeriesOrderForDisplay(
+      labels.map((label, i) => ({
+        period: label,
+        currentAssets: currentAssetsAmounts[i],
+        nonCurrentAssets: nonCurrentAssetsAmounts[i],
+        totalAssets: totalAssetsAmounts[i],
+        currentLiabilities: currentLiabilitiesAmounts[i],
+        nonCurrentLiabilities: nonCurrentLiabilitiesAmounts[i],
+        totalLiabilities: totalLiabilitiesAmounts[i],
+        equity: equityAmounts[i],
+        debtToEquityRatio: equityAmounts[i] !== 0 ? (totalLiabilitiesAmounts[i] / equityAmounts[i]) * 100 : 0,
+      }))
+    )
   }, [seriesRows, periods, view])
 
   // Use series chart data when no chartData prop provided

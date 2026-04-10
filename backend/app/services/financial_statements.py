@@ -295,6 +295,7 @@ def _sum_for_link_code_single_month(
     supplier_filter: str | None = None,
     groupe_index: dict[str, list[str]] | None = None,
     statement_type: str = "balance-sheet",
+    dt_ct_by_link_code: dict[str, str] | None = None,
 ) -> float:
     """Sum trial balance amounts for all accounts matching a link_code for a single fiscal month."""
     if not link_code:
@@ -326,7 +327,11 @@ def _sum_for_link_code_single_month(
                     continue
 
         monthly = amount_index.get(acct_num, {})
-        total += monthly.get(fiscal_month, Decimal("0"))
+        raw = monthly.get(fiscal_month, Decimal("0"))
+        mult = _dt_ct_multiplier_for_account(
+            acct_num, mappings_by_account, dt_ct_by_link_code, statement_type
+        )
+        total += raw * mult
     return float(total)
 
 
@@ -342,6 +347,7 @@ def _sum_for_link_codes_single_month_aggregate(
     supplier_filter: str | None = None,
     groupe_index: dict[str, list[str]] | None = None,
     statement_type: str = "balance-sheet",
+    dt_ct_by_link_code: dict[str, str] | None = None,
 ) -> float:
     total = 0.0
     for c in codes:
@@ -357,6 +363,7 @@ def _sum_for_link_codes_single_month_aggregate(
             supplier_filter,
             groupe_index,
             statement_type,
+            dt_ct_by_link_code,
         )
     return total
 
@@ -540,6 +547,62 @@ def _map_link_codes_to_groupe_link_codes(structure_flat: list[dict]) -> dict[str
     return result
 
 
+def _normalize_dt_ct(raw) -> str | None:
+    t = str(raw or "").strip().upper()
+    if t in ("DT", "CT"):
+        return t
+    return None
+
+
+def _map_link_codes_to_dt_ct(structure_flat: list[dict]) -> dict[str, str]:
+    """Même périmètre que le frontend `mapLinkCodesToDtCt` : code de liaison -> DT | CT."""
+    result: dict[str, str] = {}
+
+    def add_code(code: str, row: dict) -> None:
+        t = str(code).strip()
+        if not t or t in result:
+            return
+        dt = _normalize_dt_ct(row.get("dtCt"))
+        if dt:
+            result[t] = dt
+
+    for row in structure_flat:
+        if _is_structure_row_empty_label(row):
+            continue
+        if not _is_show_in_detail(row):
+            continue
+        mode = _normalize_liaison_mode(row)
+        if mode == "single":
+            add_code(str(row.get("linkCode") or ""), row)
+        elif mode == "sum":
+            for c in _normalize_code_list(row.get("liaisonSumCodes")):
+                add_code(c, row)
+        elif mode == "difference":
+            for c in _normalize_code_list(row.get("liaisonNumeratorCodes")):
+                add_code(c, row)
+            for c in _normalize_code_list(row.get("liaisonDenominatorCodes")):
+                add_code(c, row)
+    return result
+
+
+def _dt_ct_multiplier_for_account(
+    account_number: str,
+    mappings_by_account: dict[str, AccountMapping] | None,
+    dt_ct_by_link_code: dict[str, str] | None,
+    statement_type: str,
+) -> Decimal:
+    """CR : CT -> -1 sur le montant de balance, sinon 1 (DT ou non défini)."""
+    if statement_type != "income-statement" or not dt_ct_by_link_code or not mappings_by_account:
+        return Decimal("1")
+    m = mappings_by_account.get(account_number)
+    if not m or not m.link_code:
+        return Decimal("1")
+    lc = str(m.link_code).strip()
+    if dt_ct_by_link_code.get(lc) == "CT":
+        return Decimal("-1")
+    return Decimal("1")
+
+
 def _build_groupe_index(
     mappings: list[AccountMapping], structure_flat: list[dict],
 ) -> dict[str, list[str]]:
@@ -595,6 +658,7 @@ def _sum_for_link_code(
     supplier_filter: str | None = None,
     groupe_index: dict[str, list[str]] | None = None,
     statement_type: str = "balance-sheet",
+    dt_ct_by_link_code: dict[str, str] | None = None,
 ) -> float:
     """Sum trial balance amounts for all accounts matching a link_code across given fiscal months."""
     if not link_code:
@@ -627,8 +691,11 @@ def _sum_for_link_code(
                     continue
 
         monthly = amount_index.get(acct_num, {})
+        mult = _dt_ct_multiplier_for_account(
+            acct_num, mappings_by_account, dt_ct_by_link_code, statement_type
+        )
         for fm in fiscal_months:
-            total += monthly.get(fm, Decimal("0"))
+            total += monthly.get(fm, Decimal("0")) * mult
     return float(total)
 
 
@@ -667,6 +734,7 @@ def _sum_for_link_codes_aggregate(
     supplier_filter: str | None = None,
     groupe_index: dict[str, list[str]] | None = None,
     statement_type: str = "balance-sheet",
+    dt_ct_by_link_code: dict[str, str] | None = None,
 ) -> float:
     total = 0.0
     for c in codes:
@@ -682,6 +750,7 @@ def _sum_for_link_codes_aggregate(
             supplier_filter,
             groupe_index,
             statement_type,
+            dt_ct_by_link_code,
         )
     return total
 
@@ -708,6 +777,162 @@ def _compute_variation(current: float, prior: float) -> float:
     if prior == 0:
         return 0.0
     return round(((current - prior) / abs(prior)) * 100, 2)
+
+
+def _gl_account_single_month_income_statement(
+    acct_num: str,
+    amount_index: dict[str, dict[int, Decimal]],
+    fiscal_month: int,
+    division_filter: str | None,
+    sub_division_filter: str | None,
+    mappings_by_account: dict[str, AccountMapping] | None,
+    customer_filter: str | None,
+    supplier_filter: str | None,
+    dt_ct_by_link_code: dict[str, str] | None,
+) -> float:
+    """Montant d’un seul compte GL pour un mois fiscal (état des résultats). Aligné sur _sum_for_link_code_single_month."""
+    if (division_filter or sub_division_filter or customer_filter or supplier_filter) and mappings_by_account:
+        mapping = mappings_by_account.get(acct_num)
+        if mapping:
+            if division_filter and mapping.divisions:
+                if division_filter not in mapping.divisions:
+                    return 0.0
+            if sub_division_filter and mapping.sub_divisions:
+                if sub_division_filter not in mapping.sub_divisions:
+                    return 0.0
+            if customer_filter and mapping.customer:
+                if customer_filter not in mapping.customer.split(","):
+                    return 0.0
+            elif customer_filter and not mapping.customer:
+                return 0.0
+            if supplier_filter and mapping.supplier:
+                if supplier_filter not in mapping.supplier.split(","):
+                    return 0.0
+            elif supplier_filter and not mapping.supplier:
+                return 0.0
+
+    monthly = amount_index.get(acct_num, {})
+    mult = _dt_ct_multiplier_for_account(
+        acct_num, mappings_by_account, dt_ct_by_link_code, "income-statement"
+    )
+    raw = monthly.get(fiscal_month, Decimal("0"))
+    return float(raw * mult)
+
+
+def _gl_account_sum_months_income_statement(
+    acct_num: str,
+    amount_index: dict[str, dict[int, Decimal]],
+    fiscal_months: list[int],
+    division_filter: str | None,
+    sub_division_filter: str | None,
+    mappings_by_account: dict[str, AccountMapping] | None,
+    customer_filter: str | None,
+    supplier_filter: str | None,
+    dt_ct_by_link_code: dict[str, str] | None,
+) -> float:
+    total = 0.0
+    for fm in fiscal_months:
+        total += _gl_account_single_month_income_statement(
+            acct_num, amount_index, fm,
+            division_filter, sub_division_filter, mappings_by_account,
+            customer_filter, supplier_filter, dt_ct_by_link_code,
+        )
+    return total
+
+
+def _income_statement_gl_detail_rows_for_flat_link(
+    link_code: str,
+    mapping_index: dict[str, list[str]],
+    current_amount_index: dict[str, dict[int, Decimal]],
+    prior_amount_index: dict[str, dict[int, Decimal]],
+    current_months: list[int],
+    prior_months: list[int],
+    division_filter: str | None,
+    sub_division_filter: str | None,
+    mappings_by_account: dict[str, AccountMapping] | None,
+    customer_filter: str | None,
+    supplier_filter: str | None,
+    groupe_index: dict[str, list[str]] | None,
+    dt_ct_by_link_code: dict[str, str] | None,
+) -> list[dict]:
+    """Ventilation par compte GL pour une ligne feuille (liaison simple, sans children dans la structure)."""
+    accounts = _account_numbers_for_single_link_sum(
+        str(link_code).strip(), mapping_index, groupe_index, "income-statement",
+    )
+    rows: list[dict] = []
+    for acct_num in accounts:
+        cur = _gl_account_sum_months_income_statement(
+            acct_num, current_amount_index, current_months,
+            division_filter, sub_division_filter, mappings_by_account,
+            customer_filter, supplier_filter, dt_ct_by_link_code,
+        )
+        pri = _gl_account_sum_months_income_statement(
+            acct_num, prior_amount_index, prior_months,
+            division_filter, sub_division_filter, mappings_by_account,
+            customer_filter, supplier_filter, dt_ct_by_link_code,
+        )
+        if cur == 0 and pri == 0:
+            continue
+        var = _compute_variation(cur, pri)
+        label = acct_num
+        if mappings_by_account and acct_num in mappings_by_account:
+            d = (mappings_by_account[acct_num].description or "").strip()
+            if d:
+                label = f"{acct_num} — {d}"
+        rows.append({
+            "id": acct_num,
+            "label": label,
+            "current": round(cur, 2),
+            "prior": round(pri, 2),
+            "variation": var,
+            "variationAmount": round(cur - pri, 2),
+            "isBold": False,
+            "isSection": False,
+            "isResult": False,
+        })
+    return rows
+
+
+def _income_statement_series_gl_detail_rows_for_flat_link(
+    link_code: str,
+    mapping_index: dict[str, list[str]],
+    amount_indices: dict[int, dict[str, dict[int, Decimal]]],
+    periods: list[dict],
+    division_filter: str | None,
+    sub_division_filter: str | None,
+    mappings_by_account: dict[str, AccountMapping] | None,
+    customer_filter: str | None,
+    supplier_filter: str | None,
+    groupe_index: dict[str, list[str]] | None,
+    dt_ct_by_link_code: dict[str, str] | None,
+) -> list[dict]:
+    """Séries : ventilation par compte pour une ligne feuille sans children."""
+    accounts = _account_numbers_for_single_link_sum(
+        str(link_code).strip(), mapping_index, groupe_index, "income-statement",
+    )
+    rows: list[dict] = []
+    for acct_num in accounts:
+        amounts: dict[str, float] = {}
+        for p in periods:
+            fy = p["fiscalYear"]
+            fm = p["fiscalMonth"]
+            key = f"{fy}-{fm}"
+            amt_index = amount_indices.get(fy, {})
+            val = _gl_account_single_month_income_statement(
+                acct_num, amt_index, fm,
+                division_filter, sub_division_filter, mappings_by_account,
+                customer_filter, supplier_filter, dt_ct_by_link_code,
+            )
+            amounts[key] = round(val, 2)
+        if not any(v != 0 for v in amounts.values()):
+            continue
+        label = acct_num
+        if mappings_by_account and acct_num in mappings_by_account:
+            d = (mappings_by_account[acct_num].description or "").strip()
+            if d:
+                label = f"{acct_num} — {d}"
+        rows.append({"id": acct_num, "label": label, "amounts": amounts})
+    return rows
 
 
 def _structure_row_hidden(row: dict) -> bool:
@@ -737,6 +962,7 @@ def _process_structure_rows(
     supplier_filter: str | None = None,
     groupe_index: dict[str, list[str]] | None = None,
     statement_type: str = "balance-sheet",
+    dt_ct_by_link_code: dict[str, str] | None = None,
 ) -> list[dict]:
     """Recursively process statement structure rows into computed output rows.
 
@@ -776,7 +1002,7 @@ def _process_structure_rows(
                     lc, mapping_index, current_amount_index,
                     current_months, division_filter, sub_division_filter,
                     mappings_by_account, customer_filter, supplier_filter,
-                    groupe_index, statement_type,
+                    groupe_index, statement_type, dt_ct_by_link_code,
                 )
                 if use_budget_as_prior and budget_amount_index is not None:
                     prior = _sum_budget_for_link_code(
@@ -788,7 +1014,7 @@ def _process_structure_rows(
                         lc, mapping_index, prior_amount_index,
                         prior_months, division_filter, sub_division_filter,
                         mappings_by_account, customer_filter, supplier_filter,
-                        groupe_index, statement_type,
+                        groupe_index, statement_type, dt_ct_by_link_code,
                     )
         elif mode == "sum":
             codes = _normalize_code_list(row.get("liaisonSumCodes"))
@@ -797,7 +1023,7 @@ def _process_structure_rows(
                     codes, mapping_index, current_amount_index,
                     current_months, division_filter, sub_division_filter,
                     mappings_by_account, customer_filter, supplier_filter,
-                    groupe_index, statement_type,
+                    groupe_index, statement_type, dt_ct_by_link_code,
                 )
                 if use_budget_as_prior and budget_amount_index is not None:
                     prior = _sum_budget_for_link_codes_aggregate(
@@ -809,7 +1035,7 @@ def _process_structure_rows(
                         codes, mapping_index, prior_amount_index,
                         prior_months, division_filter, sub_division_filter,
                         mappings_by_account, customer_filter, supplier_filter,
-                        groupe_index, statement_type,
+                        groupe_index, statement_type, dt_ct_by_link_code,
                     )
         elif mode == "difference":
             nums = _normalize_code_list(row.get("liaisonNumeratorCodes"))
@@ -819,7 +1045,7 @@ def _process_structure_rows(
                     nums, mapping_index, current_amount_index,
                     current_months, division_filter, sub_division_filter,
                     mappings_by_account, customer_filter, supplier_filter,
-                    groupe_index, statement_type,
+                    groupe_index, statement_type, dt_ct_by_link_code,
                 )
                 if nums
                 else 0.0
@@ -829,7 +1055,7 @@ def _process_structure_rows(
                     dens, mapping_index, current_amount_index,
                     current_months, division_filter, sub_division_filter,
                     mappings_by_account, customer_filter, supplier_filter,
-                    groupe_index, statement_type,
+                    groupe_index, statement_type, dt_ct_by_link_code,
                 )
                 if dens
                 else 0.0
@@ -859,7 +1085,7 @@ def _process_structure_rows(
                         nums, mapping_index, prior_amount_index,
                         prior_months, division_filter, sub_division_filter,
                         mappings_by_account, customer_filter, supplier_filter,
-                        groupe_index, statement_type,
+                        groupe_index, statement_type, dt_ct_by_link_code,
                     )
                     if nums
                     else 0.0
@@ -869,7 +1095,7 @@ def _process_structure_rows(
                         dens, mapping_index, prior_amount_index,
                         prior_months, division_filter, sub_division_filter,
                         mappings_by_account, customer_filter, supplier_filter,
-                        groupe_index, statement_type,
+                        groupe_index, statement_type, dt_ct_by_link_code,
                     )
                     if dens
                     else 0.0
@@ -886,7 +1112,7 @@ def _process_structure_rows(
                 mappings_by_account,
                 budget_amount_index, use_budget_as_prior,
                 computed_values, customer_filter, supplier_filter,
-                groupe_index, statement_type,
+                groupe_index, statement_type, dt_ct_by_link_code,
             )
             # If this is a section row without its own linkCode or formula,
             # sum up the children (include hidden children via computed_values)
@@ -897,6 +1123,43 @@ def _process_structure_rows(
                 prior = sum(
                     computed_values.get(_child_row_id(c), (0.0, 0.0))[1] for c in children
                 )
+            elif (
+                statement_type == "income-statement"
+                and mode == "single"
+                and str(row.get("linkCode") or "").strip()
+                and _is_group_only_link_code(str(row.get("linkCode") or "").strip())
+            ):
+                # Ligne sommaire « Groupe » (ex. 20) : aligner sur la somme des lignes enfants
+                # (même logique que le sous-total Détail / annexe), pas sur l’agrégat plat groupe_index.
+                current = sum(
+                    computed_values.get(_child_row_id(c), (0.0, 0.0))[0] for c in children
+                )
+                prior = sum(
+                    computed_values.get(_child_row_id(c), (0.0, 0.0))[1] for c in children
+                )
+
+        if (
+            not detail_rows
+            and statement_type == "income-statement"
+            and mode == "single"
+            and str(row.get("linkCode") or "").strip()
+            and not formula
+        ):
+            detail_rows = _income_statement_gl_detail_rows_for_flat_link(
+                str(row.get("linkCode")).strip(),
+                mapping_index,
+                current_amount_index,
+                prior_amount_index,
+                current_months,
+                prior_months,
+                division_filter,
+                sub_division_filter,
+                mappings_by_account,
+                customer_filter,
+                supplier_filter,
+                groupe_index,
+                dt_ct_by_link_code,
+            )
 
         # Resolve formula references: e.g. ["+revenue", "-cogs"]
         if formula and isinstance(formula, list):
@@ -1083,9 +1346,12 @@ def compute_financial_statement(
         )
 
     groupe_index = None
+    dt_ct_by_link_code: dict[str, str] | None = None
     if statement_type == "income-statement":
         struct_list = structure.structure if isinstance(structure.structure, list) else []
-        groupe_index = _build_groupe_index(mappings, _flatten_structure_preorder(struct_list))
+        flat = _flatten_structure_preorder(struct_list)
+        groupe_index = _build_groupe_index(mappings, flat)
+        dt_ct_by_link_code = _map_link_codes_to_dt_ct(flat)
 
     # 7. Process the structure into computed rows
     rows = _process_structure_rows(
@@ -1104,6 +1370,7 @@ def compute_financial_statement(
         supplier_filter=supplier_filter,
         groupe_index=groupe_index,
         statement_type=statement_type,
+        dt_ct_by_link_code=dt_ct_by_link_code,
     )
 
     return {
@@ -1227,6 +1494,7 @@ def _process_structure_rows_series(
     customer_filter: str | None = None,
     supplier_filter: str | None = None,
     groupe_index: dict[str, list[str]] | None = None,
+    dt_ct_by_link_code: dict[str, str] | None = None,
 ) -> list[dict]:
     """Process statement structure rows for the series endpoint.
 
@@ -1265,7 +1533,7 @@ def _process_structure_rows_series(
                             lc, mapping_index, amt_index, m,
                             division_filter, sub_division_filter, mappings_by_account,
                             customer_filter, supplier_filter,
-                            groupe_index, statement_type,
+                            groupe_index, statement_type, dt_ct_by_link_code,
                         )
                     amounts[key] = round(total, 2)
                 else:
@@ -1273,7 +1541,7 @@ def _process_structure_rows_series(
                         lc, mapping_index, amt_index, fm,
                         division_filter, sub_division_filter, mappings_by_account,
                         customer_filter, supplier_filter,
-                        groupe_index, statement_type,
+                        groupe_index, statement_type, dt_ct_by_link_code,
                     ), 2)
         elif mode == "sum":
             codes = _normalize_code_list(row.get("liaisonSumCodes"))
@@ -1290,7 +1558,7 @@ def _process_structure_rows_series(
                                 codes, mapping_index, amt_index, m,
                                 division_filter, sub_division_filter, mappings_by_account,
                                 customer_filter, supplier_filter,
-                                groupe_index, statement_type,
+                                groupe_index, statement_type, dt_ct_by_link_code,
                             )
                         amounts[key] = round(total, 2)
                     else:
@@ -1298,7 +1566,7 @@ def _process_structure_rows_series(
                             codes, mapping_index, amt_index, fm,
                             division_filter, sub_division_filter, mappings_by_account,
                             customer_filter, supplier_filter,
-                            groupe_index, statement_type,
+                            groupe_index, statement_type, dt_ct_by_link_code,
                         ), 2)
         elif mode == "difference":
             nums = _normalize_code_list(row.get("liaisonNumeratorCodes"))
@@ -1317,14 +1585,14 @@ def _process_structure_rows_series(
                                 nums, mapping_index, amt_index, m,
                                 division_filter, sub_division_filter, mappings_by_account,
                                 customer_filter, supplier_filter,
-                                groupe_index, statement_type,
+                                groupe_index, statement_type, dt_ct_by_link_code,
                             )
                         if dens:
                             total_d += _sum_for_link_codes_single_month_aggregate(
                                 dens, mapping_index, amt_index, m,
                                 division_filter, sub_division_filter, mappings_by_account,
                                 customer_filter, supplier_filter,
-                                groupe_index, statement_type,
+                                groupe_index, statement_type, dt_ct_by_link_code,
                             )
                     amounts[key] = round(total_n - total_d, 2)
                 else:
@@ -1333,7 +1601,7 @@ def _process_structure_rows_series(
                             nums, mapping_index, amt_index, fm,
                             division_filter, sub_division_filter, mappings_by_account,
                             customer_filter, supplier_filter,
-                            groupe_index, statement_type,
+                            groupe_index, statement_type, dt_ct_by_link_code,
                         )
                         if nums
                         else 0.0
@@ -1343,7 +1611,7 @@ def _process_structure_rows_series(
                             dens, mapping_index, amt_index, fm,
                             division_filter, sub_division_filter, mappings_by_account,
                             customer_filter, supplier_filter,
-                            groupe_index, statement_type,
+                            groupe_index, statement_type, dt_ct_by_link_code,
                         )
                         if dens
                         else 0.0
@@ -1357,6 +1625,7 @@ def _process_structure_rows_series(
                 statement_type, division_filter, sub_division_filter,
                 mappings_by_account, computed_values,
                 customer_filter, supplier_filter, groupe_index,
+                dt_ct_by_link_code,
             )
             if not _row_suppresses_children_sum(row):
                 # Sum children for each period (include hidden children)
@@ -1366,6 +1635,39 @@ def _process_structure_rows_series(
                         computed_values.get(_child_row_id(c), {}).get(key, 0.0)
                         for c in children
                     ), 2)
+            elif (
+                statement_type == "income-statement"
+                and mode == "single"
+                and str(row.get("linkCode") or "").strip()
+                and _is_group_only_link_code(str(row.get("linkCode") or "").strip())
+            ):
+                for p in periods:
+                    key = f"{p['fiscalYear']}-{p['fiscalMonth']}"
+                    amounts[key] = round(sum(
+                        computed_values.get(_child_row_id(c), {}).get(key, 0.0)
+                        for c in children
+                    ), 2)
+
+        if (
+            not detail_rows
+            and statement_type == "income-statement"
+            and mode == "single"
+            and str(row.get("linkCode") or "").strip()
+            and not (formula and isinstance(formula, list))
+        ):
+            detail_rows = _income_statement_series_gl_detail_rows_for_flat_link(
+                str(row.get("linkCode")).strip(),
+                mapping_index,
+                amount_indices,
+                periods,
+                division_filter,
+                sub_division_filter,
+                mappings_by_account,
+                customer_filter,
+                supplier_filter,
+                groupe_index,
+                dt_ct_by_link_code,
+            )
 
         # Resolve formula references: e.g. ["+revenue", "-cogs"]
         if formula and isinstance(formula, list):
@@ -1482,9 +1784,12 @@ def compute_financial_statement_series(
         )
 
     groupe_index = None
+    dt_ct_by_link_code: dict[str, str] | None = None
     if statement_type == "income-statement":
         struct_list = structure.structure if isinstance(structure.structure, list) else []
-        groupe_index = _build_groupe_index(mappings, _flatten_structure_preorder(struct_list))
+        flat = _flatten_structure_preorder(struct_list)
+        groupe_index = _build_groupe_index(mappings, flat)
+        dt_ct_by_link_code = _map_link_codes_to_dt_ct(flat)
 
     # 7. Process structure rows for series
     rows = _process_structure_rows_series(
@@ -1499,6 +1804,7 @@ def compute_financial_statement_series(
         customer_filter=customer_filter,
         supplier_filter=supplier_filter,
         groupe_index=groupe_index,
+        dt_ct_by_link_code=dt_ct_by_link_code,
     )
 
     return {

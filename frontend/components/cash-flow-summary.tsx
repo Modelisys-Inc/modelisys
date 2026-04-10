@@ -7,7 +7,13 @@ import { Company } from "@/components/entity-selector"
 import type { FinancialStatementRow } from "@/lib/api"
 import { getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
+import {
+  aggregateToQuarters,
+  aggregateToYears,
+  getPeriodLabels,
+  getRowAmounts,
+  reverseSeriesOrderForDisplay,
+} from "@/lib/series-utils"
 
 interface CashFlowSummaryProps {
   period: "monthly" | "quarterly" | "annual"
@@ -137,17 +143,17 @@ export function CashFlowSummary({
 
       let values: number[]
       if (view === "quarters") {
-        values = aggregateToQuarters(rawAmounts, periods).amounts
+        values = reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods).amounts)
       } else if (view === "years") {
-        values = aggregateToYears(rawAmounts, periods).amounts
+        values = reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods).amounts)
       } else {
-        values = rawAmounts
+        values = reverseSeriesOrderForDisplay(rawAmounts)
       }
 
       return {
         label: row.label,
-        current: values[values.length - 1] || 0,
-        prior: values[values.length - 2] || 0,
+        current: values[0] || 0,
+        prior: values.length >= 2 ? values[1] || 0 : 0,
         isBold: row.isBold,
         isSection: row.isSection,
         isResult: row.isResult,
@@ -284,7 +290,7 @@ export function CashFlowSummary({
 
   // Helper function to generate month labels from series data or fallback
   const getMonthLabels = (): string[] => {
-    if (periods.length > 0) return getPeriodLabels(periods)
+    if (periods.length > 0) return reverseSeriesOrderForDisplay(getPeriodLabels(periods))
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
     const cd = new Date()
     const labels: string[] = []
@@ -292,14 +298,14 @@ export function CashFlowSummary({
       const date = new Date(cd.getFullYear(), cd.getMonth() - i, 1)
       labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
     }
-    return labels
+    return reverseSeriesOrderForDisplay(labels)
   }
 
   // Helper function to generate quarter labels from series data or fallback
   const getQuarterLabels = (): string[] => {
     if (periods.length > 0 && seriesRows.length > 0) {
       const rawAmounts = getRowAmounts(seriesRows[0], periods)
-      return aggregateToQuarters(rawAmounts, periods).labels
+      return reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods).labels)
     }
     const cd = new Date()
     const labels: string[] = []
@@ -308,21 +314,21 @@ export function CashFlowSummary({
       const quarter = Math.floor(date.getMonth() / 3) + 1
       labels.push(`T${quarter} ${date.getFullYear()}`)
     }
-    return labels
+    return reverseSeriesOrderForDisplay(labels)
   }
 
   // Helper function to generate year labels from series data or fallback
   const getYearLabels = (): string[] => {
     if (periods.length > 0 && seriesRows.length > 0) {
       const rawAmounts = getRowAmounts(seriesRows[0], periods)
-      return aggregateToYears(rawAmounts, periods).labels
+      return reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods).labels)
     }
     const cy = new Date().getFullYear()
     const labels: string[] = []
     for (let i = 5; i >= 0; i--) {
       labels.push(`${cy - i}`)
     }
-    return labels
+    return reverseSeriesOrderForDisplay(labels)
   }
 
   // Helper function to get horizon text
