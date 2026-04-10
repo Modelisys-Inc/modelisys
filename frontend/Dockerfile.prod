@@ -13,9 +13,11 @@ RUN pnpm install --frozen-lockfile
 # Copy source code
 COPY . .
 
-# Build argument for API URL (baked into client JS at build time)
+# Build arguments for API URLs (baked into client JS at build time)
 ARG NEXT_PUBLIC_API_URL=https://api.modelisys.com
+ARG INTERNAL_API_URL=https://modelisys-backend.yellowdune-2ae4f599.eastus.azurecontainerapps.io
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV INTERNAL_API_URL=$INTERNAL_API_URL
 
 # Build the application
 RUN pnpm build
@@ -42,5 +44,6 @@ EXPOSE 3000
 
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+ENV INTERNAL_API_URL=https://modelisys-backend.yellowdune-2ae4f599.eastus.azurecontainerapps.io
 
 CMD ["node", "server.js"]

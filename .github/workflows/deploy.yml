@@ -99,6 +99,7 @@ jobs:
           docker build \
             -f frontend/Dockerfile.prod \
             --build-arg NEXT_PUBLIC_API_URL=https://api.modelisys.com \
+            --build-arg INTERNAL_API_URL=https://modelisys-backend.yellowdune-2ae4f599.eastus.azurecontainerapps.io \
             -t "${{ env.FRONTEND_IMAGE }}:${{ github.sha }}" \
             -t "${{ env.FRONTEND_IMAGE }}:latest" \
             frontend/
