@@ -236,20 +236,22 @@ else
 fi
 
 # --- Service Principal for GitHub Actions ------------------------------------
+# MSYS_NO_PATHCONV prevents Git Bash on Windows from converting /subscriptions/...
+# to C:/Program Files/Git/subscriptions/...
 info "Creating service principal: $SP_NAME"
-SP_JSON=$(az ad sp create-for-rbac \
+SCOPE="/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
+SP_JSON=$(MSYS_NO_PATHCONV=1 az ad sp create-for-rbac \
   --name "$SP_NAME" \
   --role Contributor \
-  --scopes "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP" \
+  --scopes "$SCOPE" \
   --json-auth 2>/dev/null || true)
 
 if [ -z "$SP_JSON" ]; then
   info "Service principal may already exist. Resetting credentials..."
-  SP_APP_ID=$(az ad sp list --display-name "$SP_NAME" --query "[0].appId" -o tsv)
-  SP_JSON=$(az ad sp create-for-rbac \
+  SP_JSON=$(MSYS_NO_PATHCONV=1 az ad sp create-for-rbac \
     --name "$SP_NAME" \
     --role Contributor \
-    --scopes "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP" \
+    --scopes "$SCOPE" \
     --json-auth)
 fi
 
