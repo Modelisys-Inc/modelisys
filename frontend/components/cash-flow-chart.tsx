@@ -7,7 +7,14 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLe
 import { ComposedChart, Line, Bar, Area, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts"
 import { TrendingUp, TrendingDown } from "lucide-react"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears, findRow } from "@/lib/series-utils"
+import {
+  aggregateToQuarters,
+  aggregateToYears,
+  findRow,
+  getPeriodLabels,
+  getRowAmounts,
+  reverseSeriesOrderForDisplay,
+} from "@/lib/series-utils"
 
 export interface CashFlowChartDataPoint {
   period: string
@@ -99,14 +106,16 @@ export function CashFlowChart({
       const fin = aggregateToQuarters(financingAmounts, periods).amounts
       const net = aggregateToQuarters(netCashFlowAmounts, periods).amounts
 
-      return labels.map((label, i) => ({
-        period: label,
-        operating: op[i],
-        investing: inv[i],
-        financing: fin[i],
-        netCashFlow: net[i],
-        cashBalance: 0,
-      }))
+      return reverseSeriesOrderForDisplay(
+        labels.map((label, i) => ({
+          period: label,
+          operating: op[i],
+          investing: inv[i],
+          financing: fin[i],
+          netCashFlow: net[i],
+          cashBalance: 0,
+        }))
+      )
     }
 
     if (view === "years") {
@@ -116,26 +125,30 @@ export function CashFlowChart({
       const fin = aggregateToYears(financingAmounts, periods).amounts
       const net = aggregateToYears(netCashFlowAmounts, periods).amounts
 
-      return labels.map((label, i) => ({
-        period: label,
-        operating: op[i],
-        investing: inv[i],
-        financing: fin[i],
-        netCashFlow: net[i],
-        cashBalance: 0,
-      }))
+      return reverseSeriesOrderForDisplay(
+        labels.map((label, i) => ({
+          period: label,
+          operating: op[i],
+          investing: inv[i],
+          financing: fin[i],
+          netCashFlow: net[i],
+          cashBalance: 0,
+        }))
+      )
     }
 
     // 12months - monthly
     const labels = getPeriodLabels(periods)
-    return labels.map((label, i) => ({
-      period: label,
-      operating: operatingAmounts[i],
-      investing: investingAmounts[i],
-      financing: financingAmounts[i],
-      netCashFlow: netCashFlowAmounts[i],
-      cashBalance: 0,
-    }))
+    return reverseSeriesOrderForDisplay(
+      labels.map((label, i) => ({
+        period: label,
+        operating: operatingAmounts[i],
+        investing: investingAmounts[i],
+        financing: financingAmounts[i],
+        netCashFlow: netCashFlowAmounts[i],
+        cashBalance: 0,
+      }))
+    )
   }, [seriesRows, periods, view])
 
   // Use series chart data when no chartData prop provided

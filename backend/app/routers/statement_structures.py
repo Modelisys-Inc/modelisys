@@ -16,6 +16,7 @@ from app.schemas.statement_structure import (
     StatementStructureResponse,
     StatementStructureUpsert,
 )
+from app.utils.income_statement_structure_clean import strip_obsolete_income_statement_structure_rows
 
 router = APIRouter(prefix="/api/companies/{company_id}", tags=["statement-structures"])
 
@@ -130,6 +131,14 @@ def get_statement_structure(
             statement_type=statement_type,
             structure=defaults.get(statement_type, []),
         )
+    if statement_type == "income-statement" and structure.structure:
+        cleaned = strip_obsolete_income_statement_structure_rows(list(structure.structure))
+        return StatementStructureResponse(
+            id=structure.id,
+            company_id=structure.company_id,
+            statement_type=structure.statement_type,
+            structure=cleaned,
+        )
     return structure
 
 
@@ -146,6 +155,10 @@ def upsert_statement_structure(
 
     _verify_company_access(db, current_user, company_id)
 
+    to_store = request.structure
+    if statement_type == "income-statement":
+        to_store = strip_obsolete_income_statement_structure_rows(list(request.structure or []))
+
     structure = (
         db.query(CompanyStatementStructure)
         .filter(
@@ -156,12 +169,12 @@ def upsert_statement_structure(
     )
 
     if structure:
-        structure.structure = request.structure
+        structure.structure = to_store
     else:
         structure = CompanyStatementStructure(
             company_id=company_id,
             statement_type=statement_type,
-            structure=request.structure,
+            structure=to_store,
         )
         db.add(structure)
 

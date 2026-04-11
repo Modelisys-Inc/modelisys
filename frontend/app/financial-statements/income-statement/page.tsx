@@ -496,6 +496,7 @@ export default function IncomeStatementPage() {
             selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
             selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
             fiscalYear={selectedYear}
+            referenceMonth={selectedMonth}
             structureVersion={structureVersion}
           />
         </div>
@@ -590,6 +591,7 @@ export default function IncomeStatementPage() {
               selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
               selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
               fiscalYear={selectedYear}
+              referenceMonth={selectedMonth}
               rows={rows}
               loading={loading}
               showIncomeStatementStructureSettings
@@ -609,9 +611,12 @@ export default function IncomeStatementPage() {
               selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
               selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
               fiscalYear={selectedYear}
+              referenceMonth={selectedMonth}
               rows={rows}
               loading={loading}
               structureVersion={structureVersion}
+              showIncomeStatementStructureSettings
+              onIncomeStatementStructureSaved={() => setStructureVersion((v) => v + 1)}
             />
           )}
         </div>

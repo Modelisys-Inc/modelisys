@@ -8,7 +8,15 @@ import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { TrendingUp, TrendingDown, ChevronDown } from "lucide-react"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, getPeriodLabels, findRow, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
+import { findRow } from "@/lib/series-utils"
+import {
+  monthShortLabelsFromReference,
+  monthTrendFromReference,
+  quarterLabelsFromReference,
+  quarterTrendFromReference,
+  yearLabelsFromReference,
+  yearTrendFromReference,
+} from "@/lib/series-reference-columns"
 import { cn } from "@/lib/utils"
 import { dashboardCardFrameClass, dashboardCardRingClass } from "@/lib/dashboard-card-style"
 
@@ -32,6 +40,8 @@ interface IncomeStatementChartProps {
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
   fiscalYear?: number
+  /** Mois civil de référence (1–12), aligné sur le sélecteur d’états des résultats. */
+  referenceMonth?: number
   chartData?: IncomeStatementChartDataPoint[]
   loading?: boolean
   structureVersion?: number
@@ -53,6 +63,7 @@ export function IncomeStatementChart({
   selectedBudgetId = null,
   selectedBudgetName = null,
   fiscalYear,
+  referenceMonth,
   chartData,
   loading = false,
   structureVersion = 0,
@@ -61,6 +72,9 @@ export function IncomeStatementChart({
   const [showRevenue, setShowRevenue] = useState(true)
   const [showEBITA, setShowEBITA] = useState(true)
   const [showGrossMargin, setShowGrossMargin] = useState(true)
+
+  const refMonth = referenceMonth ?? new Date().getMonth() + 1
+  const refYear = fiscalYear ?? new Date().getFullYear()
 
   // Fetch series data when no chartData prop is provided
   const seriesMonthsNeeded = view === "years" ? 72 : view === "quarters" ? 15 : 12
@@ -84,52 +98,61 @@ export function IncomeStatementChart({
     const ebitaRow = findRow(seriesRows, "baiia")
     if (!revenueRow) return null
 
-    const revenueAmounts = getRowAmounts(revenueRow, seriesPeriods)
-    const cogsAmounts = cogsRow ? getRowAmounts(cogsRow, seriesPeriods) : revenueAmounts.map(() => 0)
-    const grossProfitAmounts = grossProfitRow ? getRowAmounts(grossProfitRow, seriesPeriods) : revenueAmounts.map((r, i) => r - cogsAmounts[i])
-    const ebitaAmounts = ebitaRow ? getRowAmounts(ebitaRow, seriesPeriods) : grossProfitAmounts
-
     if (view === "quarters") {
-      const labels = aggregateToQuarters(revenueAmounts, seriesPeriods).labels
-      const rev = aggregateToQuarters(revenueAmounts, seriesPeriods).amounts
-      const cogs = aggregateToQuarters(cogsAmounts, seriesPeriods).amounts
-      const gp = aggregateToQuarters(grossProfitAmounts, seriesPeriods).amounts
-      const eb = aggregateToQuarters(ebitaAmounts, seriesPeriods).amounts
+      const labels = quarterLabelsFromReference(refMonth, refYear, 5)
+      const rev = quarterTrendFromReference(revenueRow, seriesPeriods, refMonth, refYear, 5)
+      const cogs = cogsRow
+        ? quarterTrendFromReference(cogsRow, seriesPeriods, refMonth, refYear, 5)
+        : rev.map(() => 0)
+      const gp = grossProfitRow
+        ? quarterTrendFromReference(grossProfitRow, seriesPeriods, refMonth, refYear, 5)
+        : rev.map((r, i) => r - (cogs[i] ?? 0))
+      const eb = ebitaRow
+        ? quarterTrendFromReference(ebitaRow, seriesPeriods, refMonth, refYear, 5)
+        : gp
       return labels.map((label, i) => ({
         period: label,
-        revenue: rev[i],
-        cogs: cogs[i],
-        grossProfit: gp[i],
-        ebita: eb[i],
-        grossMarginPercent: rev[i] !== 0 ? (gp[i] / rev[i]) * 100 : 0,
+        revenue: rev[i] ?? 0,
+        cogs: cogs[i] ?? 0,
+        grossProfit: gp[i] ?? 0,
+        ebita: eb[i] ?? 0,
+        grossMarginPercent: (rev[i] ?? 0) !== 0 ? ((gp[i] ?? 0) / (rev[i] ?? 1)) * 100 : 0,
       }))
     }
     if (view === "years") {
-      const labels = aggregateToYears(revenueAmounts, seriesPeriods).labels
-      const rev = aggregateToYears(revenueAmounts, seriesPeriods).amounts
-      const cogs = aggregateToYears(cogsAmounts, seriesPeriods).amounts
-      const gp = aggregateToYears(grossProfitAmounts, seriesPeriods).amounts
-      const eb = aggregateToYears(ebitaAmounts, seriesPeriods).amounts
+      const labels = yearLabelsFromReference(refYear, 6)
+      const rev = yearTrendFromReference(revenueRow, seriesPeriods, refYear, 6)
+      const cogs = cogsRow ? yearTrendFromReference(cogsRow, seriesPeriods, refYear, 6) : rev.map(() => 0)
+      const gp = grossProfitRow
+        ? yearTrendFromReference(grossProfitRow, seriesPeriods, refYear, 6)
+        : rev.map((r, i) => r - (cogs[i] ?? 0))
+      const eb = ebitaRow ? yearTrendFromReference(ebitaRow, seriesPeriods, refYear, 6) : gp
       return labels.map((label, i) => ({
         period: label,
-        revenue: rev[i],
-        cogs: cogs[i],
-        grossProfit: gp[i],
-        ebita: eb[i],
-        grossMarginPercent: rev[i] !== 0 ? (gp[i] / rev[i]) * 100 : 0,
+        revenue: rev[i] ?? 0,
+        cogs: cogs[i] ?? 0,
+        grossProfit: gp[i] ?? 0,
+        ebita: eb[i] ?? 0,
+        grossMarginPercent: (rev[i] ?? 0) !== 0 ? ((gp[i] ?? 0) / (rev[i] ?? 1)) * 100 : 0,
       }))
     }
-    // Monthly
-    const labels = getPeriodLabels(seriesPeriods)
+    // Monthly (12 mois) — période de référence à gauche
+    const labels = monthShortLabelsFromReference(refMonth, refYear, 12)
+    const rev = monthTrendFromReference(revenueRow, seriesPeriods, refMonth, refYear, 12)
+    const cogs = cogsRow ? monthTrendFromReference(cogsRow, seriesPeriods, refMonth, refYear, 12) : rev.map(() => 0)
+    const gp = grossProfitRow
+      ? monthTrendFromReference(grossProfitRow, seriesPeriods, refMonth, refYear, 12)
+      : rev.map((r, i) => r - (cogs[i] ?? 0))
+    const eb = ebitaRow ? monthTrendFromReference(ebitaRow, seriesPeriods, refMonth, refYear, 12) : gp
     return labels.map((label, i) => ({
       period: label,
-      revenue: revenueAmounts[i],
-      cogs: cogsAmounts[i],
-      grossProfit: grossProfitAmounts[i],
-      ebita: ebitaAmounts[i],
-      grossMarginPercent: revenueAmounts[i] !== 0 ? (grossProfitAmounts[i] / revenueAmounts[i]) * 100 : 0,
+      revenue: rev[i] ?? 0,
+      cogs: cogs[i] ?? 0,
+      grossProfit: gp[i] ?? 0,
+      ebita: eb[i] ?? 0,
+      grossMarginPercent: (rev[i] ?? 0) !== 0 ? ((gp[i] ?? 0) / (rev[i] ?? 1)) * 100 : 0,
     }))
-  }, [chartData, seriesRows, seriesPeriods, view])
+  }, [chartData, seriesRows, seriesPeriods, view, refMonth, refYear])
 
   // Use prop data or series-derived data
   const effectiveChartData = chartData || seriesChartData
@@ -347,18 +370,21 @@ export function IncomeStatementChart({
                 {formatCurrency(effectiveChartData.reduce((sum, d) => sum + (d.revenue || 0), 0))}
               </div>
               {(() => {
-                const lastData = effectiveChartData[effectiveChartData.length - 1]
-                const hasPrevious = 'revenuePrevious' in lastData && (lastData as any).revenuePrevious
-                const variation = hasPrevious
-                  ? lastData.revenue - (lastData as any).revenuePrevious
-                  : effectiveChartData.length > 1
-                    ? lastData.revenue - effectiveChartData[effectiveChartData.length - 2].revenue
-                    : 0
-                const variationPercent = hasPrevious && (lastData as any).revenuePrevious > 0
-                  ? ((lastData.revenue - (lastData as any).revenuePrevious) / (lastData as any).revenuePrevious * 100)
-                  : effectiveChartData.length > 1 && effectiveChartData[effectiveChartData.length - 2].revenue > 0
-                  ? ((lastData.revenue - effectiveChartData[effectiveChartData.length - 2].revenue) / effectiveChartData[effectiveChartData.length - 2].revenue * 100)
-                  : 0
+                const recent = effectiveChartData[0]!
+                const prior = effectiveChartData.length > 1 ? effectiveChartData[1] : undefined
+                const revenuePrevious = (recent as { revenuePrevious?: number }).revenuePrevious
+                const variation =
+                  revenuePrevious !== undefined && revenuePrevious !== null
+                    ? recent.revenue - revenuePrevious
+                    : prior !== undefined
+                      ? recent.revenue - prior.revenue
+                      : 0
+                const variationPercent =
+                  revenuePrevious !== undefined && revenuePrevious !== null && revenuePrevious > 0
+                    ? ((recent.revenue - revenuePrevious) / revenuePrevious) * 100
+                    : prior !== undefined && prior.revenue > 0
+                      ? ((recent.revenue - prior.revenue) / prior.revenue) * 100
+                      : 0
                 const isPositive = variation >= 0
                 return (
                   <div className="flex items-center gap-1.5 text-xs">

@@ -18,8 +18,17 @@ def _create_budget(client, auth_headers, company_id, name="Budget 2024", fiscal_
 
 
 def _setup_chart_of_accounts(client, auth_headers, company_id):
-    """Create trial balance entries so ChartOfAccount records exist for budget entries."""
-    client.put(
+    """Mapping + balance pour créer ChartOfAccount (utilisé par les écritures budgétaires)."""
+    r0 = client.put(
+        f"/api/companies/{company_id}/account-mappings",
+        json=[
+            {"account_number": "4000", "description": "Revenue"},
+            {"account_number": "5000", "description": "COGS"},
+        ],
+        headers=auth_headers,
+    )
+    assert r0.status_code == 200
+    r1 = client.put(
         f"/api/companies/{company_id}/trial-balance?fiscal_year=2024",
         json=[
             {"account_number": "4000", "description": "Revenue", "monthly_amounts": {"Janvier": 0}},
@@ -27,6 +36,7 @@ def _setup_chart_of_accounts(client, auth_headers, company_id):
         ],
         headers=auth_headers,
     )
+    assert r1.status_code == 200
 
 
 # --- List budgets ---

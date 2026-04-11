@@ -864,6 +864,14 @@ export default function FinancialStatementsMappingPage() {
                     Mapping comptable
                   </span>
                 </Link>
+                <Link
+                  href={`/settings/companies/${companyId}/link-codes`}
+                  className="relative pb-4 border-b border-slate-600/30"
+                >
+                  <span className="text-sm font-normal transition-colors text-slate-200 hover:text-[#E6D6C3]">
+                    Code de liaison
+                  </span>
+                </Link>
                 <div className="relative pb-4 border-b border-slate-600/30">
                   <span className="text-sm font-normal transition-colors text-slate-200 hover:text-[#E6D6C3]">
                     Mapping états financiers

@@ -27,6 +27,9 @@ class FinancialStatementRow(BaseModel):
     isResult: bool = False
     detailRows: list[FinancialStatementDetailRow] = []
     annexLetter: str | None = None
+    detailOnly: bool | None = None
+    indent: bool | None = None
+    separatorAbove: bool | None = None
 
 
 class FinancialStatementResponse(BaseModel):
@@ -73,6 +76,10 @@ class SeriesRow(BaseModel):
     isResult: bool = False
     amounts: dict[str, float] = {}
     detailRows: list[SeriesDetailRow] = []
+    annexLetter: str | None = None
+    detailOnly: bool | None = None
+    indent: bool | None = None
+    separatorAbove: bool | None = None
 
 
 class FinancialStatementSeriesResponse(BaseModel):

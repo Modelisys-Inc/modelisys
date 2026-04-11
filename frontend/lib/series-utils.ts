@@ -15,6 +15,16 @@ export function getPeriodLabels(periods: SeriesPeriod[]): string[] {
 }
 
 /**
+ * Affiche la date / période de référence en première colonne (à gauche).
+ * L’API renvoie les séries en ordre chronologique (du plus ancien au plus récent) ;
+ * pour l’UI on veut le plus récent à gauche (ex. 2025, 2024, 2023…).
+ */
+export function reverseSeriesOrderForDisplay<T>(items: T[]): T[] {
+  if (items.length <= 1) return items
+  return [...items].reverse()
+}
+
+/**
  * Aggregate monthly data into quarterly data.
  * Groups consecutive sets of 3 periods.
  */
@@ -59,13 +69,22 @@ export function aggregateToYears(
 }
 
 /**
- * Find a row by ID or partial label match.
+ * Find a row by ID, exact label (trim/case), then substring match.
+ * Prefers an exact « revenus » line over another line that merely contains the word.
  */
 export function findRow(rows: SeriesRow[], idOrLabel: string): SeriesRow | undefined {
-  const lower = idOrLabel.toLowerCase()
-  return rows.find(
-    (r) => r.id === idOrLabel || r.label.toLowerCase().includes(lower)
-  )
+  const raw = idOrLabel.trim()
+  const lower = raw.toLowerCase()
+  const byId = rows.find((r) => r.id === idOrLabel)
+  if (byId) return byId
+  const exact = rows.find((r) => r.label.trim().toLowerCase() === lower)
+  if (exact) return exact
+  const revenueAliases = ["revenus", "chiffre d'affaires", "chiffre d affaires", "revenue"]
+  if (revenueAliases.some((a) => a === lower)) {
+    const rev = rows.find((r) => revenueAliases.includes(r.label.trim().toLowerCase()))
+    if (rev) return rev
+  }
+  return rows.find((r) => r.label.toLowerCase().includes(lower))
 }
 
 /**

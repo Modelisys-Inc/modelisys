@@ -1,39 +1,99 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { Fragment, useState, useEffect, useMemo } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
-import type { FinancialStatementRow } from "@/lib/api"
-import { getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
+import {
+  getFinancialStatementSeries,
+  type FinancialStatementSeriesParams,
+  type FinancialStatementRow,
+} from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, getPeriodLabels, aggregateToQuarters, aggregateToYears } from "@/lib/series-utils"
+import { reverseSeriesOrderForDisplay } from "@/lib/series-utils"
+import {
+  monthShortLabelsFromReference,
+  monthTrendFromReference,
+  quarterLabelsFromReference,
+  quarterTrendFromReference,
+  yearLabelsFromReference,
+  yearTrendFromReference,
+} from "@/lib/series-reference-columns"
 import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import {
-  CHARGES_SECTION_LABEL,
   TOTAL_CHARGES_LABEL,
-  isDefineMappingChecked,
+  collectDistinctLinkCodesFromStructure,
+  isAnnexLetterInputEditable,
+  isCodeMappingEnabled,
+  isOmittedIncomeStatementSummaryRowLabel,
+  isShowInDetail,
+  isStructureRowDetailOnly,
   isStructureRowEmptyLabel,
   isStructureRowHidden,
   normLabel,
   normalizeAnnexLetter,
+  normalizeLiaisonMode,
 } from "@/lib/income-statement-structure-utils"
+import { IncomeStatementLiaisonCell } from "@/components/income-statement-liaison-cell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { BookMarked, EyeOff, Link2, Loader2, Plus, Settings, Sparkles, Trash2 } from "lucide-react"
+import {
+  AlignLeft,
+  ArrowLeft,
+  BookMarked,
+  Eye,
+  EyeOff,
+  Hash,
+  IndentIncrease,
+  LayoutList,
+  Link2,
+  Loader2,
+  PanelTop,
+  Plus,
+  Settings,
+  Sparkles,
+  Trash2,
+} from "lucide-react"
 import {
   dashboardCardAccentBarClass,
   dashboardCardAccentClass,
   dashboardCardBodyMutedClass,
   dashboardCardFrameStaticClass,
   dashboardCardHeaderBarClass,
+  dashboardCardHeaderIconBoxClass,
   dashboardCardRingClass,
+  dashboardCardStructureSettingsButtonClass,
   dashboardCardTitleClass,
 } from "@/lib/dashboard-card-style"
+import {
+  calendarQuarterFromMonth,
+  formatCalendarMonthYear,
+  formatPriorCalendarMonth,
+  formatQuarterShortLabel,
+  formatSameMonthPriorYear,
+  priorCalendarQuarter,
+} from "@/lib/financial-period-labels"
 
 interface IncomeStatementSummaryProps {
   period: "monthly" | "quarterly" | "annual"
@@ -49,6 +109,8 @@ interface IncomeStatementSummaryProps {
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
   fiscalYear?: number
+  /** Mois calendaire (1–12) de la date de référence — pour les en-têtes « Avril 2025 », etc. */
+  referenceMonth?: number
   rows?: FinancialStatementRow[]
   loading?: boolean
   showIncomeStatementStructureSettings?: boolean
@@ -68,8 +130,22 @@ interface SummaryRow {
   isEBITA?: boolean
   isMargin?: boolean // For margin percentage rows
   indent?: boolean
+  /** Ligne de séparation au-dessus (structure / API). */
+  separatorAbove?: boolean
   // For trend views (12months, quarters, years)
   trendValues?: number[]
+}
+
+function isTruthySeparatorAbove(raw: unknown): boolean {
+  return raw === true || raw === "true" || raw === 1
+}
+
+/** Indentation sommaire : valeur explicite (structure / API) sinon règle legacy. */
+function indentForSummaryRow(
+  row: Pick<SummaryRow, "isBold" | "isSection" | "isResult"> & { indent?: boolean }
+): boolean {
+  if (typeof row.indent === "boolean") return row.indent
+  return !row.isBold && !row.isSection && !row.isResult
 }
 
 export function IncomeStatementSummary({
@@ -86,6 +162,7 @@ export function IncomeStatementSummary({
   selectedBudgetId = null,
   selectedBudgetName = null,
   fiscalYear,
+  referenceMonth,
   rows: backendRows = [],
   loading = false,
   showIncomeStatementStructureSettings = false,
@@ -93,7 +170,34 @@ export function IncomeStatementSummary({
   onIncomeStatementStructureSaved,
 }: IncomeStatementSummaryProps) {
   const [structureEditMode, setStructureEditMode] = useState(false)
+  const [addSpaceDialogOpen, setAddSpaceDialogOpen] = useState(false)
+  const [addSpacePlacement, setAddSpacePlacement] = useState<"above" | "below">("above")
+  const [addSpaceTargetIdx, setAddSpaceTargetIdx] = useState<number | null>(null)
+  const [addPostDialogOpen, setAddPostDialogOpen] = useState(false)
+  const [addPostStep, setAddPostStep] = useState<"anchor" | "kind">("anchor")
+  const [addPostAnchorIdx, setAddPostAnchorIdx] = useState<number | null>(null)
+  const [addPostRefLabel, setAddPostRefLabel] = useState("")
+  const [addPostRank, setAddPostRank] = useState<"primary" | "secondary">("secondary")
+  const [addPostBold, setAddPostBold] = useState(false)
+  /** Sommaire sans aucun poste « ancrable » : modale limitée à l’écran Présentation (pas d’étape Emplacement). */
+  const [addPostPresentationOnly, setAddPostPresentationOnly] = useState(false)
+  const [addPostPlacement, setAddPostPlacement] = useState<"above" | "below">("above")
   const isForecastSection = title === "États des résultats pro forma"
+
+  const resetAddPostDialog = () => {
+    setAddPostStep("anchor")
+    setAddPostAnchorIdx(null)
+    setAddPostRefLabel("")
+    setAddPostRank("secondary")
+    setAddPostBold(false)
+    setAddPostPresentationOnly(false)
+    setAddPostPlacement("above")
+  }
+
+  const resetAddSpaceDialog = () => {
+    setAddSpacePlacement("above")
+    setAddSpaceTargetIdx(null)
+  }
 
   // Determine months needed for series API based on view
   const isMultiPeriodView = view === "12months" || view === "24months" || view === "quarters" || view === "years"
@@ -111,21 +215,43 @@ export function IncomeStatementSummary({
     structureVersion,
   })
 
+  const isCompanyComparison = columnMode === "comparison" && !companyId
+  const isDivisionComparison = columnMode === "comparison" && companyId && !divisionId
+  const isSubDivisionComparison = columnMode === "comparison" && companyId && divisionId && !subDivisionId
+  const isComparisonMode = isCompanyComparison || isDivisionComparison || isSubDivisionComparison
+
+  const canInlineStructureEdit =
+    showIncomeStatementStructureSettings && !!companyId && !isComparisonMode
+  const structEdit = useIncomeStatementStructureEdit(
+    companyId ?? null,
+    structureEditMode && canInlineStructureEdit
+  )
+
+  const refMonth = referenceMonth ?? new Date().getMonth() + 1
+  const refYear = fiscalYear ?? new Date().getFullYear()
+
   // Helper function to get comparison label
   const getComparisonLabel = (): string => {
     if (view !== "comparison" && view !== "ytd" && view !== "ddm") return "Passé"
     if (comparisonType === "lastMonth") {
       if (view === "ytd") return "YTD dernier"
       if (view === "ddm") return "DDM dernier"
-      if (period === "monthly") return "Mois dernier"
-      if (period === "quarterly") return "Trimestre dernier"
+      if (period === "monthly") return formatPriorCalendarMonth(refMonth, refYear)
+      if (period === "quarterly") {
+        const q = calendarQuarterFromMonth(refMonth)
+        const pq = priorCalendarQuarter(q, refYear)
+        return formatQuarterShortLabel(pq.quarter, pq.year)
+      }
       return "Année dernière"
     }
     if (comparisonType === "pastMonth") {
       if (view === "ytd") return "YTD passé"
       if (view === "ddm") return "DDM passé"
-      if (period === "monthly") return "Mois passé"
-      if (period === "quarterly") return "Trimestre passé"
+      if (period === "monthly") return formatSameMonthPriorYear(refMonth, refYear)
+      if (period === "quarterly") {
+        const q = calendarQuarterFromMonth(refMonth)
+        return formatQuarterShortLabel(q, refYear - 1)
+      }
       return "Année passée"
     }
     if (comparisonType === "budget") {
@@ -142,20 +268,41 @@ export function IncomeStatementSummary({
     }
     return "Passé"
   }
+
+  /** Colonne « Courant » : libellé daté (référence) pour comparaison / DDM. */
+  const getCurrentColumnLabel = (): string => {
+    if ((view === "comparison" || view === "ddm") && period === "monthly") {
+      return formatCalendarMonthYear(refMonth, refYear)
+    }
+    if ((view === "comparison" || view === "ddm") && period === "quarterly") {
+      const q = calendarQuarterFromMonth(refMonth)
+      return formatQuarterShortLabel(q, refYear)
+    }
+    if ((view === "comparison" || view === "ddm") && period === "annual") {
+      return String(refYear)
+    }
+    return "Courant"
+  }
   
   // Map backend FinancialStatementRow[] to internal SummaryRow[]
   const mapBackendRows = (apiRows: FinancialStatementRow[]): SummaryRow[] => {
-    return apiRows.map((row) => ({
-      label: row.label,
-      current: row.current,
-      prior: row.prior,
-      isBold: row.isBold,
-      isSection: row.isSection,
-      isResult: row.isResult,
-      isNetIncome: row.label.toLowerCase().includes("bénéfice net") && row.isResult,
-      isEBITA: row.label.toLowerCase() === "baiia",
-      indent: !row.isBold && !row.isSection && !row.isResult,
-    }))
+    return apiRows
+      .filter(
+        (row) =>
+          !row.detailOnly && !isOmittedIncomeStatementSummaryRowLabel(row.label)
+      )
+      .map((row) => ({
+        label: row.label,
+        current: row.current,
+        prior: row.prior,
+        isBold: row.isBold,
+        isSection: row.isSection,
+        isResult: row.isResult,
+        isNetIncome: row.label.toLowerCase().includes("bénéfice net") && row.isResult,
+        isEBITA: row.label.toLowerCase() === "baiia",
+        indent: indentForSummaryRow(row),
+        separatorAbove: isTruthySeparatorAbove(row.separatorAbove),
+      }))
   }
 
   // Helper function to capitalize first letter
@@ -177,26 +324,36 @@ export function IncomeStatementSummary({
       "bénéfice net",
       "baiia"
     ]
-    return boldLabels.includes(label.toLowerCase()) || !!row.isResult || !!row.isNetIncome || !!row.isEBITA
+    return (
+      boldLabels.includes(label.toLowerCase()) ||
+      !!row.isResult ||
+      !!row.isNetIncome ||
+      !!row.isEBITA ||
+      !!row.isBold
+    )
   }
 
   // Build data: use series API for multi-period views, backend rows for single-period
   const buildSeriesData = (): SummaryRow[] => {
     if (!seriesRows.length || !seriesPeriods.length) return []
-    return seriesRows.map((row) => {
-      const rawAmounts = getRowAmounts(row, seriesPeriods)
+    return seriesRows
+      .filter(
+        (row) =>
+          !row.detailOnly && !isOmittedIncomeStatementSummaryRowLabel(row.label)
+      )
+      .map((row) => {
       let trendValues: number[]
       if (view === "quarters") {
-        const { amounts: qAmounts } = aggregateToQuarters(rawAmounts, seriesPeriods)
-        trendValues = qAmounts
+        trendValues = quarterTrendFromReference(row, seriesPeriods, refMonth, refYear, 5)
       } else if (view === "years") {
-        const { amounts: yAmounts } = aggregateToYears(rawAmounts, seriesPeriods)
-        trendValues = yAmounts
+        trendValues = yearTrendFromReference(row, seriesPeriods, refYear, 6)
+      } else if (view === "24months") {
+        trendValues = monthTrendFromReference(row, seriesPeriods, refMonth, refYear, 24)
       } else {
-        trendValues = rawAmounts
+        trendValues = monthTrendFromReference(row, seriesPeriods, refMonth, refYear, 12)
       }
-      const lastAmount = trendValues[trendValues.length - 1] || 0
-      const priorAmount = trendValues.length >= 2 ? trendValues[trendValues.length - 2] || 0 : 0
+      const lastAmount = trendValues[0] || 0
+      const priorAmount = trendValues.length >= 2 ? trendValues[1] || 0 : 0
       return {
         label: row.label,
         current: lastAmount,
@@ -206,25 +363,50 @@ export function IncomeStatementSummary({
         isResult: row.isResult,
         isNetIncome: row.label.toLowerCase().includes("bénéfice net") && row.isResult,
         isEBITA: row.label.toLowerCase() === "baiia",
-        indent: !row.isBold && !row.isSection && !row.isResult,
+        indent: indentForSummaryRow({
+          isBold: row.isBold || row.isResult,
+          isSection: row.isSection,
+          isResult: row.isResult,
+          indent: row.indent,
+        }),
+        separatorAbove: isTruthySeparatorAbove(row.separatorAbove),
         trendValues,
       }
     })
   }
 
-  const data = isMultiPeriodView && !isForecastSection ? buildSeriesData() : mapBackendRows(backendRows)
-  
-  // Determine what we're comparing
-  const isCompanyComparison = columnMode === "comparison" && !companyId
-  const isDivisionComparison = columnMode === "comparison" && companyId && !divisionId
-  const isSubDivisionComparison = columnMode === "comparison" && companyId && divisionId && !subDivisionId
-  const isComparisonMode = isCompanyComparison || isDivisionComparison || isSubDivisionComparison
+  const data = useMemo(() => {
+    if (isMultiPeriodView && !isForecastSection) return buildSeriesData()
+    return mapBackendRows(backendRows)
+  }, [
+    isMultiPeriodView,
+    isForecastSection,
+    backendRows,
+    seriesRows,
+    seriesPeriods,
+    view,
+    refMonth,
+    refYear,
+  ])
 
-  const canInlineStructureEdit =
-    showIncomeStatementStructureSettings && !!companyId && !isComparisonMode
-  const structEdit = useIncomeStatementStructureEdit(
-    companyId ?? null,
-    structureEditMode && canInlineStructureEdit
+  /** Postes du sommaire (libellé non vide) pour placer une ligne vide au-dessus. */
+  const spacerTargetPosts = useMemo(() => {
+    const s = structEdit.structure
+    if (!s.length) return []
+    const out: { globalIdx: number; label: string }[] = []
+    for (let i = 0; i < s.length; i++) {
+      const r = s[i]!
+      if (isStructureRowDetailOnly(r)) continue
+      if (isStructureRowEmptyLabel(r)) continue
+      const label = String(r.label ?? "").trim()
+      out.push({ globalIdx: i, label: label || `Poste ${i + 1}` })
+    }
+    return out
+  }, [structEdit.structure])
+
+  const allLiaisonCodes = useMemo(
+    () => collectDistinctLinkCodesFromStructure(structEdit.structure),
+    [structEdit.structure]
   )
 
   // Get entities to compare
@@ -301,7 +483,12 @@ export function IncomeStatementSummary({
           )
 
           if (!cancelled && response.rows) {
-            const mapped: SummaryRow[] = response.rows.map((row) => {
+            const mapped: SummaryRow[] = response.rows
+              .filter(
+                (row) =>
+                  !row.detailOnly && !isOmittedIncomeStatementSummaryRowLabel(row.label)
+              )
+              .map((row) => {
               const amounts = Object.entries(row.amounts)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([, v]) => v)
@@ -316,9 +503,15 @@ export function IncomeStatementSummary({
                 isResult: row.isResult,
                 isNetIncome: row.label.toLowerCase().includes("bénéfice net") && row.isResult,
                 isEBITA: row.label.toLowerCase() === "baiia",
-                indent: !row.isBold && !row.isSection && !row.isResult,
+                indent: indentForSummaryRow({
+                  isBold: row.isBold || row.isResult,
+                  isSection: row.isSection,
+                  isResult: row.isResult,
+                  indent: row.indent,
+                }),
+                separatorAbove: isTruthySeparatorAbove(row.separatorAbove),
               }
-            })
+              })
             results[entity.id] = mapped
           }
         } catch (err) {
@@ -346,8 +539,10 @@ export function IncomeStatementSummary({
     structureVersion,
   ])
 
-  // Find revenue value for percentage calculations
-  const revenueRow = data.find((row) => row.label.toLowerCase() === "revenus")
+  // Ligne « Revenus » (poste, pas en-tête de section « REVENUS » si les deux matchent)
+  const revenueRow =
+    data.find((row) => row.label.toLowerCase() === "revenus" && !row.isSection) ??
+    data.find((row) => row.label.toLowerCase() === "revenus")
   const revenueCurrent = revenueRow?.current || 1
   const revenuePrior = revenueRow?.prior || 1
 
@@ -420,7 +615,7 @@ export function IncomeStatementSummary({
   // Helper function to generate month labels (12 or 24 months)
   const getMonthLabels = (monthsCount: number = 12): string[] => {
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      return getPeriodLabels(seriesPeriods)
+      return monthShortLabelsFromReference(refMonth, refYear, monthsCount)
     }
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
     const currentDate = new Date()
@@ -429,15 +624,13 @@ export function IncomeStatementSummary({
       const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
       labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
     }
-    return labels
+    return reverseSeriesOrderForDisplay(labels)
   }
 
   // Helper function to generate quarter labels (5 quarters)
   const getQuarterLabels = (): string[] => {
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      const dummyAmounts = seriesPeriods.map(() => 0)
-      const { labels } = aggregateToQuarters(dummyAmounts, seriesPeriods)
-      return labels
+      return quarterLabelsFromReference(refMonth, refYear, 5)
     }
     const currentDate = new Date()
     const labels: string[] = []
@@ -446,15 +639,13 @@ export function IncomeStatementSummary({
       const quarter = Math.floor(date.getMonth() / 3) + 1
       labels.push(`T${quarter} ${date.getFullYear()}`)
     }
-    return labels
+    return reverseSeriesOrderForDisplay(labels)
   }
 
   // Helper function to generate year labels (projectionYears + 1 for forecast sections)
   const getYearLabels = (): string[] => {
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      const dummyAmounts = seriesPeriods.map(() => 0)
-      const { labels } = aggregateToYears(dummyAmounts, seriesPeriods)
-      return labels
+      return yearLabelsFromReference(refYear, 6)
     }
     const currentYear = new Date().getFullYear()
     const labels: string[] = []
@@ -464,20 +655,22 @@ export function IncomeStatementSummary({
         labels.push(`${currentYear + i}`)
       }
     } else {
-      // For other views, generate past years (unchanged for historical data)
       for (let i = 5; i >= 0; i--) {
         labels.push(`${currentYear - i}`)
       }
     }
-    return labels
+    return isForecastSection ? labels : reverseSeriesOrderForDisplay(labels)
   }
 
   // Helper function to get horizon text
   const getHorizonText = (): string => {
-    if (view === "comparison" && period === "monthly") return "Courant"
-    if (view === "comparison" && period === "quarterly") return "Trimestriel"
-    if (view === "comparison" && period === "annual") return "Annuel"
+    if (view === "comparison" && (period === "monthly" || period === "quarterly" || period === "annual")) {
+      return getCurrentColumnLabel()
+    }
     if (view === "ytd") return "YTD"
+    if (view === "ddm" && (period === "monthly" || period === "quarterly" || period === "annual")) {
+      return getCurrentColumnLabel()
+    }
     if (view === "ddm") return "DDM"
     if (view === "12months") return "12 mois"
     if (view === "24months") return "24 mois"
@@ -488,37 +681,88 @@ export function IncomeStatementSummary({
 
   const trendLen = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
   const showStructureCols =
-    structureEditMode &&
-    canInlineStructureEdit &&
-    !structEdit.loading &&
-    structEdit.structure.length > 0
-  const tableRowCount = showStructureCols ? structEdit.structure.length : data.length
+    structureEditMode && canInlineStructureEdit && !structEdit.loading
+  const tableRowCount = showStructureCols
+    ? structEdit.summaryStructureDisplayIndices.length
+    : data.length
 
-  const padSummaryRow = (structRow: Record<string, unknown>): SummaryRow => ({
-    label: String(structRow.label ?? ""),
-    current: 0,
-    prior: 0,
-    isBold: false,
-    isSection: false,
-    isResult: false,
-    isNetIncome: false,
-    isEBITA: false,
-    isMargin: false,
-    indent: !!structRow.indent,
-    trendValues: trendLen > 0 ? Array(trendLen).fill(0) : undefined,
-  })
+  /** Doit correspondre au nombre de `<th>` du thead — sinon une ligne `colSpan` invalide casse `table-fixed`. */
+  const summaryTableColumnCount = useMemo(() => {
+    if (showStructureCols) return 8
+    if (view === "current") return 2
+    if (view === "comparison" || view === "ddm" || view === "ytd") {
+      if (isComparisonMode) return 1 + entitiesToCompare.length
+      const extra = columnMode === "variations" || columnMode === "percentage" ? 2 : 0
+      return 3 + extra
+    }
+    if (view === "12months") return 1 + getMonthLabels(12).length
+    if (view === "24months") return 1 + getMonthLabels(24).length
+    if (view === "quarters") return 1 + getQuarterLabels().length
+    if (view === "years") return 1 + getYearLabels().length
+    return 2
+  }, [
+    showStructureCols,
+    view,
+    isComparisonMode,
+    columnMode,
+    entitiesToCompare,
+    seriesPeriods,
+    isForecastSection,
+    projectionYears,
+    refMonth,
+    refYear,
+  ])
 
-  /** En édition structure, `data[idx]` est décalé après insertion : aligner par libellé (index d’abord). */
-  const summaryRowForStructureIndex = (
-    i: number,
-    structRow: Record<string, unknown>
-  ): SummaryRow => {
+  const padSummaryRow = (structRow: Record<string, unknown>): SummaryRow => {
+    const structIsBold = typeof structRow.isBold === "boolean" ? structRow.isBold : false
+    return {
+      label: String(structRow.label ?? ""),
+      current: 0,
+      prior: 0,
+      isBold: structIsBold,
+      isSection: false,
+      isResult: false,
+      isNetIncome: false,
+      isEBITA: false,
+      isMargin: false,
+      indent: indentForSummaryRow({
+        isBold: structIsBold,
+        isSection: !!structRow.isSection,
+        isResult: !!structRow.isResult,
+        indent: typeof structRow.indent === "boolean" ? structRow.indent : undefined,
+      }),
+      separatorAbove: isTruthySeparatorAbove(structRow.separatorAbove),
+      trendValues: trendLen > 0 ? Array(trendLen).fill(0) : undefined,
+    }
+  }
+
+  /** En édition structure : aligner sur `data` par libellé (le sommaire exclut les lignes detailOnly). */
+  const summaryRowForStructureIndex = (structRow: Record<string, unknown>): SummaryRow => {
     const sl = normLabel(String(structRow.label ?? ""))
-    const atIdx = data[i]
-    if (atIdx && normLabel(atIdx.label) === sl) return atIdx
     const found = data.find((r) => normLabel(r.label) === sl)
-    if (found) return found
-    return padSummaryRow(structRow)
+    const padded = padSummaryRow(structRow)
+    if (!found) return padded
+    const mergedIsBold =
+      typeof structRow.isBold === "boolean" ? structRow.isBold : !!found.isBold
+    return {
+      ...found,
+      isBold: mergedIsBold,
+      indent: indentForSummaryRow({
+        isBold: mergedIsBold,
+        isSection: found.isSection,
+        isResult: found.isResult,
+        indent:
+          typeof structRow.indent === "boolean"
+            ? structRow.indent
+            : typeof found.indent === "boolean"
+              ? found.indent
+              : undefined,
+      }),
+      separatorAbove:
+        structRow.separatorAbove !== undefined && structRow.separatorAbove !== null
+          ? isTruthySeparatorAbove(structRow.separatorAbove)
+          : !!found.separatorAbove,
+    }
   }
 
   if (loading || (seriesLoading && isMultiPeriodView && !isForecastSection) || entityDataLoading) {
@@ -556,17 +800,17 @@ export function IncomeStatementSummary({
   return (
     <div className={cn("w-full", dashboardCardFrameStaticClass)}>
       <div className={dashboardCardRingClass} aria-hidden />
-      <div className="relative">
+      <div className="relative w-full min-w-0">
       {/* Header */}
-      <div
-        className={cn("border-b px-6 py-5 sm:px-8", dashboardCardHeaderBarClass)}
-      >
+      <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
-            <div className={cn("mt-0.5 h-12 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
+          <div className="flex min-w-0 flex-1 items-start gap-4">
+            <div className={dashboardCardHeaderIconBoxClass}>
+              <LayoutList className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+            </div>
             <div className="min-w-0 flex-1">
               <div className="mb-1 flex flex-wrap items-center gap-2">
-                <h2 className={cn("text-xl", dashboardCardTitleClass)}>{title || "Sommaire"}</h2>
+                <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title || "Sommaire"}</h2>
                 {isStructureStudio && (
                   <Badge
                     variant="secondary"
@@ -581,8 +825,11 @@ export function IncomeStatementSummary({
                 <p className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
                   Ajustez les libellés. <span className="font-medium text-[#2A2F3A]">Masquer</span> retire la ligne du
                   sommaire et du détail (les totaux restent cohérents).{" "}
-                  <span className="font-medium text-[#2A2F3A]">Définir</span> expose la ligne au détail avec liaison et
-                  annexe — désactivé si la ligne est masquée. Enregistrez pour appliquer partout.
+                  <span className="font-medium text-[#2A2F3A]">Code</span> active la colonne liaison ;{" "}
+                  <span className="font-medium text-[#2A2F3A]">Liaison</span> définit le code ou la formule ;{" "}
+                  <span className="font-medium text-[#2A2F3A]">Annexe</span> l’affichage au détail ;{" "}
+                  <span className="font-medium text-[#2A2F3A]">Lettre</span> pour l’annexe. Enregistrez pour appliquer
+                  partout.
                 </p>
               ) : (
                 <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
@@ -629,10 +876,10 @@ export function IncomeStatementSummary({
               type="button"
               variant="outline"
               size="sm"
-              className="shrink-0 gap-2 border-slate-300 bg-white text-[#2A2F3A] transition-colors hover:border-slate-500 hover:bg-slate-50"
+              className={dashboardCardStructureSettingsButtonClass}
               onClick={() => setStructureEditMode(true)}
             >
-              <Settings className="h-4 w-4" />
+              <Settings className={cn("h-4 w-4", dashboardCardAccentClass)} />
               Paramètres
             </Button>
           )}
@@ -644,11 +891,48 @@ export function IncomeStatementSummary({
                   variant="ghost"
                   size="sm"
                   className="gap-1.5 rounded-xl text-[#2A2F3A] hover:bg-slate-100"
-                  disabled={!structEdit.chargeRange || structEdit.loading}
-                  onClick={() => structEdit.addChargeLine()}
+                  disabled={structEdit.loading}
+                  title="Insérer une ligne vide au-dessus ou en dessous d’un poste du sommaire"
+                  onClick={() => {
+                    if (spacerTargetPosts.length === 0) {
+                      structEdit.insertEmptySpacerAbove(0)
+                    } else {
+                      const first = spacerTargetPosts[0]!
+                      setAddSpaceTargetIdx(first.globalIdx)
+                      setAddSpacePlacement("above")
+                      setAddSpaceDialogOpen(true)
+                    }
+                  }}
+                >
+                  <PanelTop className={cn("h-4 w-4", dashboardCardAccentClass)} />
+                  Ajouter un espace
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 rounded-xl text-[#2A2F3A] hover:bg-slate-100"
+                  disabled={structEdit.loading}
+                  title="Choisir au-dessus de quel poste insérer le nouveau poste"
+                  onClick={() => {
+                    resetAddPostDialog()
+                    if (spacerTargetPosts.length === 0) {
+                      setAddPostAnchorIdx(0)
+                      setAddPostRefLabel("Début du sommaire")
+                      setAddPostStep("kind")
+                      setAddPostPresentationOnly(true)
+                    } else {
+                      const first = spacerTargetPosts[0]!
+                      setAddPostAnchorIdx(first.globalIdx)
+                      setAddPostRefLabel(first.label)
+                      setAddPostStep("anchor")
+                      setAddPostPresentationOnly(false)
+                    }
+                    setAddPostDialogOpen(true)
+                  }}
                 >
                   <Plus className={cn("h-4 w-4", dashboardCardAccentClass)} />
-                  Ajouter une ligne
+                  Ajouter un poste
                 </Button>
                 <Separator orientation="vertical" className="hidden h-7 sm:block" />
                 <Button
@@ -706,28 +990,25 @@ export function IncomeStatementSummary({
           {structEdit.error}
         </div>
       )}
-      {structureEditMode &&
-        canInlineStructureEdit &&
-        !structEdit.loading &&
-        structEdit.structure.length > 0 &&
-        !structEdit.chargeRange && (
-          <div className="border-b border-amber-200/90 bg-gradient-to-r from-amber-50 to-amber-50/30 px-6 py-3 text-sm text-amber-950 sm:px-8">
-            Structure inattendue : « {CHARGES_SECTION_LABEL} » ou « {TOTAL_CHARGES_LABEL} » introuvable.
-          </div>
-        )}
-
       {/* Table */}
-      <div className={cn("overflow-x-auto", isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white")}>
+      <div
+        className={cn(
+          "min-w-0 overflow-x-auto",
+          isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
+        )}
+      >
         <table
           className={cn(
-            "w-full",
+            "w-full min-w-full",
             showStructureCols && "table-fixed",
             isStructureStudio ? "border-separate border-spacing-0" : "border-collapse"
           )}
         >
             {showStructureCols && (
               <colgroup>
-                <col />
+                <col className="min-w-0" />
+                <col style={{ width: "7rem" }} />
+                <col style={{ width: "7rem" }} />
                 <col style={{ width: "7rem" }} />
                 <col style={{ width: "7rem" }} />
                 <col style={{ width: "7rem" }} />
@@ -747,7 +1028,10 @@ export function IncomeStatementSummary({
                 <th
                   className={cn(
                     "px-6 py-4 text-left text-sm font-semibold text-slate-900",
-                    !showStructureCols && "w-2/5",
+                    !showStructureCols &&
+                      (view === "12months"
+                        ? "min-w-[20rem] sm:min-w-[24rem] lg:min-w-[30rem]"
+                        : "w-2/5"),
                     showStructureCols && "min-w-0 pl-4 pr-3"
                   )}
                 >
@@ -768,6 +1052,23 @@ export function IncomeStatementSummary({
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                              <PanelTop className="h-4 w-4 text-slate-700" />
+                            </span>
+                            <span className="text-[11px] font-semibold leading-tight text-slate-800">
+                              Séparation
+                            </span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[240px] text-balance">
+                          Affiche une ligne de séparation au-dessus de cette ligne au sommaire.
+                        </TooltipContent>
+                      </Tooltip>
+                    </th>
+                    <th className="box-border w-[7rem] px-2 py-4 text-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex cursor-help flex-col items-center gap-1.5">
                             <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-300/80">
                               <EyeOff className="h-4 w-4 text-slate-600" />
                             </span>
@@ -777,7 +1078,7 @@ export function IncomeStatementSummary({
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[240px] text-balance">
-                          Masque la ligne au sommaire et au détail. Désactive « Définir » pour cette ligne.
+                          Masque la ligne au sommaire et au détail. Désactive Code et Annexe pour cette ligne.
                         </TooltipContent>
                       </Tooltip>
                     </th>
@@ -786,14 +1087,14 @@ export function IncomeStatementSummary({
                         <TooltipTrigger asChild>
                           <span className="inline-flex cursor-help flex-col items-center gap-1.5">
                             <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
-                              <Sparkles className="h-4 w-4 text-[#E0742D]" />
+                              <Hash className="h-4 w-4 text-[#E0742D]" />
                             </span>
-                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Définir</span>
+                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Code</span>
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[220px] text-balance">
-                          Active la liaison et l’annexe pour cette ligne (visible au détail). Indisponible si la ligne
-                          est masquée.
+                          Active la modification du code de liaison et de la lettre d’annexe. Indisponible si la ligne est
+                          masquée.
                         </TooltipContent>
                       </Tooltip>
                     </th>
@@ -807,8 +1108,24 @@ export function IncomeStatementSummary({
                             <span className="text-[11px] font-semibold leading-tight text-slate-800">Liaison</span>
                           </span>
                         </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[240px] text-balance">
+                          Liaison : n/a, code unique, somme de codes (addition) ou différence (numérateur −
+                          dénominateur) lorsque « Code » est coché.
+                        </TooltipContent>
+                      </Tooltip>
+                    </th>
+                    <th className="box-border w-[7rem] px-2 py-4 text-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+                              <Eye className="h-4 w-4 text-sky-600" />
+                            </span>
+                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Annexe</span>
+                          </span>
+                        </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[220px] text-balance">
-                          Code rattaché au poste lorsque « Définir » est coché.
+                          Affiche cette ligne au détail (avec liaison et lettre). Nécessite « Code » et une ligne visible.
                         </TooltipContent>
                       </Tooltip>
                     </th>
@@ -819,7 +1136,7 @@ export function IncomeStatementSummary({
                             <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
                               <BookMarked className="h-4 w-4 text-slate-600" />
                             </span>
-                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Annexe</span>
+                            <span className="text-[11px] font-semibold leading-tight text-slate-800">Lettre</span>
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[220px] text-balance">
@@ -835,7 +1152,7 @@ export function IncomeStatementSummary({
               )}
               {!showStructureCols && view === "comparison" && !isComparisonMode && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getCurrentColumnLabel()}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
                   {columnMode === "variations" ? (
                     <>
@@ -861,7 +1178,7 @@ export function IncomeStatementSummary({
               )}
               {!showStructureCols && view === "ddm" && !isComparisonMode && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getCurrentColumnLabel()}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
                   {columnMode === "variations" ? (
                     <>
@@ -950,10 +1267,22 @@ export function IncomeStatementSummary({
             </tr>
           </thead>
           <tbody>
+            {showStructureCols && tableRowCount === 0 && (
+              <tr>
+                <td
+                  colSpan={summaryTableColumnCount}
+                  className="px-6 py-10 text-center text-sm text-slate-500"
+                >
+                  Aucun poste dans la structure. Utilisez « Ajouter un poste » ou « Ajouter un espace » pour
+                  commencer.
+                </td>
+              </tr>
+            )}
             {Array.from({ length: tableRowCount }, (_, idx) => {
-              const structRow = showStructureCols ? structEdit.structure[idx]! : null
+              const globalIdx = showStructureCols ? structEdit.summaryStructureDisplayIndices[idx]! : -1
+              const structRow = showStructureCols ? structEdit.structure[globalIdx]! : null
               const row = showStructureCols
-                ? summaryRowForStructureIndex(idx, structRow!)
+                ? summaryRowForStructureIndex(structRow!)
                 : data[idx]!
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
@@ -969,48 +1298,65 @@ export function IncomeStatementSummary({
               const nextRow =
                 idx < tableRowCount - 1
                   ? showStructureCols
-                    ? summaryRowForStructureIndex(idx + 1, structEdit.structure[idx + 1]!)
+                    ? summaryRowForStructureIndex(
+                        structEdit.structure[structEdit.summaryStructureDisplayIndices[idx + 1]!]!
+                      )
                     : data[idx + 1]!
                   : null
               const nextRowLabel = nextRow?.label?.toLowerCase() || ""
-              // Séparation épaisse avant « Total des charges » : libellé suivant selon la structure en
-              // paramètres (sinon data[idx+1] est décalé tant que l’API n’a pas refetch).
-              const nextLabelForTotalCharges =
+              const nextLabelNorm =
                 idx < tableRowCount - 1
                   ? normLabel(
                       showStructureCols
-                        ? String(structEdit.structure[idx + 1]?.label ?? "")
+                        ? String(
+                            structEdit.structure[structEdit.summaryStructureDisplayIndices[idx + 1]!]?.label ??
+                              ""
+                          )
                         : String(data[idx + 1]?.label ?? "")
                     )
                   : ""
-              const separatesChargesFromTotal =
-                nextLabelForTotalCharges === normLabel(TOTAL_CHARGES_LABEL)
+              /** Bordure épaisse sous la ligne courante si la ligne suivante est un « résultat » clé — pas avant Total des charges / Bénéfice brut (séparation manuelle). */
               const nextRowIsKeyResult =
-                separatesChargesFromTotal ||
-                (nextRow &&
-                  ((nextRow.isResult && nextRowLabel !== "bénéfice avant impôts") ||
-                    nextRow.isNetIncome))
+                nextLabelNorm !== normLabel(TOTAL_CHARGES_LABEL) &&
+                nextLabelNorm !== normLabel("bénéfice brut") &&
+                !!nextRow &&
+                ((nextRow.isResult && nextRowLabel !== "bénéfice avant impôts") || nextRow.isNetIncome)
+              const rawSeparator =
+                showStructureCols && structRow ? structRow.separatorAbove : row.separatorAbove
+              const showSeparatorAbove = isTruthySeparatorAbove(rawSeparator)
 
               return (
-                <tr
-                  key={idx}
-                  className={cn(
-                    "border-b transition-colors duration-150",
-                    row.label === "" ? "h-2 border-slate-200" : "",
-                    nextRowIsKeyResult
-                      ? "border-slate-900 border-b-2"
-                      : showStructureCols
-                        ? "border-slate-200/80"
-                        : "border-slate-200",
-                    showStructureCols && row.label !== "" && "hover:bg-slate-100/70",
-                    showStructureCols && idx % 2 === 1 && row.label !== "" && "bg-slate-50/50",
-                    !showStructureCols && row.label !== "" && "hover:bg-slate-50/90"
+                <Fragment key={idx}>
+                  {showSeparatorAbove && (
+                    <tr aria-hidden>
+                      <td
+                        colSpan={summaryTableColumnCount}
+                        className="border-0 p-0 align-top leading-none border-t border-t-slate-600"
+                      />
+                    </tr>
                   )}
-                >
+                  <tr
+                    className={cn(
+                      "border-b transition-colors duration-150",
+                      row.label === "" ? "h-2 border-b border-b-slate-200" : "",
+                      nextRowIsKeyResult
+                        ? "border-b-2 border-b-slate-900"
+                        : showStructureCols
+                          ? "border-b border-b-slate-200/80"
+                          : "border-b border-b-slate-200",
+                      showStructureCols && row.label !== "" && "hover:bg-slate-100/70",
+                      showStructureCols && idx % 2 === 1 && row.label !== "" && "bg-slate-50/50",
+                      !showStructureCols && row.label !== "" && "hover:bg-slate-50/90"
+                    )}
+                  >
                   <td
                     className={cn(
-                      "min-w-0 py-3 align-middle",
-                      showStructureCols ? "px-3 pl-4" : "px-6",
+                      "py-3 align-middle",
+                      showStructureCols
+                        ? "min-w-0 px-3 pl-4"
+                        : view === "12months"
+                          ? "min-w-[20rem] sm:min-w-[24rem] lg:min-w-[30rem] px-6"
+                          : "min-w-0 px-6",
                       isBoldRow ? "font-bold text-slate-900" : "text-slate-700",
                       row.indent ? "pl-12" : "",
                       row.isMargin ? "italic" : "",
@@ -1025,7 +1371,7 @@ export function IncomeStatementSummary({
                       ) : (
                         <Input
                           value={String(structRow.label ?? "")}
-                          onChange={(e) => structEdit.updateRow(idx, { label: e.target.value })}
+                          onChange={(e) => structEdit.updateRow(globalIdx, { label: e.target.value })}
                           className={cn(
                             "h-9 w-full max-w-full rounded-xl border-slate-200/90 bg-white text-sm shadow-sm transition-shadow focus-visible:border-[#E0742D]/50 focus-visible:ring-2 focus-visible:ring-[#E0742D]/20",
                             isBoldRow ? "font-semibold" : "font-normal"
@@ -1047,30 +1393,65 @@ export function IncomeStatementSummary({
                               className={cn(
                                 "flex cursor-pointer items-center justify-center rounded-xl p-1.5 transition-colors",
                                 isStructureRowHidden(structRow)
-                                  ? "bg-slate-200/80 ring-2 ring-slate-400/35"
-                                  : "bg-slate-100/60 hover:bg-slate-200/60"
+                                  ? "cursor-not-allowed opacity-40"
+                                  : "cursor-pointer",
+                                !isStructureRowHidden(structRow) &&
+                                  showSeparatorAbove &&
+                                  "bg-slate-800/90 ring-2 ring-slate-900/40",
+                                !isStructureRowHidden(structRow) &&
+                                  !showSeparatorAbove &&
+                                  "bg-slate-100/60 hover:bg-slate-200/60"
                               )}
                             >
                               <Checkbox
-                                checked={isStructureRowHidden(structRow)}
+                                checked={showSeparatorAbove}
+                                disabled={isStructureRowHidden(structRow)}
                                 onCheckedChange={(v) => {
-                                  if (v === true) {
-                                    structEdit.updateRow(idx, {
-                                      hidden: true,
-                                      defineMapping: false,
-                                      linkCode: undefined,
-                                      annexLetter: undefined,
-                                    })
-                                  } else {
-                                    structEdit.updateRow(idx, { hidden: false })
-                                  }
+                                  if (isStructureRowHidden(structRow)) return
+                                  structEdit.updateRow(globalIdx, { separatorAbove: v === true })
                                 }}
-                                aria-label="Masquer la ligne au sommaire"
-                                className="border-slate-300 data-[state=checked]:border-slate-700 data-[state=checked]:bg-slate-700"
+                                aria-label="Séparation : trait au-dessus"
+                                className="border-slate-300 data-[state=checked]:border-slate-900 data-[state=checked]:bg-slate-900"
                               />
                             </label>
                           </div>
                         )}
+                      </td>
+                      <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+                        <div className="flex justify-center">
+                          <label
+                            className={cn(
+                              "flex cursor-pointer items-center justify-center rounded-xl p-1.5 transition-colors",
+                              isStructureRowHidden(structRow)
+                                ? "bg-slate-200/80 ring-2 ring-slate-400/35"
+                                : "bg-slate-100/60 hover:bg-slate-200/60"
+                            )}
+                          >
+                            <Checkbox
+                              checked={isStructureRowHidden(structRow)}
+                              onCheckedChange={(v) => {
+                                if (v === true) {
+                                  structEdit.updateRow(globalIdx, {
+                                    hidden: true,
+                                    defineMapping: false,
+                                    showInDetail: false,
+                                    linkCode: undefined,
+                                    annexLetter: undefined,
+                                    liaisonMode: undefined,
+                                    liaisonSumCodes: undefined,
+                                    liaisonNumeratorCodes: undefined,
+                                    liaisonDenominatorCodes: undefined,
+                                    separatorAbove: undefined,
+                                  })
+                                } else {
+                                  structEdit.updateRow(globalIdx, { hidden: false })
+                                }
+                              }}
+                              aria-label="Masquer la ligne au sommaire"
+                              className="border-slate-300 data-[state=checked]:border-slate-700 data-[state=checked]:bg-slate-700"
+                            />
+                          </label>
+                        </div>
                       </td>
                       <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
                         {isStructureRowEmptyLabel(structRow) ? (
@@ -1084,44 +1465,52 @@ export function IncomeStatementSummary({
                                   ? "cursor-not-allowed opacity-40"
                                   : "cursor-pointer",
                                 !isStructureRowHidden(structRow) &&
-                                  isDefineMappingChecked(structRow) &&
+                                  isCodeMappingEnabled(structRow) &&
                                   "bg-orange-50/90 ring-2 ring-[#E0742D]/35",
                                 !isStructureRowHidden(structRow) &&
-                                  !isDefineMappingChecked(structRow) &&
+                                  !isCodeMappingEnabled(structRow) &&
                                   "bg-slate-100/60 hover:bg-slate-200/60"
                               )}
                             >
                               <Checkbox
-                                checked={isDefineMappingChecked(structRow)}
+                                checked={isCodeMappingEnabled(structRow)}
                                 disabled={isStructureRowHidden(structRow)}
                                 onCheckedChange={(v) => {
                                   if (isStructureRowHidden(structRow)) return
                                   if (v === true) {
-                                    structEdit.updateRow(idx, { defineMapping: true })
+                                    structEdit.updateRow(globalIdx, {
+                                      defineMapping: true,
+                                      ...(normalizeLiaisonMode(structRow) === "na"
+                                        ? { liaisonMode: "single" }
+                                        : {}),
+                                    })
                                   } else {
-                                    structEdit.updateRow(idx, {
+                                    structEdit.updateRow(globalIdx, {
                                       defineMapping: false,
+                                      showInDetail: false,
                                       linkCode: undefined,
                                       annexLetter: undefined,
+                                      liaisonMode: undefined,
+                                      liaisonSumCodes: undefined,
+                                      liaisonNumeratorCodes: undefined,
+                                      liaisonDenominatorCodes: undefined,
                                     })
                                   }
                                 }}
-                                aria-label="Définir code de liaison et annexe"
+                                aria-label="Code : liaison et lettre modifiables"
                                 className="border-slate-300 data-[state=checked]:border-[#E0742D] data-[state=checked]:bg-[#E0742D]"
                               />
                             </label>
                           </div>
                         )}
                       </td>
-                      <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
-                        {isDefineMappingChecked(structRow) && !isStructureRowHidden(structRow) ? (
-                          <Input
-                            value={String(structRow.linkCode ?? "")}
-                            onChange={(e) =>
-                              structEdit.updateRow(idx, { linkCode: e.target.value || undefined })
-                            }
-                            placeholder="REV"
-                            className="h-9 w-full min-w-0 rounded-xl border-slate-200/90 bg-white px-2 font-mono text-xs shadow-sm focus-visible:border-[#E0742D]/50 focus-visible:ring-2 focus-visible:ring-[#E0742D]/20"
+                      <td className="box-border min-w-[8.5rem] max-w-[10rem] px-2 py-2.5 align-middle">
+                        {isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
+                          <IncomeStatementLiaisonCell
+                            structRow={structRow}
+                            rowIndex={globalIdx}
+                            allLinkCodes={allLiaisonCodes}
+                            updateRow={structEdit.updateRow}
                           />
                         ) : (
                           <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
@@ -1129,17 +1518,68 @@ export function IncomeStatementSummary({
                           </span>
                         )}
                       </td>
+                      <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+                        {isStructureRowEmptyLabel(structRow) ? (
+                          <span className="text-sm text-slate-300">—</span>
+                        ) : (
+                          <div className="flex justify-center">
+                            <label
+                              className={cn(
+                                "flex items-center justify-center rounded-xl p-1.5 transition-colors",
+                                isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)
+                                  ? "cursor-not-allowed opacity-40"
+                                  : "cursor-pointer",
+                                !isStructureRowHidden(structRow) &&
+                                  isCodeMappingEnabled(structRow) &&
+                                  isShowInDetail(structRow) &&
+                                  "bg-sky-50/90 ring-2 ring-sky-400/40",
+                                !isStructureRowHidden(structRow) &&
+                                  isCodeMappingEnabled(structRow) &&
+                                  !isShowInDetail(structRow) &&
+                                  "bg-slate-100/60 hover:bg-slate-200/60"
+                              )}
+                            >
+                              <Checkbox
+                                checked={isShowInDetail(structRow)}
+                                disabled={
+                                  isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)
+                                }
+                                onCheckedChange={(v) => {
+                                  if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
+                                  structEdit.updateRow(globalIdx, {
+                                    showInDetail: v === true,
+                                    ...(v === false ? { annexLetter: undefined } : {}),
+                                  })
+                                }}
+                                aria-label="Annexe : afficher au détail"
+                                className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"
+                              />
+                            </label>
+                          </div>
+                        )}
+                      </td>
                       <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
-                        {isDefineMappingChecked(structRow) && !isStructureRowHidden(structRow) ? (
+                        {isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
                           <Input
                             value={String(structRow.annexLetter ?? "")}
+                            disabled={!isAnnexLetterInputEditable(structRow)}
                             onChange={(e) =>
-                              structEdit.updateRow(idx, {
+                              structEdit.updateRow(globalIdx, {
                                 annexLetter: normalizeAnnexLetter(e.target.value) || undefined,
                               })
                             }
                             placeholder="A"
-                            className="h-9 w-full min-w-0 rounded-xl border-slate-200/90 bg-white px-2 text-center text-xs font-bold uppercase tracking-widest shadow-sm focus-visible:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-500/25"
+                            title={
+                              !isAnnexLetterInputEditable(structRow)
+                                ? "Activez « Annexe » pour saisir une lettre (inutile pour addition / soustraction)."
+                                : undefined
+                            }
+                            className={cn(
+                              "h-9 w-full min-w-0 rounded-xl border-slate-200/90 px-2 text-center text-xs font-bold uppercase tracking-widest shadow-sm focus-visible:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-500/25",
+                              isAnnexLetterInputEditable(structRow)
+                                ? "bg-white"
+                                : "cursor-not-allowed bg-slate-100/80 text-slate-400"
+                            )}
                             maxLength={8}
                           />
                         ) : (
@@ -1149,17 +1589,14 @@ export function IncomeStatementSummary({
                         )}
                       </td>
                       <td className="box-border w-11 px-0 py-2.5 align-middle">
-                        {structEdit.chargeRange &&
-                        idx >= structEdit.chargeRange.start &&
-                        idx < structEdit.chargeRange.end &&
-                        structEdit.chargeRange.end - structEdit.chargeRange.start > 1 ? (
+                        {structEdit.canRemoveRowAt(globalIdx) ? (
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
                             className="h-9 w-9 rounded-xl text-red-500 opacity-70 transition hover:bg-red-50 hover:text-red-600 hover:opacity-100"
                             title="Supprimer la ligne"
-                            onClick={() => structEdit.removeChargeLine(idx)}
+                            onClick={() => structEdit.removeStructureRowAt(globalIdx)}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -1453,6 +1890,7 @@ export function IncomeStatementSummary({
                     </>
                   )}
                 </tr>
+                </Fragment>
               )
             })}
           </tbody>
@@ -1465,6 +1903,463 @@ export function IncomeStatementSummary({
           Note: BAIIA = Bénéfice avant intérêts, impôts et amortissement
         </p>
       </div>
+
+      <Dialog
+        open={addSpaceDialogOpen}
+        onOpenChange={(open) => {
+          setAddSpaceDialogOpen(open)
+          if (!open) resetAddSpaceDialog()
+        }}
+      >
+        <DialogContent
+          showCloseButton
+          className="top-[max(0.75rem,env(safe-area-inset-top))] flex max-h-[calc(100dvh-1.5rem)] w-[min(100%,calc(100vw-1rem))] max-w-2xl translate-y-0 flex-col gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl shadow-slate-900/10 sm:max-w-2xl"
+        >
+          <div className="flex shrink-0 items-start gap-3 border-b border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 px-5 pb-4 pt-5 sm:px-6 sm:pb-5 sm:pt-6">
+            <div className={cn("mt-0.5 h-11 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
+            <DialogHeader className="min-w-0 flex-1 gap-0 space-y-2 text-left sm:text-left">
+              <div className="flex flex-wrap items-center gap-2">
+                <DialogTitle className={cn("text-lg", dashboardCardTitleClass)}>Ajouter un espace</DialogTitle>
+                <Badge
+                  variant="secondary"
+                  className="border border-slate-200 bg-slate-100/90 font-medium text-[#2A2F3A] shadow-none"
+                >
+                  <Sparkles className="h-3 w-3 text-[#E0742D]" />
+                  Sommaire
+                </Badge>
+              </div>
+              <DialogDescription className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
+                Indiquez si la ligne vide est insérée{" "}
+                <span className="font-medium text-[#2A2F3A]">au-dessus</span> ou{" "}
+                <span className="font-medium text-[#2A2F3A]">en dessous</span> d’un poste du sommaire, puis choisissez ce
+                poste.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6 sm:py-5">
+            <div className="flex flex-col gap-7">
+              <section className="space-y-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Position</p>
+                <RadioGroup
+                  value={addSpacePlacement}
+                  onValueChange={(v) => setAddSpacePlacement(v as "above" | "below")}
+                  className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+                >
+                  <Label
+                    htmlFor="space-placement-above"
+                    className={cn(
+                      "flex cursor-pointer gap-3 rounded-2xl border px-4 py-3.5 transition sm:px-5 sm:py-4",
+                      addSpacePlacement === "above"
+                        ? "border-[#E0742D]/45 bg-orange-50/50 shadow-sm ring-2 ring-[#E0742D]/20"
+                        : "border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/90"
+                    )}
+                  >
+                    <RadioGroupItem value="above" id="space-placement-above" className="mt-0.5 shrink-0" />
+                    <span className="min-w-0 leading-snug">
+                      <span className="block text-[15px] font-semibold text-[#2A2F3A]">Au-dessus</span>
+                      <span className={cn("mt-0.5 block text-[13px]", dashboardCardBodyMutedClass)}>
+                        Ligne vide placée avant le poste choisi.
+                      </span>
+                    </span>
+                  </Label>
+                  <Label
+                    htmlFor="space-placement-below"
+                    className={cn(
+                      "flex cursor-pointer gap-3 rounded-2xl border px-4 py-3.5 transition sm:px-5 sm:py-4",
+                      addSpacePlacement === "below"
+                        ? "border-[#E0742D]/45 bg-orange-50/50 shadow-sm ring-2 ring-[#E0742D]/20"
+                        : "border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/90"
+                    )}
+                  >
+                    <RadioGroupItem value="below" id="space-placement-below" className="mt-0.5 shrink-0" />
+                    <span className="min-w-0 leading-snug">
+                      <span className="block text-[15px] font-semibold text-[#2A2F3A]">En dessous</span>
+                      <span className={cn("mt-0.5 block text-[13px]", dashboardCardBodyMutedClass)}>
+                        Ligne vide placée après le poste choisi.
+                      </span>
+                    </span>
+                  </Label>
+                </RadioGroup>
+              </section>
+              <section className="space-y-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Poste de référence</p>
+                <Select
+                  value={addSpaceTargetIdx !== null ? String(addSpaceTargetIdx) : undefined}
+                  onValueChange={(v) => {
+                    const idx = Number.parseInt(v, 10)
+                    if (Number.isNaN(idx)) return
+                    setAddSpaceTargetIdx(idx)
+                  }}
+                >
+                  <SelectTrigger
+                    size="default"
+                    className="h-11 w-full max-w-none rounded-xl border-slate-200 bg-white px-4 text-left text-[#2A2F3A] shadow-sm"
+                  >
+                    <SelectValue placeholder="Choisir un poste du sommaire" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border-slate-200">
+                    {spacerTargetPosts.map(({ globalIdx, label }) => (
+                      <SelectItem key={globalIdx} value={String(globalIdx)} className="rounded-lg">
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </section>
+            </div>
+          </div>
+          <DialogFooter className="shrink-0 gap-3 border-t border-slate-200/90 bg-slate-50/80 px-5 py-4 sm:justify-end sm:px-6">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-xl border-slate-300 bg-white text-[#2A2F3A] hover:bg-slate-50"
+              onClick={() => setAddSpaceDialogOpen(false)}
+            >
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="rounded-xl bg-[#2A2F3A] px-4 font-semibold text-[#E6D6C3] shadow-sm transition hover:bg-[#353b47] disabled:opacity-60"
+              disabled={addSpaceTargetIdx === null}
+              onClick={() => {
+                if (addSpaceTargetIdx === null) return
+                if (addSpacePlacement === "above") {
+                  structEdit.insertEmptySpacerAbove(addSpaceTargetIdx)
+                } else {
+                  structEdit.insertEmptySpacerBelow(addSpaceTargetIdx)
+                }
+                setAddSpaceDialogOpen(false)
+                resetAddSpaceDialog()
+              }}
+            >
+              Insérer l&apos;espace
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={addPostDialogOpen}
+        onOpenChange={(open) => {
+          setAddPostDialogOpen(open)
+          if (!open) resetAddPostDialog()
+        }}
+      >
+        <DialogContent
+          showCloseButton
+          className="top-[max(0.75rem,env(safe-area-inset-top))] flex max-h-[calc(100dvh-1.5rem)] w-[min(100%,calc(100vw-1rem))] max-w-2xl translate-y-0 flex-col gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl shadow-slate-900/10 sm:max-w-2xl"
+        >
+          {/* En-tête aligné sur la carte Paramètres (barre d’accent, badge, titres) */}
+          <div className="flex shrink-0 items-start gap-3 border-b border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 px-5 pb-4 pt-5 sm:px-6 sm:pb-5 sm:pt-6">
+            <div className={cn("mt-0.5 h-11 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
+            <DialogHeader className="min-w-0 flex-1 gap-0 space-y-2 text-left sm:text-left">
+              <div className="flex flex-wrap items-center gap-2">
+                <DialogTitle className={cn("text-lg", dashboardCardTitleClass)}>
+                  {addPostStep === "anchor" ? "Ajouter un poste" : "Présentation du poste"}
+                </DialogTitle>
+                {!addPostPresentationOnly && (
+                  <Badge
+                    variant="secondary"
+                    className="border border-slate-200 bg-slate-100/90 font-medium text-[#2A2F3A] shadow-none"
+                  >
+                    <Sparkles className="h-3 w-3 text-[#E0742D]" />
+                    {addPostStep === "anchor" ? "Étape 1 · Emplacement" : "Étape 2 · Style"}
+                  </Badge>
+                )}
+              </div>
+              <DialogDescription
+                className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}
+              >
+                {addPostStep === "anchor" ? (
+                  <>
+                    Choisissez d’abord si le poste est inséré{" "}
+                    <span className="font-medium text-[#2A2F3A]">au-dessus</span> ou{" "}
+                    <span className="font-medium text-[#2A2F3A]">en dessous</span>, puis le poste de référence dans la
+                    liste.
+                  </>
+                ) : addPostPresentationOnly ? (
+                  <>Définissez le niveau et la typographie du poste au sommaire.</>
+                ) : (
+                  <>
+                    Le poste sera inséré{" "}
+                    {addPostPlacement === "above" ? "au-dessus" : "en dessous"} de «{" "}
+                    <span className="font-medium text-[#2A2F3A]">{addPostRefLabel}</span> ». Définissez son niveau au
+                    sommaire.
+                  </>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          {addPostStep === "anchor" ? (
+            <>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6 sm:py-5">
+                <div className="flex flex-col gap-7">
+                  <section className="space-y-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Position</p>
+                    <RadioGroup
+                      value={addPostPlacement}
+                      onValueChange={(v) => setAddPostPlacement(v as "above" | "below")}
+                      className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+                    >
+                      <Label
+                        htmlFor="post-placement-above"
+                        className={cn(
+                          "flex cursor-pointer gap-3 rounded-2xl border px-4 py-3.5 transition sm:px-5 sm:py-4",
+                          addPostPlacement === "above"
+                            ? "border-[#E0742D]/45 bg-orange-50/50 shadow-sm ring-2 ring-[#E0742D]/20"
+                            : "border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/90"
+                        )}
+                      >
+                        <RadioGroupItem value="above" id="post-placement-above" className="mt-0.5 shrink-0" />
+                        <span className="min-w-0 leading-snug">
+                          <span className="block text-[15px] font-semibold text-[#2A2F3A]">Au-dessus</span>
+                          <span className={cn("mt-0.5 block text-[13px]", dashboardCardBodyMutedClass)}>
+                            Le nouveau poste est placé avant le poste choisi.
+                          </span>
+                        </span>
+                      </Label>
+                      <Label
+                        htmlFor="post-placement-below"
+                        className={cn(
+                          "flex cursor-pointer gap-3 rounded-2xl border px-4 py-3.5 transition sm:px-5 sm:py-4",
+                          addPostPlacement === "below"
+                            ? "border-[#E0742D]/45 bg-orange-50/50 shadow-sm ring-2 ring-[#E0742D]/20"
+                            : "border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/90"
+                        )}
+                      >
+                        <RadioGroupItem value="below" id="post-placement-below" className="mt-0.5 shrink-0" />
+                        <span className="min-w-0 leading-snug">
+                          <span className="block text-[15px] font-semibold text-[#2A2F3A]">En dessous</span>
+                          <span className={cn("mt-0.5 block text-[13px]", dashboardCardBodyMutedClass)}>
+                            Le nouveau poste est placé après le poste choisi.
+                          </span>
+                        </span>
+                      </Label>
+                    </RadioGroup>
+                  </section>
+                  <section className="space-y-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Poste de référence</p>
+                    <Select
+                      value={addPostAnchorIdx !== null ? String(addPostAnchorIdx) : undefined}
+                      onValueChange={(v) => {
+                        const idx = Number.parseInt(v, 10)
+                        if (Number.isNaN(idx)) return
+                        const p = spacerTargetPosts.find((x) => x.globalIdx === idx)
+                        setAddPostAnchorIdx(idx)
+                        if (p) setAddPostRefLabel(p.label)
+                      }}
+                    >
+                      <SelectTrigger
+                        size="default"
+                        className="h-11 w-full max-w-none rounded-xl border-slate-200 bg-white px-4 text-left text-[#2A2F3A] shadow-sm"
+                      >
+                        <SelectValue placeholder="Choisir un poste du sommaire" />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl border-slate-200">
+                        {spacerTargetPosts.map(({ globalIdx, label }) => (
+                          <SelectItem key={globalIdx} value={String(globalIdx)} className="rounded-lg">
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </section>
+                </div>
+              </div>
+              <DialogFooter className="shrink-0 gap-3 border-t border-slate-200/90 bg-slate-50/80 px-5 py-4 sm:justify-end sm:px-6">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl border-slate-300 bg-white text-[#2A2F3A] hover:bg-slate-50"
+                  onClick={() => setAddPostDialogOpen(false)}
+                >
+                  Annuler
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="rounded-xl bg-[#2A2F3A] px-4 font-semibold text-[#E6D6C3] shadow-sm transition hover:bg-[#353b47] disabled:opacity-60"
+                  disabled={addPostAnchorIdx === null}
+                  onClick={() => {
+                    if (addPostAnchorIdx === null) return
+                    setAddPostStep("kind")
+                  }}
+                >
+                  Continuer
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6">
+                <div className="flex flex-col gap-7 sm:gap-8">
+                  {!addPostPresentationOnly && (
+                    <section className="space-y-2.5">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                        Poste de référence
+                      </p>
+                      <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-r from-slate-50/90 to-white px-4 py-3.5 shadow-sm sm:px-5 sm:py-4">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                          <span className="shrink-0 rounded-lg bg-white px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-slate-500 ring-1 ring-slate-200/80">
+                            {addPostPlacement === "above" ? "Inséré au-dessus de" : "Inséré en dessous de"}
+                          </span>
+                          <span className="min-w-0 flex-1 text-base font-semibold leading-snug text-[#2A2F3A]">
+                            {addPostRefLabel}
+                          </span>
+                        </div>
+                      </div>
+                    </section>
+                  )}
+
+                  {/* Choix principal / secondaire */}
+                  <section className="space-y-3.5">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                      Niveau au sommaire
+                    </p>
+                    <RadioGroup
+                      value={addPostRank}
+                      onValueChange={(v) => setAddPostRank(v as "primary" | "secondary")}
+                      className="flex flex-col gap-4"
+                    >
+                      <Label
+                        htmlFor="post-kind-primary"
+                        className={cn(
+                          "flex cursor-pointer gap-4 rounded-2xl border px-4 py-4 transition sm:px-5 sm:py-[1.125rem]",
+                          addPostRank === "primary"
+                            ? "border-[#E0742D]/45 bg-orange-50/50 shadow-sm ring-2 ring-[#E0742D]/20"
+                            : "border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/90"
+                        )}
+                      >
+                        <RadioGroupItem
+                          value="primary"
+                          id="post-kind-primary"
+                          className="mt-1.5 shrink-0 sm:mt-2"
+                        />
+                        <span className="flex min-w-0 flex-1 items-start gap-4">
+                          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-50 ring-1 ring-slate-200/80">
+                            <AlignLeft className="h-[1.125rem] w-[1.125rem] text-slate-600" />
+                          </span>
+                          <span className="min-w-0 space-y-1.5 pt-0.5 leading-snug">
+                            <span className="block text-[15px] font-semibold text-[#2A2F3A]">Poste principal</span>
+                            <span className={cn("block text-[13px] leading-relaxed", dashboardCardBodyMutedClass)}>
+                              Aligné à gauche, sans décalage (titres de section, totaux, etc.)
+                            </span>
+                          </span>
+                        </span>
+                      </Label>
+                      <Label
+                        htmlFor="post-kind-secondary"
+                        className={cn(
+                          "flex cursor-pointer gap-4 rounded-2xl border px-4 py-4 transition sm:px-5 sm:py-[1.125rem]",
+                          addPostRank === "secondary"
+                            ? "border-[#E0742D]/45 bg-orange-50/50 shadow-sm ring-2 ring-[#E0742D]/20"
+                            : "border-slate-200/90 bg-white hover:border-slate-300 hover:bg-slate-50/90"
+                        )}
+                      >
+                        <RadioGroupItem
+                          value="secondary"
+                          id="post-kind-secondary"
+                          className="mt-1.5 shrink-0 sm:mt-2"
+                        />
+                        <span className="flex min-w-0 flex-1 items-start gap-4">
+                          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-50 ring-1 ring-slate-200/80">
+                            <IndentIncrease className="h-[1.125rem] w-[1.125rem] text-slate-600" />
+                          </span>
+                          <span className="min-w-0 space-y-1.5 pt-0.5 leading-snug">
+                            <span className="block text-[15px] font-semibold text-[#2A2F3A]">Poste secondaire</span>
+                            <span className={cn("block text-[13px] leading-relaxed", dashboardCardBodyMutedClass)}>
+                              Décalé vers la droite (ex. frais de vente, frais financiers)
+                            </span>
+                          </span>
+                        </span>
+                      </Label>
+                    </RadioGroup>
+                  </section>
+
+                  {/* Option gras */}
+                  <section className="space-y-3">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Typographie</p>
+                    <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-br from-white to-slate-50/90 p-4 shadow-sm sm:p-5">
+                      <label className="flex cursor-pointer items-start gap-4">
+                        <Checkbox
+                          checked={addPostBold}
+                          onCheckedChange={(v) => setAddPostBold(v === true)}
+                          className="mt-0.5 shrink-0 border-slate-300 data-[state=checked]:border-[#2A2F3A] data-[state=checked]:bg-[#2A2F3A]"
+                        />
+                        <span className="min-w-0 space-y-1.5 text-[#2A2F3A]">
+                          <span className="block text-[15px] font-semibold">Mettre en gras</span>
+                          <span className={cn("block text-[13px] leading-relaxed", dashboardCardBodyMutedClass)}>
+                            Libellé en gras au sommaire une fois la structure enregistrée.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  </section>
+                </div>
+              </div>
+
+              <DialogFooter
+                className={cn(
+                  "shrink-0 gap-3 border-t border-slate-200/90 bg-slate-50/80 px-5 py-4 sm:px-6",
+                  !addPostPresentationOnly ? "sm:justify-between" : "sm:justify-end"
+                )}
+              >
+                {!addPostPresentationOnly && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 rounded-xl text-[#5C5F66] hover:bg-slate-100"
+                    onClick={() => setAddPostStep("anchor")}
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Retour
+                  </Button>
+                )}
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl border-slate-300 bg-white text-[#2A2F3A] hover:bg-slate-50"
+                    onClick={() => setAddPostDialogOpen(false)}
+                  >
+                    Annuler
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-xl bg-[#2A2F3A] px-4 font-semibold text-[#E6D6C3] shadow-sm transition hover:bg-[#353b47] disabled:opacity-60"
+                    disabled={addPostAnchorIdx === null}
+                    onClick={() => {
+                      if (addPostAnchorIdx === null) return
+                      const opts = {
+                        indent: addPostRank === "secondary",
+                        isBold: addPostBold,
+                      }
+                      if (addPostPresentationOnly) {
+                        structEdit.insertPostAbove(0, opts)
+                      } else if (addPostPlacement === "above") {
+                        structEdit.insertPostAbove(addPostAnchorIdx, opts)
+                      } else {
+                        structEdit.insertPostBelow(addPostAnchorIdx, opts)
+                      }
+                      setAddPostDialogOpen(false)
+                      resetAddPostDialog()
+                    }}
+                  >
+                    Ajouter le poste
+                  </Button>
+                </div>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
       </div>
     </div>
   )

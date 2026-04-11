@@ -389,7 +389,11 @@ export default function ContactPage() {
 
                         <p className="text-center text-xs text-[#5C5F66]/90">
                           En soumettant ce formulaire, vous acceptez que nous traitions vos données personnelles
-                          conformément à notre politique de confidentialité.
+                          conformément à notre{" "}
+                          <a href="/privacy" className="font-semibold text-[#E0742D] hover:underline">
+                            politique de confidentialité
+                          </a>
+                          .
                         </p>
                       </form>
                     )}

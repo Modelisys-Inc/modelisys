@@ -399,14 +399,31 @@ export default function CompanySettingsPage() {
                 >
                   <span
                     className={`text-sm font-normal transition-colors ${
-                      pathname?.includes("/mapping")
+                      pathname === `/settings/companies/${companyId}/mapping`
                         ? "text-slate-200"
                         : "text-slate-200 hover:text-[#E6D6C3]"
                     }`}
                   >
                     Mapping comptable
                   </span>
-                  {pathname?.includes("/mapping") && (
+                  {pathname === `/settings/companies/${companyId}/mapping` && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
+                  )}
+                </Link>
+                <Link
+                  href={`/settings/companies/${companyId}/link-codes`}
+                  className="relative pb-4 border-b border-slate-600/30"
+                >
+                  <span
+                    className={`text-sm font-normal transition-colors ${
+                      pathname === `/settings/companies/${companyId}/link-codes`
+                        ? "text-slate-200"
+                        : "text-slate-200 hover:text-[#E6D6C3]"
+                    }`}
+                  >
+                    Code de liaison
+                  </span>
+                  {pathname === `/settings/companies/${companyId}/link-codes` && (
                     <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
                   )}
                 </Link>
