@@ -15,15 +15,6 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export function middleware(request: NextRequest) {
-  const host = request.headers.get("host") || ""
-
-  // Redirect www to root domain
-  if (host.startsWith("www.")) {
-    const url = request.nextUrl.clone()
-    url.host = host.replace("www.", "")
-    return NextResponse.redirect(url, 301)
-  }
-
   const { pathname } = request.nextUrl
   const hasSession = request.cookies.get("has_session")?.value === "1"
 
