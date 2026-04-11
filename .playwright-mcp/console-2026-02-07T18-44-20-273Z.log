@@ -1,6 +1,0 @@
-[    1468ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
-
-Check the render method of `DashboardHeader`.  @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127
-[    1555ms] [ERROR] Each child in a list should have a unique "key" prop.%s%s See https://react.dev/link/warning-keys for more information. 
-
-Check the render method of `tbody`.  It was passed a child from WorkingCapitalDetail. @ http://localhost:3000/_next/static/chunks/9e52f_next_dist_f73321e8._.js:3127

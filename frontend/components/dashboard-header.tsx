@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment } from "react"
+import { Fragment, Suspense } from "react"
 import { Book, Settings, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
@@ -35,6 +35,23 @@ const portalNavigationItems = [
 ]
 
 export function DashboardHeader({ title = "Gestion Comptable", description }: DashboardHeaderProps) {
+  return (
+    <Suspense fallback={<DashboardHeaderSkeleton />}>
+      <DashboardHeaderInner title={title} description={description} />
+    </Suspense>
+  )
+}
+
+function DashboardHeaderSkeleton() {
+  return (
+    <header className="w-full border-b border-white/10 bg-[#2A2F3A]/92 backdrop-blur-md shadow-md">
+      <div className="w-full border-b border-white/10 px-6 py-0.5 h-9" />
+      <div className="w-full px-6 py-2 md:py-2.5 h-12" />
+    </header>
+  )
+}
+
+function DashboardHeaderInner({ title = "Gestion Comptable", description }: DashboardHeaderProps) {
   const { user } = useUser()
   const { companies } = useCompanies()
   const userName = user?.user.full_name ?? ""

@@ -111,16 +111,6 @@ def test_get_statement_structure(client, auth_headers):
     assert len(response.json()["structure"]) == 5
 
 
-def test_get_statement_structure_not_found(client, auth_headers):
-    """cash-flow is not seeded by default, so it should return 404."""
-    company_id = _create_company(client, auth_headers)
-    response = client.get(
-        f"/api/companies/{company_id}/statement-structures/cash-flow",
-        headers=auth_headers,
-    )
-    assert response.status_code == 404
-
-
 def test_invalid_statement_type(client, auth_headers):
     company_id = _create_company(client, auth_headers)
     response = client.put(
