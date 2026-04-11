@@ -19,8 +19,8 @@ export function middleware(request: NextRequest) {
 
   // Redirect www to root domain
   if (host.startsWith("www.")) {
-    const url = request.nextUrl.clone()
-    url.host = host.replace("www.", "")
+    const rootDomain = host.replace("www.", "")
+    const url = new URL(`https://${rootDomain}${request.nextUrl.pathname}${request.nextUrl.search}`)
     return NextResponse.redirect(url, 301)
   }
 
