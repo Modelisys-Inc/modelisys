@@ -112,16 +112,14 @@ export function TrialBalanceByGroup({
 
 
   return (
-    <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-      {/* Header */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
-        <div className="flex items-center gap-3">
-          <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">{displayTitle}</h2>
-            <p className="text-sm text-slate-600">
-              {displayDescription}
-            </p>
+    <div className="w-full overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
+      {/* En-tête — aligné sur la carte Notes (year-end) */}
+      <div className="border-b border-slate-200/90 bg-gradient-to-r from-white to-slate-50/80 px-6 py-4 sm:px-8">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="mt-0.5 h-10 w-1 shrink-0 rounded-full bg-[#E0742D]" aria-hidden />
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold tracking-tight text-[#2A2F3A] sm:text-xl">{displayTitle}</h2>
+            <p className="mt-0.5 text-sm leading-relaxed text-slate-600">{displayDescription}</p>
           </div>
         </div>
       </div>
@@ -150,9 +148,9 @@ export function TrialBalanceByGroup({
             const isGroupExpanded = expandedGroups.has(group.id)
 
             return (
-              <Card key={group.id} className="border-slate-200 shadow-sm">
+              <Card key={group.id} className="border-slate-200/90 shadow-sm">
                 <CardHeader
-                  className="cursor-pointer hover:bg-slate-50 transition-colors"
+                  className="cursor-pointer transition-colors hover:bg-slate-50"
                   onClick={() => toggleGroup(group.id)}
                 >
                   <div className="flex items-center justify-between">

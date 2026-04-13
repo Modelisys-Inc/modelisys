@@ -9,6 +9,7 @@ import { EntitySelector } from "@/components/entity-selector"
 import { useCompanies } from "@/hooks/use-companies"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { findRow } from "@/lib/series-utils"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 import { listCompanies, type Company as ApiCompany } from "@/lib/api"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
@@ -253,15 +254,15 @@ export default function ProductMarginPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="courant">Courant</SelectItem>
-                    <SelectItem value="trimestriel">Trimestriel</SelectItem>
+                    <SelectItem value="courant">{HORIZON_LABEL.moisActuel}</SelectItem>
+                    <SelectItem value="trimestriel">{HORIZON_LABEL.trimestreActuel}</SelectItem>
                     <SelectItem value="annuel">Annuel</SelectItem>
-                    <SelectItem value="ytd">YTD</SelectItem>
-                    <SelectItem value="ddm">DDM</SelectItem>
-                    <SelectItem value="12mois">12 mois</SelectItem>
+                    <SelectItem value="ytd">{HORIZON_LABEL.ytd}</SelectItem>
+                    <SelectItem value="ddm">{HORIZON_LABEL.ddm}</SelectItem>
+                    <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
                     <SelectItem value="24mois">24 mois</SelectItem>
-                    <SelectItem value="trimestres">Trimestres</SelectItem>
-                    <SelectItem value="annees">Années</SelectItem>
+                    <SelectItem value="trimestres">{HORIZON_LABEL.trimestriel2Ans}</SelectItem>
+                    <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

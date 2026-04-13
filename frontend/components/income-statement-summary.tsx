@@ -9,6 +9,7 @@ import {
   type FinancialStatementSeriesParams,
   type FinancialStatementRow,
 } from "@/lib/api"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { reverseSeriesOrderForDisplay } from "@/lib/series-utils"
 import {
@@ -70,6 +71,7 @@ import {
   Link2,
   Loader2,
   PanelTop,
+  Pencil,
   Plus,
   Settings,
   Sparkles,
@@ -182,6 +184,7 @@ export function IncomeStatementSummary({
   /** Sommaire sans aucun poste « ancrable » : modale limitée à l’écran Présentation (pas d’étape Emplacement). */
   const [addPostPresentationOnly, setAddPostPresentationOnly] = useState(false)
   const [addPostPlacement, setAddPostPlacement] = useState<"above" | "below">("above")
+  const [editingPostGlobalIdx, setEditingPostGlobalIdx] = useState<number | null>(null)
   const isForecastSection = title === "États des résultats pro forma"
 
   const resetAddPostDialog = () => {
@@ -192,6 +195,7 @@ export function IncomeStatementSummary({
     setAddPostBold(false)
     setAddPostPresentationOnly(false)
     setAddPostPlacement("above")
+    setEditingPostGlobalIdx(null)
   }
 
   const resetAddSpaceDialog = () => {
@@ -408,6 +412,17 @@ export function IncomeStatementSummary({
     () => collectDistinctLinkCodesFromStructure(structEdit.structure),
     [structEdit.structure]
   )
+
+  const beginEditPostPresentation = (globalIdx: number) => {
+    const r = structEdit.structure[globalIdx]
+    if (!r || isStructureRowEmptyLabel(r)) return
+    setEditingPostGlobalIdx(globalIdx)
+    setAddPostRank(typeof r.indent === "boolean" && r.indent ? "secondary" : "primary")
+    setAddPostBold(r.isBold === true)
+    setAddPostStep("kind")
+    setAddPostPresentationOnly(false)
+    setAddPostDialogOpen(true)
+  }
 
   // Get entities to compare
   let entitiesToCompare: Array<{ id: string; name: string }> = []
@@ -672,11 +687,11 @@ export function IncomeStatementSummary({
       return getCurrentColumnLabel()
     }
     if (view === "ddm") return "DDM"
-    if (view === "12months") return "12 mois"
+    if (view === "12months") return HORIZON_LABEL.mensuel
     if (view === "24months") return "24 mois"
-    if (view === "quarters") return "Trimestres"
-    if (view === "years") return "Années"
-    return "Courant"
+    if (view === "quarters") return HORIZON_LABEL.trimestriel2Ans
+    if (view === "years") return HORIZON_LABEL.annuel5Ans
+    return HORIZON_LABEL.moisActuel
   }
 
   const trendLen = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
@@ -1013,7 +1028,7 @@ export function IncomeStatementSummary({
                 <col style={{ width: "7rem" }} />
                 <col style={{ width: "7rem" }} />
                 <col style={{ width: "7rem" }} />
-                <col style={{ width: "2.75rem" }} />
+                <col style={{ width: "5.5rem" }} />
               </colgroup>
             )}
             <thead>
@@ -1144,7 +1159,9 @@ export function IncomeStatementSummary({
                         </TooltipContent>
                       </Tooltip>
                     </th>
-                    <th className="box-border w-11 px-0 py-4" aria-label="Actions" />
+                    <th className="px-6 py-4 text-center text-sm font-semibold text-slate-900 min-w-[5.5rem]">
+                      Actions
+                    </th>
                   </>
                 )}
               {!showStructureCols && view === "current" && (
@@ -1588,19 +1605,33 @@ export function IncomeStatementSummary({
                           </span>
                         )}
                       </td>
-                      <td className="box-border w-11 px-0 py-2.5 align-middle">
-                        {structEdit.canRemoveRowAt(globalIdx) ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-9 w-9 rounded-xl text-red-500 opacity-70 transition hover:bg-red-50 hover:text-red-600 hover:opacity-100"
-                            title="Supprimer la ligne"
-                            onClick={() => structEdit.removeStructureRowAt(globalIdx)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        ) : null}
+                      <td className="px-2 py-2 text-center align-middle">
+                        <div className="flex items-center justify-center gap-0.5">
+                          {!isStructureRowEmptyLabel(structRow) ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-slate-400 hover:text-[#E0742D]"
+                              title="Modifier le poste (niveau, gras)"
+                              onClick={() => beginEditPostPresentation(globalIdx)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+                          {structEdit.canRemoveRowAt(globalIdx) ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-slate-400 hover:text-red-600"
+                              title="Supprimer la ligne"
+                              onClick={() => structEdit.removeStructureRowAt(globalIdx)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+                        </div>
                       </td>
                     </>
                   )}
@@ -2057,16 +2088,30 @@ export function IncomeStatementSummary({
             <DialogHeader className="min-w-0 flex-1 gap-0 space-y-2 text-left sm:text-left">
               <div className="flex flex-wrap items-center gap-2">
                 <DialogTitle className={cn("text-lg", dashboardCardTitleClass)}>
-                  {addPostStep === "anchor" ? "Ajouter un poste" : "Présentation du poste"}
+                  {editingPostGlobalIdx !== null
+                    ? "Modifier le poste"
+                    : addPostStep === "anchor"
+                      ? "Ajouter un poste"
+                      : "Présentation du poste"}
                 </DialogTitle>
-                {!addPostPresentationOnly && (
+                {editingPostGlobalIdx !== null ? (
                   <Badge
                     variant="secondary"
                     className="border border-slate-200 bg-slate-100/90 font-medium text-[#2A2F3A] shadow-none"
                   >
                     <Sparkles className="h-3 w-3 text-[#E0742D]" />
-                    {addPostStep === "anchor" ? "Étape 1 · Emplacement" : "Étape 2 · Style"}
+                    Modification
                   </Badge>
+                ) : (
+                  !addPostPresentationOnly && (
+                    <Badge
+                      variant="secondary"
+                      className="border border-slate-200 bg-slate-100/90 font-medium text-[#2A2F3A] shadow-none"
+                    >
+                      <Sparkles className="h-3 w-3 text-[#E0742D]" />
+                      {addPostStep === "anchor" ? "Étape 1 · Emplacement" : "Étape 2 · Style"}
+                    </Badge>
+                  )
                 )}
               </div>
               <DialogDescription
@@ -2078,6 +2123,14 @@ export function IncomeStatementSummary({
                     <span className="font-medium text-[#2A2F3A]">au-dessus</span> ou{" "}
                     <span className="font-medium text-[#2A2F3A]">en dessous</span>, puis le poste de référence dans la
                     liste.
+                  </>
+                ) : editingPostGlobalIdx !== null ? (
+                  <>
+                    Ajustez le niveau au sommaire et la typographie pour «{" "}
+                    <span className="font-medium text-[#2A2F3A]">
+                      {String(structEdit.structure[editingPostGlobalIdx]?.label ?? "").trim() || "—"}
+                    </span>
+                    ».
                   </>
                 ) : addPostPresentationOnly ? (
                   <>Définissez le niveau et la typographie du poste au sommaire.</>
@@ -2305,10 +2358,10 @@ export function IncomeStatementSummary({
               <DialogFooter
                 className={cn(
                   "shrink-0 gap-3 border-t border-slate-200/90 bg-slate-50/80 px-5 py-4 sm:px-6",
-                  !addPostPresentationOnly ? "sm:justify-between" : "sm:justify-end"
+                  !addPostPresentationOnly && editingPostGlobalIdx === null ? "sm:justify-between" : "sm:justify-end"
                 )}
               >
-                {!addPostPresentationOnly && (
+                {!addPostPresentationOnly && editingPostGlobalIdx === null && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -2334,8 +2387,17 @@ export function IncomeStatementSummary({
                     type="button"
                     size="sm"
                     className="rounded-xl bg-[#2A2F3A] px-4 font-semibold text-[#E6D6C3] shadow-sm transition hover:bg-[#353b47] disabled:opacity-60"
-                    disabled={addPostAnchorIdx === null}
+                    disabled={editingPostGlobalIdx === null && addPostAnchorIdx === null}
                     onClick={() => {
+                      if (editingPostGlobalIdx !== null) {
+                        structEdit.updateRow(editingPostGlobalIdx, {
+                          indent: addPostRank === "secondary",
+                          isBold: addPostBold,
+                        })
+                        setAddPostDialogOpen(false)
+                        resetAddPostDialog()
+                        return
+                      }
                       if (addPostAnchorIdx === null) return
                       const opts = {
                         indent: addPostRank === "secondary",
@@ -2352,7 +2414,7 @@ export function IncomeStatementSummary({
                       resetAddPostDialog()
                     }}
                   >
-                    Ajouter le poste
+                    {editingPostGlobalIdx !== null ? "Enregistrer" : "Ajouter le poste"}
                   </Button>
                 </div>
               </DialogFooter>

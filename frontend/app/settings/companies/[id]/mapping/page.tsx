@@ -22,15 +22,13 @@ import {
   type SubDivision,
 } from "@/lib/api"
 import {
-  collectDistinctLinkCodesFromStructure,
   dtCtDisplayForAccountLinkCode,
-  groupeDisplayForAccountLinkCode,
-  LINK_CODE_PROVENANCE_RESULTATS,
-  mapLinkCodesToDetailLabels,
-  mapLinkCodesToDtCt,
-  mapLinkCodesToGroupeLinkCodes,
-  mapLinkCodesToSummaryLabels,
+  groupeDisplayForAccountMappingTable,
 } from "@/lib/income-statement-structure-utils"
+import {
+  buildLinkCodeReferenceFromStructures,
+  provenanceLabelFromLinkCodes,
+} from "@/lib/link-code-reference"
 import { cn } from "@/lib/utils"
 import {
   dashboardCardFrameStaticClass,
@@ -125,14 +123,6 @@ function derivedEfFieldsFromLinkCode(
   }
 }
 
-/** Aligné sur la page Code de liaison : Résultats si le code figure dans la structure du compte de résultat. */
-function provenanceFromLinkCode(linkCode: string | undefined, incomeStatementCodes: Set<string>): string {
-  const lc = linkCode?.trim()
-  if (!lc) return "0"
-  if (incomeStatementCodes.has(lc)) return LINK_CODE_PROVENANCE_RESULTATS
-  return "0"
-}
-
 function boolSearchText(v: boolean | undefined): string {
   return v ? "oui coché" : "non décoché"
 }
@@ -164,8 +154,6 @@ type MappingSearchScope =
   | "detailEf"
   | "divisions"
   | "subDivisions"
-  | "interests"
-  | "amortization"
   | "variableCosts"
   | "fixedCosts"
   | "interco"
@@ -182,8 +170,6 @@ const MAPPING_SEARCH_SCOPE_OPTIONS: { value: MappingSearchScope; label: string }
   { value: "detailEf", label: "Détail" },
   { value: "divisions", label: "Divisions" },
   { value: "subDivisions", label: "S-division" },
-  { value: "interests", label: "Intérêts" },
-  { value: "amortization", label: "Amort." },
   { value: "variableCosts", label: "CV" },
   { value: "fixedCosts", label: "CF" },
   { value: "interco", label: "Interco" },
@@ -225,6 +211,7 @@ export default function CompanyMappingPage() {
   const [incomeStatementStructure, setIncomeStatementStructure] = useState<
     Record<string, unknown>[] | null
   >(null)
+  const [balanceSheetStructure, setBalanceSheetStructure] = useState<Record<string, unknown>[] | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [importModalStep, setImportModalStep] = useState<"file" | "confirm">("file")
   const [pendingImportEntries, setPendingImportEntries] = useState<
@@ -318,35 +305,43 @@ export default function CompanyMappingPage() {
 
   useEffect(() => {
     if (!companyId) return
-    getStatementStructure(companyId, "income-statement")
-      .then((d) => setIncomeStatementStructure(d.structure))
-      .catch(() => setIncomeStatementStructure([]))
+    Promise.all([
+      getStatementStructure(companyId, "income-statement")
+        .then((d) => d.structure)
+        .catch(() => [] as Record<string, unknown>[]),
+      getStatementStructure(companyId, "balance-sheet")
+        .then((d) => d.structure)
+        .catch(() => [] as Record<string, unknown>[]),
+    ]).then(([is, bs]) => {
+      setIncomeStatementStructure(is)
+      setBalanceSheetStructure(bs)
+    })
   }, [companyId])
 
-  const summaryEfByLinkCode = useMemo(() => {
-    if (!incomeStatementStructure?.length) return new Map<string, string>()
-    return mapLinkCodesToSummaryLabels(incomeStatementStructure)
-  }, [incomeStatementStructure])
+  const linkCodeReference = useMemo(
+    () =>
+      buildLinkCodeReferenceFromStructures(
+        incomeStatementStructure ?? [],
+        balanceSheetStructure ?? []
+      ),
+    [incomeStatementStructure, balanceSheetStructure]
+  )
 
-  const detailEfByLinkCode = useMemo(() => {
-    if (!incomeStatementStructure?.length) return new Map<string, string>()
-    return mapLinkCodesToDetailLabels(incomeStatementStructure, { includeAnnexPrefix: false })
-  }, [incomeStatementStructure])
+  const {
+    incomeStatementCodes,
+    balanceSheetCodes,
+    summaryEfByLinkCode,
+    detailEfByLinkCode,
+    groupeByLinkCode,
+    dtCtByLinkCode,
+  } = linkCodeReference
 
-  const incomeStatementLinkCodes = useMemo(() => {
-    if (!incomeStatementStructure?.length) return new Set<string>()
-    return new Set(collectDistinctLinkCodesFromStructure(incomeStatementStructure))
-  }, [incomeStatementStructure])
-
-  const groupeByLinkCode = useMemo(() => {
-    if (!incomeStatementStructure?.length) return new Map<string, string>()
-    return mapLinkCodesToGroupeLinkCodes(incomeStatementStructure)
-  }, [incomeStatementStructure])
-
-  const dtCtByLinkCode = useMemo(() => {
-    if (!incomeStatementStructure?.length) return new Map<string, "DT" | "CT">()
-    return mapLinkCodesToDtCt(incomeStatementStructure)
-  }, [incomeStatementStructure])
+  const mappingIncompleteGroupeCount = useMemo(() => {
+    return accounts.filter(
+      (a) =>
+        groupeDisplayForAccountMappingTable(a.linkCode, groupeByLinkCode) === "Mapping incomplet",
+    ).length
+  }, [accounts, groupeByLinkCode])
 
   const filteredAccounts = useMemo(() => {
     const q = mappingSearch.trim().toLowerCase()
@@ -354,10 +349,10 @@ export default function CompanyMappingPage() {
     const scope = mappingSearchScope
 
     return accounts.filter((account) => {
-      const provenance = provenanceFromLinkCode(account.linkCode, incomeStatementLinkCodes)
+      const provenance = provenanceLabelFromLinkCodes(account.linkCode, incomeStatementCodes, balanceSheetCodes)
       const sum = efLabelFromLinkCode(account.linkCode, summaryEfByLinkCode)
       const det = efLabelFromLinkCode(account.linkCode, detailEfByLinkCode)
-      const groupeLabel = groupeDisplayForAccountLinkCode(account.linkCode, groupeByLinkCode)
+      const groupeLabel = groupeDisplayForAccountMappingTable(account.linkCode, groupeByLinkCode)
       const dtCtLabel = dtCtDisplayForAccountLinkCode(account.linkCode, dtCtByLinkCode)
       const intercoLabel = account.interco
         ? allCompanies.find((c) => c.id === account.interco)?.name ?? account.interco
@@ -374,8 +369,6 @@ export default function CompanyMappingPage() {
           det,
           account.divisions,
           account.subDivisions,
-          boolSearchText(account.interests),
-          boolSearchText(account.amortization),
           boolSearchText(account.variableCosts),
           boolSearchText(account.fixedCosts),
           intercoLabel,
@@ -428,7 +421,8 @@ export default function CompanyMappingPage() {
     accounts,
     mappingSearch,
     mappingSearchScope,
-    incomeStatementLinkCodes,
+    incomeStatementCodes,
+    balanceSheetCodes,
     groupeByLinkCode,
     dtCtByLinkCode,
     summaryEfByLinkCode,
@@ -669,14 +663,16 @@ export default function CompanyMappingPage() {
                       </p>
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    onClick={() => setShowImportModal(true)}
-                    className="h-9 shrink-0 gap-2 rounded-xl bg-[#E0742D] px-4 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#c96526] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E0742D]/30 focus-visible:ring-offset-2"
-                  >
-                    <Upload className="h-4 w-4" />
-                    Importer Excel
-                  </Button>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      onClick={() => setShowImportModal(true)}
+                      className="h-9 shrink-0 gap-2 rounded-xl bg-[#E0742D] px-4 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#c96526] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E0742D]/30 focus-visible:ring-offset-2"
+                    >
+                      <Upload className="h-4 w-4" />
+                      Importer Excel
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -723,6 +719,17 @@ export default function CompanyMappingPage() {
                   </Select>
                 </div>
               </div>
+              {accounts.length > 0 && mappingIncompleteGroupeCount > 0 && (
+                <p className="mt-3 rounded-lg border border-amber-200/90 bg-amber-50/90 px-3 py-2 text-sm text-amber-950">
+                  <span className="font-semibold">Mapping comptable non terminé.</span>{" "}
+                  {mappingIncompleteGroupeCount === 1
+                    ? "Un compte a un code de liaison sans groupe identifiable"
+                    : `${mappingIncompleteGroupeCount} comptes ont un code de liaison sans groupe identifiable`}
+                  {" "}
+                  (colonne Groupe). Complétez les structures compte de résultat et bilan (Sommaire / liaisons) dans
+                  Mapping états financiers pour affecter un groupe à ces codes.
+                </p>
+              )}
               {mappingSearch.trim() && accounts.length > 0 && (
                 <p className="mt-2 text-xs text-slate-500">
                   {mappingSearchScope !== "all" && (
@@ -758,8 +765,6 @@ export default function CompanyMappingPage() {
                     <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Détail</th>
                     <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Divisions</th>
                     <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">S-division</th>
-                    <th className="px-6 py-4 text-center font-semibold text-slate-900 text-sm">Intérêts</th>
-                    <th className="px-6 py-4 text-center font-semibold text-slate-900 text-sm">Amort.</th>
                     <th className="px-6 py-4 text-center font-semibold text-slate-900 text-sm">CV</th>
                     <th className="px-6 py-4 text-center font-semibold text-slate-900 text-sm">CF</th>
                     <th className="px-3 py-4 text-center font-semibold text-slate-900 text-sm w-[7rem] max-w-[7rem]">
@@ -773,13 +778,13 @@ export default function CompanyMappingPage() {
                 <tbody>
                   {accounts.length === 0 ? (
                     <tr>
-                      <td colSpan={16} className="px-8 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={14} className="px-8 py-12 text-center text-sm text-slate-500">
                         <p>Aucun compte configuré. Importez votre balance de vérification pour commencer.</p>
                       </td>
                     </tr>
                   ) : filteredAccounts.length === 0 ? (
                     <tr>
-                      <td colSpan={16} className="px-8 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={14} className="px-8 py-12 text-center text-sm text-slate-500">
                         <p>Aucun compte ne correspond à votre recherche.</p>
                       </td>
                     </tr>
@@ -791,8 +796,24 @@ export default function CompanyMappingPage() {
                         <td className="px-6 py-4 text-sm font-mono text-slate-600">
                           {dtCtDisplayForAccountLinkCode(account.linkCode, dtCtByLinkCode)}
                         </td>
-                        <td className="px-6 py-4 text-sm font-mono text-slate-600">
-                          {groupeDisplayForAccountLinkCode(account.linkCode, groupeByLinkCode)}
+                        <td className="px-6 py-4 text-sm text-slate-600">
+                          {(() => {
+                            const g = groupeDisplayForAccountMappingTable(
+                              account.linkCode,
+                              groupeByLinkCode,
+                            )
+                            if (g === "Mapping incomplet") {
+                              return (
+                                <span
+                                  className="font-medium text-amber-800"
+                                  title="Aucun groupe n’est déductible pour ce code : le mapping comptable n’est pas terminé."
+                                >
+                                  Mapping incomplet
+                                </span>
+                              )
+                            }
+                            return <span className="font-mono">{g}</span>
+                          })()}
                         </td>
                         <td className="px-6 py-2 align-middle">
                           {editingLinkCodeAccountNumber === account.accountNumber ? (
@@ -822,7 +843,7 @@ export default function CompanyMappingPage() {
                           )}
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600">
-                          {provenanceFromLinkCode(account.linkCode, incomeStatementLinkCodes)}
+                          {provenanceLabelFromLinkCodes(account.linkCode, incomeStatementCodes, balanceSheetCodes)}
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600">
                           {efLabelFromLinkCode(account.linkCode, summaryEfByLinkCode)}
@@ -901,36 +922,6 @@ export default function CompanyMappingPage() {
                               </Select>
                             )
                           })()}
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <input
-                            type="checkbox"
-                            className="w-4 h-4 text-emerald-500 rounded border-slate-300"
-                            checked={account.interests || false}
-                            onChange={(e) => {
-                              const i = accounts.findIndex((a) => a.accountNumber === account.accountNumber)
-                              if (i < 0) return
-                              const updatedAccounts = [...accounts]
-                              updatedAccounts[i] = { ...updatedAccounts[i], interests: e.target.checked }
-                              setAccounts(updatedAccounts)
-                              saveAccounts(updatedAccounts)
-                            }}
-                          />
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <input
-                            type="checkbox"
-                            className="w-4 h-4 text-emerald-500 rounded border-slate-300"
-                            checked={account.amortization || false}
-                            onChange={(e) => {
-                              const i = accounts.findIndex((a) => a.accountNumber === account.accountNumber)
-                              if (i < 0) return
-                              const updatedAccounts = [...accounts]
-                              updatedAccounts[i] = { ...updatedAccounts[i], amortization: e.target.checked }
-                              setAccounts(updatedAccounts)
-                              saveAccounts(updatedAccounts)
-                            }}
-                          />
                         </td>
                         <td className="px-6 py-4 text-center">
                           <input

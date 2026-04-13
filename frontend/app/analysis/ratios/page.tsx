@@ -9,6 +9,7 @@ import { EntitySelector } from "@/components/entity-selector"
 import { useCompanies } from "@/hooks/use-companies"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { listCompanies, type Company as ApiCompany } from "@/lib/api"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -191,9 +192,9 @@ export default function RatiosPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="12mois">12 mois</SelectItem>
+                    <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
                     <SelectItem value="24mois">24 mois</SelectItem>
-                    <SelectItem value="annees">Années</SelectItem>
+                    <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

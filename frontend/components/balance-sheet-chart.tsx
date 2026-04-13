@@ -6,7 +6,9 @@ import { Company } from "@/components/entity-selector"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { ComposedChart, Line, Bar, Area, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ChevronDown, TrendingUp, TrendingDown } from "lucide-react"
+import { BarChart3, ChevronDown, TrendingUp, TrendingDown } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { dashboardCardFrameClass, dashboardCardRingClass } from "@/lib/dashboard-card-style"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import {
   aggregateToQuarters,
@@ -16,6 +18,7 @@ import {
   getRowAmounts,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
+import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 
 export interface BalanceSheetChartDataPoint {
   period: string
@@ -42,6 +45,9 @@ interface BalanceSheetChartProps {
 }
 
 type ChartViewType = "assets_liabilities_equity" | "current_noncurrent" | "debt_equity_ratio"
+
+const dashboardStyleCard = cn(dashboardCardFrameClass, "z-10 transition-all duration-500 ease-out")
+const dashboardStyleCardAccent = dashboardCardRingClass
 
 export function BalanceSheetChart({
   period,
@@ -168,8 +174,9 @@ export function BalanceSheetChart({
   // Loading state
   if (effectiveLoading) {
     return (
-      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      <div className={cn("relative mb-6 flex h-64 items-center justify-center", dashboardStyleCard)}>
+        <div className={dashboardStyleCardAccent} aria-hidden />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#E0742D]" />
       </div>
     )
   }
@@ -177,8 +184,9 @@ export function BalanceSheetChart({
   // Empty state
   if (!effectiveChartData || effectiveChartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
-        <p className="text-slate-400">Aucune donnée disponible</p>
+      <div className={cn("relative mb-6 flex h-64 items-center justify-center", dashboardStyleCard)}>
+        <div className={dashboardStyleCardAccent} aria-hidden />
+        <p className="relative text-sm text-[#5C5F66]">Aucune donnée disponible</p>
       </div>
     )
   }
@@ -188,18 +196,7 @@ export function BalanceSheetChart({
   const avgLiabilities = effectiveChartData.reduce((sum, d) => sum + (d.totalLiabilities || 0), 0) / effectiveChartData.length
   const avgEquity = effectiveChartData.reduce((sum, d) => sum + (d.equity || 0), 0) / effectiveChartData.length
 
-  // Helper function to get horizon text
-  const getHorizonText = (): string => {
-    if (view === "comparison" && period === "monthly") return "Courant"
-    if (view === "comparison" && period === "quarterly") return "Trimestriel"
-    if (view === "comparison" && period === "annual") return "Annuel"
-    if (view === "ytd") return "YTD"
-    if (view === "ddm") return "DDM"
-    if (view === "12months") return "12 mois"
-    if (view === "quarters") return "Trimestres"
-    if (view === "years") return "Années"
-    return "Courant"
-  }
+  const getHorizonText = (): string => getHorizonModeLabel(view, period)
 
   // Helper function to get entity text
   const getEntityText = (): string => {
@@ -269,17 +266,20 @@ export function BalanceSheetChart({
   }
 
   return (
-    <div className="bg-gradient-to-br from-white to-slate-50/50 rounded-2xl border border-slate-200/80 shadow-lg mb-6 overflow-hidden">
+    <div className={cn("group mb-6", dashboardStyleCard)}>
+      <div className={dashboardStyleCardAccent} aria-hidden />
       {/* Header Section */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
+      <div className="relative border-b border-slate-200 bg-white/90 px-6 py-5 sm:px-7">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 flex-1 items-center gap-4">
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-slate-100">
+              <BarChart3 className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1">
               <Select value={selectedChartView} onValueChange={(value) => setSelectedChartView(value as ChartViewType)}>
                 <SelectTrigger className="h-auto p-0 border-0 bg-transparent hover:bg-transparent focus:ring-0 focus:ring-offset-0 w-auto inline-flex items-center gap-2 mb-1 [&>svg:last-child]:hidden">
-                  <h3 className="text-xl font-semibold text-slate-900 tracking-tight">{getBaseTitle()}</h3>
-                  <ChevronDown className="w-4 h-4 text-slate-500" />
+                  <h3 className="text-xl font-semibold leading-tight tracking-tight text-[#2A2F3A] text-balance">{getBaseTitle()}</h3>
+                  <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="assets_liabilities_equity">Structure du bilan</SelectItem>
@@ -287,25 +287,31 @@ export function BalanceSheetChart({
                   <SelectItem value="debt_equity_ratio">Capitaux propres</SelectItem>
                 </SelectContent>
               </Select>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                <span className="font-medium">{getHorizonText()}</span>
-                <span className="text-slate-400">•</span>
+              <div className="flex flex-wrap items-center gap-3 text-sm text-[#5C5F66]">
+                <span className="font-medium text-slate-700">{getHorizonText()}</span>
+                <span className="text-slate-300">•</span>
                 {subDivisionId && divisionId && companyId ? (
                   <>
                     <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">•</span>
+                    <span className="text-slate-300">•</span>
                     <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
+                    <span className="text-slate-300">•</span>
+                    <span className="font-semibold text-[#2A2F3A]">
+                      {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
+                    </span>
                   </>
                 ) : divisionId && companyId ? (
                   <>
                     <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
+                    <span className="text-slate-300">•</span>
+                    <span className="font-semibold text-[#2A2F3A]">
+                      {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}
+                    </span>
                   </>
                 ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
+                  <span className="font-semibold text-[#2A2F3A]">
+                    {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+                  </span>
                 ) : (
                   <span className="truncate">{getEntityText()}</span>
                 )}
@@ -316,14 +322,14 @@ export function BalanceSheetChart({
       </div>
 
       {/* Chart Section - Two Column Layout */}
-      <div className="px-8 py-6 bg-white">
+      <div className="relative bg-white px-6 py-6 sm:px-7">
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
           {/* Left Panel - Key Metrics */}
           <div className="lg:col-span-1">
             {/* Total Assets */}
             <div className="pb-3">
-              <div className="text-xs font-medium text-slate-500 mb-1">Actifs totaux</div>
-              <div className="text-xl font-semibold text-slate-900 mb-1.5">
+              <div className="mb-1 text-xs font-medium text-[#5C5F66]">Actifs totaux</div>
+              <div className="mb-1.5 text-xl font-semibold text-[#2A2F3A]">
                 {formatCurrency(effectiveChartData.reduce((sum, d) => sum + (d.totalAssets || 0), 0))}
               </div>
               {(() => {
@@ -354,8 +360,8 @@ export function BalanceSheetChart({
             
             {/* Total Liabilities */}
             <div className="pb-3">
-              <div className="text-xs font-medium text-slate-500 mb-1">Passifs totaux</div>
-              <div className="text-xl font-semibold text-slate-900 mb-1.5">
+              <div className="mb-1 text-xs font-medium text-[#5C5F66]">Passifs totaux</div>
+              <div className="mb-1.5 text-xl font-semibold text-[#2A2F3A]">
                 {formatCurrency(effectiveChartData.reduce((sum, d) => sum + (d.totalLiabilities || 0), 0))}
               </div>
               {(() => {
@@ -386,8 +392,8 @@ export function BalanceSheetChart({
             
             {/* Equity */}
             <div className="pb-3">
-              <div className="text-xs font-medium text-slate-500 mb-1">Capitaux propres</div>
-              <div className="text-xl font-semibold text-slate-900 mb-1.5">
+              <div className="mb-1 text-xs font-medium text-[#5C5F66]">Capitaux propres</div>
+              <div className="mb-1.5 text-xl font-semibold text-[#2A2F3A]">
                 {formatCurrency(effectiveChartData.reduce((sum, d) => sum + (d.equity || 0), 0))}
               </div>
               {(() => {

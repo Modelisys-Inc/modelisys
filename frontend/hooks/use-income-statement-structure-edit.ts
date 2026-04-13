@@ -1,7 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { getStatementStructure, upsertStatementStructure } from "@/lib/api"
+import { ApiError, getStatementStructure, upsertStatementStructure } from "@/lib/api"
+import type { StatementType } from "@/lib/api"
 import {
   cloneStructure,
   findChargeLineRange,
@@ -11,6 +12,7 @@ import {
   isStructureRowDetailOnly,
   isStructureRowEmptyLabel,
   isStructureRowHidden,
+  newBalanceSheetPostRow,
   newChargeRow,
   newDetailSubLineRow,
   newEmptySpacerSummaryRow,
@@ -18,18 +20,25 @@ import {
   normalizeDtCt,
   normalizeLiaisonMode,
   stripObsoleteIncomeStatementStructureRows,
+  validateDuplicatePrimaryLinkCodes,
 } from "@/lib/income-statement-structure-utils"
 
-export function useIncomeStatementStructureEdit(
+export type StatementStructureEditKind = Extract<StatementType, "income-statement" | "balance-sheet">
+
+function useStatementStructureEdit(
   companyId: string | null | undefined,
-  active: boolean
+  active: boolean,
+  statementType: StatementStructureEditKind
 ) {
   const [structure, setStructure] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const chargeRange = useMemo(() => findChargeLineRange(structure), [structure])
+  const chargeRange = useMemo(
+    () => (statementType === "income-statement" ? findChargeLineRange(structure) : null),
+    [structure, statementType]
+  )
 
   /** Indices globaux pour la grille Paramètres Sommaire (sans lignes `detailOnly`). */
   const summaryStructureDisplayIndices = useMemo(
@@ -43,8 +52,13 @@ export function useIncomeStatementStructureEdit(
     setLoading(true)
     setError(null)
     try {
-      const data = await getStatementStructure(companyId, "income-statement")
-      setStructure(stripObsoleteIncomeStatementStructureRows(cloneStructure(data.structure ?? [])))
+      const data = await getStatementStructure(companyId, statementType)
+      const raw = cloneStructure(data.structure ?? [])
+      setStructure(
+        statementType === "income-statement"
+          ? stripObsoleteIncomeStatementStructureRows(raw)
+          : raw
+      )
     } catch (e) {
       console.error(e)
       setError("Impossible de charger la structure.")
@@ -52,7 +66,7 @@ export function useIncomeStatementStructureEdit(
     } finally {
       setLoading(false)
     }
-  }, [companyId, active])
+  }, [companyId, active, statementType])
 
   useEffect(() => {
     if (active && companyId) void load()
@@ -67,49 +81,53 @@ export function useIncomeStatementStructureEdit(
     })
   }, [])
 
-  /**
-   * Insère un nouveau poste (charge) juste au-dessus du poste à l’index global `globalIndex`.
-   * `indent: true` = poste secondaire (décalé), `false` = poste principal (aligné à gauche).
-   * `isBold` = libellé en gras au sommaire.
-   */
-  const insertPostAbove = useCallback((globalIndex: number, opts?: { indent?: boolean; isBold?: boolean }) => {
-    setStructure((prev) => {
-      if (globalIndex < 0) return prev
-      const indent = opts?.indent ?? true
-      const isBold = opts?.isBold ?? false
-      const row = newChargeRow({ indent, isBold })
-      if (prev.length === 0) {
-        return globalIndex === 0 ? [row] : prev
-      }
-      if (globalIndex < 0 || globalIndex >= prev.length) return prev
-      const next = cloneStructure(prev)
-      next.splice(globalIndex, 0, row)
-      return next
-    })
-  }, [])
+  const newPostRow = useCallback(
+    (opts?: { indent?: boolean; isBold?: boolean }) =>
+      statementType === "income-statement"
+        ? newChargeRow(opts)
+        : newBalanceSheetPostRow(opts),
+    [statementType]
+  )
 
-  /**
-   * Insère un nouveau poste juste en dessous du poste à l’index global `globalIndex`
-   * (nouvelle ligne à l’index `globalIndex + 1`).
-   */
-  const insertPostBelow = useCallback((globalIndex: number, opts?: { indent?: boolean; isBold?: boolean }) => {
-    setStructure((prev) => {
-      if (globalIndex < 0) return prev
-      const indent = opts?.indent ?? true
-      const isBold = opts?.isBold ?? false
-      const row = newChargeRow({ indent, isBold })
-      if (prev.length === 0) {
-        return globalIndex === 0 ? [row] : prev
-      }
-      if (globalIndex < 0 || globalIndex >= prev.length) return prev
-      const insertAt = globalIndex + 1
-      const next = cloneStructure(prev)
-      next.splice(insertAt, 0, row)
-      return next
-    })
-  }, [])
+  const insertPostAbove = useCallback(
+    (globalIndex: number, opts?: { indent?: boolean; isBold?: boolean }) => {
+      setStructure((prev) => {
+        if (globalIndex < 0) return prev
+        const indent = opts?.indent ?? true
+        const isBold = opts?.isBold ?? false
+        const row = newPostRow({ indent, isBold })
+        if (prev.length === 0) {
+          return globalIndex === 0 ? [row] : prev
+        }
+        if (globalIndex < 0 || globalIndex >= prev.length) return prev
+        const next = cloneStructure(prev)
+        next.splice(globalIndex, 0, row)
+        return next
+      })
+    },
+    [newPostRow]
+  )
 
-  /** Insère une ligne vide (espacement) juste au-dessus du poste à l’index global `globalIndex`. */
+  const insertPostBelow = useCallback(
+    (globalIndex: number, opts?: { indent?: boolean; isBold?: boolean }) => {
+      setStructure((prev) => {
+        if (globalIndex < 0) return prev
+        const indent = opts?.indent ?? true
+        const isBold = opts?.isBold ?? false
+        const row = newPostRow({ indent, isBold })
+        if (prev.length === 0) {
+          return globalIndex === 0 ? [row] : prev
+        }
+        if (globalIndex < 0 || globalIndex >= prev.length) return prev
+        const insertAt = globalIndex + 1
+        const next = cloneStructure(prev)
+        next.splice(insertAt, 0, row)
+        return next
+      })
+    },
+    [newPostRow]
+  )
+
   const insertEmptySpacerAbove = useCallback((globalIndex: number) => {
     setStructure((prev) => {
       if (globalIndex < 0) return prev
@@ -124,7 +142,6 @@ export function useIncomeStatementStructureEdit(
     })
   }, [])
 
-  /** Insère une ligne vide juste en dessous du poste à l’index global `globalIndex`. */
   const insertEmptySpacerBelow = useCallback((globalIndex: number) => {
     setStructure((prev) => {
       if (globalIndex < 0) return prev
@@ -140,17 +157,30 @@ export function useIncomeStatementStructureEdit(
     })
   }, [])
 
-  const addDetailSubLine = useCallback((annexLetter: string) => {
-    setStructure((prev) => {
-      const next = cloneStructure(prev)
-      const at = findStructureInsertIndexAfterAnnexContiguousBlock(next, annexLetter)
-      if (at < 0) return prev
-      next.splice(at + 1, 0, newDetailSubLineRow(annexLetter))
-      return next
-    })
-  }, [])
+  const addDetailSubLine = useCallback(
+    (
+      annexLetter: string,
+      fields: { label: string; linkCode: string; dtCt: "DT" | "CT" }
+    ) => {
+      setStructure((prev) => {
+        const next = cloneStructure(prev)
+        const at = findStructureInsertIndexAfterAnnexContiguousBlock(next, annexLetter)
+        if (at < 0) return prev
+        next.splice(
+          at + 1,
+          0,
+          newDetailSubLineRow(annexLetter, {
+            label: fields.label,
+            linkCode: fields.linkCode,
+            dtCt: fields.dtCt,
+          })
+        )
+        return next
+      })
+    },
+    []
+  )
 
-  /** Indique si la ligne à cet index global peut être retirée de la structure. */
   const canRemoveRowAt = useCallback(
     (index: number) => {
       if (index < 0 || index >= structure.length) return false
@@ -159,7 +189,6 @@ export function useIncomeStatementStructureEdit(
     [structure]
   )
 
-  /** Supprime la ligne à l’index global (sommaire, espacement, charge, sous-ligne détail, etc.). */
   const removeStructureRowAt = useCallback((index: number) => {
     setStructure((prev) => {
       if (index < 0 || index >= prev.length) return prev
@@ -191,7 +220,16 @@ export function useIncomeStatementStructureEdit(
         }
         return r
       })
-      const toSave = stripObsoleteIncomeStatementStructureRows(normalized)
+      const toSave =
+        statementType === "income-statement"
+          ? stripObsoleteIncomeStatementStructureRows(normalized)
+          : normalized
+      const duplicateMsg = validateDuplicatePrimaryLinkCodes(toSave)
+      if (duplicateMsg) {
+        setError(duplicateMsg)
+        setSaving(false)
+        return false
+      }
       for (let i = 0; i < toSave.length; i++) {
         const r = toSave[i]
         if (isStructureRowEmptyLabel(r)) continue
@@ -241,16 +279,24 @@ export function useIncomeStatementStructureEdit(
           }
         }
       }
-      await upsertStatementStructure(companyId, "income-statement", toSave)
+      await upsertStatementStructure(companyId, statementType, toSave)
       return true
     } catch (e) {
       console.error(e)
-      setError("Enregistrement impossible. Vérifiez les codes de liaison et réessayez.")
+      if (e instanceof TypeError && String(e.message).toLowerCase().includes("fetch")) {
+        setError(
+          "Connexion au serveur impossible. Vérifiez que l’API est démarrée (ou le proxy Next.js) et votre réseau, puis réessayez."
+        )
+      } else if (e instanceof ApiError) {
+        setError(e.message)
+      } else {
+        setError("Enregistrement impossible. Vérifiez les codes de liaison et réessayez.")
+      }
       return false
     } finally {
       setSaving(false)
     }
-  }, [companyId, structure])
+  }, [companyId, structure, statementType])
 
   const discard = useCallback(() => {
     setStructure([])
@@ -279,4 +325,18 @@ export function useIncomeStatementStructureEdit(
     discard,
     reload: load,
   }
+}
+
+export function useIncomeStatementStructureEdit(
+  companyId: string | null | undefined,
+  active: boolean
+) {
+  return useStatementStructureEdit(companyId, active, "income-statement")
+}
+
+export function useBalanceSheetStructureEdit(
+  companyId: string | null | undefined,
+  active: boolean
+) {
+  return useStatementStructureEdit(companyId, active, "balance-sheet")
 }

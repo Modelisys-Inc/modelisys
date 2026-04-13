@@ -4,6 +4,7 @@ import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import type { FinancialStatementRow, SeriesPeriod, SeriesRow } from "@/lib/api"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { generateId } from "@/lib/seeded-random"
@@ -63,6 +64,7 @@ import {
 import { IncomeStatementNotePanel } from "@/components/income-statement-note-panel"
 import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
@@ -497,6 +499,29 @@ export function IncomeStatementDetail({
 
   const [structureEditMode, setStructureEditMode] = useState(false)
   const [detailAddModalOpen, setDetailAddModalOpen] = useState(false)
+  const [detailAddModalStep, setDetailAddModalStep] = useState<"pickAnnex" | "form">("pickAnnex")
+  const [detailAddSelectedLetter, setDetailAddSelectedLetter] = useState<string | null>(null)
+  const [detailAddFormLabel, setDetailAddFormLabel] = useState("")
+  const [detailAddFormLinkCode, setDetailAddFormLinkCode] = useState("")
+  const [detailAddFormDtCt, setDetailAddFormDtCt] = useState<"DT" | "CT" | "">("")
+  const [detailAddFormError, setDetailAddFormError] = useState<string | null>(null)
+
+  const resetDetailAddModal = useCallback(() => {
+    setDetailAddModalStep("pickAnnex")
+    setDetailAddSelectedLetter(null)
+    setDetailAddFormLabel("")
+    setDetailAddFormLinkCode("")
+    setDetailAddFormDtCt("")
+    setDetailAddFormError(null)
+  }, [])
+
+  const handleDetailAddModalOpenChange = useCallback(
+    (open: boolean) => {
+      setDetailAddModalOpen(open)
+      if (!open) resetDetailAddModal()
+    },
+    [resetDetailAddModal]
+  )
 
   const canInlineStructureEdit =
     !!showIncomeStatementStructureSettings && !!companyId && !isComparisonMode && !isForecastSection
@@ -1952,11 +1977,11 @@ export function IncomeStatementDetail({
       return getCurrentColumnLabel()
     }
     if (view === "ddm") return "DDM"
-    if (view === "12months") return "12 mois"
+    if (view === "12months") return HORIZON_LABEL.mensuel
     if ((view as string) === "24months") return "24 mois"
-    if (view === "quarters") return "Trimestres"
-    if (view === "years") return "Années"
-    return "Courant"
+    if (view === "quarters") return HORIZON_LABEL.trimestriel2Ans
+    if (view === "years") return HORIZON_LABEL.annuel5Ans
+    return HORIZON_LABEL.moisActuel
   }
 
   const trendLenForPad = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
@@ -2330,7 +2355,10 @@ export function IncomeStatementDetail({
                   size="sm"
                   className="gap-1.5 rounded-xl text-[#2A2F3A] hover:bg-slate-100"
                   disabled={structEdit.loading || detailAnnexOptionsForSubLineModal.length === 0}
-                  onClick={() => setDetailAddModalOpen(true)}
+                  onClick={() => {
+                    resetDetailAddModal()
+                    setDetailAddModalOpen(true)
+                  }}
                 >
                   <Plus className={cn("h-4 w-4", dashboardCardAccentClass)} />
                   Ajouter un poste
@@ -2417,60 +2445,209 @@ export function IncomeStatementDetail({
           </div>
         )}
 
-      <Dialog open={detailAddModalOpen} onOpenChange={setDetailAddModalOpen}>
+      <Dialog open={detailAddModalOpen} onOpenChange={handleDetailAddModalOpenChange}>
         <DialogContent
           showCloseButton
           className="top-[max(0.75rem,env(safe-area-inset-top))] flex max-h-[calc(100dvh-1.5rem)] w-[min(100%,calc(100vw-1rem))] max-w-2xl translate-y-0 flex-col gap-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl shadow-slate-900/10 sm:max-w-2xl"
         >
-          <div className="flex shrink-0 items-start gap-3 border-b border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 px-5 pb-4 pt-5 sm:px-6 sm:pb-5 sm:pt-6">
-            <div className={cn("mt-0.5 h-11 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
-            <DialogHeader className="min-w-0 flex-1 gap-0 space-y-2 text-left sm:text-left">
-              <div className="flex flex-wrap items-center gap-2">
-                <DialogTitle className={cn("text-lg", dashboardCardTitleClass)}>Choisir une annexe</DialogTitle>
-                <Badge
-                  variant="secondary"
-                  className="border border-slate-200 bg-slate-100/90 font-medium text-[#2A2F3A] shadow-none"
-                >
-                  <Sparkles className="h-3 w-3 text-[#E0742D]" />
-                  Détail
-                </Badge>
+          {detailAddModalStep === "pickAnnex" ? (
+            <>
+              <div className="flex shrink-0 items-start gap-3 border-b border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 px-5 pb-4 pt-5 sm:px-6 sm:pb-5 sm:pt-6">
+                <div className={cn("mt-0.5 h-11 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
+                <DialogHeader className="min-w-0 flex-1 gap-0 space-y-2 text-left sm:text-left">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <DialogTitle className={cn("text-lg", dashboardCardTitleClass)}>Choisir une annexe</DialogTitle>
+                    <Badge
+                      variant="secondary"
+                      className="border border-slate-200 bg-slate-100/90 font-medium text-[#2A2F3A] shadow-none"
+                    >
+                      <Sparkles className="h-3 w-3 text-[#E0742D]" />
+                      Détail
+                    </Badge>
+                  </div>
+                  <DialogDescription className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
+                    Sélectionnez l&apos;annexe sous laquelle le nouveau poste sera inséré comme{" "}
+                    <span className="font-medium text-[#2A2F3A]">sous-catégorie</span>, puis renseignez son libellé et sa
+                    liaison à l&apos;étape suivante.
+                  </DialogDescription>
+                </DialogHeader>
               </div>
-              <DialogDescription className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
-                La nouvelle ligne sera insérée comme{" "}
-                <span className="font-medium text-[#2A2F3A]">sous-catégorie</span> sous l&apos;annexe sélectionnée (sous
-                les postes déjà liés à cette lettre).
-              </DialogDescription>
-            </DialogHeader>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6 sm:py-5">
-            <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Annexes disponibles</p>
-            <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-slate-50/80 to-white p-1.5 shadow-inner shadow-slate-900/[0.03]">
-              {detailAnnexOptionsForSubLineModal.map(({ letter, title }) => (
-                <button
-                  key={letter}
-                  type="button"
-                  className="group flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left transition hover:border-slate-200/90 hover:bg-white hover:shadow-sm"
-                  onClick={() => {
-                    structEdit.addDetailSubLine(letter)
-                    setDetailAddModalOpen(false)
-                  }}
-                >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80 transition group-hover:bg-[#E0742D]/[0.08] group-hover:ring-[#E0742D]/30">
-                    <BookMarked className="h-4 w-4 text-[#E0742D]" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-400">Annexe</span>
-                    <span className="mt-0.5 block truncate text-sm font-semibold leading-snug text-[#2A2F3A]">{title}</span>
-                  </span>
-                </button>
-              ))}
-            </div>
-            {detailAnnexOptionsForSubLineModal.length === 0 && (
-              <p className={cn("mt-4 text-center text-sm", dashboardCardBodyMutedClass)}>
-                Aucune annexe : configurez d&apos;abord des postes avec liaison et annexe dans le Sommaire.
-              </p>
-            )}
-          </div>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6 sm:py-5">
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-slate-400">Annexes disponibles</p>
+                <div className="rounded-2xl border border-slate-200/90 bg-gradient-to-b from-slate-50/80 to-white p-1.5 shadow-inner shadow-slate-900/[0.03]">
+                  {detailAnnexOptionsForSubLineModal.map(({ letter, title }) => (
+                    <button
+                      key={letter}
+                      type="button"
+                      className="group flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-left transition hover:border-slate-200/90 hover:bg-white hover:shadow-sm"
+                      onClick={() => {
+                        setDetailAddSelectedLetter(letter)
+                        setDetailAddFormLabel("")
+                        setDetailAddFormLinkCode("")
+                        setDetailAddFormDtCt("")
+                        setDetailAddFormError(null)
+                        setDetailAddModalStep("form")
+                      }}
+                    >
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80 transition group-hover:bg-[#E0742D]/[0.08] group-hover:ring-[#E0742D]/30">
+                        <BookMarked className="h-4 w-4 text-[#E0742D]" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                          Annexe
+                        </span>
+                        <span className="mt-0.5 block truncate text-sm font-semibold leading-snug text-[#2A2F3A]">
+                          {title}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {detailAnnexOptionsForSubLineModal.length === 0 && (
+                  <p className={cn("mt-4 text-center text-sm", dashboardCardBodyMutedClass)}>
+                    Aucune annexe : configurez d&apos;abord des postes avec liaison et annexe dans le Sommaire.
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex shrink-0 items-start gap-3 border-b border-slate-200/90 bg-gradient-to-b from-white to-slate-50/90 px-5 pb-4 pt-5 sm:px-6 sm:pb-5 sm:pt-6">
+                <div className={cn("mt-0.5 h-11 w-1.5 shrink-0", dashboardCardAccentBarClass)} />
+                <DialogHeader className="min-w-0 flex-1 gap-0 space-y-2 text-left sm:text-left">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <DialogTitle className={cn("text-lg", dashboardCardTitleClass)}>Nouveau poste</DialogTitle>
+                    <Badge
+                      variant="secondary"
+                      className="border border-slate-200 bg-slate-100/90 font-medium text-[#2A2F3A] shadow-none"
+                    >
+                      <Sparkles className="h-3 w-3 text-[#E0742D]" />
+                      Détail
+                    </Badge>
+                  </div>
+                  <DialogDescription className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
+                    {detailAddSelectedLetter &&
+                      (() => {
+                        const opt = detailAnnexOptionsForSubLineModal.find(
+                          (o) => o.letter === detailAddSelectedLetter
+                        )
+                        return (
+                          <>
+                            Sous-catégorie pour l&apos;annexe{" "}
+                            <span className="font-semibold text-[#2A2F3A]">
+                              {detailAddSelectedLetter}
+                              {opt?.title ? ` — ${opt.title}` : ""}
+                            </span>
+                            . Les montants suivront le DT/CT choisi.
+                          </>
+                        )
+                      })()}
+                  </DialogDescription>
+                </DialogHeader>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6 sm:py-5">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="detail-add-label" className="text-sm font-medium text-[#2A2F3A]">
+                      Nom du poste
+                    </Label>
+                    <Input
+                      id="detail-add-label"
+                      value={detailAddFormLabel}
+                      onChange={(e) => setDetailAddFormLabel(e.target.value)}
+                      placeholder="Ex. Honoraires professionnels"
+                      className="rounded-xl border-slate-200"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="detail-add-link" className="text-sm font-medium text-[#2A2F3A]">
+                      Code de liaison
+                    </Label>
+                    <Input
+                      id="detail-add-link"
+                      value={detailAddFormLinkCode}
+                      onChange={(e) => setDetailAddFormLinkCode(e.target.value)}
+                      placeholder="Ex. 4010"
+                      className="rounded-xl border-slate-200 font-mono text-sm"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="detail-add-dtct" className="text-sm font-medium text-[#2A2F3A]">
+                      DT / CT
+                    </Label>
+                    <Select
+                      value={detailAddFormDtCt || undefined}
+                      onValueChange={(v) => setDetailAddFormDtCt(v as "DT" | "CT")}
+                    >
+                      <SelectTrigger
+                        id="detail-add-dtct"
+                        className="h-10 w-full rounded-xl border-slate-200 text-sm font-semibold uppercase"
+                      >
+                        <SelectValue placeholder="Choisir DT ou CT" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="DT">DT</SelectItem>
+                        <SelectItem value="CT">CT</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {detailAddFormError && (
+                    <p className="text-sm font-medium text-red-700" role="alert">
+                      {detailAddFormError}
+                    </p>
+                  )}
+                </div>
+                <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between sm:gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-xl border-slate-200"
+                    onClick={() => {
+                      setDetailAddModalStep("pickAnnex")
+                      setDetailAddFormError(null)
+                    }}
+                  >
+                    <ChevronLeft className="mr-1 h-4 w-4" />
+                    Retour
+                  </Button>
+                  <Button
+                    type="button"
+                    className="rounded-xl bg-[#2A2F3A] font-semibold text-[#E6D6C3] hover:bg-[#353b47]"
+                    onClick={() => {
+                      const label = detailAddFormLabel.trim()
+                      const linkCode = detailAddFormLinkCode.trim()
+                      if (!label) {
+                        setDetailAddFormError("Indiquez le nom du poste.")
+                        return
+                      }
+                      if (!linkCode) {
+                        setDetailAddFormError("Indiquez le code de liaison.")
+                        return
+                      }
+                      if (detailAddFormDtCt !== "DT" && detailAddFormDtCt !== "CT") {
+                        setDetailAddFormError("Choisissez DT ou CT.")
+                        return
+                      }
+                      if (!detailAddSelectedLetter) {
+                        setDetailAddFormError("Annexe introuvable. Recommencez.")
+                        return
+                      }
+                      structEdit.addDetailSubLine(detailAddSelectedLetter, {
+                        label,
+                        linkCode,
+                        dtCt: detailAddFormDtCt,
+                      })
+                      setDetailAddModalOpen(false)
+                    }}
+                  >
+                    Enregistrer
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

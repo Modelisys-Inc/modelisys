@@ -15,6 +15,7 @@ import {
   getRowAmounts,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
+import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 
 export interface CashFlowChartDataPoint {
   period: string
@@ -39,21 +40,10 @@ interface CashFlowChartProps {
 
 type ChartViewType = "operating_investing_financing"
 
-// Helper function to get horizon text
 const getHorizonText = (
   view: "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years",
   period: "monthly" | "quarterly" | "annual"
-): string => {
-  if (view === "comparison" && period === "monthly") return "Courant"
-  if (view === "comparison" && period === "quarterly") return "Trimestriel"
-  if (view === "comparison" && period === "annual") return "Annuel"
-  if (view === "ytd") return "YTD"
-  if (view === "ddm") return "DDM"
-  if (view === "12months") return "12 mois"
-  if (view === "quarters") return "Trimestres"
-  if (view === "years") return "Années"
-  return "Courant"
-}
+): string => getHorizonModeLabel(view, period)
 
 export function CashFlowChart({
   period,

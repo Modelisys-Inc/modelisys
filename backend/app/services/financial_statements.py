@@ -283,6 +283,28 @@ def _build_mapping_index(
     return index
 
 
+def _mapping_csv_matches_entity(
+    field: str | None,
+    entity_name: str | None,
+    entity_id: uuid.UUID | None,
+) -> bool:
+    """True if field lists a token equal to the entity name or to the UUID string.
+
+    Le mapping comptable enregistre souvent le nom affiché ; l'ancien écran « mapping standard »
+    pouvait enregistrer l'UUID de la division / sous-division.
+    """
+    if not entity_name and not entity_id:
+        return True
+    if not field or not str(field).strip():
+        return False
+    parts = {p.strip() for p in str(field).split(",") if p.strip()}
+    if entity_name and entity_name.strip() in parts:
+        return True
+    if entity_id and str(entity_id) in parts:
+        return True
+    return False
+
+
 def _sum_for_link_code_single_month(
     link_code: str | None,
     mapping_index: dict[str, list[str]],
@@ -290,6 +312,8 @@ def _sum_for_link_code_single_month(
     fiscal_month: int,
     division_filter: str | None = None,
     sub_division_filter: str | None = None,
+    division_uuid: uuid.UUID | None = None,
+    sub_division_uuid: uuid.UUID | None = None,
     mappings_by_account: dict[str, AccountMapping] | None = None,
     customer_filter: str | None = None,
     supplier_filter: str | None = None,
@@ -306,15 +330,26 @@ def _sum_for_link_code_single_month(
     )
     total = Decimal("0")
     for acct_num in account_numbers:
-        if (division_filter or sub_division_filter or customer_filter or supplier_filter) and mappings_by_account:
+        if (
+            division_filter
+            or division_uuid
+            or sub_division_filter
+            or sub_division_uuid
+            or customer_filter
+            or supplier_filter
+        ) and mappings_by_account:
             mapping = mappings_by_account.get(acct_num)
+            if division_filter or division_uuid:
+                if not mapping or not _mapping_csv_matches_entity(
+                    mapping.divisions, division_filter, division_uuid
+                ):
+                    continue
+            if sub_division_filter or sub_division_uuid:
+                if not mapping or not _mapping_csv_matches_entity(
+                    mapping.sub_divisions, sub_division_filter, sub_division_uuid
+                ):
+                    continue
             if mapping:
-                if division_filter and mapping.divisions:
-                    if division_filter not in mapping.divisions:
-                        continue
-                if sub_division_filter and mapping.sub_divisions:
-                    if sub_division_filter not in mapping.sub_divisions:
-                        continue
                 if customer_filter and mapping.customer:
                     if customer_filter not in mapping.customer.split(","):
                         continue
@@ -342,6 +377,8 @@ def _sum_for_link_codes_single_month_aggregate(
     fiscal_month: int,
     division_filter: str | None = None,
     sub_division_filter: str | None = None,
+    division_uuid: uuid.UUID | None = None,
+    sub_division_uuid: uuid.UUID | None = None,
     mappings_by_account: dict[str, AccountMapping] | None = None,
     customer_filter: str | None = None,
     supplier_filter: str | None = None,
@@ -358,6 +395,8 @@ def _sum_for_link_codes_single_month_aggregate(
             fiscal_month,
             division_filter,
             sub_division_filter,
+            division_uuid,
+            sub_division_uuid,
             mappings_by_account,
             customer_filter,
             supplier_filter,
@@ -653,6 +692,8 @@ def _sum_for_link_code(
     fiscal_months: list[int],
     division_filter: str | None = None,
     sub_division_filter: str | None = None,
+    division_uuid: uuid.UUID | None = None,
+    sub_division_uuid: uuid.UUID | None = None,
     mappings_by_account: dict[str, AccountMapping] | None = None,
     customer_filter: str | None = None,
     supplier_filter: str | None = None,
@@ -670,15 +711,26 @@ def _sum_for_link_code(
     total = Decimal("0")
     for acct_num in account_numbers:
         # Apply division/sub-division/customer/supplier filter if provided
-        if (division_filter or sub_division_filter or customer_filter or supplier_filter) and mappings_by_account:
+        if (
+            division_filter
+            or division_uuid
+            or sub_division_filter
+            or sub_division_uuid
+            or customer_filter
+            or supplier_filter
+        ) and mappings_by_account:
             mapping = mappings_by_account.get(acct_num)
+            if division_filter or division_uuid:
+                if not mapping or not _mapping_csv_matches_entity(
+                    mapping.divisions, division_filter, division_uuid
+                ):
+                    continue
+            if sub_division_filter or sub_division_uuid:
+                if not mapping or not _mapping_csv_matches_entity(
+                    mapping.sub_divisions, sub_division_filter, sub_division_uuid
+                ):
+                    continue
             if mapping:
-                if division_filter and mapping.divisions:
-                    if division_filter not in mapping.divisions:
-                        continue
-                if sub_division_filter and mapping.sub_divisions:
-                    if sub_division_filter not in mapping.sub_divisions:
-                        continue
                 if customer_filter and mapping.customer:
                     if customer_filter not in mapping.customer.split(","):
                         continue
@@ -729,6 +781,8 @@ def _sum_for_link_codes_aggregate(
     fiscal_months: list[int],
     division_filter: str | None = None,
     sub_division_filter: str | None = None,
+    division_uuid: uuid.UUID | None = None,
+    sub_division_uuid: uuid.UUID | None = None,
     mappings_by_account: dict[str, AccountMapping] | None = None,
     customer_filter: str | None = None,
     supplier_filter: str | None = None,
@@ -745,6 +799,8 @@ def _sum_for_link_codes_aggregate(
             fiscal_months,
             division_filter,
             sub_division_filter,
+            division_uuid,
+            sub_division_uuid,
             mappings_by_account,
             customer_filter,
             supplier_filter,
@@ -785,21 +841,34 @@ def _gl_account_single_month_income_statement(
     fiscal_month: int,
     division_filter: str | None,
     sub_division_filter: str | None,
+    division_uuid: uuid.UUID | None,
+    sub_division_uuid: uuid.UUID | None,
     mappings_by_account: dict[str, AccountMapping] | None,
     customer_filter: str | None,
     supplier_filter: str | None,
     dt_ct_by_link_code: dict[str, str] | None,
 ) -> float:
     """Montant d’un seul compte GL pour un mois fiscal (état des résultats). Aligné sur _sum_for_link_code_single_month."""
-    if (division_filter or sub_division_filter or customer_filter or supplier_filter) and mappings_by_account:
+    if (
+        division_filter
+        or division_uuid
+        or sub_division_filter
+        or sub_division_uuid
+        or customer_filter
+        or supplier_filter
+    ) and mappings_by_account:
         mapping = mappings_by_account.get(acct_num)
+        if division_filter or division_uuid:
+            if not mapping or not _mapping_csv_matches_entity(
+                mapping.divisions, division_filter, division_uuid
+            ):
+                return 0.0
+        if sub_division_filter or sub_division_uuid:
+            if not mapping or not _mapping_csv_matches_entity(
+                mapping.sub_divisions, sub_division_filter, sub_division_uuid
+            ):
+                return 0.0
         if mapping:
-            if division_filter and mapping.divisions:
-                if division_filter not in mapping.divisions:
-                    return 0.0
-            if sub_division_filter and mapping.sub_divisions:
-                if sub_division_filter not in mapping.sub_divisions:
-                    return 0.0
             if customer_filter and mapping.customer:
                 if customer_filter not in mapping.customer.split(","):
                     return 0.0
@@ -825,6 +894,8 @@ def _gl_account_sum_months_income_statement(
     fiscal_months: list[int],
     division_filter: str | None,
     sub_division_filter: str | None,
+    division_uuid: uuid.UUID | None,
+    sub_division_uuid: uuid.UUID | None,
     mappings_by_account: dict[str, AccountMapping] | None,
     customer_filter: str | None,
     supplier_filter: str | None,
@@ -834,7 +905,8 @@ def _gl_account_sum_months_income_statement(
     for fm in fiscal_months:
         total += _gl_account_single_month_income_statement(
             acct_num, amount_index, fm,
-            division_filter, sub_division_filter, mappings_by_account,
+            division_filter, sub_division_filter, division_uuid, sub_division_uuid,
+            mappings_by_account,
             customer_filter, supplier_filter, dt_ct_by_link_code,
         )
     return total
@@ -849,6 +921,8 @@ def _income_statement_gl_detail_rows_for_flat_link(
     prior_months: list[int],
     division_filter: str | None,
     sub_division_filter: str | None,
+    division_uuid: uuid.UUID | None,
+    sub_division_uuid: uuid.UUID | None,
     mappings_by_account: dict[str, AccountMapping] | None,
     customer_filter: str | None,
     supplier_filter: str | None,
@@ -863,12 +937,14 @@ def _income_statement_gl_detail_rows_for_flat_link(
     for acct_num in accounts:
         cur = _gl_account_sum_months_income_statement(
             acct_num, current_amount_index, current_months,
-            division_filter, sub_division_filter, mappings_by_account,
+            division_filter, sub_division_filter, division_uuid, sub_division_uuid,
+            mappings_by_account,
             customer_filter, supplier_filter, dt_ct_by_link_code,
         )
         pri = _gl_account_sum_months_income_statement(
             acct_num, prior_amount_index, prior_months,
-            division_filter, sub_division_filter, mappings_by_account,
+            division_filter, sub_division_filter, division_uuid, sub_division_uuid,
+            mappings_by_account,
             customer_filter, supplier_filter, dt_ct_by_link_code,
         )
         if cur == 0 and pri == 0:
@@ -900,6 +976,8 @@ def _income_statement_series_gl_detail_rows_for_flat_link(
     periods: list[dict],
     division_filter: str | None,
     sub_division_filter: str | None,
+    division_uuid: uuid.UUID | None,
+    sub_division_uuid: uuid.UUID | None,
     mappings_by_account: dict[str, AccountMapping] | None,
     customer_filter: str | None,
     supplier_filter: str | None,
@@ -920,7 +998,8 @@ def _income_statement_series_gl_detail_rows_for_flat_link(
             amt_index = amount_indices.get(fy, {})
             val = _gl_account_single_month_income_statement(
                 acct_num, amt_index, fm,
-                division_filter, sub_division_filter, mappings_by_account,
+                division_filter, sub_division_filter, division_uuid, sub_division_uuid,
+                mappings_by_account,
                 customer_filter, supplier_filter, dt_ct_by_link_code,
             )
             amounts[key] = round(val, 2)
@@ -954,6 +1033,8 @@ def _process_structure_rows(
     prior_months: list[int],
     division_filter: str | None = None,
     sub_division_filter: str | None = None,
+    division_uuid: uuid.UUID | None = None,
+    sub_division_uuid: uuid.UUID | None = None,
     mappings_by_account: dict[str, AccountMapping] | None = None,
     budget_amount_index: dict[str, dict[int, Decimal]] | None = None,
     use_budget_as_prior: bool = False,
@@ -1001,6 +1082,7 @@ def _process_structure_rows(
                 current = _sum_for_link_code(
                     lc, mapping_index, current_amount_index,
                     current_months, division_filter, sub_division_filter,
+                    division_uuid, sub_division_uuid,
                     mappings_by_account, customer_filter, supplier_filter,
                     groupe_index, statement_type, dt_ct_by_link_code,
                 )
@@ -1013,6 +1095,7 @@ def _process_structure_rows(
                     prior = _sum_for_link_code(
                         lc, mapping_index, prior_amount_index,
                         prior_months, division_filter, sub_division_filter,
+                        division_uuid, sub_division_uuid,
                         mappings_by_account, customer_filter, supplier_filter,
                         groupe_index, statement_type, dt_ct_by_link_code,
                     )
@@ -1022,6 +1105,7 @@ def _process_structure_rows(
                 current = _sum_for_link_codes_aggregate(
                     codes, mapping_index, current_amount_index,
                     current_months, division_filter, sub_division_filter,
+                    division_uuid, sub_division_uuid,
                     mappings_by_account, customer_filter, supplier_filter,
                     groupe_index, statement_type, dt_ct_by_link_code,
                 )
@@ -1034,6 +1118,7 @@ def _process_structure_rows(
                     prior = _sum_for_link_codes_aggregate(
                         codes, mapping_index, prior_amount_index,
                         prior_months, division_filter, sub_division_filter,
+                        division_uuid, sub_division_uuid,
                         mappings_by_account, customer_filter, supplier_filter,
                         groupe_index, statement_type, dt_ct_by_link_code,
                     )
@@ -1044,6 +1129,7 @@ def _process_structure_rows(
                 _sum_for_link_codes_aggregate(
                     nums, mapping_index, current_amount_index,
                     current_months, division_filter, sub_division_filter,
+                    division_uuid, sub_division_uuid,
                     mappings_by_account, customer_filter, supplier_filter,
                     groupe_index, statement_type, dt_ct_by_link_code,
                 )
@@ -1054,6 +1140,7 @@ def _process_structure_rows(
                 _sum_for_link_codes_aggregate(
                     dens, mapping_index, current_amount_index,
                     current_months, division_filter, sub_division_filter,
+                    division_uuid, sub_division_uuid,
                     mappings_by_account, customer_filter, supplier_filter,
                     groupe_index, statement_type, dt_ct_by_link_code,
                 )
@@ -1084,6 +1171,7 @@ def _process_structure_rows(
                     _sum_for_link_codes_aggregate(
                         nums, mapping_index, prior_amount_index,
                         prior_months, division_filter, sub_division_filter,
+                        division_uuid, sub_division_uuid,
                         mappings_by_account, customer_filter, supplier_filter,
                         groupe_index, statement_type, dt_ct_by_link_code,
                     )
@@ -1094,6 +1182,7 @@ def _process_structure_rows(
                     _sum_for_link_codes_aggregate(
                         dens, mapping_index, prior_amount_index,
                         prior_months, division_filter, sub_division_filter,
+                        division_uuid, sub_division_uuid,
                         mappings_by_account, customer_filter, supplier_filter,
                         groupe_index, statement_type, dt_ct_by_link_code,
                     )
@@ -1109,6 +1198,7 @@ def _process_structure_rows(
                 current_amount_index, prior_amount_index,
                 current_months, prior_months,
                 division_filter, sub_division_filter,
+                division_uuid, sub_division_uuid,
                 mappings_by_account,
                 budget_amount_index, use_budget_as_prior,
                 computed_values, customer_filter, supplier_filter,
@@ -1154,6 +1244,8 @@ def _process_structure_rows(
                 prior_months,
                 division_filter,
                 sub_division_filter,
+                division_uuid,
+                sub_division_uuid,
                 mappings_by_account,
                 customer_filter,
                 supplier_filter,
@@ -1268,17 +1360,21 @@ def compute_financial_statement(
     mappings_by_account = {m.account_number: m for m in mappings}
 
     # 3. Resolve division/sub-division UUIDs to names for filtering
-    #    AccountMapping.divisions stores comma-separated division names (not UUIDs)
+    #    AccountMapping.divisions peut contenir des noms ou des UUID (écran mapping standard).
     division_filter = None
     sub_division_filter = None
+    division_uuid: uuid.UUID | None = None
+    sub_division_uuid: uuid.UUID | None = None
     if division_id:
         division = db.query(Division).filter(Division.id == division_id).first()
         if division:
             division_filter = division.name
+            division_uuid = division.id
     if sub_division_id:
         sub_division = db.query(SubDivision).filter(SubDivision.id == sub_division_id).first()
         if sub_division:
             sub_division_filter = sub_division.name
+            sub_division_uuid = sub_division.id
 
     # 4. Determine fiscal months to aggregate
     current_months = _get_months_for_period(period, month, fy_end_month)
@@ -1363,6 +1459,8 @@ def compute_financial_statement(
         prior_months,
         division_filter,
         sub_division_filter,
+        division_uuid,
+        sub_division_uuid,
         mappings_by_account,
         budget_amount_index,
         use_budget_as_prior,
@@ -1489,6 +1587,8 @@ def _process_structure_rows_series(
     statement_type: str,
     division_filter: str | None = None,
     sub_division_filter: str | None = None,
+    division_uuid: uuid.UUID | None = None,
+    sub_division_uuid: uuid.UUID | None = None,
     mappings_by_account: dict[str, AccountMapping] | None = None,
     computed_values: dict[str, dict[str, float]] | None = None,
     customer_filter: str | None = None,
@@ -1531,7 +1631,7 @@ def _process_structure_rows_series(
                     for m in range(1, fm + 1):
                         total += _sum_for_link_code_single_month(
                             lc, mapping_index, amt_index, m,
-                            division_filter, sub_division_filter, mappings_by_account,
+                            division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
                             customer_filter, supplier_filter,
                             groupe_index, statement_type, dt_ct_by_link_code,
                         )
@@ -1539,7 +1639,7 @@ def _process_structure_rows_series(
                 else:
                     amounts[key] = round(_sum_for_link_code_single_month(
                         lc, mapping_index, amt_index, fm,
-                        division_filter, sub_division_filter, mappings_by_account,
+                        division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
                         customer_filter, supplier_filter,
                         groupe_index, statement_type, dt_ct_by_link_code,
                     ), 2)
@@ -1556,7 +1656,7 @@ def _process_structure_rows_series(
                         for m in range(1, fm + 1):
                             total += _sum_for_link_codes_single_month_aggregate(
                                 codes, mapping_index, amt_index, m,
-                                division_filter, sub_division_filter, mappings_by_account,
+                                division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
                                 customer_filter, supplier_filter,
                                 groupe_index, statement_type, dt_ct_by_link_code,
                             )
@@ -1564,7 +1664,7 @@ def _process_structure_rows_series(
                     else:
                         amounts[key] = round(_sum_for_link_codes_single_month_aggregate(
                             codes, mapping_index, amt_index, fm,
-                            division_filter, sub_division_filter, mappings_by_account,
+                            division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
                             customer_filter, supplier_filter,
                             groupe_index, statement_type, dt_ct_by_link_code,
                         ), 2)
@@ -1583,14 +1683,14 @@ def _process_structure_rows_series(
                         if nums:
                             total_n += _sum_for_link_codes_single_month_aggregate(
                                 nums, mapping_index, amt_index, m,
-                                division_filter, sub_division_filter, mappings_by_account,
+                                division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
                                 customer_filter, supplier_filter,
                                 groupe_index, statement_type, dt_ct_by_link_code,
                             )
                         if dens:
                             total_d += _sum_for_link_codes_single_month_aggregate(
                                 dens, mapping_index, amt_index, m,
-                                division_filter, sub_division_filter, mappings_by_account,
+                                division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
                                 customer_filter, supplier_filter,
                                 groupe_index, statement_type, dt_ct_by_link_code,
                             )
@@ -1599,7 +1699,7 @@ def _process_structure_rows_series(
                     val_n = (
                         _sum_for_link_codes_single_month_aggregate(
                             nums, mapping_index, amt_index, fm,
-                            division_filter, sub_division_filter, mappings_by_account,
+                            division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
                             customer_filter, supplier_filter,
                             groupe_index, statement_type, dt_ct_by_link_code,
                         )
@@ -1609,7 +1709,7 @@ def _process_structure_rows_series(
                     val_d = (
                         _sum_for_link_codes_single_month_aggregate(
                             dens, mapping_index, amt_index, fm,
-                            division_filter, sub_division_filter, mappings_by_account,
+                            division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
                             customer_filter, supplier_filter,
                             groupe_index, statement_type, dt_ct_by_link_code,
                         )
@@ -1623,6 +1723,7 @@ def _process_structure_rows_series(
             detail_rows = _process_structure_rows_series(
                 children, mapping_index, amount_indices, periods,
                 statement_type, division_filter, sub_division_filter,
+                division_uuid, sub_division_uuid,
                 mappings_by_account, computed_values,
                 customer_filter, supplier_filter, groupe_index,
                 dt_ct_by_link_code,
@@ -1662,6 +1763,8 @@ def _process_structure_rows_series(
                 periods,
                 division_filter,
                 sub_division_filter,
+                division_uuid,
+                sub_division_uuid,
                 mappings_by_account,
                 customer_filter,
                 supplier_filter,
@@ -1761,14 +1864,18 @@ def compute_financial_statement_series(
     # 3. Resolve division/sub-division filters
     division_filter = None
     sub_division_filter = None
+    division_uuid: uuid.UUID | None = None
+    sub_division_uuid: uuid.UUID | None = None
     if division_id:
         division = db.query(Division).filter(Division.id == division_id).first()
         if division:
             division_filter = division.name
+            division_uuid = division.id
     if sub_division_id:
         sub_division = db.query(SubDivision).filter(SubDivision.id == sub_division_id).first()
         if sub_division:
             sub_division_filter = sub_division.name
+            sub_division_uuid = sub_division.id
 
     # 4. Build periods
     periods = _build_periods(fiscal_year, months, fy_end_month)
@@ -1800,6 +1907,8 @@ def compute_financial_statement_series(
         statement_type,
         division_filter,
         sub_division_filter,
+        division_uuid,
+        sub_division_uuid,
         mappings_by_account,
         customer_filter=customer_filter,
         supplier_filter=supplier_filter,

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import type { FinancialStatementRow } from "@/lib/api"
 import { getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
-import { ChevronRight, ChevronDown, StickyNote } from "lucide-react"
+import { ChevronRight, ChevronDown, ListTree, StickyNote } from "lucide-react"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
@@ -17,6 +17,16 @@ import {
   getRowAmounts,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
+import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
+import {
+  dashboardCardAccentClass,
+  dashboardCardBodyMutedClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardHeaderIconBoxClass,
+  dashboardCardRingClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 
 interface BalanceSheetDetailProps {
   period: "monthly" | "quarterly" | "annual"
@@ -33,6 +43,8 @@ interface BalanceSheetDetailProps {
   fiscalYear?: number
   rows?: FinancialStatementRow[]
   loading?: boolean
+  /** Titre de la carte (défaut : Détail) — aligné sur l’état des résultats */
+  title?: string
 }
 
 interface BalanceAccount {
@@ -67,7 +79,7 @@ export function BalanceSheetDetail({
   divisionId,
   subDivisionId,
   companies = [],
-  title,
+  title = "Détail",
   fiscalYear,
   rows: backendRows = [],
   loading = false,
@@ -431,29 +443,19 @@ export function BalanceSheetDetail({
     return reverseSeriesOrderForDisplay(labels)
   }
 
-  // Helper function to get horizon text
-  const getHorizonText = (): string => {
-    if (view === "comparison" && period === "monthly") return "Courant"
-    if (view === "comparison" && period === "quarterly") return "Trimestriel"
-    if (view === "comparison" && period === "annual") return "Annuel"
-    if (view === "ytd") return "YTD"
-    if (view === "ddm") return "DDM"
-    if (view === "12months") return "12 mois"
-    if (view === "quarters") return "Trimestres"
-    if (view === "years") return "Années"
-    return "Courant"
-  }
+  const getHorizonText = (): string => getHorizonModeLabel(view, period)
 
   if (loading || (isMultiPeriod && seriesLoading) || entityDataLoading) {
     return (
-      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-        <div className="px-8 py-16 text-center">
+      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+        <div className={dashboardCardRingClass} aria-hidden />
+        <div className="relative px-8 py-16 text-center">
           <div className="animate-pulse space-y-4">
-            <div className="h-4 bg-slate-200 rounded w-1/3 mx-auto"></div>
-            <div className="h-4 bg-slate-200 rounded w-2/3 mx-auto"></div>
-            <div className="h-4 bg-slate-200 rounded w-1/2 mx-auto"></div>
+            <div className="mx-auto h-4 w-1/3 rounded bg-slate-200"></div>
+            <div className="mx-auto h-4 w-2/3 rounded bg-slate-200"></div>
+            <div className="mx-auto h-4 w-1/2 rounded bg-slate-200"></div>
           </div>
-          <p className="text-sm text-slate-500 mt-4">Chargement des données...</p>
+          <p className={cn("mt-4 text-sm", dashboardCardBodyMutedClass)}>Chargement des données...</p>
         </div>
       </div>
     )
@@ -461,56 +463,67 @@ export function BalanceSheetDetail({
 
   if (data.length === 0) {
     return (
-      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-        <div className="px-8 py-16 text-center">
-          <p className="text-sm text-slate-500">Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.</p>
+      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+        <div className={dashboardCardRingClass} aria-hidden />
+        <div className="relative px-8 py-16 text-center">
+          <p className={cn("text-sm", dashboardCardBodyMutedClass)}>
+            Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.
+          </p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+    <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+      <div className={dashboardCardRingClass} aria-hidden />
+      <div className="relative w-full min-w-0">
       {/* Header */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">Détail</h2>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                <span className="font-medium">{getHorizonText()}</span>
-                <span className="text-slate-400">•</span>
-                {subDivisionId && divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
-                  </>
-                ) : divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                  </>
-                ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
-                ) : (
-                  <span className="truncate">Toutes les sociétés</span>
-                )}
-              </div>
+      <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+        <div className="flex min-w-0 flex-1 items-start gap-4">
+          <div className={dashboardCardHeaderIconBoxClass}>
+            <ListTree className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className={cn("mb-1 text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
+            <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+              <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
+              <span className="text-slate-400">•</span>
+              {subDivisionId && divisionId && companyId ? (
+                <>
+                  <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                  <span className="text-slate-400">•</span>
+                  <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
+                  <span className="text-slate-400">•</span>
+                  <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                    {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
+                  </span>
+                </>
+              ) : divisionId && companyId ? (
+                <>
+                  <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                  <span className="text-slate-400">•</span>
+                  <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                    {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}
+                  </span>
+                </>
+              ) : companyId ? (
+                <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                  {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+                </span>
+              ) : (
+                <span className="truncate">Toutes les sociétés</span>
+              )}
             </div>
           </div>
         </div>
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto bg-white">
+      <div className="min-w-0 overflow-x-auto bg-white">
         <table className="w-full">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
+            <tr className="border-b-2 border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80">
               <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Compte</th>
               {view === "current" && (
                 <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Montant</th>
@@ -1107,8 +1120,8 @@ export function BalanceSheetDetail({
       </div>
 
       {/* Footer note */}
-      <div className="bg-slate-50 px-8 py-4 border-t border-slate-200">
-        <p className="text-xs text-slate-500">
+      <div className="border-t border-slate-200 bg-slate-50/90 px-6 py-4 sm:px-7">
+        <p className={cn("text-xs", dashboardCardBodyMutedClass)}>
           Note: Les données affichées sont à titre informatif. Consulter les états financiers audités pour les montants
           officiels.
         </p>
@@ -1147,6 +1160,7 @@ export function BalanceSheetDetail({
           />
         )
       })()}
+      </div>
     </div>
   )
 }

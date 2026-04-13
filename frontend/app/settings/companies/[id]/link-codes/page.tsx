@@ -6,12 +6,7 @@ import { useParams, useRouter } from "next/navigation"
 import { Loader2, Link2 } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { getCompany, getStatementStructure, type Company as ApiCompany } from "@/lib/api"
-import {
-  collectDistinctLinkCodesFromStructure,
-  LINK_CODE_PROVENANCE_RESULTATS,
-  mapLinkCodesToDetailLabels,
-  mapLinkCodesToSummaryLabels,
-} from "@/lib/income-statement-structure-utils"
+import { buildLinkCodeTableRows } from "@/lib/link-code-reference"
 import { cn } from "@/lib/utils"
 import {
   dashboardCardFrameStaticClass,
@@ -35,7 +30,8 @@ export default function CompanyLinkCodesPage() {
   const companyId = params.id as string
   const [companyName, setCompanyName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [structure, setStructure] = useState<Record<string, unknown>[] | null>(null)
+  const [incomeStructure, setIncomeStructure] = useState<Record<string, unknown>[] | null>(null)
+  const [balanceSheetStructure, setBalanceSheetStructure] = useState<Record<string, unknown>[] | null>(null)
 
   useEffect(() => {
     if (!companyId) return
@@ -47,32 +43,26 @@ export default function CompanyLinkCodesPage() {
       getStatementStructure(companyId, "income-statement")
         .then((d) => d.structure)
         .catch(() => [] as Record<string, unknown>[]),
+      getStatementStructure(companyId, "balance-sheet")
+        .then((d) => d.structure)
+        .catch(() => [] as Record<string, unknown>[]),
     ])
-      .then(([co, struct]) => {
+      .then(([co, structIs, structBs]) => {
         if (!co) {
           router.push("/")
           return
         }
         setCompanyName(co.name)
-        setStructure(struct)
+        setIncomeStructure(structIs)
+        setBalanceSheetStructure(structBs)
       })
       .finally(() => setLoading(false))
   }, [companyId, router])
 
-  const rows = useMemo(() => {
-    if (!structure?.length) return []
-    const codes = collectDistinctLinkCodesFromStructure(structure)
-    const labelsDetail = mapLinkCodesToDetailLabels(structure, { includeAnnexPrefix: false })
-    const labelsSummary = mapLinkCodesToSummaryLabels(structure)
-    return codes
-      .map((code) => ({
-        code,
-        provenance: LINK_CODE_PROVENANCE_RESULTATS,
-        labelDetail: labelsDetail.get(code) ?? "—",
-        labelSummary: labelsSummary.get(code) ?? "—",
-      }))
-      .sort((a, b) => a.code.localeCompare(b.code, "fr", { numeric: true }))
-  }, [structure])
+  const rows = useMemo(
+    () => buildLinkCodeTableRows(incomeStructure, balanceSheetStructure),
+    [incomeStructure, balanceSheetStructure]
+  )
 
   if (loading) {
     return (
@@ -114,8 +104,8 @@ export default function CompanyLinkCodesPage() {
               </div>
               <p className="mb-6 text-base text-[#C9B8A5]/90">Configuration et paramètres de la société</p>
               <p className="mb-6 max-w-4xl text-base leading-relaxed text-[#C9B8A5]/90">
-                Consultez les codes de liaison définis dans la structure du compte de résultat (vue Détail) pour cette
-                société.
+                Consultez les codes de liaison définis dans les structures du compte de résultat et du bilan (vues
+                Sommaire et Détail) pour cette société. La colonne Provenance indique l’état financier concerné.
               </p>
               <div className="mb-2 flex flex-wrap items-end gap-6 sm:gap-8">
                 <Link
@@ -204,13 +194,16 @@ export default function CompanyLinkCodesPage() {
                     {rows.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="px-8 py-12 text-center text-sm text-slate-500">
-                          Aucun code de liaison trouvé dans la structure du compte de résultat. Définissez ou importez une
-                          structure depuis Mapping états financiers.
+                          Aucun code de liaison trouvé dans les structures du compte de résultat ou du bilan. Définissez
+                          ou importez une structure depuis Mapping états financiers.
                         </td>
                       </tr>
                     ) : (
                       rows.map((r) => (
-                        <tr key={r.code} className="border-b border-slate-100 hover:bg-slate-50">
+                        <tr
+                          key={`${r.code}-${r.provenance}`}
+                          className="border-b border-slate-100 hover:bg-slate-50"
+                        >
                           <td className="px-6 py-4 font-mono text-sm text-slate-800">{r.code}</td>
                           <td className="px-6 py-4 text-sm text-slate-700">{r.provenance}</td>
                           <td className="px-6 py-4 text-sm text-slate-700">{r.labelSummary}</td>

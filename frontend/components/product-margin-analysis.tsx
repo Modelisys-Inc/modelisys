@@ -6,6 +6,7 @@ import { Company } from "@/components/entity-selector"
 import type { SeriesRow, SeriesPeriod, AccountMappingData } from "@/lib/api"
 import { listAccountMappings, listProducts } from "@/lib/api"
 import { findRow } from "@/lib/series-utils"
+import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import { StickyNote } from "lucide-react"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
@@ -514,19 +515,7 @@ export function ProductMarginAnalysis({
     return 0
   }
 
-  // Helper function to get horizon text
-  const getHorizonText = (): string => {
-    if (view === "comparison" && period === "monthly") return "Courant"
-    if (view === "comparison" && period === "quarterly") return "Trimestriel"
-    if (view === "comparison" && period === "annual") return "Annuel"
-    if (view === "ytd") return "YTD"
-    if (view === "ddm") return "DDM"
-    if (view === "12months") return "12 mois"
-    if (view === "24months") return "24 mois"
-    if (view === "quarters") return "Trimestres"
-    if (view === "years") return "Années"
-    return "Courant"
-  }
+  const getHorizonText = (): string => getHorizonModeLabel(view, period)
 
   // Calculate variation
   const calculateVariation = (current: number, prior: number): number => {
