@@ -7,7 +7,7 @@ import type { FinancialStatementRow, SeriesPeriod, SeriesRow } from "@/lib/api"
 import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { generateId } from "@/lib/seeded-random"
-import { BarChart3, ListTree, StickyNote, Table2, TrendingUp, X } from "lucide-react"
+import { BarChart3, ChevronLeft, ListTree, Table2, TrendingUp, X } from "lucide-react"
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react"
 import {
   listForecastConfigs,
@@ -60,7 +60,7 @@ import {
   formatSameMonthPriorYear,
   priorCalendarQuarter,
 } from "@/lib/financial-period-labels"
-import { NoteModal } from "@/components/note-modal"
+import { IncomeStatementNotePanel } from "@/components/income-statement-note-panel"
 import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -335,18 +335,11 @@ export function IncomeStatementDetail({
   const [analysisPanelNarrow, setAnalysisPanelNarrow] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches
   )
-  const [noteModalOpen, setNoteModalOpen] = useState(false)
-  const [selectedRowId, setSelectedRowId] = useState<string | null>(null)
-  const [selectedRowLabel, setSelectedRowLabel] = useState<string>("")
-  const [selectedRowFinancialData, setSelectedRowFinancialData] = useState<{
-    currentAmount?: number | null
-    priorAmount?: number | null
-    variationPercent?: number | null
-    variationAmount?: number | null
-  }>({})
   const [notesUpdated, setNotesUpdated] = useState(0) // Force re-render when notes change
   const [showGrowthRate, setShowGrowthRate] = useState(false) // Toggle between amounts and growth rate for years view
-  
+  /** Cible le haut du panneau d’analyse (pas la colonne pleine hauteur) pour le scroll à l’ouverture. */
+  const lineAnalysisPanelTopRef = useRef<HTMLDivElement | null>(null)
+
   const refMonth = referenceMonth ?? new Date().getMonth() + 1
   const refYear = fiscalYear ?? new Date().getFullYear()
 
@@ -357,6 +350,27 @@ export function IncomeStatementDetail({
     mq.addEventListener("change", sync)
     return () => mq.removeEventListener("change", sync)
   }, [])
+
+  /** Quand le panneau s’ouvre, faire défiler vers le haut du panneau (la carte, pas toute la colonne étirée). */
+  useEffect(() => {
+    if (!lineAnalysis || analysisPanelNarrow) return
+    let t1: number | undefined
+    let t2: number | undefined
+    const run = () => {
+      lineAnalysisPanelTopRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+        inline: "nearest",
+      })
+    }
+    t1 = requestAnimationFrame(() => {
+      t2 = requestAnimationFrame(run)
+    })
+    return () => {
+      if (t1 !== undefined) cancelAnimationFrame(t1)
+      if (t2 !== undefined) cancelAnimationFrame(t2)
+    }
+  }, [lineAnalysis, analysisPanelNarrow])
 
   // Helper function to get comparison label
   const getComparisonLabel = (): string => {
@@ -1797,10 +1811,6 @@ export function IncomeStatementDetail({
   const showStructureCols =
     isStructureStudio && !structEdit.loading && detailAnnexEditorGlobalIndices.length > 0
 
-  useEffect(() => {
-    if (showStructureCols && noteModalOpen) setNoteModalOpen(false)
-  }, [showStructureCols, noteModalOpen])
-
   // Show "no data" state when data is empty and not loading
   if (data.length === 0 && !isDataLoading && !isForecastSection) {
     return (
@@ -2022,7 +2032,8 @@ export function IncomeStatementDetail({
     )
   }
 
-  const renderLineAnalysisCard = (opts?: { hideCloseButton?: boolean }) => {
+  /** Bloc synthèse + ventilation (+ astuce), utilisé dans la carte unifiée. */
+  const renderLineAnalysisBody = () => {
     if (!lineAnalysis) return null
     const ctx = lineAnalysis
     const variation =
@@ -2036,31 +2047,7 @@ export function IncomeStatementDetail({
       (view === "comparison" || view === "ytd" || view === "ddm") && !showStructureCols
 
     return (
-      <>
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200/90 pb-4">
-          <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[#E0742D]">
-              <BarChart3 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              Analyse du poste
-            </p>
-            <h3 className="mt-2 text-base font-semibold leading-snug text-[#2A2F3A]">{ctx.label}</h3>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">{getDescriptionText()}</p>
-          </div>
-          {!opts?.hideCloseButton && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 shrink-0 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-              onClick={() => setLineAnalysis(null)}
-              aria-label="Fermer le panneau d'analyse"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
-
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 py-0">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Synthèse</p>
             <dl className="mt-2 space-y-2 text-sm">
@@ -2128,7 +2115,7 @@ export function IncomeStatementDetail({
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                 Ventilation du grand livre ({accountsSorted.length} compte{accountsSorted.length > 1 ? "s" : ""})
               </p>
-              <ul className="mt-2 max-h-[min(22rem,45vh)] space-y-2 overflow-y-auto pr-1 lg:max-h-[min(28rem,55vh)]">
+              <ul className="mt-2 space-y-2">
                 {accountsSorted.slice(0, 12).map((acc, i) => {
                   const line =
                     accountLabelAlreadyIncludesNumber(acc.accountNumber, acc.accountName)
@@ -2167,9 +2154,98 @@ export function IncomeStatementDetail({
             afficher ou masquer le détail des comptes dans le tableau.
           </p>
         </div>
+    )
+  }
+
+  /** Carte unique : en-tête commun + bloc synthèse / ventilation + notes (même ligne). */
+  const renderUnifiedAnalysisNoteCard = (opts?: { hideCloseButton?: boolean }) => {
+    if (!lineAnalysis) return null
+    const ctx = lineAnalysis
+    const vPct =
+      ctx.current != null && ctx.prior != null ? calculateVariation(ctx.current, ctx.prior) : null
+    const vAmt = ctx.current - ctx.prior
+    const selectedCompany = companyId ? companies.find((c) => c.id === companyId) : null
+    const selectedDivision =
+      companyId && divisionId ? selectedCompany?.divisions.find((d) => d.id === divisionId) : null
+    const selectedSubDivision =
+      companyId && divisionId && subDivisionId
+        ? selectedDivision?.subDivisions.find((sd) => sd.id === subDivisionId)
+        : null
+
+    const goBackUnified = () => {
+      const el = document.getElementById(`income-statement-detail-row-${ctx.rowId}`)
+      const scroll = () => el?.scrollIntoView({ behavior: "smooth", block: "nearest" })
+      if (analysisPanelNarrow) {
+        setLineAnalysis(null)
+        window.setTimeout(scroll, 220)
+      } else {
+        scroll()
+      }
+    }
+
+    return (
+      <>
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200/90 pb-4">
+          <div className="min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={goBackUnified}
+              className="mb-2 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#2A2F3A]"
+            >
+              <ChevronLeft className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Retour au poste
+            </button>
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[#E0742D]">
+              <BarChart3 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              Analyse &amp; note
+            </p>
+            <h3 className="mt-2 text-base font-semibold leading-snug text-[#2A2F3A]">{ctx.label}</h3>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">{getDescriptionText()}</p>
+          </div>
+          {!opts?.hideCloseButton && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+              onClick={() => setLineAnalysis(null)}
+              aria-label="Fermer le panneau"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+
+        {renderLineAnalysisBody()}
+
+        <IncomeStatementNotePanel
+          key={ctx.rowId}
+          rowId={ctx.rowId}
+          rowLabel={ctx.label}
+          page="income-statement"
+          period={period}
+          view={view}
+          companyId={companyId}
+          companyName={selectedCompany?.name ?? null}
+          divisionId={divisionId}
+          divisionName={selectedDivision?.name ?? null}
+          subDivisionId={subDivisionId}
+          subDivisionName={selectedSubDivision?.name ?? null}
+          currentAmount={ctx.current !== 0 ? ctx.current : null}
+          priorAmount={ctx.prior !== 0 ? ctx.prior : null}
+          variationPercent={vPct}
+          variationAmount={vAmt !== 0 ? vAmt : null}
+          referenceMonth={refMonth}
+          referenceYear={refYear}
+          onSaved={() => setNotesUpdated((n) => n + 1)}
+          isNarrow={analysisPanelNarrow}
+          embedded
+        />
       </>
     )
   }
+
+  const sideRailLayoutClass = "lg:w-[min(24rem,100%)] lg:max-w-lg"
 
   return (
     <div className={cn("w-full", dashboardCardFrameStaticClass)}>
@@ -2399,7 +2475,7 @@ export function IncomeStatementDetail({
       </Dialog>
 
 
-      {/* Table + panneau d'analyse (icône tableau) */}
+      {/* Table + panneaux latéraux (analyse, notes) — défilement horizontal si les deux cartes ne tiennent pas */}
       <div className="flex flex-col border-t border-slate-200/80 lg:flex-row lg:items-stretch">
         <div
           className={cn(
@@ -2726,6 +2802,7 @@ export function IncomeStatementDetail({
               return (
                 <Fragment key={detailRowListKey}>
                   <tr
+                    id={row.rowId ? `income-statement-detail-row-${row.rowId}` : undefined}
                     className={cn(
                       "border-b transition-colors duration-150",
                       showStructureCols
@@ -2836,7 +2913,7 @@ export function IncomeStatementDetail({
                         <div className="flex shrink-0 items-center gap-0.5">
                         {/* Même largeur que le bouton pour aligner les libellés sur toutes les lignes */}
                         <div className="flex h-8 w-9 shrink-0 items-center justify-center">
-                          {canExpand ? (
+                          {canExpand || (row.rowId && isNoteAllowed() && !showStructureCols) ? (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -2851,47 +2928,28 @@ export function IncomeStatementDetail({
                                 })
                               }}
                               className={cn(
-                                "rounded-md p-1.5 text-[#E0742D] transition-colors ring-1 ring-[#E0742D]/25 hover:bg-orange-50 hover:ring-[#E0742D]/50",
+                                "relative rounded-md p-1.5 text-[#E0742D] transition-colors ring-1 ring-[#E0742D]/25 hover:bg-orange-50 hover:ring-[#E0742D]/50",
                                 lineAnalysis?.rowId === row.rowId && "bg-[#E0742D]/10 ring-[#E0742D]/45"
                               )}
                               aria-pressed={lineAnalysis?.rowId === row.rowId}
                               title={
                                 lineAnalysis?.rowId === row.rowId
-                                  ? "Fermer l'analyse du poste"
-                                  : "Analyser ce poste (synthèse et ventilation à droite)"
+                                  ? "Fermer le panneau (analyse & note)"
+                                  : hasNote
+                                    ? "Analyse, ventilation et note enregistrée (panneau à droite)"
+                                    : "Ouvrir l’analyse et les notes (panneau à droite)"
                               }
                             >
                               <Table2 className="h-4 w-4 shrink-0" aria-hidden />
+                              {hasNote && (
+                                <span
+                                  className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white"
+                                  aria-hidden
+                                />
+                              )}
                             </button>
                           ) : null}
                         </div>
-                        {row.rowId && isNoteAllowed() && !showStructureCols && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setSelectedRowId(row.rowId!)
-                              setSelectedRowLabel(displayLabel)
-                              // Capture financial data
-                              setSelectedRowFinancialData({
-                                currentAmount: row.current !== 0 ? row.current : null,
-                                priorAmount: row.prior !== 0 ? row.prior : null,
-                                variationPercent: variation,
-                                variationAmount: variationAmount !== 0 ? variationAmount : null,
-                              })
-                              setNoteModalOpen(true)
-                            }}
-                            className={cn(
-                              "flex-shrink-0 p-1.5 rounded-md transition-colors",
-                              hasNote
-                                ? "text-amber-600 hover:bg-amber-50 hover:text-amber-700"
-                                : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-                            )}
-                            title={hasNote ? "Voir/Modifier la note" : "Ajouter une note"}
-                          >
-                            <StickyNote className={cn("w-4 h-4", hasNote && "fill-current")} />
-                          </button>
-                        )}
                         </div>
                       </div>
                     </td>
@@ -3704,17 +3762,30 @@ export function IncomeStatementDetail({
 
         {lineAnalysis && !analysisPanelNarrow && (
           <aside
-            className="w-full shrink-0 border-t border-slate-200 bg-gradient-to-b from-slate-50/95 to-white px-5 py-5 lg:w-[min(22rem,100%)] lg:max-w-md lg:border-l lg:border-t-0 lg:shadow-[inset_1px_0_0_0_rgba(226,232,240,0.85)]"
-            aria-label="Analyse du poste"
+            className={cn(
+              "flex w-full shrink-0 flex-col border-t border-slate-200 bg-gradient-to-b from-slate-50/95 to-white lg:min-h-0 lg:border-l lg:border-t-0 lg:border-slate-200 lg:shadow-[inset_1px_0_0_0_rgba(226,232,240,0.85)]",
+              sideRailLayoutClass
+            )}
+            aria-label="Analyse et note du poste"
           >
-            {renderLineAnalysisCard()}
+            <div
+              ref={lineAnalysisPanelTopRef}
+              className="min-h-0 scroll-mt-4 px-5 py-5 lg:sticky lg:top-4 lg:z-10 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto"
+            >
+              {renderUnifiedAnalysisNoteCard()}
+            </div>
           </aside>
         )}
       </div>
 
-      <Sheet open={lineAnalysis != null && analysisPanelNarrow} onOpenChange={(open) => !open && setLineAnalysis(null)}>
+      <Sheet
+        open={analysisPanelNarrow && lineAnalysis != null}
+        onOpenChange={(open) => {
+          if (!open) setLineAnalysis(null)
+        }}
+      >
         <SheetContent side="right" className="flex w-full max-w-md flex-col gap-0 overflow-y-auto border-slate-200 p-6 sm:max-w-lg">
-          {renderLineAnalysisCard({ hideCloseButton: true })}
+          {lineAnalysis && <div className="min-w-0">{renderUnifiedAnalysisNoteCard({ hideCloseButton: true })}</div>}
         </SheetContent>
       </Sheet>
 
@@ -3725,40 +3796,6 @@ export function IncomeStatementDetail({
           officiels.
         </p>
       </div>
-
-      {/* Note Modal */}
-      {selectedRowId && (() => {
-        const selectedCompany = companyId ? companies.find((c) => c.id === companyId) : null
-        const selectedDivision = companyId && divisionId ? selectedCompany?.divisions.find((d) => d.id === divisionId) : null
-        const selectedSubDivision = companyId && divisionId && subDivisionId ? selectedDivision?.subDivisions.find((sd) => sd.id === subDivisionId) : null
-        
-        return (
-          <NoteModal
-            isOpen={noteModalOpen}
-            onClose={() => {
-              setNoteModalOpen(false)
-              setSelectedRowId(null)
-              setSelectedRowLabel("")
-            }}
-            rowId={selectedRowId}
-            rowLabel={selectedRowLabel}
-            page="income-statement"
-            period={period}
-            view={view}
-            companyId={companyId}
-            companyName={selectedCompany?.name || null}
-            divisionId={divisionId}
-            divisionName={selectedDivision?.name || null}
-            subDivisionId={subDivisionId}
-            subDivisionName={selectedSubDivision?.name || null}
-            currentAmount={selectedRowFinancialData.currentAmount}
-            priorAmount={selectedRowFinancialData.priorAmount}
-            variationPercent={selectedRowFinancialData.variationPercent}
-            variationAmount={selectedRowFinancialData.variationAmount}
-            onSave={() => setNotesUpdated((prev) => prev + 1)}
-          />
-        )
-      })()}
 
       {/* Type/Taux Modal */}
       {title === "Estimation des dépenses annuelles" && editingTypeRateRowId && (() => {

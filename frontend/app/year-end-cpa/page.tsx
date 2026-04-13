@@ -47,41 +47,51 @@ export default function YearEndCPAPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
-      
-      {/* Dark Header Section */}
-      <div className="w-full bg-slate-900 pt-15 pb-40">
-        <div className="max-w-[1920px] mx-auto px-6">
+
+      {/* Section sombre — même split gauche/droite et palette que balance de vérification / états financiers */}
+      <div className="relative w-full pt-15 pb-40 overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+            <div className="bg-[#2A2F3A]" />
+            <div className="bg-[#1F2430]" />
+          </div>
+          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" aria-hidden />
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
+          </div>
+        </div>
+        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
           <div className="flex items-start gap-3 mb-8">
-            <div className="w-2"></div>
-            <div className="flex-1">
-              <h2 className="text-4xl font-normal text-white mb-2 tracking-tight">{currentContent.title}</h2>
-              <p className="text-base text-slate-300 mb-6">
-                {currentContent.description}
-              </p>
-              <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
+            <div className="w-2 shrink-0" aria-hidden />
+            <div className="flex-1 min-w-0">
+              <h2 className="text-4xl font-semibold text-[#E6D6C3] mb-2 tracking-tight">
+                {currentContent.title}
+              </h2>
+              <p className="text-base text-[#C9B8A5]/90 mb-6">{currentContent.description}</p>
+              <p className="text-base text-[#C9B8A5]/90 mb-6 leading-relaxed max-w-4xl">
                 {currentContent.fullDescription}
               </p>
-              {/* Navigation Menu - Style like income-statement page */}
-              <div className="flex items-end gap-8 mb-2">
+              <div className="flex flex-wrap items-end gap-6 sm:gap-8 mb-2">
                 {yearEndNav.map((item) => {
                   const isActive = section === item.section
                   return (
                     <button
                       key={item.section}
+                      type="button"
                       onClick={() => setSection(item.section)}
-                      className="relative pb-4 border-b border-slate-600/30"
+                      className={`relative inline-block rounded-md px-3 py-1.5 -mx-1 pb-4 border-b border-slate-600/30 text-sm font-normal transition-colors ${
+                        isActive
+                          ? "text-[#E6D6C3]"
+                          : "text-slate-200 hover:bg-white/5 hover:text-[#E6D6C3]"
+                      }`}
                     >
-                      <span
-                        className={`text-sm font-normal transition-colors ${
-                          isActive
-                            ? "text-white"
-                            : "text-slate-300 hover:text-white"
-                        }`}
-                      >
-                        {item.label}
-                      </span>
+                      {item.label}
                       {isActive && (
-                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
+                        <span
+                          className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"
+                          aria-hidden
+                        />
                       )}
                     </button>
                   )
@@ -90,20 +100,16 @@ export default function YearEndCPAPage() {
             </div>
           </div>
 
-          {/* Controls Section */}
           <div className="mb-6 p-4">
             <div className="flex flex-wrap items-center gap-4">
-              {/* Filter Icon */}
-              <div className="flex items-center gap-2 text-slate-300">
-                <Filter className="w-4 h-4" />
+              <div className="flex items-center gap-2 text-[#C9B8A5]/90">
+                <Filter className="w-4 h-4 shrink-0" aria-hidden />
               </div>
 
-              {/* Separator */}
-              <div className="h-6 w-px bg-slate-700" />
+              <div className="h-6 w-px bg-white/10" aria-hidden />
 
-              {/* Entity Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Entité:</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Entité:</span>
                 <EntitySelector
                   companies={companies}
                   selectedCompanyId={companyId}
@@ -112,6 +118,8 @@ export default function YearEndCPAPage() {
                   onCompanyChange={setCompanyId}
                   onDivisionChange={setDivisionId}
                   onSubDivisionChange={setSubDivisionId}
+                  disableCompanySelection
+                  darkControlBar
                 />
               </div>
             </div>

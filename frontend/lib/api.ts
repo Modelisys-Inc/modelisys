@@ -15,6 +15,20 @@ class ApiError extends Error {
   }
 }
 
+/** FastAPI renvoie souvent `detail` comme chaîne ou liste d’objets de validation. */
+function formatApiErrorDetail(data: { detail?: unknown }): string {
+  const d = data.detail
+  if (typeof d === "string") return d
+  if (Array.isArray(d) || (d !== null && typeof d === "object")) {
+    try {
+      return JSON.stringify(d)
+    } catch {
+      return "Erreur API"
+    }
+  }
+  return "Erreur API"
+}
+
 let refreshPromise: Promise<boolean> | null = null
 
 async function refreshAccessToken(): Promise<boolean> {
@@ -100,8 +114,10 @@ export async function apiFetch<T = unknown>(
   }
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new ApiError(res.status, data.detail || res.statusText)
+    const data = (await res.json().catch(() => ({}))) as { detail?: unknown }
+    const detail =
+      data.detail !== undefined ? formatApiErrorDetail(data) : res.statusText
+    throw new ApiError(res.status, detail)
   }
 
   return res.json() as Promise<T>
@@ -119,8 +135,10 @@ export async function login(email: string, password: string): Promise<AuthRespon
   })
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new ApiError(res.status, data.detail || res.statusText)
+    const data = (await res.json().catch(() => ({}))) as { detail?: unknown }
+    const detail =
+      data.detail !== undefined ? formatApiErrorDetail(data) : res.statusText
+    throw new ApiError(res.status, detail)
   }
 
   const data: AuthResponse = await res.json()
@@ -772,6 +790,12 @@ export async function deleteBudget(
 
 // --- Notes API ---
 
+export interface NoteAttachmentData {
+  filename: string
+  media_type: string
+  data: string
+}
+
 export interface NoteData {
   id: string
   company_id: string | null
@@ -787,7 +811,14 @@ export interface NoteData {
   variation_percent: number | null
   variation_amount: number | null
   content: string
+  attachments: NoteAttachmentData[]
+  reference_month: number | null
+  reference_year: number | null
+  /** Exercice financier (année de clôture selon la fin d’exercice de la société) */
+  fiscal_year: number | null
   created_by_id: string
+  /** Nom complet de l’utilisateur qui a créé la note */
+  created_by_name: string
   created_at: string
   updated_at: string
 }
@@ -797,6 +828,10 @@ export interface NoteFilters {
   row_id?: string
   period?: string
   view?: string
+  fiscal_year?: number
+  reference_month?: number
+  reference_year?: number
+  created_by_id?: string
 }
 
 export async function listNotes(
@@ -808,6 +843,10 @@ export async function listNotes(
   if (filters.row_id) query.set("row_id", filters.row_id)
   if (filters.period) query.set("period", filters.period)
   if (filters.view) query.set("view", filters.view)
+  if (filters.fiscal_year != null) query.set("fiscal_year", String(filters.fiscal_year))
+  if (filters.reference_month != null) query.set("reference_month", String(filters.reference_month))
+  if (filters.reference_year != null) query.set("reference_year", String(filters.reference_year))
+  if (filters.created_by_id) query.set("created_by_id", filters.created_by_id)
   const qs = query.toString() ? `?${query.toString()}` : ""
   const data = await apiFetch<{ notes: NoteData[] }>(
     `/api/companies/${companyId}/notes${qs}`
@@ -830,6 +869,9 @@ export async function createNote(
     content: string
     division_id?: string | null
     sub_division_id?: string | null
+    attachments?: NoteAttachmentData[]
+    reference_month?: number | null
+    reference_year?: number | null
   }
 ): Promise<NoteData> {
   return apiFetch<NoteData>(
@@ -847,6 +889,9 @@ export async function updateNote(
     prior_amount?: number | null
     variation_percent?: number | null
     variation_amount?: number | null
+    attachments?: NoteAttachmentData[]
+    reference_month?: number | null
+    reference_year?: number | null
   }
 ): Promise<NoteData> {
   return apiFetch<NoteData>(

@@ -6,6 +6,7 @@ import {
   createNote,
   updateNote as apiUpdateNote,
   deleteNote as apiDeleteNote,
+  type NoteAttachmentData,
   type NoteData,
   type NoteFilters,
 } from "@/lib/api"
@@ -29,6 +30,15 @@ export interface Note {
   variationPercent?: number | null
   variationAmount?: number | null
   content: string
+  attachments: NoteAttachmentData[]
+  /** Mois (1–12) et année calendaire de la date de référence à l’enregistrement */
+  referenceMonth?: number | null
+  referenceYear?: number | null
+  /** Exercice financier (année de clôture) */
+  fiscalYear?: number | null
+  createdById?: string | null
+  /** Nom affiché du créateur (depuis l’API) */
+  createdByName?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -63,6 +73,12 @@ function toLocalNote(apiNote: NoteData, companyId?: string | null): Note {
     variationPercent: apiNote.variation_percent ?? null,
     variationAmount: apiNote.variation_amount ?? null,
     content: apiNote.content,
+    attachments: apiNote.attachments ?? [],
+    referenceMonth: apiNote.reference_month ?? null,
+    referenceYear: apiNote.reference_year ?? null,
+    fiscalYear: apiNote.fiscal_year ?? null,
+    createdById: apiNote.created_by_id ?? null,
+    createdByName: apiNote.created_by_name ?? null,
     createdAt: apiNote.created_at,
     updatedAt: apiNote.updated_at,
   }
@@ -157,6 +173,7 @@ export async function saveNote(
     content: note.content,
     division_id: note.divisionId || undefined,
     sub_division_id: note.subDivisionId || undefined,
+    attachments: note.attachments ?? [],
   })
 
   const localNote = toLocalNote(apiNote, companyId)
@@ -179,6 +196,12 @@ export async function updateNote(
     prior_amount: updates.priorAmount,
     variation_percent: updates.variationPercent,
     variation_amount: updates.variationAmount,
+    attachments: updates.attachments,
+    ...(updates.referenceMonth != null &&
+    updates.referenceYear != null && {
+      reference_month: updates.referenceMonth,
+      reference_year: updates.referenceYear,
+    }),
   })
 
   const localNote = toLocalNote(apiNote, effectiveCompanyId)
