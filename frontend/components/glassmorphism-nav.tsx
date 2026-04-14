@@ -94,8 +94,8 @@ export function GlassmorphismNav() {
           transition: hasLoaded ? "all 0.5s ease-out" : "opacity 0.8s ease-out, transform 0.8s ease-out",
         }}
       >
-        {/* Main Navigation */}
-        <div className="w-full">
+        {/* Barre logo + actions — au-dessus du backdrop menu (sinon le fixed inset-0 recouvre tout le nav) */}
+        <div className="relative z-[60] w-full">
             <div
             className={`backdrop-blur-md border-b border-white/10 px-8 sm:px-12 lg:px-16 xl:px-20 py-3 md:py-4 transition-all duration-300 ${
               scrolled
@@ -211,21 +211,22 @@ export function GlassmorphismNav() {
           </div>
         </div>
 
-        <div className="md:hidden relative">
-          {/* Backdrop overlay */}
-          <div
-            className={`fixed inset-0 bg-black/50 backdrop-blur-sm transition-all duration-300 ${
-              isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
-            }`}
-            onClick={() => setIsOpen(false)}
-            style={{ top: "0", left: "0", right: "0", bottom: "0", zIndex: -1 }}
-          />
+        <div className="relative z-40 md:hidden">
+          {/* Backdrop sous la barre (z-40 &lt; barre z-60) */}
+          {isOpen && (
+            <div
+              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300"
+              onClick={() => setIsOpen(false)}
+              aria-hidden
+            />
+          )}
 
-          {/* Menu container */}
+          {/* Panneau liens : au-dessus du backdrop, sous la barre */}
           <div
-            className={`mt-0 w-full px-8 sm:px-12 lg:px-16 xl:px-20 transition-all duration-500 ease-out transform-gpu ${
-              isOpen ? "opacity-100 translate-y-0 scale-100" : "opacity-0 -translate-y-8 scale-95 pointer-events-none"
+            className={`relative z-50 mt-0 w-full px-8 sm:px-12 lg:px-16 xl:px-20 transition-all duration-500 ease-out transform-gpu ${
+              isOpen ? "translate-y-0 scale-100 opacity-100" : "hidden"
             }`}
+            aria-hidden={!isOpen}
           >
             <div className="bg-[#2A2F3A]/92 backdrop-blur-md border border-white/10 rounded-lg p-4 shadow-xl">
               <div className="flex flex-col space-y-1">
@@ -249,24 +250,12 @@ export function GlassmorphismNav() {
                 ))}
                 <div className="h-px bg-white/10 my-2" />
                 <Link
-                  href="/login"
-                  className={`relative bg-white/[0.04] hover:bg-white/[0.07] text-[#E6D6C3] font-medium px-6 py-3 rounded-md flex items-center transition-colors duration-200 border border-white/10 cursor-pointer ${
-                    isOpen ? "animate-mobile-menu-item" : ""
-                  }`}
-                  style={{
-                    animationDelay: isOpen ? `${mobileNavItems.length * 80 + 100}ms` : "0ms",
-                  }}
-                  onClick={() => setIsOpen(false)}
-                >
-                  <span>Mon Portail</span>
-                </Link>
-                <Link
                   href="/#demo"
                   className={`group relative flex cursor-pointer items-center rounded-md border border-white/10 bg-white/[0.04] px-6 py-3 font-semibold text-slate-200 transition-colors duration-200 hover:bg-white/[0.07] hover:text-slate-100 ${
                     isOpen ? "animate-mobile-menu-item" : ""
                   }`}
                   style={{
-                    animationDelay: isOpen ? `${mobileNavItems.length * 80 + 150}ms` : "0ms",
+                    animationDelay: isOpen ? `${mobileNavItems.length * 80 + 100}ms` : "0ms",
                   }}
                   onClick={(e) => {
                     goToLandingSection(e, "/#demo")

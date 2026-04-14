@@ -69,19 +69,31 @@ export function PostFeaturesSection() {
 
   return (
     <section
-      id="strategie-donnees"
+      id="features"
       ref={sectionRef}
       className="relative isolate z-10 scroll-mt-24 overflow-hidden"
     >
-      {/* Transition depuis « Mise en place » : courbe en arrière-plan (sous le contenu / la carte) */}
+      {/* Transition depuis « Mise en place » : courbe (mobile = arc simple pour éviter l’étirement bizarre) */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 z-[2] h-24 overflow-hidden bg-white sm:h-28 md:h-32"
+        className="pointer-events-none absolute inset-x-0 top-0 z-[2] h-[5.25rem] overflow-hidden bg-white sm:h-28 md:h-32"
       >
+        {/* Mobile : une seule courbe douce, symétrique — se comporte mieux avec preserveAspectRatio="none" */}
         <svg
           viewBox="0 0 1440 120"
           preserveAspectRatio="none"
-          className="absolute inset-x-0 bottom-0 h-full w-full"
+          className="absolute inset-x-0 bottom-0 h-full w-full sm:hidden"
+        >
+          <path
+            d="M0,50 C480,16 960,16 1440,50 L1440,120 L0,120 Z"
+            fill="#1F2430"
+          />
+        </svg>
+        {/* sm+ : courbe d’origine (plus de relief horizontal) */}
+        <svg
+          viewBox="0 0 1440 120"
+          preserveAspectRatio="none"
+          className="absolute inset-x-0 bottom-0 hidden h-full w-full sm:block"
         >
           <path
             d="M0,30 C180,95 360,95 540,60 C720,25 900,25 1080,60 C1230,90 1335,95 1440,75 L1440,120 L0,120 Z"
@@ -174,12 +186,41 @@ export function PostFeaturesSection() {
               <div className="pointer-events-none absolute inset-0 rounded-[42px] ring-1 ring-[#E6B08C]/15" />
               <div className="pointer-events-none absolute inset-0 rounded-[42px] bg-gradient-to-br from-[#E6D6C3]/10 via-transparent to-[#E6B08C]/12" />
 
-              <div className="relative px-5 py-5 sm:px-7 sm:py-6 lg:px-8 lg:py-7">
+              <div className="relative px-4 py-5 sm:px-7 sm:py-6 lg:px-8 lg:py-7">
                 <div
                   ref={citationCardRef}
-                  className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5 lg:p-6"
+                  className="rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5 lg:rounded-2xl lg:border lg:bg-white/[0.035] lg:p-6 max-lg:border-0 max-lg:bg-transparent max-lg:p-0"
                 >
-                  <div className="flex gap-3 sm:gap-4">
+                  {/* Mobile uniquement : citation type « pull quote » — moins de cadres, lignes courtes */}
+                  <div className="flex flex-col items-center gap-5 text-center sm:hidden">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#E0742D]/18 ring-1 ring-[#E0742D]/30">
+                      <Quote className="h-5 w-5 text-[#E6B08C]" aria-hidden />
+                    </div>
+                    <blockquote className="max-w-[22rem] text-[1.0625rem] font-normal leading-[1.55] text-[#E6D6C3]">
+                      <div className="mx-auto h-px w-10 bg-gradient-to-r from-transparent via-[#E0742D]/50 to-transparent" aria-hidden />
+                      <span className="mt-4 block italic text-[#C9B8A5]">
+                        « Modelisys transforme l&apos;analyse financière en un véritable levier d&apos;efficacité,
+                      </span>
+                      <span className="mt-2 block italic text-[#C9B8A5]">
+                        en mettant en lumière les dynamiques qui façonnent la valeur d&apos;une entreprise. »
+                      </span>
+                    </blockquote>
+                    <div className="w-full max-w-[22rem] border-t border-white/10 pt-5">
+                      <p className="text-sm font-semibold text-[#E6D6C3]">Tristan Bellerose, CPA, CBV</p>
+                      <p className="mt-1 text-xs text-[#C9B8A5]/70">Président et fondateur</p>
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
+                        className="group mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-xs font-semibold tracking-wide text-slate-100 transition hover:border-white/20 hover:bg-white/[0.07]"
+                      >
+                        Échanger sur votre cas
+                        <ArrowRight className="h-4 w-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Tablette et desktop : icône + texte en ligne */}
+                  <div className="hidden gap-3 sm:gap-4 sm:flex">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#E0742D]/20 ring-1 ring-[#E0742D]/35 sm:h-11 sm:w-11">
                       <Quote className="h-4 w-4 text-[#E6B08C] sm:h-5 sm:w-5" aria-hidden />
                     </div>
