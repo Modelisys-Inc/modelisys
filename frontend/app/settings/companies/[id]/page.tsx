@@ -461,6 +461,23 @@ export default function CompanySettingsPage() {
                     <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
                   )}
                 </Link>
+                <Link
+                  href={`/settings/companies/${companyId}/quickbooks`}
+                  className="relative pb-4 border-b border-slate-600/30"
+                >
+                  <span
+                    className={`text-sm font-normal transition-colors ${
+                      pathname?.includes("/quickbooks")
+                        ? "text-slate-200"
+                        : "text-slate-200 hover:text-[#E6D6C3]"
+                    }`}
+                  >
+                    QuickBooks
+                  </span>
+                  {pathname?.includes("/quickbooks") && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
+                  )}
+                </Link>
               </div>
             </div>
           </div>

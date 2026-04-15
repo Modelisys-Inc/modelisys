@@ -1584,3 +1584,97 @@ export async function deleteSupplier(
     method: "DELETE",
   })
 }
+
+// ============= QuickBooks Online =============
+
+export type QboConnectionStatus = {
+  status: "connected" | "revoked" | "not_connected"
+  realm_id?: string | null
+  connected_at?: string | null
+  connected_by_user_id?: string | null
+}
+
+export type QboTrialBalanceProposalRow = {
+  qbo_account_id: string
+  account_number: string
+  account_name: string
+  qbo_account_type: string | null
+  qbo_account_sub_type: string | null
+  debit: number
+  credit: number
+  proposed_link_code: string | null
+  confidence: "high" | "medium" | "low"
+  existing_link_code: string | null
+}
+
+export type QboTrialBalancePreview = {
+  fiscal_year: number
+  month: number
+  currency: string
+  fetched_at: string
+  rows: QboTrialBalanceProposalRow[]
+}
+
+export type QboLinkCode = { code: string; label: string; mapping_type: string }
+
+export type QboCommitRow = {
+  account_number: string
+  account_name: string
+  debit: number
+  credit: number
+  link_code: string | null
+  skip?: boolean
+}
+
+export async function getQboConnectionStatus(companyId: string): Promise<QboConnectionStatus> {
+  return apiFetch<QboConnectionStatus>(`/api/quickbooks/companies/${companyId}/connection`)
+}
+
+export async function getQboAuthorizeUrl(companyId: string): Promise<string> {
+  const r = await apiFetch<{ authorize_url: string }>(
+    `/api/quickbooks/authorize?company_id=${companyId}`,
+  )
+  return r.authorize_url
+}
+
+export async function disconnectQbo(companyId: string): Promise<void> {
+  await apiFetch<void>(`/api/quickbooks/companies/${companyId}/connection`, {
+    method: "DELETE",
+  })
+}
+
+export async function previewQboTrialBalance(
+  companyId: string,
+  fiscalYear: number,
+  month: number,
+): Promise<QboTrialBalancePreview> {
+  return apiFetch<QboTrialBalancePreview>(
+    `/api/quickbooks/companies/${companyId}/trial-balance/preview`,
+    { method: "POST", body: { fiscal_year: fiscalYear, month } },
+  )
+}
+
+export async function commitQboTrialBalance(
+  companyId: string,
+  fiscalYear: number,
+  month: number,
+  rows: QboCommitRow[],
+  overwriteExistingTb: boolean,
+): Promise<{ accounts_imported: number; mappings_created: number; mappings_updated: number }> {
+  return apiFetch(
+    `/api/quickbooks/companies/${companyId}/trial-balance/commit`,
+    {
+      method: "POST",
+      body: {
+        fiscal_year: fiscalYear,
+        month,
+        rows,
+        overwrite_existing_tb: overwriteExistingTb,
+      },
+    },
+  )
+}
+
+export async function listQboLinkCodes(companyId: string): Promise<QboLinkCode[]> {
+  return apiFetch<QboLinkCode[]>(`/api/quickbooks/companies/${companyId}/link-codes`)
+}
