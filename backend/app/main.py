@@ -46,6 +46,7 @@ from app.routers import (
     suppliers,
     trial_balance,
 )
+from app.integrations.quickbooks import router as quickbooks_router
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -142,6 +143,7 @@ app.include_router(business_risks.router)
 app.include_router(forecast_configs.router)
 app.include_router(customers.router)
 app.include_router(suppliers.router)
+app.include_router(quickbooks_router.router)
 
 
 @app.get("/")
