@@ -30,6 +30,12 @@ class Company(Base):
     customers = relationship("Customer", back_populates="company", cascade="all, delete-orphan")
     suppliers = relationship("Supplier", back_populates="company", cascade="all, delete-orphan")
     statement_structures = relationship("CompanyStatementStructure", back_populates="company", cascade="all, delete-orphan")
+    quickbooks_connection = relationship(
+        "QuickBooksConnection",
+        back_populates="company",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
 
 class Division(Base):
