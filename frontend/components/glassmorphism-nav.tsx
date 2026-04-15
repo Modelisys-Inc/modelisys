@@ -8,12 +8,13 @@ const POUR_QUI_SECTION = "/#pour-qui"
 
 const pourQuiSubLinks = [
   { name: "Entreprises", href: "/#problem-solution" },
-  { name: "Partenaires conseils", href: "/cabinets-comptables" },
+  { name: "Partenaires comptables", href: "/cabinets-comptables" },
   { name: "Partenaires financiers", href: "/partenaires-financiers" },
 ] as const
 
 const mainNavLinks = [
   { name: "Pourquoi", href: "/#problem-solution" },
+  { name: "Études de cas", href: "/#etudes-de-cas" },
   { name: "Mise en place", href: "/#platform-setup" },
   { name: "Tarification", href: "/#pricing-process" },
 ] as const

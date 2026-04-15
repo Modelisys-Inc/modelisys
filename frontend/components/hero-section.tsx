@@ -177,7 +177,7 @@ export function HeroSection() {
             </div>
 
             <div className="max-w-md mx-auto lg:mx-0 lg:max-w-none lg:w-full">
-              <div className="flex items-center justify-end border-b border-white/[0.06] pb-4">
+              <div className="flex items-center justify-end pb-4">
                 <button
                   type="button"
                   onClick={() => {

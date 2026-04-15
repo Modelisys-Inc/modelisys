@@ -20,11 +20,11 @@ export function InstitutionalPartnersHeroSection() {
   const sectionRef = useRef<HTMLElement>(null)
 
   const valuePoints = [
-    "Données structurées & portail sécurisé",
-    "Suivi du financement & de la situation",
-    "Analyses, scénarios & valorisation",
-    "Infos financières à jour en tout temps",
-    "IA encadrée pour accélérer l’analyse",
+    "Données structurées, accès sécurisé",
+    "Suivi financement & indicateurs",
+    "Analyses, scénarios, valorisation",
+    "Chiffres à jour, toute l’année",
+    "IA encadrée pour l’analyse",
   ] as const
 
   useEffect(() => {
@@ -53,63 +53,197 @@ export function InstitutionalPartnersHeroSection() {
 
   return (
     <section ref={sectionRef} className="relative overflow-hidden">
-      <div className="absolute inset-0">
-        <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+      {/* Split background (same language as landing hero) */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-3">
           <div className="bg-[#2A2F3A]" />
+          <div className="bg-[#262B36] lg:border-x lg:border-white/5" />
           <div className="bg-[#1F2430]" />
         </div>
-        <div className="absolute inset-y-0 left-1/2 hidden w-px bg-white/5 lg:block" />
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute -top-24 -left-28 h-[520px] w-[520px] rounded-full bg-white/5 blur-3xl" />
-          <div className="absolute -right-28 -bottom-28 h-[560px] w-[560px] rounded-full bg-black/20 blur-3xl" />
+          <div className="absolute -bottom-28 -right-28 h-[560px] w-[560px] rounded-full bg-black/20 blur-3xl" />
         </div>
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1920px] px-8 sm:px-12 lg:px-16 xl:px-20">
-        <div className="relative flex min-h-[82vh] items-center py-20 sm:py-28 lg:py-32">
+      <div className="relative z-10 max-w-[1920px] mx-auto px-5 sm:px-10 lg:px-14 xl:px-20 2xl:px-24 pointer-events-auto">
+        <div className="relative py-16 sm:py-24 lg:py-28 xl:py-32 min-h-0 lg:min-h-[min(88vh,920px)] flex flex-col gap-12 sm:gap-14 lg:gap-0 lg:grid lg:grid-cols-3 lg:gap-8 xl:gap-12 2xl:gap-14 lg:items-stretch">
+          {/* Left */}
           <div
-            className={`pointer-events-auto absolute top-28 bottom-10 left-1/2 w-[240px] -translate-x-1/2 select-none transition-all duration-1000 sm:top-32 sm:bottom-12 sm:w-[280px] md:w-[320px] lg:w-[360px] ${
+            className={`order-1 lg:order-none lg:col-start-1 lg:row-start-1 max-w-xl lg:max-w-none lg:pr-2 xl:pr-6 2xl:pr-8 transition-all duration-1000 ${
+              isVisible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
+            }`}
+          >
+            <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.22em] text-slate-300/95">
+              Partenaires financiers
+            </p>
+
+            <h1 className="mt-8 sm:mt-10 flex flex-col font-semibold leading-[0.92] tracking-tight text-[#E6D6C3]">
+              <span className="text-5xl leading-none sm:text-6xl">Vision commune avec PME</span>
+            </h1>
+
+            <p className="mt-8 sm:mt-10 text-sm sm:text-[15px] leading-[1.65] text-[#C9B8A5]/85 max-w-[28rem]">
+              Du montage et du suivi du financement ou d&apos;un investissement à l&apos;analyse et au suivi dans le temps :
+              états financiers, indicateurs, scénarios et documentation sur une même plateforme — avec de l&apos;IA encadrée
+              pour accélérer l&apos;analyse sans perdre le contrôle.
+            </p>
+
+            <div className="mt-9 sm:mt-10 flex flex-wrap items-center gap-x-6 gap-y-3">
+              <a
+                href="/contact"
+                className="group inline-flex items-center gap-2.5 rounded-lg px-1 py-1.5 -mx-1 text-xs font-semibold tracking-wide text-slate-100 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
+              >
+                CONTACTER L&apos;ÉQUIPE
+                <ArrowRight className="w-4 h-4 shrink-0 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+              </a>
+
+              <span className="hidden sm:block h-px w-10 shrink-0 bg-white/[0.12]" aria-hidden />
+
+              <a
+                href="/#demo"
+                className="inline-flex items-center gap-2 rounded-lg px-1 py-1.5 -mx-1 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
+              >
+                RÉSERVER UNE DÉMO
+                <span className="inline-block h-px w-10 bg-[#E0742D]/90" />
+              </a>
+            </div>
+          </div>
+
+          {/* Right */}
+          <div
+            className={`order-3 lg:order-none lg:col-start-3 lg:row-start-1 relative lg:pl-2 xl:pl-6 2xl:pl-8 transition-all duration-1000 delay-150 ${
+              isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+            }`}
+          >
+            <div className="absolute -top-10 right-0 hidden xl:block text-[64px] xl:text-[76px] 2xl:text-[84px] font-semibold tracking-tight text-white/[0.045] select-none pointer-events-none">
+              modelisys<span className="text-[#E0742D]/30">.</span>
+            </div>
+
+            <div className="max-w-md mx-auto lg:mx-0 lg:max-w-none lg:w-full">
+              <div className="flex items-center justify-end pb-4">
+                <a
+                  href="/contact"
+                  className="group inline-flex items-center gap-3 rounded-md px-1 py-1 text-[11px] font-semibold tracking-[0.12em] text-slate-200 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/45"
+                >
+                  DISCUTER PARTENARIAT
+                  <span className="relative h-px w-12 bg-[#E0742D]/75 transition group-hover:w-14 group-hover:bg-[#E0742D]" />
+                </a>
+              </div>
+
+              <h2 className="mt-7 lg:mt-10 text-base sm:text-[17px] font-semibold leading-snug tracking-tight text-[#E6D6C3]">
+                <span className="sm:hidden">Analyse. Financement. Investissement.</span>
+                <span className="hidden sm:inline">Analyse. Financement. Investissement. Surveillance.</span>
+              </h2>
+              <p className="mt-3.5 text-xs sm:text-sm leading-relaxed text-[#C9B8A5]/80">
+                <span className="sm:hidden">
+                  Un cadre commun pour structurer vos analyses et préparer vos décisions, sur une base partagée avec la PME.
+                </span>
+                <span className="hidden sm:inline">
+                  Un cadre commun pour structurer les dossiers, suivre la situation dans le temps, et renforcer la clarté
+                  pour vos comités et votre relation de confiance avec le dirigeant.
+                </span>
+              </p>
+
+              <div className="mt-8 grid grid-cols-1 min-[420px]:grid-cols-[1fr_160px] gap-4 sm:gap-5 items-stretch">
+                <div className="rounded-2xl border border-white/[0.09] bg-white/[0.035] p-4 sm:p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#E6D6C3]/95">Ce que vous gagnez</p>
+                  <div className="mt-4 space-y-0 text-xs leading-snug text-[#C9B8A5]/85">
+                    {["Dossiers plus cohérents", "Décisions mieux documentées", "Moins de friction opérationnelle"].map(
+                      (point, i) => (
+                        <div
+                          key={point}
+                          className={`flex items-center justify-between gap-3 py-2.5 ${
+                            i < 2 ? "border-b border-white/[0.06]" : ""
+                          }`}
+                        >
+                          <span className="pr-2">{point}</span>
+                          <span
+                            className="shrink-0 rounded bg-[#E0742D]/15 px-1.5 py-0.5 text-[10px] font-medium text-[#E6B08C]"
+                            aria-hidden
+                          >
+                            OK
+                          </span>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/[0.09] bg-[#141823] shadow-[0_8px_32px_-12px_rgba(0,0,0,0.45)] overflow-hidden">
+                  <div className="p-3.5 sm:p-4">
+                    <div className="h-[5.25rem] rounded-xl bg-white/[0.04] relative overflow-hidden ring-1 ring-white/[0.05]">
+                      <div className="absolute inset-0 bg-gradient-to-tr from-[#E0742D]/18 to-transparent" />
+                      <div className="absolute bottom-3.5 left-3.5 right-3.5 h-1.5 rounded-full bg-white/[0.08]">
+                        <div className="h-full w-2/3 rounded-full bg-[#E0742D]" />
+                      </div>
+                    </div>
+                    <div className="mt-4 flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold tracking-wide text-[#E6D6C3]">Contact</span>
+                      <a
+                        href="/contact"
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.06] text-[#E0742D] transition hover:border-white/20 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/45"
+                        aria-label="Nous contacter"
+                      >
+                        <ArrowRight className="h-4 w-4" />
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <p className="mt-8 border-t border-white/[0.06] pt-6 text-[11px] leading-relaxed text-[#C9B8A5]/65">
+                Banques, assureurs, financement, gestion d&apos;actifs : une approche commune pour vos équipes et vos
+                clientèles.
+              </p>
+            </div>
+          </div>
+
+          {/* Center */}
+          <div
+            className={`order-2 lg:order-none lg:col-start-2 lg:row-start-1 relative z-20 mx-auto flex w-full max-w-[280px] sm:max-w-[300px] md:max-w-[320px] min-h-[440px] sm:min-h-[480px] md:min-h-[500px] lg:min-h-[min(62vh,620px)] xl:min-h-[min(65vh,680px)] lg:h-full lg:w-full lg:max-w-[min(100%,340px)] xl:max-w-[360px] shrink-0 lg:justify-self-center lg:px-2 xl:px-3 lg:pt-1 pointer-events-auto select-none transition-all duration-1000 ${
               isVisible ? "opacity-100" : "opacity-0"
             }`}
           >
-            <div className="relative mx-auto h-full">
-              <div className="absolute inset-0 -z-20 rounded-[44px] bg-black/45 blur-2xl" />
-              <div className="wow-border absolute inset-0 -z-10 rounded-[44px] p-[1px]">
-                <div className="h-full w-full rounded-[43px] bg-[#141823]" />
+            <div className="relative mx-auto flex h-full min-h-0 w-full flex-1 flex-col">
+              <div className="pointer-events-none absolute inset-0 -z-20 rounded-[40px] sm:rounded-[44px] bg-black/50 blur-2xl scale-[1.02]" />
+              <div className="pointer-events-none absolute inset-0 -z-10 rounded-[40px] sm:rounded-[44px] p-px wow-border">
+                <div className="h-full w-full rounded-[39px] sm:rounded-[43px] bg-[#141823]" />
               </div>
-
-              <div className="group relative h-full overflow-hidden rounded-[42px] border-2 border-[#E6D6C3]/55 bg-[#141823] shadow-2xl">
+              <div className="group relative flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-[38px] sm:rounded-[42px] border border-[#E6D6C3]/45 bg-[#141823] shadow-[0_24px_64px_-16px_rgba(0,0,0,0.55),0_0_0_1px_rgba(230,214,195,0.12)_inset]">
                 <div className="pointer-events-none absolute inset-0 opacity-70 wow-shimmer" />
                 <div className="pointer-events-none absolute inset-0 opacity-[0.10] mix-blend-overlay wow-noise" />
-                <div className="pointer-events-none absolute inset-0 rounded-[42px] ring-1 ring-[#E6D6C3]/30" />
-                <div className="pointer-events-none absolute inset-0 rounded-[42px] bg-gradient-to-br from-[#E6D6C3]/10 via-transparent to-[#E6B08C]/12" />
+                <div className="pointer-events-none absolute inset-0 rounded-[38px] sm:rounded-[42px] ring-1 ring-[#E6D6C3]/25" />
+                <div className="pointer-events-none absolute inset-0 rounded-[38px] sm:rounded-[42px] ring-1 ring-[#E6B08C]/12" />
+                <div className="pointer-events-none absolute inset-0 rounded-[38px] sm:rounded-[42px] bg-gradient-to-br from-[#E6D6C3]/10 via-transparent to-[#E6B08C]/10" />
 
-                <div className="h-full px-5 py-6">
-                  <div className="mt-1 flex h-full flex-col">
-                    <div className="text-center">
-                      <p className="text-xs font-semibold tracking-wide text-[#E6D6C3]/95">
+                <div className="flex h-full min-h-0 flex-1 flex-col px-5 py-7 sm:px-6 sm:py-8">
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    <div className="shrink-0 text-center">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E6D6C3]/95">
                         Partenaires financiers
                       </p>
-                      <p className="mt-1 text-[10px] text-[#C9B8A5]/70">Une vision commune avec vos clientèles PME.</p>
+                      <p className="mt-2 text-[10px] sm:text-[11px] leading-snug text-[#C9B8A5]/72">
+                        Une vision commune avec vos clientèles PME.
+                      </p>
                     </div>
 
-                    <div className="mt-4 flex-1 rounded-2xl border border-white/10 bg-white/[0.035] p-3">
-                      <div className="relative h-full">
-                        <div className="pointer-events-none absolute top-2 bottom-2 left-[18px] w-px bg-gradient-to-b from-[#E6D6C3]/35 via-white/10 to-[#E6B08C]/30" />
-                        <ul className="flex h-full flex-col justify-between py-1">
+                    <div className="mt-6 flex min-h-0 flex-1 flex-col rounded-2xl border border-white/[0.09] bg-white/[0.035] p-3.5 sm:p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
+                      <div className="relative min-h-[260px] flex-1 sm:min-h-[300px] lg:min-h-0">
+                        <div className="pointer-events-none absolute left-[19px] top-2 bottom-2 w-px bg-gradient-to-b from-[#E6D6C3]/30 via-white/[0.08] to-[#E6B08C]/28" />
+                        <ul className="flex h-full min-h-[240px] flex-col justify-between gap-1 py-1 sm:min-h-[280px] lg:min-h-0">
                           {valuePoints.map((item, idx) => (
                             <li
                               key={item}
                               className="wow-item"
                               style={{ ["--d" as never]: `${120 + idx * 70}ms` } as never}
                             >
-                              <div className="flex w-full min-w-0 items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-2 py-1.5">
+                              <div className="w-full flex items-center gap-3 rounded-xl px-2 py-2 text-left border border-white/[0.12] bg-white/[0.07] shadow-sm">
                                 <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">
                                   <span className="absolute h-2 w-2 rounded-full bg-[#E0742D]" />
                                   <span className="absolute h-5 w-5 rounded-full border border-white/10 bg-white/[0.02]" />
                                 </span>
                                 <span
-                                  className="min-w-0 flex-1 text-[11px] font-medium tracking-wide whitespace-nowrap text-[#E6D6C3]/90 overflow-hidden text-ellipsis"
+                                  className="min-w-0 text-[11px] font-medium tracking-wide text-[#E6D6C3]/90 leading-snug whitespace-normal sm:whitespace-nowrap"
                                   title={item}
                                 >
                                   {item}
@@ -122,127 +256,6 @@ export function InstitutionalPartnersHeroSection() {
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid w-full items-center gap-12 lg:grid-cols-2 lg:gap-16">
-            <div
-              className={`max-w-xl transition-all duration-1000 ${
-                isVisible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
-              }`}
-            >
-              <p className="text-sm font-semibold tracking-wide text-slate-200">Partenaires financiers</p>
-
-              <h1 className="mt-10 text-5xl font-semibold leading-[0.95] tracking-tight text-[#E6D6C3] sm:text-6xl">
-                Une vision financière
-                <br />
-                partagée avec vos
-                <br />
-                clientèles PME.
-              </h1>
-
-              <p className="mt-10 max-w-md text-sm leading-relaxed text-[#C9B8A5]/80 sm:text-base">
-                Du montage et du suivi du financement ou d&apos;un investissement à l&apos;analyse et au suivi dans le
-                temps : états financiers, indicateurs, scénarios et documentation sur une même plateforme — avec de
-                l&apos;IA encadrée pour accélérer l&apos;analyse sans perdre le contrôle.
-              </p>
-
-              <div className="mt-10 flex items-center gap-6">
-                <a
-                  href="/contact"
-                  className="group inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
-                >
-                  CONTACTER L&apos;ÉQUIPE
-                  <ArrowRight className="h-4 w-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
-                </a>
-
-                <span className="h-px w-12 bg-white/10" />
-
-                <a
-                  href="/#demo"
-                  className="inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
-                >
-                  RÉSERVER UNE DÉMO
-                  <span className="inline-block h-px w-10 bg-[#E0742D]" />
-                </a>
-              </div>
-            </div>
-
-            <div
-              className={`relative transition-all duration-1000 delay-150 ${
-                isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
-              }`}
-            >
-              <div className="absolute -top-10 right-0 hidden select-none text-[88px] font-semibold tracking-tight text-white/[0.055] lg:block">
-                modelisys<span className="text-[#E0742D]/35">.</span>
-              </div>
-
-              <div className="ml-auto max-w-md">
-                <div className="flex items-center justify-end">
-                  <a
-                    href="/contact"
-                    className="group inline-flex items-center gap-3 text-[11px] font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
-                  >
-                    DISCUTER PARTENARIAT
-                    <span className="relative h-px w-14 bg-[#E0742D]/80 transition group-hover:bg-[#E0742D]" />
-                  </a>
-                </div>
-
-                <h2 className="mt-16 text-sm font-semibold text-[#E6D6C3]">
-                  Analyse. Financement. Investissement. Surveillance.
-                </h2>
-                <p className="mt-4 text-xs leading-relaxed text-[#C9B8A5]/75">
-                  Un cadre commun pour structurer les dossiers, suivre la situation dans le temps, et renforcer la clarté
-                  pour vos comités et votre relation de confiance avec le dirigeant.
-                </p>
-
-                <div className="mt-10 grid grid-cols-[1fr_160px] items-stretch gap-4">
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <p className="text-xs font-semibold text-[#E6D6C3]">Ce que vous gagnez</p>
-                    <div className="mt-3 space-y-2 text-xs text-[#C9B8A5]/80">
-                      {["Dossiers plus cohérents", "Décisions mieux documentées", "Moins de friction opérationnelle"].map(
-                        (point) => (
-                          <div key={point} className="flex items-center justify-between gap-3">
-                            <span>{point}</span>
-                            <span
-                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[#E6B08C]/40 bg-[#E6B08C]/10 text-[#E6B08C]"
-                              aria-hidden
-                            >
-                              <Check className="h-3 w-3" strokeWidth={2.5} />
-                            </span>
-                          </div>
-                        ),
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#141823]">
-                    <div className="p-3">
-                      <div className="relative h-20 overflow-hidden rounded-xl bg-white/5">
-                        <div className="absolute inset-0 bg-gradient-to-tr from-[#E0742D]/20 to-transparent" />
-                        <div className="absolute bottom-3 left-3 right-3 h-1.5 rounded-full bg-white/10">
-                          <div className="h-full w-2/3 rounded-full bg-[#E0742D]" />
-                        </div>
-                      </div>
-                      <div className="mt-3 flex items-center justify-between">
-                        <span className="text-[11px] font-semibold text-[#E6D6C3]">Contact</span>
-                        <a
-                          href="/contact"
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/5 transition hover:bg-white/10"
-                          aria-label="Nous contacter"
-                        >
-                          <ArrowRight className="h-4 w-4 text-[#E0742D]" />
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <p className="mt-10 text-[11px] text-[#C9B8A5]/70">
-                  Banques, assureurs, financement, gestion d&apos;actifs : une approche commune pour vos équipes et vos
-                  clientèles.
-                </p>
               </div>
             </div>
           </div>

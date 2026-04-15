@@ -9,7 +9,7 @@ type AudienceId = (typeof AUDIENCE_ORDER)[number]
 
 const audienceLabels: Record<AudienceId, string> = {
   entreprises: "Entreprises",
-  conseils: "Partenaires conseils",
+  conseils: "Partenaires comptables",
   financiers: "Partenaires financiers",
 }
 
@@ -129,7 +129,6 @@ export function LandingAudiencesSection() {
             Modelisys s’adresse à trois familles d’utilisateurs qui partagent le besoin de chiffres fiables,
             structurés et exploitables ensemble.
           </p>
-          <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/80 via-white/15 to-transparent" />
         </div>
 
         <div
@@ -183,7 +182,7 @@ export function LandingAudiencesSection() {
             </div>
 
             <div className="max-w-md mx-auto lg:mx-0 lg:max-w-none lg:w-full">
-              <div className="hidden items-center justify-end border-b border-white/[0.06] pb-4 lg:flex">
+              <div className="hidden items-center justify-end pb-4 lg:flex">
                 <button
                   type="button"
                   onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}

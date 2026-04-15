@@ -175,16 +175,16 @@ export function PostFeaturesSection() {
           } transition-all duration-1000 delay-150`}
         >
           <div className="relative z-20 w-full max-w-[960px]">
-            <div className="absolute inset-0 -z-20 rounded-[44px] bg-black/45 blur-2xl" />
-            <div className="absolute inset-0 -z-10 rounded-[44px] p-[1px] wow-border">
-              <div className="h-full w-full rounded-[43px] bg-[#141823]" />
+            <div className="pointer-events-none absolute inset-0 -z-20 rounded-[40px] sm:rounded-[44px] bg-black/50 blur-2xl scale-[1.02]" />
+            <div className="pointer-events-none absolute inset-0 -z-10 rounded-[40px] sm:rounded-[44px] p-px wow-border">
+              <div className="h-full w-full rounded-[39px] sm:rounded-[43px] bg-[#141823]" />
             </div>
-            <div className="relative overflow-hidden rounded-[42px] border-2 border-[#E6D6C3]/55 bg-[#141823] shadow-2xl">
+            <div className="relative overflow-hidden rounded-[38px] sm:rounded-[42px] border border-[#E6D6C3]/45 bg-[#141823] shadow-[0_24px_64px_-16px_rgba(0,0,0,0.55),0_0_0_1px_rgba(230,214,195,0.12)_inset]">
               <div className="pointer-events-none absolute inset-0 opacity-70 wow-shimmer" />
               <div className="pointer-events-none absolute inset-0 opacity-[0.10] mix-blend-overlay wow-noise" />
-              <div className="pointer-events-none absolute inset-0 rounded-[42px] ring-1 ring-[#E6D6C3]/30" />
-              <div className="pointer-events-none absolute inset-0 rounded-[42px] ring-1 ring-[#E6B08C]/15" />
-              <div className="pointer-events-none absolute inset-0 rounded-[42px] bg-gradient-to-br from-[#E6D6C3]/10 via-transparent to-[#E6B08C]/12" />
+              <div className="pointer-events-none absolute inset-0 rounded-[38px] sm:rounded-[42px] ring-1 ring-[#E6D6C3]/25" />
+              <div className="pointer-events-none absolute inset-0 rounded-[38px] sm:rounded-[42px] ring-1 ring-[#E6B08C]/12" />
+              <div className="pointer-events-none absolute inset-0 rounded-[38px] sm:rounded-[42px] bg-gradient-to-br from-[#E6D6C3]/10 via-transparent to-[#E6B08C]/10" />
 
               <div className="relative px-4 py-5 sm:px-7 sm:py-6 lg:px-8 lg:py-7">
                 <div

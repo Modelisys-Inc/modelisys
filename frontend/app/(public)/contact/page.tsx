@@ -226,7 +226,7 @@ export default function ContactPage() {
                       Envoyez-nous un message
                     </h2>
                     <p className="text-[#5C5F66] mb-8 leading-relaxed">
-                      Remplissez le formulaire ci-dessous et nous vous répondrons dans les 24 heures ouvrables.
+                      Remplissez le formulaire ci-dessous et nous vous répondrons dans les plus brefs délais.
                     </p>
 
                     {isSubmitted ? (

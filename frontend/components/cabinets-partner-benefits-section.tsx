@@ -228,18 +228,19 @@ export function CabinetsPartnerBenefitsSection() {
             {/* Carte liste — même principe que « Profils » (Pour qui) */}
             <div className="flex w-full justify-center">
               <div className="relative w-full max-w-[320px] sm:max-w-[340px]">
-                <div className="absolute inset-0 -z-20 rounded-[44px] bg-black/45 blur-2xl" />
+                <div className="pointer-events-none absolute inset-0 -z-20 rounded-[40px] sm:rounded-[44px] bg-black/50 blur-2xl scale-[1.02]" />
 
-                <div className="absolute inset-0 -z-10 rounded-[44px] p-[1px] wow-border">
-                  <div className="h-full w-full rounded-[43px] bg-[#141823]" />
+                <div className="pointer-events-none absolute inset-0 -z-10 rounded-[40px] sm:rounded-[44px] p-px wow-border">
+                  <div className="h-full w-full rounded-[39px] sm:rounded-[43px] bg-[#141823]" />
                 </div>
 
-                <div className="relative overflow-hidden rounded-[42px] border-2 border-[#E6D6C3]/55 bg-[#141823] shadow-2xl">
+                <div className="relative overflow-hidden rounded-[38px] sm:rounded-[42px] border border-[#E6D6C3]/45 bg-[#141823] shadow-[0_28px_72px_-18px_rgba(0,0,0,0.62),0_0_0_1px_rgba(230,214,195,0.14)_inset]">
                   <div className="pointer-events-none absolute inset-0 opacity-70 wow-shimmer" />
                   <div className="pointer-events-none absolute inset-0 opacity-[0.10] mix-blend-overlay wow-noise" />
-                  <div className="pointer-events-none absolute inset-0 rounded-[42px] ring-1 ring-[#E6D6C3]/30" />
-                  <div className="pointer-events-none absolute inset-0 rounded-[42px] ring-1 ring-[#E6B08C]/15" />
-                  <div className="pointer-events-none absolute inset-0 rounded-[42px] bg-gradient-to-br from-[#E6D6C3]/10 via-transparent to-[#E6B08C]/12" />
+                  <div className="pointer-events-none absolute inset-0 rounded-[38px] sm:rounded-[42px] ring-1 ring-[#E6D6C3]/25" />
+                  <div className="pointer-events-none absolute inset-0 rounded-[38px] sm:rounded-[42px] ring-1 ring-[#E6B08C]/12" />
+                  <div className="pointer-events-none absolute inset-0 rounded-[38px] sm:rounded-[42px] bg-gradient-to-br from-[#E6D6C3]/10 via-transparent to-[#E6B08C]/10" />
+                  <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#E0742D]/55 to-transparent" />
 
                   <div className="px-5 py-6">
                     <div className="text-center">
@@ -247,7 +248,7 @@ export function CabinetsPartnerBenefitsSection() {
                       <p className="mt-1 text-[10px] text-[#C9B8A5]/70">Ce que le cabinet en retire.</p>
                     </div>
 
-                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+                    <div className="mt-4 rounded-2xl border border-white/[0.10] bg-white/[0.04] p-3 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]">
                       <div className="relative min-h-[220px] sm:min-h-[240px]">
                         <div className="pointer-events-none absolute left-[18px] top-2 bottom-2 w-px bg-gradient-to-b from-[#E6D6C3]/35 via-white/10 to-[#E6B08C]/30" />
                         <ul className="flex flex-col gap-2 py-1">
@@ -260,7 +261,9 @@ export function CabinetsPartnerBenefitsSection() {
                                   type="button"
                                   onClick={() => setActiveBenefit(id)}
                                   className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition ${
-                                    isActive ? "border border-white/10 bg-white/[0.06]" : "hover:bg-white/[0.03]"
+                                    isActive
+                                      ? "border border-white/[0.12] bg-white/[0.07] shadow-sm"
+                                      : "border border-transparent hover:bg-white/[0.04]"
                                   }`}
                                   aria-pressed={isActive}
                                 >
@@ -312,7 +315,7 @@ export function CabinetsPartnerBenefitsSection() {
                 <h3 className="mt-3 text-base font-semibold leading-snug text-[#E6D6C3]">{active.title}</h3>
                 <p className="mt-3 text-sm leading-relaxed text-[#C9B8A5]/80">{active.description}</p>
 
-                <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-4 sm:p-5">
+                <div className="mt-6 rounded-2xl border border-white/[0.09] bg-white/[0.035] p-4 sm:p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-[#C9B8A5]/70">Points concrets</p>
                   <ul className="mt-3 space-y-3">
                     {active.highlights.map((line) => (
