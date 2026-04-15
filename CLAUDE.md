@@ -188,6 +188,29 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
 - Cash flow is derived from income statement + balance sheet deltas
 - See `docs/plans/` for detailed design documents
 
+## QuickBooks Online integration
+
+Per-company connector in `backend/app/integrations/quickbooks/`:
+
+- **OAuth2 flow** with Intuit (sandbox by default). Tokens stored in
+  `quickbooks_connections` table, encrypted at rest via Fernet
+  (`QBO_TOKEN_ENCRYPTION_KEY`). State CSRF JWT signed with `JWT_SECRET_KEY`,
+  audience `qbo-oauth`.
+- **Two-step preview/commit:** `POST /api/quickbooks/companies/{id}/trial-balance/preview`
+  pulls TB + proposes link_codes (no DB writes). `POST .../commit` upserts
+  `ChartOfAccount`, `AccountMapping`, and `TrialBalanceEntry` in one transaction.
+- **TB schema fit:** preview/commit take `fiscal_year` + `month` (matching
+  `TrialBalanceEntry`), not `as_of_date`. Date range respects
+  `Company.is_cumulative_tb`.
+- **Mapping rules** (`mapping_rules.py`) are GENERIC defaults — must be
+  customized per-org to match `FinancialStatementMapping.structure` link codes.
+- **Frontend:** `/settings/companies/[id]/quickbooks` with three states
+  (not_connected / connected / revoked) and a `QuickBooksReviewTable` for
+  per-row mapping review.
+- **Tests:** `backend/tests/integrations/quickbooks/` mocks Intuit via `respx`.
+  Frontend e2e in `frontend/e2e/quickbooks.spec.ts` mocks all backend endpoints.
+- **Sandbox setup + smoke checklist:** `docs/quickbooks-release-checklist.md`.
+
 ALWAYS USE TEAMS WHEN DEEMED NECESSARY
 TEAMS SHOULD BE COMPOSED OF 
 - BACKEND DEVELOPER
