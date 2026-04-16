@@ -200,6 +200,8 @@ export interface Company {
   name: string
   fiscal_year_end: string
   currency: string
+  /** Si true, les montants de balance importés sont des totaux cumulés depuis le début d'exercice (YTD) par mois. */
+  is_cumulative_tb?: boolean
   divisions: Division[]
   created_at: string
   updated_at: string
@@ -228,7 +230,7 @@ export async function createCompany(data: {
 
 export async function updateCompany(
   id: string,
-  data: { name?: string; fiscal_year_end?: string; currency?: string }
+  data: { name?: string; fiscal_year_end?: string; currency?: string; is_cumulative_tb?: boolean }
 ): Promise<Company> {
   return apiFetch<Company>(`/api/companies/${id}`, {
     method: "PATCH",
@@ -350,14 +352,34 @@ export type TrialBalanceReferencePeriod = {
 export async function listTrialBalanceReferencePeriods(
   companyId: string
 ): Promise<TrialBalanceReferencePeriod[]> {
+  const MONTHS_FR = [
+    "Janvier",
+    "Février",
+    "Mars",
+    "Avril",
+    "Mai",
+    "Juin",
+    "Juillet",
+    "Août",
+    "Septembre",
+    "Octobre",
+    "Novembre",
+    "Décembre",
+  ] as const
+
   const years = await getTrialBalanceFiscalYears(companyId)
   const out: TrialBalanceReferencePeriod[] = []
   for (const y of years) {
     const tb = await getTrialBalance(companyId, y)
     for (const m of tb.months_with_data ?? []) {
-      if (m >= 1 && m <= 12) {
-        out.push({ fiscal_year: y, month: m })
-      }
+      if (m < 1 || m > 12) continue
+      const monthKey = MONTHS_FR[m - 1]
+      // Exclude months that exist in the DB only with zero amounts (common when imports upload all months).
+      const hasNonZero = (tb.accounts ?? []).some((acc) => {
+        const v = acc.monthly_amounts?.[monthKey] ?? 0
+        return typeof v === "number" && Number.isFinite(v) && v !== 0
+      })
+      if (hasNonZero) out.push({ fiscal_year: y, month: m })
     }
   }
   out.sort((a, b) =>
@@ -584,6 +606,8 @@ export interface FinancialStatementRow {
   indent?: boolean
   /** Trait épais au-dessus de la ligne (structure). */
   separatorAbove?: boolean
+  /** Présence d'un code de liaison ou d'une formule de liaison dans la structure. */
+  hasLiaisonCode?: boolean
 }
 
 export interface FinancialStatementParams {
@@ -1364,6 +1388,7 @@ export interface SeriesRow {
   detailOnly?: boolean
   indent?: boolean
   separatorAbove?: boolean
+  hasLiaisonCode?: boolean
 }
 
 export interface FinancialStatementSeriesResponse {
@@ -1376,6 +1401,7 @@ export interface FinancialStatementSeriesResponse {
 
 export interface FinancialStatementSeriesParams {
   fiscal_year: number
+  month?: number
   months?: number  // default 12
   division_id?: string
   sub_division_id?: string
@@ -1392,6 +1418,7 @@ export async function getFinancialStatementSeries(
 ): Promise<FinancialStatementSeriesResponse> {
   const query = new URLSearchParams()
   query.set("fiscal_year", params.fiscal_year.toString())
+  if (params.month) query.set("month", params.month.toString())
   if (params.months) query.set("months", params.months.toString())
   if (params.division_id) query.set("division_id", params.division_id)
   if (params.sub_division_id) query.set("sub_division_id", params.sub_division_id)
@@ -1472,13 +1499,18 @@ export async function uploadTrialBalance(
   companyId: string,
   file: File,
   fiscalYear?: number,
-  month?: number
+  month?: number,
+  ignoredAccounts?: string[]
 ): Promise<{ accounts_imported: number; message: string }> {
   const formData = new FormData()
   formData.append("file", file)
   const params = new URLSearchParams()
   if (fiscalYear != null) params.set("fiscal_year", fiscalYear.toString())
   if (month != null) params.set("month", month.toString())
+  for (const acc of ignoredAccounts ?? []) {
+    const v = String(acc || "").trim()
+    if (v) params.append("ignored_accounts", v)
+  }
   const query = params.toString() ? `?${params.toString()}` : ""
 
   return apiFetch(

@@ -30,6 +30,7 @@ class FinancialStatementRow(BaseModel):
     detailOnly: bool | None = None
     indent: bool | None = None
     separatorAbove: bool | None = None
+    hasLiaisonCode: bool | None = None
 
 
 class FinancialStatementResponse(BaseModel):
@@ -80,6 +81,7 @@ class SeriesRow(BaseModel):
     detailOnly: bool | None = None
     indent: bool | None = None
     separatorAbove: bool | None = None
+    hasLiaisonCode: bool | None = None
 
 
 class FinancialStatementSeriesResponse(BaseModel):

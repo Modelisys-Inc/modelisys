@@ -24,24 +24,37 @@ export function reverseSeriesOrderForDisplay<T>(items: T[]): T[] {
   return [...items].reverse()
 }
 
+/** For balance-sheet style series: use the last month of each quarter (snapshot), not the sum of 3 months. */
+export type SeriesAggregateMode = "sum" | "last"
+
 /**
  * Aggregate monthly data into quarterly data.
  * Groups consecutive sets of 3 periods.
+ * Use mode `"last"` for point-in-time balances (e.g. balance sheet); default `"sum"` for flows / P&L.
  */
 export function aggregateToQuarters(
   amounts: number[],
-  periods: SeriesPeriod[]
+  periods: SeriesPeriod[],
+  mode: SeriesAggregateMode = "sum"
 ): { labels: string[]; amounts: number[] } {
   const quarterLabels: string[] = []
   const quarterAmounts: number[] = []
 
   for (let i = 0; i < periods.length; i += 3) {
     const chunk = amounts.slice(i, i + 3)
-    const sum = chunk.reduce((a, b) => a + b, 0)
-    quarterAmounts.push(sum)
-    // Label: "T1 2024", "T2 2024", etc.
-    const quarterNum = Math.floor(i / 3) + 1
-    quarterLabels.push(`T${quarterNum} ${periods[i].fiscalYear}`)
+    const chunkPeriods = periods.slice(i, i + 3)
+    const lastP = chunkPeriods[chunkPeriods.length - 1] ?? periods[i]
+    const value =
+      mode === "last"
+        ? (chunk.length ? chunk[chunk.length - 1]! : 0)
+        : chunk.reduce((a, b) => a + b, 0)
+    quarterAmounts.push(value)
+    if (mode === "last") {
+      quarterLabels.push(lastP.label)
+    } else {
+      const quarterNum = Math.floor(i / 3) + 1
+      quarterLabels.push(`T${quarterNum} ${lastP.fiscalYear}`)
+    }
   }
 
   return { labels: quarterLabels, amounts: quarterAmounts }
@@ -50,11 +63,26 @@ export function aggregateToQuarters(
 /**
  * Aggregate monthly data into yearly data.
  * Groups by fiscal year.
+ * Use mode `"last"` for point-in-time balances (last month of each FY in the series).
  */
 export function aggregateToYears(
   amounts: number[],
-  periods: SeriesPeriod[]
+  periods: SeriesPeriod[],
+  mode: SeriesAggregateMode = "sum"
 ): { labels: string[]; amounts: number[] } {
+  if (mode === "last") {
+    const lastByYear = new Map<number, number>()
+    for (let i = 0; i < periods.length; i++) {
+      const fy = periods[i].fiscalYear
+      lastByYear.set(fy, amounts[i])
+    }
+    const years = Array.from(lastByYear.keys()).sort((a, b) => a - b)
+    return {
+      labels: years.map((y) => y.toString()),
+      amounts: years.map((y) => lastByYear.get(y) ?? 0),
+    }
+  }
+
   const yearMap = new Map<number, number>()
 
   for (let i = 0; i < periods.length; i++) {
@@ -85,6 +113,31 @@ export function findRow(rows: SeriesRow[], idOrLabel: string): SeriesRow | undef
     if (rev) return rev
   }
   return rows.find((r) => r.label.toLowerCase().includes(lower))
+}
+
+/**
+ * Trouve une ligne de série par id / libellé, y compris dans les `detailRows` (comptes GL).
+ * Retourne un `SeriesRow` « pseudo » pour le détail (sans sous-detail).
+ */
+export function findSeriesRowOrDetail(rows: SeriesRow[], idOrLabel: string): SeriesRow | undefined {
+  const top = findRow(rows, idOrLabel)
+  if (top) return top
+  const raw = idOrLabel.trim()
+  for (const r of rows) {
+    const dr = r.detailRows?.find((d) => d.id === raw)
+    if (dr) {
+      return {
+        id: dr.id,
+        label: dr.label,
+        isBold: false,
+        isSection: false,
+        isResult: false,
+        amounts: dr.amounts,
+        detailRows: [],
+      }
+    }
+  }
+  return undefined
 }
 
 /**

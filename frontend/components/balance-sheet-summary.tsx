@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useEffect, useMemo, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
@@ -11,10 +11,20 @@ import { useBalanceSheetStructureEdit } from "@/hooks/use-income-statement-struc
 import {
   aggregateToQuarters,
   aggregateToYears,
+  findSeriesRowOrDetail,
   getPeriodLabels,
   getRowAmounts,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
+import { monthTrendFromReference } from "@/lib/series-reference-columns"
+import {
+  calendarQuarterFromMonth,
+  formatCalendarMonthYear,
+  formatPriorCalendarMonth,
+  formatQuarterShortLabel,
+  formatSameMonthPriorYear,
+  priorCalendarQuarter,
+} from "@/lib/financial-period-labels"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import {
   collectDistinctLinkCodesFromStructure,
@@ -26,7 +36,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { IncomeStatementNotePanel } from "@/components/income-statement-note-panel"
 import { Separator } from "@/components/ui/separator"
+import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import {
   Dialog,
   DialogContent,
@@ -44,8 +56,16 @@ import {
   StatementSummaryStructureThead,
 } from "@/components/statement-summary-structure-shared"
 import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart"
+import {
   AlignLeft,
   ArrowLeft,
+  ArrowRight,
+  BarChart3,
+  CheckCircle2,
   IndentIncrease,
   LayoutList,
   Loader2,
@@ -53,7 +73,10 @@ import {
   Plus,
   Settings,
   Sparkles,
+  Table2,
+  X,
 } from "lucide-react"
+import { Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, XAxis, YAxis } from "recharts"
 import {
   dashboardCardAccentBarClass,
   dashboardCardAccentClass,
@@ -79,6 +102,9 @@ interface BalanceSheetSummaryProps {
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
   fiscalYear?: number
+  /** Date de référence (URL ?refMonth=&refYear=) */
+  refMonth: number
+  refYear: number
   rows?: FinancialStatementRow[]
   loading?: boolean
   showBalanceSheetStructureSettings?: boolean
@@ -94,10 +120,35 @@ interface SummaryRow {
   isSection?: boolean
   isResult?: boolean
   indent?: boolean
+  rowId?: string
+  annexLetter?: string
+  balanceAccounts?: Array<{
+    accountNumber: string
+    accountName: string
+    amount: number
+    priorAmount?: number
+  }>
   /** Ligne de séparation au-dessus (structure / API). */
   separatorAbove?: boolean
+  hasLiaisonCode?: boolean
   // For trend views (12months, quarters, years)
   trendValues?: number[]
+}
+
+interface LineAnalysisSnapshot {
+  rowId: string
+  label: string
+  current: number
+  prior: number
+  balanceAccounts?: Array<{
+    accountNumber: string
+    accountName: string
+    amount: number
+    priorAmount?: number
+  }>
+  trendValues?: number[]
+  /** Si l’analyse porte sur un compte GL : id de la ligne d’état parente. */
+  parentRowId?: string
 }
 
 function isTruthySeparatorAbove(raw: unknown): boolean {
@@ -109,6 +160,32 @@ function indentForSummaryRow(
 ): boolean {
   if (typeof row.indent === "boolean") return row.indent
   return !row.isBold && !row.isSection && !row.isResult
+}
+
+function structureRowHasLiaisonCode(row: Record<string, unknown> | null | undefined): boolean {
+  if (!row) return false
+
+  const linkCode = String(row.linkCode ?? "").trim()
+  if (linkCode) return true
+
+  const sumCodes = Array.isArray(row.liaisonSumCodes) ? row.liaisonSumCodes : []
+  if (sumCodes.some((code) => String(code ?? "").trim())) return true
+
+  const numeratorCodes = Array.isArray(row.liaisonNumeratorCodes) ? row.liaisonNumeratorCodes : []
+  if (numeratorCodes.some((code) => String(code ?? "").trim())) return true
+
+  const denominatorCodes = Array.isArray(row.liaisonDenominatorCodes) ? row.liaisonDenominatorCodes : []
+  return denominatorCodes.some((code) => String(code ?? "").trim())
+}
+
+function accountLabelAlreadyIncludesNumber(accountNumber: string, accountName: string): boolean {
+  const n = accountNumber.trim()
+  const name = (accountName || "").trim()
+  if (!n || !name) return false
+  if (name === n) return true
+  if (!name.startsWith(n)) return false
+  const rest = name.slice(n.length)
+  return rest === "" || /^[\s\u2014\u2013\-:]/.test(rest)
 }
 
 export function BalanceSheetSummary({
@@ -124,12 +201,22 @@ export function BalanceSheetSummary({
   selectedBudgetId = null,
   selectedBudgetName = null,
   fiscalYear,
+  refMonth,
+  refYear,
   rows: backendRows = [],
   loading = false,
   showBalanceSheetStructureSettings = false,
   structureVersion = 0,
   onBalanceSheetStructureSaved,
 }: BalanceSheetSummaryProps) {
+  useNotesCache(companyId ?? null)
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [lineAnalysis, setLineAnalysis] = useState<LineAnalysisSnapshot | null>(null)
+  const [lineAnalysisView, setLineAnalysisView] = useState<"current" | "trailing12" | "trailing5years">("current")
+  const [showAllAnalysisAccounts, setShowAllAnalysisAccounts] = useState(false)
+  const [notesUpdated, setNotesUpdated] = useState(0)
+  const analysisCardRef = useRef<HTMLElement | null>(null)
+  const analysisRowRefs = useRef<Record<string, HTMLTableRowElement | null>>({})
   const [structureEditMode, setStructureEditMode] = useState(false)
   const [addSpaceDialogOpen, setAddSpaceDialogOpen] = useState(false)
   const [addSpacePlacement, setAddSpacePlacement] = useState<"above" | "below">("above")
@@ -170,6 +257,7 @@ export function BalanceSheetSummary({
     companyId: companyId || null,
     statementType: "balance-sheet",
     fiscalYear: currentYear,
+    month: refMonth,
     months: monthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
@@ -177,21 +265,41 @@ export function BalanceSheetSummary({
     structureVersion,
   })
 
+  const { rows: analysisSeriesRows, periods: analysisPeriods, loading: analysisSeriesLoading } =
+    useFinancialStatementSeries({
+      companyId: companyId || null,
+      statementType: "balance-sheet",
+      fiscalYear: currentYear,
+      month: refMonth,
+      months: 60,
+      divisionId: divisionId || null,
+      subDivisionId: subDivisionId || null,
+      enabled: !!companyId && !!lineAnalysis?.rowId,
+      structureVersion,
+    })
+
   // Helper function to get comparison label
   const getComparisonLabel = (): string => {
     if (view !== "comparison" && view !== "ytd" && view !== "ddm") return "Passé"
     if (comparisonType === "lastMonth") {
       if (view === "ytd") return "YTD dernier"
       if (view === "ddm") return "DDM dernier"
-      if (period === "monthly") return "Mois dernier"
-      if (period === "quarterly") return "Trimestre dernier"
+      if (period === "monthly") return formatPriorCalendarMonth(refMonth, refYear)
+      if (period === "quarterly") {
+        const q = calendarQuarterFromMonth(refMonth)
+        const pq = priorCalendarQuarter(q, refYear)
+        return formatQuarterShortLabel(pq.quarter, pq.year)
+      }
       return "Année dernière"
     }
     if (comparisonType === "pastMonth") {
       if (view === "ytd") return "YTD passé"
       if (view === "ddm") return "DDM passé"
-      if (period === "monthly") return "Mois passé"
-      if (period === "quarterly") return "Trimestre passé"
+      if (period === "monthly") return formatSameMonthPriorYear(refMonth, refYear)
+      if (period === "quarterly") {
+        const q = calendarQuarterFromMonth(refMonth)
+        return formatQuarterShortLabel(q, refYear - 1)
+      }
       return "Année passée"
     }
     if (comparisonType === "budget") {
@@ -209,6 +317,21 @@ export function BalanceSheetSummary({
     return "Passé"
   }
 
+  /** Colonne « Courant » : libellé daté (référence) pour comparaison / DDM. */
+  const getCurrentColumnLabel = (): string => {
+    if ((view === "comparison" || view === "ddm") && period === "monthly") {
+      return formatCalendarMonthYear(refMonth, refYear)
+    }
+    if ((view === "comparison" || view === "ddm") && period === "quarterly") {
+      const q = calendarQuarterFromMonth(refMonth)
+      return formatQuarterShortLabel(q, refYear)
+    }
+    if ((view === "comparison" || view === "ddm") && period === "annual") {
+      return String(refYear)
+    }
+    return "Courant"
+  }
+
   // Map backend FinancialStatementRow[] to internal SummaryRow[]
   const mapBackendRows = (apiRows: FinancialStatementRow[]): SummaryRow[] => {
     return apiRows.map((row) => ({
@@ -224,7 +347,17 @@ export function BalanceSheetSummary({
         isResult: !!row.isResult,
         indent: (row as { indent?: boolean }).indent,
       }),
+      rowId: row.id,
+      annexLetter: row.annexLetter,
+      balanceAccounts:
+        row.detailRows?.map((dr) => ({
+          accountNumber: dr.id,
+          accountName: dr.label,
+          amount: dr.current ?? 0,
+          priorAmount: dr.prior ?? 0,
+        })) ?? [],
       separatorAbove: isTruthySeparatorAbove((row as { separatorAbove?: unknown }).separatorAbove),
+      hasLiaisonCode: row.hasLiaisonCode,
     }))
   }
 
@@ -234,18 +367,44 @@ export function BalanceSheetSummary({
     return str.charAt(0).toUpperCase() + str.slice(1)
   }
 
-  // Helper function to check if label should be bold
-  const shouldBeBold = (label: string, row: SummaryRow): boolean => {
-    const boldLabels = [
-      "actifs",
-      "total des actifs",
-      "passifs",
-      "total des passifs",
-      "capitaux propres",
-      "total passifs et capitaux propres"
-    ]
-    return boldLabels.includes(label.toLowerCase()) || !!row.isResult
+  const toggleRow = (rowId: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(rowId)) next.delete(rowId)
+      else next.add(rowId)
+      return next
+    })
   }
+
+  const openOrToggleLineAnalysis = useCallback((snapshot: LineAnalysisSnapshot) => {
+    setLineAnalysis((prev) => {
+      const next = prev?.rowId === snapshot.rowId ? null : snapshot
+      if (next) {
+        setLineAnalysisView("current")
+        setShowAllAnalysisAccounts(false)
+      }
+      return next
+    })
+  }, [])
+
+  const scrollToAnalysisCard = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      analysisCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    })
+  }, [])
+
+  const scrollBackToAnalysisRow = useCallback(() => {
+    const rowId = lineAnalysis?.parentRowId ?? lineAnalysis?.rowId
+    if (!rowId) return
+    const target = analysisRowRefs.current[rowId]
+    if (!target) return
+    target.scrollIntoView({ behavior: "smooth", block: "center" })
+  }, [lineAnalysis?.rowId, lineAnalysis?.parentRowId])
+
+  useEffect(() => {
+    if (!lineAnalysis) return
+    scrollToAnalysisCard()
+  }, [lineAnalysis, scrollToAnalysisCard])
 
   // Build multi-period rows from series API data
   const getMultiPeriodData = (): SummaryRow[] => {
@@ -256,9 +415,9 @@ export function BalanceSheetSummary({
 
       let values: number[]
       if (view === "quarters") {
-        values = reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods).amounts)
+        values = reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods, "last").amounts)
       } else if (view === "years") {
-        values = reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods).amounts)
+        values = reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods, "last").amounts)
       } else {
         values = reverseSeriesOrderForDisplay(rawAmounts)
       }
@@ -270,6 +429,35 @@ export function BalanceSheetSummary({
         isBold: row.isBold,
         isSection: row.isSection,
         isResult: row.isResult,
+        rowId: row.id,
+        annexLetter: row.annexLetter,
+        balanceAccounts:
+          row.detailRows?.map((dr) => {
+            const rawDetailAmounts = getRowAmounts(
+              {
+                id: dr.id,
+                label: dr.label,
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: dr.amounts,
+                detailRows: [],
+              },
+              periods
+            )
+            const detailValues =
+              view === "quarters"
+                ? reverseSeriesOrderForDisplay(aggregateToQuarters(rawDetailAmounts, periods, "last").amounts)
+                : view === "years"
+                  ? reverseSeriesOrderForDisplay(aggregateToYears(rawDetailAmounts, periods, "last").amounts)
+                  : reverseSeriesOrderForDisplay(rawDetailAmounts)
+            return {
+              accountNumber: dr.id,
+              accountName: dr.label,
+              amount: detailValues[0] || 0,
+              priorAmount: detailValues.length >= 2 ? detailValues[1] || 0 : 0,
+            }
+          }) ?? [],
         indent: indentForSummaryRow({
           isBold: !!row.isBold,
           isSection: !!row.isSection,
@@ -277,6 +465,7 @@ export function BalanceSheetSummary({
           indent: (row as { indent?: boolean }).indent,
         }),
         separatorAbove: isTruthySeparatorAbove((row as { separatorAbove?: unknown }).separatorAbove),
+        hasLiaisonCode: row.hasLiaisonCode,
         trendValues: row.isSection ? undefined : values,
       }
     })
@@ -530,7 +719,7 @@ export function BalanceSheetSummary({
   const getQuarterLabels = (): string[] => {
     if (periods.length > 0 && seriesRows.length > 0) {
       const rawAmounts = getRowAmounts(seriesRows[0], periods)
-      return reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods).labels)
+      return reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods, "last").labels)
     }
     const cd = new Date()
     const labels: string[] = []
@@ -546,7 +735,7 @@ export function BalanceSheetSummary({
   const getYearLabels = (): string[] => {
     if (periods.length > 0 && seriesRows.length > 0) {
       const rawAmounts = getRowAmounts(seriesRows[0], periods)
-      return reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods).labels)
+      return reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods, "last").labels)
     }
     const cy = new Date().getFullYear()
     const labels: string[] = []
@@ -557,6 +746,797 @@ export function BalanceSheetSummary({
   }
 
   const getHorizonText = (): string => getHorizonModeLabel(view, period)
+
+  const analysisSeriesOverview = useMemo(() => {
+    if (!lineAnalysis?.rowId || !analysisSeriesRows.length || !analysisPeriods.length) return null
+
+    const targetRow = findSeriesRowOrDetail(analysisSeriesRows, lineAnalysis.rowId)
+    if (!targetRow) return null
+
+    const rawMonthlyAmounts = getRowAmounts(targetRow, analysisPeriods)
+    const rawMonthlyLabels = getPeriodLabels(analysisPeriods)
+
+    const totalAssetsRow = analysisSeriesRows.find((r) => r.label.trim().toLowerCase() === "total des actifs")
+    const rawAssetsAmounts = totalAssetsRow ? getRowAmounts(totalAssetsRow, analysisPeriods) : rawMonthlyLabels.map(() => 0)
+
+    const monthlySeries = rawMonthlyLabels.map((label, idx) => {
+      const amount = rawMonthlyAmounts[idx] ?? 0
+      const assets = rawAssetsAmounts[idx] ?? 0
+      const pctAssets = Math.abs(assets) < 1e-9 ? 0 : (amount / assets) * 100
+      return {
+        period: label,
+        amount,
+        amountPos: Math.max(0, amount),
+        amountNeg: Math.min(0, amount),
+        pctAssets,
+      }
+    })
+
+    const trailing12 = monthlySeries.slice(-12)
+    const trailing12Average =
+      trailing12.length > 0
+        ? trailing12.reduce((sum, point) => sum + point.amount, 0) / trailing12.length
+        : 0
+    const trailing12AveragePctAssets =
+      trailing12.length > 0
+        ? trailing12.reduce((sum, point) => sum + point.pctAssets, 0) / trailing12.length
+        : 0
+
+    const yearlyAgg = aggregateToYears(rawMonthlyAmounts, analysisPeriods, "last")
+    const yearlyAssetsAgg = aggregateToYears(rawAssetsAmounts, analysisPeriods, "last")
+    const yearlySeries = yearlyAgg.labels.map((label, idx) => {
+      const amount = yearlyAgg.amounts[idx] ?? 0
+      const assets = yearlyAssetsAgg.amounts[idx] ?? 0
+      const pctAssets = Math.abs(assets) < 1e-9 ? 0 : (amount / assets) * 100
+      return {
+        period: label,
+        amount,
+        amountPos: Math.max(0, amount),
+        amountNeg: Math.min(0, amount),
+        pctAssets,
+      }
+    })
+    const trailing5Years = yearlySeries.slice(-5)
+    const trailing5YearsAverage =
+      trailing5Years.length > 0
+        ? trailing5Years.reduce((sum, point) => sum + point.amount, 0) / trailing5Years.length
+        : 0
+    const trailing5YearsAveragePctAssets =
+      trailing5Years.length > 0
+        ? trailing5Years.reduce((sum, point) => sum + point.pctAssets, 0) / trailing5Years.length
+        : 0
+
+    return {
+      trailing12,
+      trailing12Average,
+      trailing12AveragePctAssets,
+      trailing5Years,
+      trailing5YearsAverage,
+      trailing5YearsAveragePctAssets,
+    }
+  }, [analysisPeriods, analysisSeriesRows, lineAnalysis?.rowId])
+
+  /** Lecture « Mois actuel » : mois de référence, M-1 et même mois N-1 (séries), indépendamment de la vue tableau. */
+  const analysisMonthReading = useMemo(() => {
+    if (!lineAnalysis?.rowId || !analysisSeriesRows.length || !analysisPeriods.length) return null
+    const targetRow = findSeriesRowOrDetail(analysisSeriesRows, lineAnalysis.rowId)
+    if (!targetRow) return null
+
+    const lineTrend = monthTrendFromReference(targetRow, analysisPeriods, refMonth, refYear, 13)
+    const current = lineTrend[0] ?? 0
+    const lastMonth = lineTrend[1] ?? 0
+    const priorYearMonth = lineTrend[12] ?? 0
+
+    const totalAssetsRow = analysisSeriesRows.find((r) => r.label.trim().toLowerCase() === "total des actifs")
+    const assetsTrend = totalAssetsRow
+      ? monthTrendFromReference(totalAssetsRow, analysisPeriods, refMonth, refYear, 13)
+      : []
+
+    const pctOfAssets = (amount: number, idx: number) => {
+      const den = assetsTrend[idx] ?? 0
+      if (Math.abs(den) < 1e-9) return 0
+      return (amount / den) * 100
+    }
+
+    return {
+      current,
+      lastMonth,
+      priorYearMonth,
+      pctCurrent: pctOfAssets(current, 0),
+      pctLastMonth: pctOfAssets(lastMonth, 1),
+      pctPriorYearMonth: pctOfAssets(priorYearMonth, 12),
+      vsLastMonthPct: calculateVariation(current, lastMonth),
+      vsLastMonthDollar: current - lastMonth,
+      vsPriorYearPct: calculateVariation(current, priorYearMonth),
+      vsPriorYearDollar: current - priorYearMonth,
+    }
+  }, [lineAnalysis?.rowId, analysisSeriesRows, analysisPeriods, refMonth, refYear])
+
+  const renderLineAnalysisBody = () => {
+    if (!lineAnalysis) return null
+    const ctx = lineAnalysis
+    const variation =
+      ctx.current != null && ctx.prior != null ? calculateVariation(ctx.current, ctx.prior) : null
+    const variationAmount = ctx.current - ctx.prior
+    const accountsSorted = [...(ctx.balanceAccounts ?? [])].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+    const visibleAccounts = showAllAnalysisAccounts ? accountsSorted : accountsSorted.slice(0, 4)
+    const parentPostRow =
+      ctx.parentRowId != null ? data.find((r) => r.rowId === ctx.parentRowId) : null
+    const lineDenomBase =
+      parentPostRow != null ? parentPostRow.current ?? 0 : ctx.current
+    const lineDenom = Math.abs(lineDenomBase) > 1e-9 ? Math.abs(lineDenomBase) : 1
+    const showComparisonAmounts = view === "comparison" && !isComparisonMode
+
+    const monthReading = analysisMonthReading
+    const fmtDeltaPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`
+    const fmtDeltaUsd = (v: number) => `${v >= 0 ? "+" : ""}${formatCurrency(v)}`
+
+    return (
+      <div className="mt-10 grid gap-8 lg:grid-cols-12 lg:gap-10">
+        <div className="lg:col-span-5">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Lecture du poste</p>
+            <span className="mx-4 h-px flex-1 bg-slate-200/90" aria-hidden />
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Vue affichée</p>
+                <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                  Choisissez la lecture que vous voulez afficher pour ce poste.
+                </p>
+              </div>
+              <Select
+                value={lineAnalysisView}
+                onValueChange={(value: "current" | "trailing12" | "trailing5years") => setLineAnalysisView(value)}
+              >
+                <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 text-left text-sm shadow-sm sm:w-[220px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-slate-200">
+                  <SelectItem value="current" className="rounded-lg">Mois actuel</SelectItem>
+                  <SelectItem value="trailing12" className="rounded-lg">12 derniers mois</SelectItem>
+                  <SelectItem value="trailing5years" className="rounded-lg">5 derniers exercices</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {lineAnalysisView === "current" ? (
+              analysisSeriesLoading ? (
+                <div className="mt-4 flex min-h-[100px] items-center justify-center rounded-2xl border border-dashed border-slate-200/90 bg-slate-50/80 text-sm text-slate-500">
+                  Chargement de l&apos;analyse mensuelle...
+                </div>
+              ) : monthReading ? (
+                <div className="mt-4 space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-3 shadow-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Mois actuel</p>
+                      <p className="mt-0.5 text-xs text-slate-500">{formatCalendarMonthYear(refMonth, refYear)}</p>
+                      <p className="mt-2 text-lg font-semibold tabular-nums tracking-tight text-[#2A2F3A]">
+                        {formatCurrency(monthReading.current)}
+                      </p>
+                      <p className="mt-1 text-xs tabular-nums text-slate-600">{monthReading.pctCurrent.toFixed(1)}% des actifs totaux</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-3 shadow-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Mois dernier</p>
+                      <p className="mt-0.5 text-xs text-slate-500">{formatPriorCalendarMonth(refMonth, refYear)}</p>
+                      <p className="mt-2 text-lg font-semibold tabular-nums tracking-tight text-[#2A2F3A]">
+                        {formatCurrency(monthReading.lastMonth)}
+                      </p>
+                      <p className="mt-1 text-xs tabular-nums text-slate-600">{monthReading.pctLastMonth.toFixed(1)}% des actifs totaux</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-3 shadow-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Mois passé</p>
+                      <p className="mt-0.5 text-xs text-slate-500">{formatSameMonthPriorYear(refMonth, refYear)}</p>
+                      <p className="mt-2 text-lg font-semibold tabular-nums tracking-tight text-[#2A2F3A]">
+                        {formatCurrency(monthReading.priorYearMonth)}
+                      </p>
+                      <p className="mt-1 text-xs tabular-nums text-slate-600">{monthReading.pctPriorYearMonth.toFixed(1)}% des actifs totaux</p>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Mois actuel vs mois dernier
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Variation $</p>
+                          <p
+                            className={cn(
+                              "mt-0.5 text-base font-semibold tabular-nums",
+                              monthReading.vsLastMonthDollar >= 0 ? "text-emerald-600" : "text-red-600"
+                            )}
+                          >
+                            {fmtDeltaUsd(monthReading.vsLastMonthDollar)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Variation %</p>
+                          <p
+                            className={cn(
+                              "mt-0.5 text-base font-semibold tabular-nums",
+                              monthReading.vsLastMonthPct >= 0 ? "text-emerald-600" : "text-red-600"
+                            )}
+                          >
+                            {fmtDeltaPct(monthReading.vsLastMonthPct)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Mois actuel vs mois passé
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Variation $</p>
+                          <p
+                            className={cn(
+                              "mt-0.5 text-base font-semibold tabular-nums",
+                              monthReading.vsPriorYearDollar >= 0 ? "text-emerald-600" : "text-red-600"
+                            )}
+                          >
+                            {fmtDeltaUsd(monthReading.vsPriorYearDollar)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Variation %</p>
+                          <p
+                            className={cn(
+                              "mt-0.5 text-base font-semibold tabular-nums",
+                              monthReading.vsPriorYearPct >= 0 ? "text-emerald-600" : "text-red-600"
+                            )}
+                          >
+                            {fmtDeltaPct(monthReading.vsPriorYearPct)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      {view === "current" ? "Montant" : getHorizonText()}
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-[#2A2F3A]">
+                      {ctx.current !== 0 ? formatCurrency(ctx.current) : "—"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      {showComparisonAmounts ? getComparisonLabel() : "Référence"}
+                    </p>
+                    <p className="mt-2 text-lg font-semibold tabular-nums tracking-tight text-slate-700">
+                      {showComparisonAmounts
+                        ? ctx.prior !== 0
+                          ? formatCurrency(ctx.prior)
+                          : "—"
+                        : formatCalendarMonthYear(refMonth, refYear)}
+                    </p>
+                  </div>
+
+                  {columnMode === "variations" && showComparisonAmounts ? (
+                    <>
+                      <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Variation %</p>
+                        <p
+                          className={cn(
+                            "mt-2 text-lg font-semibold tabular-nums",
+                            variation != null && variation >= 0 ? "text-emerald-600" : "text-red-600"
+                          )}
+                        >
+                          {variation != null && ctx.current !== 0 ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%` : "—"}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Variation $</p>
+                        <p
+                          className={cn(
+                            "mt-2 text-lg font-semibold tabular-nums",
+                            variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
+                          )}
+                        >
+                          {ctx.current !== 0 ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}` : "—"}
+                        </p>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {columnMode === "percentage" && showComparisonAmounts ? (
+                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm sm:col-span-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">% des actifs totaux</p>
+                      <p className="mt-2 text-lg font-semibold tabular-nums text-slate-800">
+                        {ctx.current !== 0 ? `${getTotalAssetsPercentage(ctx.current, false).toFixed(1)}%` : "—"}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            ) : null}
+
+            {lineAnalysisView === "trailing12" ? (
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">12 derniers mois</p>
+                    <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                      Evolution mensuelle du poste et moyenne glissante sur 12 mois.
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Moyenne 12 mois</p>
+                    <p className="mt-1 text-sm font-semibold tabular-nums text-[#2A2F3A]">
+                      {analysisSeriesOverview ? formatCurrency(analysisSeriesOverview.trailing12Average) : "—"}
+                    </p>
+                    <p className="mt-0.5 text-xs font-semibold tabular-nums text-slate-600">
+                      {analysisSeriesOverview
+                        ? `${analysisSeriesOverview.trailing12AveragePctAssets.toFixed(1)} % des actifs totaux`
+                        : "—"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 h-52">
+                  {analysisSeriesLoading ? (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                      Chargement de l&apos;historique...
+                    </div>
+                  ) : analysisSeriesOverview?.trailing12.length ? (
+                    <ChartContainer
+                      config={{
+                        amount: { label: "Montant", color: "#E0742D" },
+                        pctAssets: { label: "% actifs", color: "#2563eb" },
+                        average: { label: "Moyenne 12 mois", color: "#94a3b8" },
+                      }}
+                      className="h-full w-full"
+                    >
+                      <ComposedChart
+                        accessibilityLayer
+                        data={analysisSeriesOverview.trailing12}
+                        margin={{ top: 10, right: 12, left: 8, bottom: 0 }}
+                      >
+                        <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                        <XAxis dataKey="period" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
+                        <YAxis
+                          yAxisId="left"
+                          orientation="left"
+                          width={44}
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(v) => {
+                            const n = Number(v)
+                            if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+                            if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(0)}k`
+                            return String(Math.round(n))
+                          }}
+                        />
+                        <YAxis
+                          yAxisId="right"
+                          orientation="right"
+                          width={36}
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
+                        />
+                        <ChartTooltip
+                          content={
+                            <ChartTooltipContent
+                              formatter={(value, name) => {
+                                const n = Number(value ?? 0)
+                                if (name === "pctAssets") return [`${n.toFixed(1)}%`, "% des actifs totaux"]
+                                if (name === "amountPos" || name === "amountNeg") {
+                                  return [formatCurrency(n), name === "amountPos" ? "Montant (≥ 0)" : "Montant (< 0)"]
+                                }
+                                return [formatCurrency(n), String(name)]
+                              }}
+                            />
+                          }
+                        />
+                        <ReferenceLine
+                          yAxisId="left"
+                          y={analysisSeriesOverview.trailing12Average}
+                          stroke="#94a3b8"
+                          strokeDasharray="4 4"
+                        />
+                        <ReferenceLine
+                          yAxisId="right"
+                          y={analysisSeriesOverview.trailing12AveragePctAssets}
+                          stroke="#64748b"
+                          strokeDasharray="3 3"
+                        />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="amountPos"
+                          name="amountPos"
+                          stackId="stack"
+                          fill="var(--color-amount)"
+                          radius={[0, 0, 0, 0]}
+                        />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="amountNeg"
+                          name="amountNeg"
+                          stackId="stack"
+                          fill="#c2410c"
+                          radius={[4, 4, 0, 0]}
+                        />
+                        <Line
+                          yAxisId="right"
+                          type="monotone"
+                          dataKey="pctAssets"
+                          name="pctAssets"
+                          stroke="var(--color-pctAssets)"
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      </ComposedChart>
+                    </ChartContainer>
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                      Aucune donnée historique disponible.
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {lineAnalysisView === "trailing5years" ? (
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">5 derniers exercices</p>
+                    <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                      Vue d&apos;ensemble annuelle du poste avec la moyenne des 5 derniers exercices.
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Moyenne 5 exercices</p>
+                    <p className="mt-1 text-sm font-semibold tabular-nums text-[#2A2F3A]">
+                      {analysisSeriesOverview ? formatCurrency(analysisSeriesOverview.trailing5YearsAverage) : "—"}
+                    </p>
+                    <p className="mt-0.5 text-xs font-semibold tabular-nums text-slate-600">
+                      {analysisSeriesOverview
+                        ? `${analysisSeriesOverview.trailing5YearsAveragePctAssets.toFixed(1)} % des actifs totaux`
+                        : "—"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 h-52">
+                  {analysisSeriesLoading ? (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                      Chargement de l&apos;historique...
+                    </div>
+                  ) : analysisSeriesOverview?.trailing5Years.length ? (
+                    <ChartContainer
+                      config={{
+                        amount: { label: "Montant", color: "#2A2F3A" },
+                        pctAssets: { label: "% actifs", color: "#2563eb" },
+                        average: { label: "Moyenne 5 exercices", color: "#E0742D" },
+                      }}
+                      className="h-full w-full"
+                    >
+                      <ComposedChart
+                        accessibilityLayer
+                        data={analysisSeriesOverview.trailing5Years}
+                        margin={{ top: 10, right: 12, left: 8, bottom: 0 }}
+                      >
+                        <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                        <XAxis dataKey="period" tickLine={false} axisLine={false} tickMargin={8} />
+                        <YAxis
+                          yAxisId="left"
+                          orientation="left"
+                          width={44}
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(v) => {
+                            const n = Number(v)
+                            if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+                            if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(0)}k`
+                            return String(Math.round(n))
+                          }}
+                        />
+                        <YAxis
+                          yAxisId="right"
+                          orientation="right"
+                          width={36}
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
+                        />
+                        <ChartTooltip
+                          content={
+                            <ChartTooltipContent
+                              formatter={(value, name) => {
+                                const n = Number(value ?? 0)
+                                if (name === "pctAssets") return [`${n.toFixed(1)}%`, "% des actifs totaux"]
+                                if (name === "amountPos" || name === "amountNeg") {
+                                  return [formatCurrency(n), name === "amountPos" ? "Montant (≥ 0)" : "Montant (< 0)"]
+                                }
+                                return [formatCurrency(n), String(name)]
+                              }}
+                            />
+                          }
+                        />
+                        <ReferenceLine
+                          yAxisId="left"
+                          y={analysisSeriesOverview.trailing5YearsAverage}
+                          stroke="#94a3b8"
+                          strokeDasharray="4 4"
+                        />
+                        <ReferenceLine
+                          yAxisId="right"
+                          y={analysisSeriesOverview.trailing5YearsAveragePctAssets}
+                          stroke="#64748b"
+                          strokeDasharray="3 3"
+                        />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="amountPos"
+                          name="amountPos"
+                          stackId="stack"
+                          fill="var(--color-amount)"
+                          radius={[0, 0, 0, 0]}
+                        />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="amountNeg"
+                          name="amountNeg"
+                          stackId="stack"
+                          fill="#c2410c"
+                          radius={[4, 4, 0, 0]}
+                        />
+                        <Line
+                          yAxisId="right"
+                          type="monotone"
+                          dataKey="pctAssets"
+                          name="pctAssets"
+                          stroke="var(--color-pctAssets)"
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      </ComposedChart>
+                    </ChartContainer>
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                      Aucune donnée historique disponible.
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <p className="mt-6 text-sm italic leading-relaxed text-[#E0742D]">
+            « Une meilleure lecture du poste, de sa variation et de sa ventilation GL pour expliquer clairement ce qui bouge dans le bilan. »
+          </p>
+        </div>
+
+        <div className="hidden lg:col-span-1 lg:block">
+          <div className="mx-auto h-full w-px bg-gradient-to-b from-transparent via-slate-200/90 to-transparent" />
+        </div>
+
+        <div className="lg:col-span-6">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Ventilation du grand livre
+            </p>
+            <span className="mx-4 h-px flex-1 bg-slate-200/90" aria-hidden />
+          </div>
+
+          {accountsSorted.length > 0 ? (
+            <ul className="mt-5 space-y-4">
+              {visibleAccounts.map((acc, i) => {
+                const line = accountLabelAlreadyIncludesNumber(acc.accountNumber, acc.accountName)
+                  ? acc.accountName.trim()
+                  : `${acc.accountNumber} — ${acc.accountName}`
+                const pct = (Math.abs(acc.amount) / lineDenom) * 100
+                const glSelected = !!ctx.parentRowId && ctx.rowId === acc.accountNumber
+                return (
+                  <li key={`${acc.accountNumber}-${i}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLineAnalysis((prev) => {
+                          if (!prev) return prev
+                          if (prev.parentRowId && prev.rowId === acc.accountNumber) {
+                            const parentRow = data.find((r) => r.rowId === prev.parentRowId)
+                            if (!parentRow?.rowId) return prev
+                            return {
+                              rowId: parentRow.rowId,
+                              label: parentRow.label,
+                              current: parentRow.current,
+                              prior: parentRow.prior,
+                              balanceAccounts: parentRow.balanceAccounts,
+                              trendValues: parentRow.trendValues,
+                            }
+                          }
+                          return {
+                            rowId: acc.accountNumber,
+                            label: line,
+                            current: acc.amount,
+                            prior: acc.priorAmount ?? 0,
+                            balanceAccounts: prev.balanceAccounts,
+                            parentRowId: prev.parentRowId ?? prev.rowId,
+                          }
+                        })
+                        setLineAnalysisView("current")
+                      }}
+                      title="Afficher la lecture analytique de ce compte"
+                      aria-pressed={glSelected}
+                      className={cn(
+                        "w-full rounded-2xl border bg-white/90 px-4 py-3 text-left shadow-sm transition-colors",
+                        glSelected
+                          ? "border-[#E0742D]/55 ring-2 ring-[#E0742D]/35"
+                          : "border-slate-200/90 hover:border-slate-300/90 hover:bg-slate-50/80"
+                      )}
+                    >
+                      <div className="flex gap-3">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex justify-between gap-3">
+                            <p className="min-w-0 flex-1 text-sm leading-relaxed text-[#5C5F66]">{line}</p>
+                            <span className="shrink-0 text-sm font-semibold tabular-nums text-[#2A2F3A]">
+                              {acc.amount !== 0 ? formatCurrency(acc.amount) : "—"}
+                            </span>
+                          </div>
+                          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200/70">
+                            <div
+                              className="h-full rounded-full bg-[#E0742D] transition-[width] duration-300"
+                              style={{ width: `${Math.min(100, pct)}%` }}
+                            />
+                          </div>
+                          <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                            {pct.toFixed(0)} % du montant du poste (valeur absolue)
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 py-5 text-sm text-slate-500">
+              Aucun compte GL disponible pour cette ligne.
+            </div>
+          )}
+
+          {accountsSorted.length > 4 ? (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => setShowAllAnalysisAccounts((prev) => !prev)}
+                className="inline-flex items-center gap-2 text-sm font-semibold text-[#5C5F66] transition hover:text-[#2A2F3A]"
+              >
+                {showAllAnalysisAccounts ? "Voir moins" : "Voir plus"}
+                <ArrowRight className={cn("h-4 w-4 text-[#E0742D] transition-transform", showAllAnalysisAccounts && "rotate-90")} />
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    )
+  }
+
+  const renderUnifiedAnalysisNoteCard = () => {
+    if (!lineAnalysis) return null
+    const ctx = lineAnalysis
+    const vPct = ctx.current != null && ctx.prior != null ? calculateVariation(ctx.current, ctx.prior) : null
+    const vAmt = ctx.current - ctx.prior
+    const selectedCompany = companyId ? companies.find((c) => c.id === companyId) : null
+    const selectedDivision = companyId && divisionId ? selectedCompany?.divisions.find((d) => d.id === divisionId) : null
+    const selectedSubDivision =
+      companyId && divisionId && subDivisionId ? selectedDivision?.subDivisions.find((sd) => sd.id === subDivisionId) : null
+
+    const contextBits = [
+      selectedCompany?.name,
+      selectedDivision?.name,
+      selectedSubDivision?.name,
+      formatCalendarMonthYear(refMonth, refYear),
+    ].filter(Boolean)
+
+    return (
+      <div className="relative overflow-hidden rounded-[28px] border border-slate-200/90 bg-gradient-to-b from-slate-50 via-white to-slate-50/70 p-5 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.35)] sm:p-7">
+        <div className="pointer-events-none absolute inset-0" aria-hidden>
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_45%_at_50%_-10%,rgba(224,116,45,0.08),transparent_55%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_55%_50%_at_100%_55%,rgba(148,163,184,0.12),transparent_65%)]" />
+          <div className="absolute right-6 top-6 hidden select-none text-[92px] font-semibold leading-none tracking-tight text-[#2A2F3A]/[0.04] lg:block">
+            analyse<span className="text-[#E0742D]/20">.</span>
+          </div>
+        </div>
+
+        <div className="relative z-10">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={scrollBackToAnalysisRow}
+                className="mb-3 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#2A2F3A]"
+              >
+                <ArrowLeft className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                Retour au poste
+              </button>
+              <div className="mt-5 flex items-start justify-between gap-6">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Situation</p>
+                  <h3 className="mt-3 text-2xl font-semibold tracking-tight text-[#2A2F3A] sm:text-3xl">
+                    {ctx.label}
+                  </h3>
+                  <p className="mt-3 max-w-3xl text-sm font-semibold text-[#E0742D] sm:text-base">
+                    Lecture analytique du poste du bilan
+                  </p>
+                  {contextBits.length > 0 ? (
+                    <p className="mt-4 text-xs leading-relaxed text-slate-500">{contextBits.join(" • ")}</p>
+                  ) : null}
+                </div>
+
+              </div>
+
+              <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
+            </div>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-10 w-10 shrink-0 rounded-full border border-slate-200/90 bg-white/85 text-slate-500 shadow-sm hover:bg-white hover:text-slate-800"
+              onClick={() => setLineAnalysis(null)}
+              aria-label="Fermer le panneau"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {renderLineAnalysisBody()}
+
+          <div className="mt-10 border-t border-slate-200/80 pt-4">
+            <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-[#5C5F66]">
+              Documenter l'analyse, expliquer les écarts et joindre les pièces justificatives
+              <ArrowRight className="h-4 w-4 text-[#E0742D]" />
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5">
+            <IncomeStatementNotePanel
+              key={ctx.rowId}
+              rowId={ctx.rowId}
+              rowLabel={ctx.label}
+              page="balance-sheet"
+              period={period}
+              view={view}
+              companyId={companyId}
+              companyName={selectedCompany?.name ?? null}
+              divisionId={divisionId}
+              divisionName={selectedDivision?.name ?? null}
+              subDivisionId={subDivisionId}
+              subDivisionName={selectedSubDivision?.name ?? null}
+              currentAmount={ctx.current !== 0 ? ctx.current : null}
+              priorAmount={ctx.prior !== 0 ? ctx.prior : null}
+              variationPercent={vPct}
+              variationAmount={vAmt !== 0 ? vAmt : null}
+              referenceMonth={refMonth}
+              referenceYear={refYear}
+              onSaved={() => setNotesUpdated((n) => n + 1)}
+              isNarrow={false}
+              embedded
+            />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const trendLen = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
   const showStructureCols =
@@ -878,13 +1858,13 @@ export function BalanceSheetSummary({
               {showStructureCols && <StatementSummaryStructureThead />}
               {!showStructureCols && (
                 <>
-              <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Poste</th>
+              <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5 whitespace-nowrap">Poste</th>
               {view === "current" && (
                 <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Montant</th>
               )}
               {view === "comparison" && !isComparisonMode && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getCurrentColumnLabel()}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
                   {columnMode === "variations" ? (
                     <>
@@ -910,7 +1890,7 @@ export function BalanceSheetSummary({
               )}
               {view === "ddm" && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getCurrentColumnLabel()}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
                   {columnMode === "variations" ? (
                     <>
@@ -945,7 +1925,7 @@ export function BalanceSheetSummary({
               {view === "12months" && (
                 <>
                   {getMonthLabels().map((label, idx) => (
-                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
+                    <th key={idx} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>
                   ))}
@@ -954,7 +1934,7 @@ export function BalanceSheetSummary({
               {view === "quarters" && (
                 <>
                   {getQuarterLabels().map((label, idx) => (
-                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
+                    <th key={idx} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>
                   ))}
@@ -963,7 +1943,7 @@ export function BalanceSheetSummary({
               {view === "years" && (
                 <>
                   {getYearLabels().map((label, idx) => (
-                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
+                    <th key={idx} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
                       {label}
                     </th>
                   ))}
@@ -990,29 +1970,41 @@ export function BalanceSheetSummary({
               const row = showStructureCols ? summaryRowForStructureIndex(structRow!) : data[idx]!
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
-              const isBoldRow = shouldBeBold(row.label, row)
+              const isBoldRow = !!row.isBold
               const displayLabel = row.label ? capitalizeFirst(row.label) : ""
               const isSpacer = row.label === ""
+              const matchedStructureRow =
+                structRow ??
+                structEdit.structure.find((candidate) => normLabel(String(candidate.label ?? "")) === normLabel(row.label))
+              const hasStructureMetadata = !!structRow || structEdit.structure.length > 0
+              const hasLiaisonCode =
+                hasStructureMetadata
+                  ? !!matchedStructureRow && structureRowHasLiaisonCode(matchedStructureRow)
+                  : row.hasLiaisonCode !== undefined
+                    ? row.hasLiaisonCode
+                    : true
               const sectionExceptions = ["actifs courants", "actifs non courants"]
               const isSectionException = sectionExceptions.includes(row.label.toLowerCase())
               const shouldHideAmounts =
-                isSpacer || (!isSectionException && !!row.isSection) || row.label.toLowerCase() === "actifs" || row.label.toLowerCase() === "passifs"
+                isSpacer ||
+                !hasLiaisonCode ||
+                (!isSectionException && !!row.isSection) ||
+                row.label.toLowerCase() === "actifs" ||
+                row.label.toLowerCase() === "passifs"
 
-              const nextRow =
-                idx < tableRowCount - 1
-                  ? showStructureCols
-                    ? summaryRowForStructureIndex(
-                        structEdit.structure[structEdit.summaryStructureDisplayIndices[idx + 1]!]!
-                      )
-                    : data[idx + 1]!
-                  : null
-              const nextRowLabel = nextRow?.label?.toLowerCase() || ""
-              const nextRowIsKeyResult =
-                nextRow &&
-                ((nextRow.isResult && nextRowLabel !== "capitaux propres") || nextRowLabel === "total des passifs")
               const rawSeparator =
                 showStructureCols && structRow ? structRow.separatorAbove : row.separatorAbove
               const showSeparatorAbove = isTruthySeparatorAbove(rawSeparator)
+              const canExpand =
+                !showStructureCols &&
+                !!row.rowId &&
+                !String(row.annexLetter ?? "").trim() &&
+                !!row.balanceAccounts &&
+                row.balanceAccounts.length > 0
+              const isExpanded = row.rowId ? expandedRows.has(row.rowId) : false
+              const hasNote = row.rowId
+                ? getNoteByRowId(row.rowId, "balance-sheet", period, view, companyId, divisionId, subDivisionId) !== null
+                : false
 
               return (
                 <Fragment key={idx}>
@@ -1025,23 +2017,41 @@ export function BalanceSheetSummary({
                     </tr>
                   )}
                   <tr
+                    ref={!showStructureCols && row.rowId ? (el) => { analysisRowRefs.current[row.rowId!] = el } : undefined}
                     className={cn(
                       "border-b",
                       row.label === "" ? "h-2 border-b border-b-slate-200" : "",
-                      nextRowIsKeyResult ? "border-b-2 border-b-slate-900" : "border-b border-b-slate-200",
+                      "border-b border-b-slate-200",
                       showStructureCols && row.label !== "" && "hover:bg-slate-100/70",
                       showStructureCols && idx % 2 === 1 && row.label !== "" && "bg-slate-50/50",
-                      !showStructureCols && row.label !== "" && "hover:bg-slate-50/90"
+                      !showStructureCols && row.label !== "" && "hover:bg-slate-50/90",
+                      canExpand && "cursor-pointer"
                     )}
                   >
                   <td
                     className={cn(
                       "py-3",
                       showStructureCols ? "min-w-0 px-3 pl-4" : "px-6",
+                      "whitespace-nowrap",
                       isBoldRow ? "font-bold text-slate-900" : "text-slate-700",
                       row.indent ? "pl-12" : "",
-                      showStructureCols && structRow && row.label !== "" && "py-3.5"
+                      showStructureCols && structRow && row.label !== "" && "py-3.5",
+                      !showStructureCols && canExpand && row.rowId && "cursor-pointer"
                     )}
+                    onClick={!showStructureCols && canExpand && row.rowId ? () => toggleRow(row.rowId) : undefined}
+                    onKeyDown={
+                      !showStructureCols && canExpand && row.rowId
+                        ? (e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault()
+                              toggleRow(row.rowId!)
+                            }
+                          }
+                        : undefined
+                    }
+                    role={!showStructureCols && canExpand && row.rowId ? "button" : undefined}
+                    tabIndex={!showStructureCols && canExpand && row.rowId ? 0 : undefined}
+                    aria-expanded={!showStructureCols && canExpand && row.rowId ? isExpanded : undefined}
                   >
                     {showStructureCols && structRow ? (
                       String(structRow.label ?? "").trim() === "" ? (
@@ -1059,7 +2069,55 @@ export function BalanceSheetSummary({
                         />
                       )
                     ) : (
-                      displayLabel
+                      <div className="flex w-full items-center gap-2">
+                        <span
+                          className={cn(
+                            "block min-w-0 flex-1",
+                            canExpand && row.rowId && "cursor-pointer rounded-sm outline-offset-2 hover:bg-slate-100/90"
+                          )}
+                        >
+                          {displayLabel}
+                        </span>
+                        {row.rowId && hasLiaisonCode ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              openOrToggleLineAnalysis({
+                                rowId: row.rowId!,
+                                label: displayLabel,
+                                current: row.current,
+                                prior: row.prior,
+                                balanceAccounts: row.balanceAccounts,
+                                trendValues: row.trendValues,
+                              })
+                            }}
+                            className={cn(
+                              "relative rounded-md p-1.5 text-[#E0742D] transition-colors ring-1 ring-[#E0742D]/25 hover:bg-orange-50 hover:ring-[#E0742D]/50",
+                              (lineAnalysis?.rowId === row.rowId || lineAnalysis?.parentRowId === row.rowId) &&
+                                "bg-[#E0742D]/10 ring-[#E0742D]/45"
+                            )}
+                            aria-pressed={
+                              lineAnalysis?.rowId === row.rowId || lineAnalysis?.parentRowId === row.rowId
+                            }
+                            title={
+                              lineAnalysis?.rowId === row.rowId || lineAnalysis?.parentRowId === row.rowId
+                                ? "Fermer le panneau (analyse & note)"
+                                : hasNote
+                                  ? "Analyse, ventilation et note enregistrée"
+                                  : "Ouvrir l’analyse et les notes"
+                            }
+                          >
+                            <Table2 className="h-4 w-4 shrink-0" aria-hidden />
+                            {hasNote && (
+                              <span
+                                className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white"
+                                aria-hidden
+                              />
+                            )}
+                          </button>
+                        ) : null}
+                      </div>
                     )}
                   </td>
                   {showStructureCols && structRow && (
@@ -1223,7 +2281,7 @@ export function BalanceSheetSummary({
                       {row.trendValues.map((value, valueIdx) => (
                         <td
                           key={valueIdx}
-                          className={`px-4 py-3 text-right font-semibold ${isBoldRow ? "font-bold" : ""} ${shouldHideAmounts ? "text-white" : ""}`}
+                          className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
                         >
                           {value !== 0 ? formatCurrency(value) : "-"}
                         </td>
@@ -1235,7 +2293,7 @@ export function BalanceSheetSummary({
                       {row.trendValues.map((value, valueIdx) => (
                         <td
                           key={valueIdx}
-                          className={`px-4 py-3 text-right font-semibold ${isBoldRow ? "font-bold" : ""} ${shouldHideAmounts ? "text-white" : ""}`}
+                          className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
                         >
                           {value !== 0 ? formatCurrency(value) : "-"}
                         </td>
@@ -1250,8 +2308,8 @@ export function BalanceSheetSummary({
                           <td
                             key={valueIdx}
                             className={cn(
-                              "px-4 py-3 text-right font-semibold",
-                              isBoldRow ? "font-bold" : "",
+                              "px-6 py-3 text-right",
+                              isBoldRow ? "font-semibold font-bold" : "text-slate-500",
                               shouldHideAmounts ? "text-white" : "",
                               isForecastSection && valueIdx === 0 && !shouldHideAmounts ? "bg-slate-50" : ""
                             )}
@@ -1272,7 +2330,7 @@ export function BalanceSheetSummary({
                           <td
                             key={idx}
                             className={cn(
-                              "px-4 py-3 text-right font-semibold text-white",
+                              "px-6 py-3 text-right font-semibold text-white",
                               isForecastSection && view === "years" && idx === 0 ? "bg-slate-50" : ""
                             )}
                           >
@@ -1283,6 +2341,89 @@ export function BalanceSheetSummary({
                     </>
                   )}
                 </tr>
+                {canExpand && isExpanded && row.balanceAccounts?.map((account, accIdx) => {
+                  const accountVariation =
+                    account.priorAmount !== undefined && account.amount && account.priorAmount
+                      ? calculateVariation(account.amount, account.priorAmount)
+                      : null
+                  const accountVariationAmount =
+                    account.priorAmount !== undefined && account.amount && account.priorAmount
+                      ? account.amount - account.priorAmount
+                      : 0
+
+                  return (
+                    <tr key={`${idx}-account-${accIdx}`} className="bg-slate-50 border-b border-slate-200">
+                      <td className="px-6 py-2 text-slate-500 pl-20 whitespace-nowrap">
+                        {accountLabelAlreadyIncludesNumber(account.accountNumber, account.accountName) ? (
+                          <span className="text-sm whitespace-nowrap">
+                            {account.accountName.trim() || account.accountNumber}
+                          </span>
+                        ) : (
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-semibold text-slate-500">{account.accountNumber}</span>
+                            <span className="text-sm whitespace-nowrap">{account.accountName}</span>
+                          </div>
+                        )}
+                      </td>
+                      {view === "current" && (
+                        <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
+                          {account.amount !== 0 ? formatCurrency(account.amount) : "-"}
+                        </td>
+                      )}
+                      {view === "comparison" && !isComparisonMode && (
+                        <>
+                          <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
+                            {account.amount !== 0 ? formatCurrency(account.amount) : "-"}
+                          </td>
+                          <td className="px-6 py-2 text-right font-semibold text-sm text-slate-500">
+                            {account.priorAmount !== undefined && account.priorAmount !== 0
+                              ? formatCurrency(account.priorAmount)
+                              : "-"}
+                          </td>
+                          {columnMode === "variations" ? (
+                            <>
+                              <td className={`px-6 py-2 text-right font-semibold text-sm ${accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                {accountVariation !== null && account.amount !== 0
+                                  ? `${accountVariation >= 0 ? "+" : ""}${accountVariation.toFixed(1)}%`
+                                  : "-"}
+                              </td>
+                              <td className={`px-6 py-2 text-right font-semibold text-sm ${accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                {account.amount !== 0
+                                  ? `${accountVariationAmount >= 0 ? "+" : ""}${formatCurrency(accountVariationAmount)}`
+                                  : "-"}
+                              </td>
+                            </>
+                          ) : columnMode === "percentage" ? (
+                            <>
+                              <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
+                                {account.amount !== 0 ? `${getTotalAssetsPercentage(account.amount, false).toFixed(1)}%` : "-"}
+                              </td>
+                              <td className="px-6 py-2 text-right font-semibold text-sm text-slate-500">
+                                {account.priorAmount !== undefined && account.priorAmount !== 0
+                                  ? `${getTotalAssetsPercentage(account.priorAmount, true).toFixed(1)}%`
+                                  : "-"}
+                              </td>
+                            </>
+                          ) : null}
+                        </>
+                      )}
+                      {view === "comparison" && isComparisonMode && (
+                        entitiesToCompare.map((entity) => (
+                          <td key={entity.id} className="px-6 py-2 text-right font-semibold text-sm text-slate-400">
+                            -
+                          </td>
+                        ))
+                      )}
+                      {(view === "12months" || view === "quarters" || view === "years") && (
+                        Array.from({ length: view === "12months" ? 12 : view === "quarters" ? 5 : 6 }).map((_, cellIdx) => (
+                          <td key={cellIdx} className="px-6 py-2 text-right font-semibold text-sm text-slate-400">
+                            -
+                          </td>
+                        ))
+                      )}
+                    </tr>
+                  )
+                })}
                 </Fragment>
               )
             })}
@@ -1296,6 +2437,15 @@ export function BalanceSheetSummary({
           Note: Les données affichées sont à titre informatif. Consulter les états financiers audités pour les montants officiels.
         </p>
       </div>
+
+      {lineAnalysis && (
+        <aside
+          ref={analysisCardRef}
+          className="border-t border-slate-200 bg-gradient-to-b from-slate-50 via-white to-slate-50/60 px-5 py-6 sm:px-6 sm:py-7"
+        >
+          <div className="min-w-0">{renderUnifiedAnalysisNoteCard()}</div>
+        </aside>
+      )}
 
       <Dialog
         open={addSpaceDialogOpen}

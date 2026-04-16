@@ -39,7 +39,7 @@ export default function IncomeStatementPage() {
   const { companies } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("comparison")
-  const [section, setSection] = useState<Section>("summary")
+  const [section, setSection] = useState<Section>("dashboard")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
   const [comparisonType, setComparisonType] = useState<ComparisonType>("lastMonth")
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null)
@@ -393,35 +393,8 @@ export default function IncomeStatementPage() {
                     <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
                       <Button
                         variant="ghost"
-                        onClick={() => setColumnMode("variations")}
-                        disabled={getCurrentHorizon() === "12mois" || getCurrentHorizon() === "trimestres" || getCurrentHorizon() === "annees"}
-                        className={`h-8 text-xs px-3 transition-all ${
-                          columnMode === "variations"
-                            ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                            : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                        } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
-                      >
-                        Variations
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => setColumnMode("percentage")}
-                        disabled={getCurrentHorizon() === "12mois" || getCurrentHorizon() === "trimestres" || getCurrentHorizon() === "annees"}
-                        className={`h-8 text-xs px-3 transition-all ${
-                          columnMode === "percentage"
-                            ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                            : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                        } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
-                      >
-                        % revenus
-                      </Button>
-                      <Button
-                        variant="ghost"
                         onClick={() => setColumnMode("comparison")}
                         disabled={
-                          getCurrentHorizon() === "12mois" ||
-                          getCurrentHorizon() === "trimestres" ||
-                          getCurrentHorizon() === "annees" ||
                           (!selectedCompanyId && !!selectedDivisionId) ||
                           (!selectedCompanyId && !!selectedSubDivisionId) ||
                           (!!selectedCompanyId && !!selectedDivisionId && !!selectedSubDivisionId)
@@ -432,7 +405,31 @@ export default function IncomeStatementPage() {
                             : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
                         } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
                       >
-                        Comparaison
+                        {getCurrentHorizon() === "12mois" || getCurrentHorizon() === "trimestres" || getCurrentHorizon() === "annees"
+                          ? "Réel"
+                          : "Comparaison"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => setColumnMode("variations")}
+                        className={`h-8 text-xs px-3 transition-all ${
+                          columnMode === "variations"
+                            ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                            : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                        }`}
+                      >
+                        Variations
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => setColumnMode("percentage")}
+                        className={`h-8 text-xs px-3 transition-all ${
+                          columnMode === "percentage"
+                            ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                            : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                        }`}
+                      >
+                        % revenus
                       </Button>
                     </div>
                   </div>

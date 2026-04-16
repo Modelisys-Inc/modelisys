@@ -560,12 +560,29 @@ export function IncomeStatementSummary({
     data.find((row) => row.label.toLowerCase() === "revenus")
   const revenueCurrent = revenueRow?.current || 1
   const revenuePrior = revenueRow?.prior || 1
+  const revenueTrendValues = revenueRow?.trendValues ?? []
 
   // Helper function to calculate percentage of revenue
   const getRevenuePercentage = (value: number, isPrior: boolean): number => {
     const revenue = isPrior ? revenuePrior : revenueCurrent
     if (revenue === 0) return 0
     return (value / revenue) * 100
+  }
+
+  const getTrendRevenuePercentage = (value: number, valueIdx: number): number => {
+    const revenue = revenueTrendValues[valueIdx] ?? 0
+    if (revenue === 0) return 0
+    return (value / revenue) * 100
+  }
+
+  const getTrendVariation = (values: number[], valueIdx: number): number | null => {
+    if (valueIdx >= values.length - 1) return null
+    return calculateVariation(values[valueIdx] ?? 0, values[valueIdx + 1] ?? 0)
+  }
+
+  const getTrendVariationAmount = (values: number[], valueIdx: number): number | null => {
+    if (valueIdx >= values.length - 1) return null
+    return (values[valueIdx] ?? 0) - (values[valueIdx + 1] ?? 0)
   }
 
   // Helper function to generate descriptive text
@@ -1844,9 +1861,29 @@ export function IncomeStatementSummary({
                           key={valueIdx}
                           className={`px-4 py-3 text-right ${row.isMargin ? "italic" : (isBoldRow ? "font-semibold font-bold" : "text-slate-500")} ${shouldHideAmounts ? "text-white" : ""}`}
                         >
-                          {row.isMargin 
-                            ? (value !== 0 ? `${value.toFixed(1)}%` : "-")
-                            : (value !== 0 ? formatCurrency(value) : "-")
+                          {columnMode === "percentage"
+                            ? row.isMargin
+                              ? (value !== 0 ? `${value.toFixed(1)}%` : "-")
+                              : (value !== 0 ? `${getTrendRevenuePercentage(value, valueIdx).toFixed(1)}%` : "-")
+                            : columnMode === "variations"
+                              ? (() => {
+                                  const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
+                                  const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
+                                  if (row.isMargin) {
+                                    return trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${trendVariationAmount.toFixed(1)} pts` : "-"
+                                  }
+                                  return (
+                                    <div className="space-y-0.5">
+                                      <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
+                                      <div className="text-[11px] font-medium">
+                                        {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
+                                      </div>
+                                    </div>
+                                  )
+                                })()
+                              : row.isMargin
+                                ? (value !== 0 ? `${value.toFixed(1)}%` : "-")
+                                : (value !== 0 ? formatCurrency(value) : "-")
                           }
                         </td>
                       ))}
@@ -1859,9 +1896,29 @@ export function IncomeStatementSummary({
                           key={valueIdx}
                           className={`px-4 py-3 text-right ${row.isMargin ? "italic" : (isBoldRow ? "font-semibold font-bold" : "text-slate-500")} ${shouldHideAmounts ? "text-white" : ""}`}
                         >
-                          {row.isMargin 
-                            ? (value !== 0 ? `${value.toFixed(1)}%` : "-")
-                            : (value !== 0 ? formatCurrency(value) : "-")
+                          {columnMode === "percentage"
+                            ? row.isMargin
+                              ? (value !== 0 ? `${value.toFixed(1)}%` : "-")
+                              : (value !== 0 ? `${getTrendRevenuePercentage(value, valueIdx).toFixed(1)}%` : "-")
+                            : columnMode === "variations"
+                              ? (() => {
+                                  const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
+                                  const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
+                                  if (row.isMargin) {
+                                    return trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${trendVariationAmount.toFixed(1)} pts` : "-"
+                                  }
+                                  return (
+                                    <div className="space-y-0.5">
+                                      <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
+                                      <div className="text-[11px] font-medium">
+                                        {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
+                                      </div>
+                                    </div>
+                                  )
+                                })()
+                              : row.isMargin
+                                ? (value !== 0 ? `${value.toFixed(1)}%` : "-")
+                                : (value !== 0 ? formatCurrency(value) : "-")
                           }
                         </td>
                       ))}
@@ -1879,9 +1936,29 @@ export function IncomeStatementSummary({
                             isForecastSection && valueIdx === 0 && !shouldHideAmounts ? "bg-slate-50" : ""
                           )}
                         >
-                          {row.isMargin 
-                            ? (value !== 0 ? `${value.toFixed(1)}%` : "-")
-                            : (value !== 0 ? formatCurrency(value) : "-")
+                          {columnMode === "percentage"
+                            ? row.isMargin
+                              ? (value !== 0 ? `${value.toFixed(1)}%` : "-")
+                              : (value !== 0 ? `${getTrendRevenuePercentage(value, valueIdx).toFixed(1)}%` : "-")
+                            : columnMode === "variations"
+                              ? (() => {
+                                  const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
+                                  const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
+                                  if (row.isMargin) {
+                                    return trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${trendVariationAmount.toFixed(1)} pts` : "-"
+                                  }
+                                  return (
+                                    <div className="space-y-0.5">
+                                      <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
+                                      <div className="text-[11px] font-medium">
+                                        {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
+                                      </div>
+                                    </div>
+                                  )
+                                })()
+                              : row.isMargin
+                                ? (value !== 0 ? `${value.toFixed(1)}%` : "-")
+                                : (value !== 0 ? formatCurrency(value) : "-")
                           }
                         </td>
                       ))}

@@ -8,7 +8,7 @@ import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { generateId } from "@/lib/seeded-random"
-import { BarChart3, ChevronLeft, ListTree, Table2, TrendingUp, X } from "lucide-react"
+import { ArrowRight, CheckCircle2, ChevronLeft, ListTree, Table2, TrendingUp, X } from "lucide-react"
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react"
 import {
   listForecastConfigs,
@@ -18,7 +18,14 @@ import {
   type FinancialStatementSeriesParams,
 } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { aggregateToYears, getRowAmounts, reverseSeriesOrderForDisplay } from "@/lib/series-utils"
+import {
+  aggregateToYears,
+  findRow,
+  findSeriesRowOrDetail,
+  getRowAmounts,
+  getPeriodLabels,
+  reverseSeriesOrderForDisplay,
+} from "@/lib/series-utils"
 import {
   monthShortLabelsFromReference,
   monthTrendFromReference,
@@ -73,6 +80,8 @@ import { BookMarked, Settings, Plus, Edit2, Trash2, Loader2, Sparkles } from "lu
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+import { Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, XAxis, YAxis } from "recharts"
 
 interface IncomeStatementDetailProps {
   period: "monthly" | "quarterly" | "annual"
@@ -118,6 +127,8 @@ interface LineAnalysisSnapshot {
   prior: number
   balanceAccounts?: BalanceAccount[]
   trendValues?: number[]
+  /** Si l’analyse porte sur un compte GL : id de la ligne d’état parente. */
+  parentRowId?: string
 }
 
 /** Évite d'afficher le # deux fois quand le libellé API est déjà du type « 405001 — Description ». */
@@ -334,6 +345,8 @@ export function IncomeStatementDetail({
   useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [lineAnalysis, setLineAnalysis] = useState<LineAnalysisSnapshot | null>(null)
+  const [lineAnalysisView, setLineAnalysisView] = useState<"current" | "trailing12" | "trailing5years">("current")
+  const [showAllAnalysisAccounts, setShowAllAnalysisAccounts] = useState(false)
   const [analysisPanelNarrow, setAnalysisPanelNarrow] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches
   )
@@ -597,6 +610,19 @@ export function IncomeStatementDetail({
     enabled: isMultiPeriodView,
     structureVersion,
   })
+
+  const { rows: analysisSeriesRows, periods: analysisPeriods, loading: analysisSeriesLoading } =
+    useFinancialStatementSeries({
+      companyId: companyId || null,
+      statementType: "income-statement",
+      fiscalYear: fiscalYear || new Date().getFullYear(),
+      month: refMonth,
+      months: 60,
+      divisionId: divisionId || undefined,
+      subDivisionId: subDivisionId || undefined,
+      enabled: !!companyId && !!lineAnalysis?.rowId,
+      structureVersion,
+    })
 
   const [incomeStatementStructure, setIncomeStatementStructure] = useState<Record<
     string,
@@ -1124,7 +1150,14 @@ export function IncomeStatementDetail({
   }
 
   const openOrToggleLineAnalysis = useCallback((snapshot: LineAnalysisSnapshot) => {
-    setLineAnalysis((prev) => (prev?.rowId === snapshot.rowId ? null : snapshot))
+    setLineAnalysis((prev) => {
+      const next = prev?.rowId === snapshot.rowId ? null : snapshot
+      if (next) {
+        setLineAnalysisView("current")
+        setShowAllAnalysisAccounts(false)
+      }
+      return next
+    })
   }, [])
 
   /** Détail : postes « Annexe » (sommaire) ; sous-lignes detailOnly indentées sous l’annexe. */
@@ -1598,7 +1631,57 @@ export function IncomeStatementDetail({
   })()
   const revenueCurrent = revenueDenominator.current
   const revenuePrior = revenueDenominator.prior
-  
+
+  /** Dénominateur par colonne pour % revenus en vues multi-périodes : même source que les montants (série API), pas seulement le libellé affiché « Revenus ». */
+  const revenueTrendValues = useMemo(() => {
+    if (
+      isMultiPeriodView &&
+      !isForecastSection &&
+      seriesRows.length > 0 &&
+      seriesPeriods.length > 0 &&
+      incomeStatementStructure
+    ) {
+      const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
+      const revenueSeries =
+        sorted.find((r) => normLabel(r.label) === "revenus" && !r.isSection) ??
+        sorted.find((r) => normLabel(r.label) === "revenus") ??
+        sorted.find(
+          (r) =>
+            r.isResult &&
+            normLabel(r.label).includes("revenu") &&
+            (normLabel(r.label).includes("total") || normLabel(r.label).includes("totaux"))
+        )
+      if (revenueSeries) {
+        if (view === "12months") {
+          return monthTrendFromReference(revenueSeries, seriesPeriods, refMonth, refYear, 12)
+        }
+        if (view === "quarters") {
+          return quarterTrendFromReference(revenueSeries, seriesPeriods, refMonth, refYear, 5)
+        }
+        if (view === "years") {
+          return yearTrendFromReference(revenueSeries, seriesPeriods, refYear, 6)
+        }
+      }
+    }
+    const fromData =
+      data.find((row) => normLabel(String(row.statementLabel ?? "")) === "revenus" && !row.isSection) ??
+      data.find((row) => normLabel(String(row.statementLabel ?? "")) === "revenus") ??
+      data.find((row) => normLabel(row.label) === "revenus" && !row.isSection) ??
+      data.find((row) => normLabel(row.label) === "revenus")
+    return fromData?.trendValues ?? []
+  }, [
+    isMultiPeriodView,
+    isForecastSection,
+    seriesRows,
+    seriesPeriods,
+    incomeStatementStructure,
+    view,
+    refMonth,
+    refYear,
+    filterSeriesRowsDefinedOnly,
+    data,
+  ])
+
   // Filter data to show only REVENUS section if title is "Estimation des revenus annuels"
   if (title === "Estimation des revenus annuels") {
     const revenueSectionStart = data.findIndex(row => row.label === "REVENUS")
@@ -1836,33 +1919,27 @@ export function IncomeStatementDetail({
   const showStructureCols =
     isStructureStudio && !structEdit.loading && detailAnnexEditorGlobalIndices.length > 0
 
-  // Show "no data" state when data is empty and not loading
-  if (data.length === 0 && !isDataLoading && !isForecastSection) {
-    return (
-      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
-        <div className={dashboardCardRingClass} aria-hidden />
-        <div className="relative">
-          <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
-            <div className="flex items-center gap-4">
-              <div className={dashboardCardHeaderIconBoxClass}>
-                <ListTree className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
-              </div>
-              <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
-            </div>
-          </div>
-          <div className="px-8 py-16 text-center">
-            <p className={cn("text-sm", dashboardCardBodyMutedClass)}>Aucune donnée disponible pour cette période.</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   // Helper function to calculate percentage of revenue
   const getRevenuePercentage = (value: number, isPrior: boolean): number => {
     const revenue = isPrior ? revenuePrior : revenueCurrent
     if (revenue === 0) return 0
     return (value / revenue) * 100
+  }
+
+  const getTrendRevenuePercentage = (value: number, valueIdx: number): number => {
+    const revenue = revenueTrendValues[valueIdx] ?? 0
+    if (revenue === 0) return 0
+    return (value / revenue) * 100
+  }
+
+  const getTrendVariation = (values: number[], valueIdx: number): number | null => {
+    if (valueIdx >= values.length - 1) return null
+    return calculateVariation(values[valueIdx] ?? 0, values[valueIdx + 1] ?? 0)
+  }
+
+  const getTrendVariationAmount = (values: number[], valueIdx: number): number | null => {
+    if (valueIdx >= values.length - 1) return null
+    return (values[valueIdx] ?? 0) - (values[valueIdx + 1] ?? 0)
   }
 
   // Helper function to generate descriptive text
@@ -1984,6 +2061,183 @@ export function IncomeStatementDetail({
     return HORIZON_LABEL.moisActuel
   }
 
+  const analysisSeriesOverview = useMemo(() => {
+    if (!lineAnalysis?.rowId || !analysisSeriesRows.length || !analysisPeriods.length) return null
+
+    const targetRow = findSeriesRowOrDetail(analysisSeriesRows, lineAnalysis.rowId)
+    if (!targetRow) return null
+
+    const rawMonthlyAmounts = getRowAmounts(targetRow, analysisPeriods)
+    const rawMonthlyLabels = getPeriodLabels(analysisPeriods)
+
+    const resolveRevenueSeries = () => {
+      if (incomeStatementStructure) {
+        const sorted = filterSeriesRowsDefinedOnly(analysisSeriesRows, incomeStatementStructure)
+        const revenueSeries =
+          sorted.find((r) => normLabel(r.label) === "revenus" && !r.isSection) ??
+          sorted.find((r) => normLabel(r.label) === "revenus") ??
+          sorted.find(
+            (r) =>
+              r.isResult &&
+              normLabel(r.label).includes("revenu") &&
+              (normLabel(r.label).includes("total") || normLabel(r.label).includes("totaux"))
+          )
+        if (revenueSeries) return revenueSeries
+      }
+      return findRow(analysisSeriesRows, "revenus")
+    }
+
+    const revenueRow = resolveRevenueSeries()
+    const rawRevenueAmounts = revenueRow ? getRowAmounts(revenueRow, analysisPeriods) : rawMonthlyLabels.map(() => 0)
+
+    const monthlySeries = rawMonthlyLabels.map((label, idx) => {
+      const amount = rawMonthlyAmounts[idx] ?? 0
+      const rev = rawRevenueAmounts[idx] ?? 0
+      const pctRevenue = Math.abs(rev) < 1e-9 ? 0 : (amount / rev) * 100
+      return {
+        period: label,
+        amount,
+        amountPos: Math.max(0, amount),
+        amountNeg: Math.min(0, amount),
+        pctRevenue,
+      }
+    })
+
+    const trailing12 = monthlySeries.slice(-12)
+    const trailing12Average =
+      trailing12.length > 0
+        ? trailing12.reduce((sum, point) => sum + point.amount, 0) / trailing12.length
+        : 0
+    const trailing12AveragePctRevenue =
+      trailing12.length > 0
+        ? trailing12.reduce((sum, point) => sum + point.pctRevenue, 0) / trailing12.length
+        : 0
+
+    const yearlyAgg = aggregateToYears(rawMonthlyAmounts, analysisPeriods)
+    const yearlyRevenueAgg = aggregateToYears(rawRevenueAmounts, analysisPeriods)
+    const yearlySeries = yearlyAgg.labels.map((label, idx) => {
+      const amount = yearlyAgg.amounts[idx] ?? 0
+      const rev = yearlyRevenueAgg.amounts[idx] ?? 0
+      const pctRevenue = Math.abs(rev) < 1e-9 ? 0 : (amount / rev) * 100
+      return {
+        period: label,
+        amount,
+        amountPos: Math.max(0, amount),
+        amountNeg: Math.min(0, amount),
+        pctRevenue,
+      }
+    })
+    const trailing5Years = yearlySeries.slice(-5)
+    const trailing5YearsAverage =
+      trailing5Years.length > 0
+        ? trailing5Years.reduce((sum, point) => sum + point.amount, 0) / trailing5Years.length
+        : 0
+    const trailing5YearsAveragePctRevenue =
+      trailing5Years.length > 0
+        ? trailing5Years.reduce((sum, point) => sum + point.pctRevenue, 0) / trailing5Years.length
+        : 0
+
+    return {
+      trailing12,
+      trailing12Average,
+      trailing12AveragePctRevenue,
+      trailing5Years,
+      trailing5YearsAverage,
+      trailing5YearsAveragePctRevenue,
+    }
+  }, [
+    analysisPeriods,
+    analysisSeriesRows,
+    lineAnalysis?.rowId,
+    incomeStatementStructure,
+    filterSeriesRowsDefinedOnly,
+  ])
+
+  /** Lecture « Mois actuel » : toujours mois de référence, M-1 et même mois N-1 (séries), indépendamment de la vue tableau. */
+  const analysisMonthReading = useMemo(() => {
+    if (isForecastSection) return null
+    if (!lineAnalysis?.rowId || !analysisSeriesRows.length || !analysisPeriods.length) return null
+    const targetRow = findSeriesRowOrDetail(analysisSeriesRows, lineAnalysis.rowId)
+    if (!targetRow) return null
+
+    const lineTrend = monthTrendFromReference(targetRow, analysisPeriods, refMonth, refYear, 13)
+    const current = lineTrend[0] ?? 0
+    const lastMonth = lineTrend[1] ?? 0
+    const priorYearMonth = lineTrend[12] ?? 0
+
+    const resolveRevenueSeries = () => {
+      if (incomeStatementStructure) {
+        const sorted = filterSeriesRowsDefinedOnly(analysisSeriesRows, incomeStatementStructure)
+        const revenueSeries =
+          sorted.find((r) => normLabel(r.label) === "revenus" && !r.isSection) ??
+          sorted.find((r) => normLabel(r.label) === "revenus") ??
+          sorted.find(
+            (r) =>
+              r.isResult &&
+              normLabel(r.label).includes("revenu") &&
+              (normLabel(r.label).includes("total") || normLabel(r.label).includes("totaux"))
+          )
+        if (revenueSeries) return revenueSeries
+      }
+      return findRow(analysisSeriesRows, "revenus")
+    }
+
+    const revenueRow = resolveRevenueSeries()
+    const revenueTrend = revenueRow
+      ? monthTrendFromReference(revenueRow, analysisPeriods, refMonth, refYear, 13)
+      : []
+
+    const pctOfRevenue = (amount: number, idx: number) => {
+      const den = revenueTrend[idx] ?? 0
+      if (Math.abs(den) < 1e-9) return 0
+      return (amount / den) * 100
+    }
+
+    return {
+      current,
+      lastMonth,
+      priorYearMonth,
+      pctCurrent: pctOfRevenue(current, 0),
+      pctLastMonth: pctOfRevenue(lastMonth, 1),
+      pctPriorYearMonth: pctOfRevenue(priorYearMonth, 12),
+      vsLastMonthPct: calculateVariation(current, lastMonth),
+      vsLastMonthDollar: current - lastMonth,
+      vsPriorYearPct: calculateVariation(current, priorYearMonth),
+      vsPriorYearDollar: current - priorYearMonth,
+    }
+  }, [
+    isForecastSection,
+    lineAnalysis?.rowId,
+    analysisSeriesRows,
+    analysisPeriods,
+    refMonth,
+    refYear,
+    incomeStatementStructure,
+    filterSeriesRowsDefinedOnly,
+  ])
+
+  // Show "no data" state when data is empty and not loading
+  if (data.length === 0 && !isDataLoading && !isForecastSection) {
+    return (
+      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+        <div className={dashboardCardRingClass} aria-hidden />
+        <div className="relative">
+          <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+            <div className="flex items-center gap-4">
+              <div className={dashboardCardHeaderIconBoxClass}>
+                <ListTree className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+              </div>
+              <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
+            </div>
+          </div>
+          <div className="px-8 py-16 text-center">
+            <p className={cn("text-sm", dashboardCardBodyMutedClass)}>Aucune donnée disponible pour cette période.</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const trendLenForPad = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
 
   const padDetailRowForStructure = (structRow: Record<string, unknown>): DetailRow => {
@@ -2064,121 +2318,547 @@ export function IncomeStatementDetail({
     const variation =
       ctx.current != null && ctx.prior != null ? calculateVariation(ctx.current, ctx.prior) : null
     const variationAmount = ctx.current - ctx.prior
-    const accountsSorted = [...(ctx.balanceAccounts ?? [])].sort(
-      (a, b) => Math.abs(b.amount) - Math.abs(a.amount)
-    )
-    const lineDenom = Math.abs(ctx.current) > 1e-9 ? Math.abs(ctx.current) : 1
+    const accountsSorted = [...(ctx.balanceAccounts ?? [])].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+    const visibleAccounts = showAllAnalysisAccounts ? accountsSorted : accountsSorted.slice(0, 4)
+    const parentPostRow =
+      ctx.parentRowId != null ? data.find((r) => r.rowId === ctx.parentRowId) : null
+    const lineDenomBase =
+      parentPostRow != null ? parentPostRow.current ?? 0 : ctx.current
+    const lineDenom = Math.abs(lineDenomBase) > 1e-9 ? Math.abs(lineDenomBase) : 1
     const showComparisonAmounts =
       (view === "comparison" || view === "ytd" || view === "ddm") && !showStructureCols
 
+    const monthReading = analysisMonthReading
+    const fmtDeltaPct = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`
+    const fmtDeltaUsd = (v: number) => `${v >= 0 ? "+" : ""}${formatCurrency(v)}`
+
     return (
-        <div className="space-y-4 py-0">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Synthèse</p>
-            <dl className="mt-2 space-y-2 text-sm">
-              <div className="flex justify-between gap-4">
-                <dt className="text-slate-600">
-                  {view === "current" ? "Montant" : getHorizonText()}
-                </dt>
-                <dd className="text-right font-semibold tabular-nums text-slate-900">
-                  {ctx.current !== 0 ? formatCurrency(ctx.current) : "—"}
-                </dd>
-              </div>
-              {showComparisonAmounts && (
-                <>
-                  <div className="flex justify-between gap-4">
-                    <dt className="text-slate-600">{getComparisonLabel()}</dt>
-                    <dd className="text-right font-medium tabular-nums text-slate-700">
-                      {ctx.prior !== 0 ? formatCurrency(ctx.prior) : "—"}
-                    </dd>
-                  </div>
-                  {columnMode === "variations" && (
-                    <>
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-slate-600">Variation %</dt>
-                        <dd
-                          className={cn(
-                            "text-right font-semibold tabular-nums",
-                            variation != null && variation >= 0 ? "text-emerald-600" : "text-red-600"
-                          )}
-                        >
-                          {variation != null && ctx.current !== 0
-                            ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
-                            : "—"}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-slate-600">Variation $</dt>
-                        <dd
-                          className={cn(
-                            "text-right font-semibold tabular-nums",
-                            variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
-                          )}
-                        >
-                          {ctx.current !== 0 && ctx.prior !== 0
-                            ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
-                            : "—"}
-                        </dd>
-                      </div>
-                    </>
-                  )}
-                  {columnMode === "percentage" && (
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-slate-600">% des revenus (période courante)</dt>
-                      <dd className="text-right font-medium tabular-nums text-slate-800">
-                        {ctx.current !== 0 ? `${getRevenuePercentage(ctx.current, false).toFixed(1)}%` : "—"}
-                      </dd>
-                    </div>
-                  )}
-                </>
-              )}
-            </dl>
+      <div className="mt-10 grid gap-8 lg:grid-cols-12 lg:gap-10">
+        <div className="lg:col-span-5">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Lecture du poste</p>
+            <span className="mx-4 h-px flex-1 bg-slate-200/90" aria-hidden />
           </div>
 
-          {accountsSorted.length > 0 && (
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                Ventilation du grand livre ({accountsSorted.length} compte{accountsSorted.length > 1 ? "s" : ""})
-              </p>
-              <ul className="mt-2 space-y-2">
-                {accountsSorted.slice(0, 12).map((acc, i) => {
-                  const line =
-                    accountLabelAlreadyIncludesNumber(acc.accountNumber, acc.accountName)
-                      ? acc.accountName.trim()
-                      : `${acc.accountNumber} — ${acc.accountName}`
-                  const pct = (Math.abs(acc.amount) / lineDenom) * 100
-                  return (
-                    <li
-                      key={`${acc.accountNumber}-${i}`}
-                      className="rounded-lg border border-slate-200/90 bg-white/90 px-3 py-2 text-xs shadow-sm"
-                    >
-                      <div className="flex justify-between gap-2">
-                        <span className="min-w-0 flex-1 leading-snug text-slate-700">{line}</span>
-                        <span className="shrink-0 font-semibold tabular-nums text-slate-900">
-                          {acc.amount !== 0 ? formatCurrency(acc.amount) : "—"}
-                        </span>
-                      </div>
-                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                        <div
-                          className="h-full rounded-full bg-[#E0742D]/80"
-                          style={{ width: `${Math.min(100, pct)}%` }}
-                        />
-                      </div>
-                      <p className="mt-1 text-[10px] text-slate-400 tabular-nums">
-                        {pct.toFixed(0)} % du montant du poste (valeur absolue)
+          <div className="mt-5 rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Vue affichée</p>
+                <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                  Choisissez la lecture que vous voulez afficher pour ce poste.
+                </p>
+              </div>
+              <Select
+                value={lineAnalysisView}
+                onValueChange={(value: "current" | "trailing12" | "trailing5years") => setLineAnalysisView(value)}
+              >
+                <SelectTrigger className="h-10 w-full rounded-xl border-slate-200 bg-white px-3 text-left text-sm shadow-sm sm:w-[220px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border-slate-200">
+                  <SelectItem value="current" className="rounded-lg">Mois actuel</SelectItem>
+                  <SelectItem value="trailing12" className="rounded-lg">12 derniers mois</SelectItem>
+                  <SelectItem value="trailing5years" className="rounded-lg">5 derniers exercices</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {lineAnalysisView === "current" ? (
+              !isForecastSection && analysisSeriesLoading ? (
+                <div className="mt-4 flex min-h-[100px] items-center justify-center rounded-2xl border border-dashed border-slate-200/90 bg-slate-50/80 text-sm text-slate-500">
+                  Chargement de l&apos;analyse mensuelle...
+                </div>
+              ) : !isForecastSection && monthReading ? (
+                <div className="mt-4 space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-3 shadow-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Mois actuel</p>
+                      <p className="mt-0.5 text-xs text-slate-500">{formatCalendarMonthYear(refMonth, refYear)}</p>
+                      <p className="mt-2 text-lg font-semibold tabular-nums tracking-tight text-[#2A2F3A]">
+                        {formatCurrency(monthReading.current)}
                       </p>
-                    </li>
-                  )
-                })}
-              </ul>
+                      <p className="mt-1 text-xs tabular-nums text-slate-600">{monthReading.pctCurrent.toFixed(1)}% des revenus</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-3 shadow-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Mois dernier</p>
+                      <p className="mt-0.5 text-xs text-slate-500">{formatPriorCalendarMonth(refMonth, refYear)}</p>
+                      <p className="mt-2 text-lg font-semibold tabular-nums tracking-tight text-[#2A2F3A]">
+                        {formatCurrency(monthReading.lastMonth)}
+                      </p>
+                      <p className="mt-1 text-xs tabular-nums text-slate-600">{monthReading.pctLastMonth.toFixed(1)}% des revenus</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-3 shadow-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Mois passé</p>
+                      <p className="mt-0.5 text-xs text-slate-500">{formatSameMonthPriorYear(refMonth, refYear)}</p>
+                      <p className="mt-2 text-lg font-semibold tabular-nums tracking-tight text-[#2A2F3A]">
+                        {formatCurrency(monthReading.priorYearMonth)}
+                      </p>
+                      <p className="mt-1 text-xs tabular-nums text-slate-600">{monthReading.pctPriorYearMonth.toFixed(1)}% des revenus</p>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Mois actuel vs mois dernier
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Variation $</p>
+                          <p
+                            className={cn(
+                              "mt-0.5 text-base font-semibold tabular-nums",
+                              monthReading.vsLastMonthDollar >= 0 ? "text-emerald-600" : "text-red-600"
+                            )}
+                          >
+                            {fmtDeltaUsd(monthReading.vsLastMonthDollar)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Variation %</p>
+                          <p
+                            className={cn(
+                              "mt-0.5 text-base font-semibold tabular-nums",
+                              monthReading.vsLastMonthPct >= 0 ? "text-emerald-600" : "text-red-600"
+                            )}
+                          >
+                            {fmtDeltaPct(monthReading.vsLastMonthPct)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Mois actuel vs mois passé
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Variation $</p>
+                          <p
+                            className={cn(
+                              "mt-0.5 text-base font-semibold tabular-nums",
+                              monthReading.vsPriorYearDollar >= 0 ? "text-emerald-600" : "text-red-600"
+                            )}
+                          >
+                            {fmtDeltaUsd(monthReading.vsPriorYearDollar)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-slate-400">Variation %</p>
+                          <p
+                            className={cn(
+                              "mt-0.5 text-base font-semibold tabular-nums",
+                              monthReading.vsPriorYearPct >= 0 ? "text-emerald-600" : "text-red-600"
+                            )}
+                          >
+                            {fmtDeltaPct(monthReading.vsPriorYearPct)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      {view === "current" ? "Montant" : getHorizonText()}
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold tabular-nums tracking-tight text-[#2A2F3A]">
+                      {ctx.current !== 0 ? formatCurrency(ctx.current) : "—"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      {showComparisonAmounts ? getComparisonLabel() : "Référence"}
+                    </p>
+                    <p className="mt-2 text-lg font-semibold tabular-nums tracking-tight text-slate-700">
+                      {showComparisonAmounts ? (ctx.prior !== 0 ? formatCurrency(ctx.prior) : "—") : formatCalendarMonthYear(refMonth, refYear)}
+                    </p>
+                  </div>
+
+                  {columnMode === "variations" && showComparisonAmounts ? (
+                    <>
+                      <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Variation %</p>
+                        <p className={cn("mt-2 text-lg font-semibold tabular-nums", variation != null && variation >= 0 ? "text-emerald-600" : "text-red-600")}>
+                          {variation != null && ctx.current !== 0 ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%` : "—"}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Variation $</p>
+                        <p className={cn("mt-2 text-lg font-semibold tabular-nums", variationAmount >= 0 ? "text-emerald-600" : "text-red-600")}>
+                          {ctx.current !== 0 ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}` : "—"}
+                        </p>
+                      </div>
+                    </>
+                  ) : null}
+
+                  {columnMode === "percentage" && showComparisonAmounts ? (
+                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm sm:col-span-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">% des revenus</p>
+                      <p className="mt-2 text-lg font-semibold tabular-nums text-slate-800">
+                        {ctx.current !== 0 ? `${getRevenuePercentage(ctx.current, false).toFixed(1)}%` : "—"}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            ) : null}
+
+            {lineAnalysisView === "trailing12" ? (
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">12 derniers mois</p>
+                    <p className="mt-1 text-sm leading-relaxed text-slate-500">Evolution mensuelle du poste et moyenne glissante sur 12 mois.</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Moyenne 12 mois</p>
+                    <p className="mt-1 text-sm font-semibold tabular-nums text-[#2A2F3A]">
+                      {analysisSeriesOverview ? formatCurrency(analysisSeriesOverview.trailing12Average) : "—"}
+                    </p>
+                    <p className="mt-0.5 text-xs font-semibold tabular-nums text-slate-600">
+                      {analysisSeriesOverview
+                        ? `${analysisSeriesOverview.trailing12AveragePctRevenue.toFixed(1)} % des revenus`
+                        : "—"}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 h-52">
+                  {analysisSeriesLoading ? (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-500">Chargement de l&apos;historique...</div>
+                  ) : analysisSeriesOverview?.trailing12.length ? (
+                    <ChartContainer
+                      config={{
+                        amount: { label: "Montant", color: "#E0742D" },
+                        pctRevenue: { label: "% revenus", color: "#2563eb" },
+                        average: { label: "Moyenne 12 mois", color: "#94a3b8" },
+                      }}
+                      className="h-full w-full"
+                    >
+                      <ComposedChart
+                        accessibilityLayer
+                        data={analysisSeriesOverview.trailing12}
+                        margin={{ top: 10, right: 12, left: 8, bottom: 0 }}
+                      >
+                        <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                        <XAxis dataKey="period" tickLine={false} axisLine={false} tickMargin={8} minTickGap={24} />
+                        <YAxis
+                          yAxisId="left"
+                          orientation="left"
+                          width={44}
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(v) => {
+                            const n = Number(v)
+                            if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+                            if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(0)}k`
+                            return String(Math.round(n))
+                          }}
+                        />
+                        <YAxis
+                          yAxisId="right"
+                          orientation="right"
+                          width={36}
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
+                        />
+                        <ChartTooltip
+                          content={
+                            <ChartTooltipContent
+                              formatter={(value, name) => {
+                                const n = Number(value ?? 0)
+                                if (name === "pctRevenue") return [`${n.toFixed(1)}%`, "% des revenus"]
+                                if (name === "amountPos" || name === "amountNeg") {
+                                  return [formatCurrency(n), name === "amountPos" ? "Montant (≥ 0)" : "Montant (< 0)"]
+                                }
+                                return [formatCurrency(n), String(name)]
+                              }}
+                            />
+                          }
+                        />
+                        <ReferenceLine
+                          yAxisId="left"
+                          y={analysisSeriesOverview.trailing12Average}
+                          stroke="#94a3b8"
+                          strokeDasharray="4 4"
+                        />
+                        <ReferenceLine
+                          yAxisId="right"
+                          y={analysisSeriesOverview.trailing12AveragePctRevenue}
+                          stroke="#64748b"
+                          strokeDasharray="3 3"
+                        />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="amountPos"
+                          name="amountPos"
+                          stackId="stack"
+                          fill="var(--color-amount)"
+                          radius={[0, 0, 0, 0]}
+                        />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="amountNeg"
+                          name="amountNeg"
+                          stackId="stack"
+                          fill="#c2410c"
+                          radius={[4, 4, 0, 0]}
+                        />
+                        <Line
+                          yAxisId="right"
+                          type="monotone"
+                          dataKey="pctRevenue"
+                          name="pctRevenue"
+                          stroke="var(--color-pctRevenue)"
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      </ComposedChart>
+                    </ChartContainer>
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-500">Aucune donnée historique disponible.</div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {lineAnalysisView === "trailing5years" ? (
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">5 derniers exercices</p>
+                    <p className="mt-1 text-sm leading-relaxed text-slate-500">Vue d&apos;ensemble annuelle du poste avec la moyenne des 5 derniers exercices.</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Moyenne 5 exercices</p>
+                    <p className="mt-1 text-sm font-semibold tabular-nums text-[#2A2F3A]">
+                      {analysisSeriesOverview ? formatCurrency(analysisSeriesOverview.trailing5YearsAverage) : "—"}
+                    </p>
+                    <p className="mt-0.5 text-xs font-semibold tabular-nums text-slate-600">
+                      {analysisSeriesOverview
+                        ? `${analysisSeriesOverview.trailing5YearsAveragePctRevenue.toFixed(1)} % des revenus`
+                        : "—"}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 h-52">
+                  {analysisSeriesLoading ? (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-500">Chargement de l&apos;historique...</div>
+                  ) : analysisSeriesOverview?.trailing5Years.length ? (
+                    <ChartContainer
+                      config={{
+                        amount: { label: "Montant", color: "#2A2F3A" },
+                        pctRevenue: { label: "% revenus", color: "#2563eb" },
+                        average: { label: "Moyenne 5 exercices", color: "#E0742D" },
+                      }}
+                      className="h-full w-full"
+                    >
+                      <ComposedChart
+                        accessibilityLayer
+                        data={analysisSeriesOverview.trailing5Years}
+                        margin={{ top: 10, right: 12, left: 8, bottom: 0 }}
+                      >
+                        <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                        <XAxis dataKey="period" tickLine={false} axisLine={false} tickMargin={8} />
+                        <YAxis
+                          yAxisId="left"
+                          orientation="left"
+                          width={44}
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(v) => {
+                            const n = Number(v)
+                            if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+                            if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(0)}k`
+                            return String(Math.round(n))
+                          }}
+                        />
+                        <YAxis
+                          yAxisId="right"
+                          orientation="right"
+                          width={36}
+                          tickLine={false}
+                          axisLine={false}
+                          tick={{ fontSize: 10 }}
+                          tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
+                        />
+                        <ChartTooltip
+                          content={
+                            <ChartTooltipContent
+                              formatter={(value, name) => {
+                                const n = Number(value ?? 0)
+                                if (name === "pctRevenue") return [`${n.toFixed(1)}%`, "% des revenus"]
+                                if (name === "amountPos" || name === "amountNeg") {
+                                  return [formatCurrency(n), name === "amountPos" ? "Montant (≥ 0)" : "Montant (< 0)"]
+                                }
+                                return [formatCurrency(n), String(name)]
+                              }}
+                            />
+                          }
+                        />
+                        <ReferenceLine
+                          yAxisId="left"
+                          y={analysisSeriesOverview.trailing5YearsAverage}
+                          stroke="#94a3b8"
+                          strokeDasharray="4 4"
+                        />
+                        <ReferenceLine
+                          yAxisId="right"
+                          y={analysisSeriesOverview.trailing5YearsAveragePctRevenue}
+                          stroke="#64748b"
+                          strokeDasharray="3 3"
+                        />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="amountPos"
+                          name="amountPos"
+                          stackId="stack"
+                          fill="var(--color-amount)"
+                          radius={[0, 0, 0, 0]}
+                        />
+                        <Bar
+                          yAxisId="left"
+                          dataKey="amountNeg"
+                          name="amountNeg"
+                          stackId="stack"
+                          fill="#c2410c"
+                          radius={[4, 4, 0, 0]}
+                        />
+                        <Line
+                          yAxisId="right"
+                          type="monotone"
+                          dataKey="pctRevenue"
+                          name="pctRevenue"
+                          stroke="var(--color-pctRevenue)"
+                          strokeWidth={2}
+                          dot={false}
+                          activeDot={{ r: 4 }}
+                        />
+                      </ComposedChart>
+                    </ChartContainer>
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-slate-500">Aucune donnée historique disponible.</div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <p className="mt-6 text-sm italic leading-relaxed text-[#E0742D]">
+            « Une meilleure lecture du poste, de sa variation et de sa ventilation GL pour expliquer clairement ce qui bouge dans le compte de résultat. »
+          </p>
+        </div>
+
+        <div className="hidden lg:col-span-1 lg:block">
+          <div className="mx-auto h-full w-px bg-gradient-to-b from-transparent via-slate-200/90 to-transparent" />
+        </div>
+
+        <div className="lg:col-span-6">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Ventilation du grand livre
+            </p>
+            <span className="mx-4 h-px flex-1 bg-slate-200/90" aria-hidden />
+          </div>
+
+          {accountsSorted.length > 0 ? (
+            <ul className="mt-5 space-y-4">
+              {visibleAccounts.map((acc, i) => {
+                const line =
+                  accountLabelAlreadyIncludesNumber(acc.accountNumber, acc.accountName)
+                    ? acc.accountName.trim()
+                    : `${acc.accountNumber} — ${acc.accountName}`
+                const pct = (Math.abs(acc.amount) / lineDenom) * 100
+                const glSelected = !!ctx.parentRowId && ctx.rowId === acc.accountNumber
+                return (
+                  <li key={`${acc.accountNumber}-${i}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLineAnalysis((prev) => {
+                          if (!prev) return prev
+                          if (prev.parentRowId && prev.rowId === acc.accountNumber) {
+                            const parentRow = data.find((r) => r.rowId === prev.parentRowId)
+                            if (!parentRow?.rowId) return prev
+                            return {
+                              rowId: parentRow.rowId,
+                              label: parentRow.label,
+                              current: parentRow.current,
+                              prior: parentRow.prior,
+                              balanceAccounts: parentRow.balanceAccounts,
+                              trendValues: parentRow.trendValues,
+                            }
+                          }
+                          return {
+                            rowId: acc.accountNumber,
+                            label: line,
+                            current: acc.amount,
+                            prior: acc.priorAmount ?? 0,
+                            balanceAccounts: prev.balanceAccounts,
+                            trendValues: acc.trendValues,
+                            parentRowId: prev.parentRowId ?? prev.rowId,
+                          }
+                        })
+                        setLineAnalysisView("current")
+                      }}
+                      title="Afficher la lecture analytique de ce compte"
+                      aria-pressed={glSelected}
+                      className={cn(
+                        "w-full rounded-2xl border bg-white/90 px-4 py-3 text-left shadow-sm transition-colors",
+                        glSelected
+                          ? "border-[#E0742D]/55 ring-2 ring-[#E0742D]/35"
+                          : "border-slate-200/90 hover:border-slate-300/90 hover:bg-slate-50/80"
+                      )}
+                    >
+                      <div className="flex gap-3">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex justify-between gap-3">
+                            <p className="min-w-0 flex-1 text-sm leading-relaxed text-[#5C5F66]">{line}</p>
+                            <span className="shrink-0 text-sm font-semibold tabular-nums text-[#2A2F3A]">
+                              {acc.amount !== 0 ? formatCurrency(acc.amount) : "—"}
+                            </span>
+                          </div>
+                          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200/70">
+                            <div className="h-full rounded-full bg-[#E0742D] transition-[width] duration-300" style={{ width: `${Math.min(100, pct)}%` }} />
+                          </div>
+                          <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                            {pct.toFixed(0)} % du montant du poste (valeur absolue)
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 py-5 text-sm text-slate-500">
+              Aucun compte GL disponible pour cette ligne.
             </div>
           )}
 
-          <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-xs leading-relaxed text-slate-500">
-            Astuce : cliquez sur le <span className="font-medium text-slate-600">libellé</span> de la ligne pour
-            afficher ou masquer le détail des comptes dans le tableau.
-          </p>
+          {accountsSorted.length > 4 ? (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => setShowAllAnalysisAccounts((prev) => !prev)}
+                className="inline-flex items-center gap-2 text-sm font-semibold text-[#5C5F66] transition hover:text-[#2A2F3A]"
+              >
+                {showAllAnalysisAccounts ? "Voir moins" : "Voir plus"}
+                <ArrowRight className={cn("h-4 w-4 text-[#E0742D] transition-transform", showAllAnalysisAccounts && "rotate-90")} />
+              </button>
+            </div>
+          ) : null}
         </div>
+      </div>
     )
   }
 
@@ -2196,9 +2876,15 @@ export function IncomeStatementDetail({
       companyId && divisionId && subDivisionId
         ? selectedDivision?.subDivisions.find((sd) => sd.id === subDivisionId)
         : null
+    const contextBits = [
+      selectedCompany?.name,
+      selectedDivision?.name,
+      selectedSubDivision?.name,
+      formatCalendarMonthYear(refMonth, refYear),
+    ].filter(Boolean)
 
     const goBackUnified = () => {
-      const el = document.getElementById(`income-statement-detail-row-${ctx.rowId}`)
+      const el = document.getElementById(`income-statement-detail-row-${ctx.parentRowId ?? ctx.rowId}`)
       const scroll = () => el?.scrollIntoView({ behavior: "smooth", block: "nearest" })
       if (analysisPanelNarrow) {
         setLineAnalysis(null)
@@ -2209,68 +2895,95 @@ export function IncomeStatementDetail({
     }
 
     return (
-      <>
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200/90 pb-4">
-          <div className="min-w-0 flex-1">
-            <button
-              type="button"
-              onClick={goBackUnified}
-              className="mb-2 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#2A2F3A]"
-            >
-              <ChevronLeft className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              Retour au poste
-            </button>
-            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[#E0742D]">
-              <BarChart3 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              Analyse &amp; note
-            </p>
-            <h3 className="mt-2 text-base font-semibold leading-snug text-[#2A2F3A]">{ctx.label}</h3>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">{getDescriptionText()}</p>
+      <div className="relative overflow-hidden rounded-[28px] border border-slate-200/90 bg-gradient-to-b from-slate-50 via-white to-slate-50/70 p-5 shadow-[0_24px_80px_-40px_rgba(15,23,42,0.35)] sm:p-7">
+        <div className="pointer-events-none absolute inset-0" aria-hidden>
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_45%_at_50%_-10%,rgba(224,116,45,0.08),transparent_55%)]" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_55%_50%_at_100%_55%,rgba(148,163,184,0.12),transparent_65%)]" />
+          <div className="absolute right-6 top-6 hidden select-none text-[92px] font-semibold leading-none tracking-tight text-[#2A2F3A]/[0.04] lg:block">
+            analyse<span className="text-[#E0742D]/20">.</span>
           </div>
-          {!opts?.hideCloseButton && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 shrink-0 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-              onClick={() => setLineAnalysis(null)}
-              aria-label="Fermer le panneau"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          )}
         </div>
 
-        {renderLineAnalysisBody()}
+        <div className="relative z-10">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={goBackUnified}
+                className="mb-3 inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#2A2F3A]"
+              >
+                <ChevronLeft className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                Retour au poste
+              </button>
+              <div className="mt-5 flex items-start justify-between gap-6">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Situation</p>
+                  <h3 className="mt-3 text-2xl font-semibold tracking-tight text-[#2A2F3A] sm:text-3xl">
+                    {ctx.label}
+                  </h3>
+                  <p className="mt-3 max-w-3xl text-sm font-semibold text-[#E0742D] sm:text-base">
+                    Lecture analytique du poste du compte de resultat
+                  </p>
+                  {contextBits.length > 0 ? (
+                    <p className="mt-4 text-xs leading-relaxed text-slate-500">{contextBits.join(" • ")}</p>
+                  ) : null}
+                </div>
+              </div>
 
-        <IncomeStatementNotePanel
-          key={ctx.rowId}
-          rowId={ctx.rowId}
-          rowLabel={ctx.label}
-          page="income-statement"
-          period={period}
-          view={view}
-          companyId={companyId}
-          companyName={selectedCompany?.name ?? null}
-          divisionId={divisionId}
-          divisionName={selectedDivision?.name ?? null}
-          subDivisionId={subDivisionId}
-          subDivisionName={selectedSubDivision?.name ?? null}
-          currentAmount={ctx.current !== 0 ? ctx.current : null}
-          priorAmount={ctx.prior !== 0 ? ctx.prior : null}
-          variationPercent={vPct}
-          variationAmount={vAmt !== 0 ? vAmt : null}
-          referenceMonth={refMonth}
-          referenceYear={refYear}
-          onSaved={() => setNotesUpdated((n) => n + 1)}
-          isNarrow={analysisPanelNarrow}
-          embedded
-        />
-      </>
+              <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
+            </div>
+            {!opts?.hideCloseButton && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-10 w-10 shrink-0 rounded-full border border-slate-200/90 bg-white/85 text-slate-500 shadow-sm hover:bg-white hover:text-slate-800"
+                onClick={() => setLineAnalysis(null)}
+                aria-label="Fermer le panneau"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+
+          {renderLineAnalysisBody()}
+
+          <div className="mt-10 border-t border-slate-200/80 pt-4">
+            <div className="inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-[#5C5F66]">
+              Documenter l'analyse, expliquer les ecarts et joindre les pieces justificatives
+              <ArrowRight className="h-4 w-4 text-[#E0742D]" />
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5">
+            <IncomeStatementNotePanel
+              key={ctx.rowId}
+              rowId={ctx.rowId}
+              rowLabel={ctx.label}
+              page="income-statement"
+              period={period}
+              view={view}
+              companyId={companyId}
+              companyName={selectedCompany?.name ?? null}
+              divisionId={divisionId}
+              divisionName={selectedDivision?.name ?? null}
+              subDivisionId={subDivisionId}
+              subDivisionName={selectedSubDivision?.name ?? null}
+              currentAmount={ctx.current !== 0 ? ctx.current : null}
+              priorAmount={ctx.prior !== 0 ? ctx.prior : null}
+              variationPercent={vPct}
+              variationAmount={vAmt !== 0 ? vAmt : null}
+              referenceMonth={refMonth}
+              referenceYear={refYear}
+              onSaved={() => setNotesUpdated((n) => n + 1)}
+              isNarrow={analysisPanelNarrow}
+              embedded
+            />
+          </div>
+        </div>
+      </div>
     )
   }
-
-  const sideRailLayoutClass = "lg:w-[min(24rem,100%)] lg:max-w-lg"
 
   return (
     <div className={cn("w-full", dashboardCardFrameStaticClass)}>
@@ -3106,11 +3819,14 @@ export function IncomeStatementDetail({
                               }}
                               className={cn(
                                 "relative rounded-md p-1.5 text-[#E0742D] transition-colors ring-1 ring-[#E0742D]/25 hover:bg-orange-50 hover:ring-[#E0742D]/50",
-                                lineAnalysis?.rowId === row.rowId && "bg-[#E0742D]/10 ring-[#E0742D]/45"
+                                (lineAnalysis?.rowId === row.rowId || lineAnalysis?.parentRowId === row.rowId) &&
+                                  "bg-[#E0742D]/10 ring-[#E0742D]/45"
                               )}
-                              aria-pressed={lineAnalysis?.rowId === row.rowId}
+                              aria-pressed={
+                                lineAnalysis?.rowId === row.rowId || lineAnalysis?.parentRowId === row.rowId
+                              }
                               title={
-                                lineAnalysis?.rowId === row.rowId
+                                lineAnalysis?.rowId === row.rowId || lineAnalysis?.parentRowId === row.rowId
                                   ? "Fermer le panneau (analyse & note)"
                                   : hasNote
                                     ? "Analyse, ventilation et note enregistrée (panneau à droite)"
@@ -3389,7 +4105,22 @@ export function IncomeStatementDetail({
                           key={valueIdx}
                           className={`px-4 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                         >
-                          {value !== 0 ? formatCurrency(value) : "-"}
+                          {columnMode === "percentage"
+                            ? (value !== 0 ? `${getTrendRevenuePercentage(value, valueIdx).toFixed(1)}%` : "-")
+                            : columnMode === "variations"
+                              ? (() => {
+                                  const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
+                                  const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
+                                  return (
+                                    <div className="space-y-0.5">
+                                      <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
+                                      <div className="text-[11px] font-medium">
+                                        {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
+                                      </div>
+                                    </div>
+                                  )
+                                })()
+                              : (value !== 0 ? formatCurrency(value) : "-")}
                         </td>
                       ))}
                     </>
@@ -3401,7 +4132,22 @@ export function IncomeStatementDetail({
                           key={valueIdx}
                           className={`px-4 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
                         >
-                          {value !== 0 ? formatCurrency(value) : "-"}
+                          {columnMode === "percentage"
+                            ? (value !== 0 ? `${getTrendRevenuePercentage(value, valueIdx).toFixed(1)}%` : "-")
+                            : columnMode === "variations"
+                              ? (() => {
+                                  const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
+                                  const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
+                                  return (
+                                    <div className="space-y-0.5">
+                                      <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
+                                      <div className="text-[11px] font-medium">
+                                        {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
+                                      </div>
+                                    </div>
+                                  )
+                                })()
+                              : (value !== 0 ? formatCurrency(value) : "-")}
                         </td>
                       ))}
                     </>
@@ -3555,11 +4301,26 @@ export function IncomeStatementDetail({
                               />
                             ) : (
                               <div className="flex items-center justify-end gap-2">
-                                <span>
-                                  {showGrowthRate && isForecastSection 
-                                    ? displayValue 
-                                    : (actualValue !== 0 ? formatCurrency(actualValue) : "-")}
-                                </span>
+                                <div>
+                                  {showGrowthRate && isForecastSection
+                                    ? displayValue
+                                    : !isForecastSection && columnMode === "percentage"
+                                      ? (actualValue !== 0 ? `${getTrendRevenuePercentage(actualValue, valueIdx).toFixed(1)}%` : "-")
+                                      : !isForecastSection && columnMode === "variations"
+                                        ? (() => {
+                                            const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
+                                            const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
+                                            return (
+                                              <div className="space-y-0.5">
+                                                <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
+                                                <div className="text-[11px] font-medium">
+                                                  {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
+                                                </div>
+                                              </div>
+                                            )
+                                          })()
+                                        : (actualValue !== 0 ? formatCurrency(actualValue) : "-")}
+                                </div>
                                 {((title === "Estimation des dépenses annuelles" || title === "Estimation des revenus annuels") && valueIdx > 0 && row.rowId && !shouldHideAmounts) && (
                                   // Only show adjustment button for account-level rows if projectionMode is "account"
                                   // Only show adjustment button for GL-level rows if projectionMode is "gl"
@@ -3790,7 +4551,22 @@ export function IncomeStatementDetail({
 
                                   return (
                                     <td key={valueIdx} className="px-4 py-2 text-right font-semibold text-sm text-slate-700">
-                                      {accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-"}
+                                      {columnMode === "percentage"
+                                        ? (accountTrendValue !== 0 ? `${getTrendRevenuePercentage(accountTrendValue, valueIdx).toFixed(1)}%` : "-")
+                                        : columnMode === "variations"
+                                          ? (() => {
+                                              const trendVariation = getTrendVariation(account.trendValues ?? row.trendValues ?? [], valueIdx)
+                                              const trendVariationAmount = getTrendVariationAmount(account.trendValues ?? row.trendValues ?? [], valueIdx)
+                                              return (
+                                                <div className="space-y-0.5">
+                                                  <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
+                                                  <div className="text-[11px] font-medium">
+                                                    {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
+                                                  </div>
+                                                </div>
+                                              )
+                                            })()
+                                          : (accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-")}
                                     </td>
                                   )
                                 })}
@@ -3810,7 +4586,22 @@ export function IncomeStatementDetail({
 
                                   return (
                                     <td key={valueIdx} className="px-4 py-2 text-right font-semibold text-sm text-slate-700">
-                                      {accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-"}
+                                      {columnMode === "percentage"
+                                        ? (accountTrendValue !== 0 ? `${getTrendRevenuePercentage(accountTrendValue, valueIdx).toFixed(1)}%` : "-")
+                                        : columnMode === "variations"
+                                          ? (() => {
+                                              const trendVariation = getTrendVariation(account.trendValues ?? row.trendValues ?? [], valueIdx)
+                                              const trendVariationAmount = getTrendVariationAmount(account.trendValues ?? row.trendValues ?? [], valueIdx)
+                                              return (
+                                                <div className="space-y-0.5">
+                                                  <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
+                                                  <div className="text-[11px] font-medium">
+                                                    {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
+                                                  </div>
+                                                </div>
+                                              )
+                                            })()
+                                          : (accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-")}
                                     </td>
                                   )
                                 })}
@@ -3908,7 +4699,24 @@ export function IncomeStatementDetail({
                                         showGrowthRate && isForecastSection && valueIdx > 0 && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate < 0 && title !== "Estimation des revenus annuels" ? "text-red-600 font-semibold" : ""
                                       )}
                                     >
-                                      {showGrowthRate && isForecastSection ? displayValue : (accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-")}
+                                      {showGrowthRate && isForecastSection
+                                        ? displayValue
+                                        : !isForecastSection && columnMode === "percentage"
+                                          ? (accountTrendValue !== 0 ? `${getTrendRevenuePercentage(accountTrendValue, valueIdx).toFixed(1)}%` : "-")
+                                          : !isForecastSection && columnMode === "variations"
+                                            ? (() => {
+                                                const trendVariation = getTrendVariation(account.trendValues ?? row.trendValues ?? [], valueIdx)
+                                                const trendVariationAmount = getTrendVariationAmount(account.trendValues ?? row.trendValues ?? [], valueIdx)
+                                                return (
+                                                  <div className="space-y-0.5">
+                                                    <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
+                                                    <div className="text-[11px] font-medium">
+                                                      {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
+                                                    </div>
+                                                  </div>
+                                                )
+                                              })()
+                                            : (accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-")}
                                     </td>
                                   )
                                 })}
@@ -3937,22 +4745,6 @@ export function IncomeStatementDetail({
         </table>
         </div>
 
-        {lineAnalysis && !analysisPanelNarrow && (
-          <aside
-            className={cn(
-              "flex w-full shrink-0 flex-col border-t border-slate-200 bg-gradient-to-b from-slate-50/95 to-white lg:min-h-0 lg:border-l lg:border-t-0 lg:border-slate-200 lg:shadow-[inset_1px_0_0_0_rgba(226,232,240,0.85)]",
-              sideRailLayoutClass
-            )}
-            aria-label="Analyse et note du poste"
-          >
-            <div
-              ref={lineAnalysisPanelTopRef}
-              className="min-h-0 scroll-mt-4 px-5 py-5 lg:sticky lg:top-4 lg:z-10 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto"
-            >
-              {renderUnifiedAnalysisNoteCard()}
-            </div>
-          </aside>
-        )}
       </div>
 
       <Sheet
@@ -3973,6 +4765,20 @@ export function IncomeStatementDetail({
           officiels.
         </p>
       </div>
+
+      {lineAnalysis && !analysisPanelNarrow && (
+        <aside
+          aria-label="Analyse et note du poste"
+          className="border-t border-slate-200 bg-gradient-to-b from-slate-50 via-white to-slate-50/60 px-5 py-6 sm:px-6 sm:py-7"
+        >
+          <div
+            ref={lineAnalysisPanelTopRef}
+            className="min-w-0 scroll-mt-4"
+          >
+            {renderUnifiedAnalysisNoteCard()}
+          </div>
+        </aside>
+      )}
 
       {/* Type/Taux Modal */}
       {title === "Estimation des dépenses annuelles" && editingTypeRateRowId && (() => {

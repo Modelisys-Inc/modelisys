@@ -12,6 +12,7 @@ interface UseFinancialStatementSeriesParams {
   companyId: string | null
   statementType: "income-statement" | "balance-sheet" | "cash-flow"
   fiscalYear: number
+  month?: number
   months?: number
   divisionId?: string | null
   subDivisionId?: string | null
@@ -35,6 +36,7 @@ export function useFinancialStatementSeries({
   companyId,
   statementType,
   fiscalYear,
+  month,
   months = 12,
   divisionId,
   subDivisionId,
@@ -60,6 +62,7 @@ export function useFinancialStatementSeries({
 
     getFinancialStatementSeries(companyId, statementType, {
       fiscal_year: fiscalYear,
+      month,
       months,
       division_id: divisionId || undefined,
       sub_division_id: subDivisionId || undefined,
@@ -87,6 +90,7 @@ export function useFinancialStatementSeries({
     companyId,
     statementType,
     fiscalYear,
+    month,
     months,
     divisionId,
     subDivisionId,

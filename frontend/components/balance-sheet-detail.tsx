@@ -17,6 +17,14 @@ import {
   getRowAmounts,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
+import {
+  calendarQuarterFromMonth,
+  formatCalendarMonthYear,
+  formatPriorCalendarMonth,
+  formatQuarterShortLabel,
+  formatSameMonthPriorYear,
+  priorCalendarQuarter,
+} from "@/lib/financial-period-labels"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import {
   dashboardCardAccentClass,
@@ -41,6 +49,9 @@ interface BalanceSheetDetailProps {
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
   fiscalYear?: number
+  /** Date de référence (URL ?refMonth=&refYear=) */
+  refMonth: number
+  refYear: number
   rows?: FinancialStatementRow[]
   loading?: boolean
   /** Titre de la carte (défaut : Détail) — aligné sur l’état des résultats */
@@ -80,7 +91,11 @@ export function BalanceSheetDetail({
   subDivisionId,
   companies = [],
   title = "Détail",
+  comparisonType = "lastMonth",
+  selectedBudgetName = null,
   fiscalYear,
+  refMonth,
+  refYear,
   rows: backendRows = [],
   loading = false,
 }: BalanceSheetDetailProps) {
@@ -106,6 +121,7 @@ export function BalanceSheetDetail({
     companyId: companyId || null,
     statementType: "balance-sheet",
     fiscalYear: currentYear,
+    month: refMonth,
     months: monthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
@@ -141,7 +157,7 @@ export function BalanceSheetDetail({
         current: row.isSection ? 0 : (row.current ?? 0),
         prior: row.isSection ? 0 : (row.prior ?? 0),
         indent: false,
-        isBold: row.isBold || row.isResult,
+        isBold: !!row.isBold,
         isSubtotal: row.isResult,
         isSection: row.isSection,
       })
@@ -163,7 +179,7 @@ export function BalanceSheetDetail({
             label: `Total ${row.label}`,
             current: row.current ?? 0,
             prior: row.prior ?? 0,
-            isBold: true,
+            isBold: false,
             isSubtotal: true,
           })
           result.push({ label: "", current: 0, prior: 0 })
@@ -183,9 +199,9 @@ export function BalanceSheetDetail({
 
       let values: number[]
       if (view === "quarters") {
-        values = reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods).amounts)
+        values = reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods, "last").amounts)
       } else if (view === "years") {
-        values = reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods).amounts)
+        values = reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods, "last").amounts)
       } else {
         values = reverseSeriesOrderForDisplay(rawAmounts)
       }
@@ -417,7 +433,7 @@ export function BalanceSheetDetail({
   const getQuarterLabels = (): string[] => {
     if (periods.length > 0 && seriesRows.length > 0) {
       const rawAmounts = getRowAmounts(seriesRows[0], periods)
-      return reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods).labels)
+      return reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods, "last").labels)
     }
     const currentDate = new Date()
     const labels: string[] = []
@@ -433,7 +449,7 @@ export function BalanceSheetDetail({
   const getYearLabels = (): string[] => {
     if (periods.length > 0 && seriesRows.length > 0) {
       const rawAmounts = getRowAmounts(seriesRows[0], periods)
-      return reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods).labels)
+      return reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods, "last").labels)
     }
     const cy = new Date().getFullYear()
     const labels: string[] = []
@@ -441,6 +457,60 @@ export function BalanceSheetDetail({
       labels.push(`${cy - i}`)
     }
     return reverseSeriesOrderForDisplay(labels)
+  }
+
+  // Helper function to get comparison label (daté selon la référence, comme l’état des résultats)
+  const getComparisonLabel = (): string => {
+    if (view !== "comparison" && view !== "ytd" && view !== "ddm") return "Passé"
+    if (comparisonType === "lastMonth") {
+      if (view === "ytd") return "YTD dernier"
+      if (view === "ddm") return "DDM dernier"
+      if (period === "monthly") return formatPriorCalendarMonth(refMonth, refYear)
+      if (period === "quarterly") {
+        const q = calendarQuarterFromMonth(refMonth)
+        const pq = priorCalendarQuarter(q, refYear)
+        return formatQuarterShortLabel(pq.quarter, pq.year)
+      }
+      return "Année dernière"
+    }
+    if (comparisonType === "pastMonth") {
+      if (view === "ytd") return "YTD passé"
+      if (view === "ddm") return "DDM passé"
+      if (period === "monthly") return formatSameMonthPriorYear(refMonth, refYear)
+      if (period === "quarterly") {
+        const q = calendarQuarterFromMonth(refMonth)
+        return formatQuarterShortLabel(q, refYear - 1)
+      }
+      return "Année passée"
+    }
+    if (comparisonType === "budget") {
+      if (selectedBudgetName) {
+        if (view === "ytd") return `Budget ${selectedBudgetName} (YTD)`
+        if (view === "ddm") return `Budget ${selectedBudgetName} (DDM)`
+        return `Budget ${selectedBudgetName}`
+      }
+      if (view === "ytd") return "YTD budgeté"
+      if (view === "ddm") return "DDM budgeté"
+      if (period === "monthly") return "Mois budgeté"
+      if (period === "quarterly") return "Trimestre budgeté"
+      return "Année budgetée"
+    }
+    return "Passé"
+  }
+
+  /** Colonne « Courant » : libellé daté (référence) pour comparaison / DDM. */
+  const getCurrentColumnLabel = (): string => {
+    if ((view === "comparison" || view === "ddm") && period === "monthly") {
+      return formatCalendarMonthYear(refMonth, refYear)
+    }
+    if ((view === "comparison" || view === "ddm") && period === "quarterly") {
+      const q = calendarQuarterFromMonth(refMonth)
+      return formatQuarterShortLabel(q, refYear)
+    }
+    if ((view === "comparison" || view === "ddm") && period === "annual") {
+      return String(refYear)
+    }
+    return "Courant"
   }
 
   const getHorizonText = (): string => getHorizonModeLabel(view, period)
@@ -524,14 +594,14 @@ export function BalanceSheetDetail({
         <table className="w-full">
           <thead>
             <tr className="border-b-2 border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80">
-              <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Compte</th>
+              <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5 whitespace-nowrap">Compte</th>
               {view === "current" && (
                 <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Montant</th>
               )}
               {view === "comparison" && !isComparisonMode && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Passé</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getCurrentColumnLabel()}</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
                   {columnMode === "variations" ? (
                     <>
                       <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
@@ -556,8 +626,8 @@ export function BalanceSheetDetail({
               )}
               {view === "ddm" && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Passé</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getCurrentColumnLabel()}</th>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
                   {columnMode === "variations" ? (
                     <>
                       <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
@@ -648,7 +718,7 @@ export function BalanceSheetDetail({
                   onClick={() => canExpand && toggleRow(row.rowId!)}
                   >
                     <td
-                      className={`px-6 py-3 ${row.isBold ? "font-bold text-slate-900" : "text-slate-700"} ${row.indent ? "pl-12" : ""}`}
+                      className={`px-6 py-3 whitespace-nowrap ${row.isBold ? "font-bold text-slate-900" : "text-slate-700"} ${row.indent ? "pl-12" : ""}`}
                     >
                       <div className="flex items-center gap-2">
                         {canExpand && (
@@ -661,7 +731,7 @@ export function BalanceSheetDetail({
                           </span>
                         )}
                         {!canExpand && row.indent && <span className="w-4"></span>}
-                        <span className="flex-1">{displayLabel}</span>
+                        <span className="flex-1 whitespace-nowrap">{displayLabel}</span>
                         {row.rowId && isNoteAllowed() && (
                           <button
                             onClick={(e) => {
@@ -922,10 +992,10 @@ export function BalanceSheetDetail({
                         
                         return (
                           <tr key={`${idx}-account-${accIdx}`} className="bg-slate-50 border-b border-slate-200">
-                            <td className="px-6 py-2 text-slate-500 pl-20">
+                            <td className="px-6 py-2 text-slate-500 pl-20 whitespace-nowrap">
                               <div className="flex items-center gap-3">
                                 <span className="text-xs font-semibold text-slate-500">{account.accountNumber}</span>
-                                <span className="text-sm">{account.accountName}</span>
+                                <span className="text-sm whitespace-nowrap">{account.accountName}</span>
                               </div>
                             </td>
                             

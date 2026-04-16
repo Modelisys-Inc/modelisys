@@ -39,7 +39,7 @@ export default function CashFlowPage() {
   const { companies } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("comparison")
-  const [section, setSection] = useState<Section>("summary")
+  const [section, setSection] = useState<Section>("dashboard")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)

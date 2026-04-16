@@ -101,14 +101,14 @@ export function BalanceSheetChart({
 
     // Decide whether to aggregate
     if (view === "quarters") {
-      const labels = aggregateToQuarters(currentAssetsAmounts, periods).labels
-      const ca = aggregateToQuarters(currentAssetsAmounts, periods).amounts
-      const nca = aggregateToQuarters(nonCurrentAssetsAmounts, periods).amounts
-      const ta = aggregateToQuarters(totalAssetsAmounts, periods).amounts
-      const cl = aggregateToQuarters(currentLiabilitiesAmounts, periods).amounts
-      const ncl = aggregateToQuarters(nonCurrentLiabilitiesAmounts, periods).amounts
-      const tl = aggregateToQuarters(totalLiabilitiesAmounts, periods).amounts
-      const eq = aggregateToQuarters(equityAmounts, periods).amounts
+      const labels = aggregateToQuarters(currentAssetsAmounts, periods, "last").labels
+      const ca = aggregateToQuarters(currentAssetsAmounts, periods, "last").amounts
+      const nca = aggregateToQuarters(nonCurrentAssetsAmounts, periods, "last").amounts
+      const ta = aggregateToQuarters(totalAssetsAmounts, periods, "last").amounts
+      const cl = aggregateToQuarters(currentLiabilitiesAmounts, periods, "last").amounts
+      const ncl = aggregateToQuarters(nonCurrentLiabilitiesAmounts, periods, "last").amounts
+      const tl = aggregateToQuarters(totalLiabilitiesAmounts, periods, "last").amounts
+      const eq = aggregateToQuarters(equityAmounts, periods, "last").amounts
 
       return reverseSeriesOrderForDisplay(
         labels.map((label, i) => ({
@@ -126,14 +126,14 @@ export function BalanceSheetChart({
     }
 
     if (view === "years") {
-      const labels = aggregateToYears(currentAssetsAmounts, periods).labels
-      const ca = aggregateToYears(currentAssetsAmounts, periods).amounts
-      const nca = aggregateToYears(nonCurrentAssetsAmounts, periods).amounts
-      const ta = aggregateToYears(totalAssetsAmounts, periods).amounts
-      const cl = aggregateToYears(currentLiabilitiesAmounts, periods).amounts
-      const ncl = aggregateToYears(nonCurrentLiabilitiesAmounts, periods).amounts
-      const tl = aggregateToYears(totalLiabilitiesAmounts, periods).amounts
-      const eq = aggregateToYears(equityAmounts, periods).amounts
+      const labels = aggregateToYears(currentAssetsAmounts, periods, "last").labels
+      const ca = aggregateToYears(currentAssetsAmounts, periods, "last").amounts
+      const nca = aggregateToYears(nonCurrentAssetsAmounts, periods, "last").amounts
+      const ta = aggregateToYears(totalAssetsAmounts, periods, "last").amounts
+      const cl = aggregateToYears(currentLiabilitiesAmounts, periods, "last").amounts
+      const ncl = aggregateToYears(nonCurrentLiabilitiesAmounts, periods, "last").amounts
+      const tl = aggregateToYears(totalLiabilitiesAmounts, periods, "last").amounts
+      const eq = aggregateToYears(equityAmounts, periods, "last").amounts
 
       return reverseSeriesOrderForDisplay(
         labels.map((label, i) => ({

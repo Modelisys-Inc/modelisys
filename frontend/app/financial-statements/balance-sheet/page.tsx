@@ -39,7 +39,7 @@ export default function BalanceSheetPage() {
   const { companies } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("comparison")
-  const [section, setSection] = useState<Section>("summary")
+  const [section, setSection] = useState<Section>("dashboard")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
@@ -89,13 +89,14 @@ export default function BalanceSheetPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Auto-switch comparison type when horizon doesn't support "lastMonth"
+  // Guard against removed horizons lingering in state/URL.
   useEffect(() => {
-    const isAnnualYTDorDDM = view === "ytd" || view === "ddm" || (view === "comparison" && period === "annual")
-    if (isAnnualYTDorDDM && comparisonType === "lastMonth") {
-      setComparisonType("pastMonth")
+    if (view === "ytd" || view === "ddm" || (view === "comparison" && period === "annual")) {
+      setPeriod("monthly")
+      setView("comparison")
+      setColumnMode("variations")
     }
-  }, [view, period, comparisonType])
+  }, [view, period])
 
   // --- Fetch financial statement data from the API ---
   const [rows, setRows] = useState<FinancialStatementRow[]>([])
@@ -171,10 +172,6 @@ export default function BalanceSheetPage() {
   // Fonction pour obtenir la valeur actuelle du sélecteur Horizon
   const getCurrentHorizon = (): string => {
     if (view === "comparison" && period === "monthly") return "courant"
-    if (view === "comparison" && period === "quarterly") return "trimestriel"
-    if (view === "comparison" && period === "annual") return "annuel"
-    if (view === "ytd") return "ytd"
-    if (view === "ddm") return "ddm"
     if (view === "12months") return "12mois"
     if (view === "quarters") return "trimestres"
     if (view === "years") return "annees"
@@ -187,24 +184,6 @@ export default function BalanceSheetPage() {
       case "courant":
         setPeriod("monthly")
         setView("comparison")
-        break
-      case "trimestriel":
-        setPeriod("quarterly")
-        setView("comparison")
-        setColumnMode("variations")
-        break
-      case "annuel":
-        setPeriod("annual")
-        setView("comparison")
-        setColumnMode("variations")
-        break
-      case "ytd":
-        setView("ytd")
-        setColumnMode("variations")
-        break
-      case "ddm":
-        setView("ddm")
-        setColumnMode("variations")
         break
       case "12mois":
         setView("12months")
@@ -334,16 +313,12 @@ export default function BalanceSheetPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="courant">{HORIZON_LABEL.moisActuel}</SelectItem>
-                      <SelectItem value="trimestriel">{HORIZON_LABEL.trimestreActuel}</SelectItem>
-                      <SelectItem value="annuel">Annuel</SelectItem>
-                      <SelectItem value="ytd">{HORIZON_LABEL.ytd}</SelectItem>
-                      <SelectItem value="ddm">{HORIZON_LABEL.ddm}</SelectItem>
                       <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
                       <SelectItem value="trimestres">{HORIZON_LABEL.trimestriel2Ans}</SelectItem>
                       <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
                     </SelectContent>
                   </Select>
-                  {(view === "comparison" || view === "ytd" || view === "ddm") && (
+                  {view === "comparison" && (
                     <>
                       <ChevronRight className="h-4 w-4 text-[#C9B8A5]/50" />
                       <Select value={comparisonType} onValueChange={(value) => {
@@ -357,10 +332,7 @@ export default function BalanceSheetPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {/* Hide "Mois dernier" for Annuel, YTD, and DDM horizons */}
-                          {!(view === "ytd" || view === "ddm" || (view === "comparison" && period === "annual")) && (
-                            <SelectItem value="lastMonth">Mois dernier</SelectItem>
-                          )}
+                          <SelectItem value="lastMonth">Mois dernier</SelectItem>
                           <SelectItem value="pastMonth">Mois passé</SelectItem>
                           <SelectItem value="budget">Budget</SelectItem>
                         </SelectContent>
@@ -505,6 +477,8 @@ export default function BalanceSheetPage() {
               selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
               selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
               fiscalYear={selectedYear}
+              refMonth={selectedMonth}
+              refYear={selectedYear}
               rows={rows}
               loading={loading}
               showBalanceSheetStructureSettings
@@ -530,6 +504,8 @@ export default function BalanceSheetPage() {
               selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
               selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
               fiscalYear={selectedYear}
+              refMonth={selectedMonth}
+              refYear={selectedYear}
               rows={rows}
               loading={loading}
             />
