@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Filter, Calendar, ChevronRight } from "lucide-react"
+import { Filter, Calendar, ChevronRight, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
@@ -22,6 +22,11 @@ import {
   type FinancialStatementParams,
 } from "@/lib/api"
 import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
+import {
+  appendPerformanceChartSlot,
+  loadPerformanceChartSlotIds,
+  removePerformanceChartSlot,
+} from "@/lib/performance-chart-config"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
@@ -66,7 +71,7 @@ export default function IncomeStatementPage() {
   }, [companyIdFromUrl, searchParams])
   const lockedCompanyId = companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
 
-  const { selectedMonth, selectedYear } = useFinancialStatementReferenceDate()
+  const { selectedMonth, selectedYear } = useFinancialStatementReferenceDate({ skipUrlSync: true })
 
   // Load budgets from API
   const [budgets, setBudgets] = useState<Array<{ id: string; name: string }>>([])
@@ -114,6 +119,28 @@ export default function IncomeStatementPage() {
   const [loading, setLoading] = useState(false)
   // Track the resolved company ID (falls back to first company when none selected)
   const [resolvedCompanyId, setResolvedCompanyId] = useState<string | null>(null)
+  const effectiveCompanyId = selectedCompanyId || resolvedCompanyId
+  const [performanceChartSlotIds, setPerformanceChartSlotIds] = useState<string[]>(["default"])
+
+  useEffect(() => {
+    if (!effectiveCompanyId) {
+      setPerformanceChartSlotIds(["default"])
+      return
+    }
+    setPerformanceChartSlotIds(loadPerformanceChartSlotIds(effectiveCompanyId))
+  }, [effectiveCompanyId])
+
+  const handleAddPerformanceChart = () => {
+    if (!effectiveCompanyId) return
+    appendPerformanceChartSlot(effectiveCompanyId)
+    setPerformanceChartSlotIds(loadPerformanceChartSlotIds(effectiveCompanyId))
+  }
+
+  const handleRemovePerformanceChart = (slotId: string) => {
+    if (!effectiveCompanyId) return
+    removePerformanceChartSlot(effectiveCompanyId, slotId)
+    setPerformanceChartSlotIds(loadPerformanceChartSlotIds(effectiveCompanyId))
+  }
 
   useEffect(() => {
     if (lockedCompanyId && selectedCompanyId !== lockedCompanyId) {
@@ -464,22 +491,47 @@ export default function IncomeStatementPage() {
       </div>
       {section === "dashboard" && (
         <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
-          {/* Carte Performance financière — seule vue affichée en mode Tableau de bord */}
-          <div className="relative -mt-32">
-            <IncomeStatementChart
-              period={period}
-              view={view}
-              companyId={selectedCompanyId || resolvedCompanyId}
-              divisionId={selectedDivisionId}
-              subDivisionId={selectedSubDivisionId}
-              companies={companies}
-              comparisonType={comparisonType}
-              selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
-              selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
-              fiscalYear={selectedYear}
-              referenceMonth={selectedMonth}
-              structureVersion={structureVersion}
-            />
+          {/* Carte(s) Performance financière — seule vue affichée en mode Tableau de bord */}
+          <div className="relative -mt-32 space-y-6">
+            {effectiveCompanyId ? (
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddPerformanceChart}
+                  className="gap-1.5 border-slate-200 bg-white/90 text-slate-800 shadow-sm hover:bg-white"
+                >
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Ajouter un graphique
+                </Button>
+              </div>
+            ) : null}
+            {performanceChartSlotIds.map((slotId, index) => (
+              <IncomeStatementChart
+                key={slotId}
+                chartInstanceId={slotId}
+                chartSlotNumber={index + 1}
+                chartSlotCount={performanceChartSlotIds.length}
+                onRemoveChart={
+                  slotId !== "default" && performanceChartSlotIds.length > 1
+                    ? () => handleRemovePerformanceChart(slotId)
+                    : undefined
+                }
+                period={period}
+                view={view}
+                companyId={effectiveCompanyId}
+                divisionId={selectedDivisionId}
+                subDivisionId={selectedSubDivisionId}
+                companies={companies}
+                comparisonType={comparisonType}
+                selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
+                selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
+                fiscalYear={selectedYear}
+                referenceMonth={selectedMonth}
+                structureVersion={structureVersion}
+              />
+            ))}
           </div>
         </main>
       )}

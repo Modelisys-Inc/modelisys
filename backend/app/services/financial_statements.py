@@ -1627,11 +1627,24 @@ def compute_financial_statement(
         # Compare to the previous period (month/quarter) — typically same FY
         if period == "monthly":
             if month > 1:
-                prior_months = [month - 1]
+                # Income statement: prior month = one fiscal month's activity.
+                # Balance sheet (cumulative TB): prior month-end = closing balance through FM (M-1)
+                # → sum de-cumulated months 1..(M-1), not only month (M-1) in isolation.
+                if statement_type == "balance-sheet":
+                    prior_months = _balance_sheet_months_to_aggregate(
+                        month - 1, company.is_cumulative_tb
+                    )
+                else:
+                    prior_months = [month - 1]
                 prior_amount_index = current_amount_index
             else:
-                # FM 1 → compare to FM 12 of prior FY
-                prior_months = [12]
+                # FM 1 → compare to FM 12 of prior FY (year-end closing in prior FY)
+                if statement_type == "balance-sheet":
+                    prior_months = _balance_sheet_months_to_aggregate(
+                        12, company.is_cumulative_tb
+                    )
+                else:
+                    prior_months = [12]
                 prior_amount_index = _build_fiscal_year_data(
                     db, company.id, fiscal_year - 1, fy_end_month, company.is_cumulative_tb,
                 )
@@ -2145,6 +2158,9 @@ def _process_structure_rows_series(
             "amounts": amounts,
             "hasLiaisonCode": _normalize_liaison_mode(row) != "na",
         }
+        lc_out = str(row.get("linkCode") or "").strip()
+        if lc_out:
+            output_row["linkCode"] = lc_out
         if "indent" in row:
             output_row["indent"] = bool(row.get("indent"))
         if bool(row.get("separatorAbove")):

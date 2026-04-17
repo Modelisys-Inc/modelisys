@@ -72,6 +72,8 @@ class SeriesDetailRow(BaseModel):
 class SeriesRow(BaseModel):
     id: str
     label: str
+    # Code de liaison Sommaire (ex. « 20 »), distinct de l’identifiant technique id
+    linkCode: str | None = None
     isBold: bool = False
     isSection: bool = False
     isResult: bool = False

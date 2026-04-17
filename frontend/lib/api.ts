@@ -1379,6 +1379,8 @@ export interface SeriesDetailRow {
 export interface SeriesRow {
   id: string
   label: string
+  /** Code de liaison Sommaire (ex. « 20 »), distinct de l’id technique de ligne. */
+  linkCode?: string
   isBold: boolean
   isSection: boolean
   isResult: boolean

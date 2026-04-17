@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo } from "react"
+import { startTransition, useCallback, useEffect, useMemo } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
 const REF_MONTH = "refMonth"
@@ -35,10 +35,20 @@ function parseYear(s: string | null): number | null {
   return Number.isFinite(n) && n >= 1990 && n <= 2100 ? n : null
 }
 
+export type UseFinancialStatementReferenceDateOptions = {
+  /**
+   * Si `true`, ne pas écrire `refMonth` / `refYear` dans l’URL (lecture seule).
+   * À utiliser sur les pages qui montent déjà `FinancialStatementReferenceControls` dans l’en-tête,
+   * pour éviter deux `router.replace` concurrents au montage.
+   */
+  skipUrlSync?: boolean
+}
+
 /**
  * Mois / année de référence partagés entre Résultats, Bilan et Trésorerie via l’URL (?refMonth=&refYear=).
  */
-export function useFinancialStatementReferenceDate() {
+export function useFinancialStatementReferenceDate(options?: UseFinancialStatementReferenceDateOptions) {
+  const skipUrlSync = options?.skipUrlSync === true
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
@@ -54,13 +64,17 @@ export function useFinancialStatementReferenceDate() {
   }, [searchParams, defaults.year])
 
   useEffect(() => {
+    if (skipUrlSync) return
     if (!isFinancialStatementPath(pathname)) return
     if (searchParams.get(REF_MONTH) != null && searchParams.get(REF_YEAR) != null) return
     const p = new URLSearchParams(searchParams.toString())
     if (searchParams.get(REF_MONTH) == null) p.set(REF_MONTH, String(defaults.month))
     if (searchParams.get(REF_YEAR) == null) p.set(REF_YEAR, String(defaults.year))
-    router.replace(`${pathname}?${p.toString()}`, { scroll: false })
-  }, [searchParams, pathname, router, defaults.month, defaults.year])
+    const nextUrl = `${pathname}?${p.toString()}`
+    startTransition(() => {
+      router.replace(nextUrl, { scroll: false })
+    })
+  }, [skipUrlSync, searchParams, pathname, router, defaults.month, defaults.year])
 
   const setSelectedMonth = useCallback(
     (month: number) => {

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { login as apiLogin, logout as apiLogout, getMe, type MeResponse, type UserResponse, type OrganizationResponse } from "@/lib/auth"
 
@@ -38,34 +38,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
   const pathname = usePathname()
+  /** Évite setState après démontage (Strict Mode, HMR, navigation rapide). */
+  const mountedRef = useRef(true)
 
   const loadUser = useCallback(async () => {
     const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null
     if (!token) {
+      if (!mountedRef.current) return
       setUser(null)
       setOrganizations([])
       setIsLoading(false)
-      // Clear stale session cookie to prevent redirect loop
       document.cookie = "has_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT"
       return
     }
 
     try {
       const data: MeResponse = await getMe()
+      if (!mountedRef.current) return
       setUser(data.user)
       setOrganizations(data.organizations)
     } catch {
-      // Token invalid or expired (refresh also failed)
+      if (!mountedRef.current) return
       apiLogout()
       setUser(null)
       setOrganizations([])
     } finally {
-      setIsLoading(false)
+      if (mountedRef.current) setIsLoading(false)
     }
   }, [])
 
   useEffect(() => {
+    mountedRef.current = true
     loadUser()
+    return () => {
+      mountedRef.current = false
+    }
   }, [loadUser])
 
   // Client-side route protection

@@ -61,7 +61,7 @@ export default function CashFlowPage() {
   }, [companyIdFromUrl, searchParams])
   const lockedCompanyId = companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
 
-  const { selectedMonth, selectedYear } = useFinancialStatementReferenceDate()
+  const { selectedMonth, selectedYear } = useFinancialStatementReferenceDate({ skipUrlSync: true })
 
   // Load budgets from API
   const [budgets, setBudgets] = useState<Array<{ id: string; name: string }>>([])
