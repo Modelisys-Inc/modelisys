@@ -34,6 +34,11 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - INTUIT_CLIENT_ID=${INTUIT_CLIENT_ID}
+      - INTUIT_CLIENT_SECRET=${INTUIT_CLIENT_SECRET}
+      - INTUIT_ENVIRONMENT=${INTUIT_ENVIRONMENT:-sandbox}
+      - INTUIT_REDIRECT_URI=${INTUIT_REDIRECT_URI:-http://localhost:8000/api/quickbooks/callback}
+      - QBO_TOKEN_ENCRYPTION_KEY=${QBO_TOKEN_ENCRYPTION_KEY}
     depends_on:
       db:
         condition: service_healthy
