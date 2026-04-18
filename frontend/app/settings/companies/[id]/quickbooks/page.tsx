@@ -1,7 +1,9 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { useParams, useSearchParams } from "next/navigation"
+import { ArrowLeft } from "lucide-react"
 
 import { QuickBooksReviewTable } from "@/components/quickbooks-review-table"
 import { Button } from "@/components/ui/button"
@@ -52,6 +54,15 @@ export default function QuickBooksPage() {
 
   return (
     <div className="container mx-auto max-w-5xl space-y-6 py-8">
+      <div className="flex items-center gap-3">
+        <Link
+          href={`/settings/companies/${companyId}`}
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to company
+        </Link>
+      </div>
       <h1 className="text-2xl font-semibold">QuickBooks Online</h1>
 
       {banner && (
