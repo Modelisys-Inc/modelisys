@@ -53,7 +53,7 @@ def test_build_authorize_url():
 
 @respx.mock
 def test_exchange_code_for_tokens():
-    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer_token").mock(
+    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer").mock(
         return_value=Response(200, json={
             "access_token": "AT-123",
             "refresh_token": "RT-456",
@@ -69,7 +69,7 @@ def test_exchange_code_for_tokens():
 
 @respx.mock
 def test_exchange_code_failure_raises():
-    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer_token").mock(
+    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer").mock(
         return_value=Response(400, json={"error": "invalid_grant"})
     )
     with pytest.raises(oauth.TokenExchangeError):
@@ -78,7 +78,7 @@ def test_exchange_code_failure_raises():
 
 @respx.mock
 def test_refresh_tokens_success():
-    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer_token").mock(
+    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer").mock(
         return_value=Response(200, json={
             "access_token": "AT-new",
             "refresh_token": "RT-rotated",
@@ -93,7 +93,7 @@ def test_refresh_tokens_success():
 
 @respx.mock
 def test_refresh_tokens_invalid_grant_raises():
-    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer_token").mock(
+    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer").mock(
         return_value=Response(400, json={"error": "invalid_grant"})
     )
     with pytest.raises(oauth.TokenExchangeError):

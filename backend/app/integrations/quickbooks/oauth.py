@@ -85,7 +85,7 @@ def build_authorize_url(state: str) -> str:
 
 
 def _token_endpoint() -> str:
-    return f"{settings.intuit_oauth_base}/oauth2/v1/tokens/bearer_token"
+    return f"{settings.intuit_oauth_base}/oauth2/v1/tokens/bearer"
 
 
 def exchange_code_for_tokens(code: str) -> TokenResponse:

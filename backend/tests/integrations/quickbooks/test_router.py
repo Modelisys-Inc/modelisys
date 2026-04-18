@@ -63,7 +63,7 @@ def test_authorize_cross_org_returns_403(client, db, org_user_company, other_org
 @respx.mock
 def test_callback_creates_connection(client, db, org_user_company):
     _, user, company = org_user_company
-    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer_token").mock(
+    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer").mock(
         return_value=Response(200, json={
             "access_token": "AT", "refresh_token": "RT",
             "expires_in": 3600, "x_refresh_token_expires_in": 8640000,
@@ -112,7 +112,7 @@ def test_callback_missing_code(client, org_user_company):
 @respx.mock
 def test_callback_token_exchange_502(client, org_user_company):
     _, user, company = org_user_company
-    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer_token").mock(
+    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer").mock(
         return_value=Response(400, json={"error": "invalid_grant"})
     )
     state = oauth.create_state(company.id, user.id)

@@ -47,7 +47,7 @@ def test_get_valid_access_token_refreshes_when_expired(db, org_user_company):
     conn = service.upsert_connection(db, company.id, "r", _tokens(), user.id)
     conn.access_token_expires_at = datetime.now(timezone.utc) - timedelta(seconds=10)
     db.commit()
-    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer_token").mock(
+    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer").mock(
         return_value=Response(200, json={
             "access_token": "AT-new",
             "refresh_token": "RT-new",
@@ -67,7 +67,7 @@ def test_get_valid_access_token_marks_revoked_on_invalid_grant(db, org_user_comp
     conn = service.upsert_connection(db, company.id, "r", _tokens(), user.id)
     conn.access_token_expires_at = datetime.now(timezone.utc) - timedelta(seconds=10)
     db.commit()
-    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer_token").mock(
+    respx.post("https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer").mock(
         return_value=Response(400, json={"error": "invalid_grant"})
     )
     with pytest.raises(service.ConnectionRevokedError):
