@@ -49,6 +49,7 @@ const footerLinks: FooterSection[] = [
   {
     label: "Entreprise",
     links: [
+      { title: "À propos", href: "/a-propos" },
       { title: "Contact", href: "/contact" },
       { title: "Politique de confidentialité", href: "/privacy" },
       { title: "Clause de non-responsabilité", href: "/clause-de-non-responsabilite" },

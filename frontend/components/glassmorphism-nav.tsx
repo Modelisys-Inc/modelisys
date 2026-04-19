@@ -17,6 +17,7 @@ const mainNavLinks = [
   { name: "Études de cas", href: "/#etudes-de-cas" },
   { name: "Mise en place", href: "/#platform-setup" },
   { name: "Tarification", href: "/#pricing-process" },
+  { name: "À propos", href: "/a-propos" },
 ] as const
 
 /** Ordre du menu mobile (indent = sous-entrées de « Pour qui »). */

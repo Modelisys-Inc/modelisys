@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { login as apiLogin, logout as apiLogout, getMe, type MeResponse, type UserResponse, type OrganizationResponse } from "@/lib/auth"
+import { isPublicPath } from "@/lib/public-paths"
 
 interface AuthContextType {
   user: UserResponse | null
@@ -14,23 +15,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
-
-const PUBLIC_PATHS = [
-  "/login",
-  "/privacy",
-  "/clause-de-non-responsabilite",
-  "/blog",
-  "/contact",
-  "/cabinets-comptables",
-  "/partenaires-financiers",
-  "/partenaires-institutionnels",
-  "/partenaires-capital",
-]
-
-function isPublicPath(pathname: string): boolean {
-  if (pathname === "/") return true
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserResponse | null>(null)
