@@ -118,8 +118,8 @@ export function AboutOurStorySection() {
         >
           <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Notre histoire</p>
           <h2 className="text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-5xl">
-            Né d&apos;une frustration réelle.{" "}
-            <span className="text-[#5C5F66]">Construite pour la résoudre.</span>
+            Né d&apos;un besoin clair :{" "}
+            <span className="text-[#5C5F66]">comprendre pour mieux piloter.</span>
           </h2>
           <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent lg:mx-0 mx-auto" />
         </div>

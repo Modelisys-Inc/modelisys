@@ -87,9 +87,9 @@ export default function ContactPage() {
     }))
   }
 
-  const cardShell =
-    "relative overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70"
-  const cardAccent = "pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]"
+  // Aligné sur les cartes « Comment ça fonctionne » / « Demande » (demo-booking-section).
+  const cardShell = "relative overflow-hidden rounded-2xl border border-slate-200/90 bg-white/80 shadow-sm"
+  const cardAccent = "pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-[#E0742D]/[0.10]"
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-slate-100/50">
@@ -149,7 +149,7 @@ export default function ContactPage() {
                   <div className={cn(cardShell, "p-6 transition-shadow duration-300 hover:shadow-md")}>
                     <div className={cardAccent} aria-hidden />
                     <div className="relative flex items-start gap-4">
-                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[#2A2F3A]">
+                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-[#2A2F3A]">
                         <Mail className="h-5 w-5" strokeWidth={1.75} />
                       </div>
                       <div>
@@ -167,7 +167,7 @@ export default function ContactPage() {
                   <div className={cn(cardShell, "p-6 transition-shadow duration-300 hover:shadow-md")}>
                     <div className={cardAccent} aria-hidden />
                     <div className="relative flex items-start gap-4">
-                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[#2A2F3A]">
+                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-[#2A2F3A]">
                         <Phone className="h-5 w-5" strokeWidth={1.75} />
                       </div>
                       <div>
@@ -185,7 +185,7 @@ export default function ContactPage() {
                   <div className={cn(cardShell, "p-6 transition-shadow duration-300 hover:shadow-md")}>
                     <div className={cardAccent} aria-hidden />
                     <div className="relative flex items-start gap-4">
-                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[#2A2F3A]">
+                      <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-[#2A2F3A]">
                         <MapPin className="h-5 w-5" strokeWidth={1.75} />
                       </div>
                       <div>
@@ -218,9 +218,11 @@ export default function ContactPage() {
                 <div className={cn(cardShell, "p-8 lg:p-10")}>
                   <div className={cardAccent} aria-hidden />
                   <div className="relative">
-                    <div className="mb-2 flex items-center gap-2 text-[#5C5F66]">
-                      <MessageSquare className="h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
-                      <span className="text-sm font-semibold tracking-wide">Message</span>
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1.5 text-[11px] font-semibold tracking-wide text-[#2A2F3A]">
+                        <MessageSquare className="h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
+                        Message
+                      </div>
                     </div>
                     <h2 className="text-xl sm:text-2xl font-semibold text-[#2A2F3A] mb-2 tracking-tight">
                       Envoyez-nous un message
