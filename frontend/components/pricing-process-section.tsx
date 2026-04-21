@@ -23,6 +23,8 @@ import {
   buildQuickCalculatorModuleIds,
   computePricingEstimate,
   formatCad,
+  getComplexityMultiplier,
+  type PricingComplexityLevel,
 } from "@/lib/pricing-estimate"
 
 const FORMSPREE_PRICING = "https://formspree.io/f/xzdapzyv"
@@ -40,6 +42,7 @@ export function PricingProcessSection() {
   const [showCalculator, setShowCalculator] = useState(false)
   const [revenueM, setRevenueM] = useState(10)
   const [entityBand, setEntityBand] = useState<"1" | "2-4" | "5-9" | "10+">("1")
+  const [complexityLevel, setComplexityLevel] = useState<PricingComplexityLevel>("standard")
   const [implementationOption, setImplementationOption] = useState<"full" | "partial">("full")
   const [estimateEmail, setEstimateEmail] = useState("")
   const [estimateName, setEstimateName] = useState("")
@@ -68,29 +71,40 @@ export function PricingProcessSection() {
       selectedModuleIds: buildQuickCalculatorModuleIds(),
       includeConsolidationModule: true,
     })
+    const cx = getComplexityMultiplier(complexityLevel)
+    const scale = (n: number) => Math.round(n * cx)
+
     if (entityBand === "1") {
       return {
-        ...base,
-        integrationMin: Math.round(3000 * revenueIntegrationMultiplier),
-        integrationMax: Math.round(4320 * revenueIntegrationMultiplier),
+        monthlyMin: scale(base.monthlyMin),
+        monthlyMax: scale(base.monthlyMax),
+        integrationMin: scale(Math.round(3000 * revenueIntegrationMultiplier)),
+        integrationMax: scale(Math.round(4320 * revenueIntegrationMultiplier)),
       }
     }
     if (entityBand === "2-4") {
       return {
-        ...base,
-        integrationMin: Math.round(6000 * revenueIntegrationMultiplier),
-        integrationMax: Math.round(12000 * revenueIntegrationMultiplier),
+        monthlyMin: scale(base.monthlyMin),
+        monthlyMax: scale(base.monthlyMax),
+        integrationMin: scale(Math.round(6000 * revenueIntegrationMultiplier)),
+        integrationMax: scale(Math.round(12000 * revenueIntegrationMultiplier)),
       }
     }
     if (entityBand === "5-9") {
       return {
-        ...base,
-        integrationMin: Math.round(15000 * revenueIntegrationMultiplier),
-        integrationMax: Math.round(27000 * revenueIntegrationMultiplier),
+        monthlyMin: scale(base.monthlyMin),
+        monthlyMax: scale(base.monthlyMax),
+        integrationMin: scale(Math.round(15000 * revenueIntegrationMultiplier)),
+        integrationMax: scale(Math.round(27000 * revenueIntegrationMultiplier)),
       }
     }
-    return base
-  }, [isContactBand, companies, entityBand, revenueIntegrationMultiplier])
+    return {
+      monthlyMin: scale(base.monthlyMin),
+      monthlyMax: scale(base.monthlyMax),
+      integrationMin: scale(base.integrationMin),
+      integrationMax: scale(base.integrationMax),
+    }
+  }, [isContactBand, companies, entityBand, revenueM, revenueIntegrationMultiplier, complexityLevel])
 
   const integrationMinDisplay = isAutonomousOption
     ? Math.round(estimate.integrationMin * 0.75)
@@ -129,6 +143,7 @@ export function PricingProcessSection() {
           email: estimateEmail.trim(),
           revenus_consolides_M$: revenueM,
           societes_divisions: entityBand,
+          niveau_complexite: complexityLevel,
           frais_implantation_fourchette$: isContactBand
             ? "Nous contacter"
             : `${formatCad(integrationMinDisplay)} – ${formatCad(integrationMaxDisplay)}`,
@@ -220,12 +235,9 @@ export function PricingProcessSection() {
                   <p className="mb-4 text-base leading-relaxed text-[#5C5F66]">
                     Chaque entreprise est unique. La configuration de vos données comptables et des fonctionnalités
                     utiles dépend de votre{" "}
-                    <strong className="font-semibold text-[#2A2F3A]">structure organisationnelle</strong> et de vos{" "}
-                    <strong className="font-semibold text-[#2A2F3A]">besoins spécifiques</strong>.
-                  </p>
-                  <p className="text-base leading-relaxed text-[#5C5F66]">
-                    Nous analysons votre situation avant de proposer une enveloppe cohérente avec vos enjeux de
-                    consolidation, reporting et pilotage.
+                    <strong className="font-semibold text-[#2A2F3A]">structure organisationnelle</strong>, de vos{" "}
+                    <strong className="font-semibold text-[#2A2F3A]">besoins spécifiques</strong> et du{" "}
+                    <strong className="font-semibold text-[#2A2F3A]">niveau de complexité</strong> à couvrir.
                   </p>
                 </div>
 
@@ -236,11 +248,17 @@ export function PricingProcessSection() {
                   </div>
                   <h3 className="mb-4 text-xl font-semibold text-[#2A2F3A] sm:text-2xl">Estimation rapide</h3>
                   <p className="mb-4 text-base leading-relaxed text-[#5C5F66]">
-                    Utilisez le <strong className="font-semibold text-[#2A2F3A]">calculateur</strong> pour une fourchette
-                    de prix en quelques secondes à partir de vos revenus consolidés et du nombre d&apos;entités. L&apos;
-                    estimation intègre l&apos;ensemble des leviers utiles à la{" "}
-                    <strong className="font-semibold text-[#2A2F3A]">valorisation</strong>, dont les prévisions et
-                    l&apos;évaluation.
+                    Par transparence, nous mettons à votre disposition le{" "}
+                    <strong className="font-semibold text-[#2A2F3A]">calculateur</strong> : en quelques secondes, il donne
+                    une fourchette indicative à partir de vos revenus consolidés et du nombre d&apos;entités, et intègre{" "}
+                    <strong className="font-semibold text-[#2A2F3A]">toutes les fonctionnalités</strong>.
+                  </p>
+                  <p className="mb-4 text-base leading-relaxed text-[#5C5F66]">
+                    Cette estimation doit toutefois être{" "}
+                    <strong className="font-semibold text-[#2A2F3A]">validée par notre équipe</strong> : elle donne une
+                    fourchette utile et transparente, mais le chiffrage définitif et l&apos;offre associée se calent après
+                    échange — pour aligner l&apos;implantation sur ce qui doit réellement être livré, sans extrapoler sur
+                    des hypothèses trop globales.
                   </p>
                   <p className="mb-6 text-sm leading-relaxed text-[#5C5F66]">
                     Pour une démo ou un devis détaillé, vous pouvez aussi{" "}
@@ -285,6 +303,8 @@ export function PricingProcessSection() {
                   onRevenueMChange={setRevenueM}
                   entityBand={entityBand}
                   onEntityBandChange={setEntityBand}
+                  complexityLevel={complexityLevel}
+                  onComplexityLevelChange={setComplexityLevel}
                 />
               </div>
             )}

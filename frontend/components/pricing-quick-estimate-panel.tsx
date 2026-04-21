@@ -1,12 +1,40 @@
 "use client"
 
 import { Label } from "@/components/ui/label"
+import type { PricingComplexityLevel } from "@/lib/pricing-estimate"
+
+const COMPLEXITY_CHOICES: {
+  value: PricingComplexityLevel
+  title: string
+  description: string
+}[] = [
+  {
+    value: "standard",
+    title: "Standard",
+    description:
+      "En général, un périmètre plus simple : peu de blocs ou de divisions à gérer, peu ou pas d’écritures intercos, pas de suivi particulier des devises.",
+  },
+  {
+    value: "modere",
+    title: "Modéré",
+    description:
+      "Complexité intermédiaire : plusieurs divisions ou entités, des intercos à traiter, une devise principale sans enjeu majeur de change.",
+  },
+  {
+    value: "eleve",
+    title: "Élevé",
+    description:
+      "Périmètre plus large ou plus exigeant : nombreuses divisions ou entités à intégrer, volume d’intercos, taux de change et devises à considérer.",
+  },
+]
 
 export type PricingQuickEstimatePanelProps = {
   revenueM: number
   onRevenueMChange: (value: number) => void
   entityBand: "1" | "2-4" | "5-9" | "10+"
   onEntityBandChange: (value: "1" | "2-4" | "5-9" | "10+") => void
+  complexityLevel: PricingComplexityLevel
+  onComplexityLevelChange: (value: PricingComplexityLevel) => void
 }
 
 export function PricingQuickEstimatePanel({
@@ -14,7 +42,12 @@ export function PricingQuickEstimatePanel({
   onRevenueMChange,
   entityBand,
   onEntityBandChange,
+  complexityLevel,
+  onComplexityLevelChange,
 }: PricingQuickEstimatePanelProps) {
+  const complexityDescription =
+    COMPLEXITY_CHOICES.find((c) => c.value === complexityLevel)?.description ?? ""
+
   return (
     <div className="space-y-8">
       <p className="text-sm leading-relaxed text-[#5C5F66]">
@@ -64,6 +97,32 @@ export function PricingQuickEstimatePanel({
           <option value="5-9">5 à 9 Entités</option>
           <option value="10+">10 Entités +</option>
         </select>
+      </div>
+
+      <div>
+        <Label htmlFor="quick-complexity" className="mb-3 block text-base font-semibold text-[#2A2F3A]">
+          Niveau de complexité
+        </Label>
+        <select
+          id="quick-complexity"
+          value={complexityLevel}
+          onChange={(e) => onComplexityLevelChange(e.target.value as PricingComplexityLevel)}
+          className="w-full rounded-xl border-2 border-slate-200 bg-white px-4 py-3 text-base font-semibold text-[#2A2F3A] shadow-sm transition focus:border-[#E0742D]/70 focus:outline-none"
+          aria-describedby="quick-complexity-desc quick-complexity-estimate-hint"
+        >
+          {COMPLEXITY_CHOICES.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.title}
+            </option>
+          ))}
+        </select>
+        <p id="quick-complexity-desc" className="mt-3 text-sm leading-relaxed text-[#5C5F66]">
+          {complexityDescription}
+        </p>
+        <p id="quick-complexity-estimate-hint" className="mt-2 text-xs leading-relaxed text-[#5C5F66]">
+          Repérez le profil qui ressemble le plus à votre situation — chaque cas est unique et nous affinons le périmètre
+          avec vous.
+        </p>
       </div>
 
       <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 p-4">

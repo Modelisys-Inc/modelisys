@@ -1,6 +1,7 @@
 "use client"
 
 import { ArrowRight } from "lucide-react"
+import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import { HERO_FEATURE_LABELS, type HeroFeatureLabel } from "@/lib/hero-features"
 
@@ -178,17 +179,13 @@ export function HeroSection() {
 
             <div className="max-w-md mx-auto lg:mx-0 lg:max-w-none lg:w-full">
               <div className="flex items-center justify-end pb-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const target = document.getElementById("features")
-                    target?.scrollIntoView({ behavior: "smooth" })
-                  }}
+                <Link
+                  href="/a-propos#histoire"
                   className="group inline-flex items-center gap-3 rounded-md px-1 py-1 text-[11px] font-semibold tracking-[0.12em] text-slate-200 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/45"
                 >
-                  TOUTES LES FONCTIONS
+                  NOTRE HISTOIRE
                   <span className="relative h-px w-12 bg-[#E0742D]/75 transition group-hover:w-14 group-hover:bg-[#E0742D]" />
-                </button>
+                </Link>
               </div>
 
               <h2 className="mt-7 lg:mt-10 text-base sm:text-[17px] font-semibold leading-snug tracking-tight text-[#E6D6C3]">

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Filter, Calendar, ChevronRight, Plus } from "lucide-react"
+import { Calendar, ChevronRight, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
@@ -293,16 +293,12 @@ export default function IncomeStatementPage() {
           </div>
 
           {/* Controls Section */}
-          <div className="mb-6 p-4">
-            <div className="flex flex-wrap items-center gap-4">
-              {/* Filter Icon */}
-              <div className="flex items-center gap-2 text-[#C9B8A5]/90">
-                <Filter className="w-4 h-4" />
-              </div>
+          <div className="mb-6">
+            <div className="rounded-2xl border border-white/10 bg-[#2A2F3A]/45 px-3 py-3 backdrop-blur-sm sm:px-4">
+              <div className="flex flex-wrap items-center gap-3">
 
               {/* View Toggle */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Vue:</span>
                 <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
                   <Button
                     variant="ghost"
@@ -340,12 +336,9 @@ export default function IncomeStatementPage() {
                 </div>
               </div>
 
-              {/* Separator */}
-              <div className="h-6 w-px bg-white/10" />
-
               {/* Horizon and Comparison Group */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Horizon:</span>
+                <span className="text-xs font-medium text-slate-200 whitespace-nowrap">Horizon</span>
                 <div className="flex gap-2 items-center">
                   <Select value={getCurrentHorizon()} onValueChange={handleHorizonChange}>
                     <SelectTrigger className="h-8 w-[140px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5">
@@ -412,63 +405,39 @@ export default function IncomeStatementPage() {
               {/* Separator — masqué avec Affichage sur le tableau de bord */}
               {(section === "summary" || section === "detail") && (
                 <>
-                  <div className="h-6 w-px bg-white/10" />
-
-                  {/* Display Mode Buttons */}
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Affichage:</span>
-                    <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
-                      <Button
-                        variant="ghost"
-                        onClick={() => setColumnMode("comparison")}
+                  <span className="text-xs font-medium text-slate-200 whitespace-nowrap">Affichage</span>
+                  <Select value={columnMode} onValueChange={(v) => setColumnMode(v as ColumnMode)}>
+                    <SelectTrigger
+                      className="h-8 w-[150px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5"
+                      aria-label="Affichage"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        value="comparison"
                         disabled={
                           (!selectedCompanyId && !!selectedDivisionId) ||
                           (!selectedCompanyId && !!selectedSubDivisionId) ||
                           (!!selectedCompanyId && !!selectedDivisionId && !!selectedSubDivisionId)
                         }
-                        className={`h-8 text-xs px-3 transition-all ${
-                          columnMode === "comparison"
-                            ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                            : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                        } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
                       >
-                        {getCurrentHorizon() === "12mois" || getCurrentHorizon() === "trimestres" || getCurrentHorizon() === "annees"
+                        {getCurrentHorizon() === "12mois" ||
+                        getCurrentHorizon() === "trimestres" ||
+                        getCurrentHorizon() === "annees"
                           ? "Réel"
                           : "Comparaison"}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => setColumnMode("variations")}
-                        className={`h-8 text-xs px-3 transition-all ${
-                          columnMode === "variations"
-                            ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                            : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                        }`}
-                      >
-                        Variations
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => setColumnMode("percentage")}
-                        className={`h-8 text-xs px-3 transition-all ${
-                          columnMode === "percentage"
-                            ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                            : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                        }`}
-                      >
-                        % revenus
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="h-6 w-px bg-white/10" />
+                      </SelectItem>
+                      <SelectItem value="variations">Variations</SelectItem>
+                      <SelectItem value="percentage">% revenus</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </>
               )}
-              {section === "dashboard" && <div className="h-6 w-px bg-white/10" />}
 
               {/* Entity Selector */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Entité:</span>
+                <span className="text-xs font-medium text-slate-200 whitespace-nowrap">Entités</span>
                 <EntitySelector
                   companies={companies}
                   selectedCompanyId={selectedCompanyId}
@@ -483,6 +452,7 @@ export default function IncomeStatementPage() {
                   disableCompanySelection={!!lockedCompanyId}
                   darkControlBar
                 />
+              </div>
               </div>
             </div>
           </div>
