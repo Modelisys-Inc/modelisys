@@ -1,23 +1,29 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import desc
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.company import Company, Division, SubDivision
 from app.models.financial_statement_mapping import CompanyStatementStructure
+from app.models.note import Note
+from app.models.trial_balance import TrialBalanceEntry
 from app.models.user import User, UserOrganization
 from app.routers.statement_structures import DEFAULT_BALANCE_SHEET, DEFAULT_INCOME_STATEMENT
 from app.schemas.company import (
     CompanyCreate,
     CompanyListResponse,
+    CompanyPortalSummaryResponse,
     CompanyResponse,
     CompanyUpdate,
     DivisionCreate,
     DivisionResponse,
+    NoteLastActivity,
     SubDivisionCreate,
     SubDivisionResponse,
+    TrialBalanceLastPeriod,
 )
 
 router = APIRouter(prefix="/api/companies", tags=["companies"])
@@ -136,6 +142,54 @@ def get_company(
 ):
     org_id = _get_user_org_id(current_user, db)
     return _get_company_or_404(db, company_id, org_id)
+
+
+@router.get("/{company_id}/portal-summary", response_model=CompanyPortalSummaryResponse)
+def get_company_portal_summary(
+    company_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Données agrégées pour le panneau « Mes sociétés » (BV, notes, fiche société)."""
+    org_id = _get_user_org_id(current_user, db)
+    company = _get_company_or_404(db, company_id, org_id)
+
+    tb_row = (
+        db.query(TrialBalanceEntry)
+        .filter(TrialBalanceEntry.company_id == company_id)
+        .order_by(desc(TrialBalanceEntry.fiscal_year), desc(TrialBalanceEntry.month))
+        .first()
+    )
+    tb_last: TrialBalanceLastPeriod | None = None
+    if tb_row is not None:
+        tb_last = TrialBalanceLastPeriod(fiscal_year=tb_row.fiscal_year, month=tb_row.month)
+
+    note_row = (
+        db.query(Note)
+        .options(joinedload(Note.created_by_user))
+        .filter(Note.company_id == company_id)
+        .order_by(desc(Note.updated_at))
+        .first()
+    )
+    note_last: NoteLastActivity | None = None
+    if note_row is not None:
+        author = ""
+        if note_row.created_by_user is not None:
+            author = note_row.created_by_user.full_name or ""
+        note_last = NoteLastActivity(
+            updated_at=note_row.updated_at,
+            created_by_name=author,
+            row_label=note_row.row_label,
+            page=note_row.page,
+        )
+
+    return CompanyPortalSummaryResponse(
+        fiscal_year_end=company.fiscal_year_end,
+        currency=company.currency,
+        company_updated_at=company.updated_at,
+        trial_balance_last_period=tb_last,
+        note_last_activity=note_last,
+    )
 
 
 @router.patch("/{company_id}", response_model=CompanyResponse)

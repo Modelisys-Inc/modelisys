@@ -216,6 +216,24 @@ export async function getCompany(id: string): Promise<Company> {
   return apiFetch<Company>(`/api/companies/${id}`)
 }
 
+/** Résumé portail (BV, dernière note, fiche société) — voir GET /api/companies/{id}/portal-summary */
+export interface CompanyPortalSummary {
+  fiscal_year_end: string
+  currency: string
+  company_updated_at: string
+  trial_balance_last_period: { fiscal_year: number; month: number } | null
+  note_last_activity: {
+    updated_at: string
+    created_by_name: string
+    row_label: string
+    page: string
+  } | null
+}
+
+export async function getCompanyPortalSummary(companyId: string): Promise<CompanyPortalSummary> {
+  return apiFetch<CompanyPortalSummary>(`/api/companies/${companyId}/portal-summary`)
+}
+
 export async function createCompany(data: {
   name: string
   fiscal_year_end?: string
