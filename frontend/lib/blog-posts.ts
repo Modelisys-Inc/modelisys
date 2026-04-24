@@ -12,9 +12,9 @@ export const blogPosts: BlogPostCard[] = [
   {
     title: "La technologie n’est plus un avantage. C’est un standard.",
     excerpt:
-      "IA, automatisation et pilotage : pourquoi les entreprises performantes changent de méthode, ce que disent les chiffres au Canada et au Québec, et comment viser la bonne technologie au bon endroit pour décider mieux.",
+      "Quand les données sont abondantes mais fragmentées, le vrai levier est la qualité des décisions. Tendances du marché, limites des outils déconnectés, et comment une plateforme intégrée relie performance et valorisation.",
     href: "/blog/ia-technologie-pilotage-entreprise",
-    readingTime: "6 min",
+    readingTime: "14 min",
     dateLabel: "24 avr. 2026",
     tags: ["Innovation", "Intelligence artificielle"],
   },

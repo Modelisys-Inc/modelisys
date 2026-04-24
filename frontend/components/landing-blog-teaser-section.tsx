@@ -60,11 +60,11 @@ export function LandingBlogTeaserSection() {
           </div>
         </div>
 
-        <div className="mt-4 sm:mt-5">
-          <p className="mb-3 text-xs font-semibold tracking-wide text-slate-500 sm:mb-3.5">
+        <div className="mt-9 sm:mt-11">
+          <p className="mb-5 text-xs font-semibold tracking-wide text-slate-500 sm:mb-6">
             Pilotage financier dans Modelisys
           </p>
-          <ul className="grid gap-3 sm:grid-cols-3" role="list">
+          <ul className="grid gap-4 sm:grid-cols-3 sm:gap-5" role="list">
             {blogLandingSecondaryPosts.map((post) => (
               <li key={post.href} className="min-w-0">
                 <Link
