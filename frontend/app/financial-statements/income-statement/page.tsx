@@ -24,14 +24,16 @@ import {
 import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 import {
   appendPerformanceChartSlot,
+  DEFAULT_PERFORMANCE_CHART_CARD_TITLE,
   loadPerformanceChartSlotIds,
+  loadPerformanceChartConfig,
   removePerformanceChartSlot,
 } from "@/lib/performance-chart-config"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
 type Section = "dashboard" | "summary" | "detail"
-type ColumnMode = "variations" | "percentage" | "comparison"
+type ColumnMode = "variationAmount" | "variationPercent" | "percentage" | "comparison"
 type ComparisonType = "lastMonth" | "pastMonth" | "budget"
 
 const financialStatementsNav = [
@@ -45,7 +47,7 @@ export default function IncomeStatementPage() {
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("comparison")
   const [section, setSection] = useState<Section>("dashboard")
-  const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
+  const [columnMode, setColumnMode] = useState<ColumnMode>("variationAmount")
   const [comparisonType, setComparisonType] = useState<ComparisonType>("lastMonth")
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null)
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
@@ -114,6 +116,16 @@ export default function IncomeStatementPage() {
     }
   }, [view, period, comparisonType])
 
+  // Tableau de bord : limiter aux horizons Mensuel (12 mois), Trimestriel 2 ans, Annuel 5 ans.
+  useEffect(() => {
+    if (section !== "dashboard") return
+    const allowed = view === "12months" || view === "quarters" || view === "years"
+    if (!allowed) {
+      setView("12months")
+      setColumnMode("variations")
+    }
+  }, [section, view])
+
   // --- Fetch financial statement data from the API ---
   const [rows, setRows] = useState<FinancialStatementRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -121,25 +133,54 @@ export default function IncomeStatementPage() {
   const [resolvedCompanyId, setResolvedCompanyId] = useState<string | null>(null)
   const effectiveCompanyId = selectedCompanyId || resolvedCompanyId
   const [performanceChartSlotIds, setPerformanceChartSlotIds] = useState<string[]>(["default"])
+  const [activePerformanceChartSlotId, setActivePerformanceChartSlotId] = useState<string>("default")
+  const [chartConfigVersion, setChartConfigVersion] = useState(0)
+
+  const performanceChartSlotOptions = useMemo(() => {
+    if (!effectiveCompanyId) {
+      return performanceChartSlotIds.map((id, idx) => ({ id, label: `Graphique ${idx + 1}` }))
+    }
+    const base = performanceChartSlotIds.map((id, idx) => {
+      const cfg = loadPerformanceChartConfig(effectiveCompanyId, id)
+      const title = cfg.chartTitle.trim()
+      const label = title || DEFAULT_PERFORMANCE_CHART_CARD_TITLE || `Graphique ${idx + 1}`
+      return { id, label, fallbackIndex: idx + 1 }
+    })
+    const counts = new Map<string, number>()
+    for (const item of base) counts.set(item.label, (counts.get(item.label) ?? 0) + 1)
+    return base.map((item) => {
+      if ((counts.get(item.label) ?? 0) <= 1) return { id: item.id, label: item.label }
+      return { id: item.id, label: `${item.label} (${item.fallbackIndex})` }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveCompanyId, performanceChartSlotIds, chartConfigVersion])
 
   useEffect(() => {
     if (!effectiveCompanyId) {
       setPerformanceChartSlotIds(["default"])
+      setActivePerformanceChartSlotId("default")
       return
     }
-    setPerformanceChartSlotIds(loadPerformanceChartSlotIds(effectiveCompanyId))
+    const ids = loadPerformanceChartSlotIds(effectiveCompanyId)
+    setPerformanceChartSlotIds(ids)
+    setActivePerformanceChartSlotId((prev) => (ids.includes(prev) ? prev : ids[0] ?? "default"))
   }, [effectiveCompanyId])
 
   const handleAddPerformanceChart = () => {
     if (!effectiveCompanyId) return
     appendPerformanceChartSlot(effectiveCompanyId)
-    setPerformanceChartSlotIds(loadPerformanceChartSlotIds(effectiveCompanyId))
+    const ids = loadPerformanceChartSlotIds(effectiveCompanyId)
+    setPerformanceChartSlotIds(ids)
+    const last = ids[ids.length - 1]
+    if (last) setActivePerformanceChartSlotId(last)
   }
 
   const handleRemovePerformanceChart = (slotId: string) => {
     if (!effectiveCompanyId) return
     removePerformanceChartSlot(effectiveCompanyId, slotId)
-    setPerformanceChartSlotIds(loadPerformanceChartSlotIds(effectiveCompanyId))
+    const ids = loadPerformanceChartSlotIds(effectiveCompanyId)
+    setPerformanceChartSlotIds(ids)
+    setActivePerformanceChartSlotId((prev) => (ids.includes(prev) ? prev : ids[0] ?? "default"))
   }
 
   useEffect(() => {
@@ -214,11 +255,12 @@ export default function IncomeStatementPage() {
       case "courant":
         setPeriod("monthly")
         setView("comparison")
+        setColumnMode("variationAmount")
         break
       case "trimestriel":
         setPeriod("quarterly")
         setView("comparison")
-        setColumnMode("variations")
+        setColumnMode("variationAmount")
         break
       case "ytd":
         setView("ytd")
@@ -228,15 +270,15 @@ export default function IncomeStatementPage() {
         break
       case "12mois":
         setView("12months")
-        setColumnMode("variations")
+        setColumnMode("variationAmount")
         break
       case "trimestres":
         setView("quarters")
-        setColumnMode("variations")
+        setColumnMode("variationAmount")
         break
       case "annees":
         setView("years")
-        setColumnMode("variations")
+        setColumnMode("variationAmount")
         break
       default:
         setPeriod("monthly")
@@ -346,13 +388,23 @@ export default function IncomeStatementPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="courant">{HORIZON_LABEL.moisActuel}</SelectItem>
-                      <SelectItem value="trimestriel">{HORIZON_LABEL.trimestreActuel}</SelectItem>
-                      <SelectItem value="ytd">{HORIZON_LABEL.ytd}</SelectItem>
-                      <SelectItem value="ddm">{HORIZON_LABEL.ddm}</SelectItem>
-                      <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
-                      <SelectItem value="trimestres">{HORIZON_LABEL.trimestriel2Ans}</SelectItem>
-                      <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
+                      {section === "dashboard" ? (
+                        <>
+                          <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
+                          <SelectItem value="trimestres">{HORIZON_LABEL.trimestriel2Ans}</SelectItem>
+                          <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
+                        </>
+                      ) : (
+                        <>
+                          <SelectItem value="courant">{HORIZON_LABEL.moisActuel}</SelectItem>
+                          <SelectItem value="trimestriel">{HORIZON_LABEL.trimestreActuel}</SelectItem>
+                          <SelectItem value="ytd">{HORIZON_LABEL.ytd}</SelectItem>
+                          <SelectItem value="ddm">{HORIZON_LABEL.ddm}</SelectItem>
+                          <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
+                          <SelectItem value="trimestres">{HORIZON_LABEL.trimestriel2Ans}</SelectItem>
+                          <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
                   {(view === "comparison" || view === "ytd" || view === "ddm") && (
@@ -428,7 +480,8 @@ export default function IncomeStatementPage() {
                           ? "Réel"
                           : "Comparaison"}
                       </SelectItem>
-                      <SelectItem value="variations">Variations</SelectItem>
+                      <SelectItem value="variationAmount">Variation $</SelectItem>
+                      <SelectItem value="variationPercent">Variation %</SelectItem>
                       <SelectItem value="percentage">% revenus</SelectItem>
                     </SelectContent>
                   </Select>
@@ -477,31 +530,43 @@ export default function IncomeStatementPage() {
                 </Button>
               </div>
             ) : null}
-            {performanceChartSlotIds.map((slotId, index) => (
-              <IncomeStatementChart
-                key={slotId}
-                chartInstanceId={slotId}
-                chartSlotNumber={index + 1}
-                chartSlotCount={performanceChartSlotIds.length}
-                onRemoveChart={
-                  slotId !== "default" && performanceChartSlotIds.length > 1
-                    ? () => handleRemovePerformanceChart(slotId)
-                    : undefined
-                }
-                period={period}
-                view={view}
-                companyId={effectiveCompanyId}
-                divisionId={selectedDivisionId}
-                subDivisionId={selectedSubDivisionId}
-                companies={companies}
-                comparisonType={comparisonType}
-                selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
-                selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
-                fiscalYear={selectedYear}
-                referenceMonth={selectedMonth}
-                structureVersion={structureVersion}
-              />
-            ))}
+            {(() => {
+              const index = performanceChartSlotIds.findIndex((id) => id === activePerformanceChartSlotId)
+              const safeIndex = index >= 0 ? index : 0
+              const slotId = performanceChartSlotIds[safeIndex] ?? "default"
+              return (
+                <IncomeStatementChart
+                  key={slotId}
+                  chartInstanceId={slotId}
+                  chartSlotNumber={safeIndex + 1}
+                  chartSlotCount={performanceChartSlotIds.length}
+                  chartInstanceOptions={performanceChartSlotOptions}
+                  onChartInstanceChange={(id) => setActivePerformanceChartSlotId(id)}
+                  onChartConfigSaved={() => setChartConfigVersion((v) => v + 1)}
+                  onRemoveChart={
+                    slotId !== "default" && performanceChartSlotIds.length > 1
+                      ? () => handleRemovePerformanceChart(slotId)
+                      : undefined
+                  }
+                  period={period}
+                  view={view}
+                  companyId={effectiveCompanyId}
+                  divisionId={selectedDivisionId}
+                  subDivisionId={selectedSubDivisionId}
+                  companies={companies}
+                  comparisonType={comparisonType}
+                  selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
+                  selectedBudgetName={
+                    comparisonType === "budget" && selectedBudgetId
+                      ? budgets.find((b) => b.id === selectedBudgetId)?.name || null
+                      : null
+                  }
+                  fiscalYear={selectedYear}
+                  referenceMonth={selectedMonth}
+                  structureVersion={structureVersion}
+                />
+              )
+            })()}
           </div>
         </main>
       )}

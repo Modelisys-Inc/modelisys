@@ -74,6 +74,11 @@ interface IncomeStatementChartProps {
   /** Affichage discret « n / N » lorsqu’il y a plusieurs graphiques. */
   chartSlotNumber?: number
   chartSlotCount?: number
+  /** Permet de sélectionner un slot de graphique (sans empiler les cartes). */
+  chartInstanceOptions?: Array<{ id: string; label: string }>
+  onChartInstanceChange?: (id: string) => void
+  /** Notifie le parent après une sauvegarde de config (ex: titre) */
+  onChartConfigSaved?: () => void
   /** Tableau de bord : retirer ce graphique (slots additionnels uniquement). */
   onRemoveChart?: () => void
 }
@@ -183,6 +188,9 @@ export function IncomeStatementChart({
   chartInstanceId = "default",
   chartSlotNumber,
   chartSlotCount,
+  chartInstanceOptions,
+  onChartInstanceChange,
+  onChartConfigSaved,
   onRemoveChart,
 }: IncomeStatementChartProps) {
   const [selectedChartView, setSelectedChartView] = useState<ChartViewType>("revenue_ebita_margin")
@@ -254,6 +262,7 @@ export function IncomeStatementChart({
         const cfg = loadPerformanceChartConfig(companyId, chartInstanceId)
         setPerfConfig(cfg)
         setVisibleSeriesIds(Object.fromEntries(cfg.series.map((s) => [s.id, s.showOnChart])))
+        onChartConfigSaved?.()
       }}
     />
   )
@@ -420,10 +429,29 @@ export function IncomeStatementChart({
                   <TrendingUp className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <h3 className="mb-1 flex flex-wrap items-center text-xl font-semibold leading-tight tracking-tight text-[#2A2F3A] text-balance">
-                    {cardTitle}
-                    {slotBadge}
-                  </h3>
+                  {chartInstanceOptions?.length && onChartInstanceChange ? (
+                    <Select value={chartInstanceId} onValueChange={onChartInstanceChange}>
+                      <SelectTrigger className="mb-1 inline-flex h-auto w-auto max-w-full items-center gap-2 border-0 bg-transparent p-0 hover:bg-transparent focus:ring-0 focus:ring-offset-0 [&>svg:last-child]:hidden">
+                        <h3 className="flex flex-wrap items-center gap-2 text-xl font-semibold leading-tight tracking-tight text-[#2A2F3A] text-balance">
+                          {cardTitle}
+                          {slotBadge}
+                        </h3>
+                        <ChevronDown className="h-4 w-4 shrink-0 text-slate-500" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {chartInstanceOptions.map((opt) => (
+                          <SelectItem key={opt.id} value={opt.id}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <h3 className="mb-1 flex flex-wrap items-center text-xl font-semibold leading-tight tracking-tight text-[#2A2F3A] text-balance">
+                      {cardTitle}
+                      {slotBadge}
+                    </h3>
+                  )}
                   <div className="flex flex-wrap items-center gap-3 text-sm text-[#5C5F66]">
                     <span className="font-medium text-slate-700">{getHorizonText()}</span>
                     <span className="text-slate-300">•</span>
@@ -655,6 +683,22 @@ export function IncomeStatementChart({
                     <SelectItem value="cogs_grossprofit_margin">CMV, Bénéfice Brut et Marge brute</SelectItem>
                   </SelectContent>
                 </Select>
+                {chartInstanceOptions?.length && onChartInstanceChange ? (
+                  <div className="-mt-0.5 mb-2">
+                    <Select value={chartInstanceId} onValueChange={onChartInstanceChange}>
+                      <SelectTrigger className="h-7 w-[160px] border border-slate-200 bg-white text-xs text-slate-700 shadow-sm hover:bg-slate-50">
+                        <SelectValue placeholder="Choisir un graphique" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {chartInstanceOptions.map((opt) => (
+                          <SelectItem key={opt.id} value={opt.id}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
                 <div className="flex flex-wrap items-center gap-3 text-sm text-[#5C5F66]">
                   <span className="font-medium text-slate-700">{getHorizonText()}</span>
                   <span className="text-slate-300">•</span>

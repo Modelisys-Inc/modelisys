@@ -86,7 +86,7 @@ import { Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, XAxis, YAxis } 
 interface IncomeStatementDetailProps {
   period: "monthly" | "quarterly" | "annual"
   view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
-  columnMode?: "variations" | "percentage" | "comparison"
+  columnMode?: "variationAmount" | "variationPercent" | "percentage" | "comparison"
   companyId?: string | null
   divisionId?: string | null
   subDivisionId?: string | null
@@ -322,7 +322,7 @@ function insertAnnexDetailPlaceholderRows(rows: DetailRow[], trendValuesLength?:
 export function IncomeStatementDetail({
   period,
   view,
-  columnMode = "variations",
+  columnMode = "variationAmount",
   companyId,
   divisionId,
   subDivisionId,
@@ -3438,11 +3438,10 @@ export function IncomeStatementDetail({
                 <>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getCurrentColumnLabel()}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
-                  {columnMode === "variations" ? (
-                    <>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation $</th>
-                    </>
+                  {columnMode === "variationPercent" ? (
+                    <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
+                  ) : columnMode === "variationAmount" ? (
+                    <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation $</th>
                   ) : columnMode === "percentage" ? (
                     <>
                       <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">% des revenus</th>
@@ -3464,11 +3463,10 @@ export function IncomeStatementDetail({
                 <>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getCurrentColumnLabel()}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">{getComparisonLabel()}</th>
-                  {columnMode === "variations" ? (
-                    <>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation $</th>
-                    </>
+                  {columnMode === "variationPercent" ? (
+                    <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
+                  ) : columnMode === "variationAmount" ? (
+                    <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation $</th>
                   ) : columnMode === "percentage" ? (
                     <>
                       <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">% des revenus</th>
@@ -3490,11 +3488,10 @@ export function IncomeStatementDetail({
                 <>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD {fiscalYear}</th>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">YTD {(fiscalYear ?? new Date().getFullYear()) - 1}</th>
-                  {columnMode === "variations" ? (
-                    <>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation $</th>
-                    </>
+                  {columnMode === "variationPercent" ? (
+                    <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
+                  ) : columnMode === "variationAmount" ? (
+                    <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation $</th>
                   ) : columnMode === "percentage" ? (
                     <>
                       <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">% des revenus</th>
@@ -3913,27 +3910,26 @@ export function IncomeStatementDetail({
                       >
                         {row.prior !== 0 ? formatCurrency(row.prior) : "-"}
                       </td>
-                      {columnMode === "variations" ? (
-                        <>
-                          <td
-                            className={`px-6 py-3 text-right ${row.isBold ? "font-semibold " : ""}${
-                              variation && variation >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
-                          >
-                            {variation !== null && row.current !== 0
-                              ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
-                              : "-"}
-                          </td>
-                          <td
-                            className={`px-6 py-3 text-right font-semibold ${
-                              variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
-                          >
-                            {row.current !== 0
-                              ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
-                              : "-"}
-                          </td>
-                        </>
+                      {columnMode === "variationPercent" ? (
+                        <td
+                          className={`px-6 py-3 text-right ${row.isBold ? "font-semibold " : ""}${
+                            variation && variation >= 0 ? "text-emerald-600" : "text-red-600"
+                          } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
+                        >
+                          {variation !== null && row.current !== 0
+                            ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
+                            : "-"}
+                        </td>
+                      ) : columnMode === "variationAmount" ? (
+                        <td
+                          className={`px-6 py-3 text-right font-semibold ${
+                            variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
+                          } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
+                        >
+                          {row.current !== 0
+                            ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
+                            : "-"}
+                        </td>
                       ) : columnMode === "percentage" ? (
                         <>
                           <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
@@ -3977,27 +3973,26 @@ export function IncomeStatementDetail({
                       >
                         {row.prior !== 0 ? formatCurrency(row.prior) : "-"}
                       </td>
-                      {columnMode === "variations" ? (
-                        <>
-                          <td
-                            className={`px-6 py-3 text-right ${row.isBold ? "font-semibold " : ""}${
-                              variation && variation >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
-                          >
-                            {variation !== null && row.current !== 0
-                              ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
-                              : "-"}
-                          </td>
-                          <td
-                            className={`px-6 py-3 text-right font-semibold ${
-                              variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
-                          >
-                            {row.current !== 0
-                              ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
-                              : "-"}
-                          </td>
-                        </>
+                      {columnMode === "variationPercent" ? (
+                        <td
+                          className={`px-6 py-3 text-right ${row.isBold ? "font-semibold " : ""}${
+                            variation && variation >= 0 ? "text-emerald-600" : "text-red-600"
+                          } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
+                        >
+                          {variation !== null && row.current !== 0
+                            ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
+                            : "-"}
+                        </td>
+                      ) : columnMode === "variationAmount" ? (
+                        <td
+                          className={`px-6 py-3 text-right font-semibold ${
+                            variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
+                          } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
+                        >
+                          {row.current !== 0
+                            ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
+                            : "-"}
+                        </td>
                       ) : columnMode === "percentage" ? (
                         <>
                           <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
@@ -4107,18 +4102,16 @@ export function IncomeStatementDetail({
                         >
                           {columnMode === "percentage"
                             ? (value !== 0 ? `${getTrendRevenuePercentage(value, valueIdx).toFixed(1)}%` : "-")
-                            : columnMode === "variations"
+                            : columnMode === "variationAmount" || columnMode === "variationPercent"
                               ? (() => {
                                   const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
                                   const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
-                                  return (
-                                    <div className="space-y-0.5">
-                                      <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
-                                      <div className="text-[11px] font-medium">
-                                        {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
-                                      </div>
-                                    </div>
-                                  )
+                                  if (columnMode === "variationPercent") {
+                                    return trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"
+                                  }
+                                  return trendVariationAmount !== null
+                                    ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}`
+                                    : "-"
                                 })()
                               : (value !== 0 ? formatCurrency(value) : "-")}
                         </td>
@@ -4134,18 +4127,16 @@ export function IncomeStatementDetail({
                         >
                           {columnMode === "percentage"
                             ? (value !== 0 ? `${getTrendRevenuePercentage(value, valueIdx).toFixed(1)}%` : "-")
-                            : columnMode === "variations"
+                            : columnMode === "variationAmount" || columnMode === "variationPercent"
                               ? (() => {
                                   const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
                                   const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
-                                  return (
-                                    <div className="space-y-0.5">
-                                      <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
-                                      <div className="text-[11px] font-medium">
-                                        {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
-                                      </div>
-                                    </div>
-                                  )
+                                  if (columnMode === "variationPercent") {
+                                    return trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"
+                                  }
+                                  return trendVariationAmount !== null
+                                    ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}`
+                                    : "-"
                                 })()
                               : (value !== 0 ? formatCurrency(value) : "-")}
                         </td>
@@ -4425,33 +4416,36 @@ export function IncomeStatementDetail({
                                 <td className="px-6 py-2 text-right text-sm text-slate-500">
                                   {account.priorAmount !== undefined && account.priorAmount !== 0 ? formatCurrency(account.priorAmount) : "-"}
                                 </td>
-                                {columnMode === "variations" ? (
-                                  <>
-                                    <td className={`px-6 py-2 text-right font-semibold text-sm font-semibold ${
-                                      accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"
-                                    }`}>
-                                      {accountVariation !== null && account.amount !== 0
-                                        ? `${accountVariation >= 0 ? "+" : ""}${accountVariation.toFixed(1)}%`
-                                        : "-"}
-                                    </td>
-                                    <td className={`px-6 py-2 text-right font-semibold text-sm font-semibold ${
-                                      accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"
-                                    }`}>
-                                      {account.amount !== 0
-                                        ? `${accountVariationAmount >= 0 ? "+" : ""}${formatCurrency(accountVariationAmount)}`
-                                        : "-"}
-                                    </td>
-                                  </>
-                                ) : columnMode === "percentage" ? (
-                                  <>
-                                    <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
-                                      {account.amount !== 0 ? `${getRevenuePercentage(account.amount, false).toFixed(1)}%` : "-"}
-                                    </td>
-                                    <td className="px-6 py-2 text-right font-semibold text-sm text-slate-600">
-                                      {account.priorAmount !== undefined && account.priorAmount !== 0 ? `${getRevenuePercentage(account.priorAmount, true).toFixed(1)}%` : "-"}
-                                    </td>
-                                  </>
-                                ) : null}
+                      {columnMode === "variationPercent" ? (
+                        <td
+                          className={`px-6 py-2 text-right font-semibold text-sm font-semibold ${
+                            accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"
+                          }`}
+                        >
+                          {accountVariation !== null && account.amount !== 0
+                            ? `${accountVariation >= 0 ? "+" : ""}${accountVariation.toFixed(1)}%`
+                            : "-"}
+                        </td>
+                      ) : columnMode === "variationAmount" ? (
+                        <td
+                          className={`px-6 py-2 text-right font-semibold text-sm font-semibold ${
+                            accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"
+                          }`}
+                        >
+                          {account.amount !== 0
+                            ? `${accountVariationAmount >= 0 ? "+" : ""}${formatCurrency(accountVariationAmount)}`
+                            : "-"}
+                        </td>
+                      ) : columnMode === "percentage" ? (
+                        <>
+                          <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
+                            {account.amount !== 0 ? `${getRevenuePercentage(account.amount, false).toFixed(1)}%` : "-"}
+                          </td>
+                          <td className="px-6 py-2 text-right font-semibold text-sm text-slate-600">
+                            {account.priorAmount !== undefined && account.priorAmount !== 0 ? `${getRevenuePercentage(account.priorAmount, true).toFixed(1)}%` : "-"}
+                          </td>
+                        </>
+                      ) : null}
                               </>
                             )}
                             
@@ -4469,23 +4463,22 @@ export function IncomeStatementDetail({
                                 <td className="px-6 py-2 text-right text-sm text-slate-500">
                                   {account.priorAmount !== undefined && account.priorAmount !== 0 ? formatCurrency(account.priorAmount) : "-"}
                                 </td>
-                                {columnMode === "variations" ? (
-                                  <>
-                                    <td className={`px-6 py-2 text-right font-semibold text-sm font-semibold ${
-                                      accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"
-                                    }`}>
-                                      {accountVariation !== null && account.amount !== 0
-                                        ? `${accountVariation >= 0 ? "+" : ""}${accountVariation.toFixed(1)}%`
-                                        : "-"}
-                                    </td>
-                                    <td className={`px-6 py-2 text-right font-semibold text-sm font-semibold ${
-                                      accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"
-                                    }`}>
-                                      {account.amount !== 0
-                                        ? `${accountVariationAmount >= 0 ? "+" : ""}${formatCurrency(accountVariationAmount)}`
-                                        : "-"}
-                                    </td>
-                                  </>
+                                {columnMode === "variationPercent" ? (
+                                  <td className={`px-6 py-2 text-right font-semibold text-sm font-semibold ${
+                                    accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"
+                                  }`}>
+                                    {accountVariation !== null && account.amount !== 0
+                                      ? `${accountVariation >= 0 ? "+" : ""}${accountVariation.toFixed(1)}%`
+                                      : "-"}
+                                  </td>
+                                ) : columnMode === "variationAmount" ? (
+                                  <td className={`px-6 py-2 text-right font-semibold text-sm font-semibold ${
+                                    accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"
+                                  }`}>
+                                    {account.amount !== 0
+                                      ? `${accountVariationAmount >= 0 ? "+" : ""}${formatCurrency(accountVariationAmount)}`
+                                      : "-"}
+                                  </td>
                                 ) : columnMode === "percentage" ? (
                                   <>
                                     <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
@@ -4507,23 +4500,22 @@ export function IncomeStatementDetail({
                                 <td className="px-6 py-2 text-right text-sm text-slate-500">
                                   {account.priorAmount !== undefined && account.priorAmount !== 0 ? formatCurrency(account.priorAmount) : "-"}
                                 </td>
-                                {columnMode === "variations" ? (
-                                  <>
-                                    <td className={`px-6 py-2 text-right font-semibold text-sm font-semibold ${
-                                      accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"
-                                    }`}>
-                                      {accountVariation !== null && account.amount !== 0
-                                        ? `${accountVariation >= 0 ? "+" : ""}${accountVariation.toFixed(1)}%`
-                                        : "-"}
-                                    </td>
-                                    <td className={`px-6 py-2 text-right font-semibold text-sm font-semibold ${
-                                      accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"
-                                    }`}>
-                                      {account.amount !== 0
-                                        ? `${accountVariationAmount >= 0 ? "+" : ""}${formatCurrency(accountVariationAmount)}`
-                                        : "-"}
-                                    </td>
-                                  </>
+                                {columnMode === "variationPercent" ? (
+                                  <td className={`px-6 py-2 text-right font-semibold text-sm font-semibold ${
+                                    accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"
+                                  }`}>
+                                    {accountVariation !== null && account.amount !== 0
+                                      ? `${accountVariation >= 0 ? "+" : ""}${accountVariation.toFixed(1)}%`
+                                      : "-"}
+                                  </td>
+                                ) : columnMode === "variationAmount" ? (
+                                  <td className={`px-6 py-2 text-right font-semibold text-sm font-semibold ${
+                                    accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"
+                                  }`}>
+                                    {account.amount !== 0
+                                      ? `${accountVariationAmount >= 0 ? "+" : ""}${formatCurrency(accountVariationAmount)}`
+                                      : "-"}
+                                  </td>
                                 ) : columnMode === "percentage" ? (
                                   <>
                                     <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">

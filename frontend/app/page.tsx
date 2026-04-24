@@ -6,6 +6,7 @@ import { LandingAudiencesSection } from "@/components/landing-audiences-section"
 import { ProblemSolutionSection } from "@/components/problem-solution-section"
 import { ExcelFrustrationsMarquee } from "@/components/excel-frustrations-marquee"
 import { CaseStudiesSection } from "@/components/case-studies-section"
+import { LandingBlogTeaserSection } from "@/components/landing-blog-teaser-section"
 import { PlatformSetupSection } from "@/components/platform-setup-section"
 import { PricingProcessSection } from "@/components/pricing-process-section"
 import { PostFeaturesSection } from "@/components/post-features-section"
@@ -41,6 +42,7 @@ export default function LandingPage() {
           <ProblemSolutionSection />
           <ExcelFrustrationsMarquee />
           <CaseStudiesSection />
+          <LandingBlogTeaserSection />
           <PlatformSetupSection />
           <PostFeaturesSection />
           <PricingProcessSection />

@@ -1,122 +1,196 @@
 import type { Metadata } from "next"
-import Link from "next/link"
-import { GlassmorphismNav } from "@/components/glassmorphism-nav"
-import { Footer } from "@/components/footer"
+import type { ReactNode } from "react"
+import {
+  BlogArticleContainer,
+  BlogArticleIntro,
+  BlogArticlePageShell,
+  BlogArticleStep,
+  BlogArticleStepList,
+  BlogStoryBulletList,
+  BlogStoryClosingBlock,
+  BlogStoryParagraph,
+  BlogStorySectionHeader,
+} from "@/components/blog-article-story-layout"
 
 export const metadata: Metadata = {
   title: "L’importance de la valorisation | Blog Modelisys",
   description:
-    "Pourquoi la valorisation est un outil de pilotage: arbitrer, communiquer, comparer des scénarios et mesurer la création de valeur.",
+    "Pourquoi la valorisation est un outil de pilotage : décisions, scénarios, moteurs de valeur, crédibilité externe et intégration dans Modelisys.",
 }
 
-function H2({ id, children }: { id: string; children: string }) {
+function Subh({ children }: { children: ReactNode }) {
   return (
-    <h2 id={id} className="scroll-mt-28 text-xl sm:text-2xl font-semibold text-[#2A2F3A] tracking-tight">
-      {children}
-    </h2>
-  )
-}
-
-function BulletList({ items }: { items: Array<string> }) {
-  return (
-    <ul className="mt-4 space-y-2 text-[15px] leading-relaxed text-[#5C5F66]">
-      {items.map((it, idx) => (
-        <li key={idx} className="flex gap-3">
-          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#E0742D]" aria-hidden />
-          <div className="min-w-0">{it}</div>
-        </li>
-      ))}
-    </ul>
+    <h3 className="mt-5 text-base font-semibold tracking-tight text-[#2A2F3A] sm:mt-6 sm:text-[17px]">{children}</h3>
   )
 }
 
 export default function ArticleImportanceValorisation() {
-  const cardShell =
-    "rounded-[28px] border border-slate-200 bg-white/80 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70"
-
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-100/50">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-slate-50/95 to-slate-100/80" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_85%_45%_at_50%_-15%,rgba(224,116,45,0.055),transparent_55%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_100%_50%,rgba(148,163,184,0.12),transparent_65%)]" />
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-50/30 via-transparent to-slate-100/35" />
-      </div>
+    <BlogArticlePageShell>
+      <BlogArticleContainer>
+        <BlogArticleIntro
+          category="Finance · Valorisation"
+          title="L’importance de la valorisation"
+          date="29 janv. 2026"
+          readTime="8 min"
+          lead={
+            <>
+              <p className="text-[17px] font-medium leading-[1.45] text-[#2A2F3A] sm:text-lg sm:leading-[1.5]">
+                La valorisation n’est pas un exercice réservé aux ventes d’entreprise.
+              </p>
+              <p className="text-[17px] font-medium leading-[1.45] text-[#2A2F3A] sm:text-lg sm:leading-[1.5]">
+                C’est ce qui permet de comprendre si les décisions prises aujourd’hui créent réellement de la richesse.
+              </p>
+              <p className="!mt-7 font-semibold text-[#2A2F3A] sm:!mt-8">Sans cadre de valorisation :</p>
+              <BlogStoryBulletList
+                className="!mt-4 border-t-0 pt-0 sm:!mt-5"
+                items={[
+                  "les décisions sont prises à court terme",
+                  "la performance est mal interprétée",
+                  "et certaines actions peuvent détruire de la valeur… sans que personne ne s’en rende compte",
+                ]}
+              />
+              <p className="!mt-7 font-semibold text-[#2A2F3A] sm:!mt-8">La valorisation impose une discipline simple :</p>
+              <p className="!mt-3 text-[15px] leading-[1.78] text-[#5C5F66] sm:!mt-4 sm:text-base">
+                qu’est-ce qui crée de la valeur — et à quel coût (risque, temps, capital) ?
+              </p>
+            </>
+          }
+        />
 
-      <GlassmorphismNav />
+        <BlogArticleStepList>
+          <BlogArticleStep id="pilotage" step={1}>
+            <BlogStorySectionHeader eyebrow="Pilotage" title="La valorisation comme outil de pilotage" />
+            <BlogStoryParagraph className="!mt-0 font-medium text-[#2A2F3A] sm:!mt-0">
+              La valorisation transforme la stratégie en quelque chose de mesurable.
+            </BlogStoryParagraph>
 
-      <main className="relative z-10 pt-24 pb-16 sm:pb-24">
-        <div className="max-w-[900px] mx-auto px-8 sm:px-12 lg:px-16">
-          <section className="relative py-10 lg:py-14">
-            <Link href="/blog" className="text-sm font-semibold text-[#E0742D] hover:underline">
-              ← Retour au Blog
-            </Link>
-            <p className="mt-4 text-sm font-semibold tracking-wide text-slate-500">Finance · Valorisation</p>
-            <h1 className="mt-3 text-3xl sm:text-4xl md:text-[42px] font-semibold leading-tight tracking-tight text-[#2A2F3A]">
-              L’importance de la valorisation
-            </h1>
-            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-              <span className="font-semibold">29 janv. 2026</span>
-              <span aria-hidden className="text-slate-300">
-                •
-              </span>
-              <span>8 min</span>
-            </div>
-            <p className="mt-6 text-lg text-[#5C5F66] leading-relaxed">
-              La valorisation n’est pas réservée aux transactions. C’est un cadre qui aide à arbitrer, à prioriser et
-              à communiquer. Elle force une question simple: qu’est-ce qui crée réellement de la valeur — et à quel
-              prix (risque, temps, capital)?
+            <Subh>Comparer des décisions concrètes</Subh>
+            <BlogStoryParagraph className="!mt-2.5 sm:!mt-3">
+              Croître, investir, réduire les coûts, restructurer : toutes les options n’ont pas le même impact sur la
+              valeur. La valorisation permet de les comparer sur une base commune.
+            </BlogStoryParagraph>
+
+            <Subh>Identifier les vrais moteurs de valeur</Subh>
+            <BlogStoryParagraph className="!mt-2.5 sm:!mt-3">
+              Toutes les entreprises ne créent pas de valeur de la même façon. Marge, croissance, récurrence, structure
+              de coûts, risque : la valorisation met en évidence ce qui compte vraiment.
+            </BlogStoryParagraph>
+
+            <Subh>Améliorer la qualité des décisions</Subh>
+            <BlogStoryParagraph className="!mt-2.5 sm:!mt-3">
+              Une entreprise peut croître… tout en détruisant de la valeur. À l’inverse, une optimisation ciblée peut
+              avoir un impact significatif sur la valeur, sans croissance.
+            </BlogStoryParagraph>
+
+            <Subh>Renforcer la crédibilité externe</Subh>
+            <BlogStoryParagraph className="!mt-2.5 sm:!mt-3">
+              Banquiers et investisseurs ne regardent pas seulement les résultats : ils évaluent la qualité du modèle, la
+              stabilité et le potentiel.
+            </BlogStoryParagraph>
+            <p className="!mt-5 font-semibold text-[#2A2F3A] sm:!mt-6">Une valorisation structurée :</p>
+            <BlogStoryBulletList
+              className="!mt-3 border-t-0 pt-0 sm:!mt-4"
+              items={[
+                "clarifie le discours",
+                "aligne les attentes",
+                "facilite les discussions stratégiques",
+              ]}
+            />
+          </BlogArticleStep>
+
+          <BlogArticleStep id="scenarios" step={2}>
+            <BlogStorySectionHeader eyebrow="Méthode" title="Penser en scénarios, pas en chiffres uniques" />
+            <BlogStoryParagraph className="!mt-0 sm:!mt-0">
+              Une valorisation n’est jamais une vérité absolue. C’est une plage de valeur basée sur des hypothèses.
+            </BlogStoryParagraph>
+            <BlogStoryParagraph className="!mt-4 font-medium text-[#2A2F3A] sm:!mt-5">
+              Le vrai levier n’est pas le chiffre final. C’est la compréhension de ce qui le fait varier.
+            </BlogStoryParagraph>
+
+            <Subh>Comparer des scénarios cohérents</Subh>
+            <BlogStoryBulletList
+              className="!mt-3 border-t-0 pt-0 sm:!mt-4"
+              items={["scénario conservateur", "scénario réaliste", "scénario optimisé"]}
+            />
+            <p className="!mt-5 border-l-2 border-[#E0742D]/45 pl-5 text-[15px] font-medium leading-[1.72] text-[#2A2F3A] sm:!mt-6 sm:text-base sm:leading-[1.75]">
+              Ce qui compte : quelles hypothèses changent, et pourquoi.
             </p>
-            <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
-          </section>
 
-          <article className={cardShell}>
-            <div className="p-7 sm:p-9 space-y-10">
-              <div>
-                <H2 id="pilotage">1) La valorisation comme outil de pilotage</H2>
-                <BulletList
-                  items={[
-                    "Comparer des options stratégiques (croissance, optimisation, investissement).",
-                    "Mettre en évidence les moteurs de valeur (marge, croissance, récurrence, risque).",
-                    "Renforcer la qualité des discussions avec prêteurs et investisseurs.",
-                    "Structurer une logique de décision: ce qui compte, ce qui est secondaire, et ce qui est risqué.",
-                  ]}
-                />
+            <Subh>Comprendre les impacts réels</Subh>
+            <BlogStoryParagraph className="!mt-2.5 sm:!mt-3">
+              Une variation de 2 % de marge, 10 % de croissance ou du niveau de risque peut transformer significativement
+              la valeur.
+            </BlogStoryParagraph>
+            <p className="!mt-5 text-[15px] italic leading-[1.72] text-[#5C5F66] sm:!mt-6 sm:text-base">
+              Sans scénarios, ces impacts restent invisibles.
+            </p>
+          </BlogArticleStep>
+
+          <BlogArticleStep id="modelisys" step={3}>
+            <BlogStorySectionHeader eyebrow="Dans Modelisys" title="Comment Modelisys transforme la valorisation" />
+            <BlogStoryParagraph className="!mt-0 sm:!mt-0">
+              Dans la majorité des entreprises, la valorisation est :
+            </BlogStoryParagraph>
+            <BlogStoryBulletList
+              className="!mt-3 border-t-0 pt-0 sm:!mt-4"
+              items={["ponctuelle", "complexe", "difficile à relier aux opérations"]}
+            />
+            <BlogStoryParagraph className="!mt-7 sm:!mt-8">
+              Résultat : elle est peu utilisée dans la prise de décision.
+            </BlogStoryParagraph>
+            <BlogStoryParagraph className="!mt-6 font-medium text-[#2A2F3A] sm:!mt-7">
+              Modelisys l’intègre directement dans la gestion.
+            </BlogStoryParagraph>
+
+            <Subh>Lien direct entre performance et valeur</Subh>
+            <BlogStoryParagraph className="!mt-2.5 sm:!mt-3">
+              Les résultats ne sont plus seulement analysés : ils sont traduits en impact sur la valeur.
+            </BlogStoryParagraph>
+
+            <Subh>Simulation de scénarios en continu</Subh>
+            <BlogStoryParagraph className="!mt-2.5 sm:!mt-3">
+              Budgets, projections, hypothèses : chaque décision peut être testée et comparée.
+            </BlogStoryParagraph>
+
+            <Subh>Cohérence entre les analyses</Subh>
+            <BlogStoryParagraph className="!mt-2.5 sm:!mt-3">
+              Les scénarios financiers, opérationnels et stratégiques restent alignés.
+            </BlogStoryParagraph>
+
+            <Subh>Lecture claire pour tous les intervenants</Subh>
+            <BlogStoryParagraph className="!mt-2.5 sm:!mt-3">
+              Dirigeants, partenaires, investisseurs : chacun comprend rapidement l’impact des décisions.
+            </BlogStoryParagraph>
+
+            <Subh>Passer de la théorie à l’action</Subh>
+            <BlogStoryParagraph className="!mt-2.5 sm:!mt-3">
+              La valorisation ne reste pas un exercice. Elle devient un outil quotidien de pilotage.
+            </BlogStoryParagraph>
+          </BlogArticleStep>
+
+          <BlogArticleStep id="en-bref" step={4} isLast>
+            <BlogStoryClosingBlock kicker="En bref">
+              <p className="font-medium text-[#2A2F3A]">
+                La valorisation n’est pas une finalité. C’est un outil pour mieux décider.
+              </p>
+              <p className="!mt-4 font-semibold text-[#2A2F3A] sm:!mt-5">Elle permet de :</p>
+              <BlogStoryBulletList
+                items={[
+                  "relier performance et création de valeur",
+                  "comprendre les impacts des décisions",
+                  "prioriser ce qui compte réellement",
+                ]}
+              />
+              <div className="!mt-7 space-y-2.5 text-[15px] font-medium leading-[1.72] text-[#2A2F3A] sm:!mt-8 sm:text-base sm:leading-[1.75]">
+                <p>Et surtout :</p>
+                <p>Elle transforme des hypothèses en trajectoires.</p>
+                <p>Et des décisions en valeur concrète.</p>
               </div>
-
-              <div>
-                <H2 id="scenarios">2) Penser en scénarios, pas en chiffres uniques</H2>
-                <p className="mt-4 text-[15px] leading-relaxed text-[#5C5F66]">
-                  Une valorisation sérieuse est un intervalle, pas un point. Le bon réflexe est de comparer plusieurs
-                  scénarios cohérents et d’expliquer ce qui les différencie.
-                </p>
-              </div>
-
-              <div>
-                <H2 id="modelisys">3) Comment Modelisys aide</H2>
-                <BulletList
-                  items={[
-                    "Structurer l’analyse et la projection pour supporter une logique de valeur.",
-                    "Comparer des hypothèses et trajectoires sans perdre la cohérence des lectures.",
-                    "Préparer des vues synthétiques utiles aux échanges internes et externes.",
-                  ]}
-                />
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-white/70 p-5">
-                <p className="text-sm font-semibold text-[#2A2F3A]">En bref</p>
-                <p className="mt-2 text-[15px] leading-relaxed text-[#5C5F66]">
-                  La valorisation est une boussole. Elle aide à relier performance, risque et décisions — et à se
-                  concentrer sur ce qui augmente vraiment la valeur.
-                </p>
-              </div>
-            </div>
-          </article>
-        </div>
-      </main>
-
-      <Footer />
-    </div>
+            </BlogStoryClosingBlock>
+          </BlogArticleStep>
+        </BlogArticleStepList>
+      </BlogArticleContainer>
+    </BlogArticlePageShell>
   )
 }
-
