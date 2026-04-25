@@ -2,10 +2,12 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import exists, func
 
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.company import Company
+from app.models.trial_balance import TrialBalanceEntry
 from app.models.user import User, UserOrganization
 from app.schemas.financial_statement import (
     FinancialStatementResponse,
@@ -88,6 +90,48 @@ def get_balance_sheet(
     db: Session = Depends(get_db),
 ):
     company = _verify_company_access(db, current_user, company_id)
+
+    # If there is no trial balance import for this exact reference date (calendar year + month),
+    # OR if the imported entries are effectively all zeros, do NOT "carry forward" balances.
+    # This prevents the balance-sheet cumulative logic from repeating the last imported month.
+    has_tb_for_ref = db.query(
+        exists().where(
+            TrialBalanceEntry.company_id == company_id,
+            TrialBalanceEntry.fiscal_year == fiscal_year,
+            TrialBalanceEntry.month == month,
+        )
+    ).scalar()
+    if not has_tb_for_ref:
+        return FinancialStatementResponse(
+            companyId=str(company.id),
+            statementType="balance-sheet",
+            fiscalYear=fiscal_year,
+            month=month,
+            period=period,
+            comparisonType=comparison_type,
+            rows=[],
+        )
+
+    total_abs = (
+        db.query(func.coalesce(func.sum(func.abs(TrialBalanceEntry.amount)), 0))
+        .filter(
+            TrialBalanceEntry.company_id == company_id,
+            TrialBalanceEntry.fiscal_year == fiscal_year,
+            TrialBalanceEntry.month == month,
+        )
+        .scalar()
+    )
+    if not total_abs or float(total_abs) == 0.0:
+        return FinancialStatementResponse(
+            companyId=str(company.id),
+            statementType="balance-sheet",
+            fiscalYear=fiscal_year,
+            month=month,
+            period=period,
+            comparisonType=comparison_type,
+            rows=[],
+        )
+
     fy, fm = _convert_calendar_to_fiscal(company, fiscal_year, month)
     return compute_financial_statement(
         db, company, "balance-sheet", fy, fm,
@@ -154,6 +198,7 @@ def get_financial_statement_series(
     company_id: uuid.UUID,
     statement_type: str,
     fiscal_year: int = Query(...),
+    month: int = Query(default=12, ge=1, le=12),
     months: int = Query(default=12, ge=1, le=120),
     division_id: uuid.UUID | None = Query(default=None),
     sub_division_id: uuid.UUID | None = Query(default=None),
@@ -163,7 +208,8 @@ def get_financial_statement_series(
     db: Session = Depends(get_db),
 ):
     company = _verify_company_access(db, current_user, company_id)
+    fy, fm = _convert_calendar_to_fiscal(company, fiscal_year, month)
     return compute_financial_statement_series(
-        db, company, statement_type, fiscal_year, months,
+        db, company, statement_type, fy, fm, months,
         division_id, sub_division_id, customer, supplier,
     )

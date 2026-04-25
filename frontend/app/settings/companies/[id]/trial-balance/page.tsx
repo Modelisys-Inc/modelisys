@@ -125,6 +125,7 @@ export default function TrialBalancePage() {
   const [previewLoading, setPreviewLoading] = useState(false)
   const [preview, setPreview] = useState<TrialBalanceUploadPreview | null>(null)
   const [newAccountDrafts, setNewAccountDrafts] = useState<Record<string, NewAccountDraft>>({})
+  const [ignoredUnknownAccounts, setIgnoredUnknownAccounts] = useState<Set<string>>(new Set())
   const [importOrgCompanies, setImportOrgCompanies] = useState<ApiCompany[]>([])
 
   // Load company + balance (# et descriptions alignés sur le mapping côté API)
@@ -198,13 +199,13 @@ export default function TrialBalancePage() {
   const canFinalizeImport = useMemo(() => {
     if (!preview) return false
     if (!preview.balance_is_valid) return false
-    for (const u of preview.unknown_accounts) {
+    for (const u of preview.unknown_accounts.filter((x) => !ignoredUnknownAccounts.has(x.account_number))) {
       const d = newAccountDrafts[u.account_number]
       if (!d) return false
       if (!d.linkCode.trim() || !d.divisions.trim() || !d.subDivisions.trim()) return false
     }
     return true
-  }, [preview, newAccountDrafts])
+  }, [preview, newAccountDrafts, ignoredUnknownAccounts])
 
   if (loading) {
     return (
@@ -269,6 +270,7 @@ export default function TrialBalancePage() {
       const fy = parseInt(selectedYear, 10)
       const data = await previewTrialBalanceUpload(companyId, importFile, fy, monthIndex)
       setPreview(data)
+      setIgnoredUnknownAccounts(new Set())
       const init: Record<string, NewAccountDraft> = {}
       for (const u of data.unknown_accounts) {
         init[u.account_number] = {
@@ -297,10 +299,11 @@ export default function TrialBalancePage() {
     if (!importFile || !selectedMonth || !preview || !canFinalizeImport) return
     setImporting(true)
     try {
-      if (preview.unknown_accounts.length > 0) {
+      const unknownToMap = preview.unknown_accounts.filter((u) => !ignoredUnknownAccounts.has(u.account_number))
+      if (unknownToMap.length > 0) {
         await upsertAccountMappings(
           companyId,
-          preview.unknown_accounts.map((u) => {
+          unknownToMap.map((u) => {
             const d = newAccountDrafts[u.account_number]
             return {
               account_number: u.account_number,
@@ -323,7 +326,8 @@ export default function TrialBalancePage() {
         companyId,
         importFile,
         parseInt(selectedYear),
-        monthIndex
+        monthIndex,
+        Array.from(ignoredUnknownAccounts)
       )
       const tbData = await getTrialBalance(companyId, parseInt(selectedYear))
       setAccounts(mapTrialBalanceAccounts(tbData))
@@ -347,6 +351,18 @@ export default function TrialBalancePage() {
       if (!cur) return prev
       return { ...prev, [accountNumber]: { ...cur, ...patch } }
     })
+  }
+
+  const ignoreUnknownAccount = (accountNumber: string) => {
+    setIgnoredUnknownAccounts((prev) => {
+      const next = new Set(prev)
+      next.add(accountNumber)
+      return next
+    })
+  }
+
+  const restoreAllIgnoredUnknownAccounts = () => {
+    setIgnoredUnknownAccounts(new Set())
   }
 
   const openDeleteModal = () => {
@@ -670,29 +686,80 @@ export default function TrialBalancePage() {
 
       {/* Import Modal */}
       {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-[3px]">
           <div
             className={cn(
-              "flex max-h-[90vh] w-full flex-col overflow-hidden rounded-xl bg-white shadow-lg",
-              importStep === "validate" ? "max-w-5xl" : "max-w-md",
+              "flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_20px_60px_-24px_rgba(15,23,42,0.35)]",
+              importStep === "validate" ? "max-w-5xl" : "max-w-lg",
             )}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="trial-balance-import-title"
           >
-            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h3 className="text-lg font-semibold text-slate-900">
-                {importStep === "file"
-                  ? "Importer une balance de vérification"
-                  : "Valider l'import"}
-              </h3>
-              <Button variant="ghost" size="sm" onClick={resetImportModal} className="h-8 w-8 p-0">
-                <X className="h-4 w-4" />
-              </Button>
+            {/* En-tête : pas de barre verticale — hiérarchie typographique + étapes */}
+            <div className="shrink-0 border-b border-slate-100 bg-white px-6 pb-5 pt-6">
+              <div className="flex gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-slate-100/90 ring-1 ring-slate-200/80">
+                  <FileSpreadsheet className="h-6 w-6 text-slate-600" aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span
+                      className={cn(
+                        "rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
+                        importStep === "file"
+                          ? "bg-slate-900 text-white"
+                          : "bg-slate-100 text-slate-500",
+                      )}
+                    >
+                      1 · Fichier
+                    </span>
+                    <span className="text-slate-300" aria-hidden>
+                      →
+                    </span>
+                    <span
+                      className={cn(
+                        "rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
+                        importStep === "validate"
+                          ? "bg-slate-900 text-white"
+                          : "bg-slate-100 text-slate-500",
+                      )}
+                    >
+                      2 · Validation
+                    </span>
+                  </div>
+                  <h3
+                    id="trial-balance-import-title"
+                    className="mt-2 text-lg font-semibold tracking-tight text-slate-900"
+                  >
+                    {importStep === "file"
+                      ? "Importer une balance de vérification"
+                      : "Valider l'import"}
+                  </h3>
+                  <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                    {importStep === "file"
+                      ? "Choisissez votre fichier Excel ou CSV, puis la période concernée. Vous pourrez vérifier l’équilibre avant d’importer."
+                      : "Contrôlez la somme des montants et complétez le mapping pour les comptes absents, ou ignorez-les s’ils sont à 0 $."}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={resetImportModal}
+                  className="h-9 w-9 shrink-0 rounded-xl p-0 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  aria-label="Fermer"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
             {importStep === "file" ? (
               <>
-                <div className="space-y-4 overflow-y-auto px-6 py-6">
+                <div className="space-y-5 overflow-y-auto bg-gradient-to-b from-slate-50/40 to-white px-6 py-6">
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Fichier Excel</label>
+                    <label className="mb-2 block text-sm font-medium text-slate-800">Fichier</label>
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -714,18 +781,22 @@ export default function TrialBalancePage() {
                         if (file) setImportFile(file)
                       }}
                       className={cn(
-                        "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-6 transition-colors",
+                        "group relative flex cursor-pointer flex-col items-center justify-center gap-2.5 rounded-2xl border border-dashed px-5 py-8 transition-all",
                         dragging
-                          ? "border-emerald-400 bg-emerald-50"
+                          ? "border-slate-400 bg-slate-100/80 shadow-inner"
                           : importFile
-                            ? "border-emerald-300 bg-emerald-50/50"
-                            : "border-slate-300 bg-slate-50 hover:border-emerald-400 hover:bg-emerald-50/30",
+                            ? "border-slate-300 bg-white shadow-sm ring-1 ring-slate-200/80"
+                            : "border-slate-200 bg-white/80 hover:border-slate-300 hover:bg-white hover:shadow-sm",
                       )}
                     >
                       {importFile ? (
                         <>
-                          <FileSpreadsheet className="h-8 w-8 text-emerald-600" />
-                          <p className="text-sm font-medium text-slate-900">{importFile.name}</p>
+                          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100">
+                            <FileSpreadsheet className="h-5 w-5 text-slate-600" />
+                          </div>
+                          <p className="max-w-full truncate px-2 text-center text-sm font-medium text-slate-900">
+                            {importFile.name}
+                          </p>
                           <p className="text-xs text-slate-500">{(importFile.size / 1024).toFixed(1)} Ko</p>
                           <Button
                             type="button"
@@ -736,100 +807,112 @@ export default function TrialBalancePage() {
                               setImportFile(null)
                               if (fileInputRef.current) fileInputRef.current.value = ""
                             }}
-                            className="text-xs text-slate-500 hover:text-red-600"
+                            className="text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-red-700"
                           >
                             Retirer le fichier
                           </Button>
                         </>
                       ) : (
                         <>
-                          <Upload className="h-8 w-8 text-slate-400" />
-                          <p className="text-sm text-slate-600">
-                            Glissez un fichier ici ou{" "}
-                            <span className="font-semibold text-emerald-600 underline underline-offset-2">
+                          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-500 transition-colors group-hover:bg-slate-200/80 group-hover:text-slate-700">
+                            <Upload className="h-5 w-5" />
+                          </div>
+                          <p className="text-center text-sm text-slate-600">
+                            Déposez un fichier ici ou{" "}
+                            <span className="font-semibold text-slate-900 underline decoration-slate-300 underline-offset-2">
                               parcourez
                             </span>
                           </p>
-                          <p className="text-xs text-slate-400">.xlsx, .xls ou .csv</p>
+                          <p className="text-xs text-slate-400">Formats acceptés : .xlsx, .xls, .csv</p>
                         </>
                       )}
                     </div>
-                    <p className="mt-2 text-xs text-slate-500">
-                      Colonnes attendues : # de compte, Description, Montant. La somme des montants doit être 0,00 $.
-                    </p>
+                    <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
+                      <span className="font-medium text-slate-700">Colonnes attendues :</span> # de compte, Description,
+                      Montant. La somme des montants doit être égale à <span className="font-mono">0,00 $</span>.
+                    </div>
                   </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Mois</label>
-                    <Select value={selectedMonth} onValueChange={setSelectedMonth}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sélectionner un mois" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {months.map((month) => (
-                          <SelectItem key={month} value={month}>
-                            {month}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Année</label>
-                    <Select value={selectedYear} onValueChange={setSelectedYear}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {generateYears().map((year) => (
-                          <SelectItem key={year} value={year}>
-                            {year}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-800">Mois</label>
+                      <Select value={selectedMonth} onValueChange={setSelectedMonth}>
+                        <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white text-slate-900 shadow-sm hover:bg-slate-50/80 focus:ring-2 focus:ring-slate-900/10">
+                          <SelectValue placeholder="Sélectionner un mois" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {months.map((month) => (
+                            <SelectItem key={month} value={month}>
+                              {month}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-800">Année</label>
+                      <Select value={selectedYear} onValueChange={setSelectedYear}>
+                        <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white text-slate-900 shadow-sm hover:bg-slate-50/80 focus:ring-2 focus:ring-slate-900/10">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {generateYears().map((year) => (
+                            <SelectItem key={year} value={year}>
+                              {year}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </div>
-                <div className="flex shrink-0 justify-end gap-3 border-t border-slate-200 px-6 py-4">
-                  <Button variant="outline" onClick={resetImportModal}>
+                <div className="flex shrink-0 justify-end gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-4">
+                  <Button
+                    variant="outline"
+                    onClick={resetImportModal}
+                    className="h-11 rounded-xl border-slate-200 bg-white px-5 text-slate-700 shadow-sm hover:bg-slate-50"
+                  >
                     Annuler
                   </Button>
                   <Button
                     type="button"
                     onClick={() => void handlePreviewStep()}
                     disabled={!importFile || !selectedMonth || previewLoading}
-                    className="bg-emerald-500 text-white hover:bg-emerald-600"
+                    className="h-11 rounded-xl bg-[#E0742D] px-6 font-semibold text-white shadow-sm transition-colors hover:bg-[#c96526] disabled:pointer-events-none disabled:opacity-40"
                   >
                     {previewLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    Suivant
+                    Continuer
                   </Button>
                 </div>
               </>
             ) : (
               preview && (
                 <>
-                  <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-6">
-                    <p className="text-sm text-slate-600">
-                      Période :{" "}
-                      <span className="font-medium text-slate-900">
-                        {selectedMonth} {selectedYear}
-                      </span>
-                      {" · "}
-                      {preview.row_count} ligne(s) lue(s)
-                    </p>
+                  <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-gradient-to-b from-slate-50/40 to-white px-6 py-6">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
+                      <p className="text-sm text-slate-600">
+                        <span className="font-medium text-slate-900">
+                          {selectedMonth} {selectedYear}
+                        </span>
+                        <span className="text-slate-400"> · </span>
+                        {preview.row_count} ligne(s) lue(s)
+                      </p>
+                    </div>
                     <div
                       className={cn(
-                        "rounded-lg border px-4 py-3 text-sm",
+                        "rounded-2xl border px-4 py-4 text-sm shadow-sm",
                         preview.balance_is_valid
-                          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                          : "border-red-200 bg-red-50 text-red-900",
+                          ? "border-emerald-200/80 bg-emerald-50/90 text-emerald-950"
+                          : "border-red-200/80 bg-red-50/90 text-red-950",
                       )}
                     >
-                      <p className="font-medium">Somme des montants (fichier)</p>
-                      <p className="mt-1 font-mono text-base">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600/90">
+                        Somme des montants (fichier)
+                      </p>
+                      <p className="mt-2 font-mono text-lg font-semibold tabular-nums">
                         {formatAmount(preview.amount_sum)} $
                       </p>
                       {!preview.balance_is_valid && (
-                        <p className="mt-2 text-xs">
+                        <p className="mt-3 border-t border-red-200/60 pt-3 text-xs leading-relaxed">
                           La balance n&apos;est pas équilibrée (la somme doit être 0,00 $). Corrigez le fichier avant
                           import.
                         </p>
@@ -838,14 +921,32 @@ export default function TrialBalancePage() {
 
                     {preview.unknown_accounts.length > 0 && (
                       <div className="space-y-2">
-                        <p className="text-sm font-medium text-slate-900">
-                          Comptes absents du mapping comptable ({preview.unknown_accounts.length})
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          Renseignez le code de liaison, les divisions et sous-divisions pour les ajouter au mapping,
-                          puis importez les montants.
-                        </p>
-                        <div className="max-h-[min(50vh,28rem)] overflow-auto rounded-lg border border-slate-200">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-slate-900">
+                            Comptes absents du mapping comptable (
+                            {preview.unknown_accounts.filter((u) => !ignoredUnknownAccounts.has(u.account_number)).length}
+                            )
+                          </p>
+                          {ignoredUnknownAccounts.size > 0 && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={restoreAllIgnoredUnknownAccounts}
+                              className="h-8 rounded-xl border-slate-200/80 bg-white px-3 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                            >
+                              Restaurer tout ({ignoredUnknownAccounts.size})
+                            </Button>
+                          )}
+                        </div>
+                        <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-r from-white to-slate-50/70 px-4 py-3">
+                          <p className="text-xs leading-relaxed text-slate-600">
+                            Renseignez le code de liaison, les divisions et sous-divisions pour les ajouter au mapping.
+                            Si un compte est à 0$, vous pouvez aussi{" "}
+                            <span className="font-semibold text-slate-900">l’ignorer</span> : il ne sera pas ajouté au
+                            mapping et n’empêchera pas l’import.
+                          </p>
+                        </div>
+                        <div className="max-h-[min(50vh,28rem)] overflow-auto rounded-2xl border border-slate-200/80 bg-white">
                           <table className="w-full min-w-[880px] text-left text-xs">
                             <thead className="sticky top-0 bg-slate-50">
                               <tr className="border-b border-slate-200">
@@ -860,20 +961,23 @@ export default function TrialBalancePage() {
                                 <th className="px-1 py-2 text-center font-semibold text-slate-700">Var.</th>
                                 <th className="px-1 py-2 text-center font-semibold text-slate-700">Fix.</th>
                                 <th className="px-2 py-2 font-semibold text-slate-700">Interco</th>
+                                <th className="px-2 py-2 text-right font-semibold text-slate-700">Action</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {preview.unknown_accounts.map((u) => {
+                              {preview.unknown_accounts
+                                .filter((u) => !ignoredUnknownAccounts.has(u.account_number))
+                                .map((u) => {
                                 const d = newAccountDrafts[u.account_number]
                                 if (!d) return null
                                 return (
-                                  <tr key={u.account_number} className="border-b border-slate-100">
+                                  <tr key={u.account_number} className="border-b border-slate-100 hover:bg-slate-50/80">
                                     <td className="px-2 py-1.5 font-mono text-slate-700">{u.account_number}</td>
                                     <td className="max-w-[140px] px-2 py-1.5 text-slate-700">{u.description || "—"}</td>
-                                    <td className="px-2 py-1.5 text-right font-mono">{formatAmount(u.amount)}</td>
+                                    <td className="px-2 py-1.5 text-right font-mono text-slate-700">{formatAmount(u.amount)}</td>
                                     <td className="px-1 py-1">
                                       <Input
-                                        className="h-8 text-xs"
+                                        className="h-9 rounded-xl border-slate-200/80 bg-white text-xs shadow-sm placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-[#E0742D]/25"
                                         value={d.linkCode}
                                         onChange={(e) =>
                                           updateNewAccountDraft(u.account_number, { linkCode: e.target.value })
@@ -883,7 +987,7 @@ export default function TrialBalancePage() {
                                     </td>
                                     <td className="px-1 py-1">
                                       <Input
-                                        className="h-8 text-xs"
+                                        className="h-9 rounded-xl border-slate-200/80 bg-white text-xs shadow-sm placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-[#E0742D]/25"
                                         value={d.divisions}
                                         onChange={(e) =>
                                           updateNewAccountDraft(u.account_number, { divisions: e.target.value })
@@ -892,7 +996,7 @@ export default function TrialBalancePage() {
                                     </td>
                                     <td className="px-1 py-1">
                                       <Input
-                                        className="h-8 text-xs"
+                                        className="h-9 rounded-xl border-slate-200/80 bg-white text-xs shadow-sm placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-[#E0742D]/25"
                                         value={d.subDivisions}
                                         onChange={(e) =>
                                           updateNewAccountDraft(u.account_number, { subDivisions: e.target.value })
@@ -902,7 +1006,7 @@ export default function TrialBalancePage() {
                                     <td className="px-1 py-1 text-center">
                                       <input
                                         type="checkbox"
-                                        className="h-4 w-4 rounded border-slate-300 text-emerald-500"
+                                        className="h-4 w-4 rounded border-slate-300 text-[#E0742D] focus:ring-[#E0742D]/30"
                                         checked={d.interests}
                                         onChange={(e) =>
                                           updateNewAccountDraft(u.account_number, { interests: e.target.checked })
@@ -912,7 +1016,7 @@ export default function TrialBalancePage() {
                                     <td className="px-1 py-1 text-center">
                                       <input
                                         type="checkbox"
-                                        className="h-4 w-4 rounded border-slate-300 text-emerald-500"
+                                        className="h-4 w-4 rounded border-slate-300 text-[#E0742D] focus:ring-[#E0742D]/30"
                                         checked={d.amortization}
                                         onChange={(e) =>
                                           updateNewAccountDraft(u.account_number, { amortization: e.target.checked })
@@ -922,7 +1026,7 @@ export default function TrialBalancePage() {
                                     <td className="px-1 py-1 text-center">
                                       <input
                                         type="checkbox"
-                                        className="h-4 w-4 rounded border-slate-300 text-emerald-500"
+                                        className="h-4 w-4 rounded border-slate-300 text-[#E0742D] focus:ring-[#E0742D]/30"
                                         checked={d.variableCosts}
                                         onChange={(e) =>
                                           updateNewAccountDraft(u.account_number, { variableCosts: e.target.checked })
@@ -932,7 +1036,7 @@ export default function TrialBalancePage() {
                                     <td className="px-1 py-1 text-center">
                                       <input
                                         type="checkbox"
-                                        className="h-4 w-4 rounded border-slate-300 text-emerald-500"
+                                        className="h-4 w-4 rounded border-slate-300 text-[#E0742D] focus:ring-[#E0742D]/30"
                                         checked={d.fixedCosts}
                                         onChange={(e) =>
                                           updateNewAccountDraft(u.account_number, { fixedCosts: e.target.checked })
@@ -946,7 +1050,7 @@ export default function TrialBalancePage() {
                                           updateNewAccountDraft(u.account_number, { intercoCompanyId: v })
                                         }
                                       >
-                                        <SelectTrigger className="h-8 w-[7.5rem] text-xs">
+                                        <SelectTrigger className="h-9 w-[7.5rem] rounded-xl border-slate-200/80 bg-white text-xs shadow-sm hover:bg-slate-50 focus:ring-2 focus:ring-[#E0742D]/25">
                                           <SelectValue placeholder="—" />
                                         </SelectTrigger>
                                         <SelectContent>
@@ -959,6 +1063,19 @@ export default function TrialBalancePage() {
                                         </SelectContent>
                                       </Select>
                                     </td>
+                                    <td className="px-2 py-1 text-right">
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => ignoreUnknownAccount(u.account_number)}
+                                        className="h-8 rounded-xl px-2 text-xs font-semibold text-slate-600 hover:bg-red-50 hover:text-red-700"
+                                        title="Ignorer ce compte (n’empêchera pas l’import)"
+                                      >
+                                        <Trash2 className="mr-1 h-3.5 w-3.5" />
+                                        Ignorer
+                                      </Button>
+                                    </td>
                                   </tr>
                                 )
                               })}
@@ -968,7 +1085,7 @@ export default function TrialBalancePage() {
                       </div>
                     )}
                   </div>
-                  <div className="flex shrink-0 flex-wrap justify-between gap-3 border-t border-slate-200 px-6 py-4">
+                  <div className="flex shrink-0 flex-wrap justify-between gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-4">
                     <Button
                       type="button"
                       variant="outline"
@@ -977,18 +1094,23 @@ export default function TrialBalancePage() {
                         setPreview(null)
                         setNewAccountDrafts({})
                       }}
+                      className="h-11 rounded-xl border-slate-200 bg-white px-5 text-slate-700 shadow-sm hover:bg-slate-50"
                     >
                       Retour
                     </Button>
                     <div className="flex gap-3">
-                      <Button variant="outline" onClick={resetImportModal}>
+                      <Button
+                        variant="outline"
+                        onClick={resetImportModal}
+                        className="h-11 rounded-xl border-slate-200 bg-white px-5 text-slate-700 shadow-sm hover:bg-slate-50"
+                      >
                         Annuler
                       </Button>
                       <Button
                         type="button"
                         onClick={() => void handleFinalImport()}
                         disabled={!canFinalizeImport || importing}
-                        className="bg-emerald-500 text-white hover:bg-emerald-600"
+                        className="h-11 rounded-xl bg-[#E0742D] px-6 font-semibold text-white shadow-sm transition-colors hover:bg-[#c96526] disabled:pointer-events-none disabled:opacity-40"
                       >
                         {importing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                         Importer

@@ -110,3 +110,26 @@ class CompanyListResponse(BaseModel):
     limit: int | None = None
     offset: int | None = None
     has_more: bool | None = None
+
+
+# --- Mon portail : résumé société (liste + panneau détail) ---
+
+
+class TrialBalanceLastPeriod(BaseModel):
+    fiscal_year: int
+    month: int
+
+
+class NoteLastActivity(BaseModel):
+    updated_at: datetime
+    created_by_name: str
+    row_label: str
+    page: str
+
+
+class CompanyPortalSummaryResponse(BaseModel):
+    fiscal_year_end: str
+    currency: str
+    company_updated_at: datetime
+    trial_balance_last_period: TrialBalanceLastPeriod | None
+    note_last_activity: NoteLastActivity | None

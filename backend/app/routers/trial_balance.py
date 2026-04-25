@@ -413,6 +413,10 @@ async def upload_trial_balance(
     file: UploadFile = File(...),
     fiscal_year: int = Query(default=None),
     month: int = Query(default=1, ge=1, le=12),
+    ignored_accounts: list[str] | None = Query(
+        default=None,
+        description="Liste de # de compte à ignorer lors de l'import (ex. comptes absents du mapping à 0$).",
+    ),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -428,6 +432,12 @@ async def upload_trial_balance(
         parsed_rows, amount_sum = _parse_trial_balance_file(content, file.filename)
     except Exception:
         raise HTTPException(status_code=400, detail="Fichier invalide ou illisible.")
+
+    ignored_set = {str(x).strip() for x in (ignored_accounts or []) if str(x).strip()}
+    if ignored_set:
+        # Exclure les comptes ignorés du fichier pour la validation et l'import.
+        parsed_rows = [(acc, desc, amt) for (acc, desc, amt) in parsed_rows if acc.strip() not in ignored_set]
+        amount_sum = sum((amt for (_acc, _desc, amt) in parsed_rows), 0.0)
 
     if abs(amount_sum) > BALANCE_SUM_TOLERANCE:
         raise HTTPException(

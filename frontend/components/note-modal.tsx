@@ -26,6 +26,9 @@ interface NoteModalProps {
   priorAmount?: number | null
   variationPercent?: number | null
   variationAmount?: number | null
+  /** Si connus (ex. note existante), enregistrés à la création / mise à jour */
+  referenceMonth?: number | null
+  referenceYear?: number | null
   onSave?: () => void
 }
 
@@ -47,6 +50,8 @@ export function NoteModal({
   priorAmount,
   variationPercent,
   variationAmount,
+  referenceMonth,
+  referenceYear,
   onSave,
 }: NoteModalProps) {
   const [content, setContent] = useState("")
@@ -75,6 +80,15 @@ export function NoteModal({
     setIsSaving(true)
 
     try {
+      const refFromExisting =
+        existingNote?.referenceMonth != null && existingNote?.referenceYear != null
+          ? { referenceMonth: existingNote.referenceMonth, referenceYear: existingNote.referenceYear }
+          : {}
+      const refFromProps =
+        referenceMonth != null && referenceYear != null
+          ? { referenceMonth, referenceYear }
+          : {}
+      const refPayload = Object.keys(refFromExisting).length ? refFromExisting : refFromProps
       if (existingNote) {
         await updateNote(existingNote.id, {
           content: content.trim(),
@@ -82,6 +96,8 @@ export function NoteModal({
           priorAmount: existingNote.priorAmount ?? priorAmount,
           variationPercent: existingNote.variationPercent ?? variationPercent,
           variationAmount: existingNote.variationAmount ?? variationAmount,
+          attachments: existingNote.attachments,
+          ...refPayload,
         }, companyId)
       } else {
         await saveNote({
@@ -101,6 +117,8 @@ export function NoteModal({
           variationPercent,
           variationAmount,
           content: content.trim(),
+          attachments: [],
+          ...refPayload,
         })
       }
 

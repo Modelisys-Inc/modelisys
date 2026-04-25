@@ -21,6 +21,7 @@ import {
   type FinancialStatementRow,
   type FinancialStatementParams,
 } from "@/lib/api"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
@@ -38,7 +39,7 @@ export default function CashFlowPage() {
   const { companies } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("comparison")
-  const [section, setSection] = useState<Section>("summary")
+  const [section, setSection] = useState<Section>("dashboard")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
@@ -60,7 +61,7 @@ export default function CashFlowPage() {
   }, [companyIdFromUrl, searchParams])
   const lockedCompanyId = companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
 
-  const { selectedMonth, selectedYear } = useFinancialStatementReferenceDate()
+  const { selectedMonth, selectedYear } = useFinancialStatementReferenceDate({ skipUrlSync: true })
 
   // Load budgets from API
   const [budgets, setBudgets] = useState<Array<{ id: string; name: string }>>([])
@@ -321,10 +322,10 @@ export default function CashFlowPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="courant">Courant</SelectItem>
-                      <SelectItem value="12mois">12 mois</SelectItem>
-                      <SelectItem value="trimestres">Trimestres</SelectItem>
-                      <SelectItem value="annees">Années</SelectItem>
+                      <SelectItem value="courant">{HORIZON_LABEL.moisActuel}</SelectItem>
+                      <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
+                      <SelectItem value="trimestres">{HORIZON_LABEL.trimestriel2Ans}</SelectItem>
+                      <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
                     </SelectContent>
                   </Select>
                   {(view === "comparison" || view === "ytd" || view === "ddm") && (

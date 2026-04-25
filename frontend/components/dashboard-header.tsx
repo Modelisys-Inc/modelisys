@@ -18,11 +18,11 @@ interface DashboardHeaderProps {
 
 const defaultNavigationItems = [
   { label: "Tableau de bord", href: "/dashboard" },
-  { label: "États financiers", href: "/financial-statements/income-statement" },
+  { label: "Reporting financier", href: "/financial-statements/income-statement" },
   { label: "Analyse", href: "/analysis/working-capital" },
   { label: "Projections", href: "/projections/pro-forma" },
-  { label: "Évaluation", href: "/evaluation/business-model" },
-  { label: "Fin d'année CPA", href: "/year-end-cpa" },
+  { label: "Valorisation", href: "/evaluation/business-model" },
+  { label: "Documentation", href: "/year-end-cpa" },
   { label: "Configuration", href: "/settings/companies" },
 ]
 
@@ -196,18 +196,18 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
                 isActive = pathname?.startsWith("/contact") || false
               } else if (item.label === "Configuration") {
                 isActive = pathname?.startsWith("/settings/companies") || false
-              } else if (item.label === "États financiers") {
+              } else if (item.label === "Reporting financier") {
                 isActive = pathname?.startsWith("/financial-statements") || false
               } else if (item.label === "Analyse") {
                 isActive = pathname?.startsWith("/analysis") || false
               } else if (item.label === "Projections") {
                 isActive = pathname?.startsWith("/projections") || false
-              } else if (item.label === "Évaluation") {
+              } else if (item.label === "Valorisation") {
                 isActive = pathname?.startsWith("/evaluation") || false
               } else {
                 isActive = pathname?.startsWith(itemPath) || false
               }
-              const isLastBeforeConfig = isPortalHeader ? item.label === "Ressources" : item.label === "Fin d'année CPA"
+              const isLastBeforeConfig = isPortalHeader ? item.label === "Ressources" : item.label === "Documentation"
               return (
                 <Fragment key={item.href}>
                   <Link

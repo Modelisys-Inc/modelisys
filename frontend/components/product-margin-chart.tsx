@@ -7,6 +7,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend } from "
 import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ChevronDown, TrendingUp, TrendingDown } from "lucide-react"
+import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 
 export type ProductType = "total" | "product_a" | "product_b" | "service_c"
 
@@ -88,18 +89,7 @@ export function ProductMarginChart({
     ? ((chartDataPoints[chartDataPoints.length - 1].revenue - chartDataPoints[chartDataPoints.length - 2].revenue) / chartDataPoints[chartDataPoints.length - 2].revenue) * 100
     : 0
 
-  // Helper function to get horizon text
-  const getHorizonText = (): string => {
-    if (view === "comparison" && period === "monthly") return "Courant"
-    if (view === "comparison" && period === "quarterly") return "Trimestriel"
-    if (view === "comparison" && period === "annual") return "Annuel"
-    if (view === "ytd") return "YTD"
-    if (view === "ddm") return "DDM"
-    if (view === "12months") return "12 mois"
-    if (view === "quarters") return "Trimestres"
-    if (view === "years") return "Années"
-    return "Courant"
-  }
+  const getHorizonText = (): string => getHorizonModeLabel(view, period)
 
   const chartConfig = {
     revenue: {

@@ -30,6 +30,7 @@ class FinancialStatementRow(BaseModel):
     detailOnly: bool | None = None
     indent: bool | None = None
     separatorAbove: bool | None = None
+    hasLiaisonCode: bool | None = None
 
 
 class FinancialStatementResponse(BaseModel):
@@ -71,6 +72,8 @@ class SeriesDetailRow(BaseModel):
 class SeriesRow(BaseModel):
     id: str
     label: str
+    # Code de liaison Sommaire (ex. « 20 »), distinct de l’identifiant technique id
+    linkCode: str | None = None
     isBold: bool = False
     isSection: bool = False
     isResult: bool = False
@@ -80,6 +83,7 @@ class SeriesRow(BaseModel):
     detailOnly: bool | None = None
     indent: bool | None = None
     separatorAbove: bool | None = None
+    hasLiaisonCode: bool | None = None
 
 
 class FinancialStatementSeriesResponse(BaseModel):

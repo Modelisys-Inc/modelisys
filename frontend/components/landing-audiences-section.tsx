@@ -9,7 +9,7 @@ type AudienceId = (typeof AUDIENCE_ORDER)[number]
 
 const audienceLabels: Record<AudienceId, string> = {
   entreprises: "Entreprises",
-  conseils: "Partenaires conseils",
+  conseils: "Partenaires comptables",
   financiers: "Partenaires financiers",
 }
 
@@ -102,88 +102,151 @@ export function LandingAudiencesSection() {
 
   return (
     <section id="pour-qui" ref={sectionRef} className="relative scroll-mt-24 z-10 overflow-hidden">
-      <div className="absolute inset-0">
-        <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
-          <div className="relative bg-[#2A2F3A]">
-            <div
-              className="pointer-events-none absolute inset-0 opacity-[0.45]"
-              aria-hidden
-              style={{
-                backgroundImage: `linear-gradient(rgb(255 255 255 / 0.055) 1px, transparent 1px),
-                  linear-gradient(90deg, rgb(255 255 255 / 0.055) 1px, transparent 1px)`,
-                backgroundSize: "44px 44px",
-              }}
-            />
-          </div>
-          <div className="relative bg-[#1F2430]">
-            <div
-              className="pointer-events-none absolute inset-0 opacity-[0.4]"
-              aria-hidden
-              style={{
-                backgroundImage: `linear-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px),
-                  linear-gradient(90deg, rgb(255 255 255 / 0.05) 1px, transparent 1px)`,
-                backgroundSize: "44px 44px",
-              }}
-            />
-          </div>
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-3">
+          <div className="bg-[#2A2F3A]" />
+          <div className="bg-[#262B36] lg:border-x lg:border-white/5" />
+          <div className="bg-[#1F2430]" />
         </div>
-        <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
-          <div className="absolute -bottom-20 -right-28 h-[480px] w-[480px] rounded-full bg-black/25 blur-3xl" />
-          <div className="absolute top-1/2 left-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#E6D6C3]/[0.04] blur-3xl" />
+          <div className="absolute -top-24 -left-28 h-[520px] w-[520px] rounded-full bg-white/5 blur-3xl" />
+          <div className="absolute -bottom-28 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
         </div>
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1920px] px-8 pb-8 pt-10 sm:px-12 sm:pb-12 sm:pt-14 lg:px-16 xl:px-20">
+      <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-14 xl:px-20 2xl:px-24 pointer-events-auto">
         <div
-          className={`mb-12 transition-all duration-1000 sm:mb-16 ${
+          className={`pt-10 pb-10 sm:pt-14 sm:pb-12 lg:pt-16 lg:pb-14 transition-all duration-1000 ${
             isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          <p className="mb-3 text-sm font-semibold tracking-wide text-slate-200">Pour qui</p>
-          <h2 className="max-w-3xl text-3xl font-semibold tracking-tight text-[#E6D6C3] sm:text-4xl md:text-[2.5rem] md:leading-tight">
+          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.22em] text-slate-300/95">Pour qui</p>
+          <h2 className="mt-5 max-w-3xl text-3xl font-semibold tracking-tight text-[#E6D6C3] sm:text-4xl md:text-[2.5rem] md:leading-tight">
             Une plateforme pensée pour{" "}
             <span className="text-[#C9B8A5]/95">tous les acteurs</span> autour de la finance d’entreprise
           </h2>
-          <p className="mt-4 max-w-2xl text-base leading-relaxed text-[#C9B8A5]/80 sm:text-lg">
+          <p className="mt-4 max-w-2xl text-base leading-[1.65] text-[#C9B8A5]/85 sm:text-lg">
             Modelisys s’adresse à trois familles d’utilisateurs qui partagent le besoin de chiffres fiables,
             structurés et exploitables ensemble.
           </p>
-          <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/80 via-white/15 to-transparent" />
         </div>
 
         <div
-          className={`grid grid-cols-1 items-start gap-12 lg:grid-cols-2 lg:gap-16 lg:items-center transition-all duration-1000 delay-150 ${
+          className={`flex flex-col gap-12 sm:gap-14 lg:grid lg:grid-cols-3 lg:gap-8 xl:gap-12 2xl:gap-14 lg:items-stretch pb-12 sm:pb-14 lg:pb-16 transition-all duration-1000 delay-150 ${
             isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          {/* Carte liste — même principe que la carte Fonctionnalités du hero */}
-          <div className="flex w-full justify-center">
-            <div className="relative w-full max-w-[320px] sm:max-w-[340px]">
-              <div className="absolute inset-0 -z-20 rounded-[44px] bg-black/45 blur-2xl" />
+          {/* Colonne 1 — texte profil (desktop ; masqué sur mobile pour alléger) */}
+          <div className="order-1 hidden lg:col-start-1 lg:row-start-1 lg:block lg:order-none lg:pr-2 xl:pr-6 2xl:pr-8">
+            <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.22em] text-slate-300/95">
+              Profil sélectionné
+            </p>
+            <h3 className="mt-6 text-2xl font-semibold leading-snug tracking-tight text-[#E6D6C3] sm:text-[1.65rem]">
+              {audienceLabels[activeAudience]}
+            </h3>
+            <p className="mt-4 max-w-[28rem] text-sm sm:text-[15px] leading-[1.65] text-[#C9B8A5]/85">
+              {active.description}
+            </p>
+            <div className="mt-9">
+              {active.ctaKind === "hash" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    document.getElementById(active.ctaTarget)?.scrollIntoView({ behavior: "smooth" })
+                  }}
+                  className="group inline-flex items-center gap-2.5 rounded-lg px-1 py-1.5 -mx-1 text-xs font-semibold tracking-wide text-slate-100 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
+                >
+                  {AUDIENCE_CTA_LABEL}
+                  <ArrowRight className="h-4 w-4 shrink-0 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+                </button>
+              ) : (
+                <Link
+                  href={active.ctaTarget}
+                  className="group inline-flex items-center gap-2.5 rounded-lg px-1 py-1.5 -mx-1 text-xs font-semibold tracking-wide text-slate-100 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
+                >
+                  {AUDIENCE_CTA_LABEL}
+                  <ArrowRight className="h-4 w-4 shrink-0 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              )}
+            </div>
+          </div>
 
-              <div className="absolute inset-0 -z-10 rounded-[44px] p-[1px] wow-border">
-                <div className="h-full w-full rounded-[43px] bg-[#141823]" />
+          {/* Colonne 3 — détail + Acteurs (DOM avant carte pour grille lg; order mobile 3) */}
+          <div
+            className="order-3 lg:order-none lg:col-start-3 lg:row-start-1 relative lg:pl-2 xl:pl-6 2xl:pl-8"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <div className="absolute -top-6 right-0 hidden xl:block text-[52px] xl:text-[64px] font-semibold tracking-tight text-white/[0.04] select-none pointer-events-none">
+              modelisys<span className="text-[#E0742D]/25">.</span>
+            </div>
+
+            <div className="max-w-md mx-auto lg:mx-0 lg:max-w-none lg:w-full">
+              <div className="hidden items-center justify-end pb-4 lg:flex">
+                <button
+                  type="button"
+                  onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}
+                  className="group inline-flex items-center gap-3 rounded-md px-1 py-1 text-[11px] font-semibold tracking-[0.12em] text-slate-200 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/45"
+                >
+                  FONCTIONNALITÉS
+                  <span className="relative h-px w-12 bg-[#E0742D]/75 transition group-hover:w-14 group-hover:bg-[#E0742D]" />
+                </button>
               </div>
 
-              <div className="relative overflow-hidden rounded-[42px] border-2 border-[#E6D6C3]/55 bg-[#141823] shadow-2xl">
+              <p className="mt-6 text-sm leading-[1.65] text-[#C9B8A5]/85 lg:mt-0 lg:hidden">{active.description}</p>
+
+              <h3 className="mt-6 text-base font-semibold leading-snug tracking-tight text-[#E6D6C3] sm:text-[17px] lg:mt-10">
+                {active.title}
+              </h3>
+
+              <div className="mt-8 rounded-2xl border border-white/[0.09] bg-white/[0.035] p-4 sm:p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#E6D6C3]/95">Acteurs</p>
+                <ul className="mt-4 space-y-0 text-xs leading-snug text-[#C9B8A5]/85">
+                  {active.acteurs.map((acteur, i) => (
+                    <li
+                      key={acteur}
+                      className={`flex items-center gap-3 py-2.5 ${
+                        i < active.acteurs.length - 1 ? "border-b border-white/[0.06]" : ""
+                      }`}
+                    >
+                      <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                        <span className="absolute h-2 w-2 rounded-full bg-[#E6B08C]" />
+                        <span className="absolute h-5 w-5 rounded-full border border-white/10 bg-white/[0.02]" />
+                      </span>
+                      <span className="font-medium tracking-wide text-[#E6D6C3]/95">{acteur}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Colonne 2 — carte Profils (alignée carte Fonctionnalités du hero) */}
+          <div className="order-2 lg:order-none lg:col-start-2 lg:row-start-1 flex w-full justify-center lg:justify-self-center lg:self-start lg:px-2 xl:px-3">
+            <div className="relative flex w-full max-w-[280px] sm:max-w-[300px] md:max-w-[320px] h-auto min-h-0 lg:max-w-[min(100%,340px)] xl:max-w-[360px] flex-col">
+              <div className="pointer-events-none absolute inset-0 -z-20 rounded-[40px] sm:rounded-[44px] bg-black/50 blur-2xl scale-[1.02]" />
+
+              <div className="pointer-events-none absolute inset-0 -z-10 rounded-[40px] sm:rounded-[44px] p-px wow-border">
+                <div className="h-full w-full rounded-[39px] sm:rounded-[43px] bg-[#141823]" />
+              </div>
+
+              <div className="relative flex h-auto min-h-0 flex-col overflow-hidden rounded-[38px] sm:rounded-[42px] border border-[#E6D6C3]/45 bg-[#141823] shadow-[0_24px_64px_-16px_rgba(0,0,0,0.55),0_0_0_1px_rgba(230,214,195,0.12)_inset]">
                 <div className="pointer-events-none absolute inset-0 opacity-70 wow-shimmer" />
                 <div className="pointer-events-none absolute inset-0 opacity-[0.10] mix-blend-overlay wow-noise" />
-                <div className="pointer-events-none absolute inset-0 rounded-[42px] ring-1 ring-[#E6D6C3]/30" />
-                <div className="pointer-events-none absolute inset-0 rounded-[42px] ring-1 ring-[#E6B08C]/15" />
-                <div className="pointer-events-none absolute inset-0 rounded-[42px] bg-gradient-to-br from-[#E6D6C3]/10 via-transparent to-[#E6B08C]/12" />
+                <div className="pointer-events-none absolute inset-0 rounded-[38px] sm:rounded-[42px] ring-1 ring-[#E6D6C3]/25" />
+                <div className="pointer-events-none absolute inset-0 rounded-[38px] sm:rounded-[42px] ring-1 ring-[#E6B08C]/12" />
+                <div className="pointer-events-none absolute inset-0 rounded-[38px] sm:rounded-[42px] bg-gradient-to-br from-[#E6D6C3]/10 via-transparent to-[#E6B08C]/10" />
 
-                <div className="px-5 py-6">
-                  <div className="text-center">
-                    <p className="text-xs font-semibold tracking-wide text-[#E6D6C3]/95">Profils</p>
-                    <p className="mt-1 text-[10px] text-[#C9B8A5]/70">Qui utilise Modelisys.</p>
+                <div className="flex flex-col px-5 py-5 sm:px-6 sm:py-7 lg:py-7">
+                  <div className="shrink-0 text-center">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E6D6C3]/95">Profils</p>
+                    <p className="mt-2 text-[10px] sm:text-[11px] leading-snug text-[#C9B8A5]/72">Qui utilise Modelisys.</p>
                   </div>
 
-                  <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.035] p-3">
-                    <div className="relative min-h-[168px]">
-                      <div className="pointer-events-none absolute left-[18px] top-2 bottom-2 w-px bg-gradient-to-b from-[#E6D6C3]/35 via-white/10 to-[#E6B08C]/30" />
-                      <ul className="flex flex-col gap-2 py-1">
+                  <div className="mt-4 sm:mt-5 rounded-2xl border border-white/[0.09] bg-white/[0.035] p-3 sm:p-4 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]">
+                    <div className="relative">
+                      <div className="pointer-events-none absolute left-[19px] top-2 bottom-2 w-px bg-gradient-to-b from-[#E6D6C3]/30 via-white/[0.08] to-[#E6B08C]/28" />
+                      <ul className="flex flex-col gap-1.5 py-0.5 sm:gap-2">
                         {AUDIENCE_ORDER.map((id) => {
                           const isActive = activeAudience === id
                           return (
@@ -191,12 +254,14 @@ export function LandingAudiencesSection() {
                               <button
                                 type="button"
                                 onClick={() => setActiveAudience(id)}
-                                className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition ${
-                                  isActive ? "border border-white/10 bg-white/[0.06]" : "hover:bg-white/[0.03]"
+                                className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition sm:py-2.5 ${
+                                  isActive
+                                    ? "border border-white/[0.12] bg-white/[0.07] shadow-sm"
+                                    : "border border-transparent hover:bg-white/[0.04]"
                                 }`}
                                 aria-pressed={isActive}
                               >
-                                <span className="relative inline-flex h-5 w-5 flex-shrink-0 items-center justify-center">
+                                <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">
                                   <span
                                     className={`absolute h-2 w-2 rounded-full ${
                                       isActive ? "bg-[#E0742D]" : "bg-[#E6D6C3]/80"
@@ -219,64 +284,6 @@ export function LandingAudiencesSection() {
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Panneau droit — centré dans le split droit */}
-          <div className="relative flex w-full justify-center lg:min-h-[320px]">
-            <div
-              className="w-full max-w-md"
-              aria-live="polite"
-              aria-atomic="true"
-            >
-              <h2 className="text-lg font-semibold tracking-tight text-[#E6D6C3] sm:text-xl lg:mt-4">
-                {audienceLabels[activeAudience]}
-              </h2>
-              <h3 className="mt-3 text-sm font-semibold text-[#E6D6C3]">{active.title}</h3>
-              <p className="mt-2 text-xs leading-relaxed text-[#C9B8A5]/75">{active.description}</p>
-
-              <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-[#C9B8A5]/70">
-                  Acteurs
-                </p>
-                <ul className="mt-3 space-y-2.5">
-                  {active.acteurs.map((acteur) => (
-                    <li
-                      key={acteur}
-                      className="flex items-center gap-3 text-[11px] font-medium tracking-wide text-[#E6D6C3]/95"
-                    >
-                      <span className="relative inline-flex h-5 w-5 flex-shrink-0 items-center justify-center">
-                        <span className="absolute h-2 w-2 rounded-full bg-[#E6B08C]" />
-                        <span className="absolute h-5 w-5 rounded-full border border-white/10 bg-white/[0.02]" />
-                      </span>
-                      {acteur}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="mt-6">
-                {active.ctaKind === "hash" ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      document.getElementById(active.ctaTarget)?.scrollIntoView({ behavior: "smooth" })
-                    }}
-                    className="group inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
-                  >
-                    {AUDIENCE_CTA_LABEL}
-                    <ArrowRight className="h-4 w-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                ) : (
-                  <Link
-                    href={active.ctaTarget}
-                    className="group inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
-                  >
-                    {AUDIENCE_CTA_LABEL}
-                    <ArrowRight className="h-4 w-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
-                  </Link>
-                )}
               </div>
             </div>
           </div>

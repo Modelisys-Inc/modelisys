@@ -1,3 +1,4 @@
+import base64
 import uuid
 
 
@@ -149,8 +150,10 @@ def test_create_note(client, auth_headers):
     assert note["prior_amount"] == 8000.0
     assert note["variation_percent"] == 25.0
     assert note["variation_amount"] == 2000.0
+    assert note.get("attachments") == []
     assert "id" in note
     assert "created_by_id" in note
+    assert note.get("created_by_name") == "Test User"
 
 
 def test_create_note_minimal(client, auth_headers):
@@ -172,6 +175,39 @@ def test_create_note_minimal(client, auth_headers):
     data = response.json()
     assert data["current_amount"] is None
     assert data["prior_amount"] is None
+    assert data.get("attachments") == []
+
+
+def test_create_note_with_attachment(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    raw = b"fake pdf bytes"
+    b64 = base64.b64encode(raw).decode("ascii")
+    response = client.post(
+        f"/api/companies/{company_id}/notes",
+        json={
+            "row_id": "REV-002",
+            "row_label": "Revenus",
+            "page": "income-statement",
+            "period": "monthly",
+            "view": "comparison",
+            "content": "Note avec pièce jointe.",
+            "attachments": [
+                {
+                    "filename": "justificatif.pdf",
+                    "media_type": "application/pdf",
+                    "data": b64,
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    note = response.json()
+    assert len(note["attachments"]) == 1
+    att = note["attachments"][0]
+    assert att["filename"] == "justificatif.pdf"
+    assert att["media_type"] == "application/pdf"
+    assert base64.b64decode(att["data"]) == raw
 
 
 # --- Update note ---
@@ -191,6 +227,32 @@ def test_update_note_content(client, auth_headers):
     assert response.json()["content"] == "Updated content."
     # Other fields should remain unchanged
     assert response.json()["row_id"] == "REV-001"
+    assert response.json().get("attachments") == []
+
+
+def test_update_note_attachments(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    note = _create_note(client, auth_headers, company_id)
+    note_id = note["id"]
+    raw = b"x"
+    b64 = base64.b64encode(raw).decode("ascii")
+
+    response = client.patch(
+        f"/api/companies/{company_id}/notes/{note_id}",
+        json={
+            "attachments": [
+                {
+                    "filename": "doc.txt",
+                    "media_type": "text/plain",
+                    "data": b64,
+                }
+            ]
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert len(response.json()["attachments"]) == 1
+    assert response.json()["attachments"][0]["filename"] == "doc.txt"
 
 
 def test_update_note_amounts(client, auth_headers):

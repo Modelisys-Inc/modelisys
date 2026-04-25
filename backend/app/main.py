@@ -3,8 +3,10 @@ from contextlib import asynccontextmanager
 
 import sentry_sdk
 from fastapi import FastAPI, Request
+from fastapi.exceptions import ResponseValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import ProgrammingError
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -109,6 +111,42 @@ Obtain a token via `/api/auth/login` and include it in the Authorization header.
 # Rate limiting
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(ProgrammingError)
+async def sqlalchemy_programming_error_handler(request: Request, exc: ProgrammingError):
+    """Colonne manquante (souvent migration non appliquée) ou erreur SQL côté schéma."""
+    logger.exception("SQLAlchemy ProgrammingError on %s %s", request.method, request.url.path)
+    msg = str(exc).lower()
+    if "attachments" in msg and "does not exist" in msg:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": (
+                    "La base de données n’est pas à jour : colonne « attachments » absente. "
+                    "Exécutez les migrations sur le serveur API : alembic upgrade head "
+                    "(ou redémarrez le conteneur backend qui applique les migrations au démarrage)."
+                )
+            },
+        )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Erreur de schéma base de données. Vérifiez que les migrations Alembic sont appliquées."},
+    )
+
+
+@app.exception_handler(ResponseValidationError)
+async def response_validation_error_handler(request: Request, exc: ResponseValidationError):
+    logger.exception(
+        "Response validation failed on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc.errors(),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Réponse API invalide (sérialisation). Vérifiez les logs serveur."},
+    )
 
 # Security headers (added first, executes last)
 app.add_middleware(SecurityHeadersMiddleware)

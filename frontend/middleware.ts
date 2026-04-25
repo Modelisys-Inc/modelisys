@@ -1,21 +1,6 @@
 import { NextResponse } from "next/server"
 import type { NextRequest } from "next/server"
-
-const PUBLIC_PATHS = [
-  "/login",
-  "/privacy",
-  "/clause-de-non-responsabilite",
-  "/blog",
-  "/contact",
-  "/cabinets-comptables",
-  "/partenaires-financiers",
-  "/partenaires-institutionnels",
-  "/partenaires-capital",
-]
-
-function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))
-}
+import { isPublicPath } from "@/lib/public-paths"
 
 export function middleware(request: NextRequest) {
   const host = request.headers.get("host") || ""
@@ -29,11 +14,6 @@ export function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
   const hasSession = request.cookies.get("has_session")?.value === "1"
-
-  // Allow the root landing page
-  if (pathname === "/") {
-    return NextResponse.next()
-  }
 
   // Redirect unauthenticated users to login
   if (!hasSession && !isPublicPath(pathname)) {

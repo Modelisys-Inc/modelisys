@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Filter, Calendar, TrendingUp, TrendingDown, ChevronRight } from "lucide-react"
+import { Filter, Calendar, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
@@ -16,16 +16,16 @@ import { useFinancialStatementReferenceDate } from "@/hooks/use-financial-statem
 import {
   listBudgets,
   listCompanies,
-  listNotes,
   getBalanceSheet,
   type BudgetData,
   type FinancialStatementRow,
   type FinancialStatementParams,
 } from "@/lib/api"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
-type Section = "summary" | "detail"
+type Section = "dashboard" | "summary" | "detail"
 type ColumnMode = "variations" | "percentage" | "comparison"
 type ComparisonType = "lastMonth" | "pastMonth" | "budget"
 
@@ -39,7 +39,7 @@ export default function BalanceSheetPage() {
   const { companies } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("comparison")
-  const [section, setSection] = useState<Section>("summary")
+  const [section, setSection] = useState<Section>("dashboard")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
@@ -61,7 +61,7 @@ export default function BalanceSheetPage() {
   }, [companyIdFromUrl, searchParams])
   const lockedCompanyId = companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
 
-  const { selectedMonth, selectedYear } = useFinancialStatementReferenceDate()
+  const { selectedMonth, selectedYear } = useFinancialStatementReferenceDate({ skipUrlSync: true })
 
   // Load budgets from API
   const [budgets, setBudgets] = useState<Array<{ id: string; name: string }>>([])
@@ -89,18 +89,21 @@ export default function BalanceSheetPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Auto-switch comparison type when horizon doesn't support "lastMonth"
+  // Guard against removed horizons lingering in state/URL.
   useEffect(() => {
-    const isAnnualYTDorDDM = view === "ytd" || view === "ddm" || (view === "comparison" && period === "annual")
-    if (isAnnualYTDorDDM && comparisonType === "lastMonth") {
-      setComparisonType("pastMonth")
+    if (view === "ytd" || view === "ddm" || (view === "comparison" && period === "annual")) {
+      setPeriod("monthly")
+      setView("comparison")
+      setColumnMode("variations")
     }
-  }, [view, period, comparisonType])
+  }, [view, period])
 
   // --- Fetch financial statement data from the API ---
   const [rows, setRows] = useState<FinancialStatementRow[]>([])
   const [loading, setLoading] = useState(false)
   const [resolvedCompanyId, setResolvedCompanyId] = useState<string | null>(null)
+  /** Incrémenté après sauvegarde de la structure (Paramètres) pour relancer le fetch. */
+  const [structureVersion, setStructureVersion] = useState(0)
 
   useEffect(() => {
     if (lockedCompanyId && selectedCompanyId !== lockedCompanyId) {
@@ -139,6 +142,7 @@ export default function BalanceSheetPage() {
           budget_id: comparisonType === "budget" && selectedBudgetId ? selectedBudgetId : undefined,
           division_id: selectedDivisionId || undefined,
           sub_division_id: selectedSubDivisionId || undefined,
+          structure_rev: structureVersion > 0 ? structureVersion : undefined,
         }
 
         const response = await getBalanceSheet(companyId, params)
@@ -151,47 +155,23 @@ export default function BalanceSheetPage() {
       }
     }
     fetchData()
-  }, [lockedCompanyId, selectedCompanyId, selectedYear, selectedMonth, period, view, comparisonType, selectedBudgetId, selectedDivisionId, selectedSubDivisionId])
-
-  // --- Compute top 3 variations from fetched rows ---
-  const topVariations = useMemo(() => {
-    if (rows.length === 0) return []
-    // Filter rows that have meaningful variation and are not empty/section-only
-    const withVariation = rows
-      .filter((r) => r.label && r.current !== 0 && r.prior !== 0 && !r.isSection)
-      .map((r) => ({
-        label: r.label,
-        variation: r.variation,
-        variationAmount: r.variationAmount,
-      }))
-      .sort((a, b) => Math.abs(b.variation) - Math.abs(a.variation))
-    return withVariation.slice(0, 3)
-  }, [rows])
-
-  // --- Count notes from the API ---
-  const [notesCount, setNotesCount] = useState(0)
-  useEffect(() => {
-    const fetchNotes = async () => {
-      try {
-        const apiCompanies = await listCompanies()
-        const companyId = lockedCompanyId || selectedCompanyId || apiCompanies[0]?.id
-        if (!companyId) { setNotesCount(0); return }
-        const notes = await listNotes(companyId, { page: "balance-sheet" })
-        setNotesCount(notes.length)
-      } catch {
-        setNotesCount(0)
-      }
-    }
-    fetchNotes()
-  }, [lockedCompanyId, selectedCompanyId])
+  }, [
+    lockedCompanyId,
+    selectedCompanyId,
+    selectedYear,
+    selectedMonth,
+    period,
+    view,
+    comparisonType,
+    selectedBudgetId,
+    selectedDivisionId,
+    selectedSubDivisionId,
+    structureVersion,
+  ])
 
   // Fonction pour obtenir la valeur actuelle du sélecteur Horizon
   const getCurrentHorizon = (): string => {
     if (view === "comparison" && period === "monthly") return "courant"
-    if (view === "comparison" && period === "quarterly") return "trimestriel"
-    if (view === "comparison" && period === "annual") return "annuel"
-    if (view === "ytd") return "ytd"
-    if (view === "ddm") return "ddm"
     if (view === "12months") return "12mois"
     if (view === "quarters") return "trimestres"
     if (view === "years") return "annees"
@@ -204,24 +184,6 @@ export default function BalanceSheetPage() {
       case "courant":
         setPeriod("monthly")
         setView("comparison")
-        break
-      case "trimestriel":
-        setPeriod("quarterly")
-        setView("comparison")
-        setColumnMode("variations")
-        break
-      case "annuel":
-        setPeriod("annual")
-        setView("comparison")
-        setColumnMode("variations")
-        break
-      case "ytd":
-        setView("ytd")
-        setColumnMode("variations")
-        break
-      case "ddm":
-        setView("ddm")
-        setColumnMode("variations")
         break
       case "12mois":
         setView("12months")
@@ -303,6 +265,17 @@ export default function BalanceSheetPage() {
                 <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
                   <Button
                     variant="ghost"
+                    onClick={() => setSection("dashboard")}
+                    className={`h-8 text-xs px-3 transition-all ${
+                      section === "dashboard"
+                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                    }`}
+                  >
+                    Tableau de bord
+                  </Button>
+                  <Button
+                    variant="ghost"
                     onClick={() => setSection("summary")}
                     className={`h-8 text-xs px-3 transition-all ${
                       section === "summary"
@@ -339,17 +312,13 @@ export default function BalanceSheetPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="courant">Courant</SelectItem>
-                      <SelectItem value="trimestriel">Trimestriel</SelectItem>
-                      <SelectItem value="annuel">Annuel</SelectItem>
-                      <SelectItem value="ytd">YTD</SelectItem>
-                      <SelectItem value="ddm">DDM</SelectItem>
-                      <SelectItem value="12mois">12 mois</SelectItem>
-                      <SelectItem value="trimestres">Trimestres</SelectItem>
-                      <SelectItem value="annees">Années</SelectItem>
+                      <SelectItem value="courant">{HORIZON_LABEL.moisActuel}</SelectItem>
+                      <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
+                      <SelectItem value="trimestres">{HORIZON_LABEL.trimestriel2Ans}</SelectItem>
+                      <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
                     </SelectContent>
                   </Select>
-                  {(view === "comparison" || view === "ytd" || view === "ddm") && (
+                  {view === "comparison" && (
                     <>
                       <ChevronRight className="h-4 w-4 text-[#C9B8A5]/50" />
                       <Select value={comparisonType} onValueChange={(value) => {
@@ -363,10 +332,7 @@ export default function BalanceSheetPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {/* Hide "Mois dernier" for Annuel, YTD, and DDM horizons */}
-                          {!(view === "ytd" || view === "ddm" || (view === "comparison" && period === "annual")) && (
-                            <SelectItem value="lastMonth">Mois dernier</SelectItem>
-                          )}
+                          <SelectItem value="lastMonth">Mois dernier</SelectItem>
                           <SelectItem value="pastMonth">Mois passé</SelectItem>
                           <SelectItem value="budget">Budget</SelectItem>
                         </SelectContent>
@@ -396,61 +362,65 @@ export default function BalanceSheetPage() {
                 </div>
               </div>
 
-              {/* Separator */}
-              <div className="h-6 w-px bg-white/10" />
+              {/* Separator — masqué avec Affichage sur le tableau de bord */}
+              {(section === "summary" || section === "detail") && (
+                <>
+                  <div className="h-6 w-px bg-white/10" />
 
-              {/* Display Mode Buttons */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Affichage:</span>
-                <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
-                  <Button
-                    variant="ghost"
-                    onClick={() => setColumnMode("variations")}
-                    disabled={getCurrentHorizon() === "12mois" || getCurrentHorizon() === "trimestres" || getCurrentHorizon() === "annees"}
-                    className={`h-8 text-xs px-3 transition-all ${
-                      columnMode === "variations"
-                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                    } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
-                  >
-                    Variations
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setColumnMode("percentage")}
-                    disabled={getCurrentHorizon() === "12mois" || getCurrentHorizon() === "trimestres" || getCurrentHorizon() === "annees"}
-                    className={`h-8 text-xs px-3 transition-all ${
-                      columnMode === "percentage"
-                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                    } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
-                  >
-                    % des actifs totaux
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setColumnMode("comparison")}
-                    disabled={
-                      getCurrentHorizon() === "12mois" || 
-                      getCurrentHorizon() === "trimestres" || 
-                      getCurrentHorizon() === "annees" ||
-                      (!selectedCompanyId && !!selectedDivisionId) ||
-                      (!selectedCompanyId && !!selectedSubDivisionId) ||
-                      (!!selectedCompanyId && !!selectedDivisionId && !!selectedSubDivisionId)
-                    }
-                    className={`h-8 text-xs px-3 transition-all ${
-                      columnMode === "comparison"
-                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                    } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
-                  >
-                    Comparaison
-                  </Button>
-                </div>
-              </div>
+                  {/* Display Mode Buttons */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Affichage:</span>
+                    <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
+                      <Button
+                        variant="ghost"
+                        onClick={() => setColumnMode("variations")}
+                        disabled={getCurrentHorizon() === "12mois" || getCurrentHorizon() === "trimestres" || getCurrentHorizon() === "annees"}
+                        className={`h-8 text-xs px-3 transition-all ${
+                          columnMode === "variations"
+                            ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                            : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                        } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
+                      >
+                        Variations
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => setColumnMode("percentage")}
+                        disabled={getCurrentHorizon() === "12mois" || getCurrentHorizon() === "trimestres" || getCurrentHorizon() === "annees"}
+                        className={`h-8 text-xs px-3 transition-all ${
+                          columnMode === "percentage"
+                            ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                            : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                        } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
+                      >
+                        % des actifs totaux
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => setColumnMode("comparison")}
+                        disabled={
+                          getCurrentHorizon() === "12mois" ||
+                          getCurrentHorizon() === "trimestres" ||
+                          getCurrentHorizon() === "annees" ||
+                          (!selectedCompanyId && !!selectedDivisionId) ||
+                          (!selectedCompanyId && !!selectedSubDivisionId) ||
+                          (!!selectedCompanyId && !!selectedDivisionId && !!selectedSubDivisionId)
+                        }
+                        className={`h-8 text-xs px-3 transition-all ${
+                          columnMode === "comparison"
+                            ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                            : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                        } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
+                      >
+                        Comparaison
+                      </Button>
+                    </div>
+                  </div>
 
-              {/* Separator */}
-              <div className="h-6 w-px bg-white/10" />
+                  <div className="h-6 w-px bg-white/10" />
+                </>
+              )}
+              {section === "dashboard" && <div className="h-6 w-px bg-white/10" />}
 
               {/* Entity Selector */}
               <div className="flex items-center gap-2">
@@ -475,98 +445,26 @@ export default function BalanceSheetPage() {
 
         </div>
       </div>
-      <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
-        {/* Chart Section - Overlapping 25% in dark section */}
-        <div className="relative -mt-32">
-          <BalanceSheetChart
-            period={period}
-            view={view}
-            companyId={selectedCompanyId || resolvedCompanyId}
-            divisionId={selectedDivisionId}
-            subDivisionId={selectedSubDivisionId}
-            companies={companies}
-            fiscalYear={selectedYear}
-          />
-        </div>
-      </main>
 
-      {/* Dark Section between Chart and Summary/Detail */}
-      <div className="relative w-full pt-12 pb-32 overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
-            <div className="bg-[#2A2F3A]" />
-            <div className="bg-[#2A2F3A]" />
+      {section === "dashboard" && (
+        <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
+          <div className="relative -mt-32">
+            <BalanceSheetChart
+              period={period}
+              view={view}
+              companyId={selectedCompanyId || resolvedCompanyId}
+              divisionId={selectedDivisionId}
+              subDivisionId={selectedSubDivisionId}
+              companies={companies}
+              fiscalYear={selectedYear}
+            />
           </div>
-          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
-            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
-          </div>
-        </div>
-        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
-          <div className="flex items-start gap-3">
-            <div className="w-2 flex-shrink-0"></div>
-            <div className="flex-1">
-              <div className="flex items-start justify-between mb-6">
-                <div className="flex-1">
-                  <h3 className="text-2xl font-semibold text-[#E6D6C3] mb-3">Documentation comptable continue</h3>
-                  <p className="text-base text-[#C9B8A5]/90 leading-relaxed max-w-4xl">
-                    Documentez les variations importantes tout au long de l'exercice pour faciliter votre clôture comptable annuelle et optimiser les processus d'évaluation d'entreprise et de transactions stratégiques.
-                  </p>
-                </div>
-                <div className="flex items-center gap-4 ml-8">
-                  <div className="text-right">
-                    <div className="text-sm text-[#C9B8A5]/80 mb-1">Notes documentées</div>
-                    <div className="text-3xl font-semibold text-[#E6D6C3]">{notesCount}</div>
-                  </div>
-                </div>
-              </div>
+        </main>
+      )}
 
-              {/* Top 3 Variations */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {topVariations.length > 0 ? topVariations.map((v, i) => {
-                  const isPositive = v.variation >= 0
-                  const labels = ["Variation la plus importante", "2e variation importante", "3e variation importante"]
-                  return (
-                    <div key={i} className="rounded-lg border border-white/10 bg-[#2A2F3A]/50 p-4 backdrop-blur-sm">
-                      <div className="text-xs text-slate-400 mb-1">{labels[i]}</div>
-                      <div className="text-lg font-semibold text-white mb-1">{v.label}</div>
-                      <div className="flex items-center gap-2">
-                        {isPositive ? (
-                          <TrendingUp className="w-4 h-4 text-emerald-500" />
-                        ) : (
-                          <TrendingDown className="w-4 h-4 text-red-500" />
-                        )}
-                        <span className={`text-sm font-medium ${isPositive ? "text-emerald-500" : "text-red-500"}`}>
-                          {isPositive ? "+" : ""}{v.variation.toFixed(1)}%
-                        </span>
-                        <span className="text-xs text-slate-400">vs période précédente</span>
-                      </div>
-                    </div>
-                  )
-                }) : (
-                  <>
-                    {[0, 1, 2].map((i) => (
-                      <div key={i} className="rounded-lg border border-white/10 bg-[#2A2F3A]/50 p-4 backdrop-blur-sm">
-                        <div className="text-xs text-slate-400 mb-1">{["Variation la plus importante", "2e variation importante", "3e variation importante"][i]}</div>
-                        <div className="text-lg font-semibold text-white mb-1">--</div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-slate-500">Aucune donnée</span>
-                        </div>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
-        {/* Summary or Detail Section - Overlapping with dark section */}
-        <div className="relative -mt-32">
-          {section === "summary" ? (
+      {section === "summary" && (
+        <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
+          <div className="relative -mt-32">
             <BalanceSheetSummary
               period={period}
               view={view}
@@ -579,10 +477,21 @@ export default function BalanceSheetPage() {
               selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
               selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
               fiscalYear={selectedYear}
+              refMonth={selectedMonth}
+              refYear={selectedYear}
               rows={rows}
               loading={loading}
+              showBalanceSheetStructureSettings
+              structureVersion={structureVersion}
+              onBalanceSheetStructureSaved={() => setStructureVersion((v) => v + 1)}
             />
-          ) : (
+          </div>
+        </main>
+      )}
+
+      {section === "detail" && (
+        <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
+          <div className="relative -mt-32">
             <BalanceSheetDetail
               period={period}
               view={view}
@@ -595,12 +504,14 @@ export default function BalanceSheetPage() {
               selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
               selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
               fiscalYear={selectedYear}
+              refMonth={selectedMonth}
+              refYear={selectedYear}
               rows={rows}
               loading={loading}
             />
-          )}
-        </div>
-      </main>
+          </div>
+        </main>
+      )}
     </div>
   )
 }

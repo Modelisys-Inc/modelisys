@@ -22,7 +22,7 @@ const menuItems = [
     icon: Home,
   },
   {
-    label: "États financiers",
+    label: "Reporting financier",
     href: "#",
     icon: TrendingUp,
     submenu: [
@@ -118,7 +118,7 @@ const menuItems = [
     ],
   },
   {
-    label: "Évaluation",
+    label: "Valorisation",
     href: "#",
     icon: Building2,
     submenu: [
@@ -175,7 +175,7 @@ const menuItems = [
 
 const complementaryMenuItems = [
   {
-    label: "Fin d'année CPA",
+    label: "Documentation",
     href: "/year-end-cpa",
     icon: FileText,
   },
