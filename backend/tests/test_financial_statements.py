@@ -351,8 +351,9 @@ def test_income_statement_prior_year_comparison(client, auth_headers):
 # --- Balance sheet ---
 
 
-def test_balance_sheet_basic(client, auth_headers):
-    """Balance sheet uses YTD (cumulative) through the requested month."""
+def test_balance_sheet_basic_non_cumulative_tb(client, auth_headers):
+    """Non-cumulative TB (default): each month already stores the closing balance,
+    so the balance sheet at end of February is the February value alone (no sum)."""
     company_id = _create_company(client, auth_headers)
 
     _upsert_account_mappings(client, auth_headers, company_id, [
@@ -378,7 +379,44 @@ def test_balance_sheet_basic(client, auth_headers):
     assert response.status_code == 200
     data = response.json()
     assert data["statementType"] == "balance-sheet"
-    # Balance sheet should be cumulative: 50000 + 5000 = 55000
+    assert data["rows"][0]["current"] == 5000.0
+
+
+def test_balance_sheet_basic_cumulative_tb(client, auth_headers):
+    """Cumulative TB: monthly values are YTD running totals. After de-cumulation
+    they become per-month movements; summing 1..fm reconstructs the closing balance."""
+    company_id = _create_company(client, auth_headers)
+    r = client.patch(
+        f"/api/companies/{company_id}",
+        json={"is_cumulative_tb": True},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "1000", "description": "Cash", "link_code": "AC-001"},
+    ])
+
+    # YTD cumulative: end-of-Jan = 50000, end-of-Feb = 55000
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "1000",
+            "description": "Cash",
+            "monthly_amounts": {"Janvier": 50000.0, "Février": 55000.0},
+        },
+    ], fiscal_year=2024)
+    _upsert_structure(client, auth_headers, company_id, "balance-sheet", [
+        {"label": "actifs courants", "isSection": True, "linkCode": "AC-001"},
+    ])
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/balance-sheet"
+        "?fiscal_year=2024&month=2&period=monthly",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["statementType"] == "balance-sheet"
     assert data["rows"][0]["current"] == 55000.0
 
 
