@@ -12,7 +12,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.integrations.quickbooks import oauth, service
+from app.integrations.quickbooks import oauth
 from app.integrations.quickbooks import service as qbo_service
 from app.routers.statement_structures import VALID_STATEMENT_TYPES
 from app.integrations.quickbooks.client import QBOClientError
@@ -112,7 +112,7 @@ def callback(
     except oauth.TokenExchangeError as e:
         raise HTTPException(status_code=502, detail=f"Token exchange with Intuit failed: {e}")
 
-    service.upsert_connection(db, company.id, realmId, tokens, user.id)
+    qbo_service.upsert_connection(db, company.id, realmId, tokens, user.id)
     return RedirectResponse(
         f"{settings.frontend_url}/settings/companies/{company.id}/quickbooks?qbo=connected",
         status_code=307,
@@ -159,7 +159,7 @@ def disconnect_connection(
     )
     if conn is None:
         raise HTTPException(status_code=404, detail="No QuickBooks connection")
-    service.disconnect(db, conn)
+    qbo_service.disconnect(db, conn)
     return None
 
 

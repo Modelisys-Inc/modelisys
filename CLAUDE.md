@@ -197,8 +197,9 @@ Per-company connector in `backend/app/integrations/quickbooks/`:
   (`QBO_TOKEN_ENCRYPTION_KEY`). State CSRF JWT signed with `JWT_SECRET_KEY`,
   audience `qbo-oauth`.
 - **Two-step preview/commit:** `POST /api/quickbooks/companies/{id}/trial-balance/preview`
-  pulls TB + proposes link_codes (no DB writes). `POST .../commit` upserts
-  `ChartOfAccount`, `AccountMapping`, and `TrialBalanceEntry` in one transaction.
+  pulls TB + returns rows with `existing_link_code` (no DB writes). `POST .../commit`
+  upserts `ChartOfAccount`, `AccountMapping`, and `TrialBalanceEntry` in one
+  transaction.
 - **TB schema fit:** preview/commit take `fiscal_year` + `month` (matching
   `TrialBalanceEntry`), not `as_of_date`. QBO pulls are always cumulative
   (YTD: fiscal-year-start through end-of-target-month). On commit, the

@@ -233,7 +233,9 @@ export function QuickBooksReviewTable({
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
   }
 
-  const canCommit = rows.every((r) => r.skip || !!r.link_code)
+  const canCommit = rows.every(
+    (r) => r.skip || (!!r.link_code && codeSet.has(r.link_code))
+  )
 
   const doCommit = async (overwrite: boolean) => {
     setCommitting(true)
