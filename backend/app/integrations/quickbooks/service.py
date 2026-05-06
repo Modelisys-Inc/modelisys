@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.integrations.quickbooks import encryption, oauth
 from app.models.account_mapping import AccountMapping
 from app.models.company import Company
+from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.quickbooks_connection import QuickBooksConnection
 from app.models.trial_balance import ChartOfAccount, TrialBalanceEntry
 
@@ -247,8 +248,6 @@ def commit_trial_balance(
     """
     # Serialize concurrent commits for the same company; SQLite may ignore FOR UPDATE
     db.execute(select(Company).where(Company.id == company.id).with_for_update())
-
-    from app.models.financial_statement_mapping import CompanyStatementStructure
 
     structures = (
         db.query(CompanyStatementStructure)
