@@ -428,3 +428,103 @@ def test_list_link_codes_reads_from_company_statement_structure(auth_client, db,
     assert codes["20-101"]["parent_label"] == "Revenus"
     assert codes["10-100"]["statement_type"] == "balance-sheet"
     assert codes["10-100"]["parent_id"] == "actifs-courants"
+
+
+def _seed_income_structure(db, company):
+    db.add(CompanyStatementStructure(
+        company_id=company.id,
+        statement_type="income-statement",
+        structure=[
+            {
+                "id": "admin-expenses",
+                "label": "Frais d'administration",
+                "isSection": True,
+                "children": [
+                    {"id": "44-330", "label": "Salaires admin", "linkCode": "44-330"},
+                ],
+            },
+        ],
+    ))
+    db.commit()
+
+
+def test_create_link_code_appends_leaf_and_returns_option(auth_client, db, org_user_company):
+    _, _, company = org_user_company
+    _seed_income_structure(db, company)
+
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/link-codes",
+        json={
+            "statement_type": "income-statement",
+            "parent_id": "admin-expenses",
+            "link_code": "44-999",
+            "label": "Nouveau poste",
+        },
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body == {
+        "code": "44-999",
+        "label": "Nouveau poste",
+        "statement_type": "income-statement",
+        "parent_id": "admin-expenses",
+        "parent_label": "Frais d'administration",
+    }
+
+    db.expire_all()
+    structure = (
+        db.query(CompanyStatementStructure)
+        .filter(
+            CompanyStatementStructure.company_id == company.id,
+            CompanyStatementStructure.statement_type == "income-statement",
+        )
+        .first()
+    )
+    children = structure.structure[0]["children"]
+    assert {"id": "44-999", "label": "Nouveau poste", "linkCode": "44-999"} in children
+
+
+def test_create_link_code_invalid_statement_type_returns_422(auth_client, db, org_user_company):
+    _, _, company = org_user_company
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/link-codes",
+        json={
+            "statement_type": "not-a-real-type",
+            "parent_id": "admin-expenses",
+            "link_code": "44-999",
+            "label": "X",
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_create_link_code_missing_parent_returns_422(auth_client, db, org_user_company):
+    _, _, company = org_user_company
+    _seed_income_structure(db, company)
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/link-codes",
+        json={
+            "statement_type": "income-statement",
+            "parent_id": "does-not-exist",
+            "link_code": "44-999",
+            "label": "X",
+        },
+    )
+    assert r.status_code == 422
+    assert "parent" in r.json()["detail"].lower()
+
+
+def test_create_link_code_duplicate_returns_422(auth_client, db, org_user_company):
+    _, _, company = org_user_company
+    _seed_income_structure(db, company)
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/link-codes",
+        json={
+            "statement_type": "income-statement",
+            "parent_id": "admin-expenses",
+            "link_code": "44-330",
+            "label": "Conflict",
+        },
+    )
+    assert r.status_code == 422
+    assert "already" in r.json()["detail"].lower()

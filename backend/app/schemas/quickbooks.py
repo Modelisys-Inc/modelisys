@@ -69,3 +69,10 @@ class LinkCodeOption(BaseModel):
     statement_type: str
     parent_id: str | None = None
     parent_label: str | None = None
+
+
+class LinkCodeCreateRequest(BaseModel):
+    statement_type: str
+    parent_id: str
+    link_code: str
+    label: str

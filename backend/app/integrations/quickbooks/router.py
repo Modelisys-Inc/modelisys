@@ -21,6 +21,7 @@ from app.models.user import User, UserOrganization
 from app.schemas.quickbooks import (
     AuthorizeUrlResponse,
     ConnectionStatusResponse,
+    LinkCodeCreateRequest,
     LinkCodeOption,
     TrialBalanceCommitRequest,
     TrialBalanceCommitResponse,
@@ -262,3 +263,111 @@ def list_link_codes(
     for s in structures:
         walk(s.structure, s.statement_type, None, None)
     return options
+
+
+VALID_STATEMENT_TYPES = {"income-statement", "balance-sheet", "cash-flow", "capex", "baiia"}
+
+
+def _find_node_by_id(structure, target_id: str):
+    """Walk the structure tree, return the dict with id == target_id, or None."""
+    if isinstance(structure, list):
+        for item in structure:
+            found = _find_node_by_id(item, target_id)
+            if found is not None:
+                return found
+    elif isinstance(structure, dict):
+        if structure.get("id") == target_id:
+            return structure
+        children = structure.get("children")
+        if isinstance(children, list):
+            return _find_node_by_id(children, target_id)
+    return None
+
+
+def _collect_all_codes(structure) -> set[str]:
+    out: set[str] = set()
+
+    def walk(node):
+        if isinstance(node, list):
+            for item in node:
+                walk(item)
+        elif isinstance(node, dict):
+            code = node.get("linkCode") or node.get("link_code")
+            if code:
+                out.add(str(code))
+            walk(node.get("children"))
+
+    walk(structure)
+    return out
+
+
+@router.post(
+    "/companies/{company_id}/link-codes",
+    response_model=LinkCodeOption,
+    status_code=201,
+)
+def create_link_code(
+    company_id: uuid.UUID,
+    body: LinkCodeCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    company = _get_company_for_user(db, current_user, company_id)
+
+    if body.statement_type not in VALID_STATEMENT_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid statement_type: {body.statement_type}",
+        )
+    if not body.link_code.strip():
+        raise HTTPException(status_code=422, detail="link_code must not be empty")
+    if not body.label.strip():
+        raise HTTPException(status_code=422, detail="label must not be empty")
+
+    all_structures = (
+        db.query(CompanyStatementStructure)
+        .filter(CompanyStatementStructure.company_id == company.id)
+        .all()
+    )
+    for s in all_structures:
+        if body.link_code in _collect_all_codes(s.structure):
+            raise HTTPException(
+                status_code=422,
+                detail=f"link_code {body.link_code} already exists for this company",
+            )
+
+    target = next(
+        (s for s in all_structures if s.statement_type == body.statement_type),
+        None,
+    )
+    if target is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"No {body.statement_type} structure exists for this company",
+        )
+
+    parent = _find_node_by_id(target.structure, body.parent_id)
+    if parent is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Parent node {body.parent_id} not found in structure",
+        )
+
+    new_leaf = {"id": body.link_code, "label": body.label, "linkCode": body.link_code}
+    children = parent.get("children")
+    if not isinstance(children, list):
+        children = []
+        parent["children"] = children
+    children.append(new_leaf)
+
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(target, "structure")
+    db.commit()
+
+    return LinkCodeOption(
+        code=body.link_code,
+        label=body.label,
+        statement_type=body.statement_type,
+        parent_id=body.parent_id,
+        parent_label=parent.get("label"),
+    )
