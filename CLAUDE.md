@@ -200,8 +200,10 @@ Per-company connector in `backend/app/integrations/quickbooks/`:
   pulls TB + proposes link_codes (no DB writes). `POST .../commit` upserts
   `ChartOfAccount`, `AccountMapping`, and `TrialBalanceEntry` in one transaction.
 - **TB schema fit:** preview/commit take `fiscal_year` + `month` (matching
-  `TrialBalanceEntry`), not `as_of_date`. Date range respects
-  `Company.is_cumulative_tb`.
+  `TrialBalanceEntry`), not `as_of_date`. QBO pulls are always cumulative
+  (YTD: fiscal-year-start through end-of-target-month). On commit, the
+  company is forced to `is_cumulative_tb=True` so the FS service interprets
+  the stored YTD entries correctly.
 - **Mapping rules** (`mapping_rules.py`) are GENERIC defaults — must be
   customized per-org to match `FinancialStatementMapping.structure` link codes.
 - **Frontend:** `/settings/companies/[id]/quickbooks` with three states

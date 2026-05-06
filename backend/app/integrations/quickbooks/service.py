@@ -164,8 +164,7 @@ def parse_trial_balance_report(report: dict[str, Any]) -> list[dict[str, Any]]:
 def _date_range_for(company: Company, fiscal_year: int, month: int) -> tuple[str, str]:
     """Return (start_date, end_date) for the QBO TB pull.
 
-    Cumulative TB: range is fiscal-year-start..end-of-target-month (YTD).
-    Otherwise: range is just the target month.
+    QBO imports are always cumulative (YTD): fiscal-year-start..end-of-target-month.
     """
     fye_month, _fye_day = (int(p) for p in company.fiscal_year_end.split("-"))
     fy_start_month = (fye_month % 12) + 1
@@ -182,10 +181,7 @@ def _date_range_for(company: Company, fiscal_year: int, month: int) -> tuple[str
     target_month = ((fy_start_month - 1 + months_into_fy) % 12) + 1
     target_end = date(target_year, target_month, monthrange(target_year, target_month)[1])
 
-    if company.is_cumulative_tb:
-        return fy_start.isoformat(), target_end.isoformat()
-    target_start = date(target_year, target_month, 1)
-    return target_start.isoformat(), target_end.isoformat()
+    return fy_start.isoformat(), target_end.isoformat()
 
 
 def propose_trial_balance(
@@ -239,9 +235,16 @@ def commit_trial_balance(
     rows: list[dict],
     overwrite: bool,
 ) -> dict[str, int]:
-    """Upsert ChartOfAccount + AccountMapping + TrialBalanceEntry transactionally."""
+    """Upsert ChartOfAccount + AccountMapping + TrialBalanceEntry transactionally.
+
+    QBO imports are always cumulative, so the company is forced into cumulative-TB
+    mode here — the FS service de-cumulates stored YTD entries on read.
+    """
     # Serialize concurrent commits for the same company; SQLite may ignore FOR UPDATE
     db.execute(select(Company).where(Company.id == company.id).with_for_update())
+
+    if not company.is_cumulative_tb:
+        company.is_cumulative_tb = True
 
     existing_count = (
         db.query(TrialBalanceEntry)
