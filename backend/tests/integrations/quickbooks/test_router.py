@@ -271,6 +271,7 @@ def test_preview_qbo_429_maps_to_503(auth_client, db, org_user_company, monkeypa
 
 def test_commit_creates_tb_chart_and_mappings(auth_client, db, org_user_company):
     _, _, company = org_user_company
+    _seed_legacy_codes_structure(db, company)
     body = {
         "fiscal_year": 2026, "month": 3,
         "rows": [
@@ -294,6 +295,7 @@ def test_commit_creates_tb_chart_and_mappings(auth_client, db, org_user_company)
 
 def test_commit_skips_rows(auth_client, db, org_user_company):
     _, _, company = org_user_company
+    _seed_legacy_codes_structure(db, company)
     body = {
         "fiscal_year": 2026, "month": 3,
         "rows": [
@@ -312,6 +314,7 @@ def test_commit_skips_rows(auth_client, db, org_user_company):
 
 def test_commit_conflict_without_overwrite(auth_client, db, org_user_company):
     _, _, company = org_user_company
+    _seed_legacy_codes_structure(db, company)
     body = {
         "fiscal_year": 2026, "month": 3,
         "rows": [{"account_number": "1000", "account_name": "Cash", "debit": 5000,
@@ -329,6 +332,7 @@ def test_commit_conflict_without_overwrite(auth_client, db, org_user_company):
 
 def test_commit_overwrite_replaces_entries(auth_client, db, org_user_company):
     _, _, company = org_user_company
+    _seed_legacy_codes_structure(db, company)
     first = {
         "fiscal_year": 2026, "month": 3,
         "rows": [{"account_number": "1000", "account_name": "Cash", "debit": 5000,
@@ -355,6 +359,7 @@ def test_commit_overwrite_replaces_entries(auth_client, db, org_user_company):
 
 def test_commit_updates_existing_mapping(auth_client, db, org_user_company):
     _, _, company = org_user_company
+    _seed_legacy_codes_structure(db, company)
     db.add(AccountMapping(
         company_id=company.id, account_number="1000",
         description="Cash", link_code="actif.old",
@@ -381,6 +386,65 @@ def test_commit_invalid_month(auth_client, org_user_company):
         json={"fiscal_year": 2026, "month": 0, "rows": [], "overwrite_existing_tb": False},
     )
     assert r.status_code == 422
+
+
+def test_commit_rejects_unknown_link_code(auth_client, db, org_user_company):
+    _, _, company = org_user_company
+    _seed_income_structure(db, company)
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
+        json={
+            "fiscal_year": 2026,
+            "month": 3,
+            "rows": [
+                {
+                    "account_number": "1000",
+                    "account_name": "Cash",
+                    "debit": 100,
+                    "credit": 0,
+                    "link_code": "does-not-exist",
+                    "skip": False,
+                },
+            ],
+            "overwrite_existing_tb": False,
+        },
+    )
+    assert r.status_code == 422, r.text
+    body = r.json()
+    assert "1000" in body["detail"]
+    assert "does-not-exist" in body["detail"]
+
+
+def test_commit_skipped_rows_exempt_from_validation(auth_client, db, org_user_company):
+    _, _, company = org_user_company
+    _seed_income_structure(db, company)
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
+        json={
+            "fiscal_year": 2026,
+            "month": 3,
+            "rows": [
+                {
+                    "account_number": "1000",
+                    "account_name": "Cash",
+                    "debit": 0,
+                    "credit": 0,
+                    "link_code": "does-not-exist",
+                    "skip": True,
+                },
+                {
+                    "account_number": "2000",
+                    "account_name": "Salaire",
+                    "debit": 100,
+                    "credit": 0,
+                    "link_code": "44-330",
+                    "skip": False,
+                },
+            ],
+            "overwrite_existing_tb": False,
+        },
+    )
+    assert r.status_code == 201, r.text
 
 
 # ============= /link-codes =============
@@ -428,6 +492,37 @@ def test_list_link_codes_reads_from_company_statement_structure(auth_client, db,
     assert codes["20-101"]["parent_label"] == "Revenus"
     assert codes["10-100"]["statement_type"] == "balance-sheet"
     assert codes["10-100"]["parent_id"] == "actifs-courants"
+
+
+def _seed_legacy_codes_structure(db, company):
+    """Seed a CompanyStatementStructure containing the legacy link codes used by
+    the existing commit tests. Required so strict commit validation passes."""
+    db.add(CompanyStatementStructure(
+        company_id=company.id,
+        statement_type="income-statement",
+        structure=[
+            {
+                "id": "revenus", "label": "Revenus", "isSection": True,
+                "children": [
+                    {"id": "revenus.ventes", "label": "Ventes", "linkCode": "revenus.ventes"},
+                ],
+            },
+        ],
+    ))
+    db.add(CompanyStatementStructure(
+        company_id=company.id,
+        statement_type="balance-sheet",
+        structure=[
+            {
+                "id": "actifs-courants", "label": "Actifs courants", "isSection": True,
+                "children": [
+                    {"id": "actif.encaisse", "label": "Encaisse", "linkCode": "actif.encaisse"},
+                    {"id": "actif.old", "label": "Legacy", "linkCode": "actif.old"},
+                ],
+            },
+        ],
+    ))
+    db.commit()
 
 
 def _seed_income_structure(db, company):

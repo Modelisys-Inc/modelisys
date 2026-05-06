@@ -218,6 +218,12 @@ def commit_trial_balance_endpoint(
         )
     except qbo_service.TBConflictError as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except qbo_service.InvalidLinkCodesError as e:
+        offending_str = ", ".join(f"{acct}={code}" for acct, code in e.offending)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid link codes: {offending_str}",
+        )
     return TrialBalanceCommitResponse(**result)
 
 

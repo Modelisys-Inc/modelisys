@@ -29,6 +29,15 @@ class TBConflictError(Exception):
     pass
 
 
+class InvalidLinkCodesError(Exception):
+    def __init__(self, offending: list[tuple[str, str]]):
+        # offending is list of (account_number, link_code)
+        self.offending = offending
+        super().__init__(
+            "Invalid link codes: " + ", ".join(f"{a}={c}" for a, c in offending)
+        )
+
+
 def upsert_connection(
     db: Session,
     company_id: uuid.UUID,
@@ -238,6 +247,38 @@ def commit_trial_balance(
     """
     # Serialize concurrent commits for the same company; SQLite may ignore FOR UPDATE
     db.execute(select(Company).where(Company.id == company.id).with_for_update())
+
+    from app.models.financial_statement_mapping import CompanyStatementStructure
+
+    structures = (
+        db.query(CompanyStatementStructure)
+        .filter(CompanyStatementStructure.company_id == company.id)
+        .all()
+    )
+    valid_codes: set[str] = set()
+
+    def _collect(node):
+        if isinstance(node, list):
+            for item in node:
+                _collect(item)
+        elif isinstance(node, dict):
+            code = node.get("linkCode") or node.get("link_code")
+            if code:
+                valid_codes.add(str(code))
+            _collect(node.get("children"))
+
+    for s in structures:
+        _collect(s.structure)
+
+    offending: list[tuple[str, str]] = []
+    for r in rows:
+        if r.get("skip"):
+            continue
+        link_code = r.get("link_code")
+        if not link_code or link_code not in valid_codes:
+            offending.append((str(r.get("account_number") or ""), str(link_code or "")))
+    if offending:
+        raise InvalidLinkCodesError(offending)
 
     if not company.is_cumulative_tb:
         company.is_cumulative_tb = True
