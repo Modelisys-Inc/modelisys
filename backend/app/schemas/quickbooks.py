@@ -25,8 +25,6 @@ class TrialBalanceRowProposal(BaseModel):
     qbo_account_sub_type: str | None = None
     debit: float
     credit: float
-    proposed_link_code: str | None = None
-    confidence: Literal["high", "medium", "low"]
     existing_link_code: str | None = None
 
 

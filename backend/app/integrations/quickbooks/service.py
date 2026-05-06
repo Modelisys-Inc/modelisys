@@ -11,7 +11,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.integrations.quickbooks import encryption, oauth
-from app.integrations.quickbooks.mapping_rules import propose
 from app.models.account_mapping import AccountMapping
 from app.models.company import Company
 from app.models.quickbooks_connection import QuickBooksConnection
@@ -210,7 +209,6 @@ def propose_trial_balance(
         acct_num = acct_meta.get("AcctNum") or r["account_number"]
         type_ = acct_meta.get("AccountType")
         sub_type = acct_meta.get("AccountSubType")
-        prop = propose(type_, sub_type, r["account_name"])
         existing = existing_mappings.get(acct_num)
         rows.append({
             "qbo_account_id": r["qbo_account_id"],
@@ -220,8 +218,6 @@ def propose_trial_balance(
             "qbo_account_sub_type": sub_type,
             "debit": r["debit"],
             "credit": r["credit"],
-            "proposed_link_code": prop.link_code,
-            "confidence": prop.confidence,
             "existing_link_code": existing.link_code if existing else None,
         })
     return {"currency": company.currency, "rows": rows}
