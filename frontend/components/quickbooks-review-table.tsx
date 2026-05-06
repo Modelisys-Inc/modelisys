@@ -45,6 +45,98 @@ import { cn } from "@/lib/utils"
 
 type Filter = "all" | "unmapped" | "mapped"
 
+interface LinkCodePickerProps {
+  row: RowState
+  idx: number
+  codeIndex: Map<string, QboLinkCode>
+  codesByStatement: Map<string, QboLinkCode[]>
+  onPick: (idx: number, code: string) => void
+  onCreateRequest: (idx: number) => void
+}
+
+function LinkCodePicker({
+  row,
+  idx,
+  codeIndex,
+  codesByStatement,
+  onPick,
+  onCreateRequest,
+}: LinkCodePickerProps) {
+  const [open, setOpen] = useState(false)
+  const selected = row.link_code ? codeIndex.get(row.link_code) : null
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          role="combobox"
+          aria-expanded={open}
+          className="h-8 w-[260px] justify-between text-xs"
+        >
+          <span className="truncate">
+            {selected
+              ? `${selected.code} — ${selected.label}`
+              : row.link_code
+              ? `${row.link_code} (unknown)`
+              : "Pick a link code"}
+          </span>
+          <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[320px] p-0">
+        <Command>
+          <CommandInput placeholder="Search link codes…" />
+          <CommandList>
+            <CommandEmpty>No codes found.</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                onSelect={() => {
+                  onCreateRequest(idx)
+                  setOpen(false)
+                }}
+                className="font-medium"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Create new link code…
+              </CommandItem>
+            </CommandGroup>
+            <CommandSeparator />
+            {Array.from(codesByStatement.entries()).map(([stmt, list]) => (
+              <CommandGroup key={stmt} heading={stmt}>
+                {list.map((c) => (
+                  <CommandItem
+                    key={c.code}
+                    value={`${c.code} ${c.label}`}
+                    onSelect={() => {
+                      onPick(idx, c.code)
+                      setOpen(false)
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        row.link_code === c.code ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    <div className="flex flex-col">
+                      <span className="font-mono text-xs">{c.code}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {c.label}
+                        {c.parent_label ? ` · ${c.parent_label}` : ""}
+                      </span>
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 type RowState = {
   account_number: string
   account_name: string
@@ -223,7 +315,6 @@ export function QuickBooksReviewTable({
             <TableBody>
               {visibleRows.map((r) => {
                 const idx = rows.indexOf(r)
-                const selected = r.link_code ? codeIndex.get(r.link_code) : null
                 return (
                   <TableRow key={r.account_number}>
                     <TableCell className="font-mono text-xs">
@@ -241,78 +332,14 @@ export function QuickBooksReviewTable({
                       {r.credit.toFixed(2)}
                     </TableCell>
                     <TableCell>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            role="combobox"
-                            className="h-8 w-[260px] justify-between text-xs"
-                          >
-                            <span className="truncate">
-                              {selected
-                                ? `${selected.code} — ${selected.label}`
-                                : r.link_code
-                                ? `${r.link_code} (unknown)`
-                                : "Pick a link code"}
-                            </span>
-                            <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-[320px] p-0">
-                          <Command>
-                            <CommandInput placeholder="Search link codes…" />
-                            <CommandList>
-                              <CommandEmpty>No codes found.</CommandEmpty>
-                              <CommandGroup>
-                                <CommandItem
-                                  onSelect={() => setCreateOpenForRow(idx)}
-                                  className="font-medium"
-                                >
-                                  <Plus className="mr-2 h-4 w-4" />
-                                  Create new link code…
-                                </CommandItem>
-                              </CommandGroup>
-                              <CommandSeparator />
-                              {Array.from(codesByStatement.entries()).map(
-                                ([stmt, list]) => (
-                                  <CommandGroup key={stmt} heading={stmt}>
-                                    {list.map((c) => (
-                                      <CommandItem
-                                        key={c.code}
-                                        value={`${c.code} ${c.label}`}
-                                        onSelect={() =>
-                                          updateRow(idx, { link_code: c.code })
-                                        }
-                                      >
-                                        <Check
-                                          className={cn(
-                                            "mr-2 h-4 w-4",
-                                            r.link_code === c.code
-                                              ? "opacity-100"
-                                              : "opacity-0",
-                                          )}
-                                        />
-                                        <div className="flex flex-col">
-                                          <span className="font-mono text-xs">
-                                            {c.code}
-                                          </span>
-                                          <span className="text-xs text-muted-foreground">
-                                            {c.label}
-                                            {c.parent_label
-                                              ? ` · ${c.parent_label}`
-                                              : ""}
-                                          </span>
-                                        </div>
-                                      </CommandItem>
-                                    ))}
-                                  </CommandGroup>
-                                ),
-                              )}
-                            </CommandList>
-                          </Command>
-                        </PopoverContent>
-                      </Popover>
+                      <LinkCodePicker
+                        row={r}
+                        idx={idx}
+                        codeIndex={codeIndex}
+                        codesByStatement={codesByStatement}
+                        onPick={(i, code) => updateRow(i, { link_code: code })}
+                        onCreateRequest={setCreateOpenForRow}
+                      />
                       {r.existing_link_code &&
                         r.existing_link_code !== r.link_code && (
                           <Badge variant="outline" className="mt-1 text-xs">
