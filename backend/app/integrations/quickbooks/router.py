@@ -15,7 +15,7 @@ from app.integrations.quickbooks import oauth, service
 from app.integrations.quickbooks import service as qbo_service
 from app.integrations.quickbooks.client import QBOClientError
 from app.models.company import Company
-from app.models.financial_statement_mapping import FinancialStatementMapping
+from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.quickbooks_connection import QuickBooksConnection
 from app.models.user import User, UserOrganization
 from app.schemas.quickbooks import (
@@ -228,32 +228,36 @@ def list_link_codes(
     db: Session = Depends(get_db),
 ):
     company = _get_company_for_user(db, current_user, company_id)
-    mappings = (
-        db.query(FinancialStatementMapping)
-        .filter(FinancialStatementMapping.organization_id == company.organization_id)
+    structures = (
+        db.query(CompanyStatementStructure)
+        .filter(CompanyStatementStructure.company_id == company.id)
         .all()
     )
     options: list[LinkCodeOption] = []
+    seen: set[str] = set()
 
-    def walk(node, mapping_type: str):
+    def walk(node, statement_type: str, parent_id: str | None, parent_label: str | None):
         if isinstance(node, dict):
-            code = node.get("link_code") or node.get("code") or node.get("id")
-            label = node.get("label") or node.get("name") or code
-            if code:
-                options.append(LinkCodeOption(code=str(code), label=str(label), mapping_type=mapping_type))
-            for v in node.values():
-                walk(v, mapping_type)
+            code = node.get("linkCode") or node.get("link_code")
+            if code and code not in seen:
+                seen.add(code)
+                options.append(LinkCodeOption(
+                    code=str(code),
+                    label=str(node.get("label") or code),
+                    statement_type=statement_type,
+                    parent_id=parent_id,
+                    parent_label=parent_label,
+                ))
+            children = node.get("children")
+            if isinstance(children, list):
+                next_parent_id = node.get("id")
+                next_parent_label = node.get("label")
+                for child in children:
+                    walk(child, statement_type, next_parent_id, next_parent_label)
         elif isinstance(node, list):
             for item in node:
-                walk(item, mapping_type)
+                walk(item, statement_type, parent_id, parent_label)
 
-    for m in mappings:
-        walk(m.structure, m.mapping_type)
-    seen = set()
-    unique: list[LinkCodeOption] = []
-    for o in options:
-        if o.code in seen:
-            continue
-        seen.add(o.code)
-        unique.append(o)
-    return unique
+    for s in structures:
+        walk(s.structure, s.statement_type, None, None)
+    return options

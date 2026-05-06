@@ -66,4 +66,6 @@ class TrialBalanceCommitResponse(BaseModel):
 class LinkCodeOption(BaseModel):
     code: str
     label: str
-    mapping_type: str
+    statement_type: str
+    parent_id: str | None = None
+    parent_label: str | None = None

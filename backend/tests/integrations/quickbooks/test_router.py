@@ -12,7 +12,7 @@ from app.dependencies import get_current_user
 from app.integrations.quickbooks import oauth, service
 from app.main import app
 from app.models.account_mapping import AccountMapping
-from app.models.financial_statement_mapping import FinancialStatementMapping
+from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.quickbooks_connection import QuickBooksConnection
 from app.models.trial_balance import ChartOfAccount, TrialBalanceEntry
 
@@ -385,44 +385,46 @@ def test_commit_invalid_month(auth_client, org_user_company):
 
 # ============= /link-codes =============
 
-def test_link_codes_extracts_from_structure(auth_client, db, org_user_company):
-    org, _, company = org_user_company
-    db.add(FinancialStatementMapping(
-        organization_id=org.id, mapping_type="bilan",
+def test_list_link_codes_reads_from_company_statement_structure(auth_client, db, org_user_company):
+    _, _, company = org_user_company
+    db.add(CompanyStatementStructure(
+        company_id=company.id,
+        statement_type="income-statement",
         structure=[
-            {"link_code": "actif.encaisse", "label": "Encaisse"},
-            {"link_code": "passif.dette", "label": "Dette"},
+            {
+                "id": "revenue",
+                "label": "Revenus",
+                "isSection": True,
+                "children": [
+                    {"id": "20-101", "label": "Développement sur mesure", "linkCode": "20-101"},
+                    {"id": "20-102", "label": "Ventes de logiciels", "linkCode": "20-102"},
+                ],
+            },
+        ],
+    ))
+    db.add(CompanyStatementStructure(
+        company_id=company.id,
+        statement_type="balance-sheet",
+        structure=[
+            {
+                "id": "actifs-courants",
+                "label": "Actifs courants",
+                "isSection": True,
+                "children": [
+                    {"id": "10-100", "label": "Encaisse", "linkCode": "10-100"},
+                ],
+            },
         ],
     ))
     db.commit()
+
     r = auth_client.get(f"/api/quickbooks/companies/{company.id}/link-codes")
-    assert r.status_code == 200
-    codes = {o["code"] for o in r.json()}
-    assert codes == {"actif.encaisse", "passif.dette"}
-
-
-def test_link_codes_walks_nested_dict(auth_client, db, org_user_company):
-    org, _, company = org_user_company
-    db.add(FinancialStatementMapping(
-        organization_id=org.id, mapping_type="resultats",
-        structure={"sections": [
-            {"name": "Revenus", "rows": [{"link_code": "revenus.ventes", "label": "Ventes"}]},
-        ]},
-    ))
-    db.commit()
-    r = auth_client.get(f"/api/quickbooks/companies/{company.id}/link-codes")
-    assert r.status_code == 200
-    assert any(o["code"] == "revenus.ventes" for o in r.json())
-
-
-def test_link_codes_dedupes(auth_client, db, org_user_company):
-    org, _, company = org_user_company
-    db.add(FinancialStatementMapping(
-        organization_id=org.id, mapping_type="bilan",
-        structure=[
-            {"link_code": "x", "label": "X"}, {"link_code": "x", "label": "X dup"},
-        ],
-    ))
-    db.commit()
-    r = auth_client.get(f"/api/quickbooks/companies/{company.id}/link-codes")
-    assert len(r.json()) == 1
+    assert r.status_code == 200, r.text
+    body = r.json()
+    codes = {o["code"]: o for o in body}
+    assert set(codes) == {"20-101", "20-102", "10-100"}
+    assert codes["20-101"]["statement_type"] == "income-statement"
+    assert codes["20-101"]["parent_id"] == "revenue"
+    assert codes["20-101"]["parent_label"] == "Revenus"
+    assert codes["10-100"]["statement_type"] == "balance-sheet"
+    assert codes["10-100"]["parent_id"] == "actifs-courants"
