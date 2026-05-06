@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { Check, ChevronsUpDown, Plus } from "lucide-react"
+import { AlertTriangle, Check, ChevronsUpDown, Plus } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -43,7 +43,7 @@ import {
 } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-type Filter = "all" | "unmapped" | "mapped"
+type Filter = "all" | "unmapped" | "mapped" | "invalid"
 
 interface LinkCodePickerProps {
   row: RowState
@@ -208,12 +208,20 @@ export function QuickBooksReviewTable({
 
   const codeSet = useMemo(() => new Set(linkCodes.map((c) => c.code)), [linkCodes])
 
+  const isInvalidRow = (r: RowState) =>
+    !r.skip && !!r.link_code && codeSet.size > 0 && !codeSet.has(r.link_code)
+
   const counts = useMemo(
     () => ({
-      mapped: rows.filter((r) => !!r.link_code).length,
+      mapped: rows.filter((r) => !!r.link_code && codeSet.has(r.link_code))
+        .length,
       unmapped: rows.filter((r) => !r.skip && !r.link_code).length,
+      invalid: rows.filter(
+        (r) =>
+          !r.skip && !!r.link_code && codeSet.size > 0 && !codeSet.has(r.link_code),
+      ).length,
     }),
-    [rows],
+    [rows, codeSet],
   )
 
   const totals = useMemo(() => {
@@ -223,11 +231,17 @@ export function QuickBooksReviewTable({
   }, [rows])
 
   const visibleRows = useMemo(() => {
-    if (filter === "mapped") return rows.filter((r) => !!r.link_code)
+    if (filter === "mapped")
+      return rows.filter((r) => !!r.link_code && codeSet.has(r.link_code))
     if (filter === "unmapped")
       return rows.filter((r) => !r.skip && !r.link_code)
+    if (filter === "invalid")
+      return rows.filter(
+        (r) =>
+          !r.skip && !!r.link_code && codeSet.size > 0 && !codeSet.has(r.link_code),
+      )
     return rows
-  }, [rows, filter])
+  }, [rows, filter, codeSet])
 
   const updateRow = (idx: number, patch: Partial<RowState>) => {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
@@ -298,9 +312,44 @@ export function QuickBooksReviewTable({
           >
             Mapped ({counts.mapped})
           </button>
+          {counts.invalid > 0 && (
+            <button
+              type="button"
+              className={cn(
+                "text-amber-700",
+                filter === "invalid" && "font-semibold underline",
+              )}
+              onClick={() => setFilter("invalid")}
+            >
+              Invalid ({counts.invalid})
+            </button>
+          )}
         </div>
       </CardHeader>
       <CardContent>
+        {counts.invalid > 0 && (
+          <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="flex-1">
+              <p className="font-medium">
+                {counts.invalid === 1
+                  ? "1 row references a link code that no longer exists in your statement structure."
+                  : `${counts.invalid} rows reference link codes that no longer exist in your statement structure.`}
+              </p>
+              <p className="text-xs">
+                Pick a different code or skip those rows before importing.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100"
+              onClick={() => setFilter("invalid")}
+            >
+              Show
+            </Button>
+          </div>
+        )}
         <div className="max-h-[60vh] overflow-auto">
           <Table>
             <TableHeader>
@@ -317,8 +366,14 @@ export function QuickBooksReviewTable({
             <TableBody>
               {visibleRows.map((r) => {
                 const idx = rows.indexOf(r)
+                const invalid = isInvalidRow(r)
                 return (
-                  <TableRow key={r.account_number}>
+                  <TableRow
+                    key={r.account_number}
+                    className={cn(
+                      invalid && "bg-red-50 hover:bg-red-100",
+                    )}
+                  >
                     <TableCell className="font-mono text-xs">
                       {r.account_number}
                     </TableCell>
@@ -348,6 +403,11 @@ export function QuickBooksReviewTable({
                             Was: {r.existing_link_code}
                           </Badge>
                         )}
+                      {invalid && (
+                        <p className="mt-1 text-xs text-red-700">
+                          Code not in structure
+                        </p>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Checkbox
