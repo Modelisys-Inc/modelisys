@@ -231,6 +231,7 @@ def list_link_codes(
     structures = (
         db.query(CompanyStatementStructure)
         .filter(CompanyStatementStructure.company_id == company.id)
+        .order_by(CompanyStatementStructure.statement_type)
         .all()
     )
     options: list[LinkCodeOption] = []
