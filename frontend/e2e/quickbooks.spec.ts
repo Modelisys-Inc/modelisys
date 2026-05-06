@@ -102,9 +102,7 @@ test.describe("QuickBooks page", () => {
                 qbo_account_sub_type: "Checking",
                 debit: 5000,
                 credit: 0,
-                proposed_link_code: "actif.encaisse",
-                confidence: "high",
-                existing_link_code: null,
+                existing_link_code: "actif.encaisse",
               },
               {
                 qbo_account_id: "42",
@@ -114,9 +112,7 @@ test.describe("QuickBooks page", () => {
                 qbo_account_sub_type: "SalesOfProductIncome",
                 debit: 0,
                 credit: 5000,
-                proposed_link_code: "revenus.ventes",
-                confidence: "high",
-                existing_link_code: null,
+                existing_link_code: "revenus.ventes",
               },
             ],
           }),
@@ -129,8 +125,20 @@ test.describe("QuickBooks page", () => {
           status: 200,
           contentType: "application/json",
           body: JSON.stringify([
-            { code: "actif.encaisse", label: "Encaisse", mapping_type: "bilan" },
-            { code: "revenus.ventes", label: "Ventes", mapping_type: "resultats" },
+            {
+              code: "actif.encaisse",
+              label: "Encaisse",
+              statement_type: "balance-sheet",
+              parent_id: "actifs-courants",
+              parent_label: "Actifs courants",
+            },
+            {
+              code: "revenus.ventes",
+              label: "Ventes",
+              statement_type: "income-statement",
+              parent_id: "revenue",
+              parent_label: "Revenus",
+            },
           ]),
         }),
     )
@@ -152,7 +160,7 @@ test.describe("QuickBooks page", () => {
     await expect(page.getByText(/Realm ID: 12345/)).toBeVisible({ timeout: 15000 })
     await page.getByRole("button", { name: /preview trial balance/i }).click()
     await expect(page.getByText("Cash")).toBeVisible()
-    await expect(page.getByText("Sales")).toBeVisible()
+    await expect(page.getByText("Sales", { exact: true })).toBeVisible()
     await page.getByRole("button", { name: /import trial balance/i }).click()
     await expect(page.getByText(/trial balance imported/i)).toBeVisible()
   })
@@ -188,9 +196,7 @@ test.describe("QuickBooks page", () => {
                 qbo_account_sub_type: "Checking",
                 debit: 5000,
                 credit: 0,
-                proposed_link_code: "actif.encaisse",
-                confidence: "high",
-                existing_link_code: null,
+                existing_link_code: "actif.encaisse",
               },
             ],
           }),
@@ -202,7 +208,22 @@ test.describe("QuickBooks page", () => {
         route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify([]),
+          body: JSON.stringify([
+            {
+              code: "actif.encaisse",
+              label: "Encaisse",
+              statement_type: "balance-sheet",
+              parent_id: "actifs-courants",
+              parent_label: "Actifs courants",
+            },
+            {
+              code: "revenus.ventes",
+              label: "Ventes",
+              statement_type: "income-statement",
+              parent_id: "revenue",
+              parent_label: "Revenus",
+            },
+          ]),
         }),
     )
     let commitCalls = 0
@@ -256,6 +277,149 @@ test.describe("QuickBooks page", () => {
     })
     await expect(
       page.getByRole("button", { name: /reconnect quickbooks/i }),
+    ).toBeVisible()
+  })
+
+  test("create new link code from review table", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/connection`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            status: "connected",
+            realm_id: "12345",
+            connected_at: "2026-04-14T00:00:00Z",
+          }),
+        }),
+    )
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/trial-balance/preview`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            fiscal_year: 2026,
+            month: 3,
+            currency: "CAD",
+            fetched_at: "2026-04-14T00:00:00Z",
+            rows: [
+              {
+                qbo_account_id: "1",
+                account_number: "1000",
+                account_name: "Cash",
+                qbo_account_type: "Bank",
+                qbo_account_sub_type: "Checking",
+                debit: 5000,
+                credit: 0,
+                existing_link_code: null,
+              },
+            ],
+          }),
+        }),
+    )
+
+    // Initial link-codes list: empty. After POST: one entry.
+    // Use a boolean (not a call counter) so React StrictMode double-invocations
+    // don't prematurely populate the list before the code is actually created.
+    let codeCreated = false
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/link-codes`,
+      (route) => {
+        if (route.request().method() === "POST") {
+          codeCreated = true
+          return route.fulfill({
+            status: 201,
+            contentType: "application/json",
+            body: JSON.stringify({
+              code: "10-100",
+              label: "Cash",
+              statement_type: "balance-sheet",
+              parent_id: "actifs-courants",
+              parent_label: "Actifs courants",
+            }),
+          })
+        }
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(
+            codeCreated
+              ? [
+                  {
+                    code: "10-100",
+                    label: "Cash",
+                    statement_type: "balance-sheet",
+                    parent_id: "actifs-courants",
+                    parent_label: "Actifs courants",
+                  },
+                ]
+              : [],
+          ),
+        })
+      },
+    )
+
+    // Statement structure for the dialog parent selector.
+    // Mock both statement types to prevent real backend calls.
+    await page.route(
+      `**/api/companies/${COMPANY_ID}/statement-structures/income-statement`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ structure: [] }),
+        }),
+    )
+    await page.route(
+      `**/api/companies/${COMPANY_ID}/statement-structures/balance-sheet`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            structure: [
+              {
+                id: "actifs-courants",
+                label: "Actifs courants",
+                isSection: true,
+                children: [],
+              },
+            ],
+          }),
+        }),
+    )
+
+    await page.goto(URL)
+    await page.getByRole("button", { name: /preview trial balance/i }).click()
+    // Wait for the review table to appear.
+    await expect(page.getByText("Cash")).toBeVisible()
+
+    // Open the picker (the button has role="combobox" but accessible name comes from
+    // text content, which is not used by Playwright's getByRole name filter for
+    // composite widget roles; use a CSS attribute+text selector instead).
+    await page.locator('button[role="combobox"]:has-text("Pick a link code")').click()
+    // Click the "Create new link code…" item.
+    await page.getByRole("option", { name: /create new link code/i }).click()
+
+    // The create dialog opens. Default statement type is "income-statement";
+    // switch to balance-sheet so the parent dropdown loads our mock structure.
+    await page.getByLabel(/^statement$/i).click()
+    await page.getByRole("option", { name: /balance sheet/i }).click()
+
+    // Wait for the parent section dropdown to become enabled (balance-sheet structure loaded).
+    await expect(page.getByLabel(/^parent section$/i)).toBeEnabled()
+
+    // Fill the link code and submit. Label defaults to "Cash" (the row's account_name).
+    await page.getByLabel(/^link code$/i).fill("10-100")
+    await page.getByRole("button", { name: /^create$/i }).click()
+
+    // The picker trigger should now show the new code.
+    await expect(
+      page.locator('button[role="combobox"]:has-text("10-100")'),
     ).toBeVisible()
   })
 })
