@@ -204,8 +204,12 @@ Per-company connector in `backend/app/integrations/quickbooks/`:
   (YTD: fiscal-year-start through end-of-target-month). On commit, the
   company is forced to `is_cumulative_tb=True` so the FS service interprets
   the stored YTD entries correctly.
-- **Mapping rules** (`mapping_rules.py`) are GENERIC defaults — must be
-  customized per-org to match `FinancialStatementMapping.structure` link codes.
+- **Strict link-code picker:** the QBO review screen reads valid link codes
+  from `CompanyStatementStructure` (per company, per statement type). Users
+  must pick an existing code or create a new one inline (`POST
+  /api/quickbooks/companies/{id}/link-codes` appends a leaf to the structure).
+  `commit_trial_balance` rejects any non-skipped row whose `link_code` is not
+  in the structure (422).
 - **Frontend:** `/settings/companies/[id]/quickbooks` with three states
   (not_connected / connected / revoked) and a `QuickBooksReviewTable` for
   per-row mapping review.
