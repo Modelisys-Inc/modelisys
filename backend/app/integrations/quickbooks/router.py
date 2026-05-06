@@ -7,12 +7,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.integrations.quickbooks import oauth, service
 from app.integrations.quickbooks import service as qbo_service
+from app.routers.statement_structures import VALID_STATEMENT_TYPES
 from app.integrations.quickbooks.client import QBOClientError
 from app.models.company import Company
 from app.models.financial_statement_mapping import CompanyStatementStructure
@@ -265,9 +267,6 @@ def list_link_codes(
     return options
 
 
-VALID_STATEMENT_TYPES = {"income-statement", "balance-sheet", "cash-flow", "capex", "baiia"}
-
-
 def _find_node_by_id(structure, target_id: str):
     """Walk the structure tree, return the dict with id == target_id, or None."""
     if isinstance(structure, list):
@@ -319,10 +318,28 @@ def create_link_code(
             status_code=422,
             detail=f"Invalid statement_type: {body.statement_type}",
         )
-    if not body.link_code.strip():
+
+    link_code = body.link_code.strip()
+    label = body.label.strip()
+    if not link_code:
         raise HTTPException(status_code=422, detail="link_code must not be empty")
-    if not body.label.strip():
+    if not label:
         raise HTTPException(status_code=422, detail="label must not be empty")
+
+    target = (
+        db.query(CompanyStatementStructure)
+        .filter(
+            CompanyStatementStructure.company_id == company.id,
+            CompanyStatementStructure.statement_type == body.statement_type,
+        )
+        .with_for_update()
+        .first()
+    )
+    if target is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"No {body.statement_type} structure exists for this company",
+        )
 
     all_structures = (
         db.query(CompanyStatementStructure)
@@ -330,21 +347,11 @@ def create_link_code(
         .all()
     )
     for s in all_structures:
-        if body.link_code in _collect_all_codes(s.structure):
+        if link_code in _collect_all_codes(s.structure):
             raise HTTPException(
                 status_code=422,
-                detail=f"link_code {body.link_code} already exists for this company",
+                detail=f"link_code {link_code} already exists for this company",
             )
-
-    target = next(
-        (s for s in all_structures if s.statement_type == body.statement_type),
-        None,
-    )
-    if target is None:
-        raise HTTPException(
-            status_code=422,
-            detail=f"No {body.statement_type} structure exists for this company",
-        )
 
     parent = _find_node_by_id(target.structure, body.parent_id)
     if parent is None:
@@ -353,20 +360,19 @@ def create_link_code(
             detail=f"Parent node {body.parent_id} not found in structure",
         )
 
-    new_leaf = {"id": body.link_code, "label": body.label, "linkCode": body.link_code}
+    new_leaf = {"id": link_code, "label": label, "linkCode": link_code}
     children = parent.get("children")
     if not isinstance(children, list):
         children = []
         parent["children"] = children
     children.append(new_leaf)
 
-    from sqlalchemy.orm.attributes import flag_modified
     flag_modified(target, "structure")
     db.commit()
 
     return LinkCodeOption(
-        code=body.link_code,
-        label=body.label,
+        code=link_code,
+        label=label,
         statement_type=body.statement_type,
         parent_id=body.parent_id,
         parent_label=parent.get("label"),
