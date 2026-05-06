@@ -198,7 +198,6 @@ def test_preview_happy_path(auth_client, db, org_user_company):
     body = r.json()
     assert body["currency"] == "CAD"
     assert len(body["rows"]) == 3
-    cash = next(r for r in body["rows"] if r["account_number"] == "1000")
 
 
 @respx.mock
