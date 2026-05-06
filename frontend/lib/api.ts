@@ -1602,8 +1602,6 @@ export type QboTrialBalanceProposalRow = {
   qbo_account_sub_type: string | null
   debit: number
   credit: number
-  proposed_link_code: string | null
-  confidence: "high" | "medium" | "low"
   existing_link_code: string | null
 }
 
@@ -1615,7 +1613,13 @@ export type QboTrialBalancePreview = {
   rows: QboTrialBalanceProposalRow[]
 }
 
-export type QboLinkCode = { code: string; label: string; mapping_type: string }
+export type QboLinkCode = {
+  code: string
+  label: string
+  statement_type: string
+  parent_id: string | null
+  parent_label: string | null
+}
 
 export type QboCommitRow = {
   account_number: string
@@ -1677,4 +1681,39 @@ export async function commitQboTrialBalance(
 
 export async function listQboLinkCodes(companyId: string): Promise<QboLinkCode[]> {
   return apiFetch<QboLinkCode[]>(`/api/quickbooks/companies/${companyId}/link-codes`)
+}
+
+export async function createLinkCode(
+  companyId: string,
+  body: {
+    statement_type: string
+    parent_id: string
+    link_code: string
+    label: string
+  },
+): Promise<QboLinkCode> {
+  return apiFetch<QboLinkCode>(
+    `/api/quickbooks/companies/${companyId}/link-codes`,
+    { method: "POST", body },
+  )
+}
+
+export type StatementStructureNode = {
+  id?: string
+  label?: string
+  isSection?: boolean
+  isBold?: boolean
+  isResult?: boolean
+  linkCode?: string
+  link_code?: string
+  children?: StatementStructureNode[]
+}
+
+export async function getCompanyStatementStructure(
+  companyId: string,
+  statementType: string,
+): Promise<{ structure: StatementStructureNode[] }> {
+  return apiFetch<{ structure: StatementStructureNode[] }>(
+    `/api/companies/${companyId}/statement-structures/${statementType}`,
+  )
 }

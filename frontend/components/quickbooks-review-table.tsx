@@ -1,11 +1,21 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { Check, ChevronsUpDown, Plus } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@/components/ui/command"
 import {
   Dialog,
   DialogContent,
@@ -13,7 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Table,
   TableBody,
@@ -22,6 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { CreateLinkCodeDialog } from "@/components/quickbooks-create-link-code-dialog"
 import {
   ApiError,
   commitQboTrialBalance,
@@ -30,8 +41,9 @@ import {
   type QboLinkCode,
   type QboTrialBalancePreview,
 } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
-type Filter = "all" | "high" | "review" | "mapped"
+type Filter = "all" | "unmapped" | "mapped"
 
 type RowState = {
   account_number: string
@@ -41,7 +53,6 @@ type RowState = {
   qbo_type: string | null
   qbo_subtype: string | null
   link_code: string | null
-  confidence: "high" | "medium" | "low"
   existing_link_code: string | null
   skip: boolean
 }
@@ -68,8 +79,7 @@ export function QuickBooksReviewTable({
       credit: r.credit,
       qbo_type: r.qbo_account_type,
       qbo_subtype: r.qbo_account_sub_type,
-      link_code: r.proposed_link_code,
-      confidence: r.confidence,
+      link_code: r.existing_link_code,
       existing_link_code: r.existing_link_code,
       skip: false,
     })),
@@ -78,20 +88,38 @@ export function QuickBooksReviewTable({
   const [committing, setCommitting] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [createOpenForRow, setCreateOpenForRow] = useState<number | null>(null)
+
+  const refreshLinkCodes = () =>
+    listQboLinkCodes(companyId).then(setLinkCodes).catch(() => setLinkCodes([]))
 
   useEffect(() => {
-    listQboLinkCodes(companyId)
-      .then(setLinkCodes)
-      .catch(() => setLinkCodes([]))
+    refreshLinkCodes()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId])
+
+  const codeIndex = useMemo(() => {
+    const m = new Map<string, QboLinkCode>()
+    for (const c of linkCodes) m.set(c.code, c)
+    return m
+  }, [linkCodes])
+
+  const codesByStatement = useMemo(() => {
+    const groups = new Map<string, QboLinkCode[]>()
+    for (const c of linkCodes) {
+      const list = groups.get(c.statement_type) ?? []
+      list.push(c)
+      groups.set(c.statement_type, list)
+    }
+    return groups
+  }, [linkCodes])
+
+  const codeSet = useMemo(() => new Set(linkCodes.map((c) => c.code)), [linkCodes])
 
   const counts = useMemo(
     () => ({
-      high: rows.filter((r) => r.confidence === "high").length,
-      review: rows.filter(
-        (r) => r.confidence !== "high" && !r.existing_link_code,
-      ).length,
-      mapped: rows.filter((r) => r.existing_link_code !== null).length,
+      mapped: rows.filter((r) => !!r.link_code).length,
+      unmapped: rows.filter((r) => !r.skip && !r.link_code).length,
     }),
     [rows],
   )
@@ -103,13 +131,9 @@ export function QuickBooksReviewTable({
   }, [rows])
 
   const visibleRows = useMemo(() => {
-    if (filter === "high") return rows.filter((r) => r.confidence === "high")
-    if (filter === "review")
-      return rows.filter(
-        (r) => r.confidence !== "high" && !r.existing_link_code,
-      )
-    if (filter === "mapped")
-      return rows.filter((r) => r.existing_link_code !== null)
+    if (filter === "mapped") return rows.filter((r) => !!r.link_code)
+    if (filter === "unmapped")
+      return rows.filter((r) => !r.skip && !r.link_code)
     return rows
   }, [rows, filter])
 
@@ -117,9 +141,7 @@ export function QuickBooksReviewTable({
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
   }
 
-  const canCommit = rows.every(
-    (r) => r.skip || (r.link_code && r.link_code.length > 0),
-  )
+  const canCommit = rows.every((r) => r.skip || !!r.link_code)
 
   const doCommit = async (overwrite: boolean) => {
     setCommitting(true)
@@ -170,24 +192,17 @@ export function QuickBooksReviewTable({
           </button>
           <button
             type="button"
-            className={filter === "high" ? "font-semibold underline" : ""}
-            onClick={() => setFilter("high")}
+            className={filter === "unmapped" ? "font-semibold underline" : ""}
+            onClick={() => setFilter("unmapped")}
           >
-            High confidence ({counts.high})
-          </button>
-          <button
-            type="button"
-            className={filter === "review" ? "font-semibold underline" : ""}
-            onClick={() => setFilter("review")}
-          >
-            Needs review ({counts.review})
+            Unmapped ({counts.unmapped})
           </button>
           <button
             type="button"
             className={filter === "mapped" ? "font-semibold underline" : ""}
             onClick={() => setFilter("mapped")}
           >
-            Already mapped ({counts.mapped})
+            Mapped ({counts.mapped})
           </button>
         </div>
       </CardHeader>
@@ -202,13 +217,13 @@ export function QuickBooksReviewTable({
                 <TableHead className="text-right">Debit</TableHead>
                 <TableHead className="text-right">Credit</TableHead>
                 <TableHead>Link code</TableHead>
-                <TableHead>Confidence</TableHead>
                 <TableHead>Skip</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {visibleRows.map((r) => {
                 const idx = rows.indexOf(r)
+                const selected = r.link_code ? codeIndex.get(r.link_code) : null
                 return (
                   <TableRow key={r.account_number}>
                     <TableCell className="font-mono text-xs">
@@ -226,37 +241,84 @@ export function QuickBooksReviewTable({
                       {r.credit.toFixed(2)}
                     </TableCell>
                     <TableCell>
-                      <Input
-                        list="qbo-link-codes"
-                        value={r.link_code ?? ""}
-                        onChange={(e) =>
-                          updateRow(idx, {
-                            link_code: e.target.value || null,
-                          })
-                        }
-                        className="h-8 text-xs"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1">
-                        <Badge
-                          variant={
-                            r.confidence === "high"
-                              ? "default"
-                              : r.confidence === "medium"
-                              ? "secondary"
-                              : "outline"
-                          }
-                        >
-                          {r.confidence}
-                        </Badge>
-                        {r.existing_link_code &&
-                          r.existing_link_code !== r.link_code && (
-                            <Badge variant="outline" className="text-xs">
-                              Already mapped
-                            </Badge>
-                          )}
-                      </div>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            role="combobox"
+                            className="h-8 w-[260px] justify-between text-xs"
+                          >
+                            <span className="truncate">
+                              {selected
+                                ? `${selected.code} — ${selected.label}`
+                                : r.link_code
+                                ? `${r.link_code} (unknown)`
+                                : "Pick a link code"}
+                            </span>
+                            <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[320px] p-0">
+                          <Command>
+                            <CommandInput placeholder="Search link codes…" />
+                            <CommandList>
+                              <CommandEmpty>No codes found.</CommandEmpty>
+                              <CommandGroup>
+                                <CommandItem
+                                  onSelect={() => setCreateOpenForRow(idx)}
+                                  className="font-medium"
+                                >
+                                  <Plus className="mr-2 h-4 w-4" />
+                                  Create new link code…
+                                </CommandItem>
+                              </CommandGroup>
+                              <CommandSeparator />
+                              {Array.from(codesByStatement.entries()).map(
+                                ([stmt, list]) => (
+                                  <CommandGroup key={stmt} heading={stmt}>
+                                    {list.map((c) => (
+                                      <CommandItem
+                                        key={c.code}
+                                        value={`${c.code} ${c.label}`}
+                                        onSelect={() =>
+                                          updateRow(idx, { link_code: c.code })
+                                        }
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "mr-2 h-4 w-4",
+                                            r.link_code === c.code
+                                              ? "opacity-100"
+                                              : "opacity-0",
+                                          )}
+                                        />
+                                        <div className="flex flex-col">
+                                          <span className="font-mono text-xs">
+                                            {c.code}
+                                          </span>
+                                          <span className="text-xs text-muted-foreground">
+                                            {c.label}
+                                            {c.parent_label
+                                              ? ` · ${c.parent_label}`
+                                              : ""}
+                                          </span>
+                                        </div>
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                ),
+                              )}
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      {r.existing_link_code &&
+                        r.existing_link_code !== r.link_code && (
+                          <Badge variant="outline" className="mt-1 text-xs">
+                            Was: {r.existing_link_code}
+                          </Badge>
+                        )}
                     </TableCell>
                     <TableCell>
                       <Checkbox
@@ -269,13 +331,6 @@ export function QuickBooksReviewTable({
               })}
             </TableBody>
           </Table>
-          <datalist id="qbo-link-codes">
-            {linkCodes.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.label}
-              </option>
-            ))}
-          </datalist>
         </div>
 
         <div className="mt-4 flex flex-col gap-3">
@@ -334,6 +389,20 @@ export function QuickBooksReviewTable({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <CreateLinkCodeDialog
+        companyId={companyId}
+        open={createOpenForRow !== null}
+        defaultLabel={createOpenForRow !== null ? rows[createOpenForRow]?.account_name : ""}
+        existingCodes={codeSet}
+        onClose={() => setCreateOpenForRow(null)}
+        onCreated={async (created) => {
+          await refreshLinkCodes()
+          if (createOpenForRow !== null) {
+            updateRow(createOpenForRow, { link_code: created.code })
+          }
+        }}
+      />
     </Card>
   )
 }
