@@ -163,6 +163,7 @@ export function QuickBooksReviewTable({
   onCommitted,
 }: ReviewTableProps) {
   const [linkCodes, setLinkCodes] = useState<QboLinkCode[]>([])
+  const [linkCodesLoaded, setLinkCodesLoaded] = useState(false)
   const [rows, setRows] = useState<RowState[]>(() =>
     preview.rows.map((r) => ({
       account_number: r.account_number,
@@ -183,7 +184,15 @@ export function QuickBooksReviewTable({
   const [createOpenForRow, setCreateOpenForRow] = useState<number | null>(null)
 
   const refreshLinkCodes = () =>
-    listQboLinkCodes(companyId).then(setLinkCodes).catch(() => setLinkCodes([]))
+    listQboLinkCodes(companyId)
+      .then((codes) => {
+        setLinkCodes(codes)
+        setLinkCodesLoaded(true)
+      })
+      .catch(() => {
+        setLinkCodes([])
+        setLinkCodesLoaded(true)
+      })
 
   useEffect(() => {
     refreshLinkCodes()
@@ -229,6 +238,19 @@ export function QuickBooksReviewTable({
     const credit = rows.filter((r) => !r.skip).reduce((s, r) => s + r.credit, 0)
     return { debit, credit, balanced: Math.abs(debit - credit) < 0.01 }
   }, [rows])
+
+  const zeroAmountUnskipped = useMemo(
+    () => rows.filter((r) => !r.skip && r.debit === 0 && r.credit === 0).length,
+    [rows],
+  )
+
+  const skipAllZeroAmount = () => {
+    setRows((prev) =>
+      prev.map((r) =>
+        !r.skip && r.debit === 0 && r.credit === 0 ? { ...r, skip: true } : r,
+      ),
+    )
+  }
 
   const visibleRows = useMemo(() => {
     if (filter === "mapped")
@@ -290,6 +312,10 @@ export function QuickBooksReviewTable({
           Review trial balance — {preview.fiscal_year}-
           {String(preview.month).padStart(2, "0")} ({preview.currency})
         </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          QBO imports are stored as year-to-date (cumulative). Financial
+          statements de-cumulate on read.
+        </p>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <button
             type="button"
@@ -324,9 +350,30 @@ export function QuickBooksReviewTable({
               Invalid ({counts.invalid})
             </button>
           )}
+          {zeroAmountUnskipped > 0 && (
+            <button
+              type="button"
+              className="ml-auto text-muted-foreground hover:text-foreground"
+              onClick={skipAllZeroAmount}
+            >
+              Skip {zeroAmountUnskipped} zero-amount{" "}
+              {zeroAmountUnskipped === 1 ? "row" : "rows"}
+            </button>
+          )}
         </div>
       </CardHeader>
       <CardContent>
+        {linkCodesLoaded && linkCodes.length === 0 && (
+          <div className="mb-3 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+            <p className="font-medium">
+              Your statement structure has no link codes yet.
+            </p>
+            <p className="text-xs">
+              Use the picker's <span className="font-medium">+ Create new link code…</span>{" "}
+              action on each row, or set up your statement structure first.
+            </p>
+          </div>
+        )}
         {counts.invalid > 0 && (
           <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
