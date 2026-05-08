@@ -72,7 +72,7 @@ function LinkCodePicker({
           size="sm"
           role="combobox"
           aria-expanded={open}
-          className="h-8 w-[260px] justify-between text-xs"
+          className="h-8 w-full justify-between text-xs"
         >
           <span className="truncate">
             {selected
@@ -397,17 +397,17 @@ export function QuickBooksReviewTable({
             </Button>
           </div>
         )}
-        <div className="max-h-[60vh] overflow-auto">
-          <Table>
+        <div className="max-h-[60vh] overflow-y-auto">
+          <Table className="table-fixed">
             <TableHeader>
               <TableRow>
-                <TableHead>Account #</TableHead>
+                <TableHead className="w-[90px]">Account #</TableHead>
                 <TableHead>Name</TableHead>
-                <TableHead>QBO type</TableHead>
-                <TableHead className="text-right">Debit</TableHead>
-                <TableHead className="text-right">Credit</TableHead>
-                <TableHead>Link code</TableHead>
-                <TableHead>Skip</TableHead>
+                <TableHead className="w-[140px]">QBO type</TableHead>
+                <TableHead className="w-[100px] text-right">Debit</TableHead>
+                <TableHead className="w-[100px] text-right">Credit</TableHead>
+                <TableHead className="w-[260px]">Link code</TableHead>
+                <TableHead className="w-[60px]">Skip</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -421,11 +421,16 @@ export function QuickBooksReviewTable({
                       invalid && "bg-red-50 hover:bg-red-100",
                     )}
                   >
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="truncate font-mono text-xs">
                       {r.account_number}
                     </TableCell>
-                    <TableCell>{r.account_name}</TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
+                    <TableCell className="truncate" title={r.account_name}>
+                      {r.account_name}
+                    </TableCell>
+                    <TableCell
+                      className="truncate text-xs text-muted-foreground"
+                      title={`${r.qbo_type ?? "—"}${r.qbo_subtype ? `/${r.qbo_subtype}` : ""}`}
+                    >
                       {r.qbo_type ?? "—"}
                       {r.qbo_subtype ? `/${r.qbo_subtype}` : ""}
                     </TableCell>
