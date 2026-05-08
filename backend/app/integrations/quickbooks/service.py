@@ -264,7 +264,8 @@ def commit_trial_balance(
             code = node.get("linkCode") or node.get("link_code")
             if code:
                 valid_codes.add(str(code))
-            _collect(node.get("children"))
+            for key in ("children", "detailRows"):
+                _collect(node.get(key))
 
     for s in structures:
         _collect(s.structure)

@@ -1704,9 +1704,11 @@ export type StatementStructureNode = {
   isSection?: boolean
   isBold?: boolean
   isResult?: boolean
+  indent?: boolean
   linkCode?: string
   link_code?: string
   children?: StatementStructureNode[]
+  detailRows?: StatementStructureNode[]
 }
 
 export async function getCompanyStatementStructure(

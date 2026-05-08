@@ -39,15 +39,25 @@ type ParentOption = { id: string; label: string }
 
 function collectParents(nodes: StatementStructureNode[]): ParentOption[] {
   const out: ParentOption[] = []
-  const walk = (list: StatementStructureNode[]) => {
+  const seen = new Set<string>()
+  const walk = (list: StatementStructureNode[] | undefined) => {
+    if (!Array.isArray(list)) return
     for (const n of list) {
+      const identifier = n.id ?? n.label
       const isPlausibleParent =
-        Boolean(n.id) &&
-        (n.isSection === true || (Array.isArray(n.children) && n.children.length > 0))
-      if (isPlausibleParent) {
-        out.push({ id: String(n.id), label: String(n.label ?? n.id) })
+        Boolean(identifier) &&
+        (n.isSection === true ||
+          (Array.isArray(n.children) && n.children.length > 0) ||
+          (Array.isArray(n.detailRows) && n.detailRows.length >= 0))
+      if (isPlausibleParent && !seen.has(String(identifier))) {
+        seen.add(String(identifier))
+        out.push({
+          id: String(identifier),
+          label: String(n.label ?? identifier),
+        })
       }
-      if (Array.isArray(n.children)) walk(n.children)
+      walk(n.children)
+      walk(n.detailRows)
     }
   }
   walk(nodes)

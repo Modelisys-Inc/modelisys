@@ -576,7 +576,7 @@ def test_create_link_code_appends_leaf_and_returns_option(auth_client, db, org_u
         .first()
     )
     children = structure.structure[0]["children"]
-    assert {"id": "44-999", "label": "Nouveau poste", "linkCode": "44-999"} in children
+    assert {"label": "Nouveau poste", "linkCode": "44-999", "indent": True} in children
 
 
 def test_create_link_code_invalid_statement_type_returns_422(auth_client, db, org_user_company):
@@ -623,3 +623,86 @@ def test_create_link_code_duplicate_returns_422(auth_client, db, org_user_compan
     )
     assert r.status_code == 422
     assert "already" in r.json()["detail"].lower()
+
+
+def test_create_link_code_supports_detail_rows_schema(auth_client, db, org_user_company):
+    """Production structures often use `detailRows` instead of `children` and
+    rely on `label` as the parent identifier (no `id` field)."""
+    _, _, company = org_user_company
+    db.add(CompanyStatementStructure(
+        company_id=company.id,
+        statement_type="income-statement",
+        structure=[
+            {
+                "label": "frais d'administration",
+                "indent": True,
+                "isSection": True,
+                "detailRows": [
+                    {"label": "Loyer", "indent": True, "linkCode": "44-540"},
+                ],
+            },
+        ],
+    ))
+    db.commit()
+
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/link-codes",
+        json={
+            "statement_type": "income-statement",
+            "parent_id": "frais d'administration",
+            "link_code": "44-999",
+            "label": "Nouveau poste",
+        },
+    )
+    assert r.status_code == 201, r.text
+
+    db.expire_all()
+    structure = (
+        db.query(CompanyStatementStructure)
+        .filter(CompanyStatementStructure.company_id == company.id)
+        .first()
+    )
+    detail_rows = structure.structure[0]["detailRows"]
+    assert any(r.get("linkCode") == "44-999" for r in detail_rows)
+
+
+def test_create_link_code_supports_flat_sibling_schema(auth_client, db, org_user_company):
+    """Some production structures are flat: sections and leaves are siblings.
+    A new leaf must be inserted after the chosen section, before the next
+    section header."""
+    _, _, company = org_user_company
+    db.add(CompanyStatementStructure(
+        company_id=company.id,
+        statement_type="balance-sheet",
+        structure=[
+            {"label": "actifs", "isBold": True, "isSection": True},
+            {"label": "actifs courants", "indent": True, "isSection": True},
+            {"label": "Encaisse", "indent": True, "linkCode": "A"},
+            {"label": "actifs non courants", "indent": True, "isSection": True},
+            {"label": "Immobilisations", "indent": True, "linkCode": "G"},
+        ],
+    ))
+    db.commit()
+
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/link-codes",
+        json={
+            "statement_type": "balance-sheet",
+            "parent_id": "actifs courants",
+            "link_code": "B",
+            "label": "Débiteurs",
+        },
+    )
+    assert r.status_code == 201, r.text
+
+    db.expire_all()
+    structure = (
+        db.query(CompanyStatementStructure)
+        .filter(CompanyStatementStructure.company_id == company.id)
+        .first()
+    )
+    labels = [n.get("label") for n in structure.structure]
+    # The new leaf should land after "actifs courants" and "Encaisse",
+    # but before "actifs non courants".
+    assert labels.index("Débiteurs") > labels.index("actifs courants")
+    assert labels.index("Débiteurs") < labels.index("actifs non courants")

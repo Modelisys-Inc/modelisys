@@ -254,12 +254,13 @@ def list_link_codes(
                     parent_id=parent_id,
                     parent_label=parent_label,
                 ))
-            children = node.get("children")
-            if isinstance(children, list):
-                next_parent_id = node.get("id")
-                next_parent_label = node.get("label")
-                for child in children:
-                    walk(child, statement_type, next_parent_id, next_parent_label)
+            next_parent_id = node.get("id") or node.get("label")
+            next_parent_label = node.get("label")
+            for key in ("children", "detailRows"):
+                children = node.get(key)
+                if isinstance(children, list):
+                    for child in children:
+                        walk(child, statement_type, next_parent_id, next_parent_label)
         elif isinstance(node, list):
             for item in node:
                 walk(item, statement_type, parent_id, parent_label)
@@ -269,20 +270,52 @@ def list_link_codes(
     return options
 
 
-def _find_node_by_id(structure, target_id: str):
-    """Walk the structure tree, return the dict with id == target_id, or None."""
-    if isinstance(structure, list):
-        for item in structure:
-            found = _find_node_by_id(item, target_id)
-            if found is not None:
-                return found
-    elif isinstance(structure, dict):
-        if structure.get("id") == target_id:
-            return structure
-        children = structure.get("children")
-        if isinstance(children, list):
-            return _find_node_by_id(children, target_id)
-    return None
+def _node_matches(node: dict, target: str) -> bool:
+    return node.get("id") == target or node.get("label") == target
+
+
+def _find_insertion_point(structure, target: str):
+    """Find where to insert a new leaf identified by id-or-label.
+
+    Returns (target_list, insert_index, parent_label) or None if not found.
+
+    Three real-world structure shapes are supported:
+    - Tree via `children`: append at the end of `parent.children`.
+    - Tree via `detailRows`: append at the end of `parent.detailRows`.
+    - Flat (sections and leaves are siblings): insert into the parent array
+      right before the next section header (or at the end of the array).
+    """
+    def walk(arr):
+        if not isinstance(arr, list):
+            return None
+        for i, n in enumerate(arr):
+            if not isinstance(n, dict):
+                continue
+            if _node_matches(n, target):
+                if isinstance(n.get("detailRows"), list):
+                    return (n["detailRows"], len(n["detailRows"]), n.get("label"))
+                if isinstance(n.get("children"), list):
+                    return (n["children"], len(n["children"]), n.get("label"))
+                # Flat: parent is a marker; insert siblings after it, before
+                # the next section header.
+                next_idx = i + 1
+                while next_idx < len(arr):
+                    sib = arr[next_idx]
+                    if isinstance(sib, dict) and (
+                        sib.get("isSection") or sib.get("isBold")
+                    ):
+                        break
+                    next_idx += 1
+                return (arr, next_idx, n.get("label"))
+            for key in ("children", "detailRows"):
+                sub = n.get(key)
+                if isinstance(sub, list):
+                    found = walk(sub)
+                    if found is not None:
+                        return found
+        return None
+
+    return walk(structure)
 
 
 def _collect_all_codes(structure) -> set[str]:
@@ -296,7 +329,8 @@ def _collect_all_codes(structure) -> set[str]:
             code = node.get("linkCode") or node.get("link_code")
             if code:
                 out.add(str(code))
-            walk(node.get("children"))
+            for key in ("children", "detailRows"):
+                walk(node.get(key))
 
     walk(structure)
     return out
@@ -355,19 +389,17 @@ def create_link_code(
                 detail=f"link_code {link_code} already exists for this company",
             )
 
-    parent = _find_node_by_id(target.structure, body.parent_id)
-    if parent is None:
+    insertion = _find_insertion_point(target.structure, body.parent_id)
+    if insertion is None:
         raise HTTPException(
             status_code=422,
             detail=f"Parent node {body.parent_id} not found in structure",
         )
+    target_list, insert_index, parent_label = insertion
 
-    new_leaf = {"id": link_code, "label": label, "linkCode": link_code}
-    children = parent.get("children")
-    if not isinstance(children, list):
-        children = []
-        parent["children"] = children
-    children.append(new_leaf)
+    # Match the visual style most production leaves use (indent under section).
+    new_leaf = {"label": label, "linkCode": link_code, "indent": True}
+    target_list.insert(insert_index, new_leaf)
 
     flag_modified(target, "structure")
     db.commit()
@@ -377,5 +409,5 @@ def create_link_code(
         label=label,
         statement_type=body.statement_type,
         parent_id=body.parent_id,
-        parent_label=parent.get("label"),
+        parent_label=parent_label,
     )
