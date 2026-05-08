@@ -185,6 +185,7 @@ export function IncomeStatementLiaisonCell({
             <div className="space-y-1.5">
               <Label className="text-xs text-slate-600">Code de liaison</Label>
               <Input
+                list={`liaison-codes-${rowIndex}`}
                 value={String(structRow.linkCode ?? "")}
                 onChange={(e) =>
                   updateRow(
@@ -198,6 +199,19 @@ export function IncomeStatementLiaisonCell({
                 placeholder="REV"
                 className="h-9 font-mono text-xs"
               />
+              <datalist id={`liaison-codes-${rowIndex}`}>
+                {codeOptions
+                  .filter((c) => c !== String(structRow.linkCode ?? ""))
+                  .map((c) => (
+                    <option key={c} value={c} />
+                  ))}
+              </datalist>
+              {codeOptions.length > 0 && (
+                <p className="text-[10px] text-slate-500">
+                  Suggestions disponibles ({codeOptions.length}). Vous pouvez
+                  aussi saisir un nouveau code.
+                </p>
+              )}
             </div>
           )}
 
