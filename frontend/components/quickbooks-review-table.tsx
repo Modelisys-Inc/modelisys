@@ -45,6 +45,65 @@ import { cn } from "@/lib/utils"
 
 type Filter = "all" | "unmapped" | "mapped" | "invalid"
 
+interface BulkLinkCodePickerProps {
+  codesByStatement: Map<string, QboLinkCode[]>
+  onPick: (code: string) => void
+  disabled?: boolean
+}
+
+function BulkLinkCodePicker({
+  codesByStatement,
+  onPick,
+  disabled,
+}: BulkLinkCodePickerProps) {
+  const [open, setOpen] = useState(false)
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          size="sm"
+          variant="outline"
+          aria-expanded={open}
+          disabled={disabled}
+        >
+          Apply link code…
+          <ChevronsUpDown className="ml-2 h-3 w-3 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[320px] p-0">
+        <Command>
+          <CommandInput placeholder="Search link codes…" />
+          <CommandList>
+            <CommandEmpty>No codes found.</CommandEmpty>
+            {Array.from(codesByStatement.entries()).map(([stmt, list]) => (
+              <CommandGroup key={stmt} heading={stmt}>
+                {list.map((c) => (
+                  <CommandItem
+                    key={c.code}
+                    value={`${c.code} ${c.label}`}
+                    onSelect={() => {
+                      onPick(c.code)
+                      setOpen(false)
+                    }}
+                  >
+                    <div className="flex flex-col">
+                      <span className="font-mono text-xs">{c.code}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {c.label}
+                        {c.parent_label ? ` · ${c.parent_label}` : ""}
+                      </span>
+                    </div>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 interface LinkCodePickerProps {
   row: RowState
   idx: number
@@ -178,6 +237,7 @@ export function QuickBooksReviewTable({
     })),
   )
   const [filter, setFilter] = useState<Filter>("all")
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [committing, setCommitting] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -267,6 +327,67 @@ export function QuickBooksReviewTable({
 
   const updateRow = (idx: number, patch: Partial<RowState>) => {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
+  }
+
+  const toggleRowSelected = (accountNumber: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(accountNumber)) next.delete(accountNumber)
+      else next.add(accountNumber)
+      return next
+    })
+  }
+
+  const visibleAccountNumbers = useMemo(
+    () => visibleRows.map((r) => r.account_number),
+    [visibleRows],
+  )
+  const visibleAllSelected =
+    visibleAccountNumbers.length > 0 &&
+    visibleAccountNumbers.every((n) => selected.has(n))
+  const visibleSomeSelected = visibleAccountNumbers.some((n) =>
+    selected.has(n),
+  )
+
+  const toggleSelectAllVisible = () => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (visibleAllSelected) {
+        visibleAccountNumbers.forEach((n) => next.delete(n))
+      } else {
+        visibleAccountNumbers.forEach((n) => next.add(n))
+      }
+      return next
+    })
+  }
+
+  const clearSelection = () => setSelected(new Set())
+
+  const applyLinkCodeToSelected = (code: string) => {
+    setRows((prev) =>
+      prev.map((r) =>
+        selected.has(r.account_number) ? { ...r, link_code: code } : r,
+      ),
+    )
+    clearSelection()
+  }
+
+  const skipSelected = () => {
+    setRows((prev) =>
+      prev.map((r) =>
+        selected.has(r.account_number) ? { ...r, skip: true } : r,
+      ),
+    )
+    clearSelection()
+  }
+
+  const unskipSelected = () => {
+    setRows((prev) =>
+      prev.map((r) =>
+        selected.has(r.account_number) ? { ...r, skip: false } : r,
+      ),
+    )
+    clearSelection()
   }
 
   const canCommit = rows.every(
@@ -397,10 +518,50 @@ export function QuickBooksReviewTable({
             </Button>
           </div>
         )}
+        {selected.size > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            <span className="font-medium">
+              {selected.size} selected
+            </span>
+            <button
+              type="button"
+              className="text-xs underline hover:no-underline"
+              onClick={clearSelection}
+            >
+              Clear
+            </button>
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <BulkLinkCodePicker
+                codesByStatement={codesByStatement}
+                onPick={applyLinkCodeToSelected}
+                disabled={linkCodes.length === 0}
+              />
+              <Button size="sm" variant="outline" onClick={skipSelected}>
+                Skip
+              </Button>
+              <Button size="sm" variant="outline" onClick={unskipSelected}>
+                Unskip
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="max-h-[60vh] overflow-y-auto">
           <Table className="table-fixed">
             <TableHeader>
               <TableRow>
+                <TableHead className="w-[40px]">
+                  <Checkbox
+                    aria-label="Select all visible rows"
+                    checked={
+                      visibleAllSelected
+                        ? true
+                        : visibleSomeSelected
+                        ? "indeterminate"
+                        : false
+                    }
+                    onCheckedChange={toggleSelectAllVisible}
+                  />
+                </TableHead>
                 <TableHead className="w-[90px]">Account #</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead className="w-[140px]">QBO type</TableHead>
@@ -417,10 +578,22 @@ export function QuickBooksReviewTable({
                 return (
                   <TableRow
                     key={r.account_number}
+                    data-state={
+                      selected.has(r.account_number) ? "selected" : undefined
+                    }
                     className={cn(
                       invalid && "bg-red-50 hover:bg-red-100",
                     )}
                   >
+                    <TableCell>
+                      <Checkbox
+                        aria-label={`Select row ${r.account_number}`}
+                        checked={selected.has(r.account_number)}
+                        onCheckedChange={() =>
+                          toggleRowSelected(r.account_number)
+                        }
+                      />
+                    </TableCell>
                     <TableCell className="truncate font-mono text-xs">
                       {r.account_number}
                     </TableCell>
