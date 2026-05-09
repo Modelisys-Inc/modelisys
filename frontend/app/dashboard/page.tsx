@@ -28,7 +28,7 @@ const quickLinks = [
     title: "Projections",
     description: "Créez des projections financières et des scénarios",
     icon: Target,
-    href: "/projections/pro-forma",
+    href: "/projections",
   },
   {
     id: "evaluation",

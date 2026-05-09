@@ -13,7 +13,7 @@ const projections = [
     icon: FileText,
     color: "text-blue-600",
     bgColor: "bg-blue-50 dark:bg-blue-950/20",
-    href: "/projections/pro-forma",
+    href: "/projections",
   },
   {
     id: "assumptions",

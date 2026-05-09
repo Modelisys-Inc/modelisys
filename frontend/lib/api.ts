@@ -959,6 +959,9 @@ export interface ProjectionData {
   name: string
   projection_years: number
   projection_mode: string
+  projection_horizon?: string
+  start_year?: number | null
+  start_month?: number | null
   company_id: string | null
   division_id: string | null
   sub_division_id: string | null
@@ -1009,6 +1012,9 @@ export async function createProjection(
     name: string
     projection_years?: number
     projection_mode?: string
+    projection_horizon?: "annual" | "monthly"
+    start_year?: number | null
+    start_month?: number | null
     division_id?: string | null
     sub_division_id?: string | null
   }

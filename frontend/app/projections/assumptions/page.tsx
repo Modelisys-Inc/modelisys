@@ -31,7 +31,7 @@ const CONFIG_TYPE_META: Record<string, { label: string; description: string; ico
     label: "Projections du fonds de roulement",
     description: "Estimations du fonds de roulement et besoins en liquidités",
     icon: <FileText className="w-5 h-5" />,
-    href: "/projections/pro-forma",
+    href: "/projections",
   },
   "seasonality": {
     label: "Saisonnalité",
@@ -52,7 +52,7 @@ function getConfigMeta(configType: string) {
     label: configType,
     description: "Configuration de projection",
     icon: <Settings2 className="w-5 h-5" />,
-    href: "/projections/pro-forma",
+    href: "/projections",
   }
 }
 

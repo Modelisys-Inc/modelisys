@@ -71,7 +71,7 @@ export function EntitySelector({
       "h-8 w-[180px] text-xs",
       darkControlBar
         ? "border border-white/10 bg-[#2A2F3A]/55 text-[#C9B8A5] hover:bg-white/5 focus:ring-2 focus:ring-[#E0742D]/35"
-        : "border-slate-700 bg-slate-800/50 text-slate-300 hover:bg-slate-700/50",
+        : "border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 focus:ring-2 focus:ring-[#E0742D]/25",
       extra,
     )
 

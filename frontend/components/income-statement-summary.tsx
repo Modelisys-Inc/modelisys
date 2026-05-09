@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import {
   getFinancialStatementSeries,
+  listForecastConfigs,
+  getStatementStructure,
   type FinancialStatementSeriesParams,
   type FinancialStatementRow,
 } from "@/lib/api"
@@ -24,6 +26,9 @@ import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-st
 import {
   TOTAL_CHARGES_LABEL,
   collectDistinctLinkCodesFromStructure,
+  findStructureRowForStatementLine,
+  seriesRowBelongsToRevenueAnnexDetail,
+  extractGroupePrefixFromCompositeLinkCode,
   isAnnexLetterInputEditable,
   isCodeMappingEnabled,
   isOmittedIncomeStatementSummaryRowLabel,
@@ -34,6 +39,8 @@ import {
   normLabel,
   normalizeAnnexLetter,
   normalizeLiaisonMode,
+  normalizePosteNature,
+  isPosteNatureChoiceApplicable,
 } from "@/lib/income-statement-structure-utils"
 import { IncomeStatementLiaisonCell } from "@/components/income-statement-liaison-cell"
 import { Badge } from "@/components/ui/badge"
@@ -75,6 +82,7 @@ import {
   Plus,
   Settings,
   Sparkles,
+  Tags,
   Trash2,
 } from "lucide-react"
 import {
@@ -107,6 +115,14 @@ interface IncomeStatementSummaryProps {
   companies?: Company[]
   title?: string
   projectionYears?: 3 | 4 | 5
+  /** Force forecast behavior (used in projections). */
+  forceForecastSection?: boolean
+  /** Base year used for forecast year headers (used in projections). */
+  forecastBaseYear?: number
+  /** In projections: use actuals for (baseYear-1) from series, keep projected years at 0. */
+  forecastUseSeriesActuals?: boolean
+  /** Projections: link Sommaire Pro Forma to Hypothèses (forecast config). */
+  projectionId?: string | null
   comparisonType?: "lastMonth" | "pastMonth" | "budget"
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
@@ -160,6 +176,10 @@ export function IncomeStatementSummary({
   companies = [],
   title,
   projectionYears = 5,
+  forceForecastSection = false,
+  forecastBaseYear,
+  forecastUseSeriesActuals = false,
+  projectionId = null,
   comparisonType = "lastMonth",
   selectedBudgetId = null,
   selectedBudgetName = null,
@@ -185,7 +205,61 @@ export function IncomeStatementSummary({
   const [addPostPresentationOnly, setAddPostPresentationOnly] = useState(false)
   const [addPostPlacement, setAddPostPlacement] = useState<"above" | "below">("above")
   const [editingPostGlobalIdx, setEditingPostGlobalIdx] = useState<number | null>(null)
-  const isForecastSection = title === "États des résultats pro forma"
+  // Projections use an explicit flag; income-statement keeps header reference date behavior.
+  const isForecastSection = forceForecastSection
+
+  const [forecastRevenueValues, setForecastRevenueValues] = useState<Record<string, number>>({})
+  const [forecastRevenueAdjustments, setForecastRevenueAdjustments] = useState<
+    Record<string, Array<{ id: string; type: "amount" | "growthPercent" | "growthAmount"; value: number; note?: string }>>
+  >({})
+  const [forecastStructure, setForecastStructure] = useState<Record<string, unknown>[] | null>(null)
+
+  useEffect(() => {
+    if (!isForecastSection || !companyId || !projectionId) return
+    let cancelled = false
+
+    const load = async () => {
+      try {
+        const [cfgs, struct] = await Promise.all([
+          listForecastConfigs(companyId, { config_type: "income-statement-detail", projection_id: projectionId }),
+          getStatementStructure(companyId, "income-statement"),
+        ])
+        if (cancelled) return
+        const data = (cfgs[0]?.data ?? {}) as Record<string, unknown>
+        const rv = (data.revenueValues ?? {}) as Record<string, number>
+        const ra = (data.revenueAdjustments ?? {}) as Record<string, unknown>
+
+        const parsedAdjustments: Record<
+          string,
+          Array<{ id: string; type: "amount" | "growthPercent" | "growthAmount"; value: number; note?: string }>
+        > = {}
+        if (ra && typeof ra === "object" && !Array.isArray(ra)) {
+          for (const [k, v] of Object.entries(ra)) {
+            if (Array.isArray(v)) {
+              parsedAdjustments[k] = v as typeof parsedAdjustments[string]
+            } else if (v && typeof v === "object") {
+              parsedAdjustments[k] = [v as typeof parsedAdjustments[string][number]]
+            }
+          }
+        }
+
+        setForecastRevenueValues(rv ?? {})
+        setForecastRevenueAdjustments(parsedAdjustments)
+        setForecastStructure(struct?.structure ?? [])
+      } catch {
+        if (!cancelled) {
+          setForecastRevenueValues({})
+          setForecastRevenueAdjustments({})
+          setForecastStructure([])
+        }
+      }
+    }
+
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, isForecastSection, projectionId])
 
   const resetAddPostDialog = () => {
     setAddPostStep("anchor")
@@ -215,7 +289,7 @@ export function IncomeStatementSummary({
     months: seriesMonthsNeeded,
     divisionId: divisionId || undefined,
     subDivisionId: subDivisionId || undefined,
-    enabled: isMultiPeriodView && !isForecastSection,
+    enabled: isMultiPeriodView && (!isForecastSection || forecastUseSeriesActuals),
     structureVersion,
   })
 
@@ -350,7 +424,14 @@ export function IncomeStatementSummary({
       if (view === "quarters") {
         trendValues = quarterTrendFromReference(row, seriesPeriods, refMonth, refYear, 5)
       } else if (view === "years") {
-        trendValues = yearTrendFromReference(row, seriesPeriods, refYear, 6)
+        if (isForecastSection && forecastUseSeriesActuals) {
+          const baseYear = forecastBaseYear ?? (refYear + 1)
+          const actualYear = baseYear - 1
+          const actual = yearTrendFromReference(row, seriesPeriods, actualYear, 1)[0] || 0
+          trendValues = [actual, ...Array.from({ length: projectionYears }, () => 0)]
+        } else {
+          trendValues = yearTrendFromReference(row, seriesPeriods, refYear, 6)
+        }
       } else if (view === "24months") {
         trendValues = monthTrendFromReference(row, seriesPeriods, refMonth, refYear, 24)
       } else {
@@ -380,17 +461,270 @@ export function IncomeStatementSummary({
   }
 
   const data = useMemo(() => {
-    if (isMultiPeriodView && !isForecastSection) return buildSeriesData()
+    if (isMultiPeriodView && (!isForecastSection || (forecastUseSeriesActuals && view === "years"))) return buildSeriesData()
     return mapBackendRows(backendRows)
   }, [
     isMultiPeriodView,
     isForecastSection,
+    forecastUseSeriesActuals,
+    forecastBaseYear,
+    projectionYears,
     backendRows,
     seriesRows,
     seriesPeriods,
     view,
     refMonth,
     refYear,
+  ])
+
+  const proFormaRevenueTotals = useMemo(() => {
+    if (!isForecastSection || !forecastUseSeriesActuals) return null
+    if (view !== "years") return null
+    if (!forecastBaseYear) return null
+    if (!forecastStructure || forecastStructure.length === 0) return null
+
+    // Eligible series rows = the same annex/detail scope as Hypothèses Revenus, keyed by seriesRow.id (rowId in detail).
+    const eligibleSeries = seriesRows.filter((sr) =>
+      seriesRowBelongsToRevenueAnnexDetail(sr, forecastStructure)
+    )
+    if (eligibleSeries.length === 0) return null
+
+    const baseYear = forecastBaseYear
+    const actualYear = baseYear - 1
+
+    const yearCount = projectionYears + 1
+    const rowActuals = new Map<string, number>()
+    for (const sr of eligibleSeries) {
+      const actual = yearTrendFromReference(sr, seriesPeriods, actualYear, 1)[0] || 0
+      rowActuals.set(sr.id, actual)
+    }
+
+    const getLatestAdjustment = (rowId: string, yearIdx: number) => {
+      const key = `${rowId}-${yearIdx}`
+      const arr = forecastRevenueAdjustments[key]
+      if (!arr || arr.length === 0) return null
+      return arr[arr.length - 1]!
+    }
+
+    const memo = new Map<string, number>()
+    const computeRowValue = (rowId: string, yearIdx: number): number => {
+      const mkey = `${rowId}-${yearIdx}`
+      const cached = memo.get(mkey)
+      if (cached !== undefined) return cached
+
+      const directKey = `${rowId}-${yearIdx}`
+      if (forecastRevenueValues[directKey] !== undefined) {
+        const v = Number(forecastRevenueValues[directKey] ?? 0)
+        memo.set(mkey, v)
+        return v
+      }
+
+      const adj = getLatestAdjustment(rowId, yearIdx)
+      const baseDefault = yearIdx === 0 ? (rowActuals.get(rowId) ?? 0) : 0
+      let v = baseDefault
+
+      if (adj) {
+        if (adj.type === "amount") {
+          v = Number(adj.value ?? 0)
+        } else {
+          const prev = yearIdx > 0 ? computeRowValue(rowId, yearIdx - 1) : baseDefault
+          if (adj.type === "growthPercent") {
+            v = Math.round(prev * (1 + Number(adj.value ?? 0) / 100))
+          } else if (adj.type === "growthAmount") {
+            v = prev + Number(adj.value ?? 0)
+          }
+        }
+      }
+
+      memo.set(mkey, v)
+      return v
+    }
+
+    return Array.from({ length: yearCount }, (_, yearIdx) =>
+      eligibleSeries.reduce((sum, sr) => sum + computeRowValue(sr.id, yearIdx), 0)
+    )
+  }, [
+    forecastBaseYear,
+    forecastRevenueAdjustments,
+    forecastRevenueValues,
+    forecastStructure,
+    forecastUseSeriesActuals,
+    isForecastSection,
+    projectionYears,
+    seriesPeriods,
+    seriesRows,
+    seriesRowBelongsToRevenueAnnexDetail,
+    view,
+  ])
+
+  const dataWithProFormaRevenue = useMemo(() => {
+    if (!proFormaRevenueTotals) return data
+    return data.map((r) => {
+      if (normLabel(String(r.label ?? "")) !== "revenus") return r
+      // Ne pas modifier l'année réelle (index 0). Remplacer uniquement les années projetées (index >= 1).
+      const baseTrend = Array.isArray(r.trendValues) ? r.trendValues : proFormaRevenueTotals
+      const trendValues = baseTrend.map((v, idx) =>
+        idx === 0 ? (v ?? 0) : (proFormaRevenueTotals[idx] ?? 0)
+      )
+      return {
+        ...r,
+        current: trendValues[0] ?? 0,
+        prior: trendValues[1] ?? 0,
+        trendValues,
+      }
+    })
+  }, [data, proFormaRevenueTotals])
+
+  const displayData = dataWithProFormaRevenue
+  // Note: formulas may update only projected years (keep real year intact).
+
+  const displayDataWithUniversalFormulas = useMemo(() => {
+    // Apply universal structure formulas (liaison codes) in forecast mode for projected years only.
+    if (!isForecastSection || view !== "years") return displayData
+    if (!forecastStructure || forecastStructure.length === 0) return displayData
+    if (!seriesRows.length || !seriesPeriods.length) return displayData
+
+    // Build quick lookup for series rows by linkCode (exact match) and by id (fallback).
+    const byLinkCode = new Map<string, Array<(typeof seriesRows)[number]>>()
+    const byGroupPrefix = new Map<string, Array<(typeof seriesRows)[number]>>()
+    for (const sr of seriesRows) {
+      const code = String((sr as { linkCode?: string }).linkCode ?? "").trim()
+      if (!code) continue
+      const arr = byLinkCode.get(code) ?? []
+      arr.push(sr)
+      byLinkCode.set(code, arr)
+
+      const prefix = extractGroupePrefixFromCompositeLinkCode(code)
+      if (prefix) {
+        const parr = byGroupPrefix.get(prefix) ?? []
+        parr.push(sr)
+        byGroupPrefix.set(prefix, parr)
+      }
+    }
+
+    const baseYear = forecastBaseYear ?? (refYear + 1)
+    const actualYear = baseYear - 1
+    const yearCount = projectionYears + 1
+
+    // Default actuals for year 0.
+    const rowActuals = new Map<string, number>()
+    for (const sr of seriesRows) {
+      rowActuals.set(sr.id, yearTrendFromReference(sr, seriesPeriods, actualYear, 1)[0] || 0)
+    }
+
+    const memo = new Map<string, number>()
+    const getLatestAdjustment = (rowId: string, yearIdx: number) => {
+      const key = `${rowId}-${yearIdx}`
+      const arr = forecastRevenueAdjustments[key]
+      if (!arr || arr.length === 0) return null
+      return arr[arr.length - 1]!
+    }
+
+    const computeRowValue = (rowId: string, yearIdx: number): number => {
+      const mkey = `${rowId}-${yearIdx}`
+      const cached = memo.get(mkey)
+      if (cached !== undefined) return cached
+
+      const directKey = `${rowId}-${yearIdx}`
+      if (forecastRevenueValues[directKey] !== undefined) {
+        const v = Number(forecastRevenueValues[directKey] ?? 0)
+        memo.set(mkey, v)
+        return v
+      }
+
+      const baseDefault = yearIdx === 0 ? (rowActuals.get(rowId) ?? 0) : 0
+      let v = baseDefault
+      const adj = getLatestAdjustment(rowId, yearIdx)
+      if (adj) {
+        if (adj.type === "amount") {
+          v = Number(adj.value ?? 0)
+        } else {
+          const prev = yearIdx > 0 ? computeRowValue(rowId, yearIdx - 1) : baseDefault
+          if (adj.type === "growthPercent") v = Math.round(prev * (1 + Number(adj.value ?? 0) / 100))
+          else if (adj.type === "growthAmount") v = prev + Number(adj.value ?? 0)
+        }
+      }
+
+      memo.set(mkey, v)
+      return v
+    }
+
+    const codeValue = (code: string, yearIdx: number): number => {
+      const t = code.trim()
+      if (!t) return 0
+      const srs = byLinkCode.get(t) ?? []
+      if (srs.length > 0) {
+        return srs.reduce((sum, sr) => sum + computeRowValue(sr.id, yearIdx), 0)
+      }
+      // Group code: numeric-only codes (ex. "20") match all rows whose linkCode prefix is that group.
+      if (/^\d+$/.test(t)) {
+        const groupRows = byGroupPrefix.get(t) ?? []
+        if (groupRows.length > 0) {
+          return groupRows.reduce((sum, sr) => sum + computeRowValue(sr.id, yearIdx), 0)
+        }
+      }
+      // Fallback: allow matching by id (rare but keeps behavior consistent).
+      const sr = seriesRows.find((x) => x.id === t)
+      return sr ? computeRowValue(sr.id, yearIdx) : 0
+    }
+
+    // Build formula values by label norm (structure label).
+    const computedByLabelNorm = new Map<string, number[]>()
+    for (const r of forecastStructure) {
+      if (isStructureRowEmptyLabel(r) || isStructureRowHidden(r)) continue
+      if (!isCodeMappingEnabled(r)) continue
+      const mode = normalizeLiaisonMode(r)
+      if (mode === "na") continue
+
+      const codesSingle = String(r.linkCode ?? "").trim()
+      const sumCodes = (mode === "sum" ? (Array.isArray(r.liaisonSumCodes) ? r.liaisonSumCodes : []) : []) as unknown[]
+      const numCodes = (mode === "difference" ? (Array.isArray(r.liaisonNumeratorCodes) ? r.liaisonNumeratorCodes : []) : []) as unknown[]
+      const denCodes = (mode === "difference" ? (Array.isArray(r.liaisonDenominatorCodes) ? r.liaisonDenominatorCodes : []) : []) as unknown[]
+
+      const normalizeList = (xs: unknown[]) =>
+        xs.map((x) => String(x ?? "").trim()).filter(Boolean)
+
+      const sums = Array.from({ length: yearCount }, (_, yearIdx) => {
+        if (yearIdx === 0) return 0 // keep real year intact downstream
+        if (mode === "single") return codeValue(codesSingle, yearIdx)
+        if (mode === "sum") return normalizeList(sumCodes).reduce((a, c) => a + codeValue(c, yearIdx), 0)
+        // difference
+        const nsum = normalizeList(numCodes).reduce((a, c) => a + codeValue(c, yearIdx), 0)
+        const dsum = normalizeList(denCodes).reduce((a, c) => a + codeValue(c, yearIdx), 0)
+        return nsum - dsum
+      })
+      computedByLabelNorm.set(normLabel(String(r.label ?? "")), sums)
+    }
+
+    // Merge into displayData (projected years only).
+    const out = displayData.map((row) => {
+      // Revenus already comes from Hypothèses Revenus totals; don't override with a structure formula.
+      if (normLabel(String(row.label ?? "")) === "revenus") return row
+      const computed = computedByLabelNorm.get(normLabel(String(row.label ?? "")))
+      if (!computed) return row
+      const baseTrend = Array.isArray(row.trendValues) ? row.trendValues : computed
+      const merged = baseTrend.map((v, idx) => (idx === 0 ? (v ?? 0) : (computed[idx] ?? 0)))
+      return {
+        ...row,
+        current: merged[0] ?? row.current,
+        prior: merged[1] ?? row.prior,
+        trendValues: merged,
+      }
+    })
+
+    return out
+  }, [
+    displayData,
+    forecastBaseYear,
+    forecastRevenueAdjustments,
+    forecastRevenueValues,
+    forecastStructure,
+    isForecastSection,
+    projectionYears,
+    refYear,
+    seriesPeriods,
+    seriesRows,
+    view,
   ])
 
   /** Postes du sommaire (libellé non vide) pour placer une ligne vide au-dessus. */
@@ -679,14 +1013,16 @@ export function IncomeStatementSummary({
     if (seriesPeriods.length > 0 && !isForecastSection) {
       return yearLabelsFromReference(refYear, 6)
     }
-    const currentYear = new Date().getFullYear()
     const labels: string[] = []
     if (isForecastSection) {
-      // For forecast sections, generate projectionYears + 1 years starting from current year
-      for (let i = 0; i <= projectionYears; i++) {
-        labels.push(`${currentYear + i}`)
+      const baseYear = forecastBaseYear ?? refYear ?? new Date().getFullYear()
+      // Libellé = année civile seule ; données = réel pour (baseYear - 1) lorsque la référence de projection est baseYear.
+      labels.push(`${baseYear - 1}`)
+      for (let i = 0; i < projectionYears; i++) {
+        labels.push(`${baseYear + i}`)
       }
     } else {
+      const currentYear = new Date().getFullYear()
       for (let i = 5; i >= 0; i--) {
         labels.push(`${currentYear - i}`)
       }
@@ -711,16 +1047,18 @@ export function IncomeStatementSummary({
     return HORIZON_LABEL.moisActuel
   }
 
-  const trendLen = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
+  const trendLen = dataWithProFormaRevenue.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
   const showStructureCols =
     structureEditMode && canInlineStructureEdit && !structEdit.loading
+  const effectiveData = displayDataWithUniversalFormulas
+
   const tableRowCount = showStructureCols
     ? structEdit.summaryStructureDisplayIndices.length
-    : data.length
+    : effectiveData.length
 
   /** Doit correspondre au nombre de `<th>` du thead — sinon une ligne `colSpan` invalide casse `table-fixed`. */
   const summaryTableColumnCount = useMemo(() => {
-    if (showStructureCols) return 8
+    if (showStructureCols) return 9
     if (view === "current") return 2
     if (view === "comparison" || view === "ddm" || view === "ytd") {
       if (isComparisonMode) return 1 + entitiesToCompare.length
@@ -772,7 +1110,7 @@ export function IncomeStatementSummary({
   /** En édition structure : aligner sur `data` par libellé (le sommaire exclut les lignes detailOnly). */
   const summaryRowForStructureIndex = (structRow: Record<string, unknown>): SummaryRow => {
     const sl = normLabel(String(structRow.label ?? ""))
-    const found = data.find((r) => normLabel(r.label) === sl)
+    const found = effectiveData.find((r) => normLabel(r.label) === sl)
     const padded = padSummaryRow(structRow)
     if (!found) return padded
     const mergedIsBold =
@@ -814,7 +1152,51 @@ export function IncomeStatementSummary({
     )
   }
 
-  if (data.length === 0) {
+  if (effectiveData.length === 0) {
+    // Projections: still show the years header/columns even before data is available.
+    if (isForecastSection && view === "years") {
+      const yearLabels = getYearLabels()
+      return (
+        <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+          <div className={dashboardCardRingClass} aria-hidden />
+          <div className="relative w-full min-w-0">
+            <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+              <div className="flex items-center gap-4">
+                <div className={dashboardCardHeaderIconBoxClass}>
+                  <LayoutList className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+                </div>
+                <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title || "Sommaire"}</h2>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[720px] table-fixed border-t border-slate-200/80">
+                <thead>
+                  <tr className="bg-white">
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900">Poste</th>
+                    {yearLabels.map((lab) => (
+                      <th key={lab} className="px-6 py-4 text-right text-sm font-semibold text-slate-900">
+                        {lab}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td
+                      colSpan={1 + yearLabels.length}
+                      className="px-6 py-10 text-center text-sm text-slate-600"
+                    >
+                      Aucune donnée disponible pour cette projection (vous pouvez tout de même voir l’horizon).
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className={cn("w-full", dashboardCardFrameStaticClass)}>
         <div className={dashboardCardRingClass} aria-hidden />
@@ -1040,6 +1422,7 @@ export function IncomeStatementSummary({
             {showStructureCols && (
               <colgroup>
                 <col className="min-w-0" />
+                <col style={{ width: "9.5rem" }} />
                 <col style={{ width: "7rem" }} />
                 <col style={{ width: "7rem" }} />
                 <col style={{ width: "7rem" }} />
@@ -1081,6 +1464,24 @@ export function IncomeStatementSummary({
                 </th>
                 {showStructureCols && (
                   <>
+                    <th className="box-border w-[9.5rem] min-w-[9rem] px-2 py-4 text-center">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                              <Tags className="h-4 w-4 text-emerald-700" />
+                            </span>
+                            <span className="max-w-[9rem] text-[11px] font-semibold leading-tight text-slate-800">
+                              Revenus / Dépenses
+                            </span>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[280px] text-balance">
+                          Modifiable uniquement lorsque « Annexe » est activé : indique si le poste relève des revenus ou
+                          des dépenses.
+                        </TooltipContent>
+                      </Tooltip>
+                    </th>
                     <th className="box-border w-[7rem] px-2 py-4 text-center">
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1290,7 +1691,13 @@ export function IncomeStatementSummary({
               {!showStructureCols && view === "years" && (
                 <>
                   {getYearLabels().map((label, idx) => (
-                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
+                    <th
+                      key={idx}
+                      className={cn(
+                        "px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap",
+                        isForecastSection && idx === 0 ? "bg-slate-50" : ""
+                      )}
+                    >
                       {label}
                     </th>
                   ))}
@@ -1315,7 +1722,7 @@ export function IncomeStatementSummary({
               const structRow = showStructureCols ? structEdit.structure[globalIdx]! : null
               const row = showStructureCols
                 ? summaryRowForStructureIndex(structRow!)
-                : data[idx]!
+                : effectiveData[idx]!
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const isBoldRow = shouldBeBold(row.label, row)
@@ -1333,7 +1740,7 @@ export function IncomeStatementSummary({
                     ? summaryRowForStructureIndex(
                         structEdit.structure[structEdit.summaryStructureDisplayIndices[idx + 1]!]!
                       )
-                    : data[idx + 1]!
+                    : effectiveData[idx + 1]!
                   : null
               const nextRowLabel = nextRow?.label?.toLowerCase() || ""
               const nextLabelNorm =
@@ -1344,7 +1751,7 @@ export function IncomeStatementSummary({
                             structEdit.structure[structEdit.summaryStructureDisplayIndices[idx + 1]!]?.label ??
                               ""
                           )
-                        : String(data[idx + 1]?.label ?? "")
+                        : String(effectiveData[idx + 1]?.label ?? "")
                     )
                   : ""
               /** Bordure épaisse sous la ligne courante si la ligne suivante est un « résultat » clé — pas avant Total des charges / Bénéfice brut (séparation manuelle). */
@@ -1356,6 +1763,10 @@ export function IncomeStatementSummary({
               const rawSeparator =
                 showStructureCols && structRow ? structRow.separatorAbove : row.separatorAbove
               const showSeparatorAbove = isTruthySeparatorAbove(rawSeparator)
+              const posteNatureSelectEnabled =
+                !!structRow &&
+                !isStructureRowEmptyLabel(structRow) &&
+                isPosteNatureChoiceApplicable(structRow)
 
               return (
                 <Fragment key={idx}>
@@ -1416,6 +1827,48 @@ export function IncomeStatementSummary({
                   </td>
                   {showStructureCols && structRow && (
                     <>
+                      <td className="box-border w-[9.5rem] min-w-[9rem] px-2 py-2 align-middle">
+                        {isStructureRowEmptyLabel(structRow) ? (
+                          <span className="flex justify-center text-sm text-slate-300">—</span>
+                        ) : (
+                          <Select
+                            disabled={!posteNatureSelectEnabled}
+                            value={normalizePosteNature(structRow.posteNature) ?? "unset"}
+                            onValueChange={(v) =>
+                              structEdit.updateRow(globalIdx, {
+                                posteNature: v === "unset" ? undefined : v,
+                              })
+                            }
+                          >
+                            <SelectTrigger
+                              aria-label="Nature du poste : revenus ou dépenses"
+                              title={
+                                posteNatureSelectEnabled
+                                  ? undefined
+                                  : "Activez la case « Annexe » pour choisir Revenus ou Dépenses."
+                              }
+                              className={cn(
+                                "h-9 w-full rounded-xl border-slate-200/90 bg-white text-xs shadow-sm focus:ring-[#E0742D]/20",
+                                !posteNatureSelectEnabled &&
+                                  "cursor-not-allowed bg-slate-50 text-slate-500 opacity-70"
+                              )}
+                            >
+                              <SelectValue placeholder="Choisir…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="unset" className="text-xs text-slate-500">
+                                Non défini
+                              </SelectItem>
+                              <SelectItem value="revenus" className="text-xs">
+                                Revenus
+                              </SelectItem>
+                              <SelectItem value="depenses" className="text-xs">
+                                Dépenses
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </td>
                       <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
                         {isStructureRowEmptyLabel(structRow) ? (
                           <span className="text-sm text-slate-300">—</span>
@@ -1469,6 +1922,7 @@ export function IncomeStatementSummary({
                                     showInDetail: false,
                                     linkCode: undefined,
                                     annexLetter: undefined,
+                                    posteNature: undefined,
                                     liaisonMode: undefined,
                                     liaisonSumCodes: undefined,
                                     liaisonNumeratorCodes: undefined,
@@ -1522,6 +1976,7 @@ export function IncomeStatementSummary({
                                       showInDetail: false,
                                       linkCode: undefined,
                                       annexLetter: undefined,
+                                      posteNature: undefined,
                                       liaisonMode: undefined,
                                       liaisonSumCodes: undefined,
                                       liaisonNumeratorCodes: undefined,
@@ -1580,7 +2035,9 @@ export function IncomeStatementSummary({
                                   if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
                                   structEdit.updateRow(globalIdx, {
                                     showInDetail: v === true,
-                                    ...(v === false ? { annexLetter: undefined } : {}),
+                                    ...(v === false
+                                      ? { annexLetter: undefined, posteNature: undefined }
+                                      : {}),
                                   })
                                 }}
                                 aria-label="Annexe : afficher au détail"
@@ -1924,7 +2381,7 @@ export function IncomeStatementSummary({
                             "px-4 py-3 text-right",
                             row.isMargin ? "italic" : (isBoldRow ? "font-semibold font-bold" : ""),
                             shouldHideAmounts ? "text-white" : "",
-                            isForecastSection && valueIdx === 0 && !shouldHideAmounts ? "bg-slate-50" : ""
+                            isForecastSection && valueIdx === 0 ? "bg-slate-50" : ""
                           )}
                         >
                           {columnMode === "percentage"
@@ -1977,7 +2434,7 @@ export function IncomeStatementSummary({
                         <td 
                           key={idx} 
                           className={cn(
-                            "px-4 py-3 text-right font-semibold text-white",
+                            "px-4 py-3 text-right text-sm text-slate-400",
                             isForecastSection && view === "years" && idx === 0 ? "bg-slate-50" : ""
                           )}
                         >

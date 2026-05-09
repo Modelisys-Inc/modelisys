@@ -48,6 +48,8 @@ import {
   listAnnexOptionsForDetailSubLineModal,
   normLabel,
   normalizeAnnexLetter,
+  structureHasRevenuePosteNatureRow,
+  seriesRowBelongsToRevenueAnnexDetail,
 } from "@/lib/income-statement-structure-utils"
 import {
   dashboardCardAccentBarClass,
@@ -92,6 +94,16 @@ interface IncomeStatementDetailProps {
   subDivisionId?: string | null
   companies?: Company[]
   title?: string
+  /** Projections: hide the header icon box. */
+  hideHeaderIcon?: boolean
+  /** Projections: disable opening/closing rows and the analysis panel. */
+  disableRowInteractions?: boolean
+  /** Projections: force forecast behavior even if title is generic ("Détail"). */
+  forceForecastSection?: boolean
+  /** Projections: base year (e.g. 2026). */
+  forecastBaseYear?: number
+  /** Projections: use actuals for (baseYear-1), keep projected years at 0. */
+  forecastUseSeriesActuals?: boolean
   projectionYears?: 3 | 4 | 5
   projectionMode?: "gl" | "account"
   comparisonType?: "lastMonth" | "pastMonth" | "budget"
@@ -328,6 +340,11 @@ export function IncomeStatementDetail({
   subDivisionId,
   companies = [],
   title = "Détail",
+  hideHeaderIcon = false,
+  disableRowInteractions = false,
+  forceForecastSection = false,
+  forecastBaseYear,
+  forecastUseSeriesActuals = false,
   projectionYears = 5,
   projectionMode = "gl",
   comparisonType = "lastMonth",
@@ -503,7 +520,10 @@ export function IncomeStatementDetail({
   const [revenueAdjustmentValue, setRevenueAdjustmentValue] = useState<number>(0)
 
   // Check if this is a forecast section (Revenus, Dépenses, or États des résultats pro forma)
-  const isForecastSection = title === "Estimation des revenus annuels" || title === "Estimation des dépenses annuelles" || title === "États des résultats pro forma"
+  const isForecastSection =
+    title === "Estimation des revenus annuels" ||
+    title === "Estimation des dépenses annuelles" ||
+    title === "États des résultats pro forma"
 
   const isCompanyComparison = columnMode === "comparison" && !companyId
   const isDivisionComparison = columnMode === "comparison" && !!companyId && !divisionId
@@ -630,7 +650,7 @@ export function IncomeStatementDetail({
   >[] | null>(null)
 
   useEffect(() => {
-    if (!companyId || isForecastSection) {
+    if (!companyId) {
       setIncomeStatementStructure(null)
       return
     }
@@ -645,7 +665,7 @@ export function IncomeStatementDetail({
     return () => {
       cancelled = true
     }
-  }, [companyId, isForecastSection, structureVersion])
+  }, [companyId, structureVersion])
 
   // Debounced save to API
   const saveConfigRef = useRef<NodeJS.Timeout>()
@@ -1138,6 +1158,7 @@ export function IncomeStatementDetail({
   }
 
   const toggleRow = (rowId: string) => {
+    if (disableRowInteractions) return
     setExpandedRows((prev) => {
       const newSet = new Set(prev)
       if (newSet.has(rowId)) {
@@ -1150,6 +1171,7 @@ export function IncomeStatementDetail({
   }
 
   const openOrToggleLineAnalysis = useCallback((snapshot: LineAnalysisSnapshot) => {
+    if (disableRowInteractions) return
     setLineAnalysis((prev) => {
       const next = prev?.rowId === snapshot.rowId ? null : snapshot
       if (next) {
@@ -1158,7 +1180,7 @@ export function IncomeStatementDetail({
       }
       return next
     })
-  }, [])
+  }, [disableRowInteractions])
 
   /** Détail : postes « Annexe » (sommaire) ; sous-lignes detailOnly indentées sous l’annexe. */
   const mapBackendRowsDefinedOnly = (
@@ -1293,7 +1315,13 @@ export function IncomeStatementDetail({
     if (!seriesRows.length || !seriesPeriods.length || !incomeStatementStructure) return []
     const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
     return sorted.map((row) => {
-      const trend = yearTrendFromReference(row, seriesPeriods, refYear, 6)
+      const trend = forceForecastSection && forecastUseSeriesActuals
+        ? (() => {
+            // In projections, `fiscalYear` is set to (baseYear - 1), so `refYear` already matches the actual year.
+            const actual = yearTrendFromReference(row, seriesPeriods, refYear, 1)[0] || 0
+            return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+          })()
+        : yearTrendFromReference(row, seriesPeriods, refYear, 6)
       const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
       const lastAmount = trend[0] || 0
       const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
@@ -1348,8 +1376,15 @@ export function IncomeStatementDetail({
     return defaultValue
   }
 
-  // Get forecast value for a specific row and year (uses edited values if available, applies adjustments)
-  const getRevenueValue = (rowId: string | undefined, yearIndex: number, defaultValue: number, baseValue?: number): number => {
+  // Get forecast value for a specific row and year (uses edited values if available, applies adjustments).
+  // `defaultTrendValues` lets growth adjustments use the proper (yearIndex-1) default instead of reusing the current year.
+  const getRevenueValue = (
+    rowId: string | undefined,
+    yearIndex: number,
+    defaultValue: number,
+    baseValue?: number,
+    defaultTrendValues?: number[]
+  ): number => {
     if (!rowId || !isForecastSection) return defaultValue
     
     // Get base value (without adjustments)
@@ -1368,8 +1403,12 @@ export function IncomeStatementDetail({
           calculatedValue = adjustment.value
         } else {
           // For growth types, we need the previous year's value
+          const prevDefault =
+            yearIndex > 0
+              ? (defaultTrendValues?.[yearIndex - 1] ?? defaultValue)
+              : defaultValue
           const previousValue = yearIndex > 0 
-            ? getRevenueValue(rowId, yearIndex - 1, defaultValue, baseValue)
+            ? getRevenueValue(rowId, yearIndex - 1, prevDefault, baseValue, defaultTrendValues)
             : calculatedValue
           
           if (adjustment.type === "growthPercent") {
@@ -1506,7 +1545,18 @@ export function IncomeStatementDetail({
     if (seriesRows.length > 0 && seriesPeriods.length > 0) {
       const rows: DetailRow[] = []
 
-      for (const sr of seriesRows) {
+      const useRevenueDetailScope =
+        title === "Estimation des revenus annuels" &&
+        !!incomeStatementStructure &&
+        incomeStatementStructure.length > 0 &&
+        structureHasRevenuePosteNatureRow(incomeStatementStructure)
+      const seriesForForecast = useRevenueDetailScope
+        ? filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure).filter((sr) =>
+            seriesRowBelongsToRevenueAnnexDetail(sr, incomeStatementStructure)
+          )
+        : seriesRows
+
+      for (const sr of seriesForForecast) {
         // Get real amounts and aggregate to yearly totals
         const rawAmounts = getRowAmounts(sr, seriesPeriods)
         const { amounts: yearlyAmounts } = aggregateToYears(rawAmounts, seriesPeriods)
@@ -1518,9 +1568,21 @@ export function IncomeStatementDetail({
         const isBold = sr.isBold || isResult
         const indent = !isBold && !isSection && !isResult
 
-        // Generate projected trend: year 0 = latest real annual total, years 1+ = projected
+        // Generate projected trend values
         const rowId = sr.id
-        const trendValues = isSection ? undefined : generateForecastTrend(baseAmount, defaultGrowthRate, indent ? rowId : undefined)
+        const trendValues =
+          isSection
+            ? undefined
+            : (forceForecastSection && forecastUseSeriesActuals)
+              ? (() => {
+                  const baseYear = forecastBaseYear ?? (new Date().getFullYear())
+                  const actualYear = baseYear - 1
+                  const actual = yearTrendFromReference(sr, seriesPeriods, actualYear, 1)[0] || 0
+                  // Result rows will be recomputed from children below; start at 0s.
+                  if (isResult) return [0, ...Array.from({ length: projectionYears }, () => 0)]
+                  return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+                })()
+              : generateForecastTrend(baseAmount, defaultGrowthRate, indent ? rowId : undefined)
 
         rows.push({
           label: sr.label,
@@ -1556,7 +1618,9 @@ export function IncomeStatementDetail({
             }
           }
           if (childRows.length > 0) {
-            for (let y = 0; y < numYears; y++) {
+            // Trend values in forecast mode are projectionYears + 1.
+            const len = trendValues.length
+            for (let y = 0; y < len; y++) {
               trendValues[y] = childRows.reduce((sum, cr) => sum + (cr.trendValues?.[y] || 0), 0)
             }
           }
@@ -1683,7 +1747,14 @@ export function IncomeStatementDetail({
   ])
 
   // Filter data to show only REVENUS section if title is "Estimation des revenus annuels"
-  if (title === "Estimation des revenus annuels") {
+  // (comportement historique) — sauf si au moins un poste a la nature « Revenus » (alors périmètre = annexes Détail).
+  const revenueUsesPosteNatureFilter =
+    title === "Estimation des revenus annuels" &&
+    !!incomeStatementStructure &&
+    incomeStatementStructure.length > 0 &&
+    structureHasRevenuePosteNatureRow(incomeStatementStructure)
+
+  if (title === "Estimation des revenus annuels" && !revenueUsesPosteNatureFilter) {
     const revenueSectionStart = data.findIndex(row => row.label === "REVENUS")
     if (revenueSectionStart !== -1) {
       // Find "Total Revenus" and stop right after it (excluding the spacer row)
@@ -2026,17 +2097,26 @@ export function IncomeStatementDetail({
 
   // Helper function to generate year labels (projectionYears + 1 for forecast sections)
   const getYearLabels = (): string[] => {
+    if (forceForecastSection) {
+      const baseYear = forecastBaseYear ?? new Date().getFullYear()
+      const labels: string[] = []
+      // Libellé = année civile seule ; données = réel pour (baseYear - 1) lorsque la référence de projection est baseYear.
+      labels.push(`${baseYear - 1}`)
+      for (let i = 0; i < projectionYears; i++) labels.push(`${baseYear + i}`)
+      return labels
+    }
     if (seriesPeriods.length > 0 && !isForecastSection) {
       return yearLabelsFromReference(refYear, 6)
     }
-    const currentYear = new Date().getFullYear()
     const labels: string[] = []
     if (isForecastSection) {
+      const currentYear = new Date().getFullYear()
       // Generate projectionYears + 1 years starting from current year (current year + 0 to projectionYears)
       for (let i = 0; i <= projectionYears; i++) {
         labels.push(`${currentYear + i}`)
       }
     } else {
+      const currentYear = new Date().getFullYear()
       for (let i = 5; i >= 0; i--) {
         labels.push(`${currentYear - i}`)
       }
@@ -2224,9 +2304,11 @@ export function IncomeStatementDetail({
         <div className="relative">
           <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
             <div className="flex items-center gap-4">
-              <div className={dashboardCardHeaderIconBoxClass}>
-                <ListTree className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
-              </div>
+              {!hideHeaderIcon && (
+                <div className={dashboardCardHeaderIconBoxClass}>
+                  <ListTree className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+                </div>
+              )}
               <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
             </div>
           </div>
@@ -2239,6 +2321,32 @@ export function IncomeStatementDetail({
   }
 
   const trendLenForPad = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
+  const revenueHeaderYearTotals = useMemo(() => {
+    if (title !== "Estimation des revenus annuels") return null
+    if (view !== "years") return null
+    if (showStructureCols) return null
+
+    const posts = data.filter(
+      (r) =>
+        !!r.rowId &&
+        !!r.indent &&
+        !r.isSection &&
+        !r.isAnnexPlaceholder &&
+        !r.isAnnexTitle &&
+        Array.isArray(r.trendValues) &&
+        r.trendValues.length > 0
+    )
+    if (posts.length === 0) return null
+
+    const len = posts[0]!.trendValues!.length
+    return Array.from({ length: len }, (_, j) =>
+      posts.reduce((acc, r) => {
+        const raw = r.trendValues?.[j] ?? 0
+        const v = isForecastSection && r.rowId ? getRevenueValue(r.rowId, j, raw, undefined, r.trendValues) : raw
+        return acc + (v ?? 0)
+      }, 0)
+    )
+  }, [data, getRevenueValue, isForecastSection, showStructureCols, title, view])
 
   const padDetailRowForStructure = (structRow: Record<string, unknown>): DetailRow => {
     const sub = isStructureRowDetailOnly(structRow)
@@ -2993,9 +3101,11 @@ export function IncomeStatementDetail({
       <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 flex-1 items-start gap-4">
-            <div className={dashboardCardHeaderIconBoxClass}>
-              <ListTree className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
-            </div>
+            {!hideHeaderIcon && (
+              <div className={dashboardCardHeaderIconBoxClass}>
+                <ListTree className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+              </div>
+            )}
             <div className="min-w-0 flex-1">
               <div className="mb-1 flex flex-wrap items-center gap-2">
                 <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
@@ -3115,7 +3225,10 @@ export function IncomeStatementDetail({
                 </Button>
               </div>
             )}
-            {isForecastSection && view === "years" && title !== "États des résultats pro forma" && (
+            {isForecastSection &&
+              view === "years" &&
+              title !== "États des résultats pro forma" &&
+              title !== "Estimation des revenus annuels" && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -3546,7 +3659,7 @@ export function IncomeStatementDetail({
                       key={idx} 
                       className={cn(
                         "px-4 py-4 text-right font-semibold text-sm whitespace-nowrap",
-                        isForecastSection && idx === 0 
+                        (forceForecastSection || isForecastSection) && idx === 0 
                           ? "bg-slate-50 text-slate-900" 
                           : "text-slate-900"
                       )}
@@ -3618,6 +3731,8 @@ export function IncomeStatementDetail({
               const isSpacer = row.label === "" && !row.isAnnexPlaceholder
               const shouldHideAmounts =
                 isSpacer || !!row.isSection || !!row.isAnnexPlaceholder || !!row.isAnnexTitle
+              const isRevenueForecast = title === "Estimation des revenus annuels"
+              const isRevenusHeaderRow = isRevenueForecast && view === "years" && normLabel(String(row.label ?? "")) === "revenus"
               /** Hors Paramètres : libellé sous-total masqué (blanc) mais chiffres en noir. */
               const annexSubtotalDarkNumbers = row.isAnnexSubtotal && !showStructureCols
               const displayLabel = row.label
@@ -3658,6 +3773,8 @@ export function IncomeStatementDetail({
               const canExpand =
                 showStructureCols
                   ? false
+                  : disableRowInteractions
+                    ? false
                   : (projectionMode === "account" && isForecastSectionForExpansion)
                     ? false
                     : !!row.rowId &&
@@ -3800,7 +3917,7 @@ export function IncomeStatementDetail({
                         <div className="flex shrink-0 items-center gap-0.5">
                         {/* Même largeur que le bouton pour aligner les libellés sur toutes les lignes */}
                         <div className="flex h-8 w-9 shrink-0 items-center justify-center">
-                          {canExpand || (row.rowId && isNoteAllowed() && !showStructureCols) ? (
+                          {!disableRowInteractions && (canExpand || (row.rowId && isNoteAllowed() && !showStructureCols)) ? (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -4201,8 +4318,12 @@ export function IncomeStatementDetail({
                       {row.trendValues.map((value, valueIdx) => {
                         // Get the actual value (edited or default) for forecast sections
                         const actualValue = isForecastSection && row.rowId 
-                          ? getRevenueValue(row.rowId, valueIdx, value)
+                          ? getRevenueValue(row.rowId, valueIdx, value, undefined, row.trendValues)
                           : value
+                        const effectiveValue =
+                          isRevenusHeaderRow && revenueHeaderYearTotals
+                            ? (revenueHeaderYearTotals[valueIdx] ?? 0)
+                            : actualValue
                         
                         // Check if this cell is editable (forecast section, not first year, has rowId)
                         // For "Estimation des dépenses annuelles", "Estimation des revenus annuels", and "États des résultats pro forma", cells are not directly editable (only via adjustments)
@@ -4213,16 +4334,16 @@ export function IncomeStatementDetail({
                         // Get previous value for growth calculation
                         const previousValue = valueIdx > 0 && row.trendValues 
                           ? (isForecastSection && row.rowId 
-                              ? getRevenueValue(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1])
+                              ? getRevenueValue(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1], undefined, row.trendValues)
                               : row.trendValues[valueIdx - 1])
                           : null
                         
                         // Calculate growth rate if showGrowthRate is true and not first year
-                        let displayValue: string | number = actualValue
+                        let displayValue: string | number = effectiveValue
                         let growthRate: number | null = null
                         if (showGrowthRate && isForecastSection && valueIdx > 0 && previousValue !== null) {
                           if (previousValue !== 0) {
-                            growthRate = calculateVariation(actualValue, previousValue)
+                            growthRate = calculateVariation(effectiveValue, previousValue)
                             displayValue = growthRate !== null ? `${growthRate >= 0 ? "+" : ""}${growthRate.toFixed(1)}%` : "-"
                           } else {
                             displayValue = "-"
@@ -4238,7 +4359,7 @@ export function IncomeStatementDetail({
                               "px-4 py-3 text-right",
                               row.isBold ? "font-semibold font-bold" : "text-slate-500",
                               shouldHideAmounts ? "text-white" : "",
-                              isForecastSection && valueIdx === 0 && !shouldHideAmounts ? "bg-slate-50" : "",
+                              (forceForecastSection || isForecastSection) && valueIdx === 0 ? "bg-slate-50" : "",
                               isEditable && !isEditing && "hover:bg-slate-50 cursor-pointer",
                               showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && title === "Estimation des revenus annuels" ? "text-slate-900" : "",
                               showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate >= 0 && title !== "Estimation des revenus annuels" ? "text-emerald-600 font-semibold" : "",
@@ -4252,14 +4373,14 @@ export function IncomeStatementDetail({
                               }
                             }}
                           >
-                            {shouldHideAmounts ? (
+                            {shouldHideAmounts && !(isRevenusHeaderRow && revenueHeaderYearTotals) ? (
                               "-"
                             ) : isEditable && isEditing ? (
                               <Input
                                 type="text"
                                 value={showGrowthRate && previousValue !== null && previousValue !== 0
                                   ? (growthRate !== null ? `${growthRate >= 0 ? "+" : ""}${growthRate.toFixed(1)}` : "")
-                                  : actualValue.toString()}
+                                  : effectiveValue.toString()}
                                 onChange={(e) => {
                                   const inputValue = e.target.value
                                   if (showGrowthRate && previousValue !== null && previousValue !== 0) {
@@ -4310,7 +4431,7 @@ export function IncomeStatementDetail({
                                               </div>
                                             )
                                           })()
-                                        : (actualValue !== 0 ? formatCurrency(actualValue) : "-")}
+                                        : (effectiveValue !== 0 ? formatCurrency(effectiveValue) : "-")}
                                 </div>
                                 {((title === "Estimation des dépenses annuelles" || title === "Estimation des revenus annuels") && valueIdx > 0 && row.rowId && !shouldHideAmounts) && (
                                   // Only show adjustment button for account-level rows if projectionMode is "account"
@@ -4371,8 +4492,8 @@ export function IncomeStatementDetail({
                         <td 
                           key={idx} 
                           className={cn(
-                            "px-4 py-3 text-right font-semibold text-white",
-                            isForecastSection && view === "years" && idx === 0 ? "bg-slate-50" : ""
+                            "px-4 py-3 text-right text-sm text-slate-400",
+                            (forceForecastSection || isForecastSection) && view === "years" && idx === 0 ? "bg-slate-50" : ""
                           )}
                         >
                           -
@@ -4381,6 +4502,69 @@ export function IncomeStatementDetail({
                     </>
                   )}
                 </tr>
+                  {title === "Estimation des revenus annuels" &&
+                    view === "years" &&
+                    !showStructureCols &&
+                    Array.isArray(row.trendValues) &&
+                    row.trendValues.length > 1 &&
+                    (() => {
+                      const isRevenusHeader = normLabel(String(row.label ?? "")) === "revenus"
+                      const isRevenuePost =
+                        !shouldHideAmounts && !!row.rowId && !!row.indent
+                      return isRevenusHeader || isRevenuePost
+                    })() && (
+                      <tr className="border-b border-slate-200 bg-slate-50/60">
+                        <td
+                          className={cn(
+                            "px-6 py-2 text-slate-600",
+                            normLabel(String(row.label ?? "")) === "revenus" ? "pl-6" : "pl-16"
+                          )}
+                        >
+                          <span className="text-[12px] italic text-slate-500">Croissance</span>
+                        </td>
+                        {row.trendValues.map((raw, valueIdx) => {
+                          const isRevenusHeader = normLabel(String(row.label ?? "")) === "revenus"
+                          const v = isRevenusHeader && revenueHeaderYearTotals
+                            ? (revenueHeaderYearTotals[valueIdx] ?? 0)
+                            : (isForecastSection && row.rowId ? getRevenueValue(row.rowId, valueIdx, raw, undefined, row.trendValues) : raw)
+                          if (valueIdx === 0) {
+                            return (
+                              <td
+                                key={valueIdx}
+                                className={cn(
+                                  "px-4 py-2 text-right text-[12px] italic text-slate-400",
+                                  (forceForecastSection || isForecastSection) && valueIdx === 0 ? "bg-slate-50" : ""
+                                )}
+                              >
+                                -
+                              </td>
+                            )
+                          }
+                          const prevRaw = row.trendValues?.[valueIdx - 1] ?? 0
+                          const prev = isRevenusHeader && revenueHeaderYearTotals
+                            ? (revenueHeaderYearTotals[valueIdx - 1] ?? 0)
+                            : (isForecastSection && row.rowId
+                              ? getRevenueValue(row.rowId, valueIdx - 1, prevRaw, undefined, row.trendValues)
+                              : prevRaw)
+                          const growth =
+                            prev !== 0 ? calculateVariation(v ?? 0, prev ?? 0) : null
+                          const display =
+                            growth === null ? "-" : `${growth >= 0 ? "+" : ""}${growth.toFixed(1)}%`
+                          return (
+                            <td
+                              key={valueIdx}
+                              className={cn(
+                                "px-4 py-2 text-right text-[12px] italic",
+                                (forceForecastSection || isForecastSection) && valueIdx === 0 ? "bg-slate-50" : "",
+                                growth === null ? "text-slate-400" : growth >= 0 ? "text-emerald-700" : "text-red-700"
+                              )}
+                            >
+                              {display}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )}
                   {/* Expanded balance accounts */}
                   {isExpanded && row.balanceAccounts && row.balanceAccounts.length > 0 && (
                     <>
@@ -4640,7 +4824,7 @@ export function IncomeStatementDetail({
                                 {row.trendValues.map((rowTrendValue, valueIdx) => {
                                   // Get the actual row value (edited or default) for forecast sections
                                   const actualRowValue = isForecastSection && row.rowId 
-                                    ? getRevenueValue(row.rowId, valueIdx, rowTrendValue)
+                                    ? getRevenueValue(row.rowId, valueIdx, rowTrendValue, undefined, row.trendValues)
                                     : rowTrendValue
                                   
                                   const accountTrendValue =
@@ -4654,7 +4838,7 @@ export function IncomeStatementDetail({
                                   // Get previous value for growth calculation
                                   const previousRowValue = valueIdx > 0 && row.trendValues
                                     ? (isForecastSection && row.rowId
-                                        ? getRevenueValue(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1])
+                                        ? getRevenueValue(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1], undefined, row.trendValues)
                                         : row.trendValues[valueIdx - 1])
                                     : null
                                   

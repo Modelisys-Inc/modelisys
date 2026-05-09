@@ -87,7 +87,7 @@ const menuItems = [
     submenu: [
       {
         label: "Pro Forma",
-        href: "/projections/pro-forma",
+        href: "/projections",
         icon: FileText,
       },
       {
