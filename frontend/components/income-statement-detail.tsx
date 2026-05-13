@@ -8,7 +8,15 @@ import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { generateId } from "@/lib/seeded-random"
-import { ArrowRight, CheckCircle2, ChevronLeft, ListTree, Table2, TrendingUp, X } from "lucide-react"
+import {
+  ArrowRight,
+  CheckCircle2,
+  ChevronLeft,
+  ListTree,
+  Table2,
+  TrendingUp,
+  X,
+} from "lucide-react"
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react"
 import {
   listForecastConfigs,
@@ -75,6 +83,7 @@ import {
 import { IncomeStatementNotePanel } from "@/components/income-statement-note-panel"
 import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -91,12 +100,12 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
-import { BookMarked, Settings, Plus, Edit2, Trash2, Loader2, Sparkles } from "lucide-react"
+import { BookMarked, Settings, Plus, Edit2, Trash2, Loader2, Sparkles, AlertTriangle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, XAxis, YAxis } from "recharts"
+import { Bar, BarChart, CartesianGrid, ComposedChart, Line, ReferenceLine, XAxis, YAxis } from "recharts"
 
 interface IncomeStatementDetailProps {
   period: "monthly" | "quarterly" | "annual"
@@ -351,6 +360,316 @@ function insertAnnexDetailPlaceholderRows(
   return out
 }
 
+type RevenueCollectionMode = "simple" | "advanced"
+
+type RevenueCollectionBucket = {
+  delayDays: number
+  percent: number
+  /** Ligne ajoutée par l’utilisateur (supprimable). Les 5 premières lignes sont toujours 0 / 30 / 60 / 90 / 120 j. */
+  custom?: boolean
+}
+
+type RevenueCollectionCash = {
+  mode: RevenueCollectionMode
+  dsoDays: number
+  badDebtPercent: number
+  advancedBuckets?: RevenueCollectionBucket[]
+}
+
+const STANDARD_REVENUE_COLLECTION_DELAYS = [0, 30, 60, 90, 120] as const
+
+const DEFAULT_REVENUE_COLLECTION_CASH: RevenueCollectionCash = {
+  mode: "advanced",
+  dsoDays: 45,
+  badDebtPercent: 1,
+}
+
+function clampRoundBadDebt(p: number): number {
+  return Math.max(0, Math.min(100, Math.round(Number(p) || 0)))
+}
+
+function clampDsoDays(d: number): number {
+  return Math.max(0, Math.min(365, Math.round(Number(d) || 0)))
+}
+
+function weightedEncashableCollectionDelayDays(buckets: RevenueCollectionBucket[]): number {
+  const sum = buckets.reduce((a, b) => a + Math.max(0, Math.round(b.percent || 0)), 0)
+  if (sum <= 0) return 0
+  const raw =
+    buckets.reduce(
+      (acc, b) => acc + Math.max(0, Math.round(b.percent || 0)) * Math.max(0, Math.round(b.delayDays || 0)),
+      0
+    ) / sum
+  return Math.round(raw * 10) / 10
+}
+
+function formatCollectionDelayDaysDisplay(days: number): string {
+  if (!Number.isFinite(days) || days < 0) return "0 j"
+  const rounded = Math.round(days * 10) / 10
+  if (Math.abs(rounded - Math.round(rounded)) < 1e-9) return `${Math.round(rounded)} j`
+  return `${String(rounded).replace(".", ",")} j`
+}
+
+function simpleCashToAdvancedBuckets(dsoDays: number, badDebtPercent: number): RevenueCollectionBucket[] {
+  const bd = clampRoundBadDebt(badDebtPercent)
+  const enc = Math.max(0, 100 - bd)
+  const d = clampDsoDays(dsoDays)
+  const std = [...STANDARD_REVENUE_COLLECTION_DELAYS]
+  if (enc <= 0) return createDefaultAdvancedBuckets(bd)
+  const idx = std.indexOf(d as (typeof STANDARD_REVENUE_COLLECTION_DELAYS)[number])
+  if (idx >= 0) {
+    return normalizeAdvancedBuckets(
+      std.map((delayDays, i) => ({
+        delayDays,
+        percent: i === idx ? enc : 0,
+        custom: false as const,
+      })),
+      bd
+    )
+  }
+  return normalizeAdvancedBuckets(
+    [
+      ...std.map((delayDays) => ({ delayDays, percent: 0, custom: false as const })),
+      { delayDays: d, percent: enc, custom: true as const },
+    ],
+    bd
+  )
+}
+
+function createDefaultAdvancedBuckets(badDebtPercent: number): RevenueCollectionBucket[] {
+  const bd = clampRoundBadDebt(badDebtPercent)
+  const target = 100 - bd
+  const n = STANDARD_REVENUE_COLLECTION_DELAYS.length
+  const base = Math.floor(target / n)
+  const rest = target - base * n
+  return STANDARD_REVENUE_COLLECTION_DELAYS.map((delayDays, i) => ({
+    delayDays,
+    percent: base + (i < rest ? 1 : 0),
+    custom: false,
+  }))
+}
+
+function normalizeAdvancedBuckets(
+  buckets: RevenueCollectionBucket[],
+  badDebtPercent: number
+): RevenueCollectionBucket[] {
+  const bd = clampRoundBadDebt(badDebtPercent)
+  const target = 100 - bd
+  if (buckets.length === 0) return createDefaultAdvancedBuckets(bd)
+  const safe = buckets.map((b) => ({
+    delayDays: Math.max(0, Math.min(720, Math.round(Number(b.delayDays) || 0))),
+    percent: Math.max(0, Math.round(Number(b.percent) || 0)),
+    custom: b.custom === true,
+  }))
+  let sum = safe.reduce((a, b) => a + b.percent, 0)
+  if (sum <= 0) {
+    return createDefaultAdvancedBuckets(bd)
+  }
+  const rounded = safe.map((b) => ({
+    ...b,
+    percent: Math.round((b.percent / sum) * target),
+  }))
+  let diff = target - rounded.reduce((a, b) => a + b.percent, 0)
+  const out = rounded.map((b) => ({ ...b }))
+  const n = out.length
+  let guard = 0
+  while (diff !== 0 && guard < 400 && n > 0) {
+    const i = guard % n
+    if (diff > 0) {
+      out[i] = { ...out[i]!, percent: out[i]!.percent + 1 }
+      diff--
+    } else if (diff < 0 && out[i]!.percent > 0) {
+      out[i] = { ...out[i]!, percent: out[i]!.percent - 1 }
+      diff++
+    }
+    guard++
+  }
+  return out
+}
+
+function coerceAdvancedBucketsForUi(
+  raw: RevenueCollectionBucket[] | undefined,
+  badDebtPercent: number
+): RevenueCollectionBucket[] {
+  if (!raw || raw.length === 0) return createDefaultAdvancedBuckets(badDebtPercent)
+  const std = [...STANDARD_REVENUE_COLLECTION_DELAYS]
+  const head = raw.slice(0, 5)
+  const standardRows: RevenueCollectionBucket[] = std.map((delayDays, i) => ({
+    delayDays,
+    percent: head[i] ? Math.max(0, Math.round(Number(head[i]!.percent) || 0)) : 0,
+    custom: false,
+  }))
+  const extra: RevenueCollectionBucket[] = raw.slice(5).map((b) => ({
+    delayDays: Math.max(0, Math.min(720, Math.round(Number(b.delayDays) || 0))),
+    percent: Math.max(0, Math.round(Number(b.percent) || 0)),
+    custom: true,
+  }))
+  return normalizeAdvancedBuckets([...standardRows, ...extra], badDebtPercent)
+}
+
+function labelForRevenueDelayDays(days: number): string {
+  if (days === 0) return "Immédiat"
+  if (days === 30) return "30 jours"
+  if (days === 60) return "60 jours"
+  if (days === 90) return "90 jours"
+  if (days === 120) return "120 jours"
+  return `${days} j`
+}
+
+function migrateLegacyScheduleToBuckets(
+  rows: { offsetMonths: number; percent: number }[],
+  badDebtPercent: number
+): RevenueCollectionBucket[] {
+  const std = [...STANDARD_REVENUE_COLLECTION_DELAYS]
+  const sums = new Map<number, number>()
+  for (const r of rows) {
+    const d = Math.min(720, Math.max(0, Math.round(Number(r.offsetMonths) || 0) * 30))
+    sums.set(d, (sums.get(d) ?? 0) + (Math.max(0, Number(r.percent)) || 0))
+  }
+  const standardRows: RevenueCollectionBucket[] = std.map((delayDays) => ({
+    delayDays,
+    percent: sums.get(delayDays) ?? 0,
+    custom: false,
+  }))
+  for (const d of std) {
+    sums.delete(d)
+  }
+  const extra: RevenueCollectionBucket[] = []
+  for (const [delayDays, percent] of sums) {
+    if (percent > 0) {
+      extra.push({ delayDays, percent, custom: true })
+    }
+  }
+  return normalizeAdvancedBuckets([...standardRows, ...extra], badDebtPercent)
+}
+
+/** Lit `collectionCash` ou migre `collectionSchedule` / `collectionPercents`. */
+function parseRevenueCollectionCashFromStorage(adj: {
+  collectionCash?: unknown
+  collectionSchedule?: unknown
+  collectionPercents?: unknown
+}): RevenueCollectionCash {
+  const raw = adj.collectionCash
+  if (raw && typeof raw === "object" && raw !== null && "mode" in raw) {
+    const c = raw as Record<string, unknown>
+    const storedMode = c.mode === "advanced" ? "advanced" : "simple"
+    const badDebtPercent = clampRoundBadDebt(Number(c.badDebtPercent))
+    const dsoDaysStored = clampDsoDays(Number(c.dsoDays))
+    const bucketsRaw = c.advancedBuckets
+
+    let advancedBuckets: RevenueCollectionBucket[]
+    if (storedMode === "advanced") {
+      if (Array.isArray(bucketsRaw) && bucketsRaw.length > 0) {
+        const parsed = (bucketsRaw as { delayDays?: unknown; percent?: unknown; custom?: unknown }[]).map(
+          (b) => ({
+            delayDays: Number(b.delayDays) || 0,
+            percent: Number(b.percent) || 0,
+            custom: b.custom === true,
+          })
+        )
+        advancedBuckets = coerceAdvancedBucketsForUi(parsed, badDebtPercent)
+      } else {
+        advancedBuckets = createDefaultAdvancedBuckets(badDebtPercent)
+      }
+    } else {
+      advancedBuckets = simpleCashToAdvancedBuckets(dsoDaysStored, badDebtPercent)
+    }
+    const weighted = weightedEncashableCollectionDelayDays(advancedBuckets)
+    return {
+      mode: "advanced",
+      dsoDays: clampDsoDays(Math.round(weighted)),
+      badDebtPercent,
+      advancedBuckets,
+    }
+  }
+
+  const bd = 1
+  const sched = adj.collectionSchedule
+  if (
+    Array.isArray(sched) &&
+    sched.length > 0 &&
+    typeof sched[0] === "object" &&
+    sched[0] !== null &&
+    "percent" in (sched[0] as object)
+  ) {
+    const rows = (sched as { offsetMonths?: unknown; percent?: unknown }[]).map((r) => ({
+      offsetMonths: Number(r.offsetMonths) || 0,
+      percent: Number(r.percent) || 0,
+    }))
+    const adv = migrateLegacyScheduleToBuckets(rows, bd)
+    return {
+      mode: "advanced",
+      dsoDays: clampDsoDays(Math.round(weightedEncashableCollectionDelayDays(adv))),
+      badDebtPercent: bd,
+      advancedBuckets: adv,
+    }
+  }
+  const legacy = adj.collectionPercents
+  if (Array.isArray(legacy) && legacy.length > 0 && typeof legacy[0] === "number") {
+    const rows = (legacy as number[]).map((p, i) => ({
+      offsetMonths: i,
+      percent: Number(p) || 0,
+    }))
+    const adv = migrateLegacyScheduleToBuckets(rows, bd)
+    return {
+      mode: "advanced",
+      dsoDays: clampDsoDays(Math.round(weightedEncashableCollectionDelayDays(adv))),
+      badDebtPercent: bd,
+      advancedBuckets: adv,
+    }
+  }
+  const defBuckets = createDefaultAdvancedBuckets(DEFAULT_REVENUE_COLLECTION_CASH.badDebtPercent)
+  return {
+    mode: "advanced",
+    dsoDays: clampDsoDays(Math.round(weightedEncashableCollectionDelayDays(defBuckets))),
+    badDebtPercent: DEFAULT_REVENUE_COLLECTION_CASH.badDebtPercent,
+    advancedBuckets: defBuckets,
+  }
+}
+
+function buildCollectionCashForSave(state: {
+  badDebtPercent: number
+  buckets: RevenueCollectionBucket[]
+}): RevenueCollectionCash {
+  const bd = clampRoundBadDebt(state.badDebtPercent)
+  const std = [...STANDARD_REVENUE_COLLECTION_DELAYS]
+  const head = state.buckets.slice(0, 5)
+  const standardRows: RevenueCollectionBucket[] = std.map((delayDays, i) => ({
+    delayDays,
+    percent: head[i] ? Math.max(0, Math.round(Number(head[i]!.percent) || 0)) : 0,
+    custom: false,
+  }))
+  const extra = state.buckets.slice(5).map((b) => ({
+    delayDays: Math.max(0, Math.min(720, Math.round(Number(b.delayDays) || 0))),
+    percent: Math.max(0, Math.round(Number(b.percent) || 0)),
+    custom: true as const,
+  }))
+  const advancedBuckets = normalizeAdvancedBuckets([...standardRows, ...extra], bd)
+  const weighted = weightedEncashableCollectionDelayDays(advancedBuckets)
+  return {
+    mode: "advanced",
+    dsoDays: clampDsoDays(Math.round(weighted)),
+    badDebtPercent: bd,
+    advancedBuckets,
+  }
+}
+
+function parsePercentInput(s: string): number | null {
+  const t = s.trim().replace(/\s/g, "").replace(/,/g, ".")
+  if (t === "" || t === "+" || t === "-") return null
+  const n = parseFloat(t)
+  if (!Number.isFinite(n)) return null
+  return Math.max(0, Math.min(100, n))
+}
+
+function parseDelayDaysInput(s: string): number | null {
+  const t = s.trim().replace(/\s/g, "")
+  if (t === "" || t === "+" || t === "-") return null
+  const n = parseInt(t, 10)
+  if (!Number.isFinite(n)) return null
+  return Math.max(0, Math.min(720, n))
+}
+
 export function IncomeStatementDetail({
   period,
   view,
@@ -530,6 +849,12 @@ export function IncomeStatementDetail({
     type: "amount" | "growthPercent" | "growthAmount" // Type of adjustment
     value: number // The adjustment value (amount, growth %, or growth $)
     note: string // Explanatory note for this adjustment
+    /** Encaissement : échéances (parts par délai) + mauvaise créance (`collectionCash`). */
+    collectionCash?: RevenueCollectionCash
+    /** @deprecated Migré vers `collectionCash` à l’enregistrement. */
+    collectionSchedule?: { offsetMonths: number; percent: number }[]
+    /** @deprecated Migré vers `collectionCash` à l’enregistrement. */
+    collectionPercents?: number[]
   }
 
   // State for expense adjustments: key = "rowId-yearIndex" -> ExpenseAdjustment[]
@@ -557,6 +882,13 @@ export function IncomeStatementDetail({
     useState(false)
   /** Confirmation avant suppression d’un ajustement revenus (hypothèse). */
   const [revenueHypothesisDeleteConfirmOpen, setRevenueHypothesisDeleteConfirmOpen] = useState(false)
+  /** Hypothèse revenus : mode d’encaissement et paramètres associés. */
+  const [revenueCollectionBadDebtPercent, setRevenueCollectionBadDebtPercent] = useState(
+    DEFAULT_REVENUE_COLLECTION_CASH.badDebtPercent
+  )
+  const [revenueCollectionBuckets, setRevenueCollectionBuckets] = useState<RevenueCollectionBucket[]>(() =>
+    createDefaultAdvancedBuckets(DEFAULT_REVENUE_COLLECTION_CASH.badDebtPercent)
+  )
 
   // Check if this is a forecast section (Revenus, Dépenses, or États des résultats pro forma)
   const isForecastSection =
@@ -1046,8 +1378,15 @@ export function IncomeStatementDetail({
         if (existingAdjustment) {
           setEditingAdjustmentId(adjustmentId)
           setRevenueAdjustmentType(existingAdjustment.type)
-          setRevenueHypothesisValueFromNumber(existingAdjustment.value)
+          setRevenueHypothesisValueFromNumber(existingAdjustment.value, existingAdjustment.type)
           setAdjustmentNote(existingAdjustment.note || "")
+          const cash = parseRevenueCollectionCashFromStorage(existingAdjustment)
+          setRevenueCollectionBadDebtPercent(cash.badDebtPercent)
+          setRevenueCollectionBuckets(
+            cash.advancedBuckets?.length
+              ? cash.advancedBuckets
+              : createDefaultAdvancedBuckets(cash.badDebtPercent)
+          )
         }
       } else {
         // Un seul ajustement par année : ouvrir en modification si un ajustement existe déjà.
@@ -1056,13 +1395,23 @@ export function IncomeStatementDetail({
           const only = existingRevenue[existingRevenue.length - 1]!
           setEditingAdjustmentId(only.id)
           setRevenueAdjustmentType(only.type)
-          setRevenueHypothesisValueFromNumber(only.value)
+          setRevenueHypothesisValueFromNumber(only.value, only.type)
           setAdjustmentNote(only.note || "")
+          const cash = parseRevenueCollectionCashFromStorage(only)
+          setRevenueCollectionBadDebtPercent(cash.badDebtPercent)
+          setRevenueCollectionBuckets(
+            cash.advancedBuckets?.length
+              ? cash.advancedBuckets
+              : createDefaultAdvancedBuckets(cash.badDebtPercent)
+          )
         } else {
           setEditingAdjustmentId(null)
           setRevenueAdjustmentType("amount")
-          setRevenueHypothesisValueFromNumber(0)
+          setRevenueHypothesisValueFromNumber(0, "amount")
           setAdjustmentNote("")
+          const d = DEFAULT_REVENUE_COLLECTION_CASH
+          setRevenueCollectionBadDebtPercent(d.badDebtPercent)
+          setRevenueCollectionBuckets(createDefaultAdvancedBuckets(d.badDebtPercent))
         }
       }
     } else {
@@ -1107,6 +1456,9 @@ export function IncomeStatementDetail({
     setRevenueAdjustmentValueInput("0")
     setAdjustmentNote("")
     setReplicateRevenueAdjustmentToFollowingYears(false)
+    const d = DEFAULT_REVENUE_COLLECTION_CASH
+    setRevenueCollectionBadDebtPercent(d.badDebtPercent)
+    setRevenueCollectionBuckets(createDefaultAdvancedBuckets(d.badDebtPercent))
   }, [])
 
   const returnToRevenueHypothesisRow = useCallback(() => {
@@ -1204,18 +1556,52 @@ export function IncomeStatementDetail({
     }
   }, [title])
 
+  /** Retire espaces, espaces insécables et séparateurs de milliers pour parser un nombre. */
+  const stripRevenueHypothesisNumberGrouping = (s: string) =>
+    s
+      .trim()
+      .replace(/\s/g, "")
+      .replace(/\u202f/g, "")
+      .replace(/\u00a0/g, "")
+      .replace(/,/g, ".")
+
+  /** Affichage lisible : milliers séparés par un espace (montant $ et croissance $). Le % reste sans groupement. */
+  const formatRevenueHypothesisValueForInput = (
+    n: number,
+    type: "amount" | "growthPercent" | "growthAmount"
+  ): string => {
+    if (!Number.isFinite(n)) return "0"
+    if (type === "growthPercent") {
+      return String(n)
+    }
+    const sign = n < 0 ? "-" : ""
+    const abs = Math.abs(Math.round(n))
+    const digits = String(abs)
+    const parts: string[] = []
+    for (let i = digits.length; i > 0; i -= 3) {
+      parts.unshift(digits.slice(Math.max(0, i - 3), i))
+    }
+    return sign + parts.join(" ")
+  }
+
   /** Chaîne vide → 0 ; « - » / « + » seuls → saisie incomplète (null). */
   const parseRevenueHypothesisValueInput = (s: string): number | null => {
-    const t = s.trim().replace(/,/g, ".")
+    const t = stripRevenueHypothesisNumberGrouping(s)
     if (t === "") return 0
     if (t === "+" || t === "-") return null
     const n = parseFloat(t)
     return Number.isFinite(n) ? n : null
   }
 
-  const setRevenueHypothesisValueFromNumber = (n: number) => {
+  const setRevenueHypothesisValueFromNumber = (
+    n: number,
+    forType?: "amount" | "growthPercent" | "growthAmount"
+  ) => {
     setRevenueAdjustmentValue(n)
-    setRevenueAdjustmentValueInput(Number.isFinite(n) ? String(n) : "0")
+    const t = forType ?? revenueAdjustmentType
+    setRevenueAdjustmentValueInput(
+      Number.isFinite(n) ? formatRevenueHypothesisValueForInput(n, t) : "0"
+    )
   }
 
   // Save adjustment
@@ -1244,6 +1630,11 @@ export function IncomeStatementDetail({
       const shouldReplicate =
         replicateRevenueAdjustmentToFollowingYears && y0 < yearLabelsLen - 1
 
+      const cashSaved = buildCollectionCashForSave({
+        badDebtPercent: revenueCollectionBadDebtPercent,
+        buckets: revenueCollectionBuckets,
+      })
+
       setRevenueAdjustments((prev) => {
         const next: Record<string, RevenueAdjustment[]> = { ...prev }
         const key0 = `${rowId}-${y0}`
@@ -1254,22 +1645,29 @@ export function IncomeStatementDetail({
           yearIndex: y,
           type: revenueAdjustmentType,
           value: parsedRevenue,
-          note: adjustmentNote
+          note: adjustmentNote,
+          collectionCash: cashSaved,
         })
 
         const existing0 = prev[key0] || []
 
         if (editingAdjustmentId) {
-          const updated0 = existing0.map((adj) =>
-            adj.id === editingAdjustmentId
-              ? {
-                  ...adj,
-                  type: revenueAdjustmentType,
-                  value: parsedRevenue,
-                  note: adjustmentNote
-                }
-              : adj
-          )
+          const updated0 = existing0.map((adj) => {
+            if (adj.id !== editingAdjustmentId) return adj
+            const { collectionPercents: _p, collectionSchedule: _s, collectionCash: _c, ...rest } =
+              adj as RevenueAdjustment & {
+                collectionPercents?: number[]
+                collectionSchedule?: { offsetMonths: number; percent: number }[]
+                collectionCash?: RevenueCollectionCash
+              }
+            return {
+              ...rest,
+              type: revenueAdjustmentType,
+              value: parsedRevenue,
+              note: adjustmentNote,
+              collectionCash: cashSaved,
+            }
+          })
           const sole = updated0.find((a) => a.id === editingAdjustmentId)
           next[key0] = sole ? [sole] : []
         } else {
@@ -1289,7 +1687,15 @@ export function IncomeStatementDetail({
         setEditingAdjustmentId(newIdWhenReplacing)
       }
       setRevenueAdjustmentValue(parsedRevenue)
-      setRevenueAdjustmentValueInput(String(parsedRevenue))
+      setRevenueAdjustmentValueInput(
+        formatRevenueHypothesisValueForInput(parsedRevenue, revenueAdjustmentType)
+      )
+      setRevenueCollectionBadDebtPercent(cashSaved.badDebtPercent)
+      setRevenueCollectionBuckets(
+        cashSaved.advancedBuckets?.length
+          ? cashSaved.advancedBuckets
+          : createDefaultAdvancedBuckets(cashSaved.badDebtPercent)
+      )
       setReplicateRevenueAdjustmentToFollowingYears(false)
     } else {
       // Expense adjustments
@@ -2523,6 +2929,10 @@ export function IncomeStatementDetail({
 
   const hypothesisDesktopAsideOpen = false
 
+  /** Vue années + hypothèse inline : le panneau ne doit pas gonfler le tableau (sinon `w-max` / `min-w-max` suivent le max-content). */
+  const forecastHypothesisTableWidthLock =
+    tableUsesHorizontalSlider && (revenueHypothesisInlineActive || expenseHypothesisInlineActive)
+
   useEffect(() => {
     if (!tableUsesHorizontalSlider) return
     const el = detailTableHScrollRef.current
@@ -3694,6 +4104,47 @@ export function IncomeStatementDetail({
     )
   }
 
+  /**
+   * Au changement de type d’hypothèse : remplir le champ avec la valeur équivalente au scénario
+   * déjà projeté (montant annuel $, croissance % ou variation $ vs année précédente).
+   */
+  const syncRevenueHypothesisValueForDisplayType = (
+    newType: "amount" | "growthPercent" | "growthAmount",
+    ctx: { rowId: string; yearIndex: number }
+  ) => {
+    if (title !== "Estimation des revenus annuels") return
+    const row = data.find((r) => r.rowId === ctx.rowId)
+    const trend = row?.trendValues
+    if (!row?.rowId || !Array.isArray(trend) || trend.length === 0) return
+
+    const y = ctx.yearIndex
+    if (y < 0 || y >= trend.length) return
+
+    const defY = trend[y] ?? 0
+    const currentProjected = getRevenueValue(row.rowId, y, defY, undefined, trend)
+
+    if (newType === "amount") {
+      setRevenueHypothesisValueFromNumber(Math.round(currentProjected), newType)
+      return
+    }
+
+    if (y <= 0) {
+      setRevenueHypothesisValueFromNumber(0, newType)
+      return
+    }
+
+    const defPrev = trend[y - 1] ?? 0
+    const prevProjected = getRevenueValue(row.rowId, y - 1, defPrev, undefined, trend)
+
+    if (newType === "growthPercent") {
+      const pct = calculateVariation(currentProjected, prevProjected)
+      setRevenueHypothesisValueFromNumber(Math.round(pct * 10) / 10, newType)
+      return
+    }
+
+    setRevenueHypothesisValueFromNumber(Math.round(currentProjected - prevProjected), newType)
+  }
+
   const renderRevenueHypothesisPanel = (embedded = false) => {
     if (title !== "Estimation des revenus annuels" || !editingAdjustment || !revenueHypothesisPanelOpen) return null
     const rowLabel = editingAdjustment.rowId
@@ -3708,16 +4159,38 @@ export function IncomeStatementDetail({
     const existingAdjustments = getRevenueAdjustments(editingAdjustment.rowId, editingAdjustment.yearIndex)
     const canReplicateToFollowingYears = yearIndex < yearLabels.length - 1
     const followingYearsLabel = yearLabels.slice(yearIndex + 1).join(", ")
+    const revenueEncashableSum = revenueCollectionBuckets.reduce((a, b) => a + b.percent, 0)
+    const revenueCollectionGrandTotal = revenueEncashableSum + revenueCollectionBadDebtPercent
+    const revenueCollectionSortedWithIndex = [...revenueCollectionBuckets]
+      .map((bucket, origIdx) => ({ bucket, origIdx }))
+      .sort((a, b) => a.bucket.delayDays - b.bucket.delayDays)
+    const revenueHistogramChartData: { key: string; name: string; percent: number }[] = [
+      ...revenueCollectionSortedWithIndex.map(({ bucket }, idx) => ({
+        key: `h-${idx}-${bucket.delayDays}`,
+        name: labelForRevenueDelayDays(bucket.delayDays),
+        percent: Math.max(0, Math.round(bucket.percent)),
+      })),
+      {
+        key: "bad-debt",
+        name: "Mauvaise créance",
+        percent: Math.max(0, Math.round(revenueCollectionBadDebtPercent)),
+      },
+    ]
+    const revenueWeightedCollectionDelayDays = weightedEncashableCollectionDelayDays(revenueCollectionBuckets)
+    const revenueWeightedCollectionDelayLabel =
+      formatCollectionDelayDaysDisplay(revenueWeightedCollectionDelayDays)
+    const revenueCollHistColCount = Math.max(revenueHistogramChartData.length, 1)
+    const revenueCollGridTemplate = `3.25rem repeat(${revenueCollHistColCount}, minmax(4rem, 1fr))`
 
     return (
       <>
-      <div className={cn(embedded ? "w-full min-w-0" : "flex min-h-0 flex-1 flex-col")}>
+      <div className={cn(embedded ? "w-full min-w-0 max-w-full" : "flex min-h-0 flex-1 flex-col")}>
         <div
           className={cn(
-            "relative flex flex-col border border-slate-200/90",
+            "relative flex min-w-0 max-w-full flex-col border border-slate-200/90",
             "bg-gradient-to-b from-slate-50 via-white to-slate-50/70",
             embedded
-              ? "w-full max-w-none overflow-visible rounded-2xl shadow-md"
+              ? "w-full overflow-x-auto overflow-y-visible rounded-2xl shadow-md"
               : "min-h-0 flex-1 overflow-hidden rounded-[28px] shadow-[0_24px_80px_-40px_rgba(15,23,42,0.35)]"
           )}
         >
@@ -3733,11 +4206,11 @@ export function IncomeStatementDetail({
 
           <div
             className={cn(
-              "relative z-10 flex flex-col p-4 sm:p-5",
+              "relative z-10 flex min-w-0 max-w-full flex-col p-4 sm:p-5",
               embedded ? "" : "min-h-0 flex-1"
             )}
           >
-            <div className="flex shrink-0 items-start justify-between gap-3">
+            <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Hypothèse</p>
                 <h3 className="mt-3 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">{rowLabel}</h3>
@@ -3746,70 +4219,86 @@ export function IncomeStatementDetail({
                   <span className="font-semibold text-[#E0742D]">{yearLabel}</span>
                 </p>
               </div>
-              {(!analysisPanelNarrow || embedded) && (
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="shrink-0 gap-1.5 border-[#E0742D]/35 text-xs font-medium text-[#8f4810] hover:bg-orange-50/90"
-                  onClick={returnToRevenueHypothesisRow}
+                  className="h-9 border-slate-200 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-transparent"
+                  onClick={saveAdjustment}
+                  disabled={parseRevenueHypothesisValueInput(revenueAdjustmentValueInput) === null}
                 >
-                  Fermer
+                  {editingAdjustmentId
+                    ? "Enregistrer"
+                    : existingAdjustments.length > 0
+                      ? "Remplacer l'ajustement"
+                      : "Enregistrer l'ajustement"}
                 </Button>
-              )}
+                {existingAdjustments.length > 0 && editingAdjustmentId ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 border-red-200/90 text-xs font-medium text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={() => setRevenueHypothesisDeleteConfirmOpen(true)}
+                  >
+                    Supprimer
+                  </Button>
+                ) : null}
+                {(!analysisPanelNarrow || embedded) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5 border-[#E0742D]/35 text-xs font-medium text-[#8f4810] hover:bg-orange-50/90"
+                    onClick={returnToRevenueHypothesisRow}
+                  >
+                    Fermer
+                  </Button>
+                )}
+              </div>
             </div>
 
-            <div className={cn("mt-5 pr-0.5", !embedded && "min-h-0 flex-1 overflow-y-auto")}>
-              <div>
-                <div className="mb-4 inline-flex flex-wrap items-center gap-2 text-xs font-semibold tracking-wide text-[#5C5F66]">
-                  {existingAdjustments.length > 0
-                    ? "Modifier l'hypothèse ci-dessous"
-                    : "Saisir votre hypothèse pour cette année"}
-                  <ArrowRight className="h-4 w-4 shrink-0 text-[#E0742D]" aria-hidden />
-                </div>
-
+            <div className={cn("mt-5 pr-0.5", embedded && "min-w-0 max-w-full", !embedded && "min-h-0 flex-1 overflow-y-auto")}>
+              <div className={cn(embedded && "min-w-0 max-w-full")}>
                 <div
                   className={cn(
-                    "rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5",
-                    embedded && "w-full max-w-none"
+                    "rounded-lg border border-slate-200 bg-white p-4 sm:p-5",
+                    embedded && "min-w-0 w-full max-w-full"
                   )}
                 >
-                  <div className="border-b border-slate-200/70 pb-3">
-                    <h3 className="text-xs font-semibold uppercase tracking-wide leading-snug text-slate-500">
-                      {editingAdjustmentId
-                        ? "Modifier l'ajustement"
-                        : existingAdjustments.length > 0
-                          ? "Remplacer l'ajustement"
-                          : "Définir l'ajustement"}
-                    </h3>
-                  </div>
+                  <p className="mb-5 text-sm font-medium text-slate-900">
+                    {editingAdjustmentId
+                      ? "Modifier l'ajustement"
+                      : existingAdjustments.length > 0
+                        ? "Remplacer l'ajustement"
+                        : "Définir l'ajustement"}
+                  </p>
 
                   <div
                     className={cn(
-                      "mt-4 grid grid-cols-1 gap-6 lg:items-start lg:gap-5",
-                      embedded
-                        ? "w-full lg:grid-cols-[15rem_minmax(0,1fr)_auto]"
-                        : "lg:grid-cols-3"
+                      "grid min-w-0 max-w-full grid-cols-1 gap-8 lg:grid-cols-3 lg:items-start",
+                      embedded ? "w-full" : ""
                     )}
                   >
-                    {/* Colonne 1 : type, montant / croissance, réplication */}
-                    <div className={cn("flex min-w-0 flex-col gap-4", embedded && "max-w-[15rem] lg:max-w-none")}>
-                      <div className={cn(embedded && "w-full max-w-[14rem]")}>
+                    {/* Colonne 1 : type et montant */}
+                    <div className="flex min-w-0 flex-col gap-4">
+                      <div className="w-full">
                         <label htmlFor="revenue-adj-type" className="mb-1.5 block text-xs font-medium text-slate-600">
                           Type d&apos;ajustement
                         </label>
                         <Select
                           value={revenueAdjustmentType}
-                          onValueChange={(value: "amount" | "growthPercent" | "growthAmount") =>
+                          onValueChange={(value: "amount" | "growthPercent" | "growthAmount") => {
                             setRevenueAdjustmentType(value)
-                          }
+                            if (editingAdjustment) {
+                              syncRevenueHypothesisValueForDisplayType(value, editingAdjustment)
+                            }
+                          }}
                         >
                           <SelectTrigger
                             id="revenue-adj-type"
-                            className={cn(
-                              "h-10 rounded-lg border-slate-200 bg-white/90",
-                              embedded ? "w-full max-w-[13.5rem]" : "w-full"
-                            )}
+                            className="h-10 w-full rounded-md border-slate-200 bg-white"
                           >
                             <SelectValue />
                           </SelectTrigger>
@@ -3821,7 +4310,7 @@ export function IncomeStatementDetail({
                         </Select>
                       </div>
 
-                      <div className={cn(embedded && "w-full max-w-[14rem]")}>
+                      <div className="w-full">
                         <label htmlFor="revenue-adj-value" className="mb-1.5 block text-xs font-medium text-slate-600">
                           {revenueAdjustmentType === "amount"
                             ? "Montant annuel ($)"
@@ -3841,11 +4330,18 @@ export function IncomeStatementDetail({
                             const p = parseRevenueHypothesisValueInput(s)
                             if (p !== null) setRevenueAdjustmentValue(p)
                           }}
+                          onBlur={() => {
+                            if (revenueAdjustmentType === "growthPercent") return
+                            const p = parseRevenueHypothesisValueInput(revenueAdjustmentValueInput)
+                            if (p !== null) {
+                              setRevenueAdjustmentValue(p)
+                              setRevenueAdjustmentValueInput(
+                                formatRevenueHypothesisValueForInput(p, revenueAdjustmentType)
+                              )
+                            }
+                          }}
                           placeholder="0"
-                          className={cn(
-                            "h-10 rounded-lg border-slate-200 bg-white/90",
-                            embedded ? "w-full max-w-[13.5rem]" : "w-full"
-                          )}
+                          className="h-10 w-full rounded-md border-slate-200 bg-white tabular-nums"
                         />
                         <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
                           {revenueAdjustmentType === "amount"
@@ -3855,37 +4351,45 @@ export function IncomeStatementDetail({
                               : "Variation en dollars par rapport au montant de l'année précédente."}
                         </p>
                       </div>
-
-                      {canReplicateToFollowingYears ? (
-                        <div className="rounded-lg border border-slate-200/80 bg-slate-50/70 p-3">
-                          <div className="flex items-start gap-2.5">
-                            <Checkbox
-                              id="revenue-hypothesis-replicate"
-                              checked={replicateRevenueAdjustmentToFollowingYears}
-                              onCheckedChange={(v) => setReplicateRevenueAdjustmentToFollowingYears(v === true)}
-                              className="mt-0.5"
-                            />
-                            <div className="min-w-0 flex-1 space-y-1">
-                              <Label
-                                htmlFor="revenue-hypothesis-replicate"
-                                className="cursor-pointer text-xs font-medium leading-snug text-slate-800"
-                              >
-                                Appliquer le même ajustement aux années suivantes
-                              </Label>
-                              <p className="text-[11px] leading-relaxed text-slate-500">
-                                Les années {followingYearsLabel} utiliseront le même type, la même valeur et la même
-                                note que pour {yearLabel}.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
                     </div>
 
-                    {/* Colonne 2 : note */}
+                    {/* Colonne 2 : réplication */}
                     <div
                       className={cn(
-                        "flex min-h-0 min-w-0 flex-col gap-1.5 border-t border-slate-200/70 pt-4 lg:border-t-0 lg:border-l lg:border-slate-200/70 lg:pt-0 lg:pl-5",
+                        "flex min-w-0 flex-col gap-2 border-t border-slate-100 pt-6 lg:border-t-0 lg:border-l lg:border-slate-100 lg:pt-0 lg:pl-8",
+                        embedded && "w-full min-w-0"
+                      )}
+                    >
+                      {canReplicateToFollowingYears ? (
+                        <div className="flex items-start gap-2.5">
+                          <Checkbox
+                            id="revenue-hypothesis-replicate"
+                            checked={replicateRevenueAdjustmentToFollowingYears}
+                            onCheckedChange={(v) => setReplicateRevenueAdjustmentToFollowingYears(v === true)}
+                            className="mt-0.5"
+                          />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <Label
+                              htmlFor="revenue-hypothesis-replicate"
+                              className="cursor-pointer text-xs font-medium leading-snug text-slate-800"
+                            >
+                              Appliquer le même ajustement aux années suivantes
+                            </Label>
+                            <p className="text-[11px] leading-relaxed text-slate-500">
+                              Les années {followingYearsLabel} reprendront le même type, la même valeur, les mêmes
+                              paramètres d&apos;encaissement et la même note que {yearLabel}.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-400">Aucune année projetée après {yearLabel}.</p>
+                      )}
+                    </div>
+
+                    {/* Colonne 3 : note */}
+                    <div
+                      className={cn(
+                        "flex min-h-0 min-w-0 flex-col gap-1.5 border-t border-slate-100 pt-6 lg:border-t-0 lg:border-l lg:border-slate-100 lg:pt-0 lg:pl-8",
                         embedded && "w-full min-w-0"
                       )}
                     >
@@ -3897,56 +4401,339 @@ export function IncomeStatementDetail({
                         value={adjustmentNote}
                         onChange={(e) => setAdjustmentNote(e.target.value)}
                         placeholder="Ex. nouveau contrat, expansion marché…"
-                        className="min-h-[10rem] w-full flex-1 resize-y rounded-lg border-slate-200 bg-white/90 text-sm lg:min-h-[12rem]"
+                        className="min-h-[10rem] w-full flex-1 resize-y rounded-md border border-slate-200 bg-white text-sm lg:min-h-[12rem]"
                       />
-                      <p className="text-[11px] text-slate-500">
-                        Optionnel mais recommandé pour la traçabilité
-                      </p>
+                      <p className="text-[11px] text-slate-500">Optionnel, pour la traçabilité.</p>
                     </div>
+                  </div>
 
-                    {/* Colonne 3 : actions */}
-                    <div
-                      className={cn(
-                        "flex min-w-0 flex-col justify-start gap-2 border-t border-slate-200/70 pt-4 lg:border-t-0 lg:border-l lg:border-slate-200/70 lg:pt-0 lg:pl-5",
-                        embedded && "w-auto shrink-0 justify-self-start lg:items-start"
-                      )}
-                    >
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className={cn(
-                          "h-9 justify-center border-emerald-200/90 text-xs font-medium text-emerald-800 hover:bg-emerald-50 hover:text-emerald-900 disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-transparent",
-                          embedded
-                            ? "h-auto min-h-9 w-auto max-w-[13rem] min-w-0 self-start whitespace-normal px-3 py-2 text-center leading-snug"
-                            : "w-full"
-                        )}
-                        onClick={saveAdjustment}
-                        disabled={parseRevenueHypothesisValueInput(revenueAdjustmentValueInput) === null}
-                      >
-                        {editingAdjustmentId
-                          ? "Enregistrer"
-                          : existingAdjustments.length > 0
-                            ? "Remplacer l'ajustement"
-                            : "Enregistrer l'ajustement"}
-                      </Button>
-                      {existingAdjustments.length > 0 && editingAdjustmentId ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className={cn(
-                            "h-9 justify-center border-red-200/90 text-xs font-medium text-red-600 hover:bg-red-50 hover:text-red-700",
-                            embedded
-                              ? "h-9 w-auto self-start px-4"
-                              : "w-full"
-                          )}
-                          onClick={() => setRevenueHypothesisDeleteConfirmOpen(true)}
-                        >
-                          Supprimer
-                        </Button>
-                      ) : null}
-                    </div>
+                  {/* Encaissement — sous les trois colonnes */}
+                  <div className="mt-8 min-w-0 max-w-full border-t border-slate-200 pt-8">
+                            <div className="min-w-0 space-y-3 rounded-md border border-slate-200 bg-slate-50/50 p-3 sm:p-4">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                                <span className="font-medium text-slate-800">
+                                  Délai moyen de collection estimé :{" "}
+                                  <span className="tabular-nums text-slate-900">
+                                    {revenueWeightedCollectionDelayLabel}
+                                  </span>
+                                </span>
+                                <div className="flex min-w-0 max-w-full flex-col items-stretch gap-1 sm:items-end sm:text-right">
+                                  <p className="text-xs tabular-nums text-slate-600">
+                                    Encaissable {revenueEncashableSum} % + mauvaise créance{" "}
+                                    {revenueCollectionBadDebtPercent} % = {revenueCollectionGrandTotal} %
+                                  </p>
+                                  {revenueCollectionGrandTotal !== 100 ? (
+                                    <p className="flex items-center gap-1.5 text-xs font-medium text-amber-800">
+                                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
+                                      Le total doit être égal à 100 % (actuellement {revenueCollectionGrandTotal} %).
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div className="overflow-x-auto rounded-md border border-slate-200/80 bg-white">
+                                <div
+                                  className="min-w-0 w-full"
+                                  style={{
+                                    minWidth: `max(100%, calc(3.25rem + ${revenueCollHistColCount} * 4.5rem))`,
+                                  }}
+                                >
+                                  {revenueHistogramChartData.length > 0 ? (
+                                    <>
+                                      <div
+                                        className="grid min-w-0 divide-x divide-slate-200 border-b border-slate-200 bg-white px-1 sm:px-1.5"
+                                        style={{ gridTemplateColumns: revenueCollGridTemplate }}
+                                      >
+                                        <div className="flex h-52 w-full min-w-0 flex-col items-center justify-between py-3 sm:h-56">
+                                          <div className="flex w-full min-w-0 flex-1 flex-col justify-between py-0.5">
+                                            {[100, 80, 60, 40, 20, 0].map((tick) => (
+                                              <span
+                                                key={tick}
+                                                className="block w-full min-w-0 text-center text-[9px] tabular-nums leading-none text-slate-500"
+                                              >
+                                                {tick}%
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                        {revenueHistogramChartData.map((entry, index) => (
+                                          <div
+                                            key={`bar-${entry.key}`}
+                                            className="relative flex h-52 flex-col bg-slate-100/55 sm:h-56"
+                                          >
+                                            <div
+                                              className="pointer-events-none absolute inset-x-1.5 bottom-3 top-3 sm:inset-x-2"
+                                              aria-hidden
+                                            >
+                                              {[20, 40, 60, 80].map((tick) => (
+                                                <div
+                                                  key={tick}
+                                                  className="absolute left-0 right-0 border-t border-slate-200/60"
+                                                  style={{ top: `${100 - tick}%` }}
+                                                />
+                                              ))}
+                                            </div>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <div className="relative z-[1] mx-auto flex min-h-0 w-full max-w-[3rem] flex-1 cursor-default flex-col justify-end px-1 pb-3 pt-2 outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60">
+                                                  {entry.percent > 0 ? (
+                                                    <div
+                                                      className="w-full min-h-[4px] rounded-t shadow-sm"
+                                                      style={{
+                                                        height: `${entry.percent}%`,
+                                                        backgroundColor:
+                                                          entry.key === "bad-debt"
+                                                            ? "#475569"
+                                                            : index % 2 === 0
+                                                              ? "#94a3b8"
+                                                              : "#64748b",
+                                                      }}
+                                                    />
+                                                  ) : (
+                                                    <span className="sr-only">
+                                                      {entry.name}, {entry.percent} %
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </TooltipTrigger>
+                                              <TooltipContent
+                                                side="top"
+                                                sideOffset={8}
+                                                className="max-w-[18rem] border border-slate-200/90 bg-white px-3 py-2 text-xs font-normal text-slate-800 shadow-md [&>svg]:hidden"
+                                              >
+                                                <p className="leading-snug">
+                                                  <span className="font-semibold text-slate-900">{entry.name}</span>
+                                                  <span className="text-slate-400" aria-hidden>
+                                                    {" "}
+                                                    ·{" "}
+                                                  </span>
+                                                  <span className="tabular-nums text-slate-700">{entry.percent} %</span>
+                                                </p>
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          </div>
+                                        ))}
+                                      </div>
+
+                                      <div
+                                        className="grid min-w-0 divide-x divide-slate-200 bg-slate-50/60"
+                                        style={{ gridTemplateColumns: revenueCollGridTemplate }}
+                                      >
+                                        <div className="flex items-start justify-center bg-slate-50/60 py-2.5">
+                                          <span className="text-[10px] font-medium text-slate-400">%</span>
+                                        </div>
+                                        {revenueCollectionSortedWithIndex.map(({ bucket, origIdx }, colIdx) => (
+                                          <div
+                                            key={`coll-col-${origIdx}-${bucket.custom ? "c" : "s"}-${bucket.delayDays}`}
+                                            className="flex min-w-0 flex-col items-center gap-2 px-2 py-2.5 sm:px-2.5"
+                                          >
+                                            <div className="flex min-h-[2.5rem] w-full flex-col items-center justify-center gap-1 text-center">
+                                              {bucket.custom ? (
+                                                <div className="flex items-center justify-center gap-1">
+                                                  <span className="text-[10px] text-slate-600">J+</span>
+                                                  <Input
+                                                    type="text"
+                                                    inputMode="numeric"
+                                                    aria-label={`Délai en jours, colonne ${colIdx + 1}`}
+                                                    className="h-8 w-12 rounded border border-slate-200 bg-white px-0.5 text-center text-xs tabular-nums"
+                                                    value={String(bucket.delayDays)}
+                                                    onChange={(e) => {
+                                                      const raw = e.target.value.trim()
+                                                      if (raw === "") {
+                                                        setRevenueCollectionBuckets((prev) => {
+                                                          const next = [...prev]
+                                                          next[origIdx] = {
+                                                            ...next[origIdx]!,
+                                                            delayDays: 0,
+                                                            custom: true,
+                                                          }
+                                                          return next
+                                                        })
+                                                        return
+                                                      }
+                                                      const d = parseDelayDaysInput(e.target.value)
+                                                      if (d === null) return
+                                                      setRevenueCollectionBuckets((prev) => {
+                                                        const next = [...prev]
+                                                        next[origIdx] = { ...next[origIdx]!, delayDays: d, custom: true }
+                                                        return next
+                                                      })
+                                                    }}
+                                                  />
+                                                </div>
+                                              ) : (
+                                                <span className="text-[11px] font-semibold leading-tight text-slate-800 sm:text-xs">
+                                                  {labelForRevenueDelayDays(bucket.delayDays)}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div className="flex w-full items-center justify-center gap-0.5">
+                                              <Input
+                                                type="text"
+                                                inputMode="numeric"
+                                                aria-label={`Pourcentage encaissable, colonne ${colIdx + 1}`}
+                                                className="h-8 w-full max-w-[3.25rem] rounded border border-slate-200 bg-white text-center text-xs tabular-nums"
+                                                value={String(bucket.percent)}
+                                                onChange={(e) => {
+                                                  const raw = e.target.value.trim()
+                                                  if (raw === "") {
+                                                    setRevenueCollectionBuckets((prev) => {
+                                                      const next = [...prev]
+                                                      next[origIdx] = { ...next[origIdx]!, percent: 0 }
+                                                      return next
+                                                    })
+                                                    return
+                                                  }
+                                                  const p = parsePercentInput(e.target.value)
+                                                  if (p === null) return
+                                                  setRevenueCollectionBuckets((prev) => {
+                                                    const next = [...prev]
+                                                    next[origIdx] = { ...next[origIdx]!, percent: Math.round(p) }
+                                                    return next
+                                                  })
+                                                }}
+                                              />
+                                              <span className="text-[10px] font-medium text-slate-500">%</span>
+                                            </div>
+                                            <div className="flex h-8 w-full items-center justify-center">
+                                              {bucket.custom ? (
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-8 w-8 shrink-0 text-slate-400 hover:text-slate-900"
+                                                  aria-label="Supprimer la ligne"
+                                                  onClick={() => {
+                                                    setRevenueCollectionBuckets((prev) =>
+                                                      normalizeAdvancedBuckets(
+                                                        prev.filter((_, j) => j !== origIdx),
+                                                        revenueCollectionBadDebtPercent
+                                                      )
+                                                    )
+                                                  }}
+                                                >
+                                                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                                                </Button>
+                                              ) : (
+                                                <span className="text-[10px] font-bold tabular-nums text-slate-300">
+                                                  {colIdx + 1}
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        ))}
+                                        <div className="flex min-w-0 flex-col items-center gap-2 px-2 py-2.5 sm:px-2.5">
+                                          <div className="flex min-h-[2.5rem] w-full flex-col items-center justify-center gap-1 text-center">
+                                            <span className="text-[11px] font-semibold leading-tight text-slate-800 sm:text-xs">
+                                              Mauvaise créance
+                                            </span>
+                                          </div>
+                                          <div className="flex w-full items-center justify-center gap-0.5">
+                                            <Input
+                                              id="revenue-coll-bad-adv"
+                                              type="text"
+                                              inputMode="decimal"
+                                              aria-label="Pourcentage mauvaise créance"
+                                              className="h-8 w-full max-w-[3.25rem] rounded border border-slate-200 bg-white text-center text-xs tabular-nums"
+                                              value={String(revenueCollectionBadDebtPercent)}
+                                              onChange={(e) => {
+                                                const raw = e.target.value.trim()
+                                                if (raw === "") {
+                                                  setRevenueCollectionBadDebtPercent(0)
+                                                  setRevenueCollectionBuckets((prev) =>
+                                                    normalizeAdvancedBuckets(prev, 0)
+                                                  )
+                                                  return
+                                                }
+                                                const p = parsePercentInput(e.target.value)
+                                                if (p === null) return
+                                                const bd = Math.round(p)
+                                                setRevenueCollectionBadDebtPercent(bd)
+                                                setRevenueCollectionBuckets((prev) =>
+                                                  normalizeAdvancedBuckets(prev, bd)
+                                                )
+                                              }}
+                                            />
+                                            <span className="text-[10px] font-medium text-slate-500">%</span>
+                                          </div>
+                                          <div className="h-8 w-full" aria-hidden />
+                                        </div>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="flex min-h-[10rem] items-center justify-center text-xs text-slate-500">
+                                      Aucune donnée à afficher
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-9 w-full rounded-md text-xs sm:w-auto"
+                                  onClick={() => {
+                                    setRevenueCollectionBuckets((prev) => {
+                                      const maxD = prev.reduce((m, b) => Math.max(m, b.delayDays), 0)
+                                      const next = [
+                                        ...prev,
+                                        {
+                                          delayDays: Math.min(720, maxD + 30),
+                                          percent: 0,
+                                          custom: true as const,
+                                        },
+                                      ]
+                                      return normalizeAdvancedBuckets(next, revenueCollectionBadDebtPercent)
+                                    })
+                                  }}
+                                >
+                                  <Plus className="mr-1.5 inline h-3.5 w-3.5" aria-hidden />
+                                  Ajouter une ligne
+                                </Button>
+                                <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-9 flex-1 rounded-md text-xs sm:h-8 sm:flex-initial"
+                                    onClick={() =>
+                                      setRevenueCollectionBuckets((prev) =>
+                                        normalizeAdvancedBuckets(prev, revenueCollectionBadDebtPercent)
+                                      )
+                                    }
+                                  >
+                                    Normaliser à 100 %
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-9 flex-1 rounded-md text-xs sm:h-8 sm:flex-initial"
+                                    onClick={() => {
+                                      setRevenueCollectionBuckets((prev) => {
+                                        const bd = revenueCollectionBadDebtPercent
+                                        const target = 100 - clampRoundBadDebt(bd)
+                                        const n = prev.length
+                                        if (n <= 0) return prev
+                                        const base = Math.floor(target / n)
+                                        const rest = target - base * n
+                                        return normalizeAdvancedBuckets(
+                                          prev.map((b, i) => ({
+                                            ...b,
+                                            percent: base + (i < rest ? 1 : 0),
+                                          })),
+                                          bd
+                                        )
+                                      })
+                                    }}
+                                  >
+                                    Répartir l&apos;encaissable à parts égales
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
                   </div>
                 </div>
               </div>
@@ -3976,6 +4763,9 @@ export function IncomeStatementDetail({
                 setRevenueAdjustmentType("amount")
                 setRevenueAdjustmentValue(0)
                 setRevenueAdjustmentValueInput("0")
+                const d = DEFAULT_REVENUE_COLLECTION_CASH
+                setRevenueCollectionBadDebtPercent(d.badDebtPercent)
+                setRevenueCollectionBuckets(createDefaultAdvancedBuckets(d.badDebtPercent))
                 setAdjustmentNote("")
                 setRevenueHypothesisDeleteConfirmOpen(false)
               }}
@@ -4003,13 +4793,13 @@ export function IncomeStatementDetail({
     const existingAdjustments = getAdjustments(editingAdjustment.rowId, editingAdjustment.yearIndex)
 
     return (
-      <div className={cn(embedded ? "w-full" : "flex min-h-0 flex-1 flex-col")}>
+      <div className={cn(embedded ? "w-full min-w-0 max-w-full" : "flex min-h-0 flex-1 flex-col")}>
         <div
           className={cn(
-            "relative flex flex-col border border-slate-200/90",
+            "relative flex min-w-0 max-w-full flex-col border border-slate-200/90",
             "bg-gradient-to-b from-slate-50 via-white to-slate-50/70",
             embedded
-              ? "overflow-visible max-w-none rounded-2xl shadow-md"
+              ? "w-full overflow-x-auto overflow-y-visible rounded-2xl shadow-md"
               : "min-h-0 flex-1 overflow-hidden rounded-[28px] shadow-[0_24px_80px_-40px_rgba(15,23,42,0.35)]"
           )}
         >
@@ -4025,7 +4815,7 @@ export function IncomeStatementDetail({
 
           <div
             className={cn(
-              "relative z-10 flex flex-col p-4 sm:p-5",
+              "relative z-10 flex min-w-0 max-w-full flex-col p-4 sm:p-5",
               embedded ? "" : "min-h-0 flex-1"
             )}
           >
@@ -4051,8 +4841,8 @@ export function IncomeStatementDetail({
               )}
             </div>
 
-            <div className={cn("mt-5 pr-0.5", !embedded && "min-h-0 flex-1 overflow-y-auto")}>
-              <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-6">
+            <div className={cn("mt-5 pr-0.5", embedded && "min-w-0 max-w-full", !embedded && "min-h-0 flex-1 overflow-y-auto")}>
+              <div className={cn("flex flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-6", embedded && "min-w-0 max-w-full")}>
                 {/* Gauche : ajouter / modifier un ajustement */}
                 <div className="min-w-0 flex-1 rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5">
                   <div className="space-y-4">
@@ -4683,14 +5473,50 @@ export function IncomeStatementDetail({
               isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
             )}
           >
-            <div className={cn(tableUsesHorizontalSlider && "w-max min-w-full")}>
+            <div
+              className={cn(
+                tableUsesHorizontalSlider &&
+                  (forecastHypothesisTableWidthLock ? "w-full min-w-0" : "w-max min-w-full")
+              )}
+            >
         <table
           className={cn(
             "w-full",
             showStructureCols && "table-fixed",
-            tableUsesHorizontalSlider && "min-w-max"
+            tableUsesHorizontalSlider && !forecastHypothesisTableWidthLock && "min-w-max",
+            forecastHypothesisTableWidthLock && "table-fixed min-w-0"
           )}
         >
+          {forecastHypothesisTableWidthLock && !showStructureCols && view === "years" && (() => {
+            const yearLabels = getYearLabels()
+            const n = Math.max(1, yearLabels.length)
+            if (title === "Estimation des dépenses annuelles") {
+              const wFirst = 26
+              const wType = 11
+              const wTaux = 11
+              const wYear = (100 - wFirst - wType - wTaux) / n
+              return (
+                <colgroup key="hypothesis-width-lock-expense">
+                  <col style={{ width: `${wFirst}%` }} />
+                  <col style={{ width: `${wType}%` }} />
+                  <col style={{ width: `${wTaux}%` }} />
+                  {yearLabels.map((_, i) => (
+                    <col key={i} style={{ width: `${wYear}%` }} />
+                  ))}
+                </colgroup>
+              )
+            }
+            const wFirst = 36
+            const wYear = (100 - wFirst) / n
+            return (
+              <colgroup key="hypothesis-width-lock-revenue">
+                <col style={{ width: `${wFirst}%` }} />
+                {yearLabels.map((_, i) => (
+                  <col key={i} style={{ width: `${wYear}%` }} />
+                ))}
+              </colgroup>
+            )
+          })()}
           {showStructureCols && (
             <colgroup>
               <col />
@@ -5798,7 +6624,7 @@ export function IncomeStatementDetail({
                     })() && (
                       <tr
                         className={cn(
-                          "border-b border-slate-200 bg-slate-50/60",
+                          "border-b border-slate-200",
                           thickBorderBelongsOnFollowingCroissanceRow && "border-slate-900 border-b-2"
                         )}
                       >
@@ -5808,7 +6634,7 @@ export function IncomeStatementDetail({
                             normLabel(String(row.label ?? "")) === "revenus" ? "pl-6" : "pl-16"
                           )}
                         >
-                          <span className="text-[12px] italic text-slate-500">Croissance</span>
+                          <span className="sr-only">Croissance</span>
                         </td>
                         {row.trendValues.map((raw, valueIdx) => {
                           const isRevenusHeader = normLabel(String(row.label ?? "")) === "revenus"
@@ -5853,8 +6679,7 @@ export function IncomeStatementDetail({
                             <td
                               key={valueIdx}
                               className={cn(
-                                "min-w-[8rem] px-4 py-2 text-right text-[12px] italic",
-                                (forceForecastSection || isForecastSection) && valueIdx === 0 ? "bg-slate-50" : "",
+                                "min-w-[8rem] px-4 py-2 text-right text-[12px] italic tabular-nums",
                                 growth === null ? "text-slate-400" : growth >= 0 ? "text-emerald-700" : "text-red-700"
                               )}
                             >
@@ -5874,9 +6699,9 @@ export function IncomeStatementDetail({
                       >
                         <td
                           colSpan={1 + getYearLabels().length}
-                          className="p-0 align-top"
+                          className="min-w-0 p-0 align-top"
                         >
-                          <div className="w-full px-2 pb-4 pt-1 sm:px-4 sm:pb-5 sm:pt-2">
+                          <div className="min-w-0 max-w-full overflow-x-auto px-2 pb-4 pt-1 sm:px-4 sm:pb-5 sm:pt-2">
                             {renderRevenueHypothesisPanel(true)}
                           </div>
                         </td>
@@ -5892,9 +6717,9 @@ export function IncomeStatementDetail({
                       >
                         <td
                           colSpan={3 + getYearLabels().length}
-                          className="p-0 align-top"
+                          className="min-w-0 p-0 align-top"
                         >
-                          <div className="w-full px-2 pb-4 pt-1 sm:px-4 sm:pb-5 sm:pt-2">
+                          <div className="min-w-0 max-w-full overflow-x-auto px-2 pb-4 pt-1 sm:px-4 sm:pb-5 sm:pt-2">
                             {renderExpenseHypothesisPanel(true)}
                           </div>
                         </td>
