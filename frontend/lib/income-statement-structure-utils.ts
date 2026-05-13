@@ -451,6 +451,53 @@ export function seriesRowBelongsToRevenueAnnexDetail(
   return false
 }
 
+/** Au moins un poste du sommaire est marqué « Dépenses » (nature). */
+export function structureHasDepensesPosteNatureRow(structure: Record<string, unknown>[]): boolean {
+  for (const row of structure) {
+    if (normalizePosteNature(row.posteNature) === "depenses") return true
+  }
+  return false
+}
+
+/**
+ * Le premier poste sommaire (non detailOnly) portant cette lettre d’annexe a-t-il la nature « Dépenses » ?
+ * Les sous-lignes du Détail héritent du même bloc d’annexe que ce titre.
+ */
+export function structureAnnexIsDepensesNature(
+  structure: Record<string, unknown>[],
+  letter: string
+): boolean {
+  const L = normalizeAnnexLetter(letter)
+  if (!L) return false
+  for (const row of structure) {
+    if (isStructureRowDetailOnly(row)) continue
+    if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== L) continue
+    return normalizePosteNature(row.posteNature) === "depenses"
+  }
+  return false
+}
+
+/**
+ * Ligne série « Estimation des dépenses annuelles » : même périmètre que le Détail (annexe + codes actifs),
+ * restreint aux postes / annexes dont la nature au sommaire est « Dépenses ».
+ */
+export function seriesRowBelongsToDepensesAnnexDetail(
+  sr: { id: string; label: string },
+  structure: Record<string, unknown>[]
+): boolean {
+  const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
+  if (!structRow) return false
+  if (!isCodeMappingEnabled(structRow) || !isShowInDetail(structRow)) return false
+
+  if (normalizePosteNature(structRow.posteNature) === "depenses") return true
+
+  if (isStructureRowDetailOnly(structRow)) {
+    return structureAnnexIsDepensesNature(structure, String(structRow.annexLetter ?? ""))
+  }
+
+  return false
+}
+
 /** Vérifie l’absence de doublons sur `linkCode` (postes visibles avec code renseigné). */
 export function validateDuplicatePrimaryLinkCodes(structure: Record<string, unknown>[]): string | null {
   const seen = new Map<string, number>()

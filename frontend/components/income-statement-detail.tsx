@@ -49,7 +49,9 @@ import {
   normLabel,
   normalizeAnnexLetter,
   structureHasRevenuePosteNatureRow,
+  structureHasDepensesPosteNatureRow,
   seriesRowBelongsToRevenueAnnexDetail,
+  seriesRowBelongsToDepensesAnnexDetail,
 } from "@/lib/income-statement-structure-utils"
 import {
   dashboardCardAccentBarClass,
@@ -77,7 +79,18 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
 import { BookMarked, Settings, Plus, Edit2, Trash2, Loader2, Sparkles } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -305,8 +318,13 @@ function sumAnnexGroupRowsForLetter(dataRows: DetailRow[], letter: string) {
   return sumAnnexGroupRows(groupRows)
 }
 
-/** Après chaque bloc d’annexe : sous-total, puis ligne indicatif (Paramètres). */
-function insertAnnexDetailPlaceholderRows(rows: DetailRow[], trendValuesLength?: number): DetailRow[] {
+/** Après chaque bloc d’annexe : sous-total, puis ligne indicatif (Paramètres / Détail). */
+function insertAnnexDetailPlaceholderRows(
+  rows: DetailRow[],
+  trendValuesLength?: number,
+  options?: { includeIndicatifAfterAnnex?: boolean }
+): DetailRow[] {
+  const includeIndicatif = options?.includeIndicatifAfterAnnex !== false
   const out: DetailRow[] = []
   let i = 0
   while (i < rows.length) {
@@ -321,7 +339,9 @@ function insertAnnexDetailPlaceholderRows(rows: DetailRow[], trendValuesLength?:
       }
       const agg = sumAnnexGroupRows(groupRows)
       out.push(buildAnnexSubtotalDetailRow(letter, agg))
-      out.push(buildAnnexPlaceholderDetailRow(letter, trendValuesLength))
+      if (includeIndicatif) {
+        out.push(buildAnnexPlaceholderDetailRow(letter, trendValuesLength))
+      }
       i = j
     } else {
       out.push(rows[i])
@@ -371,6 +391,11 @@ export function IncomeStatementDetail({
   const [showGrowthRate, setShowGrowthRate] = useState(false) // Toggle between amounts and growth rate for years view
   /** Cible le haut du panneau d’analyse (pas la colonne pleine hauteur) pour le scroll à l’ouverture. */
   const lineAnalysisPanelTopRef = useRef<HTMLDivElement | null>(null)
+  /** Scroll horizontal du tableau (vue années) — ref pour le curseur sous le tableau. */
+  const detailTableHScrollRef = useRef<HTMLDivElement | null>(null)
+  /** Zone tableau + panneau hypothèses dépenses : scrollIntoView à l’ouverture pour garder le panneau visible. */
+  const expenseHypothesisScrollAnchorRef = useRef<HTMLDivElement | null>(null)
+  const [detailTableHScrollNonce, setDetailTableHScrollNonce] = useState(0)
 
   const refMonth = referenceMonth ?? new Date().getMonth() + 1
   const refYear = fiscalYear ?? new Date().getFullYear()
@@ -463,6 +488,8 @@ export function IncomeStatementDetail({
   const [editingTypeRateRowId, setEditingTypeRateRowId] = useState<string | null>(null)
   const [tempExpenseType, setTempExpenseType] = useState<"variable" | "fixe">("variable")
   const [tempVariableRate, setTempVariableRate] = useState<number>(0)
+  /** `__default__` = même base que « estimation globale » (ligne Revenus / total). Sinon id série du poste de revenus. */
+  const [tempVariableExpenseRevenueLink, setTempVariableExpenseRevenueLink] = useState<string>("__default__")
   const [tempSpecificInflationRate, setTempSpecificInflationRate] = useState<number | null>(null) // null means use global rate
   
   // State for editable revenue/expense values: key = "rowId-yearIndex" (e.g., "revenue-services-1" for 2026)
@@ -477,6 +504,8 @@ export function IncomeStatementDetail({
   
   // State for variable rates: key = "rowId" -> rate in %
   const [variableRates, setVariableRates] = useState<Record<string, number>>({})
+  /** Dépense variable : id du poste de revenus (série) servant de base au % ; absent = total / estimation globale. */
+  const [variableExpenseRevenueLink, setVariableExpenseRevenueLink] = useState<Record<string, string>>({})
   
   // State for specific inflation rates per expense: key = "rowId" -> rate in %
   const [specificInflationRates, setSpecificInflationRates] = useState<Record<string, number>>({})
@@ -505,7 +534,6 @@ export function IncomeStatementDetail({
 
   // State for expense adjustments: key = "rowId-yearIndex" -> ExpenseAdjustment[]
   const [expenseAdjustments, setExpenseAdjustments] = useState<Record<string, ExpenseAdjustment[]>>({})
-  const [adjustmentModalOpen, setAdjustmentModalOpen] = useState(false)
   const [editingAdjustment, setEditingAdjustment] = useState<{ rowId: string; yearIndex: number } | null>(null)
   const [adjustmentType, setAdjustmentType] = useState<"amount" | "percentage">("amount")
   const [adjustmentAmount, setAdjustmentAmount] = useState<number>(0)
@@ -514,16 +542,30 @@ export function IncomeStatementDetail({
   const [adjustmentNote, setAdjustmentNote] = useState<string>("")
   const [editingAdjustmentId, setEditingAdjustmentId] = useState<string | null>(null) // ID of adjustment being edited, null if adding new
 
-  // State for revenue adjustments: key = "rowId-yearIndex" -> RevenueAdjustment[]
+  // State for revenue adjustments: key = "rowId-yearIndex" -> au plus un RevenueAdjustment
   const [revenueAdjustments, setRevenueAdjustments] = useState<Record<string, RevenueAdjustment[]>>({})
   const [revenueAdjustmentType, setRevenueAdjustmentType] = useState<"amount" | "growthPercent" | "growthAmount">("amount")
   const [revenueAdjustmentValue, setRevenueAdjustmentValue] = useState<number>(0)
+  /** Chaîne du champ nombre (négatifs, 0, décimales ; évite de perdre le « - » pendant la saisie). */
+  const [revenueAdjustmentValueInput, setRevenueAdjustmentValueInput] = useState<string>("0")
+  /** Hypothèses revenus : panneau latéral (remplace la modal pour les ajustements). */
+  const [revenueHypothesisPanelOpen, setRevenueHypothesisPanelOpen] = useState(false)
+  /** Hypothèses dépenses : même principe que les revenus (panneau latéral au clic sur une cellule). */
+  const [expenseHypothesisPanelOpen, setExpenseHypothesisPanelOpen] = useState(false)
+  /** À l'enregistrement, copier le même type / valeur / note sur les années projetées suivantes (même poste). */
+  const [replicateRevenueAdjustmentToFollowingYears, setReplicateRevenueAdjustmentToFollowingYears] =
+    useState(false)
+  /** Confirmation avant suppression d’un ajustement revenus (hypothèse). */
+  const [revenueHypothesisDeleteConfirmOpen, setRevenueHypothesisDeleteConfirmOpen] = useState(false)
 
   // Check if this is a forecast section (Revenus, Dépenses, or États des résultats pro forma)
   const isForecastSection =
     title === "Estimation des revenus annuels" ||
     title === "Estimation des dépenses annuelles" ||
     title === "États des résultats pro forma"
+
+  /** Revenus projetés (série complète) quand le tableau des dépenses n’inclut pas la ligne revenus (périmètre annexes Dépenses). */
+  const expenseRevenueForecastFallbackRef = useRef<{ trend: number[]; rowId: string } | null>(null)
 
   const isCompanyComparison = columnMode === "comparison" && !companyId
   const isDivisionComparison = columnMode === "comparison" && !!companyId && !divisionId
@@ -699,6 +741,9 @@ export function IncomeStatementDetail({
           if (data.expenseTypes) setExpenseTypes(data.expenseTypes as typeof expenseTypes)
           if (data.inflationRate !== undefined) setInflationRate(data.inflationRate as number)
           if (data.variableRates) setVariableRates(data.variableRates as typeof variableRates)
+          if (data.variableExpenseRevenueLink && typeof data.variableExpenseRevenueLink === "object") {
+            setVariableExpenseRevenueLink(data.variableExpenseRevenueLink as Record<string, string>)
+          }
           if (data.specificInflationRates) setSpecificInflationRates(data.specificInflationRates as typeof specificInflationRates)
           if (data.expenseAdjustments) {
             const adjustmentsParsed = data.expenseAdjustments as Record<string, unknown>
@@ -720,7 +765,10 @@ export function IncomeStatementDetail({
               const validatedAdjustments: Record<string, RevenueAdjustment[]> = {}
               for (const [key, value] of Object.entries(revenueAdjustmentsParsed)) {
                 if (Array.isArray(value)) {
-                  validatedAdjustments[key] = value
+                  const arr = value as RevenueAdjustment[]
+                  /* Un seul ajustement par clé (poste + année) : conserver le dernier si données anciennes. */
+                  validatedAdjustments[key] =
+                    arr.length === 0 ? [] : [arr[arr.length - 1] as RevenueAdjustment]
                 } else {
                   validatedAdjustments[key] = [value as RevenueAdjustment]
                 }
@@ -742,10 +790,11 @@ export function IncomeStatementDetail({
     expenseTypes,
     inflationRate,
     variableRates,
+    variableExpenseRevenueLink,
     specificInflationRates,
     expenseAdjustments,
     revenueAdjustments,
-  }), [revenueValues, expenseTypes, inflationRate, variableRates, specificInflationRates, expenseAdjustments, revenueAdjustments])
+  }), [revenueValues, expenseTypes, inflationRate, variableRates, variableExpenseRevenueLink, specificInflationRates, expenseAdjustments, revenueAdjustments])
 
   // Save forecast values whenever they change
   useEffect(() => {
@@ -770,6 +819,12 @@ export function IncomeStatementDetail({
     if (title !== "Estimation des dépenses annuelles" || Object.keys(variableRates).length === 0) return
     saveConfig(buildConfigData())
   }, [variableRates, saveConfig, title, buildConfigData])
+
+  // Save lien revenus ↔ dépense variable
+  useEffect(() => {
+    if (title !== "Estimation des dépenses annuelles") return
+    saveConfig(buildConfigData())
+  }, [variableExpenseRevenueLink, saveConfig, title, buildConfigData])
 
   // Save specific inflation rates whenever they change
   useEffect(() => {
@@ -806,6 +861,19 @@ export function IncomeStatementDetail({
   // Update global inflation rate
   const updateInflationRate = (newRate: number) => {
     setInflationRate(newRate)
+    // Réappliquer le profil inflation par défaut sur toutes les dépenses fixes : retirer les surcharges de cellules projetées.
+    if (title === "Estimation des dépenses annuelles") {
+      setRevenueValues((prev) => {
+        const updated = { ...prev }
+        for (const [rid, t] of Object.entries(expenseTypes)) {
+          if (t !== "fixe") continue
+          for (let y = 1; y <= projectionYears; y++) {
+            delete updated[`${rid}-${y}`]
+          }
+        }
+        return updated
+      })
+    }
   }
 
   // Update specific inflation rate for a row
@@ -886,9 +954,11 @@ export function IncomeStatementDetail({
 
   // Open Type/Taux modal
   const openTypeRateModal = (rowId: string) => {
+    if (disableRowInteractions) return
     setEditingTypeRateRowId(rowId)
     setTempExpenseType(getExpenseType(rowId))
     setTempVariableRate(getVariableRate(rowId))
+    setTempVariableExpenseRevenueLink(variableExpenseRevenueLink[rowId] ?? "__default__")
     // Set temp specific inflation rate (null if using global, otherwise the specific rate)
     const hasSpecificRate = specificInflationRates[rowId] !== undefined
     setTempSpecificInflationRate(hasSpecificRate ? specificInflationRates[rowId] : null)
@@ -898,39 +968,63 @@ export function IncomeStatementDetail({
   // Save Type/Taux changes
   const saveTypeRate = () => {
     if (!editingTypeRateRowId) return
-    
+
+    const rowId = editingTypeRateRowId
+    const priorType = getExpenseType(rowId)
+
     // Update expense type
-    updateExpenseType(editingTypeRateRowId, tempExpenseType)
+    updateExpenseType(rowId, tempExpenseType)
     
     // Update variable rate if type is variable
     if (tempExpenseType === "variable") {
       updateVariableRate(editingTypeRateRowId, tempVariableRate)
       // Remove specific inflation rate if switching from fixe to variable
       removeSpecificInflationRate(editingTypeRateRowId)
+      setVariableExpenseRevenueLink((prev) => {
+        const next = { ...prev }
+        if (tempVariableExpenseRevenueLink === "__default__") {
+          delete next[editingTypeRateRowId]
+        } else {
+          next[editingTypeRateRowId] = tempVariableExpenseRevenueLink
+        }
+        return next
+      })
     } else {
       // Update specific inflation rate if type is fixe
       if (tempSpecificInflationRate !== null) {
-        updateSpecificInflationRate(editingTypeRateRowId, tempSpecificInflationRate)
+        updateSpecificInflationRate(rowId, tempSpecificInflationRate)
       } else {
         // Remove specific rate to use global rate
-        removeSpecificInflationRate(editingTypeRateRowId)
+        removeSpecificInflationRate(rowId)
       }
+      setVariableExpenseRevenueLink((prev) => {
+        const next = { ...prev }
+        delete next[rowId]
+        return next
+      })
     }
     
-    // Clear edited values for years 1-5 if switching to "fixe" to allow recalculation with inflation
+    // Dépenses fixes : recalcul par défaut base × (1 + inflation)^année — retirer surcharges années projetées et hypothèses si passage variable → fixe.
     if (tempExpenseType === "fixe") {
-      const keysToRemove: string[] = []
-      for (let yearIdx = 1; yearIdx < 6; yearIdx++) {
-        const key = `${editingTypeRateRowId}-${yearIdx}`
-        if (revenueValues[key] !== undefined) {
-          keysToRemove.push(key)
+      setRevenueValues((prev) => {
+        const updated = { ...prev }
+        for (let y = 1; y <= projectionYears; y++) {
+          delete updated[`${rowId}-${y}`]
         }
-      }
-      if (keysToRemove.length > 0) {
-        setRevenueValues((prev) => {
-          const updated = { ...prev }
-          keysToRemove.forEach(key => delete updated[key])
-          return updated
+        return updated
+      })
+      if (priorType === "variable") {
+        setExpenseAdjustments((prev) => {
+          const prefix = `${rowId}-`
+          const next = { ...prev }
+          let touched = false
+          for (const k of Object.keys(next)) {
+            if (k.startsWith(prefix)) {
+              delete next[k]
+              touched = true
+            }
+          }
+          return touched ? next : prev
         })
       }
     }
@@ -941,7 +1035,9 @@ export function IncomeStatementDetail({
 
   // Open adjustment modal (for adding a new adjustment)
   const openAdjustmentModal = (rowId: string, yearIndex: number, adjustmentId?: string) => {
+    setRevenueHypothesisDeleteConfirmOpen(false)
     setEditingAdjustment({ rowId, yearIndex })
+    setReplicateRevenueAdjustmentToFollowingYears(false)
     if (title === "Estimation des revenus annuels") {
       // Revenue adjustments
       if (adjustmentId) {
@@ -950,15 +1046,24 @@ export function IncomeStatementDetail({
         if (existingAdjustment) {
           setEditingAdjustmentId(adjustmentId)
           setRevenueAdjustmentType(existingAdjustment.type)
-          setRevenueAdjustmentValue(existingAdjustment.value)
+          setRevenueHypothesisValueFromNumber(existingAdjustment.value)
           setAdjustmentNote(existingAdjustment.note || "")
         }
       } else {
-        // Adding new revenue adjustment
-        setEditingAdjustmentId(null)
-        setRevenueAdjustmentType("amount")
-        setRevenueAdjustmentValue(0)
-        setAdjustmentNote("")
+        // Un seul ajustement par année : ouvrir en modification si un ajustement existe déjà.
+        const existingRevenue = getRevenueAdjustments(rowId, yearIndex)
+        if (existingRevenue.length > 0) {
+          const only = existingRevenue[existingRevenue.length - 1]!
+          setEditingAdjustmentId(only.id)
+          setRevenueAdjustmentType(only.type)
+          setRevenueHypothesisValueFromNumber(only.value)
+          setAdjustmentNote(only.note || "")
+        } else {
+          setEditingAdjustmentId(null)
+          setRevenueAdjustmentType("amount")
+          setRevenueHypothesisValueFromNumber(0)
+          setAdjustmentNote("")
+        }
       }
     } else {
       // Expense adjustments
@@ -983,82 +1088,220 @@ export function IncomeStatementDetail({
         setAdjustmentNote("")
       }
     }
-    setAdjustmentModalOpen(true)
+    if (title === "Estimation des revenus annuels") {
+      setLineAnalysis(null)
+      setRevenueHypothesisPanelOpen(true)
+    } else if (title === "Estimation des dépenses annuelles") {
+      setLineAnalysis(null)
+      setExpenseHypothesisPanelOpen(true)
+    }
+  }
+
+  const closeRevenueHypothesisPanel = useCallback(() => {
+    setRevenueHypothesisDeleteConfirmOpen(false)
+    setRevenueHypothesisPanelOpen(false)
+    setEditingAdjustment(null)
+    setEditingAdjustmentId(null)
+    setRevenueAdjustmentType("amount")
+    setRevenueAdjustmentValue(0)
+    setRevenueAdjustmentValueInput("0")
+    setAdjustmentNote("")
+    setReplicateRevenueAdjustmentToFollowingYears(false)
+  }, [])
+
+  const returnToRevenueHypothesisRow = useCallback(() => {
+    const rowId = editingAdjustment?.rowId
+    closeRevenueHypothesisPanel()
+    if (!rowId) return
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.getElementById(`income-statement-detail-row-${rowId}`)?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+          inline: "nearest",
+        })
+      })
+    })
+  }, [editingAdjustment, closeRevenueHypothesisPanel])
+
+  const closeExpenseHypothesisPanel = useCallback(() => {
+    setExpenseHypothesisPanelOpen(false)
+    setEditingAdjustment(null)
+    setEditingAdjustmentId(null)
+    setAdjustmentType("amount")
+    setAdjustmentAmount(0)
+    setAdjustmentPercentage(0)
+    setAdjustmentIsRecurring(false)
+    setAdjustmentNote("")
+  }, [])
+
+  const returnToExpenseHypothesisRow = useCallback(() => {
+    const rowId = editingAdjustment?.rowId
+    closeExpenseHypothesisPanel()
+    if (!rowId) return
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.getElementById(`income-statement-detail-row-${rowId}`)?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+          inline: "nearest",
+        })
+      })
+    })
+  }, [editingAdjustment, closeExpenseHypothesisPanel])
+
+  /** Ouverture panneau hypothèses dépenses : faire défiler jusqu’à la ligne du poste (panneau inline sous la ligne). */
+  useEffect(() => {
+    if (title !== "Estimation des dépenses annuelles") return
+    if (!expenseHypothesisPanelOpen || !editingAdjustment?.rowId) return
+    let t1: number | undefined
+    let t2: number | undefined
+    const run = () => {
+      document.getElementById(`income-statement-detail-row-${editingAdjustment.rowId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "nearest",
+      })
+    }
+    t1 = requestAnimationFrame(() => {
+      t2 = requestAnimationFrame(run)
+    })
+    return () => {
+      if (t1 !== undefined) cancelAnimationFrame(t1)
+      if (t2 !== undefined) cancelAnimationFrame(t2)
+    }
+  }, [title, expenseHypothesisPanelOpen, editingAdjustment?.rowId, editingAdjustment?.yearIndex])
+
+  /** Ouverture panneau hypothèses revenus : défilement vers la ligne du poste (panneau inline sous la ligne). */
+  useEffect(() => {
+    if (title !== "Estimation des revenus annuels") return
+    if (!revenueHypothesisPanelOpen || !editingAdjustment?.rowId) return
+    let t1: number | undefined
+    let t2: number | undefined
+    const run = () => {
+      document.getElementById(`income-statement-detail-row-${editingAdjustment.rowId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "nearest",
+      })
+    }
+    t1 = requestAnimationFrame(() => {
+      t2 = requestAnimationFrame(run)
+    })
+    return () => {
+      if (t1 !== undefined) cancelAnimationFrame(t1)
+      if (t2 !== undefined) cancelAnimationFrame(t2)
+    }
+  }, [title, revenueHypothesisPanelOpen, editingAdjustment?.rowId, editingAdjustment?.yearIndex])
+
+  useEffect(() => {
+    if (title !== "Estimation des revenus annuels") {
+      setRevenueHypothesisPanelOpen(false)
+      setRevenueHypothesisDeleteConfirmOpen(false)
+    }
+    if (title !== "Estimation des dépenses annuelles") {
+      setExpenseHypothesisPanelOpen(false)
+    }
+  }, [title])
+
+  /** Chaîne vide → 0 ; « - » / « + » seuls → saisie incomplète (null). */
+  const parseRevenueHypothesisValueInput = (s: string): number | null => {
+    const t = s.trim().replace(/,/g, ".")
+    if (t === "") return 0
+    if (t === "+" || t === "-") return null
+    const n = parseFloat(t)
+    return Number.isFinite(n) ? n : null
+  }
+
+  const setRevenueHypothesisValueFromNumber = (n: number) => {
+    setRevenueAdjustmentValue(n)
+    setRevenueAdjustmentValueInput(Number.isFinite(n) ? String(n) : "0")
   }
 
   // Save adjustment
   const saveAdjustment = () => {
     if (!editingAdjustment) {
-      setAdjustmentModalOpen(false)
+      setRevenueHypothesisDeleteConfirmOpen(false)
+      setRevenueHypothesisPanelOpen(false)
+      setExpenseHypothesisPanelOpen(false)
       setEditingAdjustment(null)
       setEditingAdjustmentId(null)
       return
     }
     
     const key = `${editingAdjustment.rowId}-${editingAdjustment.yearIndex}`
-    
+
     if (title === "Estimation des revenus annuels") {
-      // Revenue adjustments
-      if (revenueAdjustmentValue === 0) {
-        setAdjustmentModalOpen(false)
-        setEditingAdjustment(null)
-        setEditingAdjustmentId(null)
+      const parsedRevenue = parseRevenueHypothesisValueInput(revenueAdjustmentValueInput)
+      if (parsedRevenue === null) {
         return
       }
-      
+
+      const newIdWhenReplacing = !editingAdjustmentId ? generateId() : null
+      const rowId = editingAdjustment.rowId
+      const y0 = editingAdjustment.yearIndex
+      const yearLabelsLen = getYearLabels().length
+      const shouldReplicate =
+        replicateRevenueAdjustmentToFollowingYears && y0 < yearLabelsLen - 1
+
       setRevenueAdjustments((prev) => {
-        const existingAdjustments = prev[key] || []
-        
+        const next: Record<string, RevenueAdjustment[]> = { ...prev }
+        const key0 = `${rowId}-${y0}`
+
+        const buildAdj = (y: number, id: string): RevenueAdjustment => ({
+          id,
+          rowId,
+          yearIndex: y,
+          type: revenueAdjustmentType,
+          value: parsedRevenue,
+          note: adjustmentNote
+        })
+
+        const existing0 = prev[key0] || []
+
         if (editingAdjustmentId) {
-          // Update existing adjustment
-          const updatedAdjustments = existingAdjustments.map(adj =>
+          const updated0 = existing0.map((adj) =>
             adj.id === editingAdjustmentId
               ? {
                   ...adj,
                   type: revenueAdjustmentType,
-                  value: revenueAdjustmentValue,
+                  value: parsedRevenue,
                   note: adjustmentNote
                 }
               : adj
           )
-          return {
-            ...prev,
-            [key]: updatedAdjustments
-          }
+          const sole = updated0.find((a) => a.id === editingAdjustmentId)
+          next[key0] = sole ? [sole] : []
         } else {
-          // Add new adjustment
-          const newAdjustment: RevenueAdjustment = {
-            id: generateId(),
-            rowId: editingAdjustment.rowId,
-            yearIndex: editingAdjustment.yearIndex,
-            type: revenueAdjustmentType,
-            value: revenueAdjustmentValue,
-            note: adjustmentNote
-          }
-          return {
-            ...prev,
-            [key]: [...existingAdjustments, newAdjustment]
+          next[key0] = [buildAdj(y0, newIdWhenReplacing!)]
+        }
+
+        if (shouldReplicate) {
+          for (let y = y0 + 1; y < yearLabelsLen; y++) {
+            next[`${rowId}-${y}`] = [buildAdj(y, generateId())]
           }
         }
+
+        return next
       })
-      
-      setAdjustmentModalOpen(false)
-      setEditingAdjustment(null)
-      setEditingAdjustmentId(null)
-      setRevenueAdjustmentType("amount")
-      setRevenueAdjustmentValue(0)
-      setAdjustmentNote("")
+
+      if (newIdWhenReplacing) {
+        setEditingAdjustmentId(newIdWhenReplacing)
+      }
+      setRevenueAdjustmentValue(parsedRevenue)
+      setRevenueAdjustmentValueInput(String(parsedRevenue))
+      setReplicateRevenueAdjustmentToFollowingYears(false)
     } else {
       // Expense adjustments
       // Validate based on type
       if (adjustmentType === "amount" && adjustmentAmount === 0) {
-        setAdjustmentModalOpen(false)
+        setExpenseHypothesisPanelOpen(false)
         setEditingAdjustment(null)
         setEditingAdjustmentId(null)
         return
       }
       if (adjustmentType === "percentage" && adjustmentPercentage === 0) {
-        setAdjustmentModalOpen(false)
+        setExpenseHypothesisPanelOpen(false)
         setEditingAdjustment(null)
         setEditingAdjustmentId(null)
         return
@@ -1103,9 +1346,7 @@ export function IncomeStatementDetail({
           }
         }
       })
-      
-      setAdjustmentModalOpen(false)
-      setEditingAdjustment(null)
+
       setEditingAdjustmentId(null)
       setAdjustmentType("amount")
       setAdjustmentAmount(0)
@@ -1172,6 +1413,9 @@ export function IncomeStatementDetail({
 
   const openOrToggleLineAnalysis = useCallback((snapshot: LineAnalysisSnapshot) => {
     if (disableRowInteractions) return
+    setRevenueHypothesisDeleteConfirmOpen(false)
+    setRevenueHypothesisPanelOpen(false)
+    setExpenseHypothesisPanelOpen(false)
     setLineAnalysis((prev) => {
       const next = prev?.rowId === snapshot.rowId ? null : snapshot
       if (next) {
@@ -1237,6 +1481,58 @@ export function IncomeStatementDetail({
       return getStructureRowGlobalIndex(srA, structure) - getStructureRowGlobalIndex(srB, structure)
     })
   }, [])
+
+  /** Postes de revenus (même périmètre que « Estimation des revenus annuelles » en mode annexes) pour lier une dépense variable. */
+  const variableExpenseRevenueSelectOptions = useMemo((): { value: string; label: string }[] => {
+    const defaultOpt = { value: "__default__", label: "Total revenus (estimation globale)" }
+    if (title !== "Estimation des dépenses annuelles" || !seriesRows.length || !incomeStatementStructure?.length) {
+      return [defaultOpt]
+    }
+    const opts: { value: string; label: string }[] = [defaultOpt]
+    if (structureHasRevenuePosteNatureRow(incomeStatementStructure)) {
+      const rows = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure).filter((sr) =>
+        seriesRowBelongsToRevenueAnnexDetail(sr, incomeStatementStructure)
+      )
+      const seen = new Set<string>()
+      for (const sr of rows) {
+        if (sr.isSection) continue
+        const structRow = findStructureRowForStatementLine(sr.id, sr.label, incomeStatementStructure)
+        if (!structRow) continue
+        const sub = isStructureRowDetailOnly(structRow)
+        const resolvedLetter = normalizeAnnexLetter(
+          String(sr.annexLetter ?? "").trim() ||
+            String((structRow as Record<string, unknown>).annexLetter ?? "").trim()
+        )
+        // Hors choix : ligne « Annexe X » (titre d’annexe au sommaire), pas un poste du détail.
+        if (!sub && resolvedLetter !== "") continue
+        if (seen.has(sr.id)) continue
+        seen.add(sr.id)
+        const label = detailLineLabelForDisplay(structRow, sr.label, sr.annexLetter)
+        opts.push({ value: sr.id, label })
+      }
+    } else {
+      const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
+      const revenueSeries =
+        sorted.find((r) => normLabel(r.label) === "revenus" && !r.isSection) ??
+        sorted.find((r) => normLabel(r.label) === "revenus") ??
+        sorted.find(
+          (r) =>
+            r.isResult &&
+            normLabel(r.label).includes("revenu") &&
+            (normLabel(r.label).includes("total") || normLabel(r.label).includes("totaux"))
+        )
+      if (revenueSeries && !revenueSeries.isSection) {
+        const already = opts.some((o) => o.value === revenueSeries.id)
+        if (!already) opts.push({ value: revenueSeries.id, label: revenueSeries.label })
+      }
+    }
+    for (const id of Object.values(variableExpenseRevenueLink)) {
+      if (id && !opts.some((o) => o.value === id)) {
+        opts.push({ value: id, label: `Poste de revenus (${id.slice(0, 8)}…)` })
+      }
+    }
+    return opts
+  }, [title, seriesRows, incomeStatementStructure, filterSeriesRowsDefinedOnly, variableExpenseRevenueLink])
 
   // Convert series API data to DetailRow[] for monthly views (12months)
   const getSeriesDetailRows = (): DetailRow[] => {
@@ -1352,12 +1648,70 @@ export function IncomeStatementDetail({
     })
   }
 
+  /** Base revenus pour le % d'une dépense variable (lien explicite, ref fallback, ou ligne Revenus série). */
+  const resolveVariableExpenseRevenueSource = (
+    expenseRowId: string,
+    yearIndex: number
+  ): { revenueRowId: string; defaultValue: number; baseAmount: number } | null => {
+    if (title !== "Estimation des dépenses annuelles") return null
+    const defaultGrowthRate = 0.05
+    const linkedId = variableExpenseRevenueLink[expenseRowId]
+
+    const fromSeriesId = (revenueSeriesId: string) => {
+      const sr = seriesRows.find((s) => s.id === revenueSeriesId)
+      if (!sr) return null
+      const rawAmounts = getRowAmounts(sr, seriesPeriods)
+      const { amounts: yearlyAmounts } = aggregateToYears(rawAmounts, seriesPeriods)
+      const baseAmount = yearlyAmounts.length > 0 ? yearlyAmounts[yearlyAmounts.length - 1] : 0
+      const defaultValue =
+        yearIndex === 0 ? baseAmount : Math.round(baseAmount * Math.pow(1 + defaultGrowthRate, yearIndex))
+      return { revenueRowId: sr.id, defaultValue, baseAmount }
+    }
+
+    if (linkedId) {
+      return fromSeriesId(linkedId)
+    }
+
+    const fb = expenseRevenueForecastFallbackRef.current
+    if (fb) {
+      return {
+        revenueRowId: fb.rowId,
+        defaultValue: fb.trend[yearIndex] ?? 0,
+        baseAmount: fb.trend[0] ?? 0,
+      }
+    }
+
+    if (!incomeStatementStructure?.length) return null
+    const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
+    const revenueSeries =
+      sorted.find((r) => normLabel(r.label) === "revenus" && !r.isSection) ??
+      sorted.find((r) => normLabel(r.label) === "revenus") ??
+      sorted.find(
+        (r) =>
+          r.isResult &&
+          normLabel(r.label).includes("revenu") &&
+          (normLabel(r.label).includes("total") || normLabel(r.label).includes("totaux"))
+      )
+    if (revenueSeries && !revenueSeries.isSection) {
+      return fromSeriesId(revenueSeries.id)
+    }
+    return null
+  }
+
   // Get base value (without adjustments) for a specific row and year
   const getBaseValue = (rowId: string, yearIndex: number, defaultValue: number, baseValue?: number): number => {
     const key = `${rowId}-${yearIndex}`
     // If value was manually edited, use it; otherwise use calculated default
+    // Anciennes configs pouvaient enregistrer 0 sur les années projetées : pour les fixes, recalculer plutôt que d’afficher 0$
     if (revenueValues[key] !== undefined) {
-      return revenueValues[key]
+      const phantomZeroFixe =
+        title === "Estimation des dépenses annuelles" &&
+        getExpenseType(rowId) === "fixe" &&
+        yearIndex > 0 &&
+        revenueValues[key] === 0
+      if (!phantomZeroFixe) {
+        return revenueValues[key]!
+      }
     }
     
     // For fixed expenses, recalculate based on inflation if not manually edited
@@ -1386,17 +1740,25 @@ export function IncomeStatementDetail({
     defaultTrendValues?: number[]
   ): number => {
     if (!rowId || !isForecastSection) return defaultValue
-    
+
+    // Dépenses fixes : la base année 0 doit servir au composé — sinon baseValue manquant utilisait le mauvais défaut (même année)
+    const effectiveBase =
+      title === "Estimation des dépenses annuelles" &&
+      baseValue === undefined &&
+      defaultTrendValues &&
+      defaultTrendValues.length > 0
+        ? defaultTrendValues[0]
+        : baseValue
+
     // Get base value (without adjustments)
-    let calculatedValue = getBaseValue(rowId, yearIndex, defaultValue, baseValue)
+    let calculatedValue = getBaseValue(rowId, yearIndex, defaultValue, effectiveBase)
     
     // Apply adjustments
     if (title === "Estimation des revenus annuels") {
       // Get all revenue adjustments for this year
       const adjustments = getRevenueAdjustments(rowId, yearIndex)
       if (adjustments.length > 0) {
-        // Use the most recent adjustment (last one in the array)
-        const adjustment = adjustments[adjustments.length - 1]
+        const adjustment = adjustments[adjustments.length - 1]!
         
         if (adjustment.type === "amount") {
           // Direct amount
@@ -1421,25 +1783,24 @@ export function IncomeStatementDetail({
         }
       }
     } else if (title === "Estimation des dépenses annuelles") {
+      const expenseIsVariable = getExpenseType(rowId) === "variable"
       // Get all direct adjustments for this year
       const directAdjustments = getAdjustments(rowId, yearIndex)
       for (const adjustment of directAdjustments) {
         if (adjustment.type === "amount") {
           // Amount adjustment: add/subtract the amount
           calculatedValue = calculatedValue + (adjustment.amount || 0)
-        } else if (adjustment.type === "percentage") {
-          // Percentage adjustment: calculate expense as percentage of revenue
-          // Get revenue for this year to calculate the expense percentage
-          const revenueRow = data.find(r => 
-            (r.label.toLowerCase().includes("total revenus") || 
-             r.label.toLowerCase().includes("revenus totaux") ||
-             (r.label.toLowerCase().includes("revenu") && r.isSubtotal)) &&
-            r.trendValues && r.trendValues[yearIndex] !== undefined
-          )
-          if (revenueRow && revenueRow.trendValues) {
-            const revenueValue = getRevenueValue(revenueRow.rowId || "", yearIndex, revenueRow.trendValues[yearIndex])
+        } else if (adjustment.type === "percentage" && expenseIsVariable) {
+          // Percentage adjustment: calculate expense as percentage of revenue (réservé aux dépenses variables)
+          const src = resolveVariableExpenseRevenueSource(rowId, yearIndex)
+          if (src) {
+            const revenueValue = getRevenueValue(
+              src.revenueRowId,
+              yearIndex,
+              src.defaultValue,
+              src.baseAmount
+            )
             const expenseFromPercentage = Math.round(revenueValue * (adjustment.percentage || 0) / 100)
-            // Replace the calculated value with the percentage-based value
             calculatedValue = expenseFromPercentage
           }
         }
@@ -1454,19 +1815,17 @@ export function IncomeStatementDetail({
           const yearsDiff = yearIndex - adjustment.yearIndex
           const adjustedAmount = (adjustment.amount || 0) * Math.pow(1 + rate / 100, yearsDiff)
           calculatedValue = calculatedValue + Math.round(adjustedAmount)
-        } else if (adjustment.type === "percentage") {
+        } else if (adjustment.type === "percentage" && expenseIsVariable) {
           // For recurring percentage adjustments, use the new percentage for all future years
-          // Get revenue for this year to calculate the expense percentage
-          const revenueRow = data.find(r => 
-            (r.label.toLowerCase().includes("total revenus") || 
-             r.label.toLowerCase().includes("revenus totaux") ||
-             (r.label.toLowerCase().includes("revenu") && r.isSubtotal)) &&
-            r.trendValues && r.trendValues[yearIndex] !== undefined
-          )
-          if (revenueRow && revenueRow.trendValues) {
-            const revenueValue = getRevenueValue(revenueRow.rowId || "", yearIndex, revenueRow.trendValues[yearIndex])
+          const src = resolveVariableExpenseRevenueSource(rowId, yearIndex)
+          if (src) {
+            const revenueValue = getRevenueValue(
+              src.revenueRowId,
+              yearIndex,
+              src.defaultValue,
+              src.baseAmount
+            )
             const expenseFromPercentage = Math.round(revenueValue * (adjustment.percentage || 0) / 100)
-            // Replace the calculated value with the percentage-based value
             calculatedValue = expenseFromPercentage
           }
         }
@@ -1517,14 +1876,14 @@ export function IncomeStatementDetail({
             // For variable expenses, calculate as percentage of revenue
             const variableRate = getVariableRate(rowId)
             if (variableRate > 0) {
-              const revenueRow = data.find(r =>
-                (r.label.toLowerCase().includes("total revenus") ||
-                 r.label.toLowerCase().includes("revenus totaux") ||
-                 (r.label.toLowerCase().includes("revenu") && r.isSubtotal)) &&
-                r.trendValues && r.trendValues[yearIndex] !== undefined
-              )
-              if (revenueRow && revenueRow.trendValues) {
-                const revenueValue = getRevenueValue(revenueRow.rowId || "", yearIndex, revenueRow.trendValues[yearIndex])
+              const src = rowId ? resolveVariableExpenseRevenueSource(rowId, yearIndex) : null
+              if (src) {
+                const revenueValue = getRevenueValue(
+                  src.revenueRowId,
+                  yearIndex,
+                  src.defaultValue,
+                  src.baseAmount
+                )
                 defaultValue = Math.round(revenueValue * variableRate / 100)
               } else {
                 defaultValue = Math.round(base * Math.pow(1 + effectiveGrowthRate, yearIndex))
@@ -1550,11 +1909,55 @@ export function IncomeStatementDetail({
         !!incomeStatementStructure &&
         incomeStatementStructure.length > 0 &&
         structureHasRevenuePosteNatureRow(incomeStatementStructure)
+      const useExpenseDetailScope =
+        title === "Estimation des dépenses annuelles" &&
+        !!incomeStatementStructure &&
+        incomeStatementStructure.length > 0 &&
+        structureHasDepensesPosteNatureRow(incomeStatementStructure)
       const seriesForForecast = useRevenueDetailScope
         ? filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure).filter((sr) =>
             seriesRowBelongsToRevenueAnnexDetail(sr, incomeStatementStructure)
           )
-        : seriesRows
+        : useExpenseDetailScope
+          ? filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure).filter((sr) =>
+              seriesRowBelongsToDepensesAnnexDetail(sr, incomeStatementStructure)
+            )
+          : seriesRows
+
+      const collectRevenueTrendForVariableExpense = (): { trend: number[]; rowId: string } | null => {
+        if (!incomeStatementStructure || incomeStatementStructure.length === 0) return null
+        const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
+        const revenueSeries =
+          sorted.find((r) => normLabel(r.label) === "revenus" && !r.isSection) ??
+          sorted.find((r) => normLabel(r.label) === "revenus") ??
+          sorted.find(
+            (r) =>
+              r.isResult &&
+              normLabel(r.label).includes("revenu") &&
+              (normLabel(r.label).includes("total") || normLabel(r.label).includes("totaux"))
+          )
+        if (!revenueSeries || revenueSeries.isSection) return null
+        const rawAmounts = getRowAmounts(revenueSeries, seriesPeriods)
+        const { amounts: yearlyAmounts } = aggregateToYears(rawAmounts, seriesPeriods)
+        const baseAmount = yearlyAmounts.length > 0 ? yearlyAmounts[yearlyAmounts.length - 1] : 0
+        const rowId = revenueSeries.id
+        const trend = Array.from({ length: numYears }, (_, yearIndex) => {
+          const defaultValue =
+            yearIndex === 0
+              ? baseAmount
+              : Math.round(baseAmount * Math.pow(1 + defaultGrowthRate, yearIndex))
+          return getRevenueValue(rowId, yearIndex, defaultValue, baseAmount)
+        })
+        return { trend, rowId }
+      }
+
+      if (useExpenseDetailScope) {
+        expenseRevenueForecastFallbackRef.current = collectRevenueTrendForVariableExpense()
+      } else {
+        expenseRevenueForecastFallbackRef.current = null
+      }
+
+      const useAnnexDetailRowShape = useRevenueDetailScope || useExpenseDetailScope
 
       for (const sr of seriesForForecast) {
         // Get real amounts and aggregate to yearly totals
@@ -1565,27 +1968,106 @@ export function IncomeStatementDetail({
 
         const isSection = sr.isSection
         const isResult = sr.isResult
-        const isBold = sr.isBold || isResult
-        const indent = !isBold && !isSection && !isResult
+        const rowId = sr.id
+
+        const structRow =
+          useAnnexDetailRowShape && incomeStatementStructure
+            ? findStructureRowForStatementLine(sr.id, sr.label, incomeStatementStructure)
+            : undefined
+        const sub = structRow ? isStructureRowDetailOnly(structRow) : false
+        /** Même bloc d’annexe que le Détail : la série n’a souvent pas la lettre sur les sous-lignes detailOnly. */
+        const resolvedAnnexLetter =
+          useAnnexDetailRowShape && structRow
+            ? String(sr.annexLetter ?? "").trim() ||
+              String((structRow as Record<string, unknown>).annexLetter ?? "").trim()
+            : String(sr.annexLetter ?? "").trim()
+        const annexNorm = normalizeAnnexLetter(resolvedAnnexLetter)
+        /** Titre d’annexe = ligne sommaire (non detailOnly) : uniquement si des sous-lignes detailOnly portent la même annexe (sinon un seul poste porte les montants). */
+        let hasPeerDetailOnlySameAnnex = false
+        if (useAnnexDetailRowShape && incomeStatementStructure && annexNorm) {
+          for (const other of seriesForForecast) {
+            if (other === sr) continue
+            const oStruct = findStructureRowForStatementLine(other.id, other.label, incomeStatementStructure)
+            if (!oStruct || !isStructureRowDetailOnly(oStruct)) continue
+            const oLetter =
+              String(other.annexLetter ?? "").trim() ||
+              String((oStruct as Record<string, unknown>).annexLetter ?? "").trim()
+            if (normalizeAnnexLetter(oLetter) === annexNorm) {
+              hasPeerDetailOnlySameAnnex = true
+              break
+            }
+          }
+        }
+        const isAnnexTitle = !!(
+          structRow &&
+          !sub &&
+          !isResult &&
+          !isSection &&
+          annexNorm !== "" &&
+          hasPeerDetailOnlySameAnnex
+        )
+
+        const isBold =
+          useAnnexDetailRowShape && structRow ? !sub : sr.isBold || isResult
+        const indent =
+          useAnnexDetailRowShape && structRow ? sub : !isBold && !isSection && !isResult
+
+        /** Dépenses fixes : `rowId` requis pour base × (1 + inflation)^année (les lignes en gras n’étaient pas `indent` → inflation ignorée). */
+        const forecastRowIdForTrend =
+          title === "Estimation des dépenses annuelles" && !isSection && !isAnnexTitle
+            ? rowId
+            : useAnnexDetailRowShape && structRow
+              ? sub
+                ? rowId
+                : undefined
+              : indent
+                ? rowId
+                : undefined
 
         // Generate projected trend values
-        const rowId = sr.id
         const trendValues =
           isSection
             ? undefined
             : (forceForecastSection && forecastUseSeriesActuals)
               ? (() => {
-                  const baseYear = forecastBaseYear ?? (new Date().getFullYear())
+                  const baseYear = forecastBaseYear ?? new Date().getFullYear()
                   const actualYear = baseYear - 1
                   const actual = yearTrendFromReference(sr, seriesPeriods, actualYear, 1)[0] || 0
                   // Result rows will be recomputed from children below; start at 0s.
                   if (isResult) return [0, ...Array.from({ length: projectionYears }, () => 0)]
                   return [actual, ...Array.from({ length: projectionYears }, () => 0)]
                 })()
-              : generateForecastTrend(baseAmount, defaultGrowthRate, indent ? rowId : undefined)
+              : generateForecastTrend(baseAmount, defaultGrowthRate, forecastRowIdForTrend)
 
-        rows.push({
-          label: sr.label,
+        let balanceAccounts: BalanceAccount[] | undefined
+        if (projectionMode === "gl" && sr.detailRows.length > 0) {
+          if (useAnnexDetailRowShape && structRow) {
+            balanceAccounts = balanceAccountsFromSeriesRowDetail(
+              sr,
+              seriesPeriods,
+              "years",
+              refMonth,
+              refYear
+            )
+          } else if (indent) {
+            balanceAccounts = sr.detailRows.map((dr) => {
+              const drAmounts = seriesPeriods.map((p) => dr.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] || 0)
+              const drYearly = aggregateToYears(drAmounts, seriesPeriods)
+              return {
+                accountNumber: dr.id,
+                accountName: dr.label,
+                amount: drYearly.amounts.length > 0 ? drYearly.amounts[drYearly.amounts.length - 1] : 0,
+                priorAmount: drYearly.amounts.length > 1 ? drYearly.amounts[drYearly.amounts.length - 2] : 0,
+              }
+            })
+          }
+        }
+
+        const detailPayload: DetailRow = {
+          label:
+            useAnnexDetailRowShape && structRow
+              ? detailLineLabelForDisplay(structRow, sr.label, resolvedAnnexLetter || undefined)
+              : sr.label,
           current: baseAmount,
           prior: priorAmount,
           isBold,
@@ -1593,18 +2075,27 @@ export function IncomeStatementDetail({
           isSubtotal: isResult,
           indent,
           trendValues,
-          rowId: indent ? rowId : undefined,
-          balanceAccounts: (indent && projectionMode === "gl" && sr.detailRows.length > 0) ? sr.detailRows.map((dr) => {
-            const drAmounts = seriesPeriods.map((p) => dr.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] || 0)
-            const drYearly = aggregateToYears(drAmounts, seriesPeriods)
-            return {
-              accountNumber: dr.id,
-              accountName: dr.label,
-              amount: drYearly.amounts.length > 0 ? drYearly.amounts[drYearly.amounts.length - 1] : 0,
-              priorAmount: drYearly.amounts.length > 1 ? drYearly.amounts[drYearly.amounts.length - 2] : 0,
-            }
-          }) : undefined,
-        })
+          rowId:
+            title === "Estimation des dépenses annuelles"
+              ? forecastRowIdForTrend
+              : useAnnexDetailRowShape && structRow
+                ? rowId
+                : indent
+                  ? rowId
+                  : undefined,
+          balanceAccounts,
+          ...(useAnnexDetailRowShape && structRow
+            ? {
+                statementLabel: sr.label,
+                annexLetter: resolvedAnnexLetter,
+                isAnnexTitle,
+              }
+            : {}),
+        }
+
+        rows.push(
+          useAnnexDetailRowShape && structRow ? zeroAmountsForAnnexTitleRow(detailPayload) : detailPayload
+        )
 
         // Recalculate subtotal trend values from child rows
         if (isResult && trendValues) {
@@ -1627,6 +2118,12 @@ export function IncomeStatementDetail({
         }
       }
 
+      if (useAnnexDetailRowShape) {
+        const trendLen = rows.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
+        return insertAnnexDetailPlaceholderRows(rows, trendLen > 0 ? trendLen : undefined, {
+          includeIndicatifAfterAnnex: false,
+        })
+      }
       return rows
     }
 
@@ -1661,6 +2158,10 @@ export function IncomeStatementDetail({
   }
 
   // Helper function to capitalize first letter
+  if (!(view === "years" && isForecastSection)) {
+    expenseRevenueForecastFallbackRef.current = null
+  }
+
   let data = getDetailData()
 
   // Dénominateur « % des revenus » : **même source que le Sommaire** (`backendRows` de l’API), pas les lignes
@@ -1989,6 +2490,61 @@ export function IncomeStatementDetail({
   const isStructureStudio = structureEditMode && canInlineStructureEdit
   const showStructureCols =
     isStructureStudio && !structEdit.loading && detailAnnexEditorGlobalIndices.length > 0
+
+  /** Vue « années » : slider horizontal (Radix) pour faire défiler le tableau sans réduire les colonnes. */
+  const tableUsesHorizontalSlider = view === "years" && !showStructureCols
+
+  /** Hypothèses revenus : panneau pleine largeur sous la ligne du poste (plus d’aside à droite). */
+  const revenueHypothesisInlineActive =
+    title === "Estimation des revenus annuels" &&
+    view === "years" &&
+    !showStructureCols &&
+    editingAdjustment != null &&
+    revenueHypothesisPanelOpen
+
+  const revenueHypothesisAnchorIdx =
+    revenueHypothesisInlineActive && editingAdjustment?.rowId
+      ? data.findIndex((r) => r.rowId === editingAdjustment.rowId)
+      : -1
+
+  /** Hypothèses dépenses : panneau pleine largeur sous la ligne du poste (plus d’aside à droite). */
+  const expenseHypothesisInlineActive =
+    title === "Estimation des dépenses annuelles" &&
+    view === "years" &&
+    !showStructureCols &&
+    projectionMode === "account" &&
+    editingAdjustment != null &&
+    expenseHypothesisPanelOpen
+
+  const expenseHypothesisAnchorIdx =
+    expenseHypothesisInlineActive && editingAdjustment?.rowId
+      ? data.findIndex((r) => r.rowId === editingAdjustment.rowId)
+      : -1
+
+  const hypothesisDesktopAsideOpen = false
+
+  useEffect(() => {
+    if (!tableUsesHorizontalSlider) return
+    const el = detailTableHScrollRef.current
+    if (!el) return
+    const sync = () => setDetailTableHScrollNonce((n) => n + 1)
+    el.addEventListener("scroll", sync, { passive: true })
+    const ro = new ResizeObserver(sync)
+    ro.observe(el)
+    sync()
+    return () => {
+      el.removeEventListener("scroll", sync)
+      ro.disconnect()
+    }
+  }, [
+    tableUsesHorizontalSlider,
+    showStructureCols,
+    hypothesisDesktopAsideOpen,
+    data.length,
+    title,
+    view,
+    projectionYears,
+  ])
 
   // Helper function to calculate percentage of revenue
   const getRevenuePercentage = (value: number, isPrior: boolean): number => {
@@ -2346,6 +2902,51 @@ export function IncomeStatementDetail({
         return acc + (v ?? 0)
       }, 0)
     )
+  }, [data, getRevenueValue, isForecastSection, showStructureCols, title, view])
+
+  /** Sous-totaux annexe (hypothèses revenus) : somme des montants affichés (`getRevenueValue`) par lettre — aligné sur la ligne « Revenus » / Pro forma, pas sur les tendances brutes injectées. */
+  const revenueAnnexForecastYearTotalsByLetter = useMemo(() => {
+    if (title !== "Estimation des revenus annuels") return null
+    if (!isForecastSection || view !== "years") return null
+    if (showStructureCols) return null
+
+    const posts = data.filter(
+      (r) =>
+        !!r.rowId &&
+        !!r.indent &&
+        !r.isSection &&
+        !r.isAnnexPlaceholder &&
+        !r.isAnnexTitle &&
+        !r.isAnnexSubtotal &&
+        Array.isArray(r.trendValues) &&
+        r.trendValues.length > 0
+    )
+    if (posts.length === 0) return null
+
+    const len = posts[0]!.trendValues!.length
+    const letters = new Set<string>()
+    for (const r of data) {
+      const L = normalizeAnnexLetter(String(r.annexLetter ?? ""))
+      if (L) letters.add(L)
+    }
+    const out = new Map<string, number[]>()
+    for (const L of letters) {
+      const perLetter = posts.filter(
+        (r) => normalizeAnnexLetter(String(r.annexLetter ?? "")) === L
+      )
+      if (perLetter.length === 0) continue
+      out.set(
+        L,
+        Array.from({ length: len }, (_, j) =>
+          perLetter.reduce((acc, r) => {
+            const raw = r.trendValues?.[j] ?? 0
+            const v = getRevenueValue(r.rowId!, j, raw, undefined, r.trendValues)
+            return acc + (v ?? 0)
+          }, 0)
+        )
+      )
+    }
+    return out.size > 0 ? out : null
   }, [data, getRevenueValue, isForecastSection, showStructureCols, title, view])
 
   const padDetailRowForStructure = (structRow: Record<string, unknown>): DetailRow => {
@@ -3093,6 +3694,600 @@ export function IncomeStatementDetail({
     )
   }
 
+  const renderRevenueHypothesisPanel = (embedded = false) => {
+    if (title !== "Estimation des revenus annuels" || !editingAdjustment || !revenueHypothesisPanelOpen) return null
+    const rowLabel = editingAdjustment.rowId
+      ? data.find((r) => r.rowId === editingAdjustment.rowId)?.label || "Poste"
+      : "Poste"
+    const yearLabels = getYearLabels()
+    const yearIndex =
+      editingAdjustment.yearIndex >= 0 && editingAdjustment.yearIndex < yearLabels.length
+        ? editingAdjustment.yearIndex
+        : 0
+    const yearLabel = yearLabels[yearIndex] || `${yearIndex}`
+    const existingAdjustments = getRevenueAdjustments(editingAdjustment.rowId, editingAdjustment.yearIndex)
+    const canReplicateToFollowingYears = yearIndex < yearLabels.length - 1
+    const followingYearsLabel = yearLabels.slice(yearIndex + 1).join(", ")
+
+    return (
+      <>
+      <div className={cn(embedded ? "w-full min-w-0" : "flex min-h-0 flex-1 flex-col")}>
+        <div
+          className={cn(
+            "relative flex flex-col border border-slate-200/90",
+            "bg-gradient-to-b from-slate-50 via-white to-slate-50/70",
+            embedded
+              ? "w-full max-w-none overflow-visible rounded-2xl shadow-md"
+              : "min-h-0 flex-1 overflow-hidden rounded-[28px] shadow-[0_24px_80px_-40px_rgba(15,23,42,0.35)]"
+          )}
+        >
+          <div className="pointer-events-none absolute inset-0 rounded-[28px]" aria-hidden>
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_45%_at_50%_-10%,rgba(224,116,45,0.08),transparent_55%)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_55%_50%_at_100%_55%,rgba(148,163,184,0.12),transparent_65%)]" />
+            {!embedded && (
+              <div className="absolute right-3 top-5 hidden max-w-[55%] select-none text-[52px] font-semibold leading-none tracking-tight text-[#2A2F3A]/[0.05] sm:block sm:text-[64px]">
+                hypothèse<span className="text-[#E0742D]/20">.</span>
+              </div>
+            )}
+          </div>
+
+          <div
+            className={cn(
+              "relative z-10 flex flex-col p-4 sm:p-5",
+              embedded ? "" : "min-h-0 flex-1"
+            )}
+          >
+            <div className="flex shrink-0 items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Hypothèse</p>
+                <h3 className="mt-3 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">{rowLabel}</h3>
+                <p className="mt-3 text-xs font-medium leading-relaxed text-[#E0742D]">
+                  Année sélectionnée <span className="text-[#E0742D]/50" aria-hidden>·</span>{" "}
+                  <span className="font-semibold text-[#E0742D]">{yearLabel}</span>
+                </p>
+              </div>
+              {(!analysisPanelNarrow || embedded) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-1.5 border-[#E0742D]/35 text-xs font-medium text-[#8f4810] hover:bg-orange-50/90"
+                  onClick={returnToRevenueHypothesisRow}
+                >
+                  Fermer
+                </Button>
+              )}
+            </div>
+
+            <div className={cn("mt-5 pr-0.5", !embedded && "min-h-0 flex-1 overflow-y-auto")}>
+              <div>
+                <div className="mb-4 inline-flex flex-wrap items-center gap-2 text-xs font-semibold tracking-wide text-[#5C5F66]">
+                  {existingAdjustments.length > 0
+                    ? "Modifier l'hypothèse ci-dessous"
+                    : "Saisir votre hypothèse pour cette année"}
+                  <ArrowRight className="h-4 w-4 shrink-0 text-[#E0742D]" aria-hidden />
+                </div>
+
+                <div
+                  className={cn(
+                    "rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5",
+                    embedded && "w-full max-w-none"
+                  )}
+                >
+                  <div className="border-b border-slate-200/70 pb-3">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide leading-snug text-slate-500">
+                      {editingAdjustmentId
+                        ? "Modifier l'ajustement"
+                        : existingAdjustments.length > 0
+                          ? "Remplacer l'ajustement"
+                          : "Définir l'ajustement"}
+                    </h3>
+                  </div>
+
+                  <div
+                    className={cn(
+                      "mt-4 grid grid-cols-1 gap-6 lg:items-start lg:gap-5",
+                      embedded
+                        ? "w-full lg:grid-cols-[15rem_minmax(0,1fr)_auto]"
+                        : "lg:grid-cols-3"
+                    )}
+                  >
+                    {/* Colonne 1 : type, montant / croissance, réplication */}
+                    <div className={cn("flex min-w-0 flex-col gap-4", embedded && "max-w-[15rem] lg:max-w-none")}>
+                      <div className={cn(embedded && "w-full max-w-[14rem]")}>
+                        <label htmlFor="revenue-adj-type" className="mb-1.5 block text-xs font-medium text-slate-600">
+                          Type d&apos;ajustement
+                        </label>
+                        <Select
+                          value={revenueAdjustmentType}
+                          onValueChange={(value: "amount" | "growthPercent" | "growthAmount") =>
+                            setRevenueAdjustmentType(value)
+                          }
+                        >
+                          <SelectTrigger
+                            id="revenue-adj-type"
+                            className={cn(
+                              "h-10 rounded-lg border-slate-200 bg-white/90",
+                              embedded ? "w-full max-w-[13.5rem]" : "w-full"
+                            )}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="amount">Montant annuel</SelectItem>
+                            <SelectItem value="growthPercent">Croissance en %</SelectItem>
+                            <SelectItem value="growthAmount">Croissance en $</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className={cn(embedded && "w-full max-w-[14rem]")}>
+                        <label htmlFor="revenue-adj-value" className="mb-1.5 block text-xs font-medium text-slate-600">
+                          {revenueAdjustmentType === "amount"
+                            ? "Montant annuel ($)"
+                            : revenueAdjustmentType === "growthPercent"
+                              ? "Croissance (%)"
+                              : "Croissance ($)"}
+                        </label>
+                        <Input
+                          id="revenue-adj-value"
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
+                          value={revenueAdjustmentValueInput}
+                          onChange={(e) => {
+                            const s = e.target.value
+                            setRevenueAdjustmentValueInput(s)
+                            const p = parseRevenueHypothesisValueInput(s)
+                            if (p !== null) setRevenueAdjustmentValue(p)
+                          }}
+                          placeholder="0"
+                          className={cn(
+                            "h-10 rounded-lg border-slate-200 bg-white/90",
+                            embedded ? "w-full max-w-[13.5rem]" : "w-full"
+                          )}
+                        />
+                        <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                          {revenueAdjustmentType === "amount"
+                            ? "Montant annuel souhaité pour cette année"
+                            : revenueAdjustmentType === "growthPercent"
+                              ? "Taux de croissance appliqué par rapport à l'année précédente."
+                              : "Variation en dollars par rapport au montant de l'année précédente."}
+                        </p>
+                      </div>
+
+                      {canReplicateToFollowingYears ? (
+                        <div className="rounded-lg border border-slate-200/80 bg-slate-50/70 p-3">
+                          <div className="flex items-start gap-2.5">
+                            <Checkbox
+                              id="revenue-hypothesis-replicate"
+                              checked={replicateRevenueAdjustmentToFollowingYears}
+                              onCheckedChange={(v) => setReplicateRevenueAdjustmentToFollowingYears(v === true)}
+                              className="mt-0.5"
+                            />
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <Label
+                                htmlFor="revenue-hypothesis-replicate"
+                                className="cursor-pointer text-xs font-medium leading-snug text-slate-800"
+                              >
+                                Appliquer le même ajustement aux années suivantes
+                              </Label>
+                              <p className="text-[11px] leading-relaxed text-slate-500">
+                                Les années {followingYearsLabel} utiliseront le même type, la même valeur et la même
+                                note que pour {yearLabel}.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {/* Colonne 2 : note */}
+                    <div
+                      className={cn(
+                        "flex min-h-0 min-w-0 flex-col gap-1.5 border-t border-slate-200/70 pt-4 lg:border-t-0 lg:border-l lg:border-slate-200/70 lg:pt-0 lg:pl-5",
+                        embedded && "w-full min-w-0"
+                      )}
+                    >
+                      <label htmlFor="revenue-adj-note" className="mb-0 block text-xs font-medium text-slate-600">
+                        Note explicative
+                      </label>
+                      <Textarea
+                        id="revenue-adj-note"
+                        value={adjustmentNote}
+                        onChange={(e) => setAdjustmentNote(e.target.value)}
+                        placeholder="Ex. nouveau contrat, expansion marché…"
+                        className="min-h-[10rem] w-full flex-1 resize-y rounded-lg border-slate-200 bg-white/90 text-sm lg:min-h-[12rem]"
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        Optionnel mais recommandé pour la traçabilité
+                      </p>
+                    </div>
+
+                    {/* Colonne 3 : actions */}
+                    <div
+                      className={cn(
+                        "flex min-w-0 flex-col justify-start gap-2 border-t border-slate-200/70 pt-4 lg:border-t-0 lg:border-l lg:border-slate-200/70 lg:pt-0 lg:pl-5",
+                        embedded && "w-auto shrink-0 justify-self-start lg:items-start"
+                      )}
+                    >
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className={cn(
+                          "h-9 justify-center border-emerald-200/90 text-xs font-medium text-emerald-800 hover:bg-emerald-50 hover:text-emerald-900 disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-transparent",
+                          embedded
+                            ? "h-auto min-h-9 w-auto max-w-[13rem] min-w-0 self-start whitespace-normal px-3 py-2 text-center leading-snug"
+                            : "w-full"
+                        )}
+                        onClick={saveAdjustment}
+                        disabled={parseRevenueHypothesisValueInput(revenueAdjustmentValueInput) === null}
+                      >
+                        {editingAdjustmentId
+                          ? "Enregistrer"
+                          : existingAdjustments.length > 0
+                            ? "Remplacer l'ajustement"
+                            : "Enregistrer l'ajustement"}
+                      </Button>
+                      {existingAdjustments.length > 0 && editingAdjustmentId ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={cn(
+                            "h-9 justify-center border-red-200/90 text-xs font-medium text-red-600 hover:bg-red-50 hover:text-red-700",
+                            embedded
+                              ? "h-9 w-auto self-start px-4"
+                              : "w-full"
+                          )}
+                          onClick={() => setRevenueHypothesisDeleteConfirmOpen(true)}
+                        >
+                          Supprimer
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <AlertDialog open={revenueHypothesisDeleteConfirmOpen} onOpenChange={setRevenueHypothesisDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer l&apos;ajustement ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Vous êtes sur le point de supprimer définitivement l&apos;hypothèse de revenus pour l&apos;année{" "}
+              <span className="font-semibold text-foreground">{yearLabel}</span>. Cette action ne peut pas être annulée.
+              Confirmez seulement si vous souhaitez vraiment continuer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600"
+              onClick={() => {
+                const id = editingAdjustmentId
+                if (!id) return
+                deleteAdjustment(id)
+                setEditingAdjustmentId(null)
+                setRevenueAdjustmentType("amount")
+                setRevenueAdjustmentValue(0)
+                setRevenueAdjustmentValueInput("0")
+                setAdjustmentNote("")
+                setRevenueHypothesisDeleteConfirmOpen(false)
+              }}
+            >
+              Supprimer définitivement
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      </>
+    )
+  }
+
+  const renderExpenseHypothesisPanel = (embedded = false) => {
+    if (title !== "Estimation des dépenses annuelles" || !editingAdjustment || !expenseHypothesisPanelOpen) return null
+    const rowLabel = editingAdjustment.rowId
+      ? data.find((r) => r.rowId === editingAdjustment.rowId)?.label || "Poste"
+      : "Poste"
+    const yearLabels = getYearLabels()
+    const yearIndex =
+      editingAdjustment.yearIndex >= 0 && editingAdjustment.yearIndex < yearLabels.length
+        ? editingAdjustment.yearIndex
+        : 0
+    const yearLabel = yearLabels[yearIndex] || `${yearIndex}`
+    const existingAdjustments = getAdjustments(editingAdjustment.rowId, editingAdjustment.yearIndex)
+
+    return (
+      <div className={cn(embedded ? "w-full" : "flex min-h-0 flex-1 flex-col")}>
+        <div
+          className={cn(
+            "relative flex flex-col border border-slate-200/90",
+            "bg-gradient-to-b from-slate-50 via-white to-slate-50/70",
+            embedded
+              ? "overflow-visible max-w-none rounded-2xl shadow-md"
+              : "min-h-0 flex-1 overflow-hidden rounded-[28px] shadow-[0_24px_80px_-40px_rgba(15,23,42,0.35)]"
+          )}
+        >
+          <div className="pointer-events-none absolute inset-0 rounded-[28px]" aria-hidden>
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_45%_at_50%_-10%,rgba(59,130,246,0.07),transparent_55%)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_55%_50%_at_100%_55%,rgba(148,163,184,0.12),transparent_65%)]" />
+            {!embedded && (
+              <div className="absolute right-3 top-5 hidden max-w-[55%] select-none text-[52px] font-semibold leading-none tracking-tight text-[#2A2F3A]/[0.05] sm:block sm:text-[64px]">
+                hypothèse<span className="text-blue-500/25">.</span>
+              </div>
+            )}
+          </div>
+
+          <div
+            className={cn(
+              "relative z-10 flex flex-col p-4 sm:p-5",
+              embedded ? "" : "min-h-0 flex-1"
+            )}
+          >
+            <div className="flex shrink-0 items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Hypothèse</p>
+                <h3 className="mt-3 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">{rowLabel}</h3>
+                <p className="mt-3 text-xs font-medium leading-relaxed text-blue-800">
+                  Année sélectionnée <span className="text-blue-600/50" aria-hidden>·</span>{" "}
+                  <span className="font-semibold text-blue-900">{yearLabel}</span>
+                </p>
+              </div>
+              {(!analysisPanelNarrow || embedded) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 gap-1.5 border-blue-200/90 text-xs font-medium text-blue-900 hover:bg-blue-50/90"
+                  onClick={returnToExpenseHypothesisRow}
+                >
+                  Fermer
+                </Button>
+              )}
+            </div>
+
+            <div className={cn("mt-5 pr-0.5", !embedded && "min-h-0 flex-1 overflow-y-auto")}>
+              <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-6">
+                {/* Gauche : ajouter / modifier un ajustement */}
+                <div className="min-w-0 flex-1 rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-200/70 pb-3">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        {editingAdjustmentId ? "Modifier l'ajustement" : "Ajouter un ajustement"}
+                      </h3>
+                      {editingAdjustmentId ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditingAdjustmentId(null)
+                            setAdjustmentType("amount")
+                            setAdjustmentAmount(0)
+                            setAdjustmentPercentage(0)
+                            setAdjustmentIsRecurring(false)
+                            setAdjustmentNote("")
+                          }}
+                        >
+                          Annuler
+                        </Button>
+                      ) : null}
+                    </div>
+
+                    {editingAdjustment && getExpenseType(editingAdjustment.rowId) === "variable" && (
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Type d&apos;ajustement</label>
+                        <Select
+                          value={adjustmentType}
+                          onValueChange={(value: "amount" | "percentage") => {
+                            setAdjustmentType(value)
+                            if (value === "amount") {
+                              setAdjustmentAmount(0)
+                            } else {
+                              setAdjustmentPercentage(0)
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="amount">Montant ($)</SelectItem>
+                            <SelectItem value="percentage">Pourcentage des revenus (%)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {adjustmentType === "amount"
+                            ? "Ajustement en montant (positif pour augmenter, négatif pour diminuer)"
+                            : "Modifier le pourcentage de la dépense par rapport aux revenus (ex: 40% → 38%)"}
+                        </p>
+                      </div>
+                    )}
+
+                    {adjustmentType === "amount" ? (
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Montant de l&apos;ajustement ($)
+                        </label>
+                        <Input
+                          type="number"
+                          value={adjustmentAmount}
+                          onChange={(e) => setAdjustmentAmount(parseFloat(e.target.value) || 0)}
+                          placeholder="0"
+                          className="w-full"
+                        />
+                        <p className="mt-1 text-xs text-slate-500">
+                          Montant positif pour augmenter, négatif pour diminuer
+                        </p>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Nouveau pourcentage des revenus (%)
+                        </label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={adjustmentPercentage}
+                          onChange={(e) => setAdjustmentPercentage(parseFloat(e.target.value) || 0)}
+                          placeholder="0.0"
+                          className="w-full"
+                        />
+                        <p className="mt-1 text-xs text-slate-500">
+                          Nouveau pourcentage que représentent ces dépenses par rapport aux revenus (ex: 38 pour 38%)
+                        </p>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Type d&apos;ajustement</label>
+                      <Select
+                        value={adjustmentIsRecurring ? "recurring" : "non-recurring"}
+                        onValueChange={(value) => setAdjustmentIsRecurring(value === "recurring")}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="recurring">Récurrent</SelectItem>
+                          <SelectItem value="non-recurring">Non récurrent</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {adjustmentType === "amount"
+                          ? adjustmentIsRecurring
+                            ? "L'ajustement continuera dans les années suivantes avec l'inflation"
+                            : "L'ajustement s'appliquera uniquement à cette année"
+                          : adjustmentIsRecurring
+                            ? "Le nouveau pourcentage sera utilisé pour toutes les années suivantes"
+                            : "Le nouveau pourcentage s'appliquera uniquement à cette année, puis retour au taux initial"}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Note explicative</label>
+                      <Textarea
+                        value={adjustmentNote}
+                        onChange={(e) => setAdjustmentNote(e.target.value)}
+                        placeholder="Ex: Déménagement vers un bureau plus grand, Location d'entrepôt temporaire, etc."
+                        className="min-h-[80px] w-full"
+                      />
+                      <p className="mt-1 text-xs text-slate-500">Décrivez la raison de cet ajustement</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex flex-col gap-2 border-t border-slate-200/70 pt-4 sm:flex-row sm:justify-end">
+                    <Button
+                      className="w-full sm:w-auto"
+                      onClick={saveAdjustment}
+                      disabled={adjustmentType === "amount" ? adjustmentAmount === 0 : adjustmentPercentage === 0}
+                    >
+                      {editingAdjustmentId ? "Enregistrer les modifications" : "Ajouter l'ajustement"}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Droite : ajustements existants */}
+                <div className="min-w-0 flex-1 rounded-2xl border border-slate-200/90 bg-slate-50/80 p-4 shadow-sm sm:p-5">
+                  <h3 className="border-b border-slate-200/70 pb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Ajustements existants
+                  </h3>
+                  {existingAdjustments.length === 0 ? (
+                    <p className="mt-4 text-sm leading-relaxed text-slate-500">
+                      Aucun ajustement pour cette année.
+                    </p>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      {existingAdjustments.map((adj) => {
+                        const expenseAdj = adj as ExpenseAdjustment
+                        return (
+                          <div key={expenseAdj.id} className="rounded-lg border border-slate-200 bg-white p-4">
+                            <div className="mb-2 flex items-start justify-between">
+                              <div className="min-w-0 flex-1">
+                                <div className="mb-1 flex flex-wrap items-center gap-2">
+                                  <span className="font-semibold text-slate-900">
+                                    {expenseAdj.type === "amount"
+                                      ? formatCurrency(expenseAdj.amount || 0)
+                                      : `${expenseAdj.percentage?.toFixed(1)}%`}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      "rounded px-2 py-0.5 text-xs",
+                                      expenseAdj.type === "amount"
+                                        ? expenseAdj.isRecurring
+                                          ? "bg-purple-100 text-purple-700"
+                                          : "bg-blue-100 text-blue-700"
+                                        : expenseAdj.isRecurring
+                                          ? "bg-green-100 text-green-700"
+                                          : "bg-orange-100 text-orange-700"
+                                    )}
+                                  >
+                                    {expenseAdj.type === "amount"
+                                      ? expenseAdj.isRecurring
+                                        ? "Récurrent"
+                                        : "Non récurrent"
+                                      : expenseAdj.isRecurring
+                                        ? "Récurrent"
+                                        : "Non récurrent"}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      "rounded px-2 py-0.5 text-xs",
+                                      expenseAdj.type === "amount"
+                                        ? "bg-slate-100 text-slate-700"
+                                        : "bg-indigo-100 text-indigo-700"
+                                    )}
+                                  >
+                                    {expenseAdj.type === "amount" ? "Montant ($)" : "Pourcentage (%)"}
+                                  </span>
+                                </div>
+                                {expenseAdj.note ? (
+                                  <p className="mt-1 text-sm text-slate-600">{expenseAdj.note}</p>
+                                ) : null}
+                              </div>
+                              <div className="flex shrink-0 gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openAdjustmentModal(
+                                      editingAdjustment.rowId,
+                                      editingAdjustment.yearIndex,
+                                      expenseAdj.id
+                                    )
+                                  }
+                                  className="rounded p-1.5 transition-colors hover:bg-slate-200"
+                                  title="Modifier"
+                                >
+                                  <Edit2 className="h-4 w-4 text-slate-600" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteAdjustment(expenseAdj.id)}
+                                  className="rounded p-1.5 transition-colors hover:bg-red-100"
+                                  title="Supprimer"
+                                >
+                                  <Trash2 className="h-4 w-4 text-red-600" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={cn("w-full", dashboardCardFrameStaticClass)}>
       <div className={dashboardCardRingClass} aria-hidden />
@@ -3239,11 +4434,7 @@ export function IncomeStatementDetail({
                 )}
               >
                 <TrendingUp className="mr-1.5 h-3.5 w-3.5" />
-                {showGrowthRate
-                  ? "Montants"
-                  : title === "Estimation des revenus annuels"
-                    ? "Croissance"
-                    : "% des revenus"}
+                {showGrowthRate ? "Montants" : "% des revenus"}
               </Button>
             )}
           </div>
@@ -3478,15 +4669,28 @@ export function IncomeStatementDetail({
       </Dialog>
 
 
-      {/* Table + panneaux latéraux (analyse, notes) — défilement horizontal si les deux cartes ne tiennent pas */}
-      <div className="flex flex-col border-t border-slate-200/80 lg:flex-row lg:items-stretch">
-        <div
+      {/* Table : pleine largeur ; hypothèses revenus / dépenses en ligne sous la ligne du poste (pleine largeur colonnes). */}
+      <div ref={expenseHypothesisScrollAnchorRef} className="relative border-t border-slate-200/80">
+        <div className="min-w-0 w-full">
+          <div
+            ref={detailTableHScrollRef}
+            className={cn(
+              "min-w-0 w-full overflow-x-auto",
+              tableUsesHorizontalSlider && "[scrollbar-width:thin]",
+              /* Réserve la largeur du panneau hypothèses (overlay) pour que le scroll horizontal s’active et que la barre / le curseur « Défilement » apparaissent. */
+              hypothesisDesktopAsideOpen && "lg:pr-[min(22rem,38vw)]",
+              hypothesisDesktopAsideOpen && "lg:overflow-x-scroll",
+              isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
+            )}
+          >
+            <div className={cn(tableUsesHorizontalSlider && "w-max min-w-full")}>
+        <table
           className={cn(
-            "min-w-0 flex-1 overflow-x-auto",
-            isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
+            "w-full",
+            showStructureCols && "table-fixed",
+            tableUsesHorizontalSlider && "min-w-max"
           )}
         >
-        <table className={cn("w-full", showStructureCols && "table-fixed")}>
           {showStructureCols && (
             <colgroup>
               <col />
@@ -3512,7 +4716,9 @@ export function IncomeStatementDetail({
                   !showStructureCols &&
                     (view === "12months"
                       ? "min-w-[20rem] sm:min-w-[24rem] lg:min-w-[30rem]"
-                      : "w-2/5"),
+                      : view === "years"
+                        ? "min-w-[20rem]"
+                        : "w-2/5"),
                   showStructureCols && "min-w-0 pl-4 pr-3"
                 )}
               >
@@ -3644,13 +4850,13 @@ export function IncomeStatementDetail({
                 <>
                   {/* Type column for Dépenses section */}
                   {title === "Estimation des dépenses annuelles" && (
-                    <th className="px-4 py-4 text-center font-semibold text-slate-900 text-sm whitespace-nowrap">
+                    <th className="min-w-[6.5rem] px-4 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900">
                       Type
                     </th>
                   )}
                   {/* New column between Type and years for Dépenses section */}
                   {title === "Estimation des dépenses annuelles" && (
-                    <th className="px-4 py-4 text-center font-semibold text-slate-900 text-sm whitespace-nowrap">
+                    <th className="min-w-[6.5rem] px-4 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900">
                       Taux
                     </th>
                   )}
@@ -3658,7 +4864,7 @@ export function IncomeStatementDetail({
                     <th 
                       key={idx} 
                       className={cn(
-                        "px-4 py-4 text-right font-semibold text-sm whitespace-nowrap",
+                        "min-w-[8rem] px-4 py-4 text-right text-sm font-semibold whitespace-nowrap",
                         (forceForecastSection || isForecastSection) && idx === 0 
                           ? "bg-slate-50 text-slate-900" 
                           : "text-slate-900"
@@ -3674,13 +4880,13 @@ export function IncomeStatementDetail({
             {!showStructureCols && title === "Estimation des dépenses annuelles" && view === "years" && (
               <tr className="bg-slate-50 border-b border-slate-200">
                 {/* Label cell */}
-                <th className="px-6 py-2 text-left">
+                <th className="min-w-[20rem] px-6 py-2 text-left">
                   <span className="text-xs font-medium text-slate-700">Taux d'inflation pour les dépenses fixes:</span>
                 </th>
                 {/* Empty cell for "Type" column */}
-                <th className="px-4 py-2"></th>
+                <th className="min-w-[6.5rem] px-4 py-2" aria-hidden />
                 {/* Inflation rate input in "Taux" column */}
-                <th className="px-4 py-2 text-center">
+                <th className="min-w-[6.5rem] px-4 py-2 text-center">
                   <div className="flex items-center justify-center gap-2">
                     <Input
                       type="number"
@@ -3698,7 +4904,7 @@ export function IncomeStatementDetail({
                 </th>
                 {/* Empty cells for year columns */}
                 {getYearLabels().map((_, idx) => (
-                  <th key={idx} className="px-4 py-2"></th>
+                  <th key={idx} className="min-w-[8rem] px-4 py-2" aria-hidden />
                 ))}
               </tr>
             )}
@@ -3726,6 +4932,20 @@ export function IncomeStatementDetail({
                       ? detailFinancialRowForStructure(structEdit.structure[layoutEntry.globalIdx]!)
                       : data[idx]!
                 : data[idx]!
+              /** Panneau hypothèses ouvert : ne garder que la ligne du poste (comme revenus / dépenses). */
+              const hideRowForForecastHypothesisFocus =
+                !showStructureCols &&
+                ((expenseHypothesisInlineActive &&
+                  expenseHypothesisAnchorIdx >= 0 &&
+                  idx !== expenseHypothesisAnchorIdx) ||
+                  (revenueHypothesisInlineActive &&
+                    revenueHypothesisAnchorIdx >= 0 &&
+                    idx !== revenueHypothesisAnchorIdx))
+
+              if (hideRowForForecastHypothesisFocus) {
+                return <Fragment key={`detail-skip-hypothesis-focus-${idx}`} />
+              }
+
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const isSpacer = row.label === "" && !row.isAnnexPlaceholder
@@ -3746,6 +4966,19 @@ export function IncomeStatementDetail({
                 showStructureCols && idx + 1 < detailAnnexStructureTableLayout.length
                   ? detailAnnexStructureTableLayout[idx + 1]
                   : undefined
+              const nextDataRow = !showStructureCols && idx + 1 < detailTableRowCount ? data[idx + 1] : undefined
+              /** Sous-total annexe / total : bordure épaisse — la reporter sous la ligne Croissance (insérée après le poste). */
+              const thickBorderBelongsOnFollowingCroissanceRow =
+                !showStructureCols &&
+                title === "Estimation des revenus annuels" &&
+                view === "years" &&
+                isForecastSection &&
+                Array.isArray(row.trendValues) &&
+                row.trendValues.length > 1 &&
+                !shouldHideAmounts &&
+                !!row.rowId &&
+                !!row.indent &&
+                !!nextDataRow?.isSubtotal
               // Check if next row is a subtotal to add dark border above it
               const nextRowIsSubtotal =
                 idx < detailTableRowCount - 1 &&
@@ -3756,7 +4989,7 @@ export function IncomeStatementDetail({
                       ? detailFinancialRowForStructure(structEdit.structure[nextLayoutEntry.globalIdx]!)
                           .isSubtotal
                       : false
-                  : data[idx + 1]!.isSubtotal)
+                  : data[idx + 1]!.isSubtotal && !thickBorderBelongsOnFollowingCroissanceRow)
               
               // Check if this row can be expanded and if it's expanded
               // If projectionMode is "account", disable expansion for forecast sections (revenus, dépenses, capex, états des résultats pro forma)
@@ -3809,6 +5042,14 @@ export function IncomeStatementDetail({
                     id={row.rowId ? `income-statement-detail-row-${row.rowId}` : undefined}
                     className={cn(
                       "border-b transition-colors duration-150",
+                      expenseHypothesisInlineActive &&
+                        expenseHypothesisAnchorIdx >= 0 &&
+                        idx === expenseHypothesisAnchorIdx &&
+                        "bg-blue-50/35 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.28)]",
+                      revenueHypothesisInlineActive &&
+                        revenueHypothesisAnchorIdx >= 0 &&
+                        idx === revenueHypothesisAnchorIdx &&
+                        "bg-emerald-50/35 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.28)]",
                       showStructureCols
                         ? cn(
                             nextRowIsSubtotal
@@ -3838,7 +5079,9 @@ export function IncomeStatementDetail({
                           ? "py-3.5 pl-4 pr-3"
                           : view === "12months"
                             ? "min-w-[20rem] sm:min-w-[24rem] lg:min-w-[30rem]"
-                            : "",
+                            : view === "years" && !showStructureCols
+                              ? "min-w-[20rem]"
+                              : "",
                         row.isAnnexPlaceholder && !showStructureCols && "py-2",
                         annexSubtotalDarkNumbers
                           ? "font-bold"
@@ -4264,31 +5507,45 @@ export function IncomeStatementDetail({
                     <>
                       {/* Type cell for Dépenses section */}
                       {title === "Estimation des dépenses annuelles" && (
-                        <td className="px-4 py-3 text-center">
+                        <td
+                          className={cn(
+                            "min-w-[6.5rem] px-4 py-3 text-center",
+                            row.rowId && !shouldHideAmounts && !disableRowInteractions && "cursor-pointer hover:bg-slate-50/90"
+                          )}
+                          onClick={() => {
+                            if (!shouldHideAmounts && row.rowId && !disableRowInteractions) {
+                              openTypeRateModal(row.rowId)
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (shouldHideAmounts || !row.rowId || disableRowInteractions) return
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault()
+                              openTypeRateModal(row.rowId)
+                            }
+                          }}
+                          role={row.rowId && !shouldHideAmounts && !disableRowInteractions ? "button" : undefined}
+                          tabIndex={row.rowId && !shouldHideAmounts && !disableRowInteractions ? 0 : undefined}
+                          aria-label={
+                            row.rowId && !shouldHideAmounts && !disableRowInteractions
+                              ? "Modifier le type et le taux pour ce poste"
+                              : undefined
+                          }
+                        >
                           {shouldHideAmounts ? (
                             "-"
                           ) : row.rowId ? (
-                            <div className="flex items-center justify-center gap-2">
-                              <span className={cn(
-                                "text-xs font-medium px-2 py-1 rounded",
-                                getExpenseType(row.rowId) === "variable" 
-                                  ? "text-blue-600 bg-blue-50" 
-                                  : "text-purple-600 bg-purple-50"
-                              )}>
+                            <div className="flex items-center justify-center">
+                              <span
+                                className={cn(
+                                  "rounded px-2 py-1 text-xs font-medium",
+                                  getExpenseType(row.rowId) === "variable"
+                                    ? "bg-blue-50 text-blue-600"
+                                    : "bg-purple-50 text-purple-600"
+                                )}
+                              >
                                 {getExpenseType(row.rowId) === "variable" ? "Variable" : "Fixe"}
                               </span>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  if (row.rowId) {
-                                    openTypeRateModal(row.rowId)
-                                  }
-                                }}
-                                className="p-1 rounded hover:bg-slate-200 transition-colors"
-                                title="Modifier le Type et le Taux"
-                              >
-                                <Settings className="w-3.5 h-3.5 text-slate-600" />
-                              </button>
                             </div>
                           ) : (
                             "-"
@@ -4297,7 +5554,7 @@ export function IncomeStatementDetail({
                       )}
                       {/* Taux column cell for Dépenses section */}
                       {title === "Estimation des dépenses annuelles" && view === "years" && (
-                        <td className="px-4 py-3 text-center text-slate-700">
+                        <td className="min-w-[6.5rem] px-4 py-3 text-center text-slate-700">
                           {row.rowId && !shouldHideAmounts ? (
                             <div className="flex items-center justify-center">
                               {getExpenseType(row.rowId) === "variable" ? (
@@ -4316,6 +5573,14 @@ export function IncomeStatementDetail({
                         </td>
                       )}
                       {row.trendValues.map((value, valueIdx) => {
+                        const annexLetterNorm = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+                        const annexForecastTotalsForRow =
+                          title === "Estimation des revenus annuels" &&
+                          isForecastSection &&
+                          row.isAnnexSubtotal &&
+                          annexLetterNorm
+                            ? revenueAnnexForecastYearTotalsByLetter?.get(annexLetterNorm)
+                            : undefined
                         // Get the actual value (edited or default) for forecast sections
                         const actualValue = isForecastSection && row.rowId 
                           ? getRevenueValue(row.rowId, valueIdx, value, undefined, row.trendValues)
@@ -4323,20 +5588,50 @@ export function IncomeStatementDetail({
                         const effectiveValue =
                           isRevenusHeaderRow && revenueHeaderYearTotals
                             ? (revenueHeaderYearTotals[valueIdx] ?? 0)
-                            : actualValue
+                            : annexForecastTotalsForRow
+                              ? (annexForecastTotalsForRow[valueIdx] ?? 0)
+                              : actualValue
                         
                         // Check if this cell is editable (forecast section, not first year, has rowId)
                         // For "Estimation des dépenses annuelles", "Estimation des revenus annuels", and "États des résultats pro forma", cells are not directly editable (only via adjustments)
                         const isEditable = isForecastSection && valueIdx > 0 && row.rowId && !shouldHideAmounts && title !== "Estimation des dépenses annuelles" && title !== "Estimation des revenus annuels" && title !== "États des résultats pro forma"
                         const cellKey = row.rowId ? `${row.rowId}-${valueIdx}` : null
                         const isEditing = isEditable && editingCell === cellKey
-                        
+                        const isRevenueProjectionCell =
+                          title === "Estimation des revenus annuels" &&
+                          valueIdx > 0 &&
+                          !!row.rowId &&
+                          !shouldHideAmounts &&
+                          !row.isAnnexTitle &&
+                          !row.isAnnexSubtotal &&
+                          !row.isAnnexPlaceholder
+                        const isRevenueHypothesisSelected =
+                          revenueHypothesisPanelOpen &&
+                          editingAdjustment?.rowId === row.rowId &&
+                          editingAdjustment?.yearIndex === valueIdx
+                        const isExpenseProjectionCell =
+                          title === "Estimation des dépenses annuelles" &&
+                          valueIdx > 0 &&
+                          !!row.rowId &&
+                          !shouldHideAmounts &&
+                          !row.isAnnexTitle &&
+                          !row.isAnnexSubtotal &&
+                          !row.isAnnexPlaceholder &&
+                          projectionMode === "account"
+                        const isExpenseHypothesisSelected =
+                          expenseHypothesisPanelOpen &&
+                          editingAdjustment?.rowId === row.rowId &&
+                          editingAdjustment?.yearIndex === valueIdx
+
                         // Get previous value for growth calculation
-                        const previousValue = valueIdx > 0 && row.trendValues 
-                          ? (isForecastSection && row.rowId 
-                              ? getRevenueValue(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1], undefined, row.trendValues)
-                              : row.trendValues[valueIdx - 1])
-                          : null
+                        const previousValue =
+                          valueIdx > 0 && annexForecastTotalsForRow
+                            ? (annexForecastTotalsForRow[valueIdx - 1] ?? 0)
+                            : valueIdx > 0 && row.trendValues
+                              ? isForecastSection && row.rowId
+                                ? getRevenueValue(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1], undefined, row.trendValues)
+                                : row.trendValues[valueIdx - 1]
+                              : null
                         
                         // Calculate growth rate if showGrowthRate is true and not first year
                         let displayValue: string | number = effectiveValue
@@ -4356,7 +5651,7 @@ export function IncomeStatementDetail({
                           <td
                             key={valueIdx}
                             className={cn(
-                              "px-4 py-3 text-right",
+                              "min-w-[8rem] px-4 py-3 text-right",
                               row.isBold ? "font-semibold font-bold" : "text-slate-500",
                               shouldHideAmounts ? "text-white" : "",
                               (forceForecastSection || isForecastSection) && valueIdx === 0 ? "bg-slate-50" : "",
@@ -4364,11 +5659,29 @@ export function IncomeStatementDetail({
                               showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && title === "Estimation des revenus annuels" ? "text-slate-900" : "",
                               showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate >= 0 && title !== "Estimation des revenus annuels" ? "text-emerald-600 font-semibold" : "",
                               showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate < 0 && title !== "Estimation des revenus annuels" ? "text-red-600 font-semibold" : "",
-                              annexSubtotalDarkNumbers && "text-slate-900"
+                              annexSubtotalDarkNumbers && "text-slate-900",
+                              isRevenueHypothesisSelected &&
+                                "z-[1] bg-emerald-50/40 shadow-[inset_0_0_0_2px_rgb(16,185,129)]",
+                              isExpenseHypothesisSelected &&
+                                "z-[1] bg-blue-50/50 shadow-[inset_0_0_0_2px_rgb(59,130,246)]",
+                              isRevenueProjectionCell && !isEditing && "cursor-pointer hover:bg-slate-50/90",
+                              isExpenseProjectionCell && !isEditing && "cursor-pointer hover:bg-slate-50/90"
                             )}
                             onClick={() => {
-                              // Only allow editing if not in "Estimation des dépenses annuelles" or "États des résultats pro forma"
-                              if (isEditable && !isEditing && title !== "Estimation des dépenses annuelles" && title !== "États des résultats pro forma") {
+                              if (isRevenueProjectionCell && row.rowId) {
+                                openAdjustmentModal(row.rowId, valueIdx)
+                                return
+                              }
+                              if (isExpenseProjectionCell && row.rowId) {
+                                openAdjustmentModal(row.rowId, valueIdx)
+                                return
+                              }
+                              if (
+                                isEditable &&
+                                !isEditing &&
+                                title !== "Estimation des dépenses annuelles" &&
+                                title !== "États des résultats pro forma"
+                              ) {
                                 setEditingCell(cellKey!)
                               }
                             }}
@@ -4433,43 +5746,6 @@ export function IncomeStatementDetail({
                                           })()
                                         : (effectiveValue !== 0 ? formatCurrency(effectiveValue) : "-")}
                                 </div>
-                                {((title === "Estimation des dépenses annuelles" || title === "Estimation des revenus annuels") && valueIdx > 0 && row.rowId && !shouldHideAmounts) && (
-                                  // Only show adjustment button for account-level rows if projectionMode is "account"
-                                  // Only show adjustment button for GL-level rows if projectionMode is "gl"
-                                  // For now, we only show adjustments for account-level rows (balance accounts will be handled separately)
-                                  projectionMode === "account" && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation()
-                                        if (row.rowId) {
-                                          openAdjustmentModal(row.rowId, valueIdx)
-                                        }
-                                      }}
-                                      className={cn(
-                                        "p-1 rounded hover:bg-slate-200 transition-colors relative",
-                                        title === "Estimation des dépenses annuelles" 
-                                          ? (getAdjustments(row.rowId || "", valueIdx).length > 0 && "text-blue-600")
-                                          : (getRevenueAdjustments(row.rowId || "", valueIdx).length > 0 && "text-blue-600")
-                                      )}
-                                      title={title === "Estimation des dépenses annuelles"
-                                        ? `Ajustements (${getAdjustments(row.rowId || "", valueIdx).length})`
-                                        : `Ajustements (${getRevenueAdjustments(row.rowId || "", valueIdx).length})`}
-                                    >
-                                      <Settings className="w-3.5 h-3.5" />
-                                      {title === "Estimation des dépenses annuelles" 
-                                        ? (getAdjustments(row.rowId || "", valueIdx).length > 0 && (
-                                            <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
-                                              {getAdjustments(row.rowId || "", valueIdx).length}
-                                            </span>
-                                          ))
-                                        : (getRevenueAdjustments(row.rowId || "", valueIdx).length > 0 && (
-                                            <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
-                                              {getRevenueAdjustments(row.rowId || "", valueIdx).length}
-                                            </span>
-                                          ))}
-                                    </button>
-                                  )
-                                )}
                               </div>
                             )}
                           </td>
@@ -4482,16 +5758,17 @@ export function IncomeStatementDetail({
                     <>
                       {/* Empty type cell for Dépenses section */}
                       {title === "Estimation des dépenses annuelles" && view === "years" && (
-                        <td className="px-4 py-3 text-center text-white">-</td>
+                        <td className="min-w-[6.5rem] px-4 py-3 text-center text-white">-</td>
                       )}
                       {/* Empty new column cell for Dépenses section */}
                       {title === "Estimation des dépenses annuelles" && view === "years" && (
-                        <td className="px-4 py-3 text-center text-white">-</td>
+                        <td className="min-w-[6.5rem] px-4 py-3 text-center text-white">-</td>
                       )}
                       {Array.from({ length: view === "12months" ? 12 : view === "quarters" ? 5 : (isForecastSection && view === "years" ? projectionYears + 1 : 6) }).map((_, idx) => (
                         <td 
                           key={idx} 
                           className={cn(
+                            view === "years" && "min-w-[8rem]",
                             "px-4 py-3 text-right text-sm text-slate-400",
                             (forceForecastSection || isForecastSection) && view === "years" && idx === 0 ? "bg-slate-50" : ""
                           )}
@@ -4511,12 +5788,23 @@ export function IncomeStatementDetail({
                       const isRevenusHeader = normLabel(String(row.label ?? "")) === "revenus"
                       const isRevenuePost =
                         !shouldHideAmounts && !!row.rowId && !!row.indent
-                      return isRevenusHeader || isRevenuePost
+                      const annexL = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+                      const isAnnexSubtotalGrowthRow =
+                        isForecastSection &&
+                        !!row.isAnnexSubtotal &&
+                        !!annexL &&
+                        !!revenueAnnexForecastYearTotalsByLetter?.has(annexL)
+                      return isRevenusHeader || isRevenuePost || isAnnexSubtotalGrowthRow
                     })() && (
-                      <tr className="border-b border-slate-200 bg-slate-50/60">
+                      <tr
+                        className={cn(
+                          "border-b border-slate-200 bg-slate-50/60",
+                          thickBorderBelongsOnFollowingCroissanceRow && "border-slate-900 border-b-2"
+                        )}
+                      >
                         <td
                           className={cn(
-                            "px-6 py-2 text-slate-600",
+                            "min-w-[20rem] px-6 py-2 text-slate-600",
                             normLabel(String(row.label ?? "")) === "revenus" ? "pl-6" : "pl-16"
                           )}
                         >
@@ -4524,15 +5812,24 @@ export function IncomeStatementDetail({
                         </td>
                         {row.trendValues.map((raw, valueIdx) => {
                           const isRevenusHeader = normLabel(String(row.label ?? "")) === "revenus"
+                          const annexL = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+                          const annexSubGrowthTotals =
+                            row.isAnnexSubtotal && annexL
+                              ? revenueAnnexForecastYearTotalsByLetter?.get(annexL)
+                              : undefined
                           const v = isRevenusHeader && revenueHeaderYearTotals
                             ? (revenueHeaderYearTotals[valueIdx] ?? 0)
-                            : (isForecastSection && row.rowId ? getRevenueValue(row.rowId, valueIdx, raw, undefined, row.trendValues) : raw)
+                            : annexSubGrowthTotals
+                              ? (annexSubGrowthTotals[valueIdx] ?? 0)
+                              : isForecastSection && row.rowId
+                                ? getRevenueValue(row.rowId, valueIdx, raw, undefined, row.trendValues)
+                                : raw
                           if (valueIdx === 0) {
                             return (
                               <td
                                 key={valueIdx}
                                 className={cn(
-                                  "px-4 py-2 text-right text-[12px] italic text-slate-400",
+                                  "min-w-[8rem] px-4 py-2 text-right text-[12px] italic text-slate-400",
                                   (forceForecastSection || isForecastSection) && valueIdx === 0 ? "bg-slate-50" : ""
                                 )}
                               >
@@ -4543,9 +5840,11 @@ export function IncomeStatementDetail({
                           const prevRaw = row.trendValues?.[valueIdx - 1] ?? 0
                           const prev = isRevenusHeader && revenueHeaderYearTotals
                             ? (revenueHeaderYearTotals[valueIdx - 1] ?? 0)
-                            : (isForecastSection && row.rowId
-                              ? getRevenueValue(row.rowId, valueIdx - 1, prevRaw, undefined, row.trendValues)
-                              : prevRaw)
+                            : annexSubGrowthTotals
+                              ? (annexSubGrowthTotals[valueIdx - 1] ?? 0)
+                              : isForecastSection && row.rowId
+                                ? getRevenueValue(row.rowId, valueIdx - 1, prevRaw, undefined, row.trendValues)
+                                : prevRaw
                           const growth =
                             prev !== 0 ? calculateVariation(v ?? 0, prev ?? 0) : null
                           const display =
@@ -4554,7 +5853,7 @@ export function IncomeStatementDetail({
                             <td
                               key={valueIdx}
                               className={cn(
-                                "px-4 py-2 text-right text-[12px] italic",
+                                "min-w-[8rem] px-4 py-2 text-right text-[12px] italic",
                                 (forceForecastSection || isForecastSection) && valueIdx === 0 ? "bg-slate-50" : "",
                                 growth === null ? "text-slate-400" : growth >= 0 ? "text-emerald-700" : "text-red-700"
                               )}
@@ -4563,6 +5862,42 @@ export function IncomeStatementDetail({
                             </td>
                           )
                         })}
+                      </tr>
+                    )}
+                  {revenueHypothesisInlineActive &&
+                    revenueHypothesisAnchorIdx === idx &&
+                    revenueHypothesisAnchorIdx >= 0 &&
+                    editingAdjustment && (
+                      <tr
+                        key={`revenue-hypothesis-inline-${editingAdjustment.rowId}-${editingAdjustment.yearIndex}`}
+                        className="border-b-2 border-emerald-200/90 bg-slate-50/95"
+                      >
+                        <td
+                          colSpan={1 + getYearLabels().length}
+                          className="p-0 align-top"
+                        >
+                          <div className="w-full px-2 pb-4 pt-1 sm:px-4 sm:pb-5 sm:pt-2">
+                            {renderRevenueHypothesisPanel(true)}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  {expenseHypothesisInlineActive &&
+                    expenseHypothesisAnchorIdx === idx &&
+                    expenseHypothesisAnchorIdx >= 0 &&
+                    editingAdjustment && (
+                      <tr
+                        key={`expense-hypothesis-inline-${editingAdjustment.rowId}-${editingAdjustment.yearIndex}`}
+                        className="border-b-2 border-blue-200/90 bg-slate-50/95"
+                      >
+                        <td
+                          colSpan={3 + getYearLabels().length}
+                          className="p-0 align-top"
+                        >
+                          <div className="w-full px-2 pb-4 pt-1 sm:px-4 sm:pb-5 sm:pt-2">
+                            {renderExpenseHypothesisPanel(true)}
+                          </div>
+                        </td>
                       </tr>
                     )}
                   {/* Expanded balance accounts */}
@@ -4868,7 +6203,7 @@ export function IncomeStatementDetail({
                                     <td 
                                       key={valueIdx} 
                                       className={cn(
-                                        "px-4 py-2 text-right font-semibold text-sm",
+                                        "min-w-[8rem] px-4 py-2 text-right text-sm font-semibold",
                                         isForecastSection && valueIdx === 0 ? "bg-slate-50 text-slate-700" : "text-slate-700",
                                         showGrowthRate && isForecastSection && valueIdx > 0 && typeof displayValue === "string" && displayValue.includes("%") && title === "Estimation des revenus annuels" ? "text-slate-900" : "",
                                         showGrowthRate && isForecastSection && valueIdx > 0 && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate >= 0 && title !== "Estimation des revenus annuels" ? "text-emerald-600 font-semibold" : "",
@@ -4919,6 +6254,39 @@ export function IncomeStatementDetail({
             })}
           </tbody>
         </table>
+            </div>
+          </div>
+          {tableUsesHorizontalSlider &&
+            title !== "Estimation des dépenses annuelles" &&
+            (() => {
+              void detailTableHScrollNonce
+              const el = detailTableHScrollRef.current
+              const max = el ? Math.max(0, el.scrollWidth - el.clientWidth) : 0
+              if (!el || max <= 0) return null
+              return (
+                <div
+                  className={cn(
+                    "relative z-30 flex items-center gap-3 border-t border-slate-200/90 bg-slate-50/95 px-3 py-2",
+                    hypothesisDesktopAsideOpen && "lg:mr-[min(22rem,38vw)]"
+                  )}
+                >
+                  <span className="shrink-0 text-xs font-medium text-slate-500">Défilement</span>
+                  <input
+                    type="range"
+                    className="h-2 w-full min-w-0 cursor-pointer accent-emerald-600"
+                    min={0}
+                    max={max}
+                    step={1}
+                    value={el.scrollLeft}
+                    aria-label="Défilement horizontal du tableau"
+                    onChange={(e) => {
+                      el.scrollLeft = Number(e.target.value)
+                      setDetailTableHScrollNonce((n) => n + 1)
+                    }}
+                  />
+                </div>
+              )
+            })()}
         </div>
 
       </div>
@@ -4969,6 +6337,7 @@ export function IncomeStatementDetail({
                 if (editingTypeRateRowId) {
                   setTempExpenseType(getExpenseType(editingTypeRateRowId))
                   setTempVariableRate(getVariableRate(editingTypeRateRowId))
+                  setTempVariableExpenseRevenueLink(variableExpenseRevenueLink[editingTypeRateRowId] ?? "__default__")
                   const hasSpecificRate = specificInflationRates[editingTypeRateRowId] !== undefined
                   setTempSpecificInflationRate(hasSpecificRate ? specificInflationRates[editingTypeRateRowId] : null)
                 }
@@ -5003,29 +6372,53 @@ export function IncomeStatementDetail({
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-slate-500 mt-1">
-                    {tempExpenseType === "variable" 
-                      ? "Les dépenses variables sont calculées en pourcentage des revenus"
+                    {tempExpenseType === "variable"
+                      ? "Pourcentage appliqué au poste de revenus choisi ci-dessous (ou au total estimé)."
                       : "Les dépenses fixes évoluent selon un taux d'inflation (spécifique ou global)"}
                   </p>
                 </div>
                 
                 {tempExpenseType === "variable" && (
-                  <div>
-                    <label className="text-sm font-medium text-slate-700 mb-2 block">
-                      Dépenses en % des revenus
-                    </label>
-                    <Input
-                      type="number"
-                      step="0.1"
-                      value={tempVariableRate}
-                      onChange={(e) => setTempVariableRate(parseFloat(e.target.value) || 0)}
-                      placeholder="0.0"
-                      className="w-full"
-                    />
-                    <p className="text-xs text-slate-500 mt-1">
-                      Pourcentage des revenus que représentent ces dépenses variables
-                    </p>
-                  </div>
+                  <>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Revenus</label>
+                      <Select
+                        value={tempVariableExpenseRevenueLink}
+                        onValueChange={setTempVariableExpenseRevenueLink}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Choisir un poste de revenus" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {variableExpenseRevenueSelectOptions.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Même périmètre que la vue « Estimation des revenus annuels » (postes détail annexes ou ligne
+                        Revenus).
+                      </p>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-slate-700 mb-2 block">
+                        Dépenses en % des revenus
+                      </label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={tempVariableRate}
+                        onChange={(e) => setTempVariableRate(parseFloat(e.target.value) || 0)}
+                        placeholder="0.0"
+                        className="w-full"
+                      />
+                      <p className="text-xs text-slate-500 mt-1">
+                        Pourcentage du montant du poste de revenus sélectionné (ou du total)
+                      </p>
+                    </div>
+                  </>
                 )}
                 
                 {tempExpenseType === "fixe" && (
@@ -5081,6 +6474,7 @@ export function IncomeStatementDetail({
                     if (editingTypeRateRowId) {
                       setTempExpenseType(getExpenseType(editingTypeRateRowId))
                       setTempVariableRate(getVariableRate(editingTypeRateRowId))
+                      setTempVariableExpenseRevenueLink(variableExpenseRevenueLink[editingTypeRateRowId] ?? "__default__")
                       const hasSpecificRate = specificInflationRates[editingTypeRateRowId] !== undefined
                       setTempSpecificInflationRate(hasSpecificRate ? specificInflationRates[editingTypeRateRowId] : null)
                     }
@@ -5101,363 +6495,6 @@ export function IncomeStatementDetail({
         )
       })()}
 
-      {/* Adjustment Modal */}
-      {(title === "Estimation des dépenses annuelles" || title === "Estimation des revenus annuels") && editingAdjustment && (() => {
-        const rowLabel = editingAdjustment.rowId ? (data.find(r => r.rowId === editingAdjustment.rowId)?.label || "Poste") : "Poste"
-        const yearLabels = getYearLabels()
-        const yearIndex = editingAdjustment.yearIndex >= 0 && editingAdjustment.yearIndex < yearLabels.length 
-          ? editingAdjustment.yearIndex 
-          : 0
-        const yearLabel = yearLabels[yearIndex] || `${yearIndex}`
-        const existingAdjustments = title === "Estimation des revenus annuels"
-          ? getRevenueAdjustments(editingAdjustment.rowId, editingAdjustment.yearIndex)
-          : getAdjustments(editingAdjustment.rowId, editingAdjustment.yearIndex)
-        
-        return (
-          <Dialog open={adjustmentModalOpen} onOpenChange={setAdjustmentModalOpen}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Ajustements pour {rowLabel}</DialogTitle>
-                <DialogDescription>
-                  Année: {yearLabel}
-                </DialogDescription>
-              </DialogHeader>
-              
-              {/* List of existing adjustments */}
-              {existingAdjustments.length > 0 && (
-                <div className="space-y-3 py-4 border-b border-slate-200">
-                  <h3 className="text-sm font-semibold text-slate-700">Ajustements existants</h3>
-                  {existingAdjustments.map((adj) => {
-                    if (title === "Estimation des revenus annuels") {
-                      const revenueAdj = adj as RevenueAdjustment
-                      return (
-                        <div key={revenueAdj.id} className="bg-slate-50 rounded-lg p-4 border border-slate-200">
-                          <div className="flex items-start justify-between mb-2">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-semibold text-slate-900">
-                                  {revenueAdj.type === "amount" 
-                                    ? formatCurrency(revenueAdj.value)
-                                    : revenueAdj.type === "growthPercent"
-                                    ? `${revenueAdj.value >= 0 ? "+" : ""}${revenueAdj.value.toFixed(1)}%`
-                                    : formatCurrency(revenueAdj.value)}
-                                </span>
-                                <span className={cn(
-                                  "text-xs px-2 py-0.5 rounded",
-                                  revenueAdj.type === "amount" ? "bg-blue-100 text-blue-700"
-                                  : revenueAdj.type === "growthPercent" ? "bg-green-100 text-green-700"
-                                  : "bg-purple-100 text-purple-700"
-                                )}>
-                                  {revenueAdj.type === "amount" ? "Montant annuel"
-                                  : revenueAdj.type === "growthPercent" ? "Croissance %"
-                                  : "Croissance $"}
-                                </span>
-                              </div>
-                              {revenueAdj.note && (
-                                <p className="text-sm text-slate-600 mt-1">{revenueAdj.note}</p>
-                              )}
-                            </div>
-                            <div className="flex gap-1">
-                              <button
-                                onClick={() => openAdjustmentModal(editingAdjustment.rowId, editingAdjustment.yearIndex, revenueAdj.id)}
-                                className="p-1.5 hover:bg-slate-200 rounded transition-colors"
-                                title="Modifier"
-                              >
-                                <Edit2 className="w-4 h-4 text-slate-600" />
-                              </button>
-                              <button
-                                onClick={() => deleteAdjustment(revenueAdj.id)}
-                                className="p-1.5 hover:bg-red-100 rounded transition-colors"
-                                title="Supprimer"
-                              >
-                                <Trash2 className="w-4 h-4 text-red-600" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    } else {
-                      const expenseAdj = adj as ExpenseAdjustment
-                      return (
-                        <div key={expenseAdj.id} className="bg-slate-50 rounded-lg p-4 border border-slate-200">
-                          <div className="flex items-start justify-between mb-2">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className="font-semibold text-slate-900">
-                                  {expenseAdj.type === "amount" 
-                                    ? formatCurrency(expenseAdj.amount || 0)
-                                    : `${expenseAdj.percentage?.toFixed(1)}%`}
-                                </span>
-                                <span className={cn(
-                                  "text-xs px-2 py-0.5 rounded",
-                                  expenseAdj.type === "amount" 
-                                    ? (expenseAdj.isRecurring ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700")
-                                    : (expenseAdj.isRecurring ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700")
-                                )}>
-                                  {expenseAdj.type === "amount" 
-                                    ? (expenseAdj.isRecurring ? "Récurrent" : "Non récurrent")
-                                    : (expenseAdj.isRecurring ? "Récurrent" : "Non récurrent")}
-                                </span>
-                                <span className={cn(
-                                  "text-xs px-2 py-0.5 rounded",
-                                  expenseAdj.type === "amount" ? "bg-slate-100 text-slate-700" : "bg-indigo-100 text-indigo-700"
-                                )}>
-                                  {expenseAdj.type === "amount" ? "Montant ($)" : "Pourcentage (%)"}
-                                </span>
-                              </div>
-                              {expenseAdj.note && (
-                                <p className="text-sm text-slate-600 mt-1">{expenseAdj.note}</p>
-                              )}
-                            </div>
-                            <div className="flex gap-1">
-                              <button
-                                onClick={() => openAdjustmentModal(editingAdjustment.rowId, editingAdjustment.yearIndex, expenseAdj.id)}
-                                className="p-1.5 hover:bg-slate-200 rounded transition-colors"
-                                title="Modifier"
-                              >
-                                <Edit2 className="w-4 h-4 text-slate-600" />
-                              </button>
-                              <button
-                                onClick={() => deleteAdjustment(expenseAdj.id)}
-                                className="p-1.5 hover:bg-red-100 rounded transition-colors"
-                                title="Supprimer"
-                              >
-                                <Trash2 className="w-4 h-4 text-red-600" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    }
-                  })}
-                </div>
-              )}
-              
-              {/* Form to add/edit adjustment */}
-              <div className="space-y-4 py-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-700">
-                    {editingAdjustmentId ? "Modifier l'ajustement" : "Ajouter un ajustement"}
-                  </h3>
-                  {editingAdjustmentId && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setEditingAdjustmentId(null)
-                        if (title === "Estimation des revenus annuels") {
-                          setRevenueAdjustmentType("amount")
-                          setRevenueAdjustmentValue(0)
-                        } else {
-                          setAdjustmentType("amount")
-                          setAdjustmentAmount(0)
-                          setAdjustmentPercentage(0)
-                          setAdjustmentIsRecurring(false)
-                        }
-                        setAdjustmentNote("")
-                      }}
-                    >
-                      Annuler
-                    </Button>
-                  )}
-                </div>
-                
-                {title === "Estimation des revenus annuels" ? (
-                  <>
-                    <div>
-                      <label className="text-sm font-medium text-slate-700 mb-2 block">
-                        Type d'ajustement
-                      </label>
-                      <Select
-                        value={revenueAdjustmentType}
-                        onValueChange={(value: "amount" | "growthPercent" | "growthAmount") => setRevenueAdjustmentType(value)}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="amount">Montant annuel</SelectItem>
-                          <SelectItem value="growthPercent">Croissance en %</SelectItem>
-                          <SelectItem value="growthAmount">Croissance en $</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div>
-                      <label className="text-sm font-medium text-slate-700 mb-2 block">
-                        {revenueAdjustmentType === "amount" 
-                          ? "Montant annuel ($)"
-                          : revenueAdjustmentType === "growthPercent"
-                          ? "Croissance (%)"
-                          : "Croissance ($)"}
-                      </label>
-                      <Input
-                        type="number"
-                        value={revenueAdjustmentValue}
-                        onChange={(e) => setRevenueAdjustmentValue(parseFloat(e.target.value) || 0)}
-                        placeholder="0"
-                        className="w-full"
-                      />
-                      <p className="text-xs text-slate-500 mt-1">
-                        {revenueAdjustmentType === "amount"
-                          ? "Montant annuel souhaité pour cette année"
-                          : revenueAdjustmentType === "growthPercent"
-                          ? "Pourcentage de croissance par rapport à l'année précédente"
-                          : "Montant de croissance en dollars par rapport à l'année précédente"}
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    {/* Check if this is a variable expense to show percentage option */}
-                    {editingAdjustment && getExpenseType(editingAdjustment.rowId) === "variable" && (
-                      <div>
-                        <label className="text-sm font-medium text-slate-700 mb-2 block">
-                          Type d'ajustement
-                        </label>
-                        <Select
-                          value={adjustmentType}
-                          onValueChange={(value: "amount" | "percentage") => {
-                            setAdjustmentType(value)
-                            if (value === "amount") {
-                              setAdjustmentAmount(0)
-                            } else {
-                              setAdjustmentPercentage(0)
-                            }
-                          }}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="amount">Montant ($)</SelectItem>
-                            <SelectItem value="percentage">Pourcentage des revenus (%)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-slate-500 mt-1">
-                          {adjustmentType === "amount"
-                            ? "Ajustement en montant (positif pour augmenter, négatif pour diminuer)"
-                            : "Modifier le pourcentage de la dépense par rapport aux revenus (ex: 40% → 38%)"}
-                        </p>
-                      </div>
-                    )}
-                    
-                    {adjustmentType === "amount" ? (
-                      <div>
-                        <label className="text-sm font-medium text-slate-700 mb-2 block">
-                          Montant de l'ajustement ($)
-                        </label>
-                        <Input
-                          type="number"
-                          value={adjustmentAmount}
-                          onChange={(e) => setAdjustmentAmount(parseFloat(e.target.value) || 0)}
-                          placeholder="0"
-                          className="w-full"
-                        />
-                        <p className="text-xs text-slate-500 mt-1">
-                          Montant positif pour augmenter, négatif pour diminuer
-                        </p>
-                      </div>
-                    ) : (
-                      <div>
-                        <label className="text-sm font-medium text-slate-700 mb-2 block">
-                          Nouveau pourcentage des revenus (%)
-                        </label>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          value={adjustmentPercentage}
-                          onChange={(e) => setAdjustmentPercentage(parseFloat(e.target.value) || 0)}
-                          placeholder="0.0"
-                          className="w-full"
-                        />
-                        <p className="text-xs text-slate-500 mt-1">
-                          Nouveau pourcentage que représentent ces dépenses par rapport aux revenus (ex: 38 pour 38%)
-                        </p>
-                      </div>
-                    )}
-                    
-                    <div>
-                      <label className="text-sm font-medium text-slate-700 mb-2 block">
-                        Type d'ajustement
-                      </label>
-                      <Select
-                        value={adjustmentIsRecurring ? "recurring" : "non-recurring"}
-                        onValueChange={(value) => setAdjustmentIsRecurring(value === "recurring")}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="recurring">Récurrent</SelectItem>
-                          <SelectItem value="non-recurring">Non récurrent</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-slate-500 mt-1">
-                        {adjustmentType === "amount" 
-                          ? (adjustmentIsRecurring 
-                              ? "L'ajustement continuera dans les années suivantes avec l'inflation"
-                              : "L'ajustement s'appliquera uniquement à cette année")
-                          : (adjustmentIsRecurring
-                              ? "Le nouveau pourcentage sera utilisé pour toutes les années suivantes"
-                              : "Le nouveau pourcentage s'appliquera uniquement à cette année, puis retour au taux initial")}
-                      </p>
-                    </div>
-                  </>
-                )}
-                
-                <div>
-                  <label className="text-sm font-medium text-slate-700 mb-2 block">
-                    Note explicative
-                  </label>
-                  <Textarea
-                    value={adjustmentNote}
-                    onChange={(e) => setAdjustmentNote(e.target.value)}
-                    placeholder={title === "Estimation des revenus annuels"
-                      ? "Ex: Nouveau contrat client majeur, Expansion dans un nouveau marché, etc."
-                      : "Ex: Déménagement vers un bureau plus grand, Location d'entrepôt temporaire, etc."}
-                    className="w-full min-h-[80px]"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">
-                    Décrivez la raison de cet ajustement
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex justify-end gap-2 pt-4 border-t border-slate-200">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setAdjustmentModalOpen(false)
-                    setEditingAdjustment(null)
-                    setEditingAdjustmentId(null)
-                    if (title === "Estimation des revenus annuels") {
-                      setRevenueAdjustmentType("amount")
-                      setRevenueAdjustmentValue(0)
-                    } else {
-                      setAdjustmentType("amount")
-                      setAdjustmentAmount(0)
-                      setAdjustmentPercentage(0)
-                      setAdjustmentIsRecurring(false)
-                    }
-                    setAdjustmentNote("")
-                  }}
-                >
-                  Fermer
-                </Button>
-                <Button
-                  onClick={saveAdjustment}
-                  disabled={title === "Estimation des revenus annuels" 
-                    ? revenueAdjustmentValue === 0
-                    : (adjustmentType === "amount" ? adjustmentAmount === 0 : adjustmentPercentage === 0)}
-                >
-                  {editingAdjustmentId ? "Enregistrer les modifications" : "Ajouter l'ajustement"}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
-        )
-      })()}
       </div>
     </div>
   )
