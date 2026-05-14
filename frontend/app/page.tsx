@@ -1,3 +1,4 @@
+import type { Metadata } from "next"
 import { LandingHashScroll } from "@/components/landing-hash-scroll"
 import { GlassmorphismNav } from "@/components/glassmorphism-nav"
 import { HeroSection } from "@/components/hero-section"
@@ -11,6 +12,10 @@ import { PostFeaturesSection } from "@/components/post-features-section"
 import { DemoBookingSection } from "@/components/demo-booking-section"
 import { EmailSubscriptionSection } from "@/components/email-subscription-section"
 import { Footer } from "@/components/footer"
+
+export const metadata: Metadata = {
+  robots: { index: true, follow: true },
+}
 
 export default function LandingPage() {
   return (
