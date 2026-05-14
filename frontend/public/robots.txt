@@ -1,0 +1,21 @@
+# Modelisys — financial modeling SaaS.
+# Public marketing pages (/, /login, /blog, /privacy, /contact, the
+# /cabinets-* and /partenaires-* pages) are open to all crawlers,
+# including AI answer engines like Claude (ClaudeBot) and ChatGPT
+# (GPTBot, ChatGPT-User). The authenticated application is blocked.
+
+User-agent: *
+Disallow: /analysis
+Disallow: /dashboard
+Disallow: /evaluation
+Disallow: /exchange-rates
+Disallow: /financial-statements
+Disallow: /formation
+Disallow: /intercos
+Disallow: /mon-portail
+Disallow: /projections
+Disallow: /resources
+Disallow: /scenarios
+Disallow: /settings
+Disallow: /year-end-cpa
+Disallow: /api/

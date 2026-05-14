@@ -188,6 +188,36 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
 - Cash flow is derived from income statement + balance sheet deltas
 - See `docs/plans/` for detailed design documents
 
+## QuickBooks Online integration
+
+Per-company connector in `backend/app/integrations/quickbooks/`:
+
+- **OAuth2 flow** with Intuit (sandbox by default). Tokens stored in
+  `quickbooks_connections` table, encrypted at rest via Fernet
+  (`QBO_TOKEN_ENCRYPTION_KEY`). State CSRF JWT signed with `JWT_SECRET_KEY`,
+  audience `qbo-oauth`.
+- **Two-step preview/commit:** `POST /api/quickbooks/companies/{id}/trial-balance/preview`
+  pulls TB + returns rows with `existing_link_code` (no DB writes). `POST .../commit`
+  upserts `ChartOfAccount`, `AccountMapping`, and `TrialBalanceEntry` in one
+  transaction.
+- **TB schema fit:** preview/commit take `fiscal_year` + `month` (matching
+  `TrialBalanceEntry`), not `as_of_date`. QBO pulls are always cumulative
+  (YTD: fiscal-year-start through end-of-target-month). On commit, the
+  company is forced to `is_cumulative_tb=True` so the FS service interprets
+  the stored YTD entries correctly.
+- **Strict link-code picker:** the QBO review screen reads valid link codes
+  from `CompanyStatementStructure` (per company, per statement type). Users
+  must pick an existing code or create a new one inline (`POST
+  /api/quickbooks/companies/{id}/link-codes` appends a leaf to the structure).
+  `commit_trial_balance` rejects any non-skipped row whose `link_code` is not
+  in the structure (422).
+- **Frontend:** `/settings/companies/[id]/quickbooks` with three states
+  (not_connected / connected / revoked) and a `QuickBooksReviewTable` for
+  per-row mapping review.
+- **Tests:** `backend/tests/integrations/quickbooks/` mocks Intuit via `respx`.
+  Frontend e2e in `frontend/e2e/quickbooks.spec.ts` mocks all backend endpoints.
+- **Sandbox setup + smoke checklist:** `docs/quickbooks-release-checklist.md`.
+
 ALWAYS USE TEAMS WHEN DEEMED NECESSARY
 TEAMS SHOULD BE COMPOSED OF 
 - BACKEND DEVELOPER

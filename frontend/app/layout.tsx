@@ -16,6 +16,9 @@ export const metadata: Metadata = {
   icons: {
     icon: "/images/modelisys-icon-white.svg",
   },
+  // Default: noindex everything. The (public) layout and the landing page
+  // override to allow indexing on marketing/legal pages.
+  robots: { index: false, follow: false },
 }
 
 export default function RootLayout({

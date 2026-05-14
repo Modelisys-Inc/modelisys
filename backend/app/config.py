@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     # Frontend URL (for password reset links)
     frontend_url: str = "http://localhost:3000"
 
+    # QuickBooks integration
+    intuit_client_id: str = ""
+    intuit_client_secret: str = ""
+    intuit_environment: str = "sandbox"  # sandbox | production
+    intuit_redirect_uri: str = "http://localhost:8000/api/quickbooks/callback"
+    qbo_token_encryption_key: str = ""
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @field_validator("jwt_secret_key")
@@ -54,9 +61,34 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("qbo_token_encryption_key")
+    @classmethod
+    def validate_qbo_key(cls, v: str) -> str:
+        env = os.getenv("ENVIRONMENT", "development")
+        if env == "production" and not v:
+            raise ValueError(
+                "QBO_TOKEN_ENCRYPTION_KEY must be set in production. "
+                "Generate one with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'"
+            )
+        return v
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def intuit_oauth_base(self) -> str:
+        return "https://oauth.platform.intuit.com"
+
+    @property
+    def intuit_api_base(self) -> str:
+        if self.intuit_environment == "production":
+            return "https://quickbooks.api.intuit.com"
+        return "https://sandbox-quickbooks.api.intuit.com"
+
+    @property
+    def intuit_authorize_base(self) -> str:
+        return "https://appcenter.intuit.com/connect/oauth2"
 
 
 settings = Settings()

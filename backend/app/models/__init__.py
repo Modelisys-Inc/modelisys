@@ -12,6 +12,7 @@ from app.models.forecast_config import ForecastConfig, EbitdaMultipleNote
 from app.models.note import Note
 from app.models.projection import Projection, ProjectionAdjustment, Loan
 from app.models.budget import Budget, BudgetEntry
+from app.models.quickbooks_connection import QuickBooksConnection
 
 __all__ = [
     "User",
@@ -40,4 +41,5 @@ __all__ = [
     "Loan",
     "Budget",
     "BudgetEntry",
+    "QuickBooksConnection",
 ]
