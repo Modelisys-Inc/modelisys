@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, type ComponentType } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentType } from "react"
 import {
   Activity,
   ArrowRight,
@@ -39,12 +39,21 @@ interface Challenge {
 interface Category {
   id: string
   name: string
+  /** Libellé court pour la grille mobile (aperçu rapide). */
+  mobileLabel: string
   icon: IconComponent
   challenges: Challenge[]
 }
 
 export function InstitutionalPartnersPillarsSection() {
   const sectionRef = useRef<HTMLElement>(null)
+  const carouselRef = useRef<HTMLDivElement>(null)
+  const carouselViewportRef = useRef<HTMLDivElement>(null)
+  const touchStartXRef = useRef<number | null>(null)
+
+  const [viewportWidth, setViewportWidth] = useState(0)
+  /** Cartes visibles selon la largeur : 1 (mobile), 2 (sm), 3 (lg+) */
+  const [slidesPerView, setSlidesPerView] = useState(1)
   const [isVisible, setIsVisible] = useState(false)
   const [activeCategory, setActiveCategory] = useState<string>("analyse")
   const [hoveredChallenge, setHoveredChallenge] = useState<number | null>(null)
@@ -74,6 +83,7 @@ export function InstitutionalPartnersPillarsSection() {
     {
       id: "analyse",
       name: "Analyse",
+      mobileLabel: "Analyse",
       icon: LineChart,
       challenges: [
         {
@@ -137,6 +147,7 @@ export function InstitutionalPartnersPillarsSection() {
     {
       id: "financement",
       name: "Financement",
+      mobileLabel: "Financ.",
       icon: Landmark,
       challenges: [
         {
@@ -184,6 +195,7 @@ export function InstitutionalPartnersPillarsSection() {
     {
       id: "investissement",
       name: "Investissement",
+      mobileLabel: "Invest.",
       icon: Briefcase,
       challenges: [
         {
@@ -239,6 +251,7 @@ export function InstitutionalPartnersPillarsSection() {
     {
       id: "surveillance",
       name: "Surveillance",
+      mobileLabel: "Suivi",
       icon: Activity,
       challenges: [
         {
@@ -294,11 +307,52 @@ export function InstitutionalPartnersPillarsSection() {
   ]
 
   const activeCategoryData = categories.find((cat) => cat.id === activeCategory) ?? categories[0]
-  const maxIndex = Math.max(0, activeCategoryData.challenges.length - 3)
+  const totalChallenges = activeCategoryData.challenges.length
+  const maxIndex = Math.max(0, totalChallenges - slidesPerView)
+
+  useEffect(() => {
+    const mqLg = window.matchMedia("(min-width: 1024px)")
+    const mqSm = window.matchMedia("(min-width: 640px)")
+    const updateSlides = () => {
+      if (mqLg.matches) setSlidesPerView(3)
+      else if (mqSm.matches) setSlidesPerView(2)
+      else setSlidesPerView(1)
+    }
+    updateSlides()
+    mqLg.addEventListener("change", updateSlides)
+    mqSm.addEventListener("change", updateSlides)
+    return () => {
+      mqLg.removeEventListener("change", updateSlides)
+      mqSm.removeEventListener("change", updateSlides)
+    }
+  }, [])
+
+  /** Largeur du viewport (px) — translation en pixels (plus fiable que le % sur une piste flex). */
+  useLayoutEffect(() => {
+    const el = carouselViewportRef.current
+    if (!el) return
+    const apply = (w: number) => {
+      if (w > 0) setViewportWidth(w)
+    }
+    apply(el.getBoundingClientRect().width)
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width
+      if (w != null) apply(w)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [activeCategory, slidesPerView])
+
+  const slideStepPx = viewportWidth > 0 && slidesPerView > 0 ? viewportWidth / slidesPerView : 0
 
   useEffect(() => {
     setCarouselIndex(0)
   }, [activeCategory])
+
+  // Ne pas dépasser le dernier « écran » quand la largeur / nb de cartes change
+  useEffect(() => {
+    setCarouselIndex((prev) => Math.min(prev, Math.max(0, totalChallenges - slidesPerView)))
+  }, [slidesPerView, totalChallenges])
 
   const nextCards = () => {
     setCarouselIndex((prev) => Math.min(prev + 1, maxIndex))
@@ -306,6 +360,24 @@ export function InstitutionalPartnersPillarsSection() {
 
   const prevCards = () => {
     setCarouselIndex((prev) => Math.max(prev - 1, 0))
+  }
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (slidesPerView !== 1) return
+    touchStartXRef.current = e.touches[0]?.clientX ?? null
+  }
+
+  const onTouchEnd = (e: React.TouchEvent) => {
+    if (slidesPerView !== 1) return
+    const startX = touchStartXRef.current
+    touchStartXRef.current = null
+    if (startX == null) return
+    const endX = e.changedTouches[0]?.clientX
+    if (endX == null) return
+    const dx = endX - startX
+    const threshold = 40
+    if (dx > threshold) prevCards()
+    else if (dx < -threshold) nextCards()
   }
 
   return (
@@ -344,14 +416,24 @@ export function InstitutionalPartnersPillarsSection() {
           <div className="mb-6">
             <div className="mb-6">
               <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Financiers</p>
-              <h2 className="mb-4 text-3xl font-semibold leading-tight tracking-tight text-[#2A2F3A] sm:text-4xl md:text-5xl">
-                Modelisys au service de votre <span className="text-[#5C5F66]">organisation financière</span>.
+              <h2 className="mb-4 text-2xl font-semibold leading-tight tracking-tight text-[#2A2F3A] sm:text-3xl md:text-4xl lg:text-5xl">
+                <span className="lg:hidden">
+                  Modelisys pour votre <span className="text-[#5C5F66]">organisation financière</span>.
+                </span>
+                <span className="hidden lg:inline">
+                  Modelisys au service de votre <span className="text-[#5C5F66]">organisation financière</span>.
+                </span>
               </h2>
-              <p className="max-w-3xl text-lg leading-relaxed text-[#5C5F66] sm:text-xl">
-                Les enjeux ci-dessous concernent souvent les banques, les assureurs, les financeurs, les sociétés de gestion
-                et les grands organismes qui accompagnent des PME — et qui veulent une donnée fiable, partagée avec le client,
-                avec des usages d&apos;intelligence artificielle utiles et encadrés. Choisissez un axe pour parcourir les
-                réponses concrètes que Modelisys rend possibles.
+              <p className="max-w-3xl text-base leading-relaxed text-[#5C5F66] sm:text-lg lg:text-xl">
+                <span className="sm:hidden">
+                  Banques, assureurs, financeurs ou gestion : choisissez un axe pour voir ce que Modelisys rend possible.
+                </span>
+                <span className="hidden sm:inline">
+                  Les enjeux ci-dessous concernent souvent les banques, les assureurs, les financeurs, les sociétés de gestion
+                  et les grands organismes qui accompagnent des PME — et qui veulent une donnée fiable, partagée avec le client,
+                  avec des usages d&apos;intelligence artificielle utiles et encadrés. Choisissez un axe pour parcourir les
+                  réponses concrètes que Modelisys rend possibles.
+                </span>
               </p>
               <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
             </div>
@@ -364,10 +446,11 @@ export function InstitutionalPartnersPillarsSection() {
                 <div
                   role="tablist"
                   aria-label="Axes financiers"
-                  className="flex flex-nowrap items-center gap-1 overflow-x-auto py-0.5 [-ms-overflow-style:none] [scrollbar-width:none] sm:gap-2 lg:flex-wrap lg:overflow-visible [&::-webkit-scrollbar]:hidden"
+                  className="grid grid-cols-2 gap-2 sm:flex sm:flex-nowrap sm:items-center sm:gap-2 sm:overflow-x-auto sm:py-0.5 sm:[-ms-overflow-style:none] sm:[scrollbar-width:none] lg:flex-wrap lg:overflow-visible sm:[&::-webkit-scrollbar]:hidden"
                 >
                   {categories.map((category) => {
                     const isActive = activeCategory === category.id
+                    const CategoryIcon = category.icon
 
                     return (
                       <button
@@ -376,26 +459,39 @@ export function InstitutionalPartnersPillarsSection() {
                         role="tab"
                         aria-selected={isActive}
                         onClick={() => setActiveCategory(category.id)}
-                        className={`inline-flex shrink-0 items-center gap-2.5 rounded-xl border px-2 py-2 transition ${
+                        className={`inline-flex min-h-[52px] w-full shrink-0 flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2 text-center transition active:scale-[0.98] sm:min-h-0 sm:w-auto sm:flex-row sm:justify-start sm:gap-2.5 sm:text-left ${
                           isActive
-                            ? "border-slate-300/90 bg-white shadow-sm"
-                            : "border-transparent hover:bg-slate-100/90"
+                            ? "border-[#E0742D]/45 bg-white shadow-sm ring-1 ring-[#E0742D]/18"
+                            : "border-slate-200/85 bg-slate-50/90 hover:border-slate-300/90 hover:bg-white sm:border-transparent sm:bg-transparent sm:hover:bg-slate-100/90"
                         }`}
                       >
-                        <span className="relative inline-flex h-5 w-5 flex-shrink-0 items-center justify-center">
-                          <span className="absolute inset-0 rounded-full border border-slate-200/90 bg-white/90" />
-                          <span
-                            className={`absolute left-1/2 top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full ${
-                              isActive ? "bg-[#E0742D]" : "bg-slate-400"
-                            }`}
-                          />
-                        </span>
+                        <CategoryIcon
+                          className={`h-4 w-4 shrink-0 sm:hidden ${isActive ? "text-[#C45F24]" : "text-slate-500"}`}
+                          aria-hidden
+                        />
                         <span
-                          className={`whitespace-nowrap text-[11px] font-medium tracking-wide ${
+                          className={`text-[10px] font-semibold leading-tight text-balance sm:hidden ${
                             isActive ? "text-[#2A2F3A]" : "text-slate-600"
                           }`}
                         >
-                          {category.name}
+                          {category.mobileLabel}
+                        </span>
+                        <span className="hidden sm:inline-flex items-center gap-2.5">
+                          <span className="relative inline-flex h-5 w-5 flex-shrink-0 items-center justify-center">
+                            <span className="absolute inset-0 rounded-full border border-slate-200/90 bg-white/90" />
+                            <span
+                              className={`absolute left-1/2 top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full ${
+                                isActive ? "bg-[#E0742D]" : "bg-slate-400"
+                              }`}
+                            />
+                          </span>
+                          <span
+                            className={`whitespace-nowrap text-[11px] font-medium tracking-wide ${
+                              isActive ? "text-[#2A2F3A]" : "text-slate-600"
+                            }`}
+                          >
+                            {category.name}
+                          </span>
                         </span>
                       </button>
                     )
@@ -442,16 +538,23 @@ export function InstitutionalPartnersPillarsSection() {
           </div>
         </div>
 
-        <div className="relative -mx-8 sm:-mx-12 lg:-mx-16 xl:-mx-20">
-          <div className="overflow-hidden py-2">
+        {/* Carousel Container - Full Width (padding sur le parent pour que contentRect = largeur des cartes) */}
+        <div className="relative -mx-8 px-8 py-2 sm:-mx-12 sm:px-12 lg:-mx-16 lg:px-16 xl:-mx-20 xl:px-20">
+          <div
+            ref={carouselViewportRef}
+            className="overflow-hidden"
+            onTouchStart={onTouchStart}
+            onTouchEnd={onTouchEnd}
+          >
             <div
+              ref={carouselRef}
               className={`
                 flex transition-transform duration-700 ease-out
                 ${isVisible ? "opacity-100" : "opacity-0"}
-                pl-8 sm:pl-12 lg:pl-16 xl:pl-20 pr-8 sm:pr-12 lg:pr-16 xl:pr-20
               `}
               style={{
-                transform: `translateX(-${carouselIndex * (100 / 3)}%)`,
+                transform:
+                  slideStepPx > 0 ? `translateX(-${carouselIndex * slideStepPx}px)` : undefined,
               }}
             >
               {activeCategoryData.challenges.map((challenge, index) => {
@@ -463,7 +566,12 @@ export function InstitutionalPartnersPillarsSection() {
                     key={`${activeCategory}-${challenge.title}`}
                     onMouseEnter={() => setHoveredChallenge(index)}
                     onMouseLeave={() => setHoveredChallenge(null)}
-                    className="w-full shrink-0 px-3 py-2 sm:w-1/2 lg:w-1/3"
+                    className="box-border flex-shrink-0 px-3 py-2"
+                    style={
+                      slideStepPx > 0
+                        ? { width: slideStepPx, minWidth: slideStepPx }
+                        : { minWidth: "100%" }
+                    }
                   >
                     <div
                       className={`
@@ -502,8 +610,8 @@ export function InstitutionalPartnersPillarsSection() {
 
                         <div
                           className={`
-                          mt-auto rounded-2xl border border-slate-200/90 bg-slate-50/95 p-4
-                          transition-colors duration-300
+                          mt-auto hidden rounded-2xl border border-slate-200/90 bg-slate-50/95 p-4
+                          transition-colors duration-300 sm:block
                           ${isHovered ? "border-slate-300/90 bg-slate-50" : ""}
                         `}
                         >

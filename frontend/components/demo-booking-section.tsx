@@ -90,9 +90,8 @@ export function DemoBookingSection() {
     }))
   }
 
-  const cardShell =
-    "relative overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70"
-  const cardAccent = "pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]"
+  const cardShell = "rounded-2xl border border-slate-200/90 bg-white/80 shadow-sm"
+  const cardAccent = "pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-[#E0742D]/[0.10]"
   const fieldClass =
     "h-12 border-slate-200 bg-white/80 focus-visible:border-[#E0742D]/80 focus-visible:ring-[#E0742D]/25"
 
@@ -140,22 +139,24 @@ export function DemoBookingSection() {
           <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
         </div>
 
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(280px,360px)_1fr] lg:gap-14">
           <div className="lg:col-span-1">
             <div
               className={`transition-all delay-200 duration-1000 ${
                 isVisible ? "translate-y-0 opacity-100" : "translate-y-12 opacity-0"
               }`}
             >
-              <div className={cn(cardShell, "h-full p-6 transition-shadow duration-300 hover:shadow-md sm:p-7")}>
+              <div className={cn("relative", cardShell, "h-full p-6 sm:p-7")}>
                 <div className={cardAccent} aria-hidden />
                 <div className="relative">
-                  <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#E0742D]/25 bg-[#E0742D]/[0.08] px-4 py-2">
-                    <Sparkles className="h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
-                    <span className="text-sm font-semibold text-[#2A2F3A]">Comment ça fonctionne</span>
-                </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1.5 text-[11px] font-semibold tracking-wide text-[#2A2F3A]">
+                      <Sparkles className="h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
+                      Comment ça fonctionne
+                    </div>
+                  </div>
 
-                <div className="space-y-6">
+                  <div className="mt-6 space-y-5">
                     {[
                       {
                         n: "1",
@@ -165,7 +166,7 @@ export function DemoBookingSection() {
                       {
                         n: "2",
                         title: "Réponse rapide",
-                        body: "Notre équipe vous recontacte en moins de 24 heures (jours ouvrables) pour convenir d’un créneau.",
+                        body: "Notre équipe vous recontacte dans les plus brefs délais pour convenir d’un créneau.",
                       },
                       {
                         n: "3",
@@ -174,7 +175,7 @@ export function DemoBookingSection() {
                       },
                     ].map((step) => (
                       <div key={step.n} className="flex items-start gap-4">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-sm font-bold text-[#2A2F3A]">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-sm font-bold text-[#2A2F3A]">
                           {step.n}
                     </div>
                     <div>
@@ -204,7 +205,7 @@ export function DemoBookingSection() {
                       },
                     ].map(({ icon: Icon, title, sub }) => (
                       <div key={title} className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-[#2A2F3A]">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200/90 bg-white text-[#2A2F3A]">
                           <Icon className="h-4 w-4" strokeWidth={1.75} />
                     </div>
                     <div>
@@ -219,26 +220,27 @@ export function DemoBookingSection() {
             </div>
           </div>
 
-          <div className="lg:col-span-2">
+          <div>
             <div
               className={`transition-all delay-400 duration-1000 ${
                 isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
               }`}
             >
-              <div className={cn(cardShell, "p-8 shadow-xl lg:p-10")}>
+              <div className={cn("relative", cardShell, "p-8 lg:p-10")}>
                 <div className={cardAccent} aria-hidden />
                 <div className="relative">
-                  <div className="mb-2 flex items-center gap-2 text-[#5C5F66]">
-                    <CalendarClock className="h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
-                    <span className="text-sm font-semibold tracking-wide">Démarrer</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1.5 text-[11px] font-semibold tracking-wide text-[#2A2F3A]">
+                      <CalendarClock className="h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
+                      Demande
+                    </div>
                   </div>
-                  <h2 className="mb-2 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
+                  <h2 className="mt-4 mb-2 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
                     Demande de démonstration
                   </h2>
                   <p className="mb-8 leading-relaxed text-[#5C5F66]">
-                    Laissez-nous vos informations : notre équipe vous contactera dans un délai de{" "}
-                    <span className="font-semibold text-[#2A2F3A]">moins de 24 heures</span> (jours ouvrables) pour
-                    planifier votre démonstration.
+                    Laissez-nous vos informations : notre équipe vous contactera dans les plus brefs délais pour planifier
+                    votre démonstration.
                   </p>
 
                   {isSubmitted ? (

@@ -125,7 +125,8 @@ export function monthShortLabelsFromReference(refMonth: number, refYear: number,
   return out
 }
 
-function sumCalendarQuarter(map: Map<string, number>, quarter: number, year: number): number {
+/** Somme des montants sur les 3 mois civils d’un trimestre. */
+export function sumCalendarQuarter(map: Map<string, number>, quarter: number, year: number): number {
   const startM = (quarter - 1) * 3 + 1
   let s = 0
   for (let dm = 0; dm < 3; dm++) {
@@ -170,7 +171,8 @@ export function quarterLabelsFromReference(refMonth: number, refYear: number, co
   )
 }
 
-function sumCalendarYear(map: Map<string, number>, year: number): number {
+/** Somme des montants sur les 12 mois civils d’une année calendaire. */
+export function sumCalendarYear(map: Map<string, number>, year: number): number {
   let s = 0
   for (let m = 1; m <= 12; m++) {
     s += map.get(calendarMonthKey(m, year)) ?? 0

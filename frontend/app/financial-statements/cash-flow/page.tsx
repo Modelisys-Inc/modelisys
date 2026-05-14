@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Filter, Calendar, TrendingUp, TrendingDown, ChevronRight } from "lucide-react"
+import { Calendar, TrendingUp, TrendingDown, ChevronRight } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
@@ -21,6 +21,7 @@ import {
   type FinancialStatementRow,
   type FinancialStatementParams,
 } from "@/lib/api"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
@@ -60,7 +61,7 @@ export default function CashFlowPage() {
   }, [companyIdFromUrl, searchParams])
   const lockedCompanyId = companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
 
-  const { selectedMonth, selectedYear } = useFinancialStatementReferenceDate()
+  const { selectedMonth, selectedYear } = useFinancialStatementReferenceDate({ skipUrlSync: true })
 
   // Load budgets from API
   const [budgets, setBudgets] = useState<Array<{ id: string; name: string }>>([])
@@ -272,179 +273,143 @@ export default function CashFlowPage() {
           </div>
 
           {/* Controls Section */}
-          <div className="mb-6 p-4">
-            <div className="flex flex-wrap items-center gap-4">
-              {/* Filter Icon */}
-              <div className="flex items-center gap-2 text-[#C9B8A5]/90">
-                <Filter className="w-4 h-4" />
-              </div>
-
-              {/* View Toggle */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Vue:</span>
-                <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
-                  <Button
-                    variant="ghost"
-                    onClick={() => setSection("summary")}
-                    className={`h-8 text-xs px-3 transition-all ${
-                      section === "summary"
-                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                    }`}
-                  >
-                    Sommaire
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setSection("detail")}
-                    className={`h-8 text-xs px-3 transition-all ${
-                      section === "detail"
-                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                    }`}
-                  >
-                    Détail
-                  </Button>
+          <div className="mb-6">
+            <div className="rounded-2xl border border-white/10 bg-[#2A2F3A]/45 px-3 py-3 backdrop-blur-sm sm:px-4">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* View Toggle */}
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
+                    <Button
+                      variant="ghost"
+                      onClick={() => setSection("summary")}
+                      className={`h-8 text-xs px-3 transition-all ${
+                        section === "summary"
+                          ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                          : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                      }`}
+                    >
+                      Sommaire
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setSection("detail")}
+                      className={`h-8 text-xs px-3 transition-all ${
+                        section === "detail"
+                          ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                          : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                      }`}
+                    >
+                      Détail
+                    </Button>
+                  </div>
                 </div>
-              </div>
 
-              {/* Separator */}
-              <div className="h-6 w-px bg-white/10" />
-
-              {/* Horizon and Comparison Group */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Horizon:</span>
-                <div className="flex gap-2 items-center">
-                  <Select value={getCurrentHorizon()} onValueChange={handleHorizonChange}>
-                    <SelectTrigger className="h-8 w-[140px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5">
-                      <Calendar className="mr-2 h-3.5 w-3.5 text-[#C9B8A5]/70" />
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="courant">Courant</SelectItem>
-                      <SelectItem value="12mois">12 mois</SelectItem>
-                      <SelectItem value="trimestres">Trimestres</SelectItem>
-                      <SelectItem value="annees">Années</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {(view === "comparison" || view === "ytd" || view === "ddm") && (
-                    <>
-                      <ChevronRight className="h-4 w-4 text-[#C9B8A5]/50" />
-                      <Select value={comparisonType} onValueChange={(value) => {
-                        setComparisonType(value as ComparisonType)
-                        // Reset budget selection when switching away from budget
-                        if (value !== "budget") {
-                          setSelectedBudgetId(null)
-                        }
-                      }}>
-                        <SelectTrigger className="h-8 w-[140px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {/* Hide "Mois dernier" for Annuel, YTD, and DDM horizons */}
-                          {!(view === "ytd" || view === "ddm" || (view === "comparison" && period === "annual")) && (
-                            <SelectItem value="lastMonth">Mois dernier</SelectItem>
-                          )}
-                          <SelectItem value="pastMonth">Mois passé</SelectItem>
-                          <SelectItem value="budget">Budget</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {comparisonType === "budget" && budgets.length > 0 && (
-                        <>
-                          <ChevronRight className="h-4 w-4 text-[#C9B8A5]/50" />
-                          <Select
-                            value={selectedBudgetId || budgets[0].id}
-                            onValueChange={setSelectedBudgetId}
-                          >
-                            <SelectTrigger className="h-8 w-[140px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {budgets.map((budget) => (
-                                <SelectItem key={budget.id} value={budget.id}>
-                                  {budget.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </>
-                      )}
-                    </>
-                  )}
+                {/* Horizon and Comparison Group */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-200 whitespace-nowrap">Horizon</span>
+                  <div className="flex gap-2 items-center">
+                    <Select value={getCurrentHorizon()} onValueChange={handleHorizonChange}>
+                      <SelectTrigger className="h-8 w-[140px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5">
+                        <Calendar className="mr-2 h-3.5 w-3.5 text-[#C9B8A5]/70" />
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="courant">{HORIZON_LABEL.moisActuel}</SelectItem>
+                        <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
+                        <SelectItem value="trimestres">{HORIZON_LABEL.trimestriel2Ans}</SelectItem>
+                        <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {(view === "comparison" || view === "ytd" || view === "ddm") && (
+                      <>
+                        <ChevronRight className="h-4 w-4 text-[#C9B8A5]/50" />
+                        <Select
+                          value={comparisonType}
+                          onValueChange={(value) => {
+                            setComparisonType(value as ComparisonType)
+                            if (value !== "budget") setSelectedBudgetId(null)
+                          }}
+                        >
+                          <SelectTrigger className="h-8 w-[140px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {!(view === "ytd" || view === "ddm" || (view === "comparison" && period === "annual")) && (
+                              <SelectItem value="lastMonth">Mois dernier</SelectItem>
+                            )}
+                            <SelectItem value="pastMonth">Mois passé</SelectItem>
+                            <SelectItem value="budget">Budget</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {comparisonType === "budget" && budgets.length > 0 && (
+                          <>
+                            <ChevronRight className="h-4 w-4 text-[#C9B8A5]/50" />
+                            <Select value={selectedBudgetId || budgets[0].id} onValueChange={setSelectedBudgetId}>
+                              <SelectTrigger className="h-8 w-[140px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {budgets.map((budget) => (
+                                  <SelectItem key={budget.id} value={budget.id}>
+                                    {budget.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              {/* Separator */}
-              <div className="h-6 w-px bg-white/10" />
+                <span className="text-xs font-medium text-slate-200 whitespace-nowrap">Affichage</span>
+                <Select value={columnMode} onValueChange={(v) => setColumnMode(v as ColumnMode)}>
+                  <SelectTrigger
+                    className="h-8 w-[170px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5"
+                    aria-label="Affichage"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem
+                      value="comparison"
+                      disabled={
+                        getCurrentHorizon() !== "courant" ||
+                        (!selectedCompanyId && !!selectedDivisionId) ||
+                        (!selectedCompanyId && !!selectedSubDivisionId) ||
+                        (!!selectedCompanyId && !!selectedDivisionId && !!selectedSubDivisionId)
+                      }
+                    >
+                      Comparaison
+                    </SelectItem>
+                    <SelectItem value="variations" disabled={getCurrentHorizon() !== "courant"}>
+                      Variations
+                    </SelectItem>
+                    <SelectItem value="percentage" disabled={getCurrentHorizon() !== "courant"}>
+                      % des flux totaux
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
 
-              {/* Display Mode Buttons */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Affichage:</span>
-                <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
-                  <Button
-                    variant="ghost"
-                    onClick={() => setColumnMode("variations")}
-                    disabled={getCurrentHorizon() !== "courant"}
-                    className={`h-8 text-xs px-3 transition-all ${
-                      columnMode === "variations"
-                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    Variations
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setColumnMode("percentage")}
-                    disabled={getCurrentHorizon() !== "courant"}
-                    className={`h-8 text-xs px-3 transition-all ${
-                      columnMode === "percentage"
-                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    % des flux totaux
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setColumnMode("comparison")}
-                    disabled={
-                      getCurrentHorizon() !== "courant" ||
-                      (!selectedCompanyId && !!selectedDivisionId) ||
-                      (!selectedCompanyId && !!selectedSubDivisionId) ||
-                      (!!selectedCompanyId && !!selectedDivisionId && !!selectedSubDivisionId)
-                    }
-                    className={`h-8 text-xs px-3 transition-all ${
-                      columnMode === "comparison"
-                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    Comparaison
-                  </Button>
+                {/* Entity Selector */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-200 whitespace-nowrap">Entités</span>
+                  <EntitySelector
+                    companies={companies}
+                    selectedCompanyId={selectedCompanyId}
+                    selectedDivisionId={selectedDivisionId}
+                    selectedSubDivisionId={selectedSubDivisionId}
+                    onCompanyChange={(companyId) => {
+                      if (lockedCompanyId) return
+                      setSelectedCompanyId(companyId)
+                    }}
+                    onDivisionChange={setSelectedDivisionId}
+                    onSubDivisionChange={setSelectedSubDivisionId}
+                    disableCompanySelection={!!lockedCompanyId}
+                    darkControlBar
+                  />
                 </div>
-              </div>
-
-              {/* Separator */}
-              <div className="h-6 w-px bg-white/10" />
-
-              {/* Entity Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Entité:</span>
-                <EntitySelector
-                  companies={companies}
-                  selectedCompanyId={selectedCompanyId}
-                  selectedDivisionId={selectedDivisionId}
-                  selectedSubDivisionId={selectedSubDivisionId}
-                  onCompanyChange={(companyId) => {
-                    if (lockedCompanyId) return
-                    setSelectedCompanyId(companyId)
-                  }}
-                  onDivisionChange={setSelectedDivisionId}
-                  onSubDivisionChange={setSelectedSubDivisionId}
-                  disableCompanySelection={!!lockedCompanyId}
-                  darkControlBar
-                />
               </div>
             </div>
           </div>

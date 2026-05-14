@@ -28,6 +28,7 @@ const footerLinks: FooterSection[] = [
     label: "Parcours",
     links: [
       { title: "Pourquoi Modelisys", href: "/#problem-solution" },
+      { title: "Études de cas", href: "/#etudes-de-cas" },
       { title: "Mise en place", href: "/#platform-setup" },
       { title: "Tarification", href: "/#pricing-process" },
       { title: "Démarrer", href: "/#demo" },
@@ -48,6 +49,7 @@ const footerLinks: FooterSection[] = [
   {
     label: "Entreprise",
     links: [
+      { title: "À propos", href: "/a-propos" },
       { title: "Contact", href: "/contact" },
       { title: "Politique de confidentialité", href: "/privacy" },
       { title: "Clause de non-responsabilité", href: "/clause-de-non-responsabilite" },

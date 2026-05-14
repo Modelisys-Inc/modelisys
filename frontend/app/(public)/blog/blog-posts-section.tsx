@@ -2,15 +2,9 @@
 
 import { useMemo, useState } from "react"
 import Link from "next/link"
+import type { BlogPostCard } from "@/lib/blog-posts"
 
-export type BlogPostCard = {
-  title: string
-  excerpt: string
-  href: string
-  readingTime: string
-  dateLabel: string
-  tags: string[]
-}
+export type { BlogPostCard }
 
 function normalizeTag(t: string) {
   return t.trim()

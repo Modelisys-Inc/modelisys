@@ -1,0 +1,258 @@
+import type { Metadata } from "next"
+import Link from "next/link"
+import { GlassmorphismNav } from "@/components/glassmorphism-nav"
+import { Footer } from "@/components/footer"
+import { AboutHeroMarquee } from "@/components/about-hero-marquee"
+import { AboutHeroSection } from "@/components/about-hero-section"
+import { AboutOurStorySection } from "@/components/about-our-story-section"
+import { ArrowUpRight } from "lucide-react"
+
+export const metadata: Metadata = {
+  title: "À propos | Modelisys",
+  description:
+    "Modelisys — plateforme SaaS de gestion financière pour PME et groupes multi-entités, fièrement québécoise. Notre histoire et équipe fondatrice.",
+}
+
+export default function AProposPage() {
+  return (
+    <div className="relative min-h-screen overflow-hidden bg-[#1a1d24]">
+      <GlassmorphismNav />
+
+      <AboutHeroSection />
+      <AboutHeroMarquee />
+
+      {/* 100 % québécois — sous la bande « Fièrement québécois », même langage visuel que « Pour qui » */}
+      <section
+        id="quebec"
+        className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 scroll-mt-28 overflow-hidden"
+      >
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-3">
+            <div className="bg-[#2A2F3A]" />
+            <div className="bg-[#262B36] lg:border-x lg:border-white/5" />
+            <div className="bg-[#1F2430]" />
+          </div>
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-24 -left-28 h-[520px] w-[520px] rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -bottom-28 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
+          </div>
+        </div>
+
+        <div className="relative z-10 mx-auto max-w-[1920px] px-5 pb-10 pt-12 sm:px-10 sm:pb-12 sm:pt-14 lg:px-14 lg:pb-14 lg:pt-16 xl:px-20 2xl:px-24">
+          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.22em] text-slate-300/95">
+            Une entreprise 100 % québécoise
+          </p>
+          <h2 className="mt-5 max-w-3xl text-3xl font-semibold tracking-tight text-[#E6D6C3] sm:text-4xl md:text-[2.5rem] md:leading-tight">
+            Fondée, développée et opérée à{" "}
+            <span className="text-[#C9B8A5]/95">Québec</span>
+          </h2>
+          <p className="mt-4 mb-8 max-w-2xl text-base leading-[1.65] text-[#C9B8A5]/85 sm:mb-10 sm:text-lg lg:mb-12">
+            Nous croyons que les PME québécoises méritent des outils financiers conçus par des gens qui comprennent leur
+            réalité : leur langue, leurs normes comptables, leur structure fiscale, leur rapport aux banques et aux
+            cabinets comptables locaux. Choisir Modelisys, c&apos;est aussi choisir d&apos;investir dans l&apos;écosystème
+            technologique québécois — et de travailler avec une équipe joignable, imputable et ancrée ici.
+          </p>
+        </div>
+
+        <div aria-hidden className="relative h-16 overflow-hidden bg-[#1F2430] sm:h-20">
+          <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute -bottom-8 left-1/3 h-56 w-56 rounded-full bg-[#E6D6C3]/10 blur-3xl" />
+          </div>
+          <svg
+            viewBox="0 0 1440 120"
+            preserveAspectRatio="none"
+            className="absolute inset-x-0 bottom-0 h-full w-full text-slate-100"
+          >
+            <path
+              d="M0,30 C180,95 360,95 540,60 C720,25 900,25 1080,60 C1230,90 1335,95 1440,75 L1440,120 L0,120 Z"
+              fill="currentColor"
+            />
+          </svg>
+        </div>
+      </section>
+
+      <div className="relative z-10 bg-slate-100/90">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-b from-slate-100 via-slate-50/95 to-slate-100" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,rgba(224,116,45,0.06),transparent_55%)]" />
+          <div
+            className="absolute inset-0 opacity-[0.35]"
+            style={{
+              backgroundImage: `
+                linear-gradient(to right, rgb(148 163 184 / 0.12) 1px, transparent 1px),
+                linear-gradient(to bottom, rgb(148 163 184 / 0.12) 1px, transparent 1px)
+              `,
+              backgroundSize: "48px 48px",
+              maskImage: "radial-gradient(ellipse 70% 60% at 50% 20%, black 12%, transparent 65%)",
+              WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 50% 20%, black 12%, transparent 65%)",
+            }}
+          />
+        </div>
+
+        <main className="relative z-10 pb-20 pt-4 sm:pb-28 sm:pt-8">
+          <div className="mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-14 xl:px-20 2xl:px-24">
+            <AboutOurStorySection />
+
+            {/* Équipe fondatrice — même langage que « Notre histoire » (timeline, rails, hiérarchie) */}
+            <section id="equipe" className="scroll-mt-24 relative z-10 border-t border-slate-200/80 py-20 sm:py-28">
+              <div className="mx-auto mb-12 max-w-3xl text-center sm:mb-16 lg:mx-0 lg:max-w-2xl lg:text-left">
+                <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">L&apos;équipe fondatrice</p>
+                <h2 className="text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-5xl">
+                  Par et pour les{" "}
+                  <span className="text-[#5C5F66]">professionnels.</span>
+                </h2>
+                <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent lg:mx-0 mx-auto" />
+              </div>
+
+              <ol className="mx-auto max-w-4xl space-y-0 border-t border-slate-200/90 lg:max-w-none">
+                <li className="grid scroll-mt-32 gap-6 border-b border-slate-200/80 py-8 sm:grid-cols-[auto_1fr] sm:gap-10 sm:py-10">
+                  <div className="flex flex-col gap-1 sm:pt-0.5">
+                    <span className="font-mono text-4xl font-bold leading-none tabular-nums text-[#E0742D]/25 sm:text-5xl">
+                      01
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="mb-6 sm:mb-8">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Présidence · produit
+                        </p>
+                        <span
+                          className="h-px flex-1 bg-gradient-to-r from-[#E0742D]/35 via-slate-300/50 to-transparent"
+                          aria-hidden
+                        />
+                      </div>
+                      <h3 className="mt-4 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl md:text-[1.75rem] md:leading-tight">
+                        Tristan Bellerose, CPA, CBV
+                      </h3>
+                    </div>
+
+                    <div className="flex flex-col gap-8 lg:flex-row lg:gap-10">
+                      <div className="flex shrink-0 flex-col items-center gap-3 sm:flex-row lg:flex-col lg:items-start">
+                        <div className="relative flex h-24 w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2A2F3A] to-[#1a1f28] text-lg font-semibold tracking-tight text-[#E6D6C3] ring-1 ring-slate-200/25">
+                          TB
+                          <span className="absolute -right-1 -top-1 rounded-full bg-[#E0742D] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                            PDG
+                          </span>
+                        </div>
+                        <div className="text-center sm:text-left lg:max-w-[14rem]">
+                          <p className="text-sm font-medium text-[#5C5F66]">
+                            Président-directeur général (PDG) · Cofondateur
+                          </p>
+                        </div>
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-5">
+                        <p className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
+                          Avant de cofonder Modelisys, Tristan a évolué au sein de plusieurs cabinets comptables, aux
+                          côtés d&apos;associés en certification, en fiscalité et en services-conseils. Un même constat
+                          revenait systématiquement : aucune base commune entre les CPA et leurs clients PME. Des questions
+                          légitimes restaient sans réponse immédiate — parce qu&apos;il fallait d&apos;abord attendre les
+                          documents, puis construire une analyse dans Excel. Des dirigeants qui ne savaient pas ce qui
+                          influençait la valeur de leur entreprise. Des PME incapables d&apos;analyser leur rentabilité par
+                          produit, par division ou par société, de préparer des budgets, de bâtir des projections et de
+                          suivre l&apos;évolution de leurs résultats réels comparativement à ces repères — simplement parce
+                          qu&apos;aucun outil ne le permettait facilement. C&apos;est de ce constat que Modelisys est né.
+                          Aujourd&apos;hui, en tant que
+                          cofondateur et PDG, Tristan porte la vision du produit, définit et priorise les fonctionnalités,
+                          et assure l&apos;accompagnement comptable et financier des clients — en lien direct avec les
+                          équipes et les partenaires, il ancre ces responsabilités dans une connaissance concrète de
+                          l&apos;analyse financière, de la consolidation, de la valorisation et des échanges avec les
+                          cabinets, afin que Modelisys reste alignée sur les attentes des professionnels et la réalité des
+                          entreprises qu&apos;elle sert.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+
+                <li className="grid scroll-mt-32 gap-6 border-b border-slate-200/80 py-8 sm:grid-cols-[auto_1fr] sm:gap-10 sm:py-10">
+                  <div className="flex flex-col gap-1 sm:pt-0.5">
+                    <span className="font-mono text-4xl font-bold leading-none tabular-nums text-[#E0742D]/25 sm:text-5xl">
+                      02
+                    </span>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="mb-6 sm:mb-8">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Technologie · plateforme
+                        </p>
+                        <span
+                          className="h-px flex-1 bg-gradient-to-r from-[#E0742D]/35 via-slate-300/50 to-transparent"
+                          aria-hidden
+                        />
+                      </div>
+                      <h3 className="mt-4 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl md:text-[1.75rem] md:leading-tight">
+                        Alexandre Moreau, M. Sc
+                      </h3>
+                    </div>
+
+                    <div className="flex flex-col gap-8 lg:flex-row lg:gap-10">
+                      <div className="flex shrink-0 flex-col items-center gap-3 sm:flex-row lg:flex-col lg:items-start">
+                        <div className="relative flex h-24 w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2A2F3A] to-[#1a1f28] text-lg font-semibold tracking-tight text-[#E6D6C3] ring-1 ring-slate-200/25">
+                          AM
+                          <span className="absolute -right-1 -top-1 rounded-full bg-slate-700 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#E6D6C3] ring-1 ring-white/10">
+                            CTO
+                          </span>
+                        </div>
+                        <div className="text-center sm:text-left lg:max-w-[14rem]">
+                          <p className="text-sm font-medium text-[#5C5F66]">Directeur technique (CTO) · Cofondateur</p>
+                        </div>
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-5">
+                        <p className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
+                          Cofondateur et directeur technique, Alexandre porte chez Modelisys l&apos;architecture de la
+                          plateforme de A à Z : il arbitre les choix d&apos;ingénierie, priorise les chantiers
+                          d&apos;architecture et pilote la feuille de route de développement, et veille à ce qu&apos;elle
+                          demeure fiable, sécurisée et
+                          scalable à mesure que la clientèle grandit — en lien étroit avec la vision produit et les équipes.
+                          Son rôle ne se limite pas à « coder des spécifications » : il est le relais entre les enjeux
+                          métier et la réalité des systèmes, là où la consolidation multi-entités devient un problème
+                          d&apos;architecture de données, où la détection d&apos;anomalies financières appelle
+                          l&apos;apprentissage automatique, et où chaque release doit tenir la charge. Développeur logiciel
+                          et titulaire d&apos;une maîtrise en intelligence artificielle, il met cette double expertise
+                          au service des priorités produit : ce socle technique est ce qui permettra à Modelisys
+                          d&apos;innover durablement dans les années à venir.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              </ol>
+            </section>
+
+            {/* CTA — même langage visuel que « Notre histoire » / équipe : plat, traits, pas de carte */}
+            <section className="scroll-mt-24 border-t border-slate-200/90 pt-12 sm:pt-14 pb-10 sm:pb-14">
+              <div className="flex flex-col gap-10 lg:flex-row lg:items-center lg:justify-between lg:gap-12">
+                <div className="min-w-0 max-w-2xl">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Contact</p>
+                    <span
+                      className="h-px flex-1 bg-gradient-to-r from-[#E0742D]/35 via-slate-300/50 to-transparent"
+                      aria-hidden
+                    />
+                  </div>
+                  <h2 className="mt-4 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl md:text-[1.75rem] md:leading-tight">
+                    Parlons de votre organisation
+                  </h2>
+                  <p className="mt-3 text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
+                    Une question sur la plateforme, une démo ou un partenariat — nous sommes à l&apos;écoute.
+                  </p>
+                </div>
+                <Link
+                  href="/contact"
+                  className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-lg border border-[#2A2F3A] bg-[#2A2F3A] px-6 py-3 text-sm font-semibold text-[#E6D6C3] shadow-[0_1px_0_0_rgba(255,255,255,0.06)_inset] transition hover:bg-[#353b48] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50 lg:self-center"
+                >
+                  Nous contacter
+                  <ArrowUpRight className="h-4 w-4" strokeWidth={2} aria-hidden />
+                </Link>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+
+      <Footer />
+    </div>
+  )
+}

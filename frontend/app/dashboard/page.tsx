@@ -11,7 +11,7 @@ import { useCompanies } from "@/hooks/use-companies"
 const quickLinks = [
   {
     id: "financial-statements",
-    title: "États financiers",
+    title: "Reporting financier",
     description: "Consultez vos états des résultats, bilans et flux de trésorerie",
     icon: TrendingUp,
     href: "/financial-statements/income-statement",
@@ -32,14 +32,14 @@ const quickLinks = [
   },
   {
     id: "evaluation",
-    title: "Évaluation",
-    description: "Évaluez votre entreprise avec différentes méthodes",
+    title: "Valorisation",
+    description: "Valorisez votre entreprise avec différentes méthodes",
     icon: Building2,
     href: "/evaluation/business-model",
   },
   {
     id: "year-end-cpa",
-    title: "Fin d'année CPA",
+    title: "Documentation",
     description: "Organisez et documentez votre clôture comptable de fin d'année",
     icon: Calendar,
     href: "/year-end-cpa",

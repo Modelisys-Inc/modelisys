@@ -1,8 +1,9 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react"
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { login as apiLogin, logout as apiLogout, getMe, type MeResponse, type UserResponse, type OrganizationResponse } from "@/lib/auth"
+import { isPublicPath } from "@/lib/public-paths"
 
 interface AuthContextType {
   user: UserResponse | null
@@ -15,57 +16,47 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const PUBLIC_PATHS = [
-  "/login",
-  "/privacy",
-  "/clause-de-non-responsabilite",
-  "/blog",
-  "/contact",
-  "/cabinets-comptables",
-  "/partenaires-financiers",
-  "/partenaires-institutionnels",
-  "/partenaires-capital",
-]
-
-function isPublicPath(pathname: string): boolean {
-  if (pathname === "/") return true
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserResponse | null>(null)
   const [organizations, setOrganizations] = useState<OrganizationResponse[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
   const pathname = usePathname()
+  /** Évite setState après démontage (Strict Mode, HMR, navigation rapide). */
+  const mountedRef = useRef(true)
 
   const loadUser = useCallback(async () => {
     const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null
     if (!token) {
+      if (!mountedRef.current) return
       setUser(null)
       setOrganizations([])
       setIsLoading(false)
-      // Clear stale session cookie to prevent redirect loop
       document.cookie = "has_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT"
       return
     }
 
     try {
       const data: MeResponse = await getMe()
+      if (!mountedRef.current) return
       setUser(data.user)
       setOrganizations(data.organizations)
     } catch {
-      // Token invalid or expired (refresh also failed)
+      if (!mountedRef.current) return
       apiLogout()
       setUser(null)
       setOrganizations([])
     } finally {
-      setIsLoading(false)
+      if (mountedRef.current) setIsLoading(false)
     }
   }, [])
 
   useEffect(() => {
+    mountedRef.current = true
     loadUser()
+    return () => {
+      mountedRef.current = false
+    }
   }, [loadUser])
 
   // Client-side route protection

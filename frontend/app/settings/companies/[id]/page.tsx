@@ -6,8 +6,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Building2, Calendar, DollarSign, Plus, Edit2, Trash2, X, Check, Loader2 } from "lucide-react"
+import { Building2, Calendar, DollarSign, Plus, Edit2, Trash2, X, Check, Loader2, Layers } from "lucide-react"
 import Link from "next/link"
+import { Switch } from "@/components/ui/switch"
 import { useParams, useRouter, usePathname } from "next/navigation"
 import {
   getCompany,
@@ -38,6 +39,7 @@ interface Company {
   name: string
   fiscalYearEnd: string
   currency: string
+  isCumulativeTb: boolean
   divisions: Division[]
 }
 
@@ -47,6 +49,7 @@ function mapApiCompany(c: ApiCompany): Company {
     name: c.name,
     fiscalYearEnd: c.fiscal_year_end,
     currency: c.currency,
+    isCumulativeTb: !!c.is_cumulative_tb,
     divisions: (c.divisions || []).map((d) => ({
       id: d.id,
       name: d.name,
@@ -102,6 +105,7 @@ export default function CompanySettingsPage() {
   const [editingCurrency, setEditingCurrency] = useState<string | null>(null)
   const [editingCompanyName, setEditingCompanyName] = useState(false)
   const [editingName, setEditingName] = useState("")
+  const [savingCumulativeTb, setSavingCumulativeTb] = useState(false)
 
   // Load company from API
   useEffect(() => {
@@ -313,6 +317,19 @@ export default function CompanySettingsPage() {
   const handleCancelEditCompanyName = () => {
     setEditingCompanyName(false)
     setEditingName("")
+  }
+
+  const handleCumulativeTbChange = async (checked: boolean) => {
+    if (!company || savingCumulativeTb) return
+    setSavingCumulativeTb(true)
+    try {
+      await updateCompany(companyId, { is_cumulative_tb: checked })
+      setCompany({ ...company, isCumulativeTb: checked })
+    } catch (e) {
+      console.error("Error updating cumulative TB setting:", e)
+    } finally {
+      setSavingCumulativeTb(false)
+    }
   }
 
   const handleDeleteCompany = async () => {
@@ -661,6 +678,31 @@ export default function CompanySettingsPage() {
                             </Button>
                           </div>
                         )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Balance cumulative (YTD) — impacte le calcul du bilan si les imports sont des cumuls */}
+                  <div className="p-3 bg-slate-50 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <Layers className="w-5 h-5 text-slate-400 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs text-slate-500 mb-0.5">Balance cumulative (YTD)</p>
+                            <p className="text-sm font-medium text-slate-900">Imports en cumul depuis le début d&apos;exercice</p>
+                          </div>
+                          <Switch
+                            checked={company.isCumulativeTb}
+                            onCheckedChange={handleCumulativeTbChange}
+                            disabled={savingCumulativeTb}
+                            aria-label="Balance de vérification cumulative"
+                          />
+                        </div>
+                        <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                          À activer seulement si chaque colonne mensuelle de votre fichier est un total cumulé depuis le début
+                          de l&apos;exercice financier. Sinon, laissez désactivé (solde de fin de mois par période).
+                        </p>
                       </div>
                     </div>
                   </div>

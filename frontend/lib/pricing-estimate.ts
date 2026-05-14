@@ -129,6 +129,22 @@ export type PricingEstimateResult = {
   integrationMax: number
 }
 
+/** Niveau de complexité du déploiement (impact implantation / abonnement dans l’estimateur). Trois profils explicites. */
+export type PricingComplexityLevel = "standard" | "modere" | "eleve"
+
+const COMPLEXITY_MULTIPLIER: Record<PricingComplexityLevel, number> = {
+  /** Périmètre simple (voir libellés UI) */
+  standard: 1,
+  /** +15 % */
+  modere: 1.15,
+  /** +30 % */
+  eleve: 1.3,
+}
+
+export function getComplexityMultiplier(level: PricingComplexityLevel): number {
+  return COMPLEXITY_MULTIPLIER[level] ?? 1
+}
+
 export function computePricingEstimate(input: PricingEstimateInput): PricingEstimateResult {
   const distinctOptionalSum = sumDistinctOptionalModulePrices(input.selectedModuleIds)
   const basePrice = input.includeConsolidationModule ? BASE_SUBSCRIPTION_MONTHLY : 0

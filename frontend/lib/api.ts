@@ -15,6 +15,20 @@ class ApiError extends Error {
   }
 }
 
+/** FastAPI renvoie souvent `detail` comme chaîne ou liste d’objets de validation. */
+function formatApiErrorDetail(data: { detail?: unknown }): string {
+  const d = data.detail
+  if (typeof d === "string") return d
+  if (Array.isArray(d) || (d !== null && typeof d === "object")) {
+    try {
+      return JSON.stringify(d)
+    } catch {
+      return "Erreur API"
+    }
+  }
+  return "Erreur API"
+}
+
 let refreshPromise: Promise<boolean> | null = null
 
 async function refreshAccessToken(): Promise<boolean> {
@@ -100,8 +114,10 @@ export async function apiFetch<T = unknown>(
   }
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new ApiError(res.status, data.detail || res.statusText)
+    const data = (await res.json().catch(() => ({}))) as { detail?: unknown }
+    const detail =
+      data.detail !== undefined ? formatApiErrorDetail(data) : res.statusText
+    throw new ApiError(res.status, detail)
   }
 
   return res.json() as Promise<T>
@@ -119,8 +135,10 @@ export async function login(email: string, password: string): Promise<AuthRespon
   })
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new ApiError(res.status, data.detail || res.statusText)
+    const data = (await res.json().catch(() => ({}))) as { detail?: unknown }
+    const detail =
+      data.detail !== undefined ? formatApiErrorDetail(data) : res.statusText
+    throw new ApiError(res.status, detail)
   }
 
   const data: AuthResponse = await res.json()
@@ -182,6 +200,8 @@ export interface Company {
   name: string
   fiscal_year_end: string
   currency: string
+  /** Si true, les montants de balance importés sont des totaux cumulés depuis le début d'exercice (YTD) par mois. */
+  is_cumulative_tb?: boolean
   divisions: Division[]
   created_at: string
   updated_at: string
@@ -194,6 +214,24 @@ export async function listCompanies(): Promise<Company[]> {
 
 export async function getCompany(id: string): Promise<Company> {
   return apiFetch<Company>(`/api/companies/${id}`)
+}
+
+/** Résumé portail (BV, dernière note, fiche société) — voir GET /api/companies/{id}/portal-summary */
+export interface CompanyPortalSummary {
+  fiscal_year_end: string
+  currency: string
+  company_updated_at: string
+  trial_balance_last_period: { fiscal_year: number; month: number } | null
+  note_last_activity: {
+    updated_at: string
+    created_by_name: string
+    row_label: string
+    page: string
+  } | null
+}
+
+export async function getCompanyPortalSummary(companyId: string): Promise<CompanyPortalSummary> {
+  return apiFetch<CompanyPortalSummary>(`/api/companies/${companyId}/portal-summary`)
 }
 
 export async function createCompany(data: {
@@ -210,7 +248,7 @@ export async function createCompany(data: {
 
 export async function updateCompany(
   id: string,
-  data: { name?: string; fiscal_year_end?: string; currency?: string }
+  data: { name?: string; fiscal_year_end?: string; currency?: string; is_cumulative_tb?: boolean }
 ): Promise<Company> {
   return apiFetch<Company>(`/api/companies/${id}`, {
     method: "PATCH",
@@ -332,14 +370,34 @@ export type TrialBalanceReferencePeriod = {
 export async function listTrialBalanceReferencePeriods(
   companyId: string
 ): Promise<TrialBalanceReferencePeriod[]> {
+  const MONTHS_FR = [
+    "Janvier",
+    "Février",
+    "Mars",
+    "Avril",
+    "Mai",
+    "Juin",
+    "Juillet",
+    "Août",
+    "Septembre",
+    "Octobre",
+    "Novembre",
+    "Décembre",
+  ] as const
+
   const years = await getTrialBalanceFiscalYears(companyId)
   const out: TrialBalanceReferencePeriod[] = []
   for (const y of years) {
     const tb = await getTrialBalance(companyId, y)
     for (const m of tb.months_with_data ?? []) {
-      if (m >= 1 && m <= 12) {
-        out.push({ fiscal_year: y, month: m })
-      }
+      if (m < 1 || m > 12) continue
+      const monthKey = MONTHS_FR[m - 1]
+      // Exclude months that exist in the DB only with zero amounts (common when imports upload all months).
+      const hasNonZero = (tb.accounts ?? []).some((acc) => {
+        const v = acc.monthly_amounts?.[monthKey] ?? 0
+        return typeof v === "number" && Number.isFinite(v) && v !== 0
+      })
+      if (hasNonZero) out.push({ fiscal_year: y, month: m })
     }
   }
   out.sort((a, b) =>
@@ -566,6 +624,8 @@ export interface FinancialStatementRow {
   indent?: boolean
   /** Trait épais au-dessus de la ligne (structure). */
   separatorAbove?: boolean
+  /** Présence d'un code de liaison ou d'une formule de liaison dans la structure. */
+  hasLiaisonCode?: boolean
 }
 
 export interface FinancialStatementParams {
@@ -772,6 +832,12 @@ export async function deleteBudget(
 
 // --- Notes API ---
 
+export interface NoteAttachmentData {
+  filename: string
+  media_type: string
+  data: string
+}
+
 export interface NoteData {
   id: string
   company_id: string | null
@@ -787,7 +853,14 @@ export interface NoteData {
   variation_percent: number | null
   variation_amount: number | null
   content: string
+  attachments: NoteAttachmentData[]
+  reference_month: number | null
+  reference_year: number | null
+  /** Exercice financier (année de clôture selon la fin d’exercice de la société) */
+  fiscal_year: number | null
   created_by_id: string
+  /** Nom complet de l’utilisateur qui a créé la note */
+  created_by_name: string
   created_at: string
   updated_at: string
 }
@@ -797,6 +870,10 @@ export interface NoteFilters {
   row_id?: string
   period?: string
   view?: string
+  fiscal_year?: number
+  reference_month?: number
+  reference_year?: number
+  created_by_id?: string
 }
 
 export async function listNotes(
@@ -808,6 +885,10 @@ export async function listNotes(
   if (filters.row_id) query.set("row_id", filters.row_id)
   if (filters.period) query.set("period", filters.period)
   if (filters.view) query.set("view", filters.view)
+  if (filters.fiscal_year != null) query.set("fiscal_year", String(filters.fiscal_year))
+  if (filters.reference_month != null) query.set("reference_month", String(filters.reference_month))
+  if (filters.reference_year != null) query.set("reference_year", String(filters.reference_year))
+  if (filters.created_by_id) query.set("created_by_id", filters.created_by_id)
   const qs = query.toString() ? `?${query.toString()}` : ""
   const data = await apiFetch<{ notes: NoteData[] }>(
     `/api/companies/${companyId}/notes${qs}`
@@ -830,6 +911,9 @@ export async function createNote(
     content: string
     division_id?: string | null
     sub_division_id?: string | null
+    attachments?: NoteAttachmentData[]
+    reference_month?: number | null
+    reference_year?: number | null
   }
 ): Promise<NoteData> {
   return apiFetch<NoteData>(
@@ -847,6 +931,9 @@ export async function updateNote(
     prior_amount?: number | null
     variation_percent?: number | null
     variation_amount?: number | null
+    attachments?: NoteAttachmentData[]
+    reference_month?: number | null
+    reference_year?: number | null
   }
 ): Promise<NoteData> {
   return apiFetch<NoteData>(
@@ -1310,6 +1397,8 @@ export interface SeriesDetailRow {
 export interface SeriesRow {
   id: string
   label: string
+  /** Code de liaison Sommaire (ex. « 20 »), distinct de l’id technique de ligne. */
+  linkCode?: string
   isBold: boolean
   isSection: boolean
   isResult: boolean
@@ -1319,6 +1408,7 @@ export interface SeriesRow {
   detailOnly?: boolean
   indent?: boolean
   separatorAbove?: boolean
+  hasLiaisonCode?: boolean
 }
 
 export interface FinancialStatementSeriesResponse {
@@ -1331,6 +1421,7 @@ export interface FinancialStatementSeriesResponse {
 
 export interface FinancialStatementSeriesParams {
   fiscal_year: number
+  month?: number
   months?: number  // default 12
   division_id?: string
   sub_division_id?: string
@@ -1347,6 +1438,7 @@ export async function getFinancialStatementSeries(
 ): Promise<FinancialStatementSeriesResponse> {
   const query = new URLSearchParams()
   query.set("fiscal_year", params.fiscal_year.toString())
+  if (params.month) query.set("month", params.month.toString())
   if (params.months) query.set("months", params.months.toString())
   if (params.division_id) query.set("division_id", params.division_id)
   if (params.sub_division_id) query.set("sub_division_id", params.sub_division_id)
@@ -1427,13 +1519,18 @@ export async function uploadTrialBalance(
   companyId: string,
   file: File,
   fiscalYear?: number,
-  month?: number
+  month?: number,
+  ignoredAccounts?: string[]
 ): Promise<{ accounts_imported: number; message: string }> {
   const formData = new FormData()
   formData.append("file", file)
   const params = new URLSearchParams()
   if (fiscalYear != null) params.set("fiscal_year", fiscalYear.toString())
   if (month != null) params.set("month", month.toString())
+  for (const acc of ignoredAccounts ?? []) {
+    const v = String(acc || "").trim()
+    if (v) params.append("ignored_accounts", v)
+  }
   const query = params.toString() ? `?${params.toString()}` : ""
 
   return apiFetch(

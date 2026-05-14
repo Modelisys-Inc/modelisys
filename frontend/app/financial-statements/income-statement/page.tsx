@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Filter, Calendar, TrendingUp, TrendingDown, ChevronRight } from "lucide-react"
+import { Calendar, ChevronRight, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
@@ -16,17 +16,24 @@ import { useFinancialStatementReferenceDate } from "@/hooks/use-financial-statem
 import {
   listBudgets,
   listCompanies,
-  listNotes,
   getIncomeStatement,
   type BudgetData,
   type FinancialStatementRow,
   type FinancialStatementParams,
 } from "@/lib/api"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
+import {
+  appendPerformanceChartSlot,
+  DEFAULT_PERFORMANCE_CHART_CARD_TITLE,
+  loadPerformanceChartSlotIds,
+  loadPerformanceChartConfig,
+  removePerformanceChartSlot,
+} from "@/lib/performance-chart-config"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
-type Section = "summary" | "detail"
-type ColumnMode = "variations" | "percentage" | "comparison"
+type Section = "dashboard" | "summary" | "detail"
+type ColumnMode = "variationAmount" | "variationPercent" | "percentage" | "comparison"
 type ComparisonType = "lastMonth" | "pastMonth" | "budget"
 
 const financialStatementsNav = [
@@ -39,8 +46,8 @@ export default function IncomeStatementPage() {
   const { companies } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("comparison")
-  const [section, setSection] = useState<Section>("summary")
-  const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
+  const [section, setSection] = useState<Section>("dashboard")
+  const [columnMode, setColumnMode] = useState<ColumnMode>("variationAmount")
   const [comparisonType, setComparisonType] = useState<ComparisonType>("lastMonth")
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null)
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
@@ -66,7 +73,7 @@ export default function IncomeStatementPage() {
   }, [companyIdFromUrl, searchParams])
   const lockedCompanyId = companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
 
-  const { selectedMonth, selectedYear } = useFinancialStatementReferenceDate()
+  const { selectedMonth, selectedYear } = useFinancialStatementReferenceDate({ skipUrlSync: true })
 
   // Load budgets from API
   const [budgets, setBudgets] = useState<Array<{ id: string; name: string }>>([])
@@ -94,19 +101,87 @@ export default function IncomeStatementPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // L'horizon « Annuel » (comparison + période annuelle) a été retiré du sélecteur — repasser en mois courant
+  useEffect(() => {
+    if (view === "comparison" && period === "annual") {
+      setPeriod("monthly")
+    }
+  }, [view, period])
+
   // Auto-switch comparison type when horizon doesn't support "lastMonth"
   useEffect(() => {
-    const isAnnualYTDorDDM = view === "ytd" || view === "ddm" || (view === "comparison" && period === "annual")
+    const isAnnualYTDorDDM = view === "ytd" || view === "ddm"
     if (isAnnualYTDorDDM && comparisonType === "lastMonth") {
       setComparisonType("pastMonth")
     }
   }, [view, period, comparisonType])
+
+  // Tableau de bord : limiter aux horizons Mensuel (12 mois), Trimestriel 2 ans, Annuel 5 ans.
+  useEffect(() => {
+    if (section !== "dashboard") return
+    const allowed = view === "12months" || view === "quarters" || view === "years"
+    if (!allowed) {
+      setView("12months")
+      setColumnMode("variations")
+    }
+  }, [section, view])
 
   // --- Fetch financial statement data from the API ---
   const [rows, setRows] = useState<FinancialStatementRow[]>([])
   const [loading, setLoading] = useState(false)
   // Track the resolved company ID (falls back to first company when none selected)
   const [resolvedCompanyId, setResolvedCompanyId] = useState<string | null>(null)
+  const effectiveCompanyId = selectedCompanyId || resolvedCompanyId
+  const [performanceChartSlotIds, setPerformanceChartSlotIds] = useState<string[]>(["default"])
+  const [activePerformanceChartSlotId, setActivePerformanceChartSlotId] = useState<string>("default")
+  const [chartConfigVersion, setChartConfigVersion] = useState(0)
+
+  const performanceChartSlotOptions = useMemo(() => {
+    if (!effectiveCompanyId) {
+      return performanceChartSlotIds.map((id, idx) => ({ id, label: `Graphique ${idx + 1}` }))
+    }
+    const base = performanceChartSlotIds.map((id, idx) => {
+      const cfg = loadPerformanceChartConfig(effectiveCompanyId, id)
+      const title = cfg.chartTitle.trim()
+      const label = title || DEFAULT_PERFORMANCE_CHART_CARD_TITLE || `Graphique ${idx + 1}`
+      return { id, label, fallbackIndex: idx + 1 }
+    })
+    const counts = new Map<string, number>()
+    for (const item of base) counts.set(item.label, (counts.get(item.label) ?? 0) + 1)
+    return base.map((item) => {
+      if ((counts.get(item.label) ?? 0) <= 1) return { id: item.id, label: item.label }
+      return { id: item.id, label: `${item.label} (${item.fallbackIndex})` }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveCompanyId, performanceChartSlotIds, chartConfigVersion])
+
+  useEffect(() => {
+    if (!effectiveCompanyId) {
+      setPerformanceChartSlotIds(["default"])
+      setActivePerformanceChartSlotId("default")
+      return
+    }
+    const ids = loadPerformanceChartSlotIds(effectiveCompanyId)
+    setPerformanceChartSlotIds(ids)
+    setActivePerformanceChartSlotId((prev) => (ids.includes(prev) ? prev : ids[0] ?? "default"))
+  }, [effectiveCompanyId])
+
+  const handleAddPerformanceChart = () => {
+    if (!effectiveCompanyId) return
+    appendPerformanceChartSlot(effectiveCompanyId)
+    const ids = loadPerformanceChartSlotIds(effectiveCompanyId)
+    setPerformanceChartSlotIds(ids)
+    const last = ids[ids.length - 1]
+    if (last) setActivePerformanceChartSlotId(last)
+  }
+
+  const handleRemovePerformanceChart = (slotId: string) => {
+    if (!effectiveCompanyId) return
+    removePerformanceChartSlot(effectiveCompanyId, slotId)
+    const ids = loadPerformanceChartSlotIds(effectiveCompanyId)
+    setPerformanceChartSlotIds(ids)
+    setActivePerformanceChartSlotId((prev) => (ids.includes(prev) ? prev : ids[0] ?? "default"))
+  }
 
   useEffect(() => {
     if (lockedCompanyId && selectedCompanyId !== lockedCompanyId) {
@@ -162,43 +237,10 @@ export default function IncomeStatementPage() {
     fetchData()
   }, [lockedCompanyId, selectedCompanyId, selectedYear, selectedMonth, period, view, comparisonType, selectedBudgetId, selectedDivisionId, selectedSubDivisionId, structureVersion])
 
-  // --- Compute top 3 variations from fetched rows ---
-  const topVariations = useMemo(() => {
-    if (rows.length === 0) return []
-    // Filter rows that have meaningful variation and are not empty/section-only
-    const withVariation = rows
-      .filter((r) => r.label && r.current !== 0 && r.prior !== 0 && !r.isSection)
-      .map((r) => ({
-        label: r.label,
-        variation: r.variation,
-        variationAmount: r.variationAmount,
-      }))
-      .sort((a, b) => Math.abs(b.variation) - Math.abs(a.variation))
-    return withVariation.slice(0, 3)
-  }, [rows])
-
-  // --- Count notes from the API ---
-  const [notesCount, setNotesCount] = useState(0)
-  useEffect(() => {
-    const fetchNotes = async () => {
-      try {
-        const apiCompanies = await listCompanies()
-        const companyId = selectedCompanyId || apiCompanies[0]?.id
-        if (!companyId) { setNotesCount(0); return }
-        const notes = await listNotes(companyId, { page: "income-statement" })
-        setNotesCount(notes.length)
-      } catch {
-        setNotesCount(0)
-      }
-    }
-    fetchNotes()
-  }, [selectedCompanyId])
-
   // Fonction pour obtenir la valeur actuelle du sélecteur Horizon
   const getCurrentHorizon = (): string => {
     if (view === "comparison" && period === "monthly") return "courant"
     if (view === "comparison" && period === "quarterly") return "trimestriel"
-    if (view === "comparison" && period === "annual") return "annuel"
     if (view === "ytd") return "ytd"
     if (view === "ddm") return "ddm"
     if (view === "12months") return "12mois"
@@ -213,16 +255,12 @@ export default function IncomeStatementPage() {
       case "courant":
         setPeriod("monthly")
         setView("comparison")
+        setColumnMode("variationAmount")
         break
       case "trimestriel":
         setPeriod("quarterly")
         setView("comparison")
-        setColumnMode("variations")
-        break
-      case "annuel":
-        setPeriod("annual")
-        setView("comparison")
-        setColumnMode("variations")
+        setColumnMode("variationAmount")
         break
       case "ytd":
         setView("ytd")
@@ -232,15 +270,15 @@ export default function IncomeStatementPage() {
         break
       case "12mois":
         setView("12months")
-        setColumnMode("variations")
+        setColumnMode("variationAmount")
         break
       case "trimestres":
         setView("quarters")
-        setColumnMode("variations")
+        setColumnMode("variationAmount")
         break
       case "annees":
         setView("years")
-        setColumnMode("variations")
+        setColumnMode("variationAmount")
         break
       default:
         setPeriod("monthly")
@@ -297,17 +335,24 @@ export default function IncomeStatementPage() {
           </div>
 
           {/* Controls Section */}
-          <div className="mb-6 p-4">
-            <div className="flex flex-wrap items-center gap-4">
-              {/* Filter Icon */}
-              <div className="flex items-center gap-2 text-[#C9B8A5]/90">
-                <Filter className="w-4 h-4" />
-              </div>
+          <div className="mb-6">
+            <div className="rounded-2xl border border-white/10 bg-[#2A2F3A]/45 px-3 py-3 backdrop-blur-sm sm:px-4">
+              <div className="flex flex-wrap items-center gap-3">
 
               {/* View Toggle */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Vue:</span>
                 <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
+                  <Button
+                    variant="ghost"
+                    onClick={() => setSection("dashboard")}
+                    className={`h-8 text-xs px-3 transition-all ${
+                      section === "dashboard"
+                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                    }`}
+                  >
+                    Tableau de bord
+                  </Button>
                   <Button
                     variant="ghost"
                     onClick={() => setSection("summary")}
@@ -333,12 +378,9 @@ export default function IncomeStatementPage() {
                 </div>
               </div>
 
-              {/* Separator */}
-              <div className="h-6 w-px bg-white/10" />
-
               {/* Horizon and Comparison Group */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Horizon:</span>
+                <span className="text-xs font-medium text-slate-200 whitespace-nowrap">Horizon</span>
                 <div className="flex gap-2 items-center">
                   <Select value={getCurrentHorizon()} onValueChange={handleHorizonChange}>
                     <SelectTrigger className="h-8 w-[140px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5">
@@ -346,14 +388,23 @@ export default function IncomeStatementPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="courant">Courant</SelectItem>
-                      <SelectItem value="trimestriel">Trimestriel</SelectItem>
-                      <SelectItem value="annuel">Annuel</SelectItem>
-                      <SelectItem value="ytd">YTD</SelectItem>
-                      <SelectItem value="ddm">DDM</SelectItem>
-                      <SelectItem value="12mois">12 mois</SelectItem>
-                      <SelectItem value="trimestres">Trimestres</SelectItem>
-                      <SelectItem value="annees">Années</SelectItem>
+                      {section === "dashboard" ? (
+                        <>
+                          <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
+                          <SelectItem value="trimestres">{HORIZON_LABEL.trimestriel2Ans}</SelectItem>
+                          <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
+                        </>
+                      ) : (
+                        <>
+                          <SelectItem value="courant">{HORIZON_LABEL.moisActuel}</SelectItem>
+                          <SelectItem value="trimestriel">{HORIZON_LABEL.trimestreActuel}</SelectItem>
+                          <SelectItem value="ytd">{HORIZON_LABEL.ytd}</SelectItem>
+                          <SelectItem value="ddm">{HORIZON_LABEL.ddm}</SelectItem>
+                          <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
+                          <SelectItem value="trimestres">{HORIZON_LABEL.trimestriel2Ans}</SelectItem>
+                          <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
+                        </>
+                      )}
                     </SelectContent>
                   </Select>
                   {(view === "comparison" || view === "ytd" || view === "ddm") && (
@@ -370,8 +421,8 @@ export default function IncomeStatementPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {/* Hide "Mois dernier" for Annuel, YTD, and DDM horizons */}
-                          {!(view === "ytd" || view === "ddm" || (view === "comparison" && period === "annual")) && (
+                          {/* Hide "Mois dernier" for YTD and DDM horizons */}
+                          {!(view === "ytd" || view === "ddm") && (
                             <SelectItem value="lastMonth">Mois dernier</SelectItem>
                           )}
                           <SelectItem value="pastMonth">Mois passé</SelectItem>
@@ -403,65 +454,43 @@ export default function IncomeStatementPage() {
                 </div>
               </div>
 
-              {/* Separator */}
-              <div className="h-6 w-px bg-white/10" />
-
-              {/* Display Mode Buttons */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Affichage:</span>
-                <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
-                  <Button
-                    variant="ghost"
-                    onClick={() => setColumnMode("variations")}
-                    disabled={getCurrentHorizon() === "12mois" || getCurrentHorizon() === "trimestres" || getCurrentHorizon() === "annees"}
-                    className={`h-8 text-xs px-3 transition-all ${
-                      columnMode === "variations"
-                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                    } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
-                  >
-                    Variations
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setColumnMode("percentage")}
-                    disabled={getCurrentHorizon() === "12mois" || getCurrentHorizon() === "trimestres" || getCurrentHorizon() === "annees"}
-                    className={`h-8 text-xs px-3 transition-all ${
-                      columnMode === "percentage"
-                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                    } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
-                  >
-                    % revenus
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setColumnMode("comparison")}
-                    disabled={
-                      getCurrentHorizon() === "12mois" || 
-                      getCurrentHorizon() === "trimestres" || 
-                      getCurrentHorizon() === "annees" ||
-                      (!selectedCompanyId && !!selectedDivisionId) ||
-                      (!selectedCompanyId && !!selectedSubDivisionId) ||
-                      (!!selectedCompanyId && !!selectedDivisionId && !!selectedSubDivisionId)
-                    }
-                    className={`h-8 text-xs px-3 transition-all ${
-                      columnMode === "comparison"
-                        ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
-                        : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-                    } disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-slate-300`}
-                  >
-                    Comparaison
-                  </Button>
-                </div>
-              </div>
-
-              {/* Separator */}
-              <div className="h-6 w-px bg-white/10" />
+              {/* Separator — masqué avec Affichage sur le tableau de bord */}
+              {(section === "summary" || section === "detail") && (
+                <>
+                  <span className="text-xs font-medium text-slate-200 whitespace-nowrap">Affichage</span>
+                  <Select value={columnMode} onValueChange={(v) => setColumnMode(v as ColumnMode)}>
+                    <SelectTrigger
+                      className="h-8 w-[150px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5"
+                      aria-label="Affichage"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        value="comparison"
+                        disabled={
+                          (!selectedCompanyId && !!selectedDivisionId) ||
+                          (!selectedCompanyId && !!selectedSubDivisionId) ||
+                          (!!selectedCompanyId && !!selectedDivisionId && !!selectedSubDivisionId)
+                        }
+                      >
+                        {getCurrentHorizon() === "12mois" ||
+                        getCurrentHorizon() === "trimestres" ||
+                        getCurrentHorizon() === "annees"
+                          ? "Réel"
+                          : "Comparaison"}
+                      </SelectItem>
+                      <SelectItem value="variationAmount">Variation $</SelectItem>
+                      <SelectItem value="variationPercent">Variation %</SelectItem>
+                      <SelectItem value="percentage">% revenus</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
+              )}
 
               {/* Entity Selector */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#C9B8A5]/90 whitespace-nowrap">Entité:</span>
+                <span className="text-xs font-medium text-slate-200 whitespace-nowrap">Entités</span>
                 <EntitySelector
                   companies={companies}
                   selectedCompanyId={selectedCompanyId}
@@ -477,18 +506,80 @@ export default function IncomeStatementPage() {
                   darkControlBar
                 />
               </div>
+              </div>
             </div>
           </div>
 
         </div>
       </div>
+      {section === "dashboard" && (
+        <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
+          {/* Carte(s) Performance financière — seule vue affichée en mode Tableau de bord */}
+          <div className="relative -mt-32 space-y-6">
+            {effectiveCompanyId ? (
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddPerformanceChart}
+                  className="gap-1.5 border-slate-200 bg-white/90 text-slate-800 shadow-sm hover:bg-white"
+                >
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Ajouter un graphique
+                </Button>
+              </div>
+            ) : null}
+            {(() => {
+              const index = performanceChartSlotIds.findIndex((id) => id === activePerformanceChartSlotId)
+              const safeIndex = index >= 0 ? index : 0
+              const slotId = performanceChartSlotIds[safeIndex] ?? "default"
+              return (
+                <IncomeStatementChart
+                  key={slotId}
+                  chartInstanceId={slotId}
+                  chartSlotNumber={safeIndex + 1}
+                  chartSlotCount={performanceChartSlotIds.length}
+                  chartInstanceOptions={performanceChartSlotOptions}
+                  onChartInstanceChange={(id) => setActivePerformanceChartSlotId(id)}
+                  onChartConfigSaved={() => setChartConfigVersion((v) => v + 1)}
+                  onRemoveChart={
+                    slotId !== "default" && performanceChartSlotIds.length > 1
+                      ? () => handleRemovePerformanceChart(slotId)
+                      : undefined
+                  }
+                  period={period}
+                  view={view}
+                  companyId={effectiveCompanyId}
+                  divisionId={selectedDivisionId}
+                  subDivisionId={selectedSubDivisionId}
+                  companies={companies}
+                  comparisonType={comparisonType}
+                  selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
+                  selectedBudgetName={
+                    comparisonType === "budget" && selectedBudgetId
+                      ? budgets.find((b) => b.id === selectedBudgetId)?.name || null
+                      : null
+                  }
+                  fiscalYear={selectedYear}
+                  referenceMonth={selectedMonth}
+                  structureVersion={structureVersion}
+                />
+              )
+            })()}
+          </div>
+        </main>
+      )}
+
+      {section === "summary" && (
       <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
-        {/* Chart Section - Overlapping 25% in dark section */}
+        {/* Cartes sommaire — même chevauchement sur la barre sombre (titres / filtres) que Performance financière */}
         <div className="relative -mt-32">
-          <IncomeStatementChart
+          <IncomeStatementSummary
             period={period}
             view={view}
-            companyId={selectedCompanyId || resolvedCompanyId}
+            columnMode={columnMode}
+            companyId={resolvedCompanyId}
             divisionId={selectedDivisionId}
             subDivisionId={selectedSubDivisionId}
             companies={companies}
@@ -497,130 +588,41 @@ export default function IncomeStatementPage() {
             selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
             fiscalYear={selectedYear}
             referenceMonth={selectedMonth}
+            rows={rows}
+            loading={loading}
+            showIncomeStatementStructureSettings
             structureVersion={structureVersion}
+            onIncomeStatementStructureSaved={() => setStructureVersion((v) => v + 1)}
           />
         </div>
       </main>
+      )}
 
-      {/* Dark Section between Chart and Summary/Detail */}
-      <div className="relative w-full pt-12 pb-32 overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
-            <div className="bg-[#2A2F3A]" />
-            <div className="bg-[#2A2F3A]" />
-          </div>
-          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
-            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
-          </div>
-        </div>
-        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
-          <div className="flex items-start gap-3">
-            <div className="w-2 flex-shrink-0"></div>
-            <div className="flex-1">
-              <div className="flex items-start justify-between mb-6">
-                <div className="flex-1">
-                  <h3 className="text-2xl font-semibold text-[#E6D6C3] mb-3">Documentation comptable continue</h3>
-                  <p className="text-base text-[#C9B8A5]/90 leading-relaxed max-w-4xl">
-                    Documentez les variations importantes tout au long de l'exercice pour faciliter votre clôture comptable annuelle et optimiser les processus d'évaluation d'entreprise et de transactions stratégiques.
-                  </p>
-                </div>
-                <div className="flex items-center gap-4 ml-8">
-                  <div className="text-right">
-                    <div className="text-sm text-[#C9B8A5]/80 mb-1">Notes documentées</div>
-                    <div className="text-3xl font-semibold text-[#E6D6C3]">{notesCount}</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Top 3 Variations */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {topVariations.length > 0 ? topVariations.map((v, i) => {
-                  const isPositive = v.variation >= 0
-                  const labels = ["Variation la plus importante", "2e variation importante", "3e variation importante"]
-                  return (
-                    <div key={i} className="rounded-lg border border-white/10 bg-[#2A2F3A]/50 p-4 backdrop-blur-sm">
-                      <div className="text-xs text-slate-400 mb-1">{labels[i]}</div>
-                      <div className="text-lg font-semibold text-white mb-1">{v.label}</div>
-                      <div className="flex items-center gap-2">
-                        {isPositive ? (
-                          <TrendingUp className="w-4 h-4 text-emerald-500" />
-                        ) : (
-                          <TrendingDown className="w-4 h-4 text-red-500" />
-                        )}
-                        <span className={`text-sm font-medium ${isPositive ? "text-emerald-500" : "text-red-500"}`}>
-                          {isPositive ? "+" : ""}{v.variation.toFixed(1)}%
-                        </span>
-                        <span className="text-xs text-slate-400">vs période précédente</span>
-                      </div>
-                    </div>
-                  )
-                }) : (
-                  <>
-                    {[0, 1, 2].map((i) => (
-                      <div key={i} className="rounded-lg border border-white/10 bg-[#2A2F3A]/50 p-4 backdrop-blur-sm">
-                        <div className="text-xs text-slate-400 mb-1">{["Variation la plus importante", "2e variation importante", "3e variation importante"][i]}</div>
-                        <div className="text-lg font-semibold text-white mb-1">--</div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-slate-500">Aucune donnée</span>
-                        </div>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
+      {section === "detail" && (
       <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
-        {/* Summary or Detail Section - Overlapping with dark section */}
         <div className="relative -mt-32">
-          {section === "summary" ? (
-            <IncomeStatementSummary
-              period={period}
-              view={view}
-              columnMode={columnMode}
-              companyId={resolvedCompanyId}
-              divisionId={selectedDivisionId}
-              subDivisionId={selectedSubDivisionId}
-              companies={companies}
-              comparisonType={comparisonType}
-              selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
-              selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
-              fiscalYear={selectedYear}
-              referenceMonth={selectedMonth}
-              rows={rows}
-              loading={loading}
-              showIncomeStatementStructureSettings
-              structureVersion={structureVersion}
-              onIncomeStatementStructureSaved={() => setStructureVersion((v) => v + 1)}
-            />
-          ) : (
-            <IncomeStatementDetail
-              period={period}
-              view={view}
-              columnMode={columnMode}
-              companyId={resolvedCompanyId}
-              divisionId={selectedDivisionId}
-              subDivisionId={selectedSubDivisionId}
-              companies={companies}
-              comparisonType={comparisonType}
-              selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
-              selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
-              fiscalYear={selectedYear}
-              referenceMonth={selectedMonth}
-              rows={rows}
-              loading={loading}
-              structureVersion={structureVersion}
-              showIncomeStatementStructureSettings
-              onIncomeStatementStructureSaved={() => setStructureVersion((v) => v + 1)}
-            />
-          )}
+          <IncomeStatementDetail
+            period={period}
+            view={view}
+            columnMode={columnMode}
+            companyId={resolvedCompanyId}
+            divisionId={selectedDivisionId}
+            subDivisionId={selectedSubDivisionId}
+            companies={companies}
+            comparisonType={comparisonType}
+            selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
+            selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
+            fiscalYear={selectedYear}
+            referenceMonth={selectedMonth}
+            rows={rows}
+            loading={loading}
+            structureVersion={structureVersion}
+            showIncomeStatementStructureSettings
+            onIncomeStatementStructureSaved={() => setStructureVersion((v) => v + 1)}
+          />
         </div>
       </main>
+      )}
     </div>
   )
 }

@@ -6,6 +6,9 @@ export const TOTAL_CHARGES_LABEL = "total des charges"
 /** Provenance pour les codes issus de la structure compte de résultat (Income statement). */
 export const LINK_CODE_PROVENANCE_RESULTATS = "Résultats"
 
+/** Provenance pour les codes issus de la structure bilan (Balance sheet). */
+export const LINK_CODE_PROVENANCE_BILAN = "Bilan"
+
 export function normLabel(s: string): string {
   return s.trim().toLowerCase()
 }
@@ -55,6 +58,26 @@ export function newChargeRow(options?: { indent?: boolean; isBold?: boolean }): 
     separatorAbove: false,
     defineMapping: false,
     showInDetail: true,
+    linkCode: "",
+    annexLetter: "",
+    id,
+  }
+}
+
+/** Nouvelle ligne de structure pour le bilan (même champs optionnels que les charges pour liaison / annexe). */
+export function newBalanceSheetPostRow(options?: { indent?: boolean; isBold?: boolean }): Record<string, unknown> {
+  const id =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? `bs-line-${crypto.randomUUID()}`
+      : `bs-line-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+  return {
+    label: "Nouveau poste",
+    indent: options?.indent ?? true,
+    isBold: options?.isBold ?? false,
+    hidden: false,
+    separatorAbove: false,
+    defineMapping: false,
+    showInDetail: false,
     linkCode: "",
     annexLetter: "",
     id,
@@ -187,22 +210,33 @@ export function isStructureRowDetailOnly(row: Record<string, unknown>): boolean 
   return row.detailOnly === true
 }
 
-export function newDetailSubLineRow(annexLetter: string): Record<string, unknown> {
+export function newDetailSubLineRow(
+  annexLetter: string,
+  opts?: {
+    label?: string
+    linkCode?: string
+    dtCt?: unknown
+  }
+): Record<string, unknown> {
   const id =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? `detail-${crypto.randomUUID()}`
       : `detail-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
   const letter = normalizeAnnexLetter(annexLetter)
+  const label = String(opts?.label ?? "Nouvelle ligne").trim() || "Nouvelle ligne"
+  const linkCode = String(opts?.linkCode ?? "").trim()
+  const dt = normalizeDtCt(opts?.dtCt)
   return {
     id,
-    label: "Nouvelle ligne",
+    label,
     detailOnly: true,
     hidden: false,
     defineMapping: true,
     showInDetail: true,
-    linkCode: "",
+    linkCode,
     annexLetter: letter,
     indent: true,
+    ...(dt ? { dtCt: dt } : {}),
   }
 }
 
@@ -350,6 +384,23 @@ export function collectDistinctLinkCodesFromStructure(
     for (const c of normalizeCodeList(row.liaisonDenominatorCodes)) add(c)
   }
   return Array.from(seen).sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+}
+
+/** Vérifie l’absence de doublons sur `linkCode` (postes visibles avec code renseigné). */
+export function validateDuplicatePrimaryLinkCodes(structure: Record<string, unknown>[]): string | null {
+  const seen = new Map<string, number>()
+  for (let i = 0; i < structure.length; i++) {
+    const row = structure[i]!
+    if (isStructureRowEmptyLabel(row)) continue
+    if (isStructureRowHidden(row)) continue
+    const code = String(row.linkCode ?? "").trim()
+    if (!code) continue
+    if (seen.has(code)) {
+      return `Le code de liaison « ${code} » est utilisé par plusieurs postes. Chaque code ne peut être utilisé qu’une seule fois.`
+    }
+    seen.set(code, i)
+  }
+  return null
 }
 
 /**
@@ -731,7 +782,10 @@ export function dtCtDisplayForAccountLinkCode(
 }
 
 /**
- * Affichage du Groupe pour le mapping comptable : priorité à la structure, sinon préfixe numérique du code.
+ * Affichage du Groupe pour le mapping comptable : uniquement si le code de liaison existe dans la
+ * structure du compte de résultat (carte issue de `mapLinkCodesToGroupeLinkCodes`). Aucun préfixe
+ * numérique déduit du libellé du code seul — sinon un code absent de la structure (ex. saisi au
+ * mapping uniquement) pourrait afficher un groupe trompeur.
  */
 export function groupeDisplayForAccountLinkCode(
   linkCode: string | undefined,
@@ -739,8 +793,20 @@ export function groupeDisplayForAccountLinkCode(
 ): string {
   const lc = linkCode?.trim()
   if (!lc) return "—"
-  const fromStructure = groupeByLinkCode.get(lc)
-  if (fromStructure) return fromStructure
-  const fallback = extractGroupePrefixFromCompositeLinkCode(lc)
-  return fallback ?? "—"
+  return groupeByLinkCode.get(lc) ?? "—"
+}
+
+/**
+ * Colonne Groupe (page mapping comptable) : si un code est renseigné mais qu’aucun groupe
+ * n’est déductible de la structure, message explicite (le mapping n’est pas considéré comme terminé).
+ */
+export function groupeDisplayForAccountMappingTable(
+  linkCode: string | undefined,
+  groupeByLinkCode: Map<string, string>
+): string {
+  const lc = linkCode?.trim()
+  if (!lc) return "—"
+  const g = groupeDisplayForAccountLinkCode(linkCode, groupeByLinkCode)
+  if (g === "—") return "Mapping incomplet"
+  return g
 }

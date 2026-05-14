@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Index, String, Text, Numeric, DateTime, ForeignKey, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import JSON, Index, Integer, SmallInteger, String, Text, Numeric, DateTime, ForeignKey, func, text
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -32,7 +32,19 @@ class Note(Base):
     variation_percent: Mapped[float | None] = mapped_column(Numeric(10, 4), nullable=True)
     variation_amount: Mapped[float | None] = mapped_column(Numeric(15, 2), nullable=True)
 
+    # Contexte d’analyse (mois/année de référence à l’enregistrement) + exercice dérivé
+    reference_month: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    reference_year: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    fiscal_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Pièces jointes : liste de { "filename", "media_type", "data" (base64) }
+    # JSON + variante JSONB : create_all(SQLite) ne supporte pas JSONB seul.
+    attachments: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB(astext_type=Text()), "postgresql"),
+        nullable=False,
+        server_default=text("'[]'"),
+    )
     created_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
