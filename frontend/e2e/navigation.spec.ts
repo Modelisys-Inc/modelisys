@@ -1,11 +1,13 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("Navigation & Routing", () => {
-  test("root path redirects unauthenticated user to login", async ({
+  test("root path serves the marketing landing (no redirect)", async ({
     page,
   }) => {
-    await page.goto("/");
-    await expect(page).toHaveURL(/\/login/);
+    const res = await page.goto("/");
+    expect(res?.status()).toBe(200);
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page).toHaveTitle(/Modelisys/i);
   });
 
   test("all protected analysis routes redirect to login", async ({
