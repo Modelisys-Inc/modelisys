@@ -10,9 +10,8 @@ test.describe("Smoke Tests", () => {
   test("login page loads with correct elements", async ({ page }) => {
     await page.goto("/login");
     await expect(page.locator("body")).toBeVisible();
-    // Check for the Modelisys branding
-    await expect(page.locator("h1")).toContainText("Modelisys");
-    // Check for login form heading
+    // Login page renders the wordmark in lowercase ("modelisys.") for brand style.
+    await expect(page.locator("h1")).toContainText(/modelisys/i);
     await expect(page.locator("text=Connexion")).toBeVisible();
   });
 

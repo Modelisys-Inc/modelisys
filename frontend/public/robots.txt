@@ -19,3 +19,8 @@ Disallow: /scenarios
 Disallow: /settings
 Disallow: /year-end-cpa
 Disallow: /api/
+Disallow: /login
+Disallow: /forgot-password
+Disallow: /reset-password
+
+Sitemap: https://modelisys.com/sitemap.xml

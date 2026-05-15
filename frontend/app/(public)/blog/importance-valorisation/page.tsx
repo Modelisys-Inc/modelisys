@@ -32,6 +32,9 @@ export default function ArticleImportanceValorisation() {
           category="Finance · Valorisation"
           title="L’importance de la valorisation"
           date="29 janv. 2026"
+          datePublished="2026-01-29"
+          slug="importance-valorisation"
+          description="Pourquoi la valorisation est un outil de pilotage : décisions, scénarios, moteurs de valeur, crédibilité externe et intégration dans Modelisys."
           readTime="8 min"
           lead={
             <>

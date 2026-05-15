@@ -44,6 +44,9 @@ export default function ArticleIaTechnologiePilotage() {
           category="Innovation · Pilotage · IA"
           title="La technologie n’est plus un avantage. C’est un standard."
           date="24 avr. 2026"
+          datePublished="2026-04-24"
+          slug="ia-technologie-pilotage-entreprise"
+          description="Données, décisions et valeur : pourquoi la technologie financière ne suffit pas sans changement de pilotage, ce que disent les tendances du marché, et comment Modelisys relie performance et valorisation."
           readTime="14 min"
           lead={
             <>

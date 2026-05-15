@@ -32,6 +32,9 @@ export default function ArticleImportanceBudget() {
           category="Finance · Budget"
           title="L’importance d’un budget (et de son suivi)"
           date="29 janv. 2026"
+          datePublished="2026-01-29"
+          slug="importance-budget"
+          description="Budget et suivi : fondations, discipline, lien avec la valorisation, scénarios et comment Modelisys unifie le pilotage et la création de valeur."
           readTime="10 min"
           lead={
             <>

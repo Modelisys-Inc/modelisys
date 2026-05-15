@@ -49,6 +49,9 @@ export function BlogArticleIntro({
   title,
   titleAccent,
   date,
+  datePublished,
+  description,
+  slug,
   readTime,
   lead,
 }: {
@@ -57,14 +60,59 @@ export function BlogArticleIntro({
   title: string
   titleAccent?: string
   date: string
+  /** ISO 8601 date for JSON-LD (e.g. "2026-01-29"). Required to emit BlogPosting structured data. */
+  datePublished?: string
+  /** Used in BlogPosting JSON-LD description field. */
+  description?: string
+  /** Blog post slug (e.g. "importance-reporting-financier"). */
+  slug?: string
   readTime: string
   lead: ReactNode
 }) {
+  const SITE_URL =
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") || "https://modelisys.com"
+  const fullTitle = titleAccent ? `${title} ${titleAccent}` : title
+  const blogPostingJsonLd = datePublished
+    ? {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        headline: fullTitle,
+        ...(description ? { description } : {}),
+        datePublished,
+        dateModified: datePublished,
+        author: { "@type": "Organization", name: "Modelisys", url: SITE_URL },
+        publisher: {
+          "@type": "Organization",
+          name: "Modelisys",
+          logo: {
+            "@type": "ImageObject",
+            url: `${SITE_URL}/images/modelisys-logo-noir.svg`,
+          },
+        },
+        ...(slug
+          ? {
+              mainEntityOfPage: {
+                "@type": "WebPage",
+                "@id": `${SITE_URL}/blog/${slug}`,
+              },
+              url: `${SITE_URL}/blog/${slug}`,
+            }
+          : {}),
+        inLanguage: "fr-CA",
+      }
+    : null
+
   return (
     <section
       className="relative z-10 border-t border-slate-200/80 bg-transparent py-12 sm:py-16 lg:py-20"
       aria-labelledby="blog-article-title"
     >
+      {blogPostingJsonLd ? (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(blogPostingJsonLd) }}
+        />
+      ) : null}
       <div className="mx-auto mb-10 max-w-3xl text-center lg:mx-0 lg:max-w-2xl lg:text-left sm:mb-12">
         <Link
           href={backHref}
