@@ -32,6 +32,9 @@ export default function ArticleImportanceReporting() {
           category="Finance · Reporting"
           title="L’importance du reporting financier"
           date="29 janv. 2026"
+          datePublished="2026-01-29"
+          slug="importance-reporting-financier"
+          description="Pourquoi le reporting financier est essentiel : rythme de gestion, décisions, alignement, crédibilité externe et comment Modelisys structure le pilotage."
           readTime="7 min"
           lead={
             <>

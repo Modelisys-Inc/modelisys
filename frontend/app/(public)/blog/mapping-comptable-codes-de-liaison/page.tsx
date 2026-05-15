@@ -25,6 +25,9 @@ export default function ArticleMappingCodes() {
           category="États financiers · Mapping"
           title="Budget & suivi, puis valorisation: pourquoi le mapping (codes de liaison) est votre point d’ancrage"
           date="29 janv. 2026"
+          datePublished="2026-01-29"
+          slug="mapping-comptable-codes-de-liaison"
+          description="Pourquoi structurer un mapping comptable (codes de liaison) pour fiabiliser budget & suivi, comparabilité des états et valorisation dans Modelisys."
           readTime="8 min"
           lead="Un budget n’est utile que si les écarts sont lisibles (réel vs budget, période vs période). Et une valorisation n’est crédible que si les postes (revenus, marges, dépenses, éléments non récurrents) sont cohérents d’une période à l’autre. Le problème est souvent le même: votre plan comptable ne “parle” pas la langue des états financiers et des KPI. Un mapping comptable bien pensé, via des codes de liaison, transforme la comptabilité en structure stable pour le suivi budgétaire, le reporting et l’évaluation."
         />

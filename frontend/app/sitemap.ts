@@ -2,10 +2,11 @@ import type { MetadataRoute } from "next"
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
-  "https://app.modelisys.com"
+  "https://modelisys.com"
 
 const MARKETING_PATHS = [
   "/",
+  "/a-propos",
   "/cabinets-comptables",
   "/partenaires-financiers",
   "/partenaires-institutionnels",
@@ -17,6 +18,7 @@ const MARKETING_PATHS = [
   "/blog/importance-valorisation",
   "/blog/import-balance-verification-qualite-donnees",
   "/blog/mapping-comptable-codes-de-liaison",
+  "/blog/ia-technologie-pilotage-entreprise",
   "/privacy",
   "/clause-de-non-responsabilite",
 ]
