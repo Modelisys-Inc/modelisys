@@ -212,7 +212,7 @@ interface ReviewTableProps {
   companyId: string
   preview: QboTrialBalancePreview
   onCancel: () => void
-  onCommitted: (counts: { accounts_imported: number; mappings_created: number; mappings_updated: number }) => void
+  onCommitted: (counts: { months_imported: number; accounts_imported: number; mappings_created: number; mappings_updated: number }) => void
 }
 
 export function QuickBooksReviewTable({
