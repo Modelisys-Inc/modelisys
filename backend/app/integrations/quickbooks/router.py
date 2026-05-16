@@ -68,6 +68,18 @@ def _require_active_connection(db: Session, company_id: uuid.UUID) -> QuickBooks
     return conn
 
 
+def _validate_months(months: list[int]) -> list[int]:
+    if not months:
+        raise HTTPException(status_code=422, detail="months must not be empty")
+    for m in months:
+        if not 1 <= m <= 12:
+            raise HTTPException(
+                status_code=422,
+                detail=f"month {m} is out of range [1, 12]",
+            )
+    return sorted(set(months))
+
+
 @router.get("/authorize", response_model=AuthorizeUrlResponse)
 def authorize(
     company_id: uuid.UUID,
@@ -175,10 +187,11 @@ def preview_trial_balance(
 ):
     company = _get_company_for_user(db, current_user, company_id)
     conn = _require_active_connection(db, company.id)
-    if not 1 <= body.month <= 12:
-        raise HTTPException(status_code=422, detail="month must be between 1 and 12")
+    months = _validate_months(body.months)
     try:
-        result = qbo_service.propose_trial_balance(db, conn, company, body.fiscal_year, body.month)
+        result = qbo_service.propose_trial_balance(
+            db, conn, company, body.fiscal_year, months,
+        )
     except qbo_service.ConnectionRevokedError:
         raise HTTPException(status_code=424, detail="QuickBooks connection revoked")
     except QBOClientError as e:
@@ -190,9 +203,10 @@ def preview_trial_balance(
         raise HTTPException(status_code=502, detail=f"QuickBooks error: {e}")
     return TrialBalancePreviewResponse(
         fiscal_year=body.fiscal_year,
-        month=body.month,
+        months=months,
         currency=result["currency"],
         fetched_at=datetime.now(timezone.utc),
+        existing_months=result["existing_months"],
         rows=[TrialBalanceRowProposal(**r) for r in result["rows"]],
     )
 

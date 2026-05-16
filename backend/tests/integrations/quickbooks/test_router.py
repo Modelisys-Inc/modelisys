@@ -201,6 +201,44 @@ def test_preview_happy_path(auth_client, db, org_user_company):
 
 
 @respx.mock
+def test_preview_multi_month_returns_union_with_sparse_amounts(
+    auth_client, db, org_user_company,
+):
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
+
+    fixture = json.loads(FIXTURE.read_text())
+    # Same fixture for both calls — proves union dedupes rows.
+    respx.get(
+        "https://sandbox-quickbooks.api.intuit.com/v3/company/realm-1/reports/TrialBalance"
+    ).mock(return_value=Response(200, json=fixture))
+    respx.get(
+        "https://sandbox-quickbooks.api.intuit.com/v3/company/realm-1/query"
+    ).mock(return_value=Response(200, json={"QueryResponse": {"Account": [
+        {"Id": "1", "AcctNum": "1000", "AccountType": "Bank",
+         "AccountSubType": "Checking"},
+        {"Id": "42", "AcctNum": "4000", "AccountType": "Income",
+         "AccountSubType": "SalesOfProductIncome"},
+        {"Id": "60", "AcctNum": "6010", "AccountType": "Expense",
+         "AccountSubType": "OfficeGeneralAdministrativeExpenses"},
+    ]}}))
+
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/preview",
+        json={"fiscal_year": 2026, "months": [1, 2, 3]},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["months"] == [1, 2, 3]
+    assert body["existing_months"] == []
+    assert len(body["rows"]) == 3  # union, deduped by account_number
+    cash = next(r for r in body["rows"] if r["account_number"] == "1000")
+    # All three months hit the same fixture, so all three appear.
+    assert set(cash["monthly_amounts"].keys()) == {"1", "2", "3"}
+    assert cash["monthly_amounts"]["1"]["debit"] > 0
+
+
+@respx.mock
 def test_preview_includes_existing_link_code(auth_client, db, org_user_company):
     _, user, company = org_user_company
     service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)

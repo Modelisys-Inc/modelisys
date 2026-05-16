@@ -198,39 +198,66 @@ def propose_trial_balance(
     conn: QuickBooksConnection,
     company: Company,
     fiscal_year: int,
-    month: int,
+    months: list[int],
 ) -> dict[str, Any]:
-    """Pull TB from QBO and produce per-row mapping proposals (no DB writes)."""
+    """Pull TB from QBO for each month and produce a union of accounts.
+
+    Returns rows keyed by account_number; each row carries a sparse
+    monthly_amounts dict (only months where the account had an entry).
+    No DB writes.
+    """
     from app.integrations.quickbooks import client as qbo_client
 
-    start_iso, end_iso = _date_range_for(company, fiscal_year, month)
-    report = qbo_client.get_trial_balance_report(db, conn, start_iso, end_iso)
     accounts = qbo_client.list_accounts(db, conn)
     accounts_by_id = {str(a.get("Id")): a for a in accounts}
 
     existing_mappings = {
         m.account_number: m
-        for m in db.query(AccountMapping).filter(AccountMapping.company_id == company.id).all()
+        for m in db.query(AccountMapping)
+        .filter(AccountMapping.company_id == company.id)
+        .all()
     }
 
-    rows: list[dict[str, Any]] = []
-    for r in parse_trial_balance_report(report):
-        acct_meta = accounts_by_id.get(str(r["qbo_account_id"]), {})
-        acct_num = acct_meta.get("AcctNum") or r["account_number"]
-        type_ = acct_meta.get("AccountType")
-        sub_type = acct_meta.get("AccountSubType")
-        existing = existing_mappings.get(acct_num)
-        rows.append({
-            "qbo_account_id": r["qbo_account_id"],
-            "account_number": acct_num,
-            "account_name": r["account_name"],
-            "qbo_account_type": type_,
-            "qbo_account_sub_type": sub_type,
-            "debit": r["debit"],
-            "credit": r["credit"],
-            "existing_link_code": existing.link_code if existing else None,
-        })
-    return {"currency": company.currency, "rows": rows}
+    union: dict[str, dict[str, Any]] = {}
+    for m in months:
+        start_iso, end_iso = _date_range_for(company, fiscal_year, m)
+        report = qbo_client.get_trial_balance_report(db, conn, start_iso, end_iso)
+        for r in parse_trial_balance_report(report):
+            acct_meta = accounts_by_id.get(str(r["qbo_account_id"]), {})
+            acct_num = acct_meta.get("AcctNum") or r["account_number"]
+            row = union.setdefault(acct_num, {
+                "qbo_account_id": r["qbo_account_id"],
+                "account_number": acct_num,
+                "account_name": r["account_name"],
+                "qbo_account_type": acct_meta.get("AccountType"),
+                "qbo_account_sub_type": acct_meta.get("AccountSubType"),
+                "existing_link_code": (
+                    existing_mappings[acct_num].link_code
+                    if acct_num in existing_mappings else None
+                ),
+                "monthly_amounts": {},
+            })
+            row["monthly_amounts"][str(m)] = {
+                "debit": r["debit"],
+                "credit": r["credit"],
+            }
+
+    existing_months = sorted({
+        e.month
+        for e in db.query(TrialBalanceEntry)
+        .filter(
+            TrialBalanceEntry.company_id == company.id,
+            TrialBalanceEntry.fiscal_year == fiscal_year,
+            TrialBalanceEntry.month.in_(months),
+        )
+        .all()
+    })
+
+    return {
+        "currency": company.currency,
+        "rows": list(union.values()),
+        "existing_months": existing_months,
+    }
 
 
 def commit_trial_balance(
