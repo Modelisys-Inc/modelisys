@@ -1691,22 +1691,24 @@ export type QboConnectionStatus = {
   connected_by_user_id?: string | null
 }
 
+export type QboMonthAmount = { debit: number; credit: number }
+
 export type QboTrialBalanceProposalRow = {
   qbo_account_id: string
   account_number: string
   account_name: string
   qbo_account_type: string | null
   qbo_account_sub_type: string | null
-  debit: number
-  credit: number
   existing_link_code: string | null
+  monthly_amounts: Record<string, QboMonthAmount>
 }
 
 export type QboTrialBalancePreview = {
   fiscal_year: number
-  month: number
+  months: number[]
   currency: string
   fetched_at: string
+  existing_months: number[]
   rows: QboTrialBalanceProposalRow[]
 }
 
@@ -1721,8 +1723,6 @@ export type QboLinkCode = {
 export type QboCommitRow = {
   account_number: string
   account_name: string
-  debit: number
-  credit: number
   link_code: string | null
   skip?: boolean
 }
@@ -1747,28 +1747,33 @@ export async function disconnectQbo(companyId: string): Promise<void> {
 export async function previewQboTrialBalance(
   companyId: string,
   fiscalYear: number,
-  month: number,
+  months: number[],
 ): Promise<QboTrialBalancePreview> {
   return apiFetch<QboTrialBalancePreview>(
     `/api/quickbooks/companies/${companyId}/trial-balance/preview`,
-    { method: "POST", body: { fiscal_year: fiscalYear, month } },
+    { method: "POST", body: { fiscal_year: fiscalYear, months } },
   )
 }
 
 export async function commitQboTrialBalance(
   companyId: string,
   fiscalYear: number,
-  month: number,
+  months: number[],
   rows: QboCommitRow[],
   overwriteExistingTb: boolean,
-): Promise<{ accounts_imported: number; mappings_created: number; mappings_updated: number }> {
+): Promise<{
+  months_imported: number
+  accounts_imported: number
+  mappings_created: number
+  mappings_updated: number
+}> {
   return apiFetch(
     `/api/quickbooks/companies/${companyId}/trial-balance/commit`,
     {
       method: "POST",
       body: {
         fiscal_year: fiscalYear,
-        month,
+        months,
         rows,
         overwrite_existing_tb: overwriteExistingTb,
       },
