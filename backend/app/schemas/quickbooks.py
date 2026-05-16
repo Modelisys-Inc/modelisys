@@ -17,47 +17,51 @@ class AuthorizeUrlResponse(BaseModel):
     authorize_url: str
 
 
+class MonthAmount(BaseModel):
+    debit: float
+    credit: float
+
+
 class TrialBalanceRowProposal(BaseModel):
     qbo_account_id: str
     account_number: str
     account_name: str
     qbo_account_type: str | None = None
     qbo_account_sub_type: str | None = None
-    debit: float
-    credit: float
     existing_link_code: str | None = None
+    monthly_amounts: dict[str, MonthAmount]
 
 
 class TrialBalancePreviewRequest(BaseModel):
     fiscal_year: int
-    month: int
+    months: list[int]
 
 
 class TrialBalancePreviewResponse(BaseModel):
     fiscal_year: int
-    month: int
+    months: list[int]
     currency: str
     fetched_at: datetime
+    existing_months: list[int]
     rows: list[TrialBalanceRowProposal]
 
 
 class TrialBalanceCommitRow(BaseModel):
     account_number: str
     account_name: str
-    debit: float
-    credit: float
     link_code: str | None = None
     skip: bool = False
 
 
 class TrialBalanceCommitRequest(BaseModel):
     fiscal_year: int
-    month: int
+    months: list[int]
     rows: list[TrialBalanceCommitRow]
     overwrite_existing_tb: bool = False
 
 
 class TrialBalanceCommitResponse(BaseModel):
+    months_imported: int
     accounts_imported: int
     mappings_created: int
     mappings_updated: int

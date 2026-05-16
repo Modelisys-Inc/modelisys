@@ -1,14 +1,14 @@
 """Add reference month/year and fiscal year to notes
 
-Revision ID: 008
-Revises: 007
+Revision ID: 009
+Revises: 008
 """
 
 from alembic import op
 import sqlalchemy as sa
 
-revision = "008"
-down_revision = "007"
+revision = "009"
+down_revision = "008"
 branch_labels = None
 depends_on = None
 

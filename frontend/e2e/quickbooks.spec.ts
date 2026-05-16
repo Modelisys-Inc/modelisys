@@ -90,9 +90,10 @@ test.describe("QuickBooks page", () => {
           contentType: "application/json",
           body: JSON.stringify({
             fiscal_year: 2026,
-            month: 3,
+            months: [3],
             currency: "CAD",
             fetched_at: "2026-04-14T00:00:00Z",
+            existing_months: [],
             rows: [
               {
                 qbo_account_id: "1",
@@ -100,9 +101,8 @@ test.describe("QuickBooks page", () => {
                 account_name: "Cash",
                 qbo_account_type: "Bank",
                 qbo_account_sub_type: "Checking",
-                debit: 5000,
-                credit: 0,
                 existing_link_code: "actif.encaisse",
+                monthly_amounts: { "3": { debit: 5000, credit: 0 } },
               },
               {
                 qbo_account_id: "42",
@@ -110,9 +110,8 @@ test.describe("QuickBooks page", () => {
                 account_name: "Sales",
                 qbo_account_type: "Income",
                 qbo_account_sub_type: "SalesOfProductIncome",
-                debit: 0,
-                credit: 5000,
                 existing_link_code: "revenus.ventes",
+                monthly_amounts: { "3": { debit: 0, credit: 5000 } },
               },
             ],
           }),
@@ -149,6 +148,7 @@ test.describe("QuickBooks page", () => {
           status: 201,
           contentType: "application/json",
           body: JSON.stringify({
+            months_imported: 1,
             accounts_imported: 2,
             mappings_created: 2,
             mappings_updated: 0,
@@ -158,11 +158,158 @@ test.describe("QuickBooks page", () => {
 
     await page.goto(URL)
     await expect(page.getByText(/Realm ID: 12345/)).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: /preview trial balance/i }).click()
+    await page.getByRole("button", { name: /preview 1 month/i }).click()
     await expect(page.getByText("Cash")).toBeVisible()
     await expect(page.getByText("Sales", { exact: true })).toBeVisible()
-    await page.getByRole("button", { name: /import trial balance/i }).click()
+    await page.getByRole("button", { name: /import 1 month/i }).click()
     await expect(page.getByText(/trial balance imported/i)).toBeVisible()
+  })
+
+  test("multi-month range → preview shows per-month columns → commit", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/connection`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            status: "connected",
+            realm_id: "12345",
+            connected_at: "2026-04-14T00:00:00Z",
+          }),
+        }),
+    )
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/trial-balance/preview`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            fiscal_year: 2026,
+            months: [1, 2, 3],
+            currency: "CAD",
+            fetched_at: "2026-04-14T00:00:00Z",
+            existing_months: [],
+            rows: [
+              {
+                qbo_account_id: "1",
+                account_number: "1000",
+                account_name: "Cash",
+                qbo_account_type: "Bank",
+                qbo_account_sub_type: "Checking",
+                existing_link_code: "actif.encaisse",
+                monthly_amounts: {
+                  "1": { debit: 5000, credit: 0 },
+                  "2": { debit: 5500, credit: 0 },
+                  "3": { debit: 6000, credit: 0 },
+                },
+              },
+            ],
+          }),
+        }),
+    )
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/link-codes`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify([
+            {
+              code: "actif.encaisse",
+              label: "Encaisse",
+              statement_type: "balance-sheet",
+              parent_id: "actifs-courants",
+              parent_label: "Actifs courants",
+            },
+          ]),
+        }),
+    )
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/trial-balance/commit`,
+      (route) =>
+        route.fulfill({
+          status: 201,
+          contentType: "application/json",
+          body: JSON.stringify({
+            months_imported: 3,
+            accounts_imported: 1,
+            mappings_created: 0,
+            mappings_updated: 0,
+          }),
+        }),
+    )
+
+    await page.goto(URL)
+    await page.getByLabel(/start month/i).fill("1")
+    await page.getByLabel(/end month/i).fill("3")
+    await page.getByRole("button", { name: /preview 3 months/i }).click()
+    await expect(page.getByRole("columnheader", { name: "Jan" })).toBeVisible()
+    await expect(page.getByRole("columnheader", { name: "Feb" })).toBeVisible()
+    await expect(page.getByRole("columnheader", { name: "Mar" })).toBeVisible()
+    await page.getByRole("button", { name: /import 3 months/i }).click()
+    await expect(page.getByText(/trial balance imported/i)).toBeVisible()
+  })
+
+  test("existing months are flagged in the review header", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/connection`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            status: "connected",
+            realm_id: "12345",
+          }),
+        }),
+    )
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/trial-balance/preview`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            fiscal_year: 2026,
+            months: [1, 2, 3],
+            currency: "CAD",
+            fetched_at: "2026-04-14T00:00:00Z",
+            existing_months: [1, 2],
+            rows: [
+              {
+                qbo_account_id: "1",
+                account_number: "1000",
+                account_name: "Cash",
+                qbo_account_type: "Bank",
+                qbo_account_sub_type: "Checking",
+                existing_link_code: "actif.encaisse",
+                monthly_amounts: {
+                  "3": { debit: 6000, credit: 0 },
+                },
+              },
+            ],
+          }),
+        }),
+    )
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/link-codes`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify([]),
+        }),
+    )
+
+    await page.goto(URL)
+    await page.getByLabel(/start month/i).fill("1")
+    await page.getByLabel(/end month/i).fill("3")
+    await page.getByRole("button", { name: /preview 3 months/i }).click()
+    await expect(page.getByText(/2 of these months are already imported/i)).toBeVisible()
   })
 
   test("conflict → overwrite modal → retry succeeds", async ({ page }) => {
@@ -184,9 +331,10 @@ test.describe("QuickBooks page", () => {
           contentType: "application/json",
           body: JSON.stringify({
             fiscal_year: 2026,
-            month: 3,
+            months: [3],
             currency: "CAD",
             fetched_at: "2026-04-14T00:00:00Z",
+            existing_months: [3],
             rows: [
               {
                 qbo_account_id: "1",
@@ -194,9 +342,8 @@ test.describe("QuickBooks page", () => {
                 account_name: "Cash",
                 qbo_account_type: "Bank",
                 qbo_account_sub_type: "Checking",
-                debit: 5000,
-                credit: 0,
                 existing_link_code: "actif.encaisse",
+                monthly_amounts: { "3": { debit: 5000, credit: 0 } },
               },
             ],
           }),
@@ -242,6 +389,7 @@ test.describe("QuickBooks page", () => {
             status: 201,
             contentType: "application/json",
             body: JSON.stringify({
+              months_imported: 1,
               accounts_imported: 1,
               mappings_created: 1,
               mappings_updated: 0,
@@ -252,9 +400,9 @@ test.describe("QuickBooks page", () => {
     )
 
     await page.goto(URL)
-    await page.getByRole("button", { name: /preview trial balance/i }).click()
-    await page.getByRole("button", { name: /import trial balance/i }).click()
-    await expect(page.getByText(/already exists/i)).toBeVisible()
+    await page.getByRole("button", { name: /preview 1 month/i }).click()
+    await page.getByRole("button", { name: /import 1 month/i }).click()
+    await expect(page.getByText(/already has a trial balance/i)).toBeVisible()
     await page.getByRole("button", { name: /^overwrite$/i }).click()
     await expect(page.getByText(/trial balance imported/i)).toBeVisible()
   })
@@ -303,9 +451,10 @@ test.describe("QuickBooks page", () => {
           contentType: "application/json",
           body: JSON.stringify({
             fiscal_year: 2026,
-            month: 3,
+            months: [3],
             currency: "CAD",
             fetched_at: "2026-04-14T00:00:00Z",
+            existing_months: [],
             rows: [
               {
                 qbo_account_id: "1",
@@ -313,9 +462,8 @@ test.describe("QuickBooks page", () => {
                 account_name: "Cash",
                 qbo_account_type: "Bank",
                 qbo_account_sub_type: "Checking",
-                debit: 5000,
-                credit: 0,
                 existing_link_code: null,
+                monthly_amounts: { "3": { debit: 5000, credit: 0 } },
               },
             ],
           }),
@@ -394,7 +542,7 @@ test.describe("QuickBooks page", () => {
     )
 
     await page.goto(URL)
-    await page.getByRole("button", { name: /preview trial balance/i }).click()
+    await page.getByRole("button", { name: /preview 1 month/i }).click()
     // Wait for the review table to appear.
     await expect(page.getByText("Cash")).toBeVisible()
 

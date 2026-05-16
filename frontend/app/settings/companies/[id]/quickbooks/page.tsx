@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useParams, useSearchParams } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
@@ -31,10 +31,19 @@ export default function QuickBooksPage() {
   const defaultYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()
 
   const [fiscalYear, setFiscalYear] = useState<number>(defaultYear)
-  const [month, setMonth] = useState<number>(defaultMonth)
+  const [startMonth, setStartMonth] = useState<number>(defaultMonth)
+  const [endMonth, setEndMonth] = useState<number>(defaultMonth)
   const [previewing, setPreviewing] = useState(false)
   const [preview, setPreview] = useState<QboTrialBalancePreview | null>(null)
   const [banner, setBanner] = useState<Banner>(null)
+
+  const months = useMemo(() => {
+    if (startMonth < 1 || endMonth > 12 || startMonth > endMonth) return []
+    const out: number[] = []
+    for (let m = startMonth; m <= endMonth; m++) out.push(m)
+    return out
+  }, [startMonth, endMonth])
+  const rangeValid = months.length > 0
 
   useEffect(() => {
     const flag = search.get("qbo")
@@ -119,7 +128,7 @@ export default function QuickBooksPage() {
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div>
                 <Label htmlFor="fy">Fiscal year</Label>
                 <Input
@@ -130,17 +139,33 @@ export default function QuickBooksPage() {
                 />
               </div>
               <div>
-                <Label htmlFor="mo">Month (1-12)</Label>
+                <Label htmlFor="start-mo">Start month (1-12)</Label>
                 <Input
-                  id="mo"
+                  id="start-mo"
                   type="number"
                   min={1}
                   max={12}
-                  value={month}
-                  onChange={(e) => setMonth(Number(e.target.value))}
+                  value={startMonth}
+                  onChange={(e) => setStartMonth(Number(e.target.value))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="end-mo">End month (1-12)</Label>
+                <Input
+                  id="end-mo"
+                  type="number"
+                  min={1}
+                  max={12}
+                  value={endMonth}
+                  onChange={(e) => setEndMonth(Number(e.target.value))}
                 />
               </div>
             </div>
+            {!rangeValid && (
+              <p className="text-xs text-red-600">
+                Start month must be ≤ end month and both must be in 1–12.
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               <Button
                 onClick={async () => {
@@ -148,11 +173,7 @@ export default function QuickBooksPage() {
                   setBanner(null)
                   try {
                     setPreview(
-                      await previewQboTrialBalance(
-                        companyId,
-                        fiscalYear,
-                        month,
-                      ),
+                      await previewQboTrialBalance(companyId, fiscalYear, months),
                     )
                   } catch (e) {
                     const msg =
@@ -166,9 +187,11 @@ export default function QuickBooksPage() {
                     setPreviewing(false)
                   }
                 }}
-                disabled={previewing}
+                disabled={previewing || !rangeValid}
               >
-                {previewing ? "Pulling…" : "Preview trial balance"}
+                {previewing
+                  ? `Pulling ${months.length} ${months.length === 1 ? "month" : "months"}…`
+                  : `Preview ${months.length} ${months.length === 1 ? "month" : "months"}`}
               </Button>
               <Button
                 variant="outline"
@@ -193,11 +216,11 @@ export default function QuickBooksPage() {
             setPreview(null)
             setBanner({
               variant: "success",
-              message: `Trial balance imported — ${counts.accounts_imported} accounts, ${counts.mappings_created} new mappings, ${counts.mappings_updated} updated.`,
+              message: `Trial balance imported — ${counts.months_imported} ${
+                counts.months_imported === 1 ? "month" : "months"
+              }, ${counts.accounts_imported} accounts, ${counts.mappings_created} new mappings, ${counts.mappings_updated} updated.`,
             })
             await refresh()
-            // Optional follow-up navigation:
-            // router.push(`/settings/companies/${companyId}/trial-balance`)
           }}
         />
       )}
