@@ -6,6 +6,8 @@ from typing import Callable
 
 from fastapi import HTTPException, Request, status
 
+from app.config import settings
+
 
 class RateLimiter:
     """
@@ -64,4 +66,7 @@ class RateLimiter:
 
 # Pre-configured rate limiters
 auth_rate_limiter = RateLimiter(requests_per_minute=10, burst=5)  # Strict for auth
-api_rate_limiter = RateLimiter(requests_per_minute=60, burst=20)  # More lenient for API
+api_rate_limiter = RateLimiter(
+    requests_per_minute=settings.rate_limit_per_minute,
+    burst=max(20, settings.rate_limit_per_minute // 3),
+)
