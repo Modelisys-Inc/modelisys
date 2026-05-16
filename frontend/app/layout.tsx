@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   // "| Blog Modelisys" in their title. Adding a template would double up.
   title: "Modelisys — Pilotage financier pour PME et cabinets comptables",
   description:
-    "Modelisys structure la modélisation financière des PME : balance de vérification, états financiers, projections, valorisation et reporting consolidé pour cabinets comptables et partenaires financiers.",
+    "Modelisys centralise vos données financières et clarifie vos analyses pour décider plus vite. Moins de silos, plus de valeur pour votre entreprise.",
   applicationName: "Modelisys",
   authors: [{ name: "Modelisys" }],
   creator: "Modelisys",
@@ -48,13 +48,13 @@ export const metadata: Metadata = {
     siteName: "Modelisys",
     title: "Modelisys — Pilotage financier pour PME et cabinets comptables",
     description:
-      "Plateforme de modélisation financière : balance, états financiers, projections, valorisation et reporting consolidé.",
+      "Modelisys centralise vos données financières et clarifie vos analyses pour décider plus vite. Moins de silos, plus de valeur pour votre entreprise.",
   },
   twitter: {
     card: "summary_large_image",
     title: "Modelisys — Pilotage financier pour PME et cabinets comptables",
     description:
-      "Modélisation financière, états financiers, projections et valorisation pour PME et cabinets comptables.",
+      "Modelisys centralise vos données financières et clarifie vos analyses pour décider plus vite. Moins de silos, plus de valeur pour votre entreprise.",
   },
   // Default: noindex everything. The (public) layout and the landing page
   // override to allow indexing on marketing/legal pages.
