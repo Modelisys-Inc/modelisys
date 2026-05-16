@@ -39,6 +39,15 @@ class InvalidLinkCodesError(Exception):
         )
 
 
+class DataDriftError(Exception):
+    def __init__(self, new_accounts: list[str]):
+        self.new_accounts = new_accounts
+        super().__init__(
+            "Data drift: new accounts in QBO that were not in preview: "
+            + ", ".join(new_accounts)
+        )
+
+
 def upsert_connection(
     db: Session,
     company_id: uuid.UUID,
@@ -262,20 +271,22 @@ def propose_trial_balance(
 
 def commit_trial_balance(
     db: Session,
+    conn: QuickBooksConnection,
     company: Company,
     fiscal_year: int,
-    month: int,
+    months: list[int],
     rows: list[dict],
     overwrite: bool,
 ) -> dict[str, int]:
-    """Upsert ChartOfAccount + AccountMapping + TrialBalanceEntry transactionally.
+    """Upsert ChartOfAccount + AccountMapping + TrialBalanceEntry for N months.
 
-    QBO imports are always cumulative, so the company is forced into cumulative-TB
-    mode here — the FS service de-cumulates stored YTD entries on read.
+    Re-pulls QBO TB for every month before opening the write transaction;
+    any pull failure aborts with nothing written. QBO imports are cumulative,
+    so the company is forced into cumulative-TB mode.
     """
-    # Serialize concurrent commits for the same company; SQLite may ignore FOR UPDATE
-    db.execute(select(Company).where(Company.id == company.id).with_for_update())
+    from app.integrations.quickbooks import client as qbo_client
 
+    # ---- validate link codes against statement structure ----
     structures = (
         db.query(CompanyStatementStructure)
         .filter(CompanyStatementStructure.company_id == company.id)
@@ -307,33 +318,59 @@ def commit_trial_balance(
     if offending:
         raise InvalidLinkCodesError(offending)
 
+    # ---- re-pull QBO TB for every month (no DB writes yet) ----
+    accounts = qbo_client.list_accounts(db, conn)
+    accounts_by_id = {str(a.get("Id")): a for a in accounts}
+
+    repulled: dict[int, list[dict[str, Any]]] = {}
+    for m in months:
+        start_iso, end_iso = _date_range_for(company, fiscal_year, m)
+        report = qbo_client.get_trial_balance_report(db, conn, start_iso, end_iso)
+        parsed = parse_trial_balance_report(report)
+        # Backfill account_number from list_accounts metadata.
+        for p in parsed:
+            meta = accounts_by_id.get(str(p["qbo_account_id"]), {})
+            p["account_number"] = meta.get("AcctNum") or p["account_number"]
+        repulled[m] = parsed
+
+    # ---- data drift: any account in re-pull that isn't in user's rows? ----
+    user_account_nums = {r["account_number"] for r in rows}
+    repulled_account_nums: set[str] = set()
+    for parsed in repulled.values():
+        for p in parsed:
+            repulled_account_nums.add(p["account_number"])
+    new_accounts = sorted(repulled_account_nums - user_account_nums)
+    if new_accounts:
+        raise DataDriftError(new_accounts)
+
+    rows_by_num = {r["account_number"]: r for r in rows}
+
+    # ---- transaction ----
+    db.execute(select(Company).where(Company.id == company.id).with_for_update())
+
     if not company.is_cumulative_tb:
         company.is_cumulative_tb = True
 
-    existing_count = (
-        db.query(TrialBalanceEntry)
-        .filter(
+    conflicting_months = [
+        m for m in months
+        if db.query(TrialBalanceEntry).filter(
             TrialBalanceEntry.company_id == company.id,
             TrialBalanceEntry.fiscal_year == fiscal_year,
-            TrialBalanceEntry.month == month,
-        )
-        .count()
-    )
-    if existing_count > 0 and not overwrite:
+            TrialBalanceEntry.month == m,
+        ).count() > 0
+    ]
+    if conflicting_months and not overwrite:
         raise TBConflictError(
-            f"Trial balance already exists for {fiscal_year}-{month:02d}"
+            f"Trial balance already exists for months: "
+            f"{', '.join(str(m) for m in conflicting_months)}"
         )
-    if existing_count > 0:
+    if conflicting_months:
         db.query(TrialBalanceEntry).filter(
             TrialBalanceEntry.company_id == company.id,
             TrialBalanceEntry.fiscal_year == fiscal_year,
-            TrialBalanceEntry.month == month,
-        ).delete()
+            TrialBalanceEntry.month.in_(conflicting_months),
+        ).delete(synchronize_session=False)
         db.flush()
-
-    accounts_imported = 0
-    mappings_created = 0
-    mappings_updated = 0
 
     chart_by_num = {
         c.account_number: c
@@ -344,6 +381,11 @@ def commit_trial_balance(
         for m in db.query(AccountMapping).filter(AccountMapping.company_id == company.id).all()
     }
 
+    mappings_created = 0
+    mappings_updated = 0
+    accounts_written: set[str] = set()
+
+    # Upsert ChartOfAccount + AccountMapping once per non-skipped row.
     for r in rows:
         if r.get("skip"):
             continue
@@ -364,16 +406,6 @@ def commit_trial_balance(
         elif chart.account_name != acct_name:
             chart.account_name = acct_name
 
-        amount = float(r.get("debit", 0) or 0) - float(r.get("credit", 0) or 0)
-        db.add(TrialBalanceEntry(
-            company_id=company.id,
-            account_id=chart.id,
-            fiscal_year=fiscal_year,
-            month=month,
-            amount=amount,
-        ))
-        accounts_imported += 1
-
         existing = mapping_by_num.get(acct_num)
         if existing is None:
             db.add(AccountMapping(
@@ -389,9 +421,28 @@ def commit_trial_balance(
                 existing.description = acct_name
                 mappings_updated += 1
 
+    # Insert one TrialBalanceEntry per (account, month) from the re-pull.
+    for m in months:
+        for p in repulled[m]:
+            acct_num = p["account_number"]
+            user_row = rows_by_num.get(acct_num)
+            if user_row is None or user_row.get("skip"):
+                continue
+            chart = chart_by_num[acct_num]
+            amount = float(p["debit"]) - float(p["credit"])
+            db.add(TrialBalanceEntry(
+                company_id=company.id,
+                account_id=chart.id,
+                fiscal_year=fiscal_year,
+                month=m,
+                amount=amount,
+            ))
+            accounts_written.add(acct_num)
+
     db.commit()
     return {
-        "accounts_imported": accounts_imported,
+        "months_imported": len(months),
+        "accounts_imported": len(accounts_written),
         "mappings_created": mappings_created,
         "mappings_updated": mappings_updated,
     }

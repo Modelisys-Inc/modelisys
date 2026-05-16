@@ -704,6 +704,41 @@ def test_create_link_code_supports_detail_rows_schema(auth_client, db, org_user_
     assert any(r.get("linkCode") == "44-999" for r in detail_rows)
 
 
+@respx.mock
+def test_commit_multi_month_writes_entry_per_month(auth_client, db, org_user_company):
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
+    _seed_legacy_codes_structure(db, company)
+    _mock_preview_endpoints()  # same fixture across months
+
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
+        json={
+            "fiscal_year": 2026,
+            "months": [1, 2, 3],
+            "rows": [
+                {"account_number": "1000", "account_name": "Cash",
+                 "link_code": "actif.encaisse"},
+                {"account_number": "4000", "account_name": "Sales",
+                 "link_code": "revenus.ventes"},
+                {"account_number": "6010", "account_name": "Office",
+                 "link_code": None, "skip": True},
+            ],
+            "overwrite_existing_tb": False,
+        },
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["months_imported"] == 3
+    assert body["accounts_imported"] == 2  # unique non-skipped accounts written
+
+    # 2 non-skipped accounts × 3 months = 6 entries
+    entries = db.query(TrialBalanceEntry).filter_by(company_id=company.id).all()
+    assert len(entries) == 6
+    months_written = {e.month for e in entries}
+    assert months_written == {1, 2, 3}
+
+
 def test_create_link_code_supports_flat_sibling_schema(auth_client, db, org_user_company):
     """Some production structures are flat: sections and leaves are siblings.
     A new leaf must be inserted after the chosen section, before the next
