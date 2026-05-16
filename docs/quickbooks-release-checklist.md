@@ -45,7 +45,7 @@
 5. Click **Connect QuickBooks**. Authorize on Intuit's screen.
 6. Confirm the redirect lands on the QuickBooks page with status "Connected"
    and a realm ID shown.
-7. Pick a fiscal year + month with seeded data; click **Preview trial balance**.
+7. Pick a fiscal year + start and end month with seeded data; click **Preview trial balance**.
 8. Confirm the table renders with one row per QBO account. The table is
    `table-fixed` (no horizontal scroll), Account # / Name / QBO type columns
    truncate with hover-titles, and each row shows a **Link code** combobox
@@ -68,7 +68,7 @@
     amber banner should appear. **Import trial balance** is disabled in
     that state.
 14. Click **Import trial balance**. Confirm the success banner with
-    imported counts.
+    imported counts including `accounts_imported` and `months_imported`.
 15. Navigate to **Settings → Companies → {company} → Balance de vérification**
     for the same company/period — confirm imported entries appear.
 16. Re-run the import for the same period; confirm 409 → overwrite modal
