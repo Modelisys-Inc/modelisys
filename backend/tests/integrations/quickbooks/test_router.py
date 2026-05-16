@@ -360,16 +360,21 @@ def test_preview_dedupes_and_sorts_months(auth_client, db, org_user_company):
 
 # ============= /trial-balance/commit =============
 
+@respx.mock
 def test_commit_creates_tb_chart_and_mappings(auth_client, db, org_user_company):
-    _, _, company = org_user_company
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
     _seed_legacy_codes_structure(db, company)
+    _mock_preview_endpoints()
     body = {
-        "fiscal_year": 2026, "month": 3,
+        "fiscal_year": 2026, "months": [3],
         "rows": [
-            {"account_number": "1000", "account_name": "Cash", "debit": 5000,
-             "credit": 0, "link_code": "actif.encaisse"},
-            {"account_number": "4000", "account_name": "Sales", "debit": 0,
-             "credit": 12500, "link_code": "revenus.ventes"},
+            {"account_number": "1000", "account_name": "Cash",
+             "link_code": "actif.encaisse"},
+            {"account_number": "4000", "account_name": "Sales",
+             "link_code": "revenus.ventes"},
+            {"account_number": "6010", "account_name": "Office",
+             "link_code": None, "skip": True},  # in fixture but skipped
         ],
         "overwrite_existing_tb": False,
     }
@@ -377,23 +382,30 @@ def test_commit_creates_tb_chart_and_mappings(auth_client, db, org_user_company)
         f"/api/quickbooks/companies/{company.id}/trial-balance/commit", json=body,
     )
     assert r.status_code == 201, r.text
-    assert r.json() == {
-        "accounts_imported": 2, "mappings_created": 2, "mappings_updated": 0,
-    }
+    body = r.json()
+    assert body["months_imported"] == 1
+    assert body["accounts_imported"] == 2
+    assert body["mappings_created"] == 2
+    assert body["mappings_updated"] == 0
     assert db.query(ChartOfAccount).filter_by(company_id=company.id).count() == 2
     assert db.query(TrialBalanceEntry).filter_by(company_id=company.id).count() == 2
 
 
+@respx.mock
 def test_commit_skips_rows(auth_client, db, org_user_company):
-    _, _, company = org_user_company
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
     _seed_legacy_codes_structure(db, company)
+    _mock_preview_endpoints()
     body = {
-        "fiscal_year": 2026, "month": 3,
+        "fiscal_year": 2026, "months": [3],
         "rows": [
-            {"account_number": "1000", "account_name": "Cash", "debit": 5000,
-             "credit": 0, "link_code": "actif.encaisse"},
-            {"account_number": "9999", "account_name": "Skip", "debit": 0,
-             "credit": 0, "link_code": None, "skip": True},
+            {"account_number": "1000", "account_name": "Cash",
+             "link_code": "actif.encaisse"},
+            {"account_number": "4000", "account_name": "Sales",
+             "link_code": None, "skip": True},
+            {"account_number": "6010", "account_name": "Office",
+             "link_code": None, "skip": True},
         ],
         "overwrite_existing_tb": False,
     }
@@ -403,96 +415,53 @@ def test_commit_skips_rows(auth_client, db, org_user_company):
     assert r.json()["accounts_imported"] == 1
 
 
-def test_commit_conflict_without_overwrite(auth_client, db, org_user_company):
-    _, _, company = org_user_company
-    _seed_legacy_codes_structure(db, company)
-    body = {
-        "fiscal_year": 2026, "month": 3,
-        "rows": [{"account_number": "1000", "account_name": "Cash", "debit": 5000,
-                  "credit": 0, "link_code": "actif.encaisse"}],
-        "overwrite_existing_tb": False,
-    }
-    auth_client.post(
-        f"/api/quickbooks/companies/{company.id}/trial-balance/commit", json=body,
-    )
-    r2 = auth_client.post(
-        f"/api/quickbooks/companies/{company.id}/trial-balance/commit", json=body,
-    )
-    assert r2.status_code == 409
-
-
-def test_commit_overwrite_replaces_entries(auth_client, db, org_user_company):
-    _, _, company = org_user_company
-    _seed_legacy_codes_structure(db, company)
-    first = {
-        "fiscal_year": 2026, "month": 3,
-        "rows": [{"account_number": "1000", "account_name": "Cash", "debit": 5000,
-                  "credit": 0, "link_code": "actif.encaisse"}],
-        "overwrite_existing_tb": False,
-    }
-    auth_client.post(
-        f"/api/quickbooks/companies/{company.id}/trial-balance/commit", json=first,
-    )
-    second = {
-        "fiscal_year": 2026, "month": 3,
-        "rows": [{"account_number": "1000", "account_name": "Cash", "debit": 7500,
-                  "credit": 0, "link_code": "actif.encaisse"}],
-        "overwrite_existing_tb": True,
-    }
-    r = auth_client.post(
-        f"/api/quickbooks/companies/{company.id}/trial-balance/commit", json=second,
-    )
-    assert r.status_code == 201
-    entries = db.query(TrialBalanceEntry).filter_by(company_id=company.id).all()
-    assert len(entries) == 1
-    assert float(entries[0].amount) == 7500.0
-
-
+@respx.mock
 def test_commit_updates_existing_mapping(auth_client, db, org_user_company):
-    _, _, company = org_user_company
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
     _seed_legacy_codes_structure(db, company)
+    _mock_preview_endpoints()
     db.add(AccountMapping(
         company_id=company.id, account_number="1000",
         description="Cash", link_code="actif.old",
     ))
     db.commit()
     body = {
-        "fiscal_year": 2026, "month": 3,
-        "rows": [{"account_number": "1000", "account_name": "Cash", "debit": 5000,
-                  "credit": 0, "link_code": "actif.encaisse"}],
+        "fiscal_year": 2026, "months": [3],
+        "rows": [
+            {"account_number": "1000", "account_name": "Cash",
+             "link_code": "actif.encaisse"},
+            {"account_number": "4000", "account_name": "Sales",
+             "link_code": "revenus.ventes"},
+            {"account_number": "6010", "account_name": "Office",
+             "link_code": None, "skip": True},
+        ],
         "overwrite_existing_tb": False,
     }
     r = auth_client.post(
         f"/api/quickbooks/companies/{company.id}/trial-balance/commit", json=body,
     )
     assert r.json()["mappings_updated"] == 1
-    m = db.query(AccountMapping).filter_by(company_id=company.id).one()
+    m = db.query(AccountMapping).filter_by(
+        company_id=company.id, account_number="1000",
+    ).one()
     assert m.link_code == "actif.encaisse"
 
 
-def test_commit_invalid_month(auth_client, org_user_company):
-    _, _, company = org_user_company
-    r = auth_client.post(
-        f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
-        json={"fiscal_year": 2026, "month": 0, "rows": [], "overwrite_existing_tb": False},
-    )
-    assert r.status_code == 422
-
-
 def test_commit_rejects_unknown_link_code(auth_client, db, org_user_company):
-    _, _, company = org_user_company
+    # Link-code validation runs BEFORE the QBO re-pull, so no QBO mocking needed.
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
     _seed_income_structure(db, company)
     r = auth_client.post(
         f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
         json={
             "fiscal_year": 2026,
-            "month": 3,
+            "months": [3],
             "rows": [
                 {
                     "account_number": "1000",
                     "account_name": "Cash",
-                    "debit": 100,
-                    "credit": 0,
                     "link_code": "does-not-exist",
                     "skip": False,
                 },
@@ -506,28 +475,39 @@ def test_commit_rejects_unknown_link_code(auth_client, db, org_user_company):
     assert "does-not-exist" in body["detail"]
 
 
+@respx.mock
 def test_commit_skipped_rows_exempt_from_validation(auth_client, db, org_user_company):
-    _, _, company = org_user_company
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
     _seed_income_structure(db, company)
+    _mock_preview_endpoints()
     r = auth_client.post(
         f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
         json={
             "fiscal_year": 2026,
-            "month": 3,
+            "months": [3],
             "rows": [
                 {
                     "account_number": "1000",
                     "account_name": "Cash",
-                    "debit": 0,
-                    "credit": 0,
                     "link_code": "does-not-exist",
+                    "skip": True,
+                },
+                {
+                    "account_number": "4000",
+                    "account_name": "Sales",
+                    "link_code": None,
+                    "skip": True,
+                },
+                {
+                    "account_number": "6010",
+                    "account_name": "Office",
+                    "link_code": None,
                     "skip": True,
                 },
                 {
                     "account_number": "2000",
                     "account_name": "Salaire",
-                    "debit": 100,
-                    "credit": 0,
                     "link_code": "44-330",
                     "skip": False,
                 },
@@ -536,6 +516,136 @@ def test_commit_skipped_rows_exempt_from_validation(auth_client, db, org_user_co
         },
     )
     assert r.status_code == 201, r.text
+
+
+@respx.mock
+def test_commit_multi_month_conflict_without_overwrite_writes_nothing(
+    auth_client, db, org_user_company,
+):
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
+    _seed_legacy_codes_structure(db, company)
+    _mock_preview_endpoints()
+
+    # First commit succeeds for months 1, 2.
+    first = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
+        json={
+            "fiscal_year": 2026, "months": [1, 2],
+            "rows": [
+                {"account_number": "1000", "account_name": "Cash",
+                 "link_code": "actif.encaisse"},
+                {"account_number": "4000", "account_name": "Sales",
+                 "link_code": "revenus.ventes"},
+                {"account_number": "6010", "account_name": "Office",
+                 "link_code": None, "skip": True},
+            ],
+            "overwrite_existing_tb": False,
+        },
+    )
+    assert first.status_code == 201, first.text
+    baseline = db.query(TrialBalanceEntry).filter_by(company_id=company.id).count()
+
+    # Second commit overlaps months 1, 2 — must 409 and not change DB.
+    second = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
+        json={
+            "fiscal_year": 2026, "months": [1, 2, 3],
+            "rows": [
+                {"account_number": "1000", "account_name": "Cash",
+                 "link_code": "actif.encaisse"},
+                {"account_number": "4000", "account_name": "Sales",
+                 "link_code": "revenus.ventes"},
+                {"account_number": "6010", "account_name": "Office",
+                 "link_code": None, "skip": True},
+            ],
+            "overwrite_existing_tb": False,
+        },
+    )
+    assert second.status_code == 409
+    assert db.query(TrialBalanceEntry).filter_by(company_id=company.id).count() == baseline
+
+
+@respx.mock
+def test_commit_overwrite_replaces_conflicting_months_only(
+    auth_client, db, org_user_company,
+):
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
+    _seed_legacy_codes_structure(db, company)
+    _mock_preview_endpoints()
+
+    auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
+        json={
+            "fiscal_year": 2026, "months": [1, 2],
+            "rows": [
+                {"account_number": "1000", "account_name": "Cash",
+                 "link_code": "actif.encaisse"},
+                {"account_number": "4000", "account_name": "Sales",
+                 "link_code": "revenus.ventes"},
+                {"account_number": "6010", "account_name": "Office",
+                 "link_code": None, "skip": True},
+            ],
+            "overwrite_existing_tb": False,
+        },
+    )
+
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
+        json={
+            "fiscal_year": 2026, "months": [1, 2, 3],
+            "rows": [
+                {"account_number": "1000", "account_name": "Cash",
+                 "link_code": "actif.encaisse"},
+                {"account_number": "4000", "account_name": "Sales",
+                 "link_code": "revenus.ventes"},
+                {"account_number": "6010", "account_name": "Office",
+                 "link_code": None, "skip": True},
+            ],
+            "overwrite_existing_tb": True,
+        },
+    )
+    assert r.status_code == 201, r.text
+    # 2 non-skipped accounts × 3 months = 6 entries (1 and 2 replaced; 3 new).
+    assert db.query(TrialBalanceEntry).filter_by(company_id=company.id).count() == 6
+
+
+@respx.mock
+def test_commit_data_drift_returns_409_and_writes_nothing(
+    auth_client, db, org_user_company,
+):
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
+    _seed_legacy_codes_structure(db, company)
+    _mock_preview_endpoints()
+
+    # User submits only 1 of the 3 accounts present in the QBO re-pull.
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
+        json={
+            "fiscal_year": 2026, "months": [1, 2],
+            "rows": [
+                {"account_number": "1000", "account_name": "Cash",
+                 "link_code": "actif.encaisse"},
+            ],
+            "overwrite_existing_tb": False,
+        },
+    )
+    assert r.status_code == 409
+    assert "Data drift" in r.json()["detail"]
+    assert db.query(TrialBalanceEntry).filter_by(company_id=company.id).count() == 0
+
+
+def test_commit_empty_months_returns_422(auth_client, db, org_user_company):
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
+        json={"fiscal_year": 2026, "months": [], "rows": [],
+              "overwrite_existing_tb": False},
+    )
+    assert r.status_code == 422
 
 
 # ============= /link-codes =============
