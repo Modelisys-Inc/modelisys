@@ -192,12 +192,15 @@ def test_preview_happy_path(auth_client, db, org_user_company):
     _mock_preview_endpoints()
     r = auth_client.post(
         f"/api/quickbooks/companies/{company.id}/trial-balance/preview",
-        json={"fiscal_year": 2026, "month": 3},
+        json={"fiscal_year": 2026, "months": [3]},
     )
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["currency"] == "CAD"
+    assert body["months"] == [3]
     assert len(body["rows"]) == 3
+    cash = next(r for r in body["rows"] if r["account_number"] == "1000")
+    assert "3" in cash["monthly_amounts"]
 
 
 @respx.mock
@@ -250,7 +253,7 @@ def test_preview_includes_existing_link_code(auth_client, db, org_user_company):
     _mock_preview_endpoints()
     r = auth_client.post(
         f"/api/quickbooks/companies/{company.id}/trial-balance/preview",
-        json={"fiscal_year": 2026, "month": 3},
+        json={"fiscal_year": 2026, "months": [3]},
     )
     cash = next(r for r in r.json()["rows"] if r["account_number"] == "1000")
     assert cash["existing_link_code"] == "actif.special"
@@ -260,7 +263,7 @@ def test_preview_no_connection_404(auth_client, org_user_company):
     _, _, company = org_user_company
     r = auth_client.post(
         f"/api/quickbooks/companies/{company.id}/trial-balance/preview",
-        json={"fiscal_year": 2026, "month": 3},
+        json={"fiscal_year": 2026, "months": [3]},
     )
     assert r.status_code == 404
 
@@ -272,19 +275,9 @@ def test_preview_revoked_424(auth_client, db, org_user_company):
     db.commit()
     r = auth_client.post(
         f"/api/quickbooks/companies/{company.id}/trial-balance/preview",
-        json={"fiscal_year": 2026, "month": 3},
+        json={"fiscal_year": 2026, "months": [3]},
     )
     assert r.status_code == 424
-
-
-def test_preview_invalid_month(auth_client, db, org_user_company):
-    _, user, company = org_user_company
-    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
-    r = auth_client.post(
-        f"/api/quickbooks/companies/{company.id}/trial-balance/preview",
-        json={"fiscal_year": 2026, "month": 13},
-    )
-    assert r.status_code == 422
 
 
 @respx.mock
@@ -294,15 +287,75 @@ def test_preview_qbo_429_maps_to_503(auth_client, db, org_user_company, monkeypa
 
     from app.integrations.quickbooks import client as qbo_client
     monkeypatch.setattr(qbo_client.time, "sleep", lambda _: None)
+    # list_accounts (query) is called first; trigger 429 there so retry
+    # exhaustion maps to 503.
     route = respx.get(
-        "https://sandbox-quickbooks.api.intuit.com/v3/company/realm-1/reports/TrialBalance"
+        "https://sandbox-quickbooks.api.intuit.com/v3/company/realm-1/query"
     )
     route.side_effect = [Response(429, headers={"Retry-After": "0"}), Response(429)]
     r = auth_client.post(
         f"/api/quickbooks/companies/{company.id}/trial-balance/preview",
-        json={"fiscal_year": 2026, "month": 3},
+        json={"fiscal_year": 2026, "months": [3]},
     )
     assert r.status_code == 503
+
+
+@respx.mock
+def test_preview_reports_existing_months(auth_client, db, org_user_company):
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
+    _mock_preview_endpoints()
+    # Seed a TB entry for month 2.
+    chart = ChartOfAccount(
+        company_id=company.id, account_number="1000", account_name="Cash",
+    )
+    db.add(chart)
+    db.flush()
+    db.add(TrialBalanceEntry(
+        company_id=company.id, account_id=chart.id,
+        fiscal_year=2026, month=2, amount=100,
+    ))
+    db.commit()
+
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/preview",
+        json={"fiscal_year": 2026, "months": [1, 2, 3]},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["existing_months"] == [2]
+
+
+def test_preview_empty_months_returns_422(auth_client, db, org_user_company):
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/preview",
+        json={"fiscal_year": 2026, "months": []},
+    )
+    assert r.status_code == 422
+
+
+def test_preview_out_of_range_month_returns_422(auth_client, db, org_user_company):
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/preview",
+        json={"fiscal_year": 2026, "months": [3, 13]},
+    )
+    assert r.status_code == 422
+
+
+@respx.mock
+def test_preview_dedupes_and_sorts_months(auth_client, db, org_user_company):
+    _, user, company = org_user_company
+    service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
+    _mock_preview_endpoints()
+    r = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/preview",
+        json={"fiscal_year": 2026, "months": [3, 1, 2, 2]},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["months"] == [1, 2, 3]
 
 
 # ============= /trial-balance/commit =============
