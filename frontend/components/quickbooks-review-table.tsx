@@ -41,7 +41,13 @@ import {
   type QboLinkCode,
   type QboTrialBalancePreview,
 } from "@/lib/api"
+import { formatCompactAmount } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
+
+const MONTH_LABELS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+]
 
 type Filter = "all" | "unmapped" | "mapped" | "invalid"
 
@@ -199,20 +205,24 @@ function LinkCodePicker({
 type RowState = {
   account_number: string
   account_name: string
-  debit: number
-  credit: number
   qbo_type: string | null
   qbo_subtype: string | null
   link_code: string | null
   existing_link_code: string | null
   skip: boolean
+  monthly_amounts: Record<string, { debit: number; credit: number }>
 }
 
 interface ReviewTableProps {
   companyId: string
   preview: QboTrialBalancePreview
   onCancel: () => void
-  onCommitted: (counts: { months_imported: number; accounts_imported: number; mappings_created: number; mappings_updated: number }) => void
+  onCommitted: (counts: {
+    months_imported: number
+    accounts_imported: number
+    mappings_created: number
+    mappings_updated: number
+  }) => void
 }
 
 export function QuickBooksReviewTable({
@@ -227,13 +237,12 @@ export function QuickBooksReviewTable({
     preview.rows.map((r) => ({
       account_number: r.account_number,
       account_name: r.account_name,
-      debit: r.debit,
-      credit: r.credit,
       qbo_type: r.qbo_account_type,
       qbo_subtype: r.qbo_account_sub_type,
       link_code: r.existing_link_code,
       existing_link_code: r.existing_link_code,
       skip: false,
+      monthly_amounts: r.monthly_amounts,
     })),
   )
   const [filter, setFilter] = useState<Filter>("all")
@@ -294,20 +303,33 @@ export function QuickBooksReviewTable({
   )
 
   const totals = useMemo(() => {
-    const debit = rows.filter((r) => !r.skip).reduce((s, r) => s + r.debit, 0)
-    const credit = rows.filter((r) => !r.skip).reduce((s, r) => s + r.credit, 0)
+    let debit = 0
+    let credit = 0
+    for (const r of rows) {
+      if (r.skip) continue
+      for (const m of Object.values(r.monthly_amounts)) {
+        debit += m.debit
+        credit += m.credit
+      }
+    }
     return { debit, credit, balanced: Math.abs(debit - credit) < 0.01 }
   }, [rows])
 
+  const isAllZero = (r: RowState) =>
+    Object.values(r.monthly_amounts).every(
+      (m) => m.debit === 0 && m.credit === 0,
+    )
+
   const zeroAmountUnskipped = useMemo(
-    () => rows.filter((r) => !r.skip && r.debit === 0 && r.credit === 0).length,
+    () => rows.filter((r) => !r.skip && isAllZero(r)).length,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [rows],
   )
 
   const skipAllZeroAmount = () => {
     setRows((prev) =>
       prev.map((r) =>
-        !r.skip && r.debit === 0 && r.credit === 0 ? { ...r, skip: true } : r,
+        !r.skip && isAllZero(r) ? { ...r, skip: true } : r,
       ),
     )
   }
@@ -401,15 +423,13 @@ export function QuickBooksReviewTable({
       const payload: QboCommitRow[] = rows.map((r) => ({
         account_number: r.account_number,
         account_name: r.account_name,
-        debit: r.debit,
-        credit: r.credit,
         link_code: r.link_code,
         skip: r.skip,
       }))
       const result = await commitQboTrialBalance(
         companyId,
         preview.fiscal_year,
-        preview.month,
+        preview.months,
         payload,
         overwrite,
       )
@@ -430,12 +450,27 @@ export function QuickBooksReviewTable({
     <Card>
       <CardHeader>
         <CardTitle>
-          Review trial balance — {preview.fiscal_year}-
-          {String(preview.month).padStart(2, "0")} ({preview.currency})
+          Review trial balance — {preview.fiscal_year}
+          {preview.months.length === 1
+            ? `-${String(preview.months[0]).padStart(2, "0")}`
+            : ` (${MONTH_LABELS[preview.months[0] - 1]} – ${MONTH_LABELS[preview.months[preview.months.length - 1] - 1]})`}
+          {" "}({preview.currency})
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          QBO imports are stored as year-to-date (cumulative). Financial
-          statements de-cumulate on read.
+          {preview.months.length} {preview.months.length === 1 ? "month" : "months"}.
+          QBO imports are stored as year-to-date (cumulative); financial statements
+          de-cumulate on read.
+          {preview.existing_months.length > 0 && (
+            <>
+              {" "}
+              <span className="text-amber-700 font-medium">
+                {preview.existing_months.length} of these{" "}
+                {preview.existing_months.length === 1 ? "month is" : "months are"}{" "}
+                already imported — overwrite to replace{" "}
+                {preview.existing_months.length === 1 ? "it" : "them"}.
+              </span>
+            </>
+          )}
         </p>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <button
@@ -490,7 +525,7 @@ export function QuickBooksReviewTable({
               Your statement structure has no link codes yet.
             </p>
             <p className="text-xs">
-              Use the picker's <span className="font-medium">+ Create new link code…</span>{" "}
+              Use the picker&apos;s <span className="font-medium">+ Create new link code…</span>{" "}
               action on each row, or set up your statement structure first.
             </p>
           </div>
@@ -565,8 +600,18 @@ export function QuickBooksReviewTable({
                 <TableHead className="w-[90px]">Account #</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead className="w-[140px]">QBO type</TableHead>
-                <TableHead className="w-[100px] text-right">Debit</TableHead>
-                <TableHead className="w-[100px] text-right">Credit</TableHead>
+                {preview.months.length <= 6 ? (
+                  preview.months.map((m) => (
+                    <TableHead key={m} className="w-[80px] text-right text-xs">
+                      {MONTH_LABELS[m - 1]}
+                    </TableHead>
+                  ))
+                ) : (
+                  <TableHead className="w-[120px] text-right text-xs">
+                    Activity ({MONTH_LABELS[preview.months[0] - 1]}–
+                    {MONTH_LABELS[preview.months[preview.months.length - 1] - 1]})
+                  </TableHead>
+                )}
                 <TableHead className="w-[260px]">Link code</TableHead>
                 <TableHead className="w-[60px]">Skip</TableHead>
               </TableRow>
@@ -607,12 +652,27 @@ export function QuickBooksReviewTable({
                       {r.qbo_type ?? "—"}
                       {r.qbo_subtype ? `/${r.qbo_subtype}` : ""}
                     </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {r.debit.toFixed(2)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {r.credit.toFixed(2)}
-                    </TableCell>
+                    {preview.months.length <= 6 ? (
+                      preview.months.map((m) => {
+                        const amt = r.monthly_amounts[String(m)]
+                        const net = amt ? amt.debit - amt.credit : 0
+                        return (
+                          <TableCell key={m} className="text-right font-mono text-xs">
+                            {amt ? formatCompactAmount(net) : "—"}
+                          </TableCell>
+                        )
+                      })
+                    ) : (
+                      <TableCell className="text-right font-mono text-xs">
+                        {(() => {
+                          const net = Object.values(r.monthly_amounts).reduce(
+                            (s, a) => s + (a.debit - a.credit),
+                            0,
+                          )
+                          return formatCompactAmount(net)
+                        })()}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <LinkCodePicker
                         row={r}
@@ -654,7 +714,7 @@ export function QuickBooksReviewTable({
               (totals.balanced ? "text-muted-foreground" : "text-red-600 font-semibold")
             }
           >
-            Debit total: {totals.debit.toFixed(2)} · Credit total:{" "}
+            Debit total (all months): {totals.debit.toFixed(2)} · Credit total:{" "}
             {totals.credit.toFixed(2)}
             {!totals.balanced && " — does not balance!"}
           </div>
@@ -671,7 +731,9 @@ export function QuickBooksReviewTable({
               onClick={() => doCommit(false)}
               disabled={!canCommit || committing}
             >
-              {committing ? "Importing…" : "Import trial balance"}
+              {committing
+                ? "Importing…"
+                : `Import ${preview.months.length} ${preview.months.length === 1 ? "month" : "months"}`}
             </Button>
           </div>
         </div>
@@ -681,12 +743,13 @@ export function QuickBooksReviewTable({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              A trial balance for {preview.fiscal_year}-
-              {String(preview.month).padStart(2, "0")} already exists.
+              {preview.existing_months.length === 1
+                ? `Month ${preview.existing_months[0]} already has a trial balance.`
+                : `${preview.existing_months.length} months already have trial balances: ${preview.existing_months.join(", ")}.`}
             </DialogTitle>
           </DialogHeader>
           <p className="text-sm">
-            Overwrite the existing entries? This cannot be undone.
+            Overwrite the existing {preview.existing_months.length === 1 ? "entries" : "entries for those months"}? Other months in the range are unaffected. This cannot be undone.
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setConflictOpen(false)}>
