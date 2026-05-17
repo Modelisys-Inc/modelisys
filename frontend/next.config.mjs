@@ -28,11 +28,16 @@ const nextConfig = {
     root: __dirname,
   },
   // Docker + volume monté (Windows) : le file watcher natif échoue souvent ; le polling fiabilise le hot reload.
-  webpack: (config, { dev }) => {
+  webpack: (config, { dev, isServer }) => {
     if (dev) {
       config.watchOptions = {
         poll: 1000,
         aggregateTimeout: 300,
+      }
+      // Docker + volume Windows : la compilation des grosses routes (ex. pro-forma) peut
+      // dépasser le délai par défaut du chargeur de chunks → ChunkLoadError (timeout).
+      if (!isServer && config.output) {
+        config.output.chunkLoadTimeout = 300_000
       }
     }
     return config

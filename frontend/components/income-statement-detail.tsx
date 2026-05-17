@@ -8,6 +8,24 @@ import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { generateId } from "@/lib/seeded-random"
+import type {
+  RevenueCustomDraftRow,
+  RevenueCustomGrowthSnapshot,
+  RevenueCustomYoYGrowthMode,
+} from "@/lib/revenue-custom-formula"
+import {
+  appendRevenueCustomFormulaOperator,
+  buildRevenueCustomGrowthSnapshot,
+  collectConsecutiveCustomGrowthChain,
+  createSaaSRevenueCustomStarter,
+  escapeRegExp,
+  evaluateRevenueCustomGrowth,
+  formatDraftNumberForInput,
+  parseDraftNumericInput,
+  resolveCustomGrowthVariablesFromChain,
+  revenueCustomBracketRef,
+  revenueCustomFormulaPlaceholder,
+} from "@/lib/revenue-custom-formula"
 import {
   ArrowRight,
   CheckCircle2,
@@ -18,6 +36,7 @@ import {
   X,
 } from "lucide-react"
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react"
+import { scaleBand } from "d3-scale"
 import {
   listForecastConfigs,
   upsertForecastConfig,
@@ -104,8 +123,20 @@ import { BookMarked, Settings, Plus, Edit2, Trash2, Loader2, Sparkles, AlertTria
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { Bar, BarChart, CartesianGrid, ComposedChart, Line, ReferenceLine, XAxis, YAxis } from "recharts"
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  LineChart,
+  Rectangle,
+  ReferenceLine,
+  XAxis,
+  YAxis,
+} from "recharts"
 
 interface IncomeStatementDetailProps {
   period: "monthly" | "quarterly" | "annual"
@@ -627,6 +658,404 @@ function parseRevenueCollectionCashFromStorage(adj: {
   }
 }
 
+/** Délai moyen pondéré (même logique que le panneau hypothèses) à partir d’un ajustement stocké. */
+function formatRevenueCollectionDelayDisplayFromStored(
+  adj:
+    | {
+        collectionCash?: unknown
+        collectionSchedule?: unknown
+        collectionPercents?: unknown
+      }
+    | undefined
+    | null
+): string {
+  if (!adj) return "-"
+  const cash = parseRevenueCollectionCashFromStorage(adj)
+  const buckets =
+    cash.advancedBuckets && cash.advancedBuckets.length > 0
+      ? cash.advancedBuckets
+      : createDefaultAdvancedBuckets(cash.badDebtPercent)
+  return formatCollectionDelayDaysDisplay(weightedEncashableCollectionDelayDays(buckets))
+}
+
+/** Jours pour Σ(revenu × délai) / Σ(revenu) ; 0 si pas d’ajustement (le poste ne tire pas le délai vers un défaut modèle). */
+function revenueCollectionDelayDaysForAnnexWeighting(
+  adj:
+    | {
+        collectionCash?: unknown
+        collectionSchedule?: unknown
+        collectionPercents?: unknown
+      }
+    | undefined
+    | null
+): number {
+  if (!adj) return 0
+  const cash = parseRevenueCollectionCashFromStorage(adj)
+  const buckets =
+    cash.advancedBuckets && cash.advancedBuckets.length > 0
+      ? cash.advancedBuckets
+      : createDefaultAdvancedBuckets(cash.badDebtPercent)
+  return weightedEncashableCollectionDelayDays(buckets)
+}
+
+const REVENUE_SEASONALITY_MONTH_LABELS = [
+  "Janvier",
+  "Février",
+  "Mars",
+  "Avril",
+  "Mai",
+  "Juin",
+  "Juillet",
+  "Août",
+  "Septembre",
+  "Octobre",
+  "Novembre",
+  "Décembre",
+] as const
+
+/** Libellés courts pour l’axe X du graphique saisonnalité (Recharts). */
+const REVENUE_SEASONALITY_AXIS_LABELS = [
+  "janv.",
+  "févr.",
+  "mars",
+  "avr.",
+  "mai",
+  "juin",
+  "juil.",
+  "août",
+  "sept.",
+  "oct.",
+  "nov.",
+  "déc.",
+] as const
+
+/** Échelle X en bandes égales (centres alignés sur les colonnes CSS) — Recharts utilise scalePoint pour Line, ce qui décale les extrémités. */
+function createRevenueSeasonalityBandXScale() {
+  return scaleBand<string>()
+    .domain([...REVENUE_SEASONALITY_AXIS_LABELS])
+    .paddingInner(0)
+    .paddingOuter(0)
+}
+
+function createRevenueSummaryBandXScale() {
+  return scaleBand<string>()
+    .domain([...REVENUE_SEASONALITY_AXIS_LABELS])
+    .paddingInner(0)
+    .paddingOuter(0)
+}
+
+/** Même couleur que la courbe de saisonnalité (`ChartContainer` → `--color-percent`). */
+const REVENUE_SEASONALITY_CHART_SLATE = "#475569"
+/** Mauvaise créance sur l’histogramme d’encaissement. */
+const REVENUE_COLLECTION_BAD_DEBT_RED = "#ef4444"
+
+/** Fraction de la largeur de bande (catégorie) pour chaque barre — `barSize` % est ignoré avec scaleBand custom. */
+const REVENUE_COLLECTION_BAR_BAND_FRACTION = 0.15
+
+function renderRevenueCollectionBarShape(
+  props: Record<string, unknown> & {
+    x?: number
+    y?: number
+    width?: number
+    height?: number
+    payload?: { barFill?: string }
+  }
+) {
+  const x = Number(props.x ?? 0)
+  const y = Number(props.y ?? 0)
+  const bandW = Number(props.width ?? 0)
+  const h = Number(props.height ?? 0)
+  if (!Number.isFinite(bandW) || !Number.isFinite(h) || bandW <= 0 || h <= 0) return null
+  const w = Math.max(2, bandW * REVENUE_COLLECTION_BAR_BAND_FRACTION)
+  const fill = typeof props.payload === "object" && props.payload && "barFill" in props.payload
+    ? String((props.payload as { barFill?: string }).barFill ?? REVENUE_SEASONALITY_CHART_SLATE)
+    : REVENUE_SEASONALITY_CHART_SLATE
+  return (
+    <Rectangle
+      x={x + (bandW - w) / 2}
+      y={y}
+      width={w}
+      height={h}
+      fill={fill}
+      radius={[3, 3, 0, 0]}
+    />
+  )
+}
+
+function revenueCollectionBarFill(isBadDebt: boolean): string {
+  return isBadDebt ? REVENUE_COLLECTION_BAD_DEBT_RED : REVENUE_SEASONALITY_CHART_SLATE
+}
+
+function createDefaultRevenueSeasonalityMonthPercents(): number[] {
+  const n = 12
+  const base = Math.floor(100 / n)
+  let rest = 100 - base * n
+  return Array.from({ length: n }, (_, i) => base + (i < rest ? 1 : 0))
+}
+
+/** Délai d’encaissement (jours) → mois civils après le mois de reconnaissance du revenu (≈ 30 j / mois). */
+function revenueCollectionDelayToMonthOffset(delayDays: number): number {
+  const d = Math.max(0, Math.round(Number(delayDays) || 0))
+  return Math.max(0, Math.round(d / 30))
+}
+
+/** Répartit le revenu annuel sur 12 mois selon les % de saisonnalité (somme des poids = 1 si total > 0). */
+function distributeAnnualRevenueBySeasonality(annual: number, monthPercentsRaw: number[]): number[] {
+  const pct =
+    monthPercentsRaw.length >= 12
+      ? monthPercentsRaw.slice(0, 12)
+      : [...monthPercentsRaw, ...Array(12 - monthPercentsRaw.length).fill(0)]
+  const safe = pct.map((p) => Math.max(0, Number(p) || 0))
+  const total = safe.reduce((a, b) => a + b, 0)
+  const weights = total > 0 ? safe.map((p) => p / total) : Array(12).fill(1 / 12)
+  const floats = weights.map((w) => annual * w)
+  const out = floats.map((x) => Math.floor(x))
+  let diff = Math.round(annual) - out.reduce((a, b) => a + b, 0)
+  let guard = 0
+  while (diff !== 0 && guard < 5000) {
+    let best = 0
+    let bestFrac = -Infinity
+    for (let m = 0; m < 12; m++) {
+      const frac = floats[m]! - out[m]!
+      if (frac > bestFrac) {
+        bestFrac = frac
+        best = m
+      }
+    }
+    if (diff > 0) {
+      out[best] = (out[best] ?? 0) + 1
+      diff--
+    } else {
+      const m = out.findIndex((v) => v > 0)
+      if (m < 0) break
+      out[m] = (out[m] ?? 0) - 1
+      diff++
+    }
+    guard++
+  }
+  return out
+}
+
+type RevenueHypothesisSummaryMoneyPoint = {
+  axisLabel: string
+  monthName: string
+  revenue: number
+  encaissements: number
+  comptesClients: number
+}
+
+/** Paramètres revenu / saisonnalité / encaissement pour une année (indice = colonne du tableau, aligné sur getYearLabels). */
+type RevenueHypothesisYearSummaryInput = {
+  annual: number
+  seasonalityMonthPercents: number[]
+  badDebtPercent: number
+  buckets: RevenueCollectionBucket[]
+}
+
+/**
+ * Sommaire sur **une seule année-colonne** : aucun report depuis d’autres années. Janvier sans solde d’ouverture
+ * issu d’une autre colonne (encaissements et comptes clients = cohorte de cette année seulement).
+ */
+function computeRevenueHypothesisSummarySingleYear(
+  yp: RevenueHypothesisYearSummaryInput
+): RevenueHypothesisSummaryMoneyPoint[] {
+  const R = distributeAnnualRevenueBySeasonality(Math.round(yp.annual), yp.seasonalityMonthPercents)
+  const bd = clampRoundBadDebt(yp.badDebtPercent)
+  const adv = normalizeAdvancedBuckets(yp.buckets, bd)
+  const enc = Array.from({ length: 12 }, () => 0)
+  for (let m = 0; m < 12; m++) {
+    for (const b of adv) {
+      const pct = Math.max(0, Math.round(b.percent))
+      const off = revenueCollectionDelayToMonthOffset(b.delayDays)
+      const tgt = m + off
+      if (tgt <= 11) enc[tgt]! += ((R[m] ?? 0) * pct) / 100
+    }
+  }
+  for (let i = 0; i < 12; i++) enc[i] = Math.round(enc[i] ?? 0)
+
+  const U = R.map((r) => (r * (100 - bd)) / 100)
+  const arMonths: number[] = []
+  for (let j = 0; j < 12; j++) {
+    let sum = 0
+    for (let m = 0; m <= j; m++) {
+      let collected = 0
+      for (const b of adv) {
+        const pct = Math.max(0, Math.round(b.percent))
+        if (m + revenueCollectionDelayToMonthOffset(b.delayDays) <= j) collected += ((R[m] ?? 0) * pct) / 100
+      }
+      sum += (U[m] ?? 0) - collected
+    }
+    arMonths.push(Math.round(sum))
+  }
+  return REVENUE_SEASONALITY_AXIS_LABELS.map((axisLabel, i) => ({
+    axisLabel,
+    monthName: REVENUE_SEASONALITY_MONTH_LABELS[i] ?? axisLabel,
+    revenue: R[i] ?? 0,
+    encaissements: enc[i] ?? 0,
+    comptesClients: arMonths[i] ?? 0,
+  }))
+}
+
+/**
+ * Sommaire pour la colonne année `displayYearIndex` (même indice que `getYearLabels`).
+ * - `firstProjectedYearIndex` : première année **projetée** (ex. **1** lorsque la section prévision affiche d’abord
+ *   le réel N-1 puis les années projetées, comme avec `forceForecastSection` / `getYearLabels`).
+ * - **Année ≤ firstProjectedYearIndex** : une seule colonne (y compris le réel en 0 si présent) — pas de report
+ *   depuis une autre colonne ; la **première année projetée** n’embarque pas le réel de l’année précédente.
+ * - **Années projetées suivantes** : continuité sur la ligne de temps à partir de `firstProjectedYearIndex`
+ *   (ex. 2027 inclut les reports issus de 2026 projeté, pas du réel 2025).
+ */
+function computeRevenueHypothesisSummaryMoneyPoints(
+  yearsParams: RevenueHypothesisYearSummaryInput[],
+  displayYearIndex: number,
+  firstProjectedYearIndex = 0
+): RevenueHypothesisSummaryMoneyPoint[] {
+  const Y = displayYearIndex
+  const P0 = firstProjectedYearIndex
+  if (Y < 0 || yearsParams.length < Y + 1) return []
+  if (Y <= P0) {
+    return computeRevenueHypothesisSummarySingleYear(yearsParams[Y]!)
+  }
+
+  const RByYear: number[][] = []
+  const advByYear: RevenueCollectionBucket[][] = []
+  const bdByYear: number[] = []
+
+  for (let p = P0; p <= Y; p++) {
+    const yp = yearsParams[p]!
+    const bd = clampRoundBadDebt(yp.badDebtPercent)
+    bdByYear.push(bd)
+    RByYear.push(distributeAnnualRevenueBySeasonality(Math.round(yp.annual), yp.seasonalityMonthPercents))
+    advByYear.push(normalizeAdvancedBuckets(yp.buckets, bd))
+  }
+
+  const T0proj = (Y - P0) * 12
+  const T1proj = T0proj + 11
+
+  const encDisplay = Array.from({ length: 12 }, () => 0)
+  for (let idx = 0; idx < RByYear.length; idx++) {
+    const R = RByYear[idx]!
+    const adv = advByYear[idx]!
+    for (let m = 0; m < 12; m++) {
+      const T_rec_proj = idx * 12 + m
+      const rm = R[m] ?? 0
+      for (const b of adv) {
+        const pct = Math.max(0, Math.round(b.percent))
+        const off = revenueCollectionDelayToMonthOffset(b.delayDays)
+        const T_col = T_rec_proj + off
+        if (T_col < T0proj || T_col > T1proj) continue
+        encDisplay[T_col - T0proj]! += (rm * pct) / 100
+      }
+    }
+  }
+  for (let i = 0; i < 12; i++) encDisplay[i] = Math.round(encDisplay[i] ?? 0)
+
+  const arDisplay: number[] = []
+  const RY = RByYear[Y - P0]!
+  for (let j = 0; j < 12; j++) {
+    const T_end_proj = T0proj + j
+    let ar = 0
+    for (let idx = 0; idx < RByYear.length; idx++) {
+      const R = RByYear[idx]!
+      const adv = advByYear[idx]!
+      const bd = bdByYear[idx]!
+      const U = R.map((r) => (r * (100 - bd)) / 100)
+      for (let m = 0; m < 12; m++) {
+        const T_rec_proj = idx * 12 + m
+        if (T_rec_proj > T_end_proj) continue
+        let collected = 0
+        for (const b of adv) {
+          const pct = Math.max(0, Math.round(b.percent))
+          const T_col = T_rec_proj + revenueCollectionDelayToMonthOffset(b.delayDays)
+          if (T_col <= T_end_proj) collected += ((R[m] ?? 0) * pct) / 100
+        }
+        ar += (U[m] ?? 0) - collected
+      }
+    }
+    arDisplay.push(Math.round(ar))
+  }
+
+  return REVENUE_SEASONALITY_AXIS_LABELS.map((axisLabel, i) => ({
+    axisLabel,
+    monthName: REVENUE_SEASONALITY_MONTH_LABELS[i] ?? axisLabel,
+    revenue: RY[i] ?? 0,
+    encaissements: encDisplay[i] ?? 0,
+    comptesClients: arDisplay[i] ?? 0,
+  }))
+}
+
+/** Graduations verticales ($) pour le graphique sommaire — même principe que la saisonnalité (%). */
+function computeRevenueSummaryDollarYScale(maxValue: number): { yMax: number; ticks: number[] } {
+  const m = Math.max(0, maxValue)
+  if (m <= 0) {
+    const yMax = 1
+    const segments = 5
+    const ticksAsc = Array.from({ length: segments + 1 }, (_, i) => Math.round((yMax * i) / segments))
+    const ticks = [...new Set(ticksAsc)].sort((a, b) => b - a)
+    return { yMax, ticks }
+  }
+  const target = Math.max(m * 1.15, m + 1)
+  const pow10 = Math.pow(10, Math.floor(Math.log10(target)))
+  const rel = target / pow10
+  const niceUnit =
+    rel <= 1 ? pow10 : rel <= 2 ? 2 * pow10 : rel <= 2.5 ? 2.5 * pow10 : rel <= 5 ? 5 * pow10 : 10 * pow10
+  const yMax = Math.ceil(target / niceUnit) * niceUnit
+  const segments = 5
+  const ticksAsc = Array.from({ length: segments + 1 }, (_, i) => Math.round((yMax * i) / segments))
+  const ticks = [...new Set(ticksAsc)].sort((a, b) => b - a)
+  return { yMax, ticks }
+}
+
+/** Borne supérieure et graduations pour le graphique saisonnalité (échelle auto, plafonnée à 100 %). */
+function computeRevenueSeasonalityChartYScale(monthPercents: number[]): { yMax: number; ticks: number[] } {
+  const m = Math.max(0, ...monthPercents)
+  let yMax: number
+  if (m <= 0) {
+    yMax = 10
+  } else {
+    const target = Math.min(100, Math.max(m * 1.22, m + 2))
+    const steps = [5, 8, 10, 12, 15, 18, 20, 25, 30, 35, 40, 45, 50, 55, 60, 70, 75, 80, 90, 100]
+    yMax = steps.find((s) => s >= target) ?? 100
+  }
+  const segments = 5
+  const ticksAsc = Array.from({ length: segments + 1 }, (_, i) => Math.round((yMax * i) / segments))
+  const ticks = [...new Set(ticksAsc)].sort((a, b) => b - a)
+  return { yMax, ticks }
+}
+
+function normalizeRevenueSeasonalityMonthPercents(months: number[]): number[] {
+  const def = createDefaultRevenueSeasonalityMonthPercents()
+  const raw =
+    months.length >= 12 ? months.slice(0, 12) : [...months, ...Array(12 - months.length).fill(0)]
+  const safe = raw.map((p) => Math.max(0, Math.round(Number(p) || 0)))
+  const sum = safe.reduce((a, b) => a + b, 0)
+  if (sum <= 0) return def
+  const rounded = safe.map((p) => Math.round((p / sum) * 100))
+  let diff = 100 - rounded.reduce((a, b) => a + b, 0)
+  const out = [...rounded]
+  let guard = 0
+  while (diff !== 0 && guard < 240) {
+    const i = guard % 12
+    if (diff > 0) {
+      out[i] = (out[i] ?? 0) + 1
+      diff--
+    } else if ((out[i] ?? 0) > 0) {
+      out[i] = (out[i] ?? 0) - 1
+      diff++
+    }
+    guard++
+  }
+  return out
+}
+
+function parseSeasonalityMonthPercentsFromStorage(adj: {
+  seasonalityMonthPercents?: unknown
+}): number[] {
+  const raw = adj.seasonalityMonthPercents
+  if (!Array.isArray(raw) || raw.length !== 12) return createDefaultRevenueSeasonalityMonthPercents()
+  return normalizeRevenueSeasonalityMonthPercents(raw.map((x) => Number(x)))
+}
+
 function buildCollectionCashForSave(state: {
   badDebtPercent: number
   buckets: RevenueCollectionBucket[]
@@ -846,8 +1275,10 @@ export function IncomeStatementDetail({
     id: string // Unique ID for this adjustment
     rowId: string
     yearIndex: number
-    type: "amount" | "growthPercent" | "growthAmount" // Type of adjustment
-    value: number // The adjustment value (amount, growth %, or growth $)
+    type: "amount" | "growthPercent" | "growthAmount" | "custom" // Type of adjustment
+    value: number // Montant annuel résultant, % croissance, $ croissance, ou résultat de la formule custom
+    /** Présent si type === "custom" : variables + formule (références {{id}}). */
+    customGrowth?: RevenueCustomGrowthSnapshot
     note: string // Explanatory note for this adjustment
     /** Encaissement : échéances (parts par délai) + mauvaise créance (`collectionCash`). */
     collectionCash?: RevenueCollectionCash
@@ -855,6 +1286,8 @@ export function IncomeStatementDetail({
     collectionSchedule?: { offsetMonths: number; percent: number }[]
     /** @deprecated Migré vers `collectionCash` à l’enregistrement. */
     collectionPercents?: number[]
+    /** Répartition saisonnière du revenu annuel (12 mois, somme 100 %). */
+    seasonalityMonthPercents?: number[]
   }
 
   // State for expense adjustments: key = "rowId-yearIndex" -> ExpenseAdjustment[]
@@ -869,16 +1302,27 @@ export function IncomeStatementDetail({
 
   // State for revenue adjustments: key = "rowId-yearIndex" -> au plus un RevenueAdjustment
   const [revenueAdjustments, setRevenueAdjustments] = useState<Record<string, RevenueAdjustment[]>>({})
-  const [revenueAdjustmentType, setRevenueAdjustmentType] = useState<"amount" | "growthPercent" | "growthAmount">("amount")
+  const [revenueAdjustmentType, setRevenueAdjustmentType] = useState<
+    "amount" | "growthPercent" | "growthAmount" | "custom"
+  >("amount")
   const [revenueAdjustmentValue, setRevenueAdjustmentValue] = useState<number>(0)
   /** Chaîne du champ nombre (négatifs, 0, décimales ; évite de perdre le « - » pendant la saisie). */
   const [revenueAdjustmentValueInput, setRevenueAdjustmentValueInput] = useState<string>("0")
+  /** Brouillon formule personnalisée (onglet Croissance). */
+  const [revenueCustomDraftRows, setRevenueCustomDraftRows] = useState<RevenueCustomDraftRow[]>([])
+  const [revenueCustomFormula, setRevenueCustomFormula] = useState("")
   /** Hypothèses revenus : panneau latéral (remplace la modal pour les ajustements). */
   const [revenueHypothesisPanelOpen, setRevenueHypothesisPanelOpen] = useState(false)
   /** Hypothèses dépenses : même principe que les revenus (panneau latéral au clic sur une cellule). */
   const [expenseHypothesisPanelOpen, setExpenseHypothesisPanelOpen] = useState(false)
   /** À l'enregistrement, copier le même type / valeur / note sur les années projetées suivantes (même poste). */
   const [replicateRevenueAdjustmentToFollowingYears, setReplicateRevenueAdjustmentToFollowingYears] =
+    useState(false)
+  /** À l'enregistrement, copier uniquement la répartition d'encaissement sur les hypothèses déjà présentes pour les années suivantes. */
+  const [replicateRevenueEncashmentToFollowingYears, setReplicateRevenueEncashmentToFollowingYears] =
+    useState(false)
+  /** À l'enregistrement, copier uniquement la saisonnalité (12 mois %) sur les hypothèses déjà présentes pour les années suivantes. */
+  const [replicateRevenueSeasonalityToFollowingYears, setReplicateRevenueSeasonalityToFollowingYears] =
     useState(false)
   /** Confirmation avant suppression d’un ajustement revenus (hypothèse). */
   const [revenueHypothesisDeleteConfirmOpen, setRevenueHypothesisDeleteConfirmOpen] = useState(false)
@@ -889,6 +1333,21 @@ export function IncomeStatementDetail({
   const [revenueCollectionBuckets, setRevenueCollectionBuckets] = useState<RevenueCollectionBucket[]>(() =>
     createDefaultAdvancedBuckets(DEFAULT_REVENUE_COLLECTION_CASH.badDebtPercent)
   )
+  /** Saisie des jours (lignes ajoutées) : brouillon jusqu’au blur pour éviter le retri à chaque caractère. */
+  const [revenueCustomDelayDrafts, setRevenueCustomDelayDrafts] = useState<Record<number, string>>({})
+  /** Onglet du panneau hypothèse revenus : ajustement vs encaissement vs saisonnalité. */
+  const [revenueHypothesisEditorTab, setRevenueHypothesisEditorTab] = useState<
+    "sommaire" | "croissance" | "encaissement" | "saisonnalite"
+  >("croissance")
+  const [revenueSeasonalityMonthPercents, setRevenueSeasonalityMonthPercents] = useState<number[]>(() =>
+    createDefaultRevenueSeasonalityMonthPercents()
+  )
+  /** Sommaire : afficher / masquer chaque courbe au clic sur le libellé de ligne. */
+  const [revenueSummarySeriesVisible, setRevenueSummarySeriesVisible] = useState({
+    revenue: true,
+    encaissements: true,
+    comptesClients: true,
+  })
 
   // Check if this is a forecast section (Revenus, Dépenses, or États des résultats pro forma)
   const isForecastSection =
@@ -1387,6 +1846,31 @@ export function IncomeStatementDetail({
               ? cash.advancedBuckets
               : createDefaultAdvancedBuckets(cash.badDebtPercent)
           )
+          setRevenueSeasonalityMonthPercents(parseSeasonalityMonthPercentsFromStorage(existingAdjustment))
+          if (existingAdjustment.type === "custom" && existingAdjustment.customGrowth?.variables?.length) {
+            const cg = existingAdjustment.customGrowth
+            setRevenueCustomDraftRows(
+              cg.variables.map((v) => {
+                const yoy = v.yearOverYear
+                return {
+                  id: v.id,
+                  label: v.label,
+                  kind: v.kind,
+                  valueInput: yoy
+                    ? ""
+                    : v.kind === "currency"
+                      ? formatDraftNumberForInput(v.value)
+                      : String(v.value),
+                  yoyGrowthMode: yoy?.mode ?? "percent",
+                  yoyGrowthValueInput: yoy !== undefined ? String(yoy.delta) : undefined,
+                }
+              })
+            )
+            setRevenueCustomFormula(cg.formula)
+          } else {
+            setRevenueCustomDraftRows([])
+            setRevenueCustomFormula("")
+          }
         }
       } else {
         // Un seul ajustement par année : ouvrir en modification si un ajustement existe déjà.
@@ -1404,14 +1888,42 @@ export function IncomeStatementDetail({
               ? cash.advancedBuckets
               : createDefaultAdvancedBuckets(cash.badDebtPercent)
           )
+          setRevenueSeasonalityMonthPercents(parseSeasonalityMonthPercentsFromStorage(only))
+          if (only.type === "custom" && only.customGrowth?.variables?.length) {
+            const cg = only.customGrowth
+            setRevenueCustomDraftRows(
+              cg.variables.map((v) => {
+                const yoy = v.yearOverYear
+                return {
+                  id: v.id,
+                  label: v.label,
+                  kind: v.kind,
+                  valueInput: yoy
+                    ? ""
+                    : v.kind === "currency"
+                      ? formatDraftNumberForInput(v.value)
+                      : String(v.value),
+                  yoyGrowthMode: yoy?.mode ?? "percent",
+                  yoyGrowthValueInput: yoy !== undefined ? String(yoy.delta) : undefined,
+                }
+              })
+            )
+            setRevenueCustomFormula(cg.formula)
+          } else {
+            setRevenueCustomDraftRows([])
+            setRevenueCustomFormula("")
+          }
         } else {
           setEditingAdjustmentId(null)
           setRevenueAdjustmentType("amount")
           setRevenueHypothesisValueFromNumber(0, "amount")
+          setRevenueCustomDraftRows([])
+          setRevenueCustomFormula("")
           setAdjustmentNote("")
           const d = DEFAULT_REVENUE_COLLECTION_CASH
           setRevenueCollectionBadDebtPercent(d.badDebtPercent)
           setRevenueCollectionBuckets(createDefaultAdvancedBuckets(d.badDebtPercent))
+          setRevenueSeasonalityMonthPercents(createDefaultRevenueSeasonalityMonthPercents())
         }
       }
     } else {
@@ -1454,11 +1966,15 @@ export function IncomeStatementDetail({
     setRevenueAdjustmentType("amount")
     setRevenueAdjustmentValue(0)
     setRevenueAdjustmentValueInput("0")
+    setRevenueCustomDraftRows([])
+    setRevenueCustomFormula("")
     setAdjustmentNote("")
     setReplicateRevenueAdjustmentToFollowingYears(false)
+    setReplicateRevenueEncashmentToFollowingYears(false)
     const d = DEFAULT_REVENUE_COLLECTION_CASH
     setRevenueCollectionBadDebtPercent(d.badDebtPercent)
     setRevenueCollectionBuckets(createDefaultAdvancedBuckets(d.badDebtPercent))
+    setRevenueSeasonalityMonthPercents(createDefaultRevenueSeasonalityMonthPercents())
   }, [])
 
   const returnToRevenueHypothesisRow = useCallback(() => {
@@ -1547,6 +2063,20 @@ export function IncomeStatementDetail({
   }, [title, revenueHypothesisPanelOpen, editingAdjustment?.rowId, editingAdjustment?.yearIndex])
 
   useEffect(() => {
+    setRevenueCustomDelayDrafts({})
+  }, [revenueHypothesisPanelOpen, editingAdjustment?.rowId, editingAdjustment?.yearIndex])
+
+  /** Réinitialiser l’onglet seulement à l’ouverture du panneau ou au changement de poste — pas au changement d’année (comparaison rapide). */
+  useEffect(() => {
+    setRevenueHypothesisEditorTab("croissance")
+  }, [revenueHypothesisPanelOpen, editingAdjustment?.rowId])
+
+  /** Sommaire : toutes les courbes visibles à l’ouverture du panneau ou au changement de poste. */
+  useEffect(() => {
+    setRevenueSummarySeriesVisible({ revenue: true, encaissements: true, comptesClients: true })
+  }, [revenueHypothesisPanelOpen, editingAdjustment?.rowId])
+
+  useEffect(() => {
     if (title !== "Estimation des revenus annuels") {
       setRevenueHypothesisPanelOpen(false)
       setRevenueHypothesisDeleteConfirmOpen(false)
@@ -1568,7 +2098,7 @@ export function IncomeStatementDetail({
   /** Affichage lisible : milliers séparés par un espace (montant $ et croissance $). Le % reste sans groupement. */
   const formatRevenueHypothesisValueForInput = (
     n: number,
-    type: "amount" | "growthPercent" | "growthAmount"
+    type: "amount" | "growthPercent" | "growthAmount" | "custom"
   ): string => {
     if (!Number.isFinite(n)) return "0"
     if (type === "growthPercent") {
@@ -1595,7 +2125,7 @@ export function IncomeStatementDetail({
 
   const setRevenueHypothesisValueFromNumber = (
     n: number,
-    forType?: "amount" | "growthPercent" | "growthAmount"
+    forType?: "amount" | "growthPercent" | "growthAmount" | "custom"
   ) => {
     setRevenueAdjustmentValue(n)
     const t = forType ?? revenueAdjustmentType
@@ -1618,22 +2148,73 @@ export function IncomeStatementDetail({
     const key = `${editingAdjustment.rowId}-${editingAdjustment.yearIndex}`
 
     if (title === "Estimation des revenus annuels") {
-      const parsedRevenue = parseRevenueHypothesisValueInput(revenueAdjustmentValueInput)
-      if (parsedRevenue === null) {
-        return
+      const rowId = editingAdjustment.rowId
+      const y0 = editingAdjustment.yearIndex
+      let parsedRevenue: number
+      let customSnapshot: RevenueCustomGrowthSnapshot | undefined
+
+      if (revenueAdjustmentType === "custom") {
+        const yPrev = y0 - 1
+        let built:
+          | { ok: true; snapshot: RevenueCustomGrowthSnapshot; result: number }
+          | { ok: false; error: string }
+        if (yPrev >= 0) {
+          const prevList = revenueAdjustments[`${rowId}-${yPrev}`]
+          const prevSole = prevList?.[prevList.length - 1]
+          if (prevSole?.type === "custom" && prevSole.customGrowth?.variables?.length) {
+            const chain = collectConsecutiveCustomGrowthChain(rowId, yPrev, (rid, y) => {
+              const arr = revenueAdjustments[`${rid}-${y}`]
+              return arr?.[arr.length - 1]
+            })
+            const resolvedPrev = resolveCustomGrowthVariablesFromChain(chain)
+            const prevMap = new Map(resolvedPrev.map((v) => [v.id, v.value]))
+            built = buildRevenueCustomGrowthSnapshot(revenueCustomDraftRows, revenueCustomFormula, {
+              mode: "yoy",
+              previousEffectiveValuesById: prevMap,
+            })
+          } else {
+            built = buildRevenueCustomGrowthSnapshot(revenueCustomDraftRows, revenueCustomFormula, {
+              mode: "direct",
+            })
+          }
+        } else {
+          built = buildRevenueCustomGrowthSnapshot(revenueCustomDraftRows, revenueCustomFormula, {
+            mode: "direct",
+          })
+        }
+        if (!built.ok) {
+          return
+        }
+        parsedRevenue = Math.round(built.result)
+        customSnapshot = built.snapshot
+      } else {
+        const parsed = parseRevenueHypothesisValueInput(revenueAdjustmentValueInput)
+        if (parsed === null) {
+          return
+        }
+        parsedRevenue = parsed
+        customSnapshot = undefined
       }
 
       const newIdWhenReplacing = !editingAdjustmentId ? generateId() : null
-      const rowId = editingAdjustment.rowId
-      const y0 = editingAdjustment.yearIndex
       const yearLabelsLen = getYearLabels().length
       const shouldReplicate =
         replicateRevenueAdjustmentToFollowingYears && y0 < yearLabelsLen - 1
+      const shouldReplicateEncashmentOnly =
+        !shouldReplicate &&
+        replicateRevenueEncashmentToFollowingYears &&
+        y0 < yearLabelsLen - 1
+      const shouldReplicateSeasonalityOnly =
+        !shouldReplicate &&
+        !shouldReplicateEncashmentOnly &&
+        replicateRevenueSeasonalityToFollowingYears &&
+        y0 < yearLabelsLen - 1
 
       const cashSaved = buildCollectionCashForSave({
         badDebtPercent: revenueCollectionBadDebtPercent,
         buckets: revenueCollectionBuckets,
       })
+      const seasonalitySaved = normalizeRevenueSeasonalityMonthPercents(revenueSeasonalityMonthPercents)
 
       setRevenueAdjustments((prev) => {
         const next: Record<string, RevenueAdjustment[]> = { ...prev }
@@ -1645,8 +2226,10 @@ export function IncomeStatementDetail({
           yearIndex: y,
           type: revenueAdjustmentType,
           value: parsedRevenue,
+          customGrowth: revenueAdjustmentType === "custom" ? customSnapshot : undefined,
           note: adjustmentNote,
           collectionCash: cashSaved,
+          seasonalityMonthPercents: seasonalitySaved,
         })
 
         const existing0 = prev[key0] || []
@@ -1664,8 +2247,10 @@ export function IncomeStatementDetail({
               ...rest,
               type: revenueAdjustmentType,
               value: parsedRevenue,
+              customGrowth: revenueAdjustmentType === "custom" ? customSnapshot : undefined,
               note: adjustmentNote,
               collectionCash: cashSaved,
+              seasonalityMonthPercents: seasonalitySaved,
             }
           })
           const sole = updated0.find((a) => a.id === editingAdjustmentId)
@@ -1675,8 +2260,65 @@ export function IncomeStatementDetail({
         }
 
         if (shouldReplicate) {
+          if (revenueAdjustmentType === "custom" && customSnapshot) {
+            let layerVars = customSnapshot.variables
+            for (let y = y0 + 1; y < yearLabelsLen; y++) {
+              const derivedVars = layerVars.map((pv) => ({
+                id: pv.id,
+                label: pv.label,
+                kind: pv.kind,
+                value: pv.value,
+                yearOverYear: { mode: "percent" as const, delta: 0 },
+              }))
+              const snapY: RevenueCustomGrowthSnapshot = {
+                formula: customSnapshot.formula,
+                variables: derivedVars,
+              }
+              const evY = evaluateRevenueCustomGrowth(snapY.formula, derivedVars)
+              const valY = evY.ok ? Math.round(evY.result) : 0
+              next[`${rowId}-${y}`] = [
+                {
+                  id: generateId(),
+                  rowId,
+                  yearIndex: y,
+                  type: "custom",
+                  value: valY,
+                  customGrowth: snapY,
+                  note: adjustmentNote,
+                  collectionCash: cashSaved,
+                  seasonalityMonthPercents: seasonalitySaved,
+                },
+              ]
+              layerVars = derivedVars
+            }
+          } else {
+            for (let y = y0 + 1; y < yearLabelsLen; y++) {
+              next[`${rowId}-${y}`] = [buildAdj(y, generateId())]
+            }
+          }
+        } else if (shouldReplicateEncashmentOnly) {
           for (let y = y0 + 1; y < yearLabelsLen; y++) {
-            next[`${rowId}-${y}`] = [buildAdj(y, generateId())]
+            const keyY = `${rowId}-${y}`
+            const arr = next[keyY]
+            const sole = arr?.[arr.length - 1]
+            if (sole) {
+              const { collectionPercents: _p, collectionSchedule: _s, collectionCash: _c, ...rest } =
+                sole as RevenueAdjustment & {
+                  collectionPercents?: number[]
+                  collectionSchedule?: { offsetMonths: number; percent: number }[]
+                  collectionCash?: RevenueCollectionCash
+                }
+              next[keyY] = [{ ...rest, collectionCash: cashSaved }]
+            }
+          }
+        } else if (shouldReplicateSeasonalityOnly) {
+          for (let y = y0 + 1; y < yearLabelsLen; y++) {
+            const keyY = `${rowId}-${y}`
+            const arr = next[keyY]
+            const sole = arr?.[arr.length - 1]
+            if (sole) {
+              next[keyY] = [{ ...sole, seasonalityMonthPercents: seasonalitySaved }]
+            }
           }
         }
 
@@ -1688,7 +2330,10 @@ export function IncomeStatementDetail({
       }
       setRevenueAdjustmentValue(parsedRevenue)
       setRevenueAdjustmentValueInput(
-        formatRevenueHypothesisValueForInput(parsedRevenue, revenueAdjustmentType)
+        formatRevenueHypothesisValueForInput(
+          parsedRevenue,
+          revenueAdjustmentType === "custom" ? "amount" : revenueAdjustmentType
+        )
       )
       setRevenueCollectionBadDebtPercent(cashSaved.badDebtPercent)
       setRevenueCollectionBuckets(
@@ -1696,7 +2341,10 @@ export function IncomeStatementDetail({
           ? cashSaved.advancedBuckets
           : createDefaultAdvancedBuckets(cashSaved.badDebtPercent)
       )
+      setRevenueSeasonalityMonthPercents(seasonalitySaved)
       setReplicateRevenueAdjustmentToFollowingYears(false)
+      setReplicateRevenueEncashmentToFollowingYears(false)
+      setReplicateRevenueSeasonalityToFollowingYears(false)
     } else {
       // Expense adjustments
       // Validate based on type
@@ -2166,9 +2814,23 @@ export function IncomeStatementDetail({
       if (adjustments.length > 0) {
         const adjustment = adjustments[adjustments.length - 1]!
         
-        if (adjustment.type === "amount") {
-          // Direct amount
-          calculatedValue = adjustment.value
+        if (adjustment.type === "amount" || adjustment.type === "custom") {
+          // Montant direct (custom = résultat de la formule ; chaîne YoY sur hypothèses custom consécutives)
+          if (adjustment.type === "custom" && adjustment.customGrowth?.variables?.length) {
+            const chain = collectConsecutiveCustomGrowthChain(rowId, yearIndex, (rid, y) => {
+              const list = getRevenueAdjustments(rid, y)
+              return list[list.length - 1]
+            })
+            if (chain.length > 0) {
+              const resolved = resolveCustomGrowthVariablesFromChain(chain)
+              const ev = evaluateRevenueCustomGrowth(adjustment.customGrowth.formula, resolved)
+              calculatedValue = ev.ok ? Math.round(ev.result) : Math.round(adjustment.value)
+            } else {
+              calculatedValue = Math.round(adjustment.value)
+            }
+          } else {
+            calculatedValue = adjustment.value
+          }
         } else {
           // For growth types, we need the previous year's value
           const prevDefault =
@@ -3359,6 +4021,52 @@ export function IncomeStatementDetail({
     return out.size > 0 ? out : null
   }, [data, getRevenueValue, isForecastSection, showStructureCols, title, view])
 
+  /** Délai moyen pondéré par revenu par annexe : Σ(montant_i × délai_i) / revenus totaux annexe (identique au sous-total). Sans ajustement pour un poste, délai_i = 0 pour ce poste. */
+  const revenueAnnexWeightedCollectionDelayDaysByLetter = useMemo(() => {
+    if (!revenueAnnexForecastYearTotalsByLetter) return null
+
+    const posts = data.filter(
+      (r) =>
+        !!r.rowId &&
+        !!r.indent &&
+        !r.isSection &&
+        !r.isAnnexPlaceholder &&
+        !r.isAnnexTitle &&
+        !r.isAnnexSubtotal &&
+        Array.isArray(r.trendValues) &&
+        r.trendValues.length > 0
+    )
+    if (posts.length === 0) return null
+
+    const len = posts[0]!.trendValues!.length
+    const out = new Map<string, number[]>()
+
+    for (const [L, totalsByYear] of revenueAnnexForecastYearTotalsByLetter) {
+      const perLetter = posts.filter(
+        (r) => normalizeAnnexLetter(String(r.annexLetter ?? "")) === L
+      )
+      if (perLetter.length === 0) continue
+      out.set(
+        L,
+        Array.from({ length: len }, (_, j) => {
+          const totalRev = totalsByYear[j] ?? 0
+          if (!Number.isFinite(totalRev) || totalRev === 0) return Number.NaN
+          let num = 0
+          for (const r of perLetter) {
+            const raw = r.trendValues?.[j] ?? 0
+            const amt = getRevenueValue(r.rowId!, j, raw, undefined, r.trendValues) ?? 0
+            const key = `${r.rowId}-${j}`
+            const list = revenueAdjustments[key] ?? []
+            const adj = list.length ? list[list.length - 1] : undefined
+            num += amt * revenueCollectionDelayDaysForAnnexWeighting(adj)
+          }
+          return num / totalRev
+        })
+      )
+    }
+    return out.size > 0 ? out : null
+  }, [data, getRevenueValue, revenueAdjustments, revenueAnnexForecastYearTotalsByLetter])
+
   const padDetailRowForStructure = (structRow: Record<string, unknown>): DetailRow => {
     const sub = isStructureRowDetailOnly(structRow)
     return {
@@ -4109,10 +4817,11 @@ export function IncomeStatementDetail({
    * déjà projeté (montant annuel $, croissance % ou variation $ vs année précédente).
    */
   const syncRevenueHypothesisValueForDisplayType = (
-    newType: "amount" | "growthPercent" | "growthAmount",
+    newType: "amount" | "growthPercent" | "growthAmount" | "custom",
     ctx: { rowId: string; yearIndex: number }
   ) => {
     if (title !== "Estimation des revenus annuels") return
+    if (newType === "custom") return
     const row = data.find((r) => r.rowId === ctx.rowId)
     const trend = row?.trendValues
     if (!row?.rowId || !Array.isArray(trend) || trend.length === 0) return
@@ -4159,21 +4868,71 @@ export function IncomeStatementDetail({
     const existingAdjustments = getRevenueAdjustments(editingAdjustment.rowId, editingAdjustment.yearIndex)
     const canReplicateToFollowingYears = yearIndex < yearLabels.length - 1
     const followingYearsLabel = yearLabels.slice(yearIndex + 1).join(", ")
+    const customYoYRevenueTable =
+      revenueAdjustmentType === "custom" &&
+      yearIndex > 0 &&
+      (() => {
+        const pa = getRevenueAdjustments(editingAdjustment.rowId, yearIndex - 1)
+        const p = pa[pa.length - 1]
+        return p?.type === "custom" && !!p.customGrowth?.variables?.length
+      })()
+    const prevYearEffectiveValueByIdForCustomPanel = ((): Map<string, number> => {
+      if (!customYoYRevenueTable) return new Map()
+      const chain = collectConsecutiveCustomGrowthChain(
+        editingAdjustment.rowId,
+        yearIndex - 1,
+        (rid, y) => {
+          const arr = getRevenueAdjustments(rid, y)
+          return arr?.[arr.length - 1]
+        }
+      )
+      const resolved = resolveCustomGrowthVariablesFromChain(chain)
+      return new Map(resolved.map((v) => [v.id, v.value]))
+    })()
+    const prevYearLabelForCustomYoY =
+      customYoYRevenueTable && yearIndex > 0 ? yearLabels[yearIndex - 1] ?? `${yearIndex - 1}` : ""
+    const formatCustomVarBaselineDisplay = (n: number, kind: RevenueCustomDraftRow["kind"]): string => {
+      if (!Number.isFinite(n)) return "—"
+      if (kind === "currency") return formatDraftNumberForInput(Math.round(n))
+      if (kind === "percent") return `${n} %`
+      return String(n)
+    }
+    const computeCustomYoYRowResolvedValue = (
+      base: number,
+      mode: RevenueCustomYoYGrowthMode | undefined,
+      deltaInput: string | undefined
+    ): number | null => {
+      const g = parseDraftNumericInput(deltaInput ?? "0")
+      if (g === null) return null
+      const m = mode ?? "percent"
+      if (m === "percent") return base * (1 + g / 100)
+      return base + g
+    }
     const revenueEncashableSum = revenueCollectionBuckets.reduce((a, b) => a + b.percent, 0)
     const revenueCollectionGrandTotal = revenueEncashableSum + revenueCollectionBadDebtPercent
     const revenueCollectionSortedWithIndex = [...revenueCollectionBuckets]
       .map((bucket, origIdx) => ({ bucket, origIdx }))
-      .sort((a, b) => a.bucket.delayDays - b.bucket.delayDays)
-    const revenueHistogramChartData: { key: string; name: string; percent: number }[] = [
-      ...revenueCollectionSortedWithIndex.map(({ bucket }, idx) => ({
-        key: `h-${idx}-${bucket.delayDays}`,
+      .sort((a, b) => a.bucket.delayDays - b.bucket.delayDays || a.origIdx - b.origIdx)
+    const revenueHistogramChartData: {
+      key: string
+      name: string
+      percent: number
+      delayDays: number
+      isBadDebt: boolean
+    }[] = [
+      ...revenueCollectionSortedWithIndex.map(({ bucket, origIdx }) => ({
+        key: `h-enc-${origIdx}`,
         name: labelForRevenueDelayDays(bucket.delayDays),
         percent: Math.max(0, Math.round(bucket.percent)),
+        delayDays: bucket.delayDays,
+        isBadDebt: false,
       })),
       {
         key: "bad-debt",
         name: "Mauvaise créance",
         percent: Math.max(0, Math.round(revenueCollectionBadDebtPercent)),
+        delayDays: 720,
+        isBadDebt: true,
       },
     ]
     const revenueWeightedCollectionDelayDays = weightedEncashableCollectionDelayDays(revenueCollectionBuckets)
@@ -4181,6 +4940,158 @@ export function IncomeStatementDetail({
       formatCollectionDelayDaysDisplay(revenueWeightedCollectionDelayDays)
     const revenueCollHistColCount = Math.max(revenueHistogramChartData.length, 1)
     const revenueCollGridTemplate = `3.25rem repeat(${revenueCollHistColCount}, minmax(4rem, 1fr))`
+    const { yMax: revenueCollectionChartYMax, ticks: revenueCollectionChartYTicks } =
+      computeRevenueSeasonalityChartYScale(revenueHistogramChartData.map((e) => e.percent))
+    const revenueCollectionBarRechartsData = revenueHistogramChartData.map((entry) => ({
+      barKey: entry.key,
+      label: entry.name,
+      percent: entry.percent,
+      barFill: revenueCollectionBarFill(entry.isBadDebt),
+    }))
+    const revenueCollectionBarXScale = scaleBand<string>()
+      .domain(revenueHistogramChartData.map((e) => e.key))
+      .paddingInner(0)
+      .paddingOuter(0)
+    const revenueSeasonalityTotal = revenueSeasonalityMonthPercents.reduce((a, b) => a + b, 0)
+    const revenueSeasonalityChartData = REVENUE_SEASONALITY_MONTH_LABELS.map((name, idx) => ({
+      key: `sea-${idx}`,
+      name,
+      percent: Math.max(0, Math.round(revenueSeasonalityMonthPercents[idx] ?? 0)),
+    }))
+    const revenueSeasonHistColCount = 12
+    const revenueSeasonGridTemplate = `3.25rem repeat(${revenueSeasonHistColCount}, minmax(2.25rem, 1fr))`
+    const { yMax: revenueSeasonalityYMax, ticks: revenueSeasonalityYTicks } =
+      computeRevenueSeasonalityChartYScale(revenueSeasonalityChartData.map((e) => e.percent))
+    const revenueSeasonalityLineData = revenueSeasonalityChartData.map((e, i) => ({
+      axisLabel: REVENUE_SEASONALITY_AXIS_LABELS[i] ?? `M${i + 1}`,
+      monthName: e.name,
+      percent: e.percent,
+    }))
+    const revenueSeasonalityXBandScale = createRevenueSeasonalityBandXScale()
+
+    const draftParsedForSummary = parseRevenueHypothesisValueInput(revenueAdjustmentValueInput)
+    const draftCustomBuiltForSummary =
+      revenueAdjustmentType === "custom"
+        ? buildRevenueCustomGrowthSnapshot(
+            revenueCustomDraftRows,
+            revenueCustomFormula,
+            customYoYRevenueTable
+              ? {
+                  mode: "yoy",
+                  previousEffectiveValuesById: prevYearEffectiveValueByIdForCustomPanel,
+                }
+              : { mode: "direct" }
+          )
+        : null
+    const draftSummaryNumericOk =
+      revenueAdjustmentType === "custom"
+        ? draftCustomBuiltForSummary?.ok === true
+        : draftParsedForSummary !== null
+
+    const summaryRowForDraft = data.find((r) => r.rowId === editingAdjustment.rowId)
+    const summaryTrendForDraft = summaryRowForDraft?.trendValues
+    let draftAnnualRevenueForSummary = 0
+    if (draftSummaryNumericOk && summaryRowForDraft?.rowId && Array.isArray(summaryTrendForDraft)) {
+      const yD = editingAdjustment.yearIndex
+      const rowIdD = summaryRowForDraft.rowId
+      if (revenueAdjustmentType === "custom" && draftCustomBuiltForSummary?.ok) {
+        draftAnnualRevenueForSummary = Math.round(draftCustomBuiltForSummary.result)
+      } else if (revenueAdjustmentType === "amount") {
+        draftAnnualRevenueForSummary = Math.round(draftParsedForSummary ?? 0)
+      } else if (revenueAdjustmentType === "growthPercent") {
+        const prevProjected =
+          yD > 0
+            ? getRevenueValue(
+                rowIdD,
+                yD - 1,
+                summaryTrendForDraft[yD - 1] ?? 0,
+                undefined,
+                summaryTrendForDraft
+              )
+            : getBaseValue(rowIdD, 0, summaryTrendForDraft[0] ?? 0, undefined)
+        draftAnnualRevenueForSummary = Math.round(prevProjected * (1 + (draftParsedForSummary ?? 0) / 100))
+      } else {
+        const prevProjected =
+          yD > 0
+            ? getRevenueValue(
+                rowIdD,
+                yD - 1,
+                summaryTrendForDraft[yD - 1] ?? 0,
+                undefined,
+                summaryTrendForDraft
+              )
+            : getBaseValue(rowIdD, 0, summaryTrendForDraft[0] ?? 0, undefined)
+        draftAnnualRevenueForSummary = Math.round(prevProjected + (draftParsedForSummary ?? 0))
+      }
+    }
+    const revenueSummaryYearsParams: RevenueHypothesisYearSummaryInput[] = []
+    if (draftSummaryNumericOk && summaryRowForDraft?.rowId && Array.isArray(summaryTrendForDraft)) {
+      const rowIdD = summaryRowForDraft.rowId
+      const yD = editingAdjustment.yearIndex
+      const trend = summaryTrendForDraft
+      for (let y = 0; y <= yD; y++) {
+        const isDraftYear = y === yD
+        const savedList = getRevenueAdjustments(rowIdD, y)
+        const saved = savedList[savedList.length - 1]
+        if (isDraftYear) {
+          revenueSummaryYearsParams.push({
+            annual: draftAnnualRevenueForSummary,
+            seasonalityMonthPercents: normalizeRevenueSeasonalityMonthPercents(revenueSeasonalityMonthPercents),
+            badDebtPercent: revenueCollectionBadDebtPercent,
+            buckets: revenueCollectionBuckets,
+          })
+        } else {
+          const annualResolved = getRevenueValue(rowIdD, y, trend[y] ?? 0, undefined, trend)
+          if (saved) {
+            const cash = parseRevenueCollectionCashFromStorage(saved)
+            const bd = cash.badDebtPercent
+            revenueSummaryYearsParams.push({
+              annual: annualResolved,
+              seasonalityMonthPercents: normalizeRevenueSeasonalityMonthPercents(
+                saved.seasonalityMonthPercents ?? []
+              ),
+              badDebtPercent: bd,
+              buckets:
+                cash.advancedBuckets && cash.advancedBuckets.length > 0
+                  ? cash.advancedBuckets
+                  : createDefaultAdvancedBuckets(bd),
+            })
+          } else {
+            const d = DEFAULT_REVENUE_COLLECTION_CASH
+            revenueSummaryYearsParams.push({
+              annual: annualResolved,
+              seasonalityMonthPercents: createDefaultRevenueSeasonalityMonthPercents(),
+              badDebtPercent: d.badDebtPercent,
+              buckets: createDefaultAdvancedBuckets(d.badDebtPercent),
+            })
+          }
+        }
+      }
+    }
+    const firstProjectedYearIndexForSummary = forceForecastSection ? 1 : 0
+    const revenueSummaryMoneyPoints: RevenueHypothesisSummaryMoneyPoint[] =
+      draftSummaryNumericOk &&
+      summaryRowForDraft?.rowId &&
+      Array.isArray(summaryTrendForDraft) &&
+      revenueSummaryYearsParams.length === editingAdjustment.yearIndex + 1
+        ? computeRevenueHypothesisSummaryMoneyPoints(
+            revenueSummaryYearsParams,
+            editingAdjustment.yearIndex,
+            firstProjectedYearIndexForSummary
+          )
+        : []
+    const revenueSummaryMaxDollar = revenueSummaryMoneyPoints.length
+      ? Math.max(
+          1,
+          ...revenueSummaryMoneyPoints.flatMap((p) => [p.revenue, p.encaissements, p.comptesClients])
+        )
+      : 1
+    const { yMax: revenueSummaryChartYMax, ticks: revenueSummaryYTicksLeft } =
+      computeRevenueSummaryDollarYScale(revenueSummaryMaxDollar)
+    const revenueSummaryHistColCount = 12
+    /** Colonne libellés / axe $ : compacte tout en laissant place aux montants fr-CA. */
+    const revenueSummaryGridTemplate = `minmax(7rem, 9.75rem) repeat(${revenueSummaryHistColCount}, minmax(2.25rem, 1fr))`
+    const revenueSummaryXBandScale = createRevenueSummaryBandXScale()
 
     return (
       <>
@@ -4204,9 +5115,21 @@ export function IncomeStatementDetail({
             )}
           </div>
 
-          <div
+          <Tabs
+            value={revenueHypothesisEditorTab}
+            onValueChange={(v) =>
+              setRevenueHypothesisEditorTab(
+                v === "encaissement"
+                  ? "encaissement"
+                  : v === "saisonnalite"
+                    ? "saisonnalite"
+                    : v === "sommaire"
+                      ? "sommaire"
+                      : "croissance"
+              )
+            }
             className={cn(
-              "relative z-10 flex min-w-0 max-w-full flex-col p-4 sm:p-5",
+              "relative z-10 flex min-h-0 min-w-0 max-w-full flex-col gap-0 p-4 sm:p-5",
               embedded ? "" : "min-h-0 flex-1"
             )}
           >
@@ -4218,6 +5141,32 @@ export function IncomeStatementDetail({
                   Année sélectionnée <span className="text-[#E0742D]/50" aria-hidden>·</span>{" "}
                   <span className="font-semibold text-[#E0742D]">{yearLabel}</span>
                 </p>
+                <TabsList className="mt-3 flex w-full max-w-lg flex-wrap gap-1 rounded-lg border border-slate-200/90 bg-slate-100/80 p-0.5 sm:inline-flex sm:w-fit sm:max-w-none">
+                  <TabsTrigger
+                    value="sommaire"
+                    className="h-8 flex-1 rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial sm:px-3"
+                  >
+                    Sommaire
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="croissance"
+                    className="h-8 flex-1 rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial sm:px-3"
+                  >
+                    Croissance
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="encaissement"
+                    className="h-8 flex-1 rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial sm:px-3"
+                  >
+                    Encaissement
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="saisonnalite"
+                    className="h-8 flex-1 rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial sm:px-3"
+                  >
+                    Saisonnalité
+                  </TabsTrigger>
+                </TabsList>
               </div>
               <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                 <Button
@@ -4226,7 +5175,7 @@ export function IncomeStatementDetail({
                   size="sm"
                   className="h-9 border-slate-200 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:border-slate-200 disabled:text-slate-400 disabled:hover:bg-transparent"
                   onClick={saveAdjustment}
-                  disabled={parseRevenueHypothesisValueInput(revenueAdjustmentValueInput) === null}
+                  disabled={!draftSummaryNumericOk}
                 >
                   {editingAdjustmentId
                     ? "Enregistrer"
@@ -4259,14 +5208,373 @@ export function IncomeStatementDetail({
               </div>
             </div>
 
-            <div className={cn("mt-5 pr-0.5", embedded && "min-w-0 max-w-full", !embedded && "min-h-0 flex-1 overflow-y-auto")}>
-              <div className={cn(embedded && "min-w-0 max-w-full")}>
-                <div
-                  className={cn(
-                    "rounded-lg border border-slate-200 bg-white p-4 sm:p-5",
-                    embedded && "min-w-0 w-full max-w-full"
+            <div
+              className={cn(
+                "mt-5 flex min-h-0 min-w-0 flex-1 flex-col pr-0.5",
+                embedded && "max-w-full",
+                !embedded && "overflow-y-auto"
+              )}
+            >
+              <TabsContent
+                value="sommaire"
+                className="mt-0 flex min-h-0 min-w-0 max-w-full flex-1 flex-col outline-none focus-visible:ring-0"
+              >
+                <div className={cn(embedded && "min-w-0 max-w-full")}>
+                  <div className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 sm:p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                      <div className="min-w-0">
+                        <span className="font-medium text-slate-800">
+                          Sommaire des revenus, des encaissements et des comptes clients mensuellement
+                        </span>
+                      </div>
+                    </div>
+                    {draftParsedForSummary === null ? (
+                      <p className="rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-900">
+                        Complétez ou validez la valeur dans l&apos;onglet Croissance pour afficher le sommaire.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="overflow-x-auto overflow-y-visible rounded-md border border-slate-200/80 bg-white">
+                          <div
+                            className="min-w-0 w-full"
+                            style={{
+                              minWidth: `max(100%, calc(9.75rem + ${revenueSummaryHistColCount} * 2.75rem))`,
+                            }}
+                          >
+                            <div
+                              className="grid min-w-0 divide-x divide-slate-200 border-b border-slate-200 bg-white"
+                              style={{ gridTemplateColumns: revenueSummaryGridTemplate }}
+                            >
+                              <div className="flex h-52 w-full shrink-0 flex-col items-stretch justify-between overflow-visible bg-white px-2 py-3 sm:h-56 sm:px-2.5">
+                                <div className="flex w-full flex-1 flex-col justify-between gap-0.5 overflow-visible py-0.5">
+                                  {revenueSummaryYTicksLeft.map((tick) => (
+                                    <span
+                                      key={`sum-y-${tick}`}
+                                      className="block w-full whitespace-nowrap text-right text-[8px] tabular-nums leading-tight text-slate-500 sm:text-[9px]"
+                                    >
+                                      {formatCurrency(tick)}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div
+                                className="h-52 min-h-0 min-w-0 overflow-visible bg-white sm:h-56"
+                                style={{ gridColumn: "2 / span 12" }}
+                              >
+                                <ChartContainer
+                                  config={{
+                                    revenue: {
+                                      label: "Revenu reconnu",
+                                      color: "#475569",
+                                    },
+                                    encaissements: {
+                                      label: "Encaissements",
+                                      color: "#059669",
+                                    },
+                                    comptesClients: {
+                                      label: "Comptes clients",
+                                      color: "#d97706",
+                                    },
+                                  }}
+                                  className="h-full w-full min-w-0 overflow-visible !aspect-auto !justify-start [&_.recharts-responsive-container]:overflow-visible [&_.recharts-wrapper]:overflow-visible [&_.recharts-surface]:overflow-visible [&_.recharts-responsive-container]:w-full"
+                                  aria-label="Sommaire revenu encaissements et comptes clients par mois"
+                                >
+                                  <LineChart
+                                    accessibilityLayer
+                                    data={revenueSummaryMoneyPoints}
+                                    margin={{ top: 8, right: 6, left: 4, bottom: 6 }}
+                                  >
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                                    <XAxis
+                                      dataKey="axisLabel"
+                                      type="category"
+                                      scale={revenueSummaryXBandScale}
+                                      tick={false}
+                                      tickLine={false}
+                                      axisLine={false}
+                                      height={0}
+                                      interval={0}
+                                    />
+                                    <YAxis domain={[0, revenueSummaryChartYMax]} hide width={0} />
+                                    <ChartTooltip
+                                      content={({ active, payload }) => {
+                                        if (!active || !payload?.length) return null
+                                        const row = payload[0]?.payload as
+                                          | RevenueHypothesisSummaryMoneyPoint
+                                          | undefined
+                                        if (!row) return null
+                                        const vis = revenueSummarySeriesVisible
+                                        return (
+                                          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
+                                            <p className="font-semibold text-slate-900">{row.monthName}</p>
+                                            {vis.revenue ? (
+                                              <p className="mt-1 tabular-nums text-slate-700">
+                                                Revenu : {formatCurrency(row.revenue)}
+                                              </p>
+                                            ) : null}
+                                            {vis.encaissements ? (
+                                              <p
+                                                className={cn(
+                                                  "tabular-nums text-slate-700",
+                                                  vis.revenue ? "" : "mt-1"
+                                                )}
+                                              >
+                                                Encaissements : {formatCurrency(row.encaissements)}
+                                              </p>
+                                            ) : null}
+                                            {vis.comptesClients ? (
+                                              <p
+                                                className={cn(
+                                                  "tabular-nums text-slate-700",
+                                                  vis.revenue || vis.encaissements ? "" : "mt-1"
+                                                )}
+                                              >
+                                                Comptes clients : {formatCurrency(row.comptesClients)}
+                                              </p>
+                                            ) : null}
+                                          </div>
+                                        )
+                                      }}
+                                    />
+                                    {revenueSummarySeriesVisible.revenue ? (
+                                    <Line
+                                      type="monotone"
+                                      dataKey="revenue"
+                                      name="Revenu reconnu"
+                                      stroke="var(--color-revenue)"
+                                      strokeWidth={2.2}
+                                      dot={{
+                                        r: 3,
+                                        strokeWidth: 1.5,
+                                        fill: "var(--color-revenue)",
+                                        stroke: "#fff",
+                                      }}
+                                      activeDot={{ r: 5 }}
+                                    />
+                                    ) : null}
+                                    {revenueSummarySeriesVisible.encaissements ? (
+                                    <Line
+                                      type="monotone"
+                                      dataKey="encaissements"
+                                      name="Encaissements"
+                                      stroke="var(--color-encaissements)"
+                                      strokeWidth={2.2}
+                                      dot={{
+                                        r: 3,
+                                        strokeWidth: 1.5,
+                                        fill: "var(--color-encaissements)",
+                                        stroke: "#fff",
+                                      }}
+                                      activeDot={{ r: 5 }}
+                                    />
+                                    ) : null}
+                                    {revenueSummarySeriesVisible.comptesClients ? (
+                                    <Line
+                                      type="monotone"
+                                      dataKey="comptesClients"
+                                      name="Comptes clients"
+                                      stroke="var(--color-comptesClients)"
+                                      strokeWidth={2.2}
+                                      dot={{
+                                        r: 3,
+                                        strokeWidth: 1.5,
+                                        fill: "var(--color-comptesClients)",
+                                        stroke: "#fff",
+                                      }}
+                                      activeDot={{ r: 5 }}
+                                    />
+                                    ) : null}
+                                  </LineChart>
+                                </ChartContainer>
+                              </div>
+                            </div>
+
+                            <div
+                              className="grid min-w-0 divide-x divide-slate-200 border-b border-slate-200 bg-slate-50/60"
+                              style={{ gridTemplateColumns: revenueSummaryGridTemplate }}
+                            >
+                              <div className="flex w-full shrink-0 items-start justify-end overflow-visible bg-slate-50/60 px-2 py-2.5 sm:px-2.5">
+                                <span className="text-right text-[9px] font-medium leading-snug text-slate-400 sm:text-[10px]">
+                                  Mois
+                                </span>
+                              </div>
+                              {revenueSummaryMoneyPoints.map((pt, colIdx) => (
+                                <div
+                                  key={`sum-hdr-${pt.axisLabel}-${colIdx}`}
+                                  className="flex min-w-0 flex-col items-center justify-center gap-0.5 px-0.5 py-2.5 sm:px-1"
+                                >
+                                  <span
+                                    className="w-full text-center text-[10px] font-semibold leading-tight text-slate-700"
+                                    title={pt.monthName}
+                                  >
+                                    {pt.axisLabel}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div
+                              className={cn(
+                                "grid min-w-0 divide-x divide-slate-200 border-b border-slate-200 bg-white transition-opacity",
+                                !revenueSummarySeriesVisible.revenue && "opacity-40"
+                              )}
+                              style={{ gridTemplateColumns: revenueSummaryGridTemplate }}
+                            >
+                              <div className="flex min-h-[2.75rem] shrink-0 items-center justify-end overflow-visible bg-white px-2 py-2 sm:px-2.5">
+                                <button
+                                  type="button"
+                                  aria-pressed={revenueSummarySeriesVisible.revenue}
+                                  title="Afficher ou masquer la courbe Revenus"
+                                  className={cn(
+                                    "max-w-full rounded-md text-right text-[10px] font-semibold leading-snug text-[#475569] outline-none ring-offset-2 transition hover:underline focus-visible:ring-2 focus-visible:ring-[#475569]/40 sm:text-xs",
+                                    !revenueSummarySeriesVisible.revenue && "line-through decoration-[#475569]/60"
+                                  )}
+                                  onClick={() =>
+                                    setRevenueSummarySeriesVisible((s) => ({ ...s, revenue: !s.revenue }))
+                                  }
+                                >
+                                  Revenus
+                                </button>
+                              </div>
+                              {revenueSummaryMoneyPoints.map((pt, colIdx) => (
+                                <div
+                                  key={`sum-rev-${colIdx}`}
+                                  className="flex min-h-[2.75rem] min-w-0 items-center justify-center px-0.5 py-2 sm:px-1"
+                                >
+                                  <span className="w-full text-center text-[11px] font-medium tabular-nums leading-tight text-[#475569]">
+                                    {formatCurrency(pt.revenue)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div
+                              className={cn(
+                                "grid min-w-0 divide-x divide-slate-200 border-b border-slate-200 bg-white transition-opacity",
+                                !revenueSummarySeriesVisible.encaissements && "opacity-40"
+                              )}
+                              style={{ gridTemplateColumns: revenueSummaryGridTemplate }}
+                            >
+                              <div className="flex min-h-[2.75rem] shrink-0 items-center justify-end overflow-visible bg-white px-2 py-2 sm:px-2.5">
+                                <button
+                                  type="button"
+                                  aria-pressed={revenueSummarySeriesVisible.encaissements}
+                                  title="Afficher ou masquer la courbe Encaissements"
+                                  className={cn(
+                                    "max-w-full rounded-md text-right text-[10px] font-semibold leading-snug text-[#059669] outline-none ring-offset-2 transition hover:underline focus-visible:ring-2 focus-visible:ring-[#059669]/40 sm:text-xs",
+                                    !revenueSummarySeriesVisible.encaissements &&
+                                      "line-through decoration-[#059669]/60"
+                                  )}
+                                  onClick={() =>
+                                    setRevenueSummarySeriesVisible((s) => ({
+                                      ...s,
+                                      encaissements: !s.encaissements,
+                                    }))
+                                  }
+                                >
+                                  Encaissements
+                                </button>
+                              </div>
+                              {revenueSummaryMoneyPoints.map((pt, colIdx) => (
+                                <div
+                                  key={`sum-enc-${colIdx}`}
+                                  className="flex min-h-[2.75rem] min-w-0 items-center justify-center px-0.5 py-2 sm:px-1"
+                                >
+                                  <span className="w-full text-center text-[11px] font-medium tabular-nums leading-tight text-[#059669]">
+                                    {formatCurrency(pt.encaissements)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div
+                              className={cn(
+                                "grid min-w-0 divide-x divide-slate-200 bg-white transition-opacity",
+                                !revenueSummarySeriesVisible.comptesClients && "opacity-40"
+                              )}
+                              style={{ gridTemplateColumns: revenueSummaryGridTemplate }}
+                            >
+                              <div className="flex min-h-[2.75rem] shrink-0 items-center justify-end overflow-visible bg-white px-2 py-2 sm:px-2.5">
+                                <button
+                                  type="button"
+                                  aria-pressed={revenueSummarySeriesVisible.comptesClients}
+                                  title="Afficher ou masquer la courbe Comptes clients"
+                                  className={cn(
+                                    "max-w-full rounded-md text-right text-[10px] font-semibold leading-snug text-[#d97706] outline-none ring-offset-2 transition hover:underline focus-visible:ring-2 focus-visible:ring-[#d97706]/40 sm:text-xs",
+                                    !revenueSummarySeriesVisible.comptesClients &&
+                                      "line-through decoration-[#d97706]/60"
+                                  )}
+                                  onClick={() =>
+                                    setRevenueSummarySeriesVisible((s) => ({
+                                      ...s,
+                                      comptesClients: !s.comptesClients,
+                                    }))
+                                  }
+                                >
+                                  Comptes clients
+                                </button>
+                              </div>
+                              {revenueSummaryMoneyPoints.map((pt, colIdx) => (
+                                <div
+                                  key={`sum-ar-${colIdx}`}
+                                  className="flex min-h-[2.75rem] min-w-0 items-center justify-center px-0.5 py-2 sm:px-1"
+                                >
+                                  <span className="w-full text-center text-[11px] font-medium tabular-nums leading-tight text-[#d97706]">
+                                    {formatCurrency(pt.comptesClients)}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </TabsContent>
+              <TabsContent
+                value="croissance"
+                className="mt-0 min-h-0 min-w-0 max-w-full shrink-0 outline-none focus-visible:ring-0"
+              >
+                <div className={cn(embedded && "min-w-0 max-w-full")}>
+                  {canReplicateToFollowingYears ? (
+                    <div className="mb-3 flex min-w-0 items-start gap-2.5">
+                      <Checkbox
+                        id="revenue-hypothesis-replicate"
+                        checked={replicateRevenueAdjustmentToFollowingYears}
+                        onCheckedChange={(v) => {
+                          const on = v === true
+                          setReplicateRevenueAdjustmentToFollowingYears(on)
+                          if (on) {
+                            setReplicateRevenueEncashmentToFollowingYears(false)
+                            setReplicateRevenueSeasonalityToFollowingYears(false)
+                          }
+                        }}
+                        className="mt-0.5"
+                      />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <Label
+                          htmlFor="revenue-hypothesis-replicate"
+                          className="cursor-pointer text-xs font-medium leading-snug text-slate-800"
+                        >
+                          Appliquer le même ajustement aux années suivantes
+                        </Label>
+                        <p className="text-[11px] leading-relaxed text-slate-500">
+                          Les années {followingYearsLabel} reprendront le même type, la même valeur (ou la même
+                          configuration Custom), les mêmes paramètres d&apos;encaissement et la même note que{" "}
+                          {yearLabel}.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mb-3 text-xs text-slate-400">Aucune année projetée après {yearLabel}.</p>
                   )}
-                >
+                  <div
+                    className={cn(
+                      "rounded-lg border border-slate-200 bg-white p-4 sm:p-5",
+                      embedded && "min-w-0 w-full max-w-full"
+                    )}
+                  >
                   <p className="mb-5 text-sm font-medium text-slate-900">
                     {editingAdjustmentId
                       ? "Modifier l'ajustement"
@@ -4281,17 +5589,54 @@ export function IncomeStatementDetail({
                       embedded ? "w-full" : ""
                     )}
                   >
-                    {/* Colonne 1 : type et montant */}
-                    <div className="flex min-w-0 flex-col gap-4">
+                    {/* Colonne 1 : type et montant (ou rappel Custom) */}
+                    <div className="flex min-w-0 flex-col gap-4 lg:col-span-1">
                       <div className="w-full">
                         <label htmlFor="revenue-adj-type" className="mb-1.5 block text-xs font-medium text-slate-600">
                           Type d&apos;ajustement
                         </label>
                         <Select
                           value={revenueAdjustmentType}
-                          onValueChange={(value: "amount" | "growthPercent" | "growthAmount") => {
+                          onValueChange={(
+                            value: "amount" | "growthPercent" | "growthAmount" | "custom"
+                          ) => {
                             setRevenueAdjustmentType(value)
-                            if (editingAdjustment) {
+                            if (value === "custom" && editingAdjustment) {
+                              const row = data.find((r) => r.rowId === editingAdjustment.rowId)
+                              const trend = row?.trendValues
+                              const y = editingAdjustment.yearIndex
+                              if (row?.rowId && Array.isArray(trend) && y >= 0 && y < trend.length) {
+                                const defY = trend[y] ?? 0
+                                const currentProjected = getRevenueValue(
+                                  row.rowId,
+                                  y,
+                                  defY,
+                                  undefined,
+                                  trend
+                                )
+                                const id1 = generateId("rv")
+                                setRevenueCustomDraftRows([
+                                  {
+                                    id: id1,
+                                    label: "Montant de référence",
+                                    kind: "currency",
+                                    valueInput: formatDraftNumberForInput(Math.round(currentProjected)),
+                                  },
+                                ])
+                                setRevenueCustomFormula(revenueCustomBracketRef("Montant de référence"))
+                              } else {
+                                const id1 = generateId("rv")
+                                setRevenueCustomDraftRows([
+                                  { id: id1, label: "", kind: "number", valueInput: "0" },
+                                ])
+                                setRevenueCustomFormula("")
+                              }
+                            }
+                            if (value !== "custom") {
+                              setRevenueCustomDraftRows([])
+                              setRevenueCustomFormula("")
+                            }
+                            if (editingAdjustment && value !== "custom") {
                               syncRevenueHypothesisValueForDisplayType(value, editingAdjustment)
                             }
                           }}
@@ -4306,90 +5651,71 @@ export function IncomeStatementDetail({
                             <SelectItem value="amount">Montant annuel</SelectItem>
                             <SelectItem value="growthPercent">Croissance en %</SelectItem>
                             <SelectItem value="growthAmount">Croissance en $</SelectItem>
+                            <SelectItem value="custom">Custom (variables + formule)</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
 
-                      <div className="w-full">
-                        <label htmlFor="revenue-adj-value" className="mb-1.5 block text-xs font-medium text-slate-600">
-                          {revenueAdjustmentType === "amount"
-                            ? "Montant annuel ($)"
-                            : revenueAdjustmentType === "growthPercent"
-                              ? "Croissance (%)"
-                              : "Croissance ($)"}
-                        </label>
-                        <Input
-                          id="revenue-adj-value"
-                          type="text"
-                          inputMode="decimal"
-                          autoComplete="off"
-                          value={revenueAdjustmentValueInput}
-                          onChange={(e) => {
-                            const s = e.target.value
-                            setRevenueAdjustmentValueInput(s)
-                            const p = parseRevenueHypothesisValueInput(s)
-                            if (p !== null) setRevenueAdjustmentValue(p)
-                          }}
-                          onBlur={() => {
-                            if (revenueAdjustmentType === "growthPercent") return
-                            const p = parseRevenueHypothesisValueInput(revenueAdjustmentValueInput)
-                            if (p !== null) {
-                              setRevenueAdjustmentValue(p)
-                              setRevenueAdjustmentValueInput(
-                                formatRevenueHypothesisValueForInput(p, revenueAdjustmentType)
-                              )
-                            }
-                          }}
-                          placeholder="0"
-                          className="h-10 w-full rounded-md border-slate-200 bg-white tabular-nums"
-                        />
-                        <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
-                          {revenueAdjustmentType === "amount"
-                            ? "Montant annuel souhaité pour cette année"
-                            : revenueAdjustmentType === "growthPercent"
-                              ? "Taux de croissance appliqué par rapport à l'année précédente."
-                              : "Variation en dollars par rapport au montant de l'année précédente."}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Colonne 2 : réplication */}
-                    <div
-                      className={cn(
-                        "flex min-w-0 flex-col gap-2 border-t border-slate-100 pt-6 lg:border-t-0 lg:border-l lg:border-slate-100 lg:pt-0 lg:pl-8",
-                        embedded && "w-full min-w-0"
-                      )}
-                    >
-                      {canReplicateToFollowingYears ? (
-                        <div className="flex items-start gap-2.5">
-                          <Checkbox
-                            id="revenue-hypothesis-replicate"
-                            checked={replicateRevenueAdjustmentToFollowingYears}
-                            onCheckedChange={(v) => setReplicateRevenueAdjustmentToFollowingYears(v === true)}
-                            className="mt-0.5"
-                          />
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <Label
-                              htmlFor="revenue-hypothesis-replicate"
-                              className="cursor-pointer text-xs font-medium leading-snug text-slate-800"
-                            >
-                              Appliquer le même ajustement aux années suivantes
-                            </Label>
-                            <p className="text-[11px] leading-relaxed text-slate-500">
-                              Les années {followingYearsLabel} reprendront le même type, la même valeur, les mêmes
-                              paramètres d&apos;encaissement et la même note que {yearLabel}.
-                            </p>
-                          </div>
+                      {revenueAdjustmentType === "custom" ? (
+                        <div className="w-full space-y-1.5">
+                          <p className="text-xs font-medium text-slate-700">Custom</p>
+                          <p className="text-[11px] leading-relaxed text-slate-500">
+                            Le montant annuel pour {yearLabel} est calculé à partir des variables et de la formule
+                            définies sous la grille.
+                          </p>
                         </div>
                       ) : (
-                        <p className="text-xs text-slate-400">Aucune année projetée après {yearLabel}.</p>
+                        <div className="w-full">
+                          <label
+                            htmlFor="revenue-adj-value"
+                            className="mb-1.5 block text-xs font-medium text-slate-600"
+                          >
+                            {revenueAdjustmentType === "amount"
+                              ? "Montant annuel ($)"
+                              : revenueAdjustmentType === "growthPercent"
+                                ? "Croissance (%)"
+                                : "Croissance ($)"}
+                          </label>
+                          <Input
+                            id="revenue-adj-value"
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
+                            value={revenueAdjustmentValueInput}
+                            onChange={(e) => {
+                              const s = e.target.value
+                              setRevenueAdjustmentValueInput(s)
+                              const p = parseRevenueHypothesisValueInput(s)
+                              if (p !== null) setRevenueAdjustmentValue(p)
+                            }}
+                            onBlur={() => {
+                              if (revenueAdjustmentType === "growthPercent") return
+                              const p = parseRevenueHypothesisValueInput(revenueAdjustmentValueInput)
+                              if (p !== null) {
+                                setRevenueAdjustmentValue(p)
+                                setRevenueAdjustmentValueInput(
+                                  formatRevenueHypothesisValueForInput(p, revenueAdjustmentType)
+                                )
+                              }
+                            }}
+                            placeholder="0"
+                            className="h-10 w-full rounded-md border-slate-200 bg-white tabular-nums"
+                          />
+                          <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">
+                            {revenueAdjustmentType === "amount"
+                              ? "Montant annuel souhaité pour cette année"
+                              : revenueAdjustmentType === "growthPercent"
+                                ? "Taux de croissance appliqué par rapport à l'année précédente."
+                                : "Variation en dollars par rapport au montant de l'année précédente."}
+                          </p>
+                        </div>
                       )}
                     </div>
 
-                    {/* Colonne 3 : note */}
+                    {/* Note : colonnes 2–3 */}
                     <div
                       className={cn(
-                        "flex min-h-0 min-w-0 flex-col gap-1.5 border-t border-slate-100 pt-6 lg:border-t-0 lg:border-l lg:border-slate-100 lg:pt-0 lg:pl-8",
+                        "flex min-h-0 min-w-0 flex-col gap-1.5 border-t border-slate-100 pt-6 lg:col-span-2 lg:border-t-0 lg:border-l lg:border-slate-100 lg:pt-0 lg:pl-8",
                         embedded && "w-full min-w-0"
                       )}
                     >
@@ -4400,16 +5726,442 @@ export function IncomeStatementDetail({
                         id="revenue-adj-note"
                         value={adjustmentNote}
                         onChange={(e) => setAdjustmentNote(e.target.value)}
-                        placeholder="Ex. nouveau contrat, expansion marché…"
+                        placeholder="Ex. nouveau contrat, expansion marché..."
                         className="min-h-[10rem] w-full flex-1 resize-y rounded-md border border-slate-200 bg-white text-sm lg:min-h-[12rem]"
                       />
                       <p className="text-[11px] text-slate-500">Optionnel, pour la traçabilité.</p>
                     </div>
                   </div>
 
-                  {/* Encaissement — sous les trois colonnes */}
-                  <div className="mt-8 min-w-0 max-w-full border-t border-slate-200 pt-8">
-                            <div className="min-w-0 space-y-3 rounded-md border border-slate-200 bg-slate-50/50 p-3 sm:p-4">
+                  {revenueAdjustmentType === "custom" ? (
+                    <div className="mt-8 flex min-w-0 flex-col gap-4 border-t border-slate-200 pt-6">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-xs font-medium text-slate-700">Variables et formule</p>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs"
+                              disabled={customYoYRevenueTable}
+                              title={
+                                customYoYRevenueTable
+                                  ? "Non disponible : reprenez la structure depuis l’année précédente ou créez une hypothèse custom sur une année sans chaîne YoY."
+                                  : undefined
+                              }
+                              onClick={() => {
+                                const starter = createSaaSRevenueCustomStarter(() => generateId("rv"))
+                                setRevenueCustomDraftRows(starter.rows)
+                                setRevenueCustomFormula(starter.formula)
+                              }}
+                            >
+                              Exemple SaaS
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs"
+                              onClick={() => {
+                                const id = generateId("rv")
+                                setRevenueCustomDraftRows((rows) => [
+                                  ...rows,
+                                  customYoYRevenueTable
+                                    ? {
+                                        id,
+                                        label: "",
+                                        kind: "number",
+                                        valueInput: "",
+                                        yoyGrowthMode: "percent",
+                                        yoyGrowthValueInput: "0",
+                                      }
+                                    : { id, label: "", kind: "number", valueInput: "0" },
+                                ])
+                              }}
+                            >
+                              <Plus className="mr-1 h-3.5 w-3.5" />
+                              Ligne
+                            </Button>
+                          </div>
+                        </div>
+                        {customYoYRevenueTable ? (
+                          <p className="text-[11px] leading-snug text-slate-500">
+                            {`« Valeur (${prevYearLabelForCustomYoY}) » est la base résolue (lecture seule). Dans « Croissance », choisissez % ou nombre et saisissez la variation ; « Valeur (${yearLabel}) » affiche le résultat ligne par ligne (même formule que l’enregistrement).`}
+                          </p>
+                        ) : null}
+
+                        <div className="overflow-x-auto rounded-md border border-slate-200">
+                          <table
+                            className={`w-full text-left text-sm ${customYoYRevenueTable ? "min-w-[860px]" : "min-w-[520px]"}`}
+                          >
+                            <thead>
+                              <tr className="border-b border-slate-200 bg-slate-50/80">
+                                <th className="px-3 py-2 text-xs font-medium text-slate-600">Libellé</th>
+                                <th className="w-[120px] px-2 py-2 text-xs font-medium text-slate-600">Type</th>
+                                <th
+                                  className={`px-2 py-2 text-xs font-medium text-slate-600 ${customYoYRevenueTable ? "w-[140px]" : "w-[140px]"}`}
+                                >
+                                  {customYoYRevenueTable
+                                    ? `Valeur (${prevYearLabelForCustomYoY})`
+                                    : "Valeur"}
+                                </th>
+                                {customYoYRevenueTable ? (
+                                  <>
+                                    <th className="min-w-[220px] px-2 py-2 text-xs font-medium text-slate-600">
+                                      Croissance
+                                    </th>
+                                    <th className="w-[140px] px-2 py-2 text-xs font-medium text-slate-600">
+                                      Valeur ({yearLabel})
+                                    </th>
+                                  </>
+                                ) : null}
+                                <th className="w-[200px] px-2 py-2 text-xs font-medium text-slate-600">Réf.</th>
+                                <th className="w-[100px] px-2 py-2 text-right text-xs font-medium text-slate-600">
+                                  Actions
+                                </th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {revenueCustomDraftRows.map((row) => (
+                                <tr key={row.id} className="border-b border-slate-100 last:border-0">
+                                  <td className="px-2 py-1.5 align-middle">
+                                    <Input
+                                      value={row.label}
+                                      onChange={(e) => {
+                                        const nextLabel = e.target.value
+                                        const prevLabel = row.label
+                                        if (prevLabel.trim()) {
+                                          const oldRef = revenueCustomBracketRef(prevLabel)
+                                          const newRef = revenueCustomBracketRef(nextLabel)
+                                          if (oldRef !== newRef) {
+                                            setRevenueCustomFormula((f) =>
+                                              f.replace(new RegExp(escapeRegExp(oldRef), "g"), newRef)
+                                            )
+                                          }
+                                        }
+                                        setRevenueCustomDraftRows((rows) =>
+                                          rows.map((r) => (r.id === row.id ? { ...r, label: nextLabel } : r))
+                                        )
+                                      }}
+                                      placeholder="ex. Nouveaux clients"
+                                      className="h-9 border-slate-200 text-sm"
+                                    />
+                                  </td>
+                                  <td className="px-2 py-1.5 align-middle">
+                                    <Select
+                                      value={row.kind}
+                                      onValueChange={(k: "number" | "percent" | "currency") => {
+                                        setRevenueCustomDraftRows((rows) =>
+                                          rows.map((r) => (r.id === row.id ? { ...r, kind: k } : r))
+                                        )
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-9 border-slate-200 text-xs">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="number">Nombre</SelectItem>
+                                        <SelectItem value="percent">%</SelectItem>
+                                        <SelectItem value="currency">$ (montant)</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </td>
+                                  <td className="px-2 py-1.5 align-middle">
+                                    {customYoYRevenueTable ? (
+                                      <div
+                                        className="flex h-9 items-center rounded-md border border-slate-200 bg-slate-50 px-2 text-xs tabular-nums text-slate-800"
+                                        title={`Base résolue pour ${prevYearLabelForCustomYoY}`}
+                                      >
+                                        {formatCustomVarBaselineDisplay(
+                                          prevYearEffectiveValueByIdForCustomPanel.get(row.id) ?? 0,
+                                          row.kind
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <Input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={row.valueInput}
+                                        onChange={(e) => {
+                                          const v = e.target.value
+                                          setRevenueCustomDraftRows((rows) =>
+                                            rows.map((r) => (r.id === row.id ? { ...r, valueInput: v } : r))
+                                          )
+                                        }}
+                                        onBlur={() => {
+                                          if (row.kind !== "currency") return
+                                          const p = parseRevenueHypothesisValueInput(row.valueInput)
+                                          if (p !== null) {
+                                            setRevenueCustomDraftRows((rows) =>
+                                              rows.map((r) =>
+                                                r.id === row.id
+                                                  ? {
+                                                      ...r,
+                                                      valueInput: formatRevenueHypothesisValueForInput(
+                                                        p,
+                                                        "amount"
+                                                      ),
+                                                    }
+                                                  : r
+                                              )
+                                            )
+                                          }
+                                        }}
+                                        className="h-9 border-slate-200 tabular-nums"
+                                      />
+                                    )}
+                                  </td>
+                                  {customYoYRevenueTable ? (
+                                    <>
+                                      <td className="px-2 py-1.5 align-middle">
+                                        <div className="flex min-w-0 items-center gap-1.5">
+                                          <Select
+                                            value={row.yoyGrowthMode ?? "percent"}
+                                            onValueChange={(k: RevenueCustomYoYGrowthMode) => {
+                                              setRevenueCustomDraftRows((rows) =>
+                                                rows.map((r) =>
+                                                  r.id === row.id ? { ...r, yoyGrowthMode: k } : r
+                                                )
+                                              )
+                                            }}
+                                          >
+                                            <SelectTrigger className="h-9 w-[5.5rem] shrink-0 border-slate-200 text-xs">
+                                              <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="percent">%</SelectItem>
+                                              <SelectItem value="amount">Nombre</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                          <Input
+                                            type="text"
+                                            inputMode="decimal"
+                                            value={row.yoyGrowthValueInput ?? "0"}
+                                            onChange={(e) => {
+                                              const v = e.target.value
+                                              setRevenueCustomDraftRows((rows) =>
+                                                rows.map((r) =>
+                                                  r.id === row.id ? { ...r, yoyGrowthValueInput: v } : r
+                                                )
+                                              )
+                                            }}
+                                            onBlur={() => {
+                                              if (row.kind !== "currency") return
+                                              if ((row.yoyGrowthMode ?? "percent") !== "amount") return
+                                              const p = parseRevenueHypothesisValueInput(
+                                                row.yoyGrowthValueInput ?? "0"
+                                              )
+                                              if (p !== null) {
+                                                setRevenueCustomDraftRows((rows) =>
+                                                  rows.map((r) =>
+                                                    r.id === row.id
+                                                      ? {
+                                                          ...r,
+                                                          yoyGrowthValueInput:
+                                                            formatRevenueHypothesisValueForInput(p, "amount"),
+                                                        }
+                                                      : r
+                                                  )
+                                                )
+                                              }
+                                            }}
+                                            className="h-9 min-w-0 flex-1 border-slate-200 tabular-nums"
+                                            placeholder={
+                                              (row.yoyGrowthMode ?? "percent") === "percent"
+                                                ? "ex. 3"
+                                                : "ex. 100"
+                                            }
+                                            title={
+                                              (row.yoyGrowthMode ?? "percent") === "percent"
+                                                ? "Pourcentage appliqué à la base"
+                                                : "Montant ajouté à la base"
+                                            }
+                                          />
+                                        </div>
+                                      </td>
+                                      <td className="px-2 py-1.5 align-middle">
+                                        {(() => {
+                                          const base =
+                                            prevYearEffectiveValueByIdForCustomPanel.get(row.id) ?? 0
+                                          const resolved = computeCustomYoYRowResolvedValue(
+                                            base,
+                                            row.yoyGrowthMode,
+                                            row.yoyGrowthValueInput
+                                          )
+                                          return (
+                                            <div
+                                              className="flex h-9 items-center rounded-md border border-emerald-200/80 bg-emerald-50/60 px-2 text-xs tabular-nums text-slate-900"
+                                              title={`Après croissance (${yearLabel})`}
+                                            >
+                                              {resolved !== null && Number.isFinite(resolved)
+                                                ? formatCustomVarBaselineDisplay(resolved, row.kind)
+                                                : "—"}
+                                            </div>
+                                          )
+                                        })()}
+                                      </td>
+                                    </>
+                                  ) : null}
+                                  <td className="px-2 py-1.5 align-middle">
+                                    <code className="block truncate rounded bg-slate-100 px-2 py-1.5 text-[11px] text-slate-700">
+                                      {revenueCustomBracketRef(row.label)}
+                                    </code>
+                                  </td>
+                                  <td className="px-2 py-1.5 align-middle text-right">
+                                    <div className="flex justify-end gap-1">
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 px-2 text-xs text-slate-600"
+                                        title="Insérer dans la formule"
+                                        onClick={() => {
+                                          const token = revenueCustomBracketRef(row.label)
+                                          setRevenueCustomFormula((f) =>
+                                            f + (f.length > 0 && !/[+\-*/(]$/.test(f.trimEnd()) ? " " : "") + token
+                                          )
+                                        }}
+                                      >
+                                        Insérer
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 px-2 text-slate-500 hover:text-red-600"
+                                        title="Supprimer la ligne"
+                                        disabled={revenueCustomDraftRows.length <= 1}
+                                        onClick={() => {
+                                          const bracketRef = revenueCustomBracketRef(row.label)
+                                          const legacyRef = revenueCustomFormulaPlaceholder(row.id)
+                                          setRevenueCustomDraftRows((rows) =>
+                                            rows.filter((r) => r.id !== row.id)
+                                          )
+                                          setRevenueCustomFormula((f) => {
+                                            let next = f.replace(
+                                              new RegExp(escapeRegExp(bracketRef), "g"),
+                                              ""
+                                            )
+                                            next = next.replace(
+                                              new RegExp(escapeRegExp(legacyRef), "g"),
+                                              ""
+                                            )
+                                            return next
+                                          })
+                                        }}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs font-medium text-slate-600">Ajouter :</span>
+                            {(
+                              [
+                                { op: "+" as const, label: "Addition" },
+                                { op: "-" as const, label: "Soustraction" },
+                                { op: "*" as const, label: "Multiplication" },
+                                { op: "/" as const, label: "Division" },
+                              ] as const
+                            ).map(({ op, label }) => (
+                              <Button
+                                key={op}
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8 shrink-0 text-xs"
+                                onClick={() =>
+                                  setRevenueCustomFormula((f) =>
+                                    appendRevenueCustomFormulaOperator(f, op)
+                                  )
+                                }
+                              >
+                                {label}
+                              </Button>
+                            ))}
+                          </div>
+                          <label
+                            htmlFor="revenue-custom-formula"
+                            className="block text-xs font-medium text-slate-600"
+                          >
+                            Formule
+                          </label>
+                          <Textarea
+                            id="revenue-custom-formula"
+                            value={revenueCustomFormula}
+                            onChange={(e) => setRevenueCustomFormula(e.target.value)}
+                            placeholder="[Nouveaux clients] * [Prix moyen] ..."
+                            className="min-h-[5rem] w-full resize-y rounded-md border border-slate-200 bg-white font-mono text-sm"
+                            spellCheck={false}
+                          />
+                          {draftCustomBuiltForSummary && !draftCustomBuiltForSummary.ok ? (
+                            <p className="text-[11px] text-red-600">{draftCustomBuiltForSummary.error}</p>
+                          ) : draftCustomBuiltForSummary?.ok ? (
+                            <p className="text-[11px] text-slate-600">
+                              Revenu projeté pour {yearLabel} selon la formule :{" "}
+                              <span className="font-semibold text-slate-900">
+                                {formatCurrency(Math.round(draftCustomBuiltForSummary.result))}
+                              </span>
+                            </p>
+                          ) : (
+                            <p className="text-[11px] text-slate-500">
+                              Utilisez <span className="font-medium">Insérer</span> pour coller une variable (
+                              <code className="text-[11px]">[Libellé]</code>), puis les boutons ci-dessus pour les
+                              opérateurs. Les lignes en type <span className="font-medium">%</span> sont traitées
+                              comme une fraction (valeur / 100) dans le calcul. Parenthèses autorisées dans la zone
+                              formule.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+                </div>
+              </div>
+              </TabsContent>
+              <TabsContent
+                value="encaissement"
+                className="mt-0 min-h-0 min-w-0 max-w-full flex-1 outline-none focus-visible:ring-0"
+              >
+                <div className={cn(embedded && "min-w-0 max-w-full")}>
+                  {canReplicateToFollowingYears ? (
+                    <div className="mb-3 flex min-w-0 items-start gap-2.5">
+                      <Checkbox
+                        id="revenue-hypothesis-replicate-encashment"
+                        checked={replicateRevenueEncashmentToFollowingYears}
+                        onCheckedChange={(v) => {
+                          const on = v === true
+                          setReplicateRevenueEncashmentToFollowingYears(on)
+                          if (on) {
+                            setReplicateRevenueAdjustmentToFollowingYears(false)
+                            setReplicateRevenueSeasonalityToFollowingYears(false)
+                          }
+                        }}
+                        className="mt-0.5"
+                      />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <Label
+                          htmlFor="revenue-hypothesis-replicate-encashment"
+                          className="cursor-pointer text-xs font-medium leading-snug text-slate-800"
+                        >
+                          Appliquer le même délai d&apos;encaissement aux années suivantes
+                        </Label>
+                        <p className="text-[11px] leading-relaxed text-slate-500">
+                          Pour {followingYearsLabel}, chaque année qui comporte déjà une hypothèse pour ce poste
+                          recevra la même répartition d&apos;encaissement que {yearLabel}.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mb-3 text-xs text-slate-400">Aucune année projetée après {yearLabel}.</p>
+                  )}
+                  <div className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 sm:p-4">
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                                 <span className="font-medium text-slate-800">
                                   Délai moyen de collection estimé :{" "}
@@ -4441,104 +6193,134 @@ export function IncomeStatementDetail({
                                   {revenueHistogramChartData.length > 0 ? (
                                     <>
                                       <div
-                                        className="grid min-w-0 divide-x divide-slate-200 border-b border-slate-200 bg-white px-1 sm:px-1.5"
+                                        className="grid min-w-0 divide-x divide-slate-200 border-b border-slate-200 bg-white"
                                         style={{ gridTemplateColumns: revenueCollGridTemplate }}
                                       >
-                                        <div className="flex h-52 w-full min-w-0 flex-col items-center justify-between py-3 sm:h-56">
+                                        <div className="flex h-52 w-full min-w-0 flex-col items-stretch justify-between bg-white py-3 sm:h-56">
                                           <div className="flex w-full min-w-0 flex-1 flex-col justify-between py-0.5">
-                                            {[100, 80, 60, 40, 20, 0].map((tick) => (
+                                            {revenueCollectionChartYTicks.map((tick) => (
                                               <span
-                                                key={tick}
-                                                className="block w-full min-w-0 text-center text-[9px] tabular-nums leading-none text-slate-500"
+                                                key={`coll-y-${tick}`}
+                                                className="block w-full min-w-0 text-right text-[9px] tabular-nums leading-none text-slate-500 sm:text-[10px]"
                                               >
                                                 {tick}%
                                               </span>
                                             ))}
                                           </div>
                                         </div>
-                                        {revenueHistogramChartData.map((entry, index) => (
-                                          <div
-                                            key={`bar-${entry.key}`}
-                                            className="relative flex h-52 flex-col bg-slate-100/55 sm:h-56"
+                                        <div
+                                          className="h-52 min-h-0 min-w-0 bg-white sm:h-56"
+                                          style={{
+                                            gridColumn: `2 / span ${revenueCollHistColCount}`,
+                                          }}
+                                        >
+                                          <ChartContainer
+                                            config={{
+                                              percent: {
+                                                label: "Pourcentage",
+                                                color: REVENUE_SEASONALITY_CHART_SLATE,
+                                              },
+                                            }}
+                                            className="h-full w-full min-w-0 !aspect-auto !justify-start [&_.recharts-responsive-container]:w-full"
+                                            aria-label="Histogramme d'encaissement par délai"
                                           >
-                                            <div
-                                              className="pointer-events-none absolute inset-x-1.5 bottom-3 top-3 sm:inset-x-2"
-                                              aria-hidden
+                                            <BarChart
+                                              accessibilityLayer
+                                              data={revenueCollectionBarRechartsData}
+                                              margin={{ top: 8, right: 0, left: 0, bottom: 4 }}
+                                              barCategoryGap={0}
                                             >
-                                              {[20, 40, 60, 80].map((tick) => (
-                                                <div
-                                                  key={tick}
-                                                  className="absolute left-0 right-0 border-t border-slate-200/60"
-                                                  style={{ top: `${100 - tick}%` }}
-                                                />
-                                              ))}
-                                            </div>
-                                            <Tooltip>
-                                              <TooltipTrigger asChild>
-                                                <div className="relative z-[1] mx-auto flex min-h-0 w-full max-w-[3rem] flex-1 cursor-default flex-col justify-end px-1 pb-3 pt-2 outline-none focus-visible:ring-2 focus-visible:ring-slate-400/60">
-                                                  {entry.percent > 0 ? (
-                                                    <div
-                                                      className="w-full min-h-[4px] rounded-t shadow-sm"
-                                                      style={{
-                                                        height: `${entry.percent}%`,
-                                                        backgroundColor:
-                                                          entry.key === "bad-debt"
-                                                            ? "#475569"
-                                                            : index % 2 === 0
-                                                              ? "#94a3b8"
-                                                              : "#64748b",
-                                                      }}
-                                                    />
-                                                  ) : (
-                                                    <span className="sr-only">
-                                                      {entry.name}, {entry.percent} %
-                                                    </span>
-                                                  )}
-                                                </div>
-                                              </TooltipTrigger>
-                                              <TooltipContent
-                                                side="top"
-                                                sideOffset={8}
-                                                className="max-w-[18rem] border border-slate-200/90 bg-white px-3 py-2 text-xs font-normal text-slate-800 shadow-md [&>svg]:hidden"
-                                              >
-                                                <p className="leading-snug">
-                                                  <span className="font-semibold text-slate-900">{entry.name}</span>
-                                                  <span className="text-slate-400" aria-hidden>
-                                                    {" "}
-                                                    ·{" "}
-                                                  </span>
-                                                  <span className="tabular-nums text-slate-700">{entry.percent} %</span>
-                                                </p>
-                                              </TooltipContent>
-                                            </Tooltip>
-                                          </div>
-                                        ))}
+                                              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                              <XAxis
+                                                dataKey="barKey"
+                                                type="category"
+                                                scale={revenueCollectionBarXScale}
+                                                tick={false}
+                                                tickLine={false}
+                                                axisLine={false}
+                                                height={0}
+                                                interval={0}
+                                              />
+                                              <YAxis
+                                                domain={[0, revenueCollectionChartYMax]}
+                                                hide
+                                                width={0}
+                                              />
+                                              <ChartTooltip
+                                                content={({ active, payload }) => {
+                                                  if (!active || !payload?.length) return null
+                                                  const row = payload[0]?.payload as
+                                                    | { label?: string; percent?: number }
+                                                    | undefined
+                                                  const pct = row?.percent ?? 0
+                                                  return (
+                                                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
+                                                      <p className="font-semibold text-slate-900">{row?.label ?? "—"}</p>
+                                                      <p className="mt-0.5 tabular-nums text-slate-700">
+                                                        {Math.round(pct)} %
+                                                      </p>
+                                                    </div>
+                                                  )
+                                                }}
+                                              />
+                                              <Bar
+                                                dataKey="percent"
+                                                name="percent"
+                                                shape={renderRevenueCollectionBarShape}
+                                                radius={[3, 3, 0, 0]}
+                                                isAnimationActive={false}
+                                              />
+                                            </BarChart>
+                                          </ChartContainer>
+                                        </div>
                                       </div>
 
                                       <div
                                         className="grid min-w-0 divide-x divide-slate-200 bg-slate-50/60"
                                         style={{ gridTemplateColumns: revenueCollGridTemplate }}
                                       >
-                                        <div className="flex items-start justify-center bg-slate-50/60 py-2.5">
-                                          <span className="text-[10px] font-medium text-slate-400">%</span>
+                                        <div className="flex w-full items-start justify-end bg-slate-50/60 py-2.5">
+                                          <span className="relative inline-block text-[9px] tabular-nums sm:text-[10px]">
+                                            <span className="invisible select-none" aria-hidden="true">
+                                              100%
+                                            </span>
+                                            <span className="absolute right-0 top-0 font-medium leading-none text-slate-400">
+                                              %
+                                            </span>
+                                          </span>
                                         </div>
                                         {revenueCollectionSortedWithIndex.map(({ bucket, origIdx }, colIdx) => (
                                           <div
-                                            key={`coll-col-${origIdx}-${bucket.custom ? "c" : "s"}-${bucket.delayDays}`}
+                                            key={`coll-col-${origIdx}-${bucket.custom ? "c" : "s"}`}
                                             className="flex min-w-0 flex-col items-center gap-2 px-2 py-2.5 sm:px-2.5"
                                           >
                                             <div className="flex min-h-[2.5rem] w-full flex-col items-center justify-center gap-1 text-center">
                                               {bucket.custom ? (
                                                 <div className="flex items-center justify-center gap-1">
-                                                  <span className="text-[10px] text-slate-600">J+</span>
                                                   <Input
                                                     type="text"
                                                     inputMode="numeric"
                                                     aria-label={`Délai en jours, colonne ${colIdx + 1}`}
-                                                    className="h-8 w-12 rounded border border-slate-200 bg-white px-0.5 text-center text-xs tabular-nums"
-                                                    value={String(bucket.delayDays)}
+                                                    className="h-8 min-w-[2.75rem] max-w-[4.5rem] flex-1 rounded border border-slate-200 bg-white px-1 text-center text-xs tabular-nums"
+                                                    value={
+                                                      revenueCustomDelayDrafts[origIdx] !== undefined
+                                                        ? revenueCustomDelayDrafts[origIdx]!
+                                                        : String(bucket.delayDays)
+                                                    }
                                                     onChange={(e) => {
-                                                      const raw = e.target.value.trim()
+                                                      setRevenueCustomDelayDrafts((d) => ({
+                                                        ...d,
+                                                        [origIdx]: e.target.value,
+                                                      }))
+                                                    }}
+                                                    onBlur={() => {
+                                                      const draft = revenueCustomDelayDrafts[origIdx]
+                                                      setRevenueCustomDelayDrafts((d) => {
+                                                        const next = { ...d }
+                                                        delete next[origIdx]
+                                                        return next
+                                                      })
+                                                      const raw = (draft !== undefined ? draft : String(bucket.delayDays)).trim()
                                                       if (raw === "") {
                                                         setRevenueCollectionBuckets((prev) => {
                                                           const next = [...prev]
@@ -4551,15 +6333,20 @@ export function IncomeStatementDetail({
                                                         })
                                                         return
                                                       }
-                                                      const d = parseDelayDaysInput(e.target.value)
+                                                      const d = parseDelayDaysInput(raw)
                                                       if (d === null) return
                                                       setRevenueCollectionBuckets((prev) => {
                                                         const next = [...prev]
-                                                        next[origIdx] = { ...next[origIdx]!, delayDays: d, custom: true }
+                                                        next[origIdx] = {
+                                                          ...next[origIdx]!,
+                                                          delayDays: d,
+                                                          custom: true,
+                                                        }
                                                         return next
                                                       })
                                                     }}
                                                   />
+                                                  <span className="shrink-0 text-[10px] text-slate-600">jours</span>
                                                 </div>
                                               ) : (
                                                 <span className="text-[11px] font-semibold leading-tight text-slate-800 sm:text-xs">
@@ -4604,6 +6391,7 @@ export function IncomeStatementDetail({
                                                   className="h-8 w-8 shrink-0 text-slate-400 hover:text-slate-900"
                                                   aria-label="Supprimer la ligne"
                                                   onClick={() => {
+                                                    setRevenueCustomDelayDrafts({})
                                                     setRevenueCollectionBuckets((prev) =>
                                                       normalizeAdvancedBuckets(
                                                         prev.filter((_, j) => j !== origIdx),
@@ -4615,9 +6403,7 @@ export function IncomeStatementDetail({
                                                   <Trash2 className="h-3.5 w-3.5" aria-hidden />
                                                 </Button>
                                               ) : (
-                                                <span className="text-[10px] font-bold tabular-nums text-slate-300">
-                                                  {colIdx + 1}
-                                                </span>
+                                                <div className="h-8 w-full" aria-hidden />
                                               )}
                                             </div>
                                           </div>
@@ -4733,12 +6519,242 @@ export function IncomeStatementDetail({
                                   </Button>
                                 </div>
                               </div>
-                            </div>
                   </div>
                 </div>
-              </div>
+              </TabsContent>
+              <TabsContent
+                value="saisonnalite"
+                className="mt-0 min-h-0 min-w-0 max-w-full flex-1 outline-none focus-visible:ring-0"
+              >
+                <div className={cn(embedded && "min-w-0 max-w-full")}>
+                  {canReplicateToFollowingYears ? (
+                    <div className="mb-3 flex min-w-0 items-start gap-2.5">
+                      <Checkbox
+                        id="revenue-hypothesis-replicate-seasonality"
+                        checked={replicateRevenueSeasonalityToFollowingYears}
+                        onCheckedChange={(v) => {
+                          const on = v === true
+                          setReplicateRevenueSeasonalityToFollowingYears(on)
+                          if (on) {
+                            setReplicateRevenueAdjustmentToFollowingYears(false)
+                            setReplicateRevenueEncashmentToFollowingYears(false)
+                          }
+                        }}
+                        className="mt-0.5"
+                      />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <Label
+                          htmlFor="revenue-hypothesis-replicate-seasonality"
+                          className="cursor-pointer text-xs font-medium leading-snug text-slate-800"
+                        >
+                          Appliquer la même saisonnalité aux années suivantes
+                        </Label>
+                        <p className="text-[11px] leading-relaxed text-slate-500">
+                          Pour {followingYearsLabel}, chaque année qui comporte déjà une hypothèse pour ce poste
+                          reprendra la même répartition mensuelle (%) que {yearLabel}.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mb-3 text-xs text-slate-400">Aucune année projetée après {yearLabel}.</p>
+                  )}
+                  <div className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 sm:p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                      <span className="font-medium text-slate-800">
+                        Répartition du revenu annuel par mois (janvier à décembre)
+                      </span>
+                      <div className="flex min-w-0 flex-col items-stretch gap-1 sm:items-end sm:text-right">
+                        <p className="text-xs tabular-nums text-slate-600">
+                          Total des pourcentages : {revenueSeasonalityTotal} %
+                        </p>
+                        {revenueSeasonalityTotal !== 100 ? (
+                          <p className="flex items-center gap-1.5 text-xs font-medium text-amber-800">
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden />
+                            Le total doit être égal à 100 % (actuellement {revenueSeasonalityTotal} %).
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto rounded-md border border-slate-200/80 bg-white">
+                      <div
+                        className="min-w-0 w-full"
+                        style={{
+                          minWidth: `max(100%, calc(3.25rem + ${revenueSeasonHistColCount} * 2.75rem))`,
+                        }}
+                      >
+                        <div
+                          className="grid min-w-0 divide-x divide-slate-200 border-b border-slate-200 bg-white"
+                          style={{ gridTemplateColumns: revenueSeasonGridTemplate }}
+                        >
+                          <div className="flex h-52 w-full min-w-0 flex-col items-stretch justify-between bg-white py-3 sm:h-56">
+                            <div className="flex w-full min-w-0 flex-1 flex-col justify-between py-0.5">
+                              {revenueSeasonalityYTicks.map((tick) => (
+                                <span
+                                  key={`sea-y-${tick}`}
+                                  className="block w-full min-w-0 text-right text-[9px] tabular-nums leading-none text-slate-500 sm:text-[10px]"
+                                >
+                                  {tick}%
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="col-start-2 col-span-12 h-52 min-h-0 min-w-0 bg-white sm:h-56">
+                            <ChartContainer
+                              config={{
+                                percent: {
+                                  label: "Part du revenu annuel",
+                                  color: REVENUE_SEASONALITY_CHART_SLATE,
+                                },
+                              }}
+                              className="h-full w-full min-w-0 !aspect-auto !justify-start [&_.recharts-responsive-container]:w-full"
+                              aria-label="Courbe de saisonnalité du revenu par mois"
+                            >
+                              <LineChart
+                                accessibilityLayer
+                                data={revenueSeasonalityLineData}
+                                margin={{ top: 8, right: 0, left: 0, bottom: 4 }}
+                              >
+                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                                <XAxis
+                                  dataKey="axisLabel"
+                                  type="category"
+                                  scale={revenueSeasonalityXBandScale}
+                                  tick={false}
+                                  tickLine={false}
+                                  axisLine={false}
+                                  height={0}
+                                  interval={0}
+                                />
+                                <YAxis
+                                  domain={[0, revenueSeasonalityYMax]}
+                                  hide
+                                  width={0}
+                                />
+                                <ChartTooltip
+                                  content={({ active, payload }) => {
+                                    if (!active || !payload?.length) return null
+                                    const row = payload[0]?.payload as
+                                      | { monthName?: string; percent?: number }
+                                      | undefined
+                                    const pct = row?.percent ?? 0
+                                    return (
+                                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
+                                        <p className="font-semibold text-slate-900">{row?.monthName ?? "—"}</p>
+                                        <p className="mt-0.5 tabular-nums text-slate-700">
+                                          {Math.round(pct)} % du revenu annuel
+                                        </p>
+                                      </div>
+                                    )
+                                  }}
+                                />
+                                <Line
+                                  type="monotone"
+                                  dataKey="percent"
+                                  name="percent"
+                                  stroke="var(--color-percent)"
+                                  strokeWidth={2.5}
+                                  dot={{ fill: "var(--color-percent)", r: 4, strokeWidth: 2, stroke: "#fff" }}
+                                  activeDot={{ r: 6, strokeWidth: 2, stroke: "#fff" }}
+                                />
+                              </LineChart>
+                            </ChartContainer>
+                          </div>
+                        </div>
+                        <div
+                          className="grid min-w-0 divide-x divide-slate-200 bg-slate-50/60"
+                          style={{ gridTemplateColumns: revenueSeasonGridTemplate }}
+                        >
+                          <div className="flex w-full items-start justify-end bg-slate-50/60 py-2.5 pr-1 sm:pr-1.5">
+                            <span className="relative inline-block text-[9px] tabular-nums sm:text-[10px]">
+                              <span className="invisible select-none" aria-hidden="true">
+                                100%
+                              </span>
+                              <span className="absolute right-0 top-0 font-medium leading-none text-slate-400">
+                                %
+                              </span>
+                            </span>
+                          </div>
+                          {revenueSeasonalityChartData.map((entry, colIdx) => (
+                            <div
+                              key={`sea-col-${entry.key}`}
+                              className="flex min-w-0 flex-col items-center gap-1 px-0.5 py-2.5 sm:px-1"
+                            >
+                              <span
+                                className="w-full text-center text-[10px] font-semibold leading-tight text-slate-700"
+                                title={entry.name}
+                              >
+                                {REVENUE_SEASONALITY_AXIS_LABELS[colIdx] ?? `M${colIdx + 1}`}
+                              </span>
+                              <div className="flex w-full items-center justify-center gap-0.5">
+                                <Input
+                                  type="text"
+                                  inputMode="numeric"
+                                  aria-label={`Pourcentage pour ${entry.name}`}
+                                  className="h-8 w-full max-w-[2.75rem] rounded border border-slate-200 bg-white px-0.5 text-center text-[11px] tabular-nums"
+                                  value={String(revenueSeasonalityMonthPercents[colIdx] ?? 0)}
+                                  onChange={(e) => {
+                                    const raw = e.target.value.trim()
+                                    if (raw === "") {
+                                    setRevenueSeasonalityMonthPercents((prev) => {
+                                      const next =
+                                        prev.length === 12
+                                          ? [...prev]
+                                          : [...createDefaultRevenueSeasonalityMonthPercents()]
+                                      next[colIdx] = 0
+                                      return next
+                                    })
+                                      return
+                                    }
+                                    const p = parsePercentInput(e.target.value)
+                                    if (p === null) return
+                                    setRevenueSeasonalityMonthPercents((prev) => {
+                                      const next =
+                                        prev.length === 12
+                                          ? [...prev]
+                                          : [...createDefaultRevenueSeasonalityMonthPercents()]
+                                      next[colIdx] = Math.round(Math.max(0, Math.min(100, p)))
+                                      return next
+                                    })
+                                  }}
+                                />
+                                <span className="text-[10px] font-medium text-slate-500">%</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9 rounded-md text-xs"
+                        onClick={() =>
+                          setRevenueSeasonalityMonthPercents(
+                            normalizeRevenueSeasonalityMonthPercents(revenueSeasonalityMonthPercents)
+                          )
+                        }
+                      >
+                        Normaliser à 100 %
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-9 rounded-md text-xs"
+                        onClick={() =>
+                          setRevenueSeasonalityMonthPercents(createDefaultRevenueSeasonalityMonthPercents())
+                        }
+                      >
+                        Répartition uniforme sur 12 mois
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
             </div>
-          </div>
+          </Tabs>
         </div>
       </div>
       <AlertDialog open={revenueHypothesisDeleteConfirmOpen} onOpenChange={setRevenueHypothesisDeleteConfirmOpen}>
@@ -4763,9 +6779,12 @@ export function IncomeStatementDetail({
                 setRevenueAdjustmentType("amount")
                 setRevenueAdjustmentValue(0)
                 setRevenueAdjustmentValueInput("0")
+                setRevenueCustomDraftRows([])
+                setRevenueCustomFormula("")
                 const d = DEFAULT_REVENUE_COLLECTION_CASH
                 setRevenueCollectionBadDebtPercent(d.badDebtPercent)
                 setRevenueCollectionBuckets(createDefaultAdvancedBuckets(d.badDebtPercent))
+                setRevenueSeasonalityMonthPercents(createDefaultRevenueSeasonalityMonthPercents())
                 setAdjustmentNote("")
                 setRevenueHypothesisDeleteConfirmOpen(false)
               }}
@@ -6620,75 +8639,133 @@ export function IncomeStatementDetail({
                         !!row.isAnnexSubtotal &&
                         !!annexL &&
                         !!revenueAnnexForecastYearTotalsByLetter?.has(annexL)
-                      return isRevenusHeader || isRevenuePost || isAnnexSubtotalGrowthRow
-                    })() && (
-                      <tr
-                        className={cn(
-                          "border-b border-slate-200",
-                          thickBorderBelongsOnFollowingCroissanceRow && "border-slate-900 border-b-2"
-                        )}
-                      >
-                        <td
-                          className={cn(
-                            "min-w-[20rem] px-6 py-2 text-slate-600",
-                            normLabel(String(row.label ?? "")) === "revenus" ? "pl-6" : "pl-16"
-                          )}
-                        >
-                          <span className="sr-only">Croissance</span>
-                        </td>
-                        {row.trendValues.map((raw, valueIdx) => {
-                          const isRevenusHeader = normLabel(String(row.label ?? "")) === "revenus"
-                          const annexL = normalizeAnnexLetter(String(row.annexLetter ?? ""))
-                          const annexSubGrowthTotals =
-                            row.isAnnexSubtotal && annexL
-                              ? revenueAnnexForecastYearTotalsByLetter?.get(annexL)
-                              : undefined
-                          const v = isRevenusHeader && revenueHeaderYearTotals
-                            ? (revenueHeaderYearTotals[valueIdx] ?? 0)
-                            : annexSubGrowthTotals
-                              ? (annexSubGrowthTotals[valueIdx] ?? 0)
-                              : isForecastSection && row.rowId
-                                ? getRevenueValue(row.rowId, valueIdx, raw, undefined, row.trendValues)
-                                : raw
-                          if (valueIdx === 0) {
-                            return (
+                      if (!(isRevenusHeader || isRevenuePost || isAnnexSubtotalGrowthRow)) return null
+                      const showDelayPerYear = isRevenuePost && !!row.rowId
+                      const showAnnexSubtotalWeightedDelay =
+                        isAnnexSubtotalGrowthRow &&
+                        !!annexL &&
+                        !!revenueAnnexWeightedCollectionDelayDaysByLetter?.has(annexL)
+                      const delayForYear = (valueIdx: number): string => {
+                        if (showAnnexSubtotalWeightedDelay && annexL) {
+                          const arr = revenueAnnexWeightedCollectionDelayDaysByLetter?.get(annexL)
+                          const days = arr?.[valueIdx]
+                          if (days === undefined || !Number.isFinite(days)) return "-"
+                          return formatCollectionDelayDaysDisplay(days)
+                        }
+                        if (!showDelayPerYear || !row.rowId) return "-"
+                        const list = getRevenueAdjustments(row.rowId, valueIdx)
+                        const adj = list.length ? list[list.length - 1] : undefined
+                        return formatRevenueCollectionDelayDisplayFromStored(adj)
+                      }
+                      return (
+                        <Fragment key={`revenue-croissance-delai-${idx}`}>
+                          <tr className="border-b-0">
+                            <td
+                              className={cn(
+                                "min-w-[20rem] px-6 py-2 text-slate-600",
+                                normLabel(String(row.label ?? "")) === "revenus" ? "pl-6" : "pl-16"
+                              )}
+                            >
+                              <span className="sr-only">Croissance</span>
+                            </td>
+                            {row.trendValues.map((raw, valueIdx) => {
+                              const isRevenusHeaderInner = normLabel(String(row.label ?? "")) === "revenus"
+                              const annexLInner = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+                              const annexSubGrowthTotals =
+                                row.isAnnexSubtotal && annexLInner
+                                  ? revenueAnnexForecastYearTotalsByLetter?.get(annexLInner)
+                                  : undefined
+                              const v =
+                                isRevenusHeaderInner && revenueHeaderYearTotals
+                                  ? (revenueHeaderYearTotals[valueIdx] ?? 0)
+                                  : annexSubGrowthTotals
+                                    ? (annexSubGrowthTotals[valueIdx] ?? 0)
+                                    : isForecastSection && row.rowId
+                                      ? getRevenueValue(row.rowId, valueIdx, raw, undefined, row.trendValues)
+                                      : raw
+                              if (valueIdx === 0) {
+                                return (
+                                  <td
+                                    key={valueIdx}
+                                    className={cn(
+                                      "min-w-[8rem] px-4 py-2 text-right text-[12px] italic text-slate-400",
+                                      (forceForecastSection || isForecastSection) && valueIdx === 0
+                                        ? "bg-slate-50"
+                                        : ""
+                                    )}
+                                  >
+                                    -
+                                  </td>
+                                )
+                              }
+                              const prevRaw = row.trendValues?.[valueIdx - 1] ?? 0
+                              const prev =
+                                isRevenusHeaderInner && revenueHeaderYearTotals
+                                  ? (revenueHeaderYearTotals[valueIdx - 1] ?? 0)
+                                  : annexSubGrowthTotals
+                                    ? (annexSubGrowthTotals[valueIdx - 1] ?? 0)
+                                    : isForecastSection && row.rowId
+                                      ? getRevenueValue(
+                                          row.rowId,
+                                          valueIdx - 1,
+                                          prevRaw,
+                                          undefined,
+                                          row.trendValues
+                                        )
+                                      : prevRaw
+                              const growth =
+                                prev !== 0 ? calculateVariation(v ?? 0, prev ?? 0) : null
+                              const display =
+                                growth === null ? "-" : `${growth >= 0 ? "+" : ""}${growth.toFixed(1)}%`
+                              return (
+                                <td
+                                  key={valueIdx}
+                                  className={cn(
+                                    "min-w-[8rem] px-4 py-2 text-right text-[12px] italic tabular-nums",
+                                    growth === null
+                                      ? "text-slate-400"
+                                      : growth >= 0
+                                        ? "text-emerald-700"
+                                        : "text-red-700"
+                                  )}
+                                >
+                                  {display}
+                                </td>
+                              )
+                            })}
+                          </tr>
+                          <tr
+                            className={cn(
+                              "border-b border-slate-200",
+                              thickBorderBelongsOnFollowingCroissanceRow && "border-slate-900 border-b-2"
+                            )}
+                          >
+                            <td
+                              className={cn(
+                                "min-w-[20rem] px-6 py-2 text-slate-600",
+                                normLabel(String(row.label ?? "")) === "revenus" ? "pl-6" : "pl-16"
+                              )}
+                            >
+                              <span className="sr-only">Délai moyen de collection clients</span>
+                            </td>
+                            {row.trendValues.map((_, valueIdx) => (
                               <td
                                 key={valueIdx}
                                 className={cn(
-                                  "min-w-[8rem] px-4 py-2 text-right text-[12px] italic text-slate-400",
-                                  (forceForecastSection || isForecastSection) && valueIdx === 0 ? "bg-slate-50" : ""
+                                  "min-w-[8rem] px-4 py-2 text-right text-[12px] italic tabular-nums",
+                                  valueIdx === 0 ? "text-slate-400" : "text-slate-600",
+                                  (forceForecastSection || isForecastSection) && valueIdx === 0
+                                    ? "bg-slate-50"
+                                    : ""
                                 )}
                               >
-                                -
+                                {delayForYear(valueIdx)}
                               </td>
-                            )
-                          }
-                          const prevRaw = row.trendValues?.[valueIdx - 1] ?? 0
-                          const prev = isRevenusHeader && revenueHeaderYearTotals
-                            ? (revenueHeaderYearTotals[valueIdx - 1] ?? 0)
-                            : annexSubGrowthTotals
-                              ? (annexSubGrowthTotals[valueIdx - 1] ?? 0)
-                              : isForecastSection && row.rowId
-                                ? getRevenueValue(row.rowId, valueIdx - 1, prevRaw, undefined, row.trendValues)
-                                : prevRaw
-                          const growth =
-                            prev !== 0 ? calculateVariation(v ?? 0, prev ?? 0) : null
-                          const display =
-                            growth === null ? "-" : `${growth >= 0 ? "+" : ""}${growth.toFixed(1)}%`
-                          return (
-                            <td
-                              key={valueIdx}
-                              className={cn(
-                                "min-w-[8rem] px-4 py-2 text-right text-[12px] italic tabular-nums",
-                                growth === null ? "text-slate-400" : growth >= 0 ? "text-emerald-700" : "text-red-700"
-                              )}
-                            >
-                              {display}
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    )}
+                            ))}
+                          </tr>
+                        </Fragment>
+                      )
+                    })()}
                   {revenueHypothesisInlineActive &&
                     revenueHypothesisAnchorIdx === idx &&
                     revenueHypothesisAnchorIdx >= 0 &&
