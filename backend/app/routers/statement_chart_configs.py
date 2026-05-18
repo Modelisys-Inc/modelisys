@@ -168,24 +168,50 @@ def update_chart_slot(
     if row is None:
         raise HTTPException(status_code=404, detail="Chart slot not found")
 
-    if payload.version != row.version:
-        # Stale write — return current state so the client can react.
+    # Atomic conditional update — only succeeds if version still matches.
+    new_config = payload.config.model_dump(mode="json")
+    updated_count = (
+        db.query(StatementChartConfig)
+        .filter(
+            StatementChartConfig.id == row.id,
+            StatementChartConfig.version == payload.version,
+        )
+        .update(
+            {
+                StatementChartConfig.config_json: new_config,
+                StatementChartConfig.version: StatementChartConfig.version + 1,
+                StatementChartConfig.updated_by_user_id: current_user.id,
+            },
+            synchronize_session=False,
+        )
+    )
+    db.commit()
+
+    if updated_count == 0:
+        # Either the version changed since we read `row`, or the row was deleted.
+        # Re-fetch to determine which.
+        db.expire_all()
+        current = (
+            db.query(StatementChartConfig)
+            .filter(StatementChartConfig.id == row.id)
+            .first()
+        )
+        if current is None:
+            raise HTTPException(status_code=404, detail="Chart slot not found")
         current_email: str | None = None
-        if row.updated_by_user_id is not None:
-            u = db.get(User, row.updated_by_user_id)
+        if current.updated_by_user_id is not None:
+            u = db.get(User, current.updated_by_user_id)
             if u is not None:
                 current_email = u.email
         conflict = ChartSlotConflictResponse(
-            current_version=row.version,
-            current_config=ChartConfigPayload.model_validate(row.config_json),
+            current_version=current.version,
+            current_config=ChartConfigPayload.model_validate(current.config_json),
             updated_by_user_email=current_email,
-            updated_at=row.updated_at,
+            updated_at=current.updated_at,
         )
         raise HTTPException(status_code=409, detail=conflict.model_dump(mode="json"))
 
-    row.config_json = payload.config.model_dump(mode="json")
-    row.version = row.version + 1
-    row.updated_by_user_id = current_user.id
-    db.commit()
+    # Refresh the row to pick up the new version + updated_at.
+    db.expire(row)
     db.refresh(row)
     return _row_to_response(db, row)
