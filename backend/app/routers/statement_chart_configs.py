@@ -1,7 +1,7 @@
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -11,8 +11,10 @@ from app.models.statement_chart_config import StatementChartConfig
 from app.models.user import User
 from app.schemas.statement_chart_config import (
     ChartConfigPayload,
+    ChartSlotConflictResponse,
     ChartSlotListResponse,
     ChartSlotResponse,
+    ChartSlotUpdateRequest,
 )
 from app.services.statement_chart_defaults import seed_default_chart_config
 
@@ -139,6 +141,51 @@ def add_chart_slot(
         updated_by_user_id=current_user.id,
     )
     db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _row_to_response(db, row)
+
+
+@router.put("/{chart_instance_id}", response_model=ChartSlotResponse)
+def update_chart_slot(
+    company_id: uuid.UUID,
+    chart_instance_id: str,
+    payload: ChartSlotUpdateRequest,
+    statement_type: StatementTypeQuery = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    verify_company_access(db, current_user, company_id)
+    row = (
+        db.query(StatementChartConfig)
+        .filter(
+            StatementChartConfig.company_id == company_id,
+            StatementChartConfig.statement_type == statement_type,
+            StatementChartConfig.chart_instance_id == chart_instance_id,
+        )
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Chart slot not found")
+
+    if payload.version != row.version:
+        # Stale write — return current state so the client can react.
+        current_email: str | None = None
+        if row.updated_by_user_id is not None:
+            u = db.get(User, row.updated_by_user_id)
+            if u is not None:
+                current_email = u.email
+        conflict = ChartSlotConflictResponse(
+            current_version=row.version,
+            current_config=ChartConfigPayload.model_validate(row.config_json),
+            updated_by_user_email=current_email,
+            updated_at=row.updated_at,
+        )
+        raise HTTPException(status_code=409, detail=conflict.model_dump(mode="json"))
+
+    row.config_json = payload.config.model_dump(mode="json")
+    row.version = row.version + 1
+    row.updated_by_user_id = current_user.id
     db.commit()
     db.refresh(row)
     return _row_to_response(db, row)

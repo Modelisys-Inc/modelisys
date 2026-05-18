@@ -178,3 +178,106 @@ def test_post_third_slot_uses_next_index(client, auth_headers):
     )
     assert response.status_code == 201
     assert response.json()["slot_index"] == 2
+
+
+# --- PUT (save) ---
+
+
+def _default_slot(client, auth_headers, company_id, stype="income-statement"):
+    response = client.get(
+        f"/api/companies/{company_id}/statement-chart-configs?statement_type={stype}",
+        headers=auth_headers,
+    )
+    return response.json()["slots"][0]
+
+
+def test_put_bumps_version_and_persists(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    slot = _default_slot(client, auth_headers, company_id)
+    edited = dict(slot["config"])
+    edited["chartTitle"] = "Mes revenus"
+
+    response = client.put(
+        f"/api/companies/{company_id}/statement-chart-configs/{slot['chart_instance_id']}?statement_type=income-statement",
+        json={"version": slot["version"], "config": edited},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["version"] == slot["version"] + 1
+    assert body["config"]["chartTitle"] == "Mes revenus"
+
+    # Re-read confirms persistence
+    re_read = _default_slot(client, auth_headers, company_id)
+    assert re_read["config"]["chartTitle"] == "Mes revenus"
+    assert re_read["version"] == slot["version"] + 1
+
+
+def test_put_stale_version_returns_409_with_current_state(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    slot = _default_slot(client, auth_headers, company_id)
+
+    # First save bumps version to 2
+    first = dict(slot["config"])
+    first["chartTitle"] = "First save"
+    r1 = client.put(
+        f"/api/companies/{company_id}/statement-chart-configs/{slot['chart_instance_id']}?statement_type=income-statement",
+        json={"version": slot["version"], "config": first},
+        headers=auth_headers,
+    )
+    assert r1.status_code == 200
+
+    # Second save with stale (original) version
+    second = dict(slot["config"])
+    second["chartTitle"] = "Stale save"
+    r2 = client.put(
+        f"/api/companies/{company_id}/statement-chart-configs/{slot['chart_instance_id']}?statement_type=income-statement",
+        json={"version": slot["version"], "config": second},
+        headers=auth_headers,
+    )
+    assert r2.status_code == 409
+    body = r2.json()
+    assert body["detail"]["detail"] == "stale_version"
+    assert body["detail"]["current_version"] == 2
+    assert body["detail"]["current_config"]["chartTitle"] == "First save"
+
+
+def test_put_unknown_slot_returns_404(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    _default_slot(client, auth_headers, company_id)  # seeds default
+    bogus = str(uuid.uuid4())
+    response = client.put(
+        f"/api/companies/{company_id}/statement-chart-configs/{bogus}?statement_type=income-statement",
+        json={
+            "version": 1,
+            "config": {"version": 2, "chartTitle": "x", "series": []},
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 404
+
+
+def test_put_invalid_config_returns_422(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    slot = _default_slot(client, auth_headers, company_id)
+    response = client.put(
+        f"/api/companies/{company_id}/statement-chart-configs/{slot['chart_instance_id']}?statement_type=income-statement",
+        json={"version": slot["version"], "config": {"version": 1, "chartTitle": "x", "series": []}},
+        # version must be 2 — Literal mismatch
+        headers=auth_headers,
+    )
+    assert response.status_code == 422
+
+
+def test_put_updates_audit_user(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    slot = _default_slot(client, auth_headers, company_id)
+    edited = dict(slot["config"])
+    edited["chartTitle"] = "Edited"
+    response = client.put(
+        f"/api/companies/{company_id}/statement-chart-configs/{slot['chart_instance_id']}?statement_type=income-statement",
+        json={"version": slot["version"], "config": edited},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["updated_by_user_email"] == "test@example.com"
