@@ -1,11 +1,11 @@
 import type { SeriesPeriod, SeriesRow } from "@/lib/api"
 import { getRowAmounts } from "@/lib/series-utils"
 import type {
+  ChartMetricSpec,
   ChartValueFormat,
-  PerformanceChartConfigV2,
-  PerformanceChartSeriesV2,
-  PerformanceMetricSpec,
-} from "@/lib/performance-chart-config"
+  StatementChartConfig,
+  StatementChartSeries,
+} from "@/lib/statement-chart-config"
 import {
   buildAmountsByCalendarMonth,
   calendarQuarterSequenceFromReference,
@@ -96,7 +96,7 @@ export function buildSyntheticSeriesRow(periods: SeriesPeriod[], values: number[
  * Ne pas sommer les rapports mensuels (sinon ex. 1 − 32/20 sur l’année devient une somme de petits 1 − n/d).
  */
 function ratioTrendAggregatedByCalendarView(
-  spec: Extract<PerformanceMetricSpec, { type: "ratio" }>,
+  spec: Extract<ChartMetricSpec, { type: "ratio" }>,
   rows: SeriesRow[],
   periods: SeriesPeriod[],
   view: "quarters" | "years",
@@ -132,7 +132,7 @@ function ratioTrendAggregatedByCalendarView(
 
 /** Aplatit les montants sur la fenêtre (mois / trimestres / années). */
 export function trendFromMetricSpec(
-  spec: PerformanceMetricSpec,
+  spec: ChartMetricSpec,
   rows: SeriesRow[],
   periods: SeriesPeriod[],
   view: "quarters" | "years" | "months",
@@ -167,7 +167,7 @@ export function trendFromMetricSpec(
 }
 
 export function computeMetricSeries(
-  spec: PerformanceMetricSpec,
+  spec: ChartMetricSpec,
   rows: SeriesRow[],
   periods: SeriesPeriod[]
 ): number[] | null {
@@ -235,7 +235,7 @@ export function computeDerivedGrossMarginPercent(revenue: number[], grossProfit:
 
 function applyRatioScaleIfNeeded(
   trend: number[] | null,
-  spec: PerformanceMetricSpec,
+  spec: ChartMetricSpec,
   valueFormat: ChartValueFormat
 ): number[] | null {
   if (!trend) return null
@@ -246,7 +246,7 @@ function applyRatioScaleIfNeeded(
 }
 
 function resolveSeriesTrend(
-  s: PerformanceChartSeriesV2,
+  s: StatementChartSeries,
   rows: SeriesRow[],
   periods: SeriesPeriod[],
   view: "quarters" | "years" | "months",
@@ -301,7 +301,7 @@ export function performanceChartSeriesMonthsNeeded(view: string): number {
  * Données du graphique Performance (v2) : points dynamiques + métadonnées par série.
  */
 export function buildPerformanceChartData(
-  config: PerformanceChartConfigV2,
+  config: StatementChartConfig,
   rows: SeriesRow[],
   periods: SeriesPeriod[],
   view: string,
