@@ -129,14 +129,6 @@ export default function CompanyLinkCodesPage() {
                   <div className="absolute bottom-0 left-0 right-0 z-10 h-0.5 bg-[#E0742D]" />
                 </div>
                 <Link
-                  href={`/settings/companies/${companyId}/financial-statements-mapping`}
-                  className="relative border-b border-slate-600/30 pb-4"
-                >
-                  <span className="text-sm font-normal text-slate-200 transition-colors hover:text-[#E6D6C3]">
-                    Mapping états financiers
-                  </span>
-                </Link>
-                <Link
                   href={`/settings/companies/${companyId}/trial-balance`}
                   className="relative border-b border-slate-600/30 pb-4"
                 >
@@ -169,7 +161,7 @@ export default function CompanyLinkCodesPage() {
                         Ces codes proviennent de la structure « Compte de résultat » (Income statement — liaisons
                         simples, additions et différences). La colonne Provenance indique l’état concerné (ici
                         Résultats). Colonne Sommaire : titre du bloc d’annexe (ex. A → Revenus). Colonne Détail : libellé
-                        du poste (sans préfixe « Annexe »). Pour modifier la structure, utilisez Mapping états financiers.
+                        du poste (sans préfixe « Annexe »).
                       </p>
                     </div>
                   </div>
@@ -194,8 +186,7 @@ export default function CompanyLinkCodesPage() {
                     {rows.length === 0 ? (
                       <tr>
                         <td colSpan={4} className="px-8 py-12 text-center text-sm text-slate-500">
-                          Aucun code de liaison trouvé dans les structures du compte de résultat ou du bilan. Définissez
-                          ou importez une structure depuis Mapping états financiers.
+                          Aucun code de liaison trouvé dans les structures du compte de résultat ou du bilan.
                         </td>
                       </tr>
                     ) : (

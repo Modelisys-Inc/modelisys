@@ -623,14 +623,6 @@ export default function CompanyMappingPage() {
                   </span>
                 </Link>
                 <Link
-                  href={`/settings/companies/${companyId}/financial-statements-mapping`}
-                  className="relative pb-4 border-b border-slate-600/30"
-                >
-                  <span className="text-sm font-normal transition-colors text-slate-200 hover:text-[#E6D6C3]">
-                    Mapping états financiers
-                  </span>
-                </Link>
-                <Link
                   href={`/settings/companies/${companyId}/trial-balance`}
                   className="relative pb-4 border-b border-slate-600/30"
                 >
@@ -726,8 +718,8 @@ export default function CompanyMappingPage() {
                     ? "Un compte a un code de liaison sans groupe identifiable"
                     : `${mappingIncompleteGroupeCount} comptes ont un code de liaison sans groupe identifiable`}
                   {" "}
-                  (colonne Groupe). Complétez les structures compte de résultat et bilan (Sommaire / liaisons) dans
-                  Mapping états financiers pour affecter un groupe à ces codes.
+                  (colonne Groupe). Vérifiez que ces codes de liaison existent dans les structures compte de résultat
+                  et bilan de la société.
                 </p>
               )}
               {mappingSearch.trim() && accounts.length > 0 && (
