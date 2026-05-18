@@ -13,6 +13,7 @@ from app.models.note import Note
 from app.models.projection import Projection, ProjectionAdjustment, Loan
 from app.models.budget import Budget, BudgetEntry
 from app.models.quickbooks_connection import QuickBooksConnection
+from app.models.statement_chart_config import StatementChartConfig
 
 __all__ = [
     "User",
@@ -42,4 +43,5 @@ __all__ = [
     "Budget",
     "BudgetEntry",
     "QuickBooksConnection",
+    "StatementChartConfig",
 ]
