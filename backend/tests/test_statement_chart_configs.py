@@ -332,3 +332,48 @@ def test_put_lost_update_race_returns_409(client, auth_headers, db):
     # And confirm the on-disk config was NOT overwritten by the failed race.
     re_read = _default_slot(client, auth_headers, company_id_str)
     assert re_read["config"]["chartTitle"] != "race attempt"
+
+
+# --- DELETE ---
+
+
+def test_delete_non_default_slot(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    _default_slot(client, auth_headers, company_id)
+    new_slot = client.post(
+        f"/api/companies/{company_id}/statement-chart-configs?statement_type=income-statement",
+        headers=auth_headers,
+    ).json()
+    response = client.delete(
+        f"/api/companies/{company_id}/statement-chart-configs/{new_slot['chart_instance_id']}?statement_type=income-statement",
+        headers=auth_headers,
+    )
+    assert response.status_code == 204
+
+    listed = client.get(
+        f"/api/companies/{company_id}/statement-chart-configs?statement_type=income-statement",
+        headers=auth_headers,
+    ).json()
+    assert len(listed["slots"]) == 1
+    assert listed["slots"][0]["chart_instance_id"] == "default"
+
+
+def test_delete_default_slot_returns_400(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    _default_slot(client, auth_headers, company_id)
+    response = client.delete(
+        f"/api/companies/{company_id}/statement-chart-configs/default?statement_type=income-statement",
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+
+
+def test_delete_unknown_slot_returns_404(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    _default_slot(client, auth_headers, company_id)
+    bogus = str(uuid.uuid4())
+    response = client.delete(
+        f"/api/companies/{company_id}/statement-chart-configs/{bogus}?statement_type=income-statement",
+        headers=auth_headers,
+    )
+    assert response.status_code == 404

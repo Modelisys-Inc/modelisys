@@ -1,7 +1,7 @@
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -215,3 +215,36 @@ def update_chart_slot(
     db.expire(row)
     db.refresh(row)
     return _row_to_response(db, row)
+
+
+@router.delete("/{chart_instance_id}", status_code=204)
+def delete_chart_slot(
+    company_id: uuid.UUID,
+    chart_instance_id: str,
+    statement_type: StatementTypeQuery = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    verify_company_access(db, current_user, company_id)
+
+    if chart_instance_id == "default":
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete the default chart slot",
+        )
+
+    row = (
+        db.query(StatementChartConfig)
+        .filter(
+            StatementChartConfig.company_id == company_id,
+            StatementChartConfig.statement_type == statement_type,
+            StatementChartConfig.chart_instance_id == chart_instance_id,
+        )
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="Chart slot not found")
+
+    db.delete(row)
+    db.commit()
+    return Response(status_code=204)
