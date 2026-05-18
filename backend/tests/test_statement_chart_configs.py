@@ -377,3 +377,47 @@ def test_delete_unknown_slot_returns_404(client, auth_headers):
         headers=auth_headers,
     )
     assert response.status_code == 404
+
+
+# --- Multi-tenant isolation ---
+
+
+def _register_user(client, email="other@example.com", org_name="Other Org"):
+    response = client.post(
+        "/api/auth/register",
+        json={
+            "email": email,
+            "password": "TestPassword123",
+            "full_name": "Other User",
+            "organization_name": org_name,
+        },
+    )
+    assert response.status_code == 201
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+def test_other_org_cannot_read_chart_configs(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    _default_slot(client, auth_headers, company_id)
+
+    other_headers = _register_user(client)
+    response = client.get(
+        f"/api/companies/{company_id}/statement-chart-configs?statement_type=income-statement",
+        headers=other_headers,
+    )
+    assert response.status_code == 404  # verify_company_access raises 404
+
+
+def test_other_org_cannot_write_chart_configs(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    slot = _default_slot(client, auth_headers, company_id)
+    other_headers = _register_user(client)
+
+    edited = dict(slot["config"])
+    edited["chartTitle"] = "Hijack attempt"
+    response = client.put(
+        f"/api/companies/{company_id}/statement-chart-configs/{slot['chart_instance_id']}?statement_type=income-statement",
+        json={"version": slot["version"], "config": edited},
+        headers=other_headers,
+    )
+    assert response.status_code == 404
