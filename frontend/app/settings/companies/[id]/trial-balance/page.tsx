@@ -541,14 +541,6 @@ export default function TrialBalancePage() {
                     Code de liaison
                   </span>
                 </Link>
-                <Link
-                  href={`/settings/companies/${companyId}/financial-statements-mapping`}
-                  className="relative pb-4 border-b border-slate-600/30"
-                >
-                  <span className="text-sm font-normal transition-colors text-slate-200 hover:text-[#E6D6C3]">
-                    Mapping états financiers
-                  </span>
-                </Link>
                 <div className="relative pb-4 border-b border-slate-600/30">
                   <span className="text-sm font-normal transition-colors text-slate-200 hover:text-[#E6D6C3]">
                     Balance de vérification
