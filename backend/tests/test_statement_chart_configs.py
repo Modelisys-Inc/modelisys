@@ -84,3 +84,40 @@ def test_list_unknown_company_returns_404(client, auth_headers):
         headers=auth_headers,
     )
     assert response.status_code == 404
+
+
+def test_list_concurrent_seed_does_not_500(client, auth_headers, db):
+    """If a concurrent request already inserted the default slot, the second seed
+    attempt must recover gracefully via the IntegrityError path."""
+    from app.models.statement_chart_config import StatementChartConfig
+    import uuid as _uuid
+
+    company_id_str = _create_company(client, auth_headers)
+    company_id = _uuid.UUID(company_id_str)
+
+    # Simulate the race: pre-insert the default row directly via the session,
+    # then call the endpoint. The endpoint will see zero rows under its own view
+    # only if the session is fresh — but in this test setup the route handler
+    # shares the same DB session as the test fixture, so we simulate the race
+    # by inserting via the test session BEFORE the route runs its query. The
+    # route's "no rows" check will then evaluate AFTER the insert, so the
+    # IntegrityError path won't trigger here — instead the route's first query
+    # already finds the row and skips seeding entirely. To force the race,
+    # we exercise the seed path by first GETting (which seeds), then we delete
+    # the row mid-request? That's not feasible in a single-process test.
+    #
+    # Practical approach: directly exercise `_seed_default_slot` twice — the
+    # second call hits the IntegrityError branch and recovers.
+    from app.routers.statement_chart_configs import _seed_default_slot
+    from app.models.user import User
+
+    user = db.query(User).first()
+    assert user is not None
+
+    first = _seed_default_slot(db, company_id, "income-statement", user)
+    assert first.chart_instance_id == "default"
+
+    # Second call: should NOT raise; should return the existing row.
+    second = _seed_default_slot(db, company_id, "income-statement", user)
+    assert second.chart_instance_id == "default"
+    assert second.id == first.id  # same row, recovered via IntegrityError path

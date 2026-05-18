@@ -2,6 +2,7 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -58,9 +59,23 @@ def _seed_default_slot(
         updated_by_user_id=user.id,
     )
     db.add(row)
-    db.commit()
-    db.refresh(row)
-    return row
+    try:
+        db.commit()
+        db.refresh(row)
+        return row
+    except IntegrityError:
+        # Concurrent GET inserted the default slot first; fetch the winning row.
+        db.rollback()
+        existing = (
+            db.query(StatementChartConfig)
+            .filter(
+                StatementChartConfig.company_id == company_id,
+                StatementChartConfig.statement_type == statement_type,
+                StatementChartConfig.chart_instance_id == "default",
+            )
+            .one()
+        )
+        return existing
 
 
 @router.get("", response_model=ChartSlotListResponse)
