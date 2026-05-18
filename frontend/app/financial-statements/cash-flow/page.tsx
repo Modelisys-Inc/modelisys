@@ -99,6 +99,16 @@ export default function CashFlowPage() {
     }
   }, [view, period, comparisonType])
 
+  // Tableau de bord : limiter aux horizons Mensuel (12 mois), Trimestriel 2 ans, Annuel 5 ans.
+  useEffect(() => {
+    if (section !== "dashboard") return
+    const allowed = view === "12months" || view === "quarters" || view === "years"
+    if (!allowed) {
+      setView("12months")
+      setColumnMode("variations")
+    }
+  }, [section, view])
+
   // --- Fetch financial statement data from the API ---
   const [rows, setRows] = useState<FinancialStatementRow[]>([])
   const [loading, setLoading] = useState(false)
