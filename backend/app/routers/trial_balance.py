@@ -6,11 +6,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.models.account_mapping import AccountMapping
 from app.models.company import Company
 from app.models.trial_balance import ChartOfAccount, TrialBalanceEntry
-from app.models.user import User, UserOrganization
+from app.models.user import User
 from app.schemas.trial_balance import (
     TrialBalanceAccountResponse,
     TrialBalanceEntryUpsert,
@@ -54,39 +54,6 @@ def _mapping_by_trimmed_number(
         if k and k not in out:
             out[k] = row
     return out
-
-
-def _get_or_create_chart_for_mapped_account(
-    db: Session,
-    company_id: uuid.UUID,
-    account_number_trim: str,
-    m_map: dict[str, AccountMapping] | None = None,
-) -> ChartOfAccount | None:
-    """Plan comptable uniquement pour un # présent dans le mapping comptable (libellé = mapping)."""
-    if m_map is None:
-        m_map = _mapping_by_trimmed_number(db, company_id)
-    m = m_map.get(account_number_trim)
-    if not m:
-        return None
-    account = (
-        db.query(ChartOfAccount)
-        .filter(
-            ChartOfAccount.company_id == company_id,
-            ChartOfAccount.account_number == account_number_trim,
-        )
-        .first()
-    )
-    if not account:
-        account = ChartOfAccount(
-            company_id=company_id,
-            account_number=account_number_trim,
-            account_name=m.description,
-        )
-        db.add(account)
-        db.flush()
-    else:
-        account.account_name = m.description
-    return account
 
 
 def _excel_account_number_str(raw) -> str:
@@ -193,16 +160,6 @@ def _unknown_accounts_preview(
     ]
 
 
-def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    memberships = db.query(UserOrganization).filter(UserOrganization.user_id == user.id).all()
-    org_ids = {m.organization_id for m in memberships}
-
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or company.organization_id not in org_ids:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return company
-
-
 @router.get("", response_model=TrialBalanceResponse)
 def get_trial_balance(
     company_id: uuid.UUID,
@@ -210,7 +167,7 @@ def get_trial_balance(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
 
     if fiscal_year is None:
         # Default to the most recent fiscal year that has any entries for this company.
@@ -283,7 +240,7 @@ def list_fiscal_years_with_trial_balance_data(
     db: Session = Depends(get_db),
 ):
     """Exercices fiscaux pour lesquels au moins une écriture de balance existe."""
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
     rows = (
         db.query(TrialBalanceEntry.fiscal_year)
         .filter(TrialBalanceEntry.company_id == company_id)
@@ -303,7 +260,7 @@ def delete_trial_balance_month(
     db: Session = Depends(get_db),
 ):
     """Supprime toutes les écritures de balance pour un mois donné (exercice + mois)."""
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
 
     db.query(TrialBalanceEntry).filter(
         TrialBalanceEntry.company_id == company_id,
@@ -324,39 +281,64 @@ def upsert_trial_balance(
     db: Session = Depends(get_db),
 ):
     """Bulk upsert montants : uniquement pour les # de compte présents dans le mapping comptable."""
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
 
     if fiscal_year is None:
         fiscal_year = datetime.now().year
 
     m_map = _mapping_by_trimmed_number(db, company_id)
+    chart_by_number: dict[str, ChartOfAccount] = {
+        (c.account_number or "").strip(): c
+        for c in db.query(ChartOfAccount)
+        .filter(ChartOfAccount.company_id == company_id)
+        .all()
+    }
+
+    new_charts: list[ChartOfAccount] = []
     for entry in entries:
         an = (entry.account_number or "").strip()
-        account = _get_or_create_chart_for_mapped_account(db, company_id, an, m_map)
+        m = m_map.get(an)
+        if not m:
+            continue
+        account = chart_by_number.get(an)
+        if account is None:
+            account = ChartOfAccount(
+                company_id=company_id,
+                account_number=an,
+                account_name=m.description,
+            )
+            chart_by_number[an] = account
+            new_charts.append(account)
+        else:
+            account.account_name = m.description
+    if new_charts:
+        db.add_all(new_charts)
+        db.flush()
+
+    existing_entries: dict[tuple[uuid.UUID, int], TrialBalanceEntry] = {
+        (e.account_id, e.month): e
+        for e in db.query(TrialBalanceEntry).filter(
+            TrialBalanceEntry.company_id == company_id,
+            TrialBalanceEntry.fiscal_year == fiscal_year,
+        ).all()
+    }
+
+    new_entries: list[TrialBalanceEntry] = []
+    for entry in entries:
+        an = (entry.account_number or "").strip()
+        account = chart_by_number.get(an)
         if account is None:
             continue
-
-        # Upsert monthly amounts
         for month_name, amount in entry.monthly_amounts.items():
             try:
                 month_num = MONTHS_FR.index(month_name) + 1
             except ValueError:
                 continue
-
-            existing = (
-                db.query(TrialBalanceEntry)
-                .filter(
-                    TrialBalanceEntry.company_id == company_id,
-                    TrialBalanceEntry.account_id == account.id,
-                    TrialBalanceEntry.fiscal_year == fiscal_year,
-                    TrialBalanceEntry.month == month_num,
-                )
-                .first()
-            )
+            existing = existing_entries.get((account.id, month_num))
             if existing:
                 existing.amount = amount
             else:
-                db.add(
+                new_entries.append(
                     TrialBalanceEntry(
                         company_id=company_id,
                         account_id=account.id,
@@ -365,6 +347,8 @@ def upsert_trial_balance(
                         amount=amount,
                     )
                 )
+    if new_entries:
+        db.add_all(new_entries)
 
     db.commit()
 
@@ -382,7 +366,7 @@ async def preview_upload_trial_balance(
     db: Session = Depends(get_db),
 ):
     """Analyse le fichier sans écrire en base : somme des montants, comptes absents du mapping."""
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
 
     if fiscal_year is None:
         fiscal_year = datetime.now().year
@@ -422,7 +406,7 @@ async def upload_trial_balance(
 ):
     """Import Excel : # de compte, Description, Montant — somme = 0 requise ; tous les comptes du fichier
     doivent être dans le mapping comptable (dernière ligne l’emporte si doublon de compte)."""
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
 
     if fiscal_year is None:
         fiscal_year = datetime.now().year
@@ -461,25 +445,53 @@ async def upload_trial_balance(
     for acc, _desc, amt in parsed_rows:
         last_by_account[acc.strip()] = amt
 
+    chart_by_number: dict[str, ChartOfAccount] = {
+        (c.account_number or "").strip(): c
+        for c in db.query(ChartOfAccount)
+        .filter(ChartOfAccount.company_id == company_id)
+        .all()
+    }
+
+    new_charts: list[ChartOfAccount] = []
+    for acc in last_by_account:
+        m = m_map.get(acc)
+        if not m:
+            continue
+        account = chart_by_number.get(acc)
+        if account is None:
+            account = ChartOfAccount(
+                company_id=company_id,
+                account_number=acc,
+                account_name=m.description,
+            )
+            chart_by_number[acc] = account
+            new_charts.append(account)
+        else:
+            account.account_name = m.description
+    if new_charts:
+        db.add_all(new_charts)
+        db.flush()
+
+    existing_entries: dict[uuid.UUID, TrialBalanceEntry] = {
+        e.account_id: e
+        for e in db.query(TrialBalanceEntry).filter(
+            TrialBalanceEntry.company_id == company_id,
+            TrialBalanceEntry.fiscal_year == fiscal_year,
+            TrialBalanceEntry.month == month,
+        ).all()
+    }
+
     count = 0
+    new_entries: list[TrialBalanceEntry] = []
     for acc, amt in last_by_account.items():
-        account = _get_or_create_chart_for_mapped_account(db, company_id, acc, m_map)
+        account = chart_by_number.get(acc)
         if account is None:
             continue
-        existing = (
-            db.query(TrialBalanceEntry)
-            .filter(
-                TrialBalanceEntry.company_id == company_id,
-                TrialBalanceEntry.account_id == account.id,
-                TrialBalanceEntry.fiscal_year == fiscal_year,
-                TrialBalanceEntry.month == month,
-            )
-            .first()
-        )
+        existing = existing_entries.get(account.id)
         if existing:
             existing.amount = amt
         else:
-            db.add(
+            new_entries.append(
                 TrialBalanceEntry(
                     company_id=company_id,
                     account_id=account.id,
@@ -489,6 +501,8 @@ async def upload_trial_balance(
                 )
             )
         count += 1
+    if new_entries:
+        db.add_all(new_entries)
 
     db.commit()
 

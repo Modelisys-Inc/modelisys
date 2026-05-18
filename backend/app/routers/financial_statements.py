@@ -5,10 +5,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy import exists, func
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.models.company import Company
 from app.models.trial_balance import TrialBalanceEntry
-from app.models.user import User, UserOrganization
+from app.models.user import User
 from app.schemas.financial_statement import (
     FinancialStatementResponse,
     FinancialStatementSeriesResponse,
@@ -40,16 +40,6 @@ def _convert_calendar_to_fiscal(company: Company, calendar_year: int, calendar_m
     return _calendar_to_fiscal_date(calendar_year, calendar_month, fy_end_month)
 
 
-def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    memberships = db.query(UserOrganization).filter(UserOrganization.user_id == user.id).all()
-    org_ids = {m.organization_id for m in memberships}
-
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or company.organization_id not in org_ids:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return company
-
-
 @router.get("/income-statement", response_model=FinancialStatementResponse)
 def get_income_statement(
     company_id: uuid.UUID,
@@ -65,7 +55,7 @@ def get_income_statement(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     fy, fm = _convert_calendar_to_fiscal(company, fiscal_year, month)
     return compute_financial_statement(
         db, company, "income-statement", fy, fm,
@@ -89,7 +79,7 @@ def get_balance_sheet(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
 
     # If there is no trial balance import for this exact reference date (calendar year + month),
     # OR if the imported entries are effectively all zeros, do NOT "carry forward" balances.
@@ -160,7 +150,7 @@ def get_cash_flow(
     For now, we treat it as a separate statement structure type that can be
     configured per company, similar to income-statement and balance-sheet.
     """
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     fy, fm = _convert_calendar_to_fiscal(company, fiscal_year, month)
     return compute_financial_statement(
         db, company, "cash-flow", fy, fm,
@@ -176,7 +166,7 @@ def get_summary_series(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     return compute_summary_series(db, company, fiscal_year)
 
 
@@ -188,7 +178,7 @@ def get_summary_metrics(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     fy, fm = _convert_calendar_to_fiscal(company, fiscal_year, month)
     return compute_summary_metrics(db, company, fy, fm)
 
@@ -207,7 +197,7 @@ def get_financial_statement_series(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     fy, fm = _convert_calendar_to_fiscal(company, fiscal_year, month)
     return compute_financial_statement_series(
         db, company, statement_type, fy, fm, months,

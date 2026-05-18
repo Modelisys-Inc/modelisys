@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.models.business_risk import BusinessRisk
 from app.models.company import Company
-from app.models.user import User, UserOrganization
+from app.models.user import User
 from app.schemas.business_risk import (
     BusinessRiskCreate,
     BusinessRiskListResponse,
@@ -18,16 +18,6 @@ from app.schemas.business_risk import (
 router = APIRouter(prefix="/api/companies/{company_id}/business-risks", tags=["business-risks"])
 
 
-def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    memberships = db.query(UserOrganization).filter(UserOrganization.user_id == user.id).all()
-    org_ids = {m.organization_id for m in memberships}
-
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or company.organization_id not in org_ids:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return company
-
-
 @router.get("", response_model=BusinessRiskListResponse)
 def list_business_risks(
     company_id: uuid.UUID,
@@ -35,7 +25,7 @@ def list_business_risks(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     query = db.query(BusinessRisk).filter(
         BusinessRisk.organization_id == company.organization_id,
         BusinessRisk.company_id == company_id,
@@ -53,7 +43,7 @@ def create_business_risk(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     risk = BusinessRisk(
         organization_id=company.organization_id,
         company_id=company_id,
@@ -80,7 +70,7 @@ def bulk_upsert_business_risks(
     db: Session = Depends(get_db),
 ):
     """Bulk upsert business risks. Matches on risk_id within the company."""
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
 
     existing = (
         db.query(BusinessRisk)
@@ -138,7 +128,7 @@ def update_business_risk(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     risk = (
         db.query(BusinessRisk)
         .filter(
@@ -174,7 +164,7 @@ def delete_business_risk(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     risk = (
         db.query(BusinessRisk)
         .filter(

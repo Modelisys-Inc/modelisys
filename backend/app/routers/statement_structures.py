@@ -7,10 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.models.company import Company
 from app.models.financial_statement_mapping import CompanyStatementStructure
-from app.models.user import User, UserOrganization
+from app.models.user import User
 from app.schemas.statement_structure import (
     StatementStructureListResponse,
     StatementStructureResponse,
@@ -73,23 +73,13 @@ DEFAULT_INCOME_STATEMENT = [
 ]
 
 
-def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    memberships = db.query(UserOrganization).filter(UserOrganization.user_id == user.id).all()
-    org_ids = {m.organization_id for m in memberships}
-
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or company.organization_id not in org_ids:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return company
-
-
 @router.get("/statement-structures", response_model=StatementStructureListResponse)
 def list_statement_structures(
     company_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
     structures = (
         db.query(CompanyStatementStructure)
         .filter(CompanyStatementStructure.company_id == company_id)
@@ -109,7 +99,7 @@ def get_statement_structure(
     if statement_type not in VALID_STATEMENT_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid statement type: {statement_type}")
 
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
 
     structure = (
         db.query(CompanyStatementStructure)
@@ -153,7 +143,7 @@ def upsert_statement_structure(
     if statement_type not in VALID_STATEMENT_TYPES:
         raise HTTPException(status_code=400, detail=f"Invalid statement type: {statement_type}")
 
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
 
     to_store = request.structure
     if statement_type == "income-statement":
@@ -393,7 +383,7 @@ async def import_csv_statement_structure(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
 
     content = await file.read()
 
