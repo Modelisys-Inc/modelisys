@@ -121,3 +121,60 @@ def test_list_concurrent_seed_does_not_500(client, auth_headers, db):
     second = _seed_default_slot(db, company_id, "income-statement", user)
     assert second.chart_instance_id == "default"
     assert second.id == first.id  # same row, recovered via IntegrityError path
+
+
+# --- POST create new slot ---
+
+
+def test_post_creates_additional_slot_after_default(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    # First seed the default
+    client.get(
+        f"/api/companies/{company_id}/statement-chart-configs?statement_type=income-statement",
+        headers=auth_headers,
+    )
+    response = client.post(
+        f"/api/companies/{company_id}/statement-chart-configs?statement_type=income-statement",
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["chart_instance_id"] != "default"
+    assert body["slot_index"] == 1
+    assert body["version"] == 1
+    assert body["config"]["chartTitle"] == "Performance financière"
+
+
+def test_post_seeds_default_first_if_empty(client, auth_headers):
+    """POST on a fresh dashboard creates BOTH the default and a second slot."""
+    company_id = _create_company(client, auth_headers)
+    response = client.post(
+        f"/api/companies/{company_id}/statement-chart-configs?statement_type=balance-sheet",
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    listed = client.get(
+        f"/api/companies/{company_id}/statement-chart-configs?statement_type=balance-sheet",
+        headers=auth_headers,
+    ).json()
+    assert len(listed["slots"]) == 2
+    assert listed["slots"][0]["chart_instance_id"] == "default"
+    assert listed["slots"][1]["slot_index"] == 1
+
+
+def test_post_third_slot_uses_next_index(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    client.get(
+        f"/api/companies/{company_id}/statement-chart-configs?statement_type=cash-flow",
+        headers=auth_headers,
+    )
+    client.post(
+        f"/api/companies/{company_id}/statement-chart-configs?statement_type=cash-flow",
+        headers=auth_headers,
+    )
+    response = client.post(
+        f"/api/companies/{company_id}/statement-chart-configs?statement_type=cash-flow",
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    assert response.json()["slot_index"] == 2

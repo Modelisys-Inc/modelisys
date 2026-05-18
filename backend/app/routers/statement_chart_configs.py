@@ -101,3 +101,44 @@ def list_chart_slots(
     return ChartSlotListResponse(
         slots=[_row_to_response(db, r) for r in rows]
     )
+
+
+@router.post("", response_model=ChartSlotResponse, status_code=201)
+def add_chart_slot(
+    company_id: uuid.UUID,
+    statement_type: StatementTypeQuery = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    verify_company_access(db, current_user, company_id)
+
+    # Ensure default slot exists first so slot_index numbering is contiguous.
+    existing = (
+        db.query(StatementChartConfig)
+        .filter(
+            StatementChartConfig.company_id == company_id,
+            StatementChartConfig.statement_type == statement_type,
+        )
+        .order_by(StatementChartConfig.slot_index.desc())
+        .all()
+    )
+    if not existing:
+        _seed_default_slot(db, company_id, statement_type, current_user)
+        next_index = 1
+    else:
+        next_index = existing[0].slot_index + 1
+
+    new_id = str(uuid.uuid4())
+    row = StatementChartConfig(
+        company_id=company_id,
+        statement_type=statement_type,
+        chart_instance_id=new_id,
+        slot_index=next_index,
+        version=1,
+        config_json=seed_default_chart_config(statement_type),  # type: ignore[arg-type]
+        updated_by_user_id=current_user.id,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _row_to_response(db, row)
