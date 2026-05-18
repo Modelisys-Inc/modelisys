@@ -8,7 +8,6 @@ arbitrary dicts and re-validated when the frontend reads them.
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from typing import Literal
 
@@ -37,6 +36,8 @@ class ChartSeriesSpec(BaseModel):
 
 class ChartConfigPayload(BaseModel):
     """Body of a V2 chart config stored in `config_json`."""
+
+    model_config = ConfigDict(extra="allow")
 
     version: Literal[2] = 2
     chartTitle: str = Field(..., min_length=0, max_length=200)
