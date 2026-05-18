@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.models.company import Company
 from app.models.note import Note
-from app.models.user import User, UserOrganization
+from app.models.user import User
 from app.schemas.note import (
     NoteAttachmentResponse,
     NoteCreate,
@@ -62,16 +62,6 @@ def _note_to_response(db: Session, note: Note) -> NoteResponse:
     )
 
 
-def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    memberships = db.query(UserOrganization).filter(UserOrganization.user_id == user.id).all()
-    org_ids = {m.organization_id for m in memberships}
-
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or company.organization_id not in org_ids:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return company
-
-
 @router.get("", response_model=NoteListResponse)
 def list_notes(
     company_id: uuid.UUID,
@@ -88,7 +78,7 @@ def list_notes(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     query = db.query(Note).filter(
         Note.organization_id == company.organization_id,
         Note.company_id == company_id,
@@ -133,7 +123,7 @@ def create_note(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     ref_m, ref_y, fy_val = request.reference_month, request.reference_year, None
     if ref_m is not None and ref_y is not None:
         fy_val = fiscal_year_label(ref_m, ref_y, company.fiscal_year_end)
@@ -179,7 +169,7 @@ def update_note(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     note = (
         db.query(Note)
         .filter(
@@ -230,7 +220,7 @@ def delete_note(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     note = (
         db.query(Note)
         .filter(

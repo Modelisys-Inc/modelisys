@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.models.company import Company
 from app.models.projection import Loan, Projection, ProjectionAdjustment
-from app.models.user import User, UserOrganization
+from app.models.user import User
 from app.schemas.projection import (
     LoanCreate,
     LoanResponse,
@@ -23,16 +23,6 @@ from app.schemas.projection import (
 from app.services.projection_compute import ProjectionComputeService
 
 router = APIRouter(prefix="/api/companies/{company_id}/projections", tags=["projections"])
-
-
-def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    memberships = db.query(UserOrganization).filter(UserOrganization.user_id == user.id).all()
-    org_ids = {m.organization_id for m in memberships}
-
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or company.organization_id not in org_ids:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return company
 
 
 def _get_projection_or_404(
@@ -62,7 +52,7 @@ def list_projections(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     query = db.query(Projection).filter(
         Projection.organization_id == company.organization_id,
         Projection.company_id == company_id,
@@ -85,7 +75,7 @@ def create_projection(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     projection = Projection(
         organization_id=company.organization_id,
         company_id=company_id,
@@ -109,7 +99,7 @@ def get_projection(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     return _get_projection_or_404(db, company, projection_id)
 
 
@@ -121,7 +111,7 @@ def update_projection(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     projection = _get_projection_or_404(db, company, projection_id)
 
     if request.name is not None:
@@ -143,7 +133,7 @@ def delete_projection(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     projection = _get_projection_or_404(db, company, projection_id)
     db.delete(projection)
     db.commit()
@@ -158,7 +148,7 @@ def compute_projection(
     db: Session = Depends(get_db),
 ):
     """Compute projected summary metrics for all years of a projection."""
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     projection = _get_projection_or_404(db, company, projection_id)
 
     if base_fiscal_year is None:
@@ -182,7 +172,7 @@ def create_adjustment(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     _get_projection_or_404(db, company, projection_id)
 
     adjustment = ProjectionAdjustment(
@@ -213,7 +203,7 @@ def bulk_upsert_adjustments(
     db: Session = Depends(get_db),
 ):
     """Replace all adjustments for a projection."""
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     projection = _get_projection_or_404(db, company, projection_id)
 
     # Delete existing adjustments
@@ -249,7 +239,7 @@ def delete_adjustment(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     _get_projection_or_404(db, company, projection_id)
 
     adjustment = (
@@ -280,7 +270,7 @@ def create_loan(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     _get_projection_or_404(db, company, projection_id)
 
     loan = Loan(
@@ -311,7 +301,7 @@ def bulk_upsert_loans(
     db: Session = Depends(get_db),
 ):
     """Replace all loans for a projection."""
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     projection = _get_projection_or_404(db, company, projection_id)
 
     db.query(Loan).filter(Loan.projection_id == projection_id).delete()
@@ -344,7 +334,7 @@ def delete_loan(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     _get_projection_or_404(db, company, projection_id)
 
     loan = (

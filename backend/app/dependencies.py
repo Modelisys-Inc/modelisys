@@ -5,7 +5,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.user import User
+from app.models.company import Company
+from app.models.user import User, UserOrganization
 from app.utils.security import decode_token
 
 security = HTTPBearer()
@@ -39,3 +40,21 @@ def get_current_user(
         )
 
     return user
+
+
+def verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:
+    company = (
+        db.query(Company)
+        .join(
+            UserOrganization,
+            UserOrganization.organization_id == Company.organization_id,
+        )
+        .filter(
+            Company.id == company_id,
+            UserOrganization.user_id == user.id,
+        )
+        .first()
+    )
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+    return company

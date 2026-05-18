@@ -4,26 +4,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.models.company import Company
 from app.models.exchange_rate import ExchangeRate
-from app.models.user import User, UserOrganization
+from app.models.user import User
 from app.schemas.exchange_rate import (
     ExchangeRateListResponse,
     ExchangeRateUpsert,
 )
 
 router = APIRouter(prefix="/api/companies/{company_id}/exchange-rates", tags=["exchange-rates"])
-
-
-def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    memberships = db.query(UserOrganization).filter(UserOrganization.user_id == user.id).all()
-    org_ids = {m.organization_id for m in memberships}
-
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or company.organization_id not in org_ids:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return company
 
 
 @router.get("", response_model=ExchangeRateListResponse)
@@ -33,7 +23,7 @@ def list_exchange_rates(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     query = db.query(ExchangeRate).filter(
         ExchangeRate.organization_id == company.organization_id,
     )
@@ -51,7 +41,7 @@ def upsert_exchange_rates(
     db: Session = Depends(get_db),
 ):
     """Upsert exchange rates. Matches on currency + fiscal_year within the organization."""
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
 
     for entry in entries:
         existing = (

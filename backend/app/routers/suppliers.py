@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.models.company import Company
 from app.models.supplier import Supplier
-from app.models.user import User, UserOrganization
+from app.models.user import User
 from app.schemas.supplier import (
     SupplierCreate,
     SupplierListResponse,
@@ -17,23 +17,13 @@ from app.schemas.supplier import (
 router = APIRouter(prefix="/api/companies/{company_id}/suppliers", tags=["suppliers"])
 
 
-def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    memberships = db.query(UserOrganization).filter(UserOrganization.user_id == user.id).all()
-    org_ids = {m.organization_id for m in memberships}
-
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or company.organization_id not in org_ids:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return company
-
-
 @router.get("", response_model=SupplierListResponse)
 def list_suppliers(
     company_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     suppliers = (
         db.query(Supplier)
         .filter(Supplier.company_id == company.id)
@@ -50,7 +40,7 @@ def create_supplier(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     supplier = Supplier(
         organization_id=company.organization_id,
         company_id=company.id,
@@ -71,7 +61,7 @@ def bulk_upsert_suppliers(
     db: Session = Depends(get_db),
 ):
     """Replace all suppliers for this company."""
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     db.query(Supplier).filter(Supplier.company_id == company.id).delete()
     new_suppliers = []
     for s in suppliers:
@@ -96,7 +86,7 @@ def delete_supplier(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     supplier = (
         db.query(Supplier)
         .filter(Supplier.id == supplier_id, Supplier.company_id == company.id)
