@@ -13,7 +13,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { getStatementStructure, saveStatementChartSlot, StaleVersionError } from "@/lib/api"
+import {
+  getStatementStructure,
+  saveStatementChartSlot,
+  StaleVersionError,
+  type StatementType as ApiStatementType,
+} from "@/lib/api"
 import {
   collectDistinctLinkCodesFromStructure,
   normalizeCodeList,
@@ -35,6 +40,12 @@ import { cn } from "@/lib/utils"
 import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react"
 
 const EMPTY_SELECT = "__empty__"
+
+function structureHintLabel(t: StatementType): string {
+  if (t === "income-statement") return "Sommaire du compte de résultat"
+  if (t === "balance-sheet") return "Sommaire du bilan"
+  return "Sommaire de la trésorerie"
+}
 
 function toggleCodeInList(list: string[], code: string, checked: boolean): string[] {
   const set = new Set(list)
@@ -89,6 +100,7 @@ export function ChartMetricSpecEditor({
   barSeriesOptions,
   currentSeriesId,
   embedded,
+  structureHintLabel: structureHintLabelProp,
 }: {
   spec: ChartMetricSpec
   onChange: (s: ChartMetricSpec) => void
@@ -99,6 +111,8 @@ export function ChartMetricSpecEditor({
   currentSeriesId?: string
   /** Bloc imbriqué (ex. bénéfice brut dans marge %) — style plus léger. */
   embedded?: boolean
+  /** Libellé de la vue Sommaire correspondant au type d'état (compte de résultat / bilan / trésorerie). */
+  structureHintLabel?: string
 }) {
   const mode = spec.type === "derivedMargin" ? "derivedMargin" : spec.type
   const codeOptions = allLinkCodes
@@ -199,6 +213,7 @@ export function ChartMetricSpecEditor({
               allLinkCodes={codeOptions}
               allowDerivedMargin={false}
               embedded
+              structureHintLabel={structureHintLabelProp}
             />
           </div>
         </div>
@@ -211,7 +226,7 @@ export function ChartMetricSpecEditor({
           </Label>
           {codeOptions.length === 0 ? (
             <p className="text-[11px] text-amber-700">
-              Aucun code disponible : définissez des liaisons dans Paramètres Sommaire du compte de résultat.
+              Aucun code disponible : définissez des liaisons dans Paramètres {structureHintLabelProp ?? "Sommaire"}.
             </p>
           ) : (
             <Select
@@ -357,7 +372,11 @@ export function StatementChartSettingsDialog({
     if (!open || !companyId) return
     let cancelled = false
     setLoadingCodes(true)
-    getStatementStructure(companyId, "income-statement")
+    // Cast: the dialog's StatementType ("income-statement" | "balance-sheet" | "cash-flow")
+    // is a runtime-valid subset of the backend route ("…" | "capex" | "baiia"), but the
+    // api.ts type union doesn't list "cash-flow". The backend accepts it (see
+    // VALID_STATEMENT_TYPES in statement_structures.py).
+    getStatementStructure(companyId, statementType as unknown as ApiStatementType)
       .then((data) => {
         if (cancelled) return
         setLinkCodes(collectDistinctLinkCodesFromStructure(data.structure ?? []))
@@ -371,7 +390,7 @@ export function StatementChartSettingsDialog({
     return () => {
       cancelled = true
     }
-  }, [open, companyId])
+  }, [open, companyId, statementType])
 
   const sortedCodes = useMemo(
     () => [...linkCodes].sort((a, b) => a.localeCompare(b, "fr", { numeric: true })),
@@ -381,9 +400,9 @@ export function StatementChartSettingsDialog({
   const hint = useMemo(() => {
     if (loadingCodes) return "Chargement des codes de liaison du Sommaire…"
     if (!sortedCodes.length)
-      return "Aucun code dans la structure : ouvrez Paramètres Sommaire du compte de résultat pour définir des liaisons."
+      return `Aucun code dans la structure : ouvrez Paramètres ${structureHintLabel(statementType)} pour définir des liaisons.`
     return `${sortedCodes.length} code${sortedCodes.length > 1 ? "s" : ""} disponible${sortedCodes.length > 1 ? "s" : ""} (même liste qu’au Sommaire).`
-  }, [sortedCodes, loadingCodes])
+  }, [sortedCodes, loadingCodes, statementType])
 
   const barOptions = useMemo(
     () => localConfig.series.filter((s) => s.kind === "bar").map((s) => ({ id: s.id, label: s.label })),
@@ -478,7 +497,7 @@ export function StatementChartSettingsDialog({
       >
         <div className="shrink-0 border-b border-slate-100/90 bg-white px-6 pb-4 pt-5 pr-14">
           <DialogHeader className="space-y-1.5 text-left">
-            <DialogTitle className="text-base font-semibold tracking-tight text-slate-900">Graphique Performance</DialogTitle>
+            <DialogTitle className="text-base font-semibold tracking-tight text-slate-900">{`Paramètres — ${defaultChartCardTitle(statementType)}`}</DialogTitle>
             <DialogDescription className="text-sm leading-snug text-slate-500">
               Même principe que le Sommaire : codes de liaison, puis affichage sur le graphique.
             </DialogDescription>
@@ -744,6 +763,7 @@ export function StatementChartSettingsDialog({
                     allowDerivedMargin={s.kind === "line"}
                     barSeriesOptions={barOptions.length ? barOptions : undefined}
                     currentSeriesId={s.id}
+                    structureHintLabel={structureHintLabel(statementType)}
                   />
                 </section>
               </div>
