@@ -13,31 +13,39 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { getStatementStructure } from "@/lib/api"
+import {
+  getStatementStructure,
+  saveStatementChartSlot,
+  StaleVersionError,
+  type StatementType as ApiStatementType,
+} from "@/lib/api"
 import {
   collectDistinctLinkCodesFromStructure,
   normalizeCodeList,
 } from "@/lib/income-statement-structure-utils"
-import type {
-  ChartValueFormat,
-  PerformanceChartConfigV2,
-  PerformanceChartSeriesV2,
-  PerformanceMetricSpec,
-} from "@/lib/performance-chart-config"
 import {
-  DEFAULT_PERFORMANCE_CHART_CONFIG,
   DEFAULT_COLORS,
-  DEFAULT_PERFORMANCE_CHART_CARD_TITLE,
+  defaultChartCardTitle,
   newSeriesId,
-  loadPerformanceChartConfig,
-  savePerformanceChartConfig,
-} from "@/lib/performance-chart-config"
+  type ChartMetricSpec,
+  type ChartSlot,
+  type ChartValueFormat,
+  type StatementChartConfig,
+  type StatementChartSeries,
+  type StatementType,
+} from "@/lib/statement-chart-config"
 import { ChartSeriesColorPicker } from "@/components/chart-series-color-picker"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react"
 
 const EMPTY_SELECT = "__empty__"
+
+function structureHintLabel(t: StatementType): string {
+  if (t === "income-statement") return "Sommaire du compte de résultat"
+  if (t === "balance-sheet") return "Sommaire du bilan"
+  return "Sommaire de la trésorerie"
+}
 
 function toggleCodeInList(list: string[], code: string, checked: boolean): string[] {
   const set = new Set(list)
@@ -83,7 +91,7 @@ function CodeCheckboxList({
   )
 }
 
-export function PerformanceMetricSpecEditor({
+export function ChartMetricSpecEditor({
   spec,
   onChange,
   idPrefix,
@@ -92,9 +100,10 @@ export function PerformanceMetricSpecEditor({
   barSeriesOptions,
   currentSeriesId,
   embedded,
+  structureHintLabel: structureHintLabelProp,
 }: {
-  spec: PerformanceMetricSpec
-  onChange: (s: PerformanceMetricSpec) => void
+  spec: ChartMetricSpec
+  onChange: (s: ChartMetricSpec) => void
   idPrefix: string
   allLinkCodes: string[]
   allowDerivedMargin?: boolean
@@ -102,6 +111,8 @@ export function PerformanceMetricSpecEditor({
   currentSeriesId?: string
   /** Bloc imbriqué (ex. bénéfice brut dans marge %) — style plus léger. */
   embedded?: boolean
+  /** Libellé de la vue Sommaire correspondant au type d'état (compte de résultat / bilan / trésorerie). */
+  structureHintLabel?: string
 }) {
   const mode = spec.type === "derivedMargin" ? "derivedMargin" : spec.type
   const codeOptions = allLinkCodes
@@ -195,13 +206,14 @@ export function PerformanceMetricSpecEditor({
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs font-medium text-slate-500">Bénéfice brut</Label>
-            <PerformanceMetricSpecEditor
+            <ChartMetricSpecEditor
               idPrefix={`${idPrefix}-gp`}
               spec={spec.grossProfitFromSpec}
               onChange={(grossProfitFromSpec) => onChange({ ...spec, grossProfitFromSpec })}
               allLinkCodes={codeOptions}
               allowDerivedMargin={false}
               embedded
+              structureHintLabel={structureHintLabelProp}
             />
           </div>
         </div>
@@ -214,7 +226,7 @@ export function PerformanceMetricSpecEditor({
           </Label>
           {codeOptions.length === 0 ? (
             <p className="text-[11px] text-amber-700">
-              Aucun code disponible : définissez des liaisons dans Paramètres Sommaire du compte de résultat.
+              Aucun code disponible : définissez des liaisons dans Paramètres {structureHintLabelProp ?? "Sommaire"}.
             </p>
           ) : (
             <Select
@@ -298,9 +310,9 @@ export function PerformanceMetricSpecEditor({
 }
 
 function patchSeriesAfterRemove(
-  series: PerformanceChartSeriesV2[],
+  series: StatementChartSeries[],
   removedId: string
-): PerformanceChartSeriesV2[] {
+): StatementChartSeries[] {
   const bars = series.filter((s) => s.kind === "bar" && s.id !== removedId).map((s) => s.id)
   const fallback = bars[0] ?? ""
   return series
@@ -320,32 +332,51 @@ function patchSeriesAfterRemove(
     })
 }
 
-export interface PerformanceChartSettingsDialogProps {
+interface StatementChartSettingsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  companyId: string | null | undefined
-  /** Stockage local distinct par graphique (défaut : graphique principal). */
-  chartInstanceId?: string
-  onSaved?: () => void
+  statementType: StatementType
+  companyId: string
+  slot: ChartSlot
+  /** Called after the parent should refetch slots (e.g., title change rename). */
+  onSaved: () => void
 }
 
-export function PerformanceChartSettingsDialog({
+export function StatementChartSettingsDialog({
   open,
   onOpenChange,
+  statementType,
   companyId,
-  chartInstanceId = "default",
+  slot,
   onSaved,
-}: PerformanceChartSettingsDialogProps) {
-  const [draft, setDraft] = useState<PerformanceChartConfigV2>(DEFAULT_PERFORMANCE_CHART_CONFIG)
+}: StatementChartSettingsDialogProps) {
+  const [localConfig, setLocalConfig] = useState<StatementChartConfig>(slot.config)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [staleConflict, setStaleConflict] = useState<{
+    currentVersion: number
+    currentConfig: StatementChartConfig
+    updatedByUserEmail: string | null
+    updatedAt: string
+  } | null>(null)
   const [linkCodes, setLinkCodes] = useState<string[]>([])
   const [loadingCodes, setLoadingCodes] = useState(false)
 
   useEffect(() => {
+    setLocalConfig(slot.config)
+    setStaleConflict(null)
+    setSaveError(null)
+  }, [slot.chartInstanceId, slot.version, open])
+
+  useEffect(() => {
     if (!open || !companyId) return
-    setDraft(loadPerformanceChartConfig(companyId, chartInstanceId))
     let cancelled = false
     setLoadingCodes(true)
-    getStatementStructure(companyId, "income-statement")
+    // Cast: the dialog's StatementType ("income-statement" | "balance-sheet" | "cash-flow")
+    // is a runtime-valid subset of the backend route ("…" | "capex" | "baiia"), but the
+    // api.ts type union doesn't list "cash-flow". The backend accepts it (see
+    // VALID_STATEMENT_TYPES in statement_structures.py).
+    getStatementStructure(companyId, statementType as unknown as ApiStatementType)
       .then((data) => {
         if (cancelled) return
         setLinkCodes(collectDistinctLinkCodesFromStructure(data.structure ?? []))
@@ -359,7 +390,7 @@ export function PerformanceChartSettingsDialog({
     return () => {
       cancelled = true
     }
-  }, [open, companyId, chartInstanceId])
+  }, [open, companyId, statementType])
 
   const sortedCodes = useMemo(
     () => [...linkCodes].sort((a, b) => a.localeCompare(b, "fr", { numeric: true })),
@@ -369,41 +400,54 @@ export function PerformanceChartSettingsDialog({
   const hint = useMemo(() => {
     if (loadingCodes) return "Chargement des codes de liaison du Sommaire…"
     if (!sortedCodes.length)
-      return "Aucun code dans la structure : ouvrez Paramètres Sommaire du compte de résultat pour définir des liaisons."
+      return `Aucun code dans la structure : ouvrez Paramètres ${structureHintLabel(statementType)} pour définir des liaisons.`
     return `${sortedCodes.length} code${sortedCodes.length > 1 ? "s" : ""} disponible${sortedCodes.length > 1 ? "s" : ""} (même liste qu’au Sommaire).`
-  }, [sortedCodes, loadingCodes])
+  }, [sortedCodes, loadingCodes, statementType])
 
   const barOptions = useMemo(
-    () => draft.series.filter((s) => s.kind === "bar").map((s) => ({ id: s.id, label: s.label })),
-    [draft.series]
+    () => localConfig.series.filter((s) => s.kind === "bar").map((s) => ({ id: s.id, label: s.label })),
+    [localConfig.series]
   )
 
-  const save = () => {
-    if (companyId) {
-      savePerformanceChartConfig(companyId, draft, chartInstanceId)
-      onSaved?.()
+  async function handleSave() {
+    setSaving(true)
+    setStaleConflict(null)
+    setSaveError(null)
+    try {
+      await saveStatementChartSlot(companyId, statementType, slot.chartInstanceId, {
+        version: slot.version,
+        config: localConfig,
+      })
+      onSaved()
+      onOpenChange(false)
+    } catch (e) {
+      if (e instanceof StaleVersionError) {
+        setStaleConflict({
+          currentVersion: e.currentVersion,
+          currentConfig: e.currentConfig,
+          updatedByUserEmail: e.updatedByUserEmail,
+          updatedAt: e.updatedAt,
+        })
+      } else {
+        setSaveError(e instanceof Error ? e.message : "Erreur lors de l'enregistrement")
+      }
+    } finally {
+      setSaving(false)
     }
-    onOpenChange(false)
-  }
-
-  const reset = () => {
-    setDraft(DEFAULT_PERFORMANCE_CHART_CONFIG)
-    if (companyId) savePerformanceChartConfig(companyId, DEFAULT_PERFORMANCE_CHART_CONFIG, chartInstanceId)
-    onSaved?.()
   }
 
   const addSeries = (kind: "bar" | "line") => {
-    const i = draft.series.length
-    const next: PerformanceChartSeriesV2 = {
+    const i = localConfig.series.length
+    const next: StatementChartSeries = {
       id: newSeriesId(),
       kind,
       label: kind === "bar" ? `Histogramme ${i + 1}` : `Courbe ${i + 1}`,
       spec:
         kind === "line"
-          ? draft.series.some((s) => s.kind === "bar")
+          ? localConfig.series.some((s) => s.kind === "bar")
             ? {
                 type: "derivedMargin",
-                revenueSeriesId: draft.series.find((s) => s.kind === "bar")!.id,
+                revenueSeriesId: localConfig.series.find((s) => s.kind === "bar")!.id,
                 grossProfitFromSpec: { type: "single", code: "" },
               }
             : { type: "single", code: "" }
@@ -414,11 +458,11 @@ export function PerformanceChartSettingsDialog({
       showInSidePanel: true,
       color: DEFAULT_COLORS[i % DEFAULT_COLORS.length],
     }
-    setDraft((d) => ({ ...d, series: [...d.series, next] }))
+    setLocalConfig((d) => ({ ...d, series: [...d.series, next] }))
   }
 
   const moveSeries = (index: number, dir: -1 | 1) => {
-    setDraft((d) => {
+    setLocalConfig((d) => {
       const next = [...d.series]
       const j = index + dir
       if (j < 0 || j >= next.length) return d
@@ -428,17 +472,17 @@ export function PerformanceChartSettingsDialog({
   }
 
   const removeSeries = (index: number) => {
-    const id = draft.series[index]?.id
+    const id = localConfig.series[index]?.id
     if (!id) return
-    setDraft((d) => ({ ...d, series: patchSeriesAfterRemove(d.series, id) }))
+    setLocalConfig((d) => ({ ...d, series: patchSeriesAfterRemove(d.series, id) }))
   }
 
-  const updateSeries = (index: number, patch: Partial<PerformanceChartSeriesV2>) => {
-    setDraft((d) => {
+  const updateSeries = (index: number, patch: Partial<StatementChartSeries>) => {
+    setLocalConfig((d) => {
       const next = [...d.series]
       const cur = next[index]
       if (!cur) return d
-      next[index] = { ...cur, ...patch } as PerformanceChartSeriesV2
+      next[index] = { ...cur, ...patch } as StatementChartSeries
       return { ...d, series: next }
     })
   }
@@ -453,7 +497,7 @@ export function PerformanceChartSettingsDialog({
       >
         <div className="shrink-0 border-b border-slate-100/90 bg-white px-6 pb-4 pt-5 pr-14">
           <DialogHeader className="space-y-1.5 text-left">
-            <DialogTitle className="text-base font-semibold tracking-tight text-slate-900">Graphique Performance</DialogTitle>
+            <DialogTitle className="text-base font-semibold tracking-tight text-slate-900">{`Paramètres — ${defaultChartCardTitle(statementType)}`}</DialogTitle>
             <DialogDescription className="text-sm leading-snug text-slate-500">
               Même principe que le Sommaire : codes de liaison, puis affichage sur le graphique.
             </DialogDescription>
@@ -461,6 +505,61 @@ export function PerformanceChartSettingsDialog({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          {staleConflict && (
+            <div className="mb-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-medium">
+                Quelqu'un d'autre a modifié ce graphique pendant que vous l'éditiez
+                {staleConflict.updatedByUserEmail ? ` (${staleConflict.updatedByUserEmail})` : ""}
+                . Vos modifications n'ont pas été enregistrées.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setLocalConfig(staleConflict.currentConfig)
+                    setStaleConflict(null)
+                  }}
+                >
+                  Recharger
+                </Button>
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={async () => {
+                    setSaving(true)
+                    try {
+                      await saveStatementChartSlot(
+                        companyId,
+                        statementType,
+                        slot.chartInstanceId,
+                        { version: staleConflict.currentVersion, config: localConfig },
+                      )
+                      onSaved()
+                      onOpenChange(false)
+                    } catch (e) {
+                      if (e instanceof StaleVersionError) {
+                        setStaleConflict({
+                          currentVersion: e.currentVersion,
+                          currentConfig: e.currentConfig,
+                          updatedByUserEmail: e.updatedByUserEmail,
+                          updatedAt: e.updatedAt,
+                        })
+                      } else {
+                        setSaveError(e instanceof Error ? e.message : "Erreur lors de l'enregistrement")
+                      }
+                    } finally {
+                      setSaving(false)
+                    }
+                  }}
+                >
+                  Écraser quand même
+                </Button>
+              </div>
+            </div>
+          )}
           <p className="mb-5 border-l-2 border-slate-200/90 pl-3 text-[13px] leading-snug text-slate-500">{hint}</p>
 
           <div className="mb-6 space-y-1.5">
@@ -469,9 +568,9 @@ export function PerformanceChartSettingsDialog({
             </Label>
             <Input
               id="perf-chart-card-title"
-              value={draft.chartTitle}
-              onChange={(e) => setDraft((d) => ({ ...d, chartTitle: e.target.value }))}
-              placeholder={DEFAULT_PERFORMANCE_CHART_CARD_TITLE}
+              value={localConfig.chartTitle}
+              onChange={(e) => setLocalConfig((d) => ({ ...d, chartTitle: e.target.value }))}
+              placeholder={defaultChartCardTitle(statementType)}
               className="h-10 rounded-xl border-slate-200/90 bg-white text-[15px] font-medium text-slate-900"
               autoComplete="off"
             />
@@ -504,7 +603,7 @@ export function PerformanceChartSettingsDialog({
           </div>
 
           <div className="space-y-0">
-            {draft.series.map((s, idx) => (
+            {localConfig.series.map((s, idx) => (
               <div key={s.id}>
                 {idx > 0 ? <Separator className="mb-8 bg-slate-100" /> : null}
                 <section className="space-y-5">
@@ -548,7 +647,7 @@ export function PerformanceChartSettingsDialog({
                         size="icon"
                         className="h-8 w-8 text-slate-400 hover:text-slate-700"
                         onClick={() => moveSeries(idx, 1)}
-                        disabled={idx === draft.series.length - 1}
+                        disabled={idx === localConfig.series.length - 1}
                         aria-label="Descendre"
                       >
                         <ChevronDown className="h-4 w-4" />
@@ -559,7 +658,7 @@ export function PerformanceChartSettingsDialog({
                         size="icon"
                         className="h-8 w-8 text-slate-400 hover:text-red-600"
                         onClick={() => removeSeries(idx)}
-                        disabled={draft.series.length <= 1}
+                        disabled={localConfig.series.length <= 1}
                         aria-label="Supprimer la série"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -656,7 +755,7 @@ export function PerformanceChartSettingsDialog({
                     </label>
                   </div>
 
-                  <PerformanceMetricSpecEditor
+                  <ChartMetricSpecEditor
                     idPrefix={`s-${idx}`}
                     spec={s.spec}
                     onChange={(spec) => updateSeries(idx, { spec })}
@@ -664,6 +763,7 @@ export function PerformanceChartSettingsDialog({
                     allowDerivedMargin={s.kind === "line"}
                     barSeriesOptions={barOptions.length ? barOptions : undefined}
                     currentSeriesId={s.id}
+                    structureHintLabel={structureHintLabel(statementType)}
                   />
                 </section>
               </div>
@@ -672,21 +772,28 @@ export function PerformanceChartSettingsDialog({
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-4">
-          <Button type="button" variant="ghost" size="sm" className="text-slate-500 hover:text-slate-800" onClick={reset}>
-            Réinitialiser
-          </Button>
+          {slot.updatedByUserEmail ? (
+            <p className="text-xs text-slate-400">
+              Modifié par {slot.updatedByUserEmail} • {new Date(slot.updatedAt).toLocaleString("fr-CA")}
+            </p>
+          ) : (
+            <span />
+          )}
           <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" className="rounded-full px-4" onClick={() => onOpenChange(false)}>
+            {saveError ? (
+              <span className="text-sm text-red-600">{saveError}</span>
+            ) : null}
+            <Button type="button" variant="outline" size="sm" className="rounded-full px-4" onClick={() => onOpenChange(false)} disabled={saving}>
               Annuler
             </Button>
             <Button
               type="button"
               size="sm"
               className="rounded-full bg-[#2A2F3A] px-5 hover:bg-[#2A2F3A]/90"
-              onClick={save}
-              disabled={!companyId}
+              onClick={handleSave}
+              disabled={saving}
             >
-              Enregistrer
+              {saving ? "Enregistrement…" : "Enregistrer"}
             </Button>
           </div>
         </div>

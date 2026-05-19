@@ -1,3 +1,10 @@
+import {
+  normalizeChartConfig,
+  type ChartSlot,
+  type StatementChartConfig,
+  type StatementType as ChartStatementType,
+} from "@/lib/statement-chart-config"
+
 // Use relative URLs — Next.js rewrites proxy /api/* to the backend, avoiding CORS.
 const API_URL = ""
 
@@ -1820,4 +1827,118 @@ export async function getCompanyStatementStructure(
   return apiFetch<{ structure: StatementStructureNode[] }>(
     `/api/companies/${companyId}/statement-structures/${statementType}`,
   )
+}
+
+// --- Statement chart configs ------------------------------------------------
+
+export class StaleVersionError extends Error {
+  constructor(
+    public currentVersion: number,
+    public currentConfig: StatementChartConfig,
+    public updatedByUserEmail: string | null,
+    public updatedAt: string,
+  ) {
+    super("stale_version")
+    this.name = "StaleVersionError"
+  }
+}
+
+interface RawChartSlot {
+  chart_instance_id: string
+  slot_index: number
+  version: number
+  config: unknown
+  updated_by_user_email: string | null
+  updated_at: string
+}
+
+function rawSlotToChartSlot(raw: RawChartSlot): ChartSlot {
+  return {
+    chartInstanceId: raw.chart_instance_id,
+    slotIndex: raw.slot_index,
+    version: raw.version,
+    config: normalizeChartConfig(raw.config),
+    updatedByUserEmail: raw.updated_by_user_email,
+    updatedAt: raw.updated_at,
+  }
+}
+
+export async function listStatementChartSlots(
+  companyId: string,
+  statementType: ChartStatementType,
+): Promise<ChartSlot[]> {
+  const data = await apiFetch<{ slots: RawChartSlot[] }>(
+    `/api/companies/${companyId}/statement-chart-configs?statement_type=${statementType}`,
+  )
+  return data.slots.map(rawSlotToChartSlot)
+}
+
+export async function addStatementChartSlot(
+  companyId: string,
+  statementType: ChartStatementType,
+): Promise<ChartSlot> {
+  const raw = await apiFetch<RawChartSlot>(
+    `/api/companies/${companyId}/statement-chart-configs?statement_type=${statementType}`,
+    { method: "POST" },
+  )
+  return rawSlotToChartSlot(raw)
+}
+
+export async function removeStatementChartSlot(
+  companyId: string,
+  statementType: ChartStatementType,
+  chartInstanceId: string,
+): Promise<void> {
+  await apiFetch<void>(
+    `/api/companies/${companyId}/statement-chart-configs/${encodeURIComponent(
+      chartInstanceId,
+    )}?statement_type=${statementType}`,
+    { method: "DELETE" },
+  )
+}
+
+export async function saveStatementChartSlot(
+  companyId: string,
+  statementType: ChartStatementType,
+  chartInstanceId: string,
+  payload: { version: number; config: StatementChartConfig },
+): Promise<ChartSlot> {
+  try {
+    const raw = await apiFetch<RawChartSlot>(
+      `/api/companies/${companyId}/statement-chart-configs/${encodeURIComponent(
+        chartInstanceId,
+      )}?statement_type=${statementType}`,
+      { method: "PUT", body: payload },
+    )
+    return rawSlotToChartSlot(raw)
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409) {
+      // FastAPI wraps the detail under `detail` when raising HTTPException.
+      try {
+        const parsed = JSON.parse(err.detail) as {
+          detail?: string
+          current_version?: number
+          current_config?: unknown
+          updated_by_user_email?: string | null
+          updated_at?: string
+        }
+        if (
+          parsed.detail === "stale_version" &&
+          typeof parsed.current_version === "number" &&
+          typeof parsed.updated_at === "string"
+        ) {
+          throw new StaleVersionError(
+            parsed.current_version,
+            normalizeChartConfig(parsed.current_config),
+            parsed.updated_by_user_email ?? null,
+            parsed.updated_at,
+          )
+        }
+      } catch (parseErr) {
+        if (parseErr instanceof StaleVersionError) throw parseErr
+        // fall through to rethrow original ApiError
+      }
+    }
+    throw err
+  }
 }

@@ -44,6 +44,7 @@ from app.routers import (
     notes,
     organizations,
     projections,
+    statement_chart_configs,
     statement_structures,
     suppliers,
     trial_balance,
@@ -171,6 +172,7 @@ app.include_router(companies.router)
 app.include_router(trial_balance.router)
 app.include_router(account_mappings.router)
 app.include_router(statement_structures.router)
+app.include_router(statement_chart_configs.router)
 app.include_router(financial_statements.router)
 app.include_router(exchange_rates.router)
 app.include_router(budgets.router)
