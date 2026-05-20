@@ -2784,6 +2784,98 @@ export function IncomeStatementDetail({
     return defaultValue
   }
 
+  /** Tendance par défaut (5 %/an) d’un poste de revenus de la série — sert de base aux hypothèses revenus. */
+  const buildSeriesRevenueDefaultTrend = (revenueSeriesId: string): number[] => {
+    const numYears = projectionYears + 1
+    const defaultGrowthRate = 0.05
+    const sr = seriesRows.find((s) => s.id === revenueSeriesId)
+    if (!sr || !seriesPeriods.length) {
+      return Array.from({ length: numYears }, () => 0)
+    }
+    const rawAmounts = getRowAmounts(sr, seriesPeriods)
+    const { amounts: yearlyAmounts } = aggregateToYears(rawAmounts, seriesPeriods)
+    const baseAmount = yearlyAmounts.length > 0 ? yearlyAmounts[yearlyAmounts.length - 1] : 0
+    return Array.from({ length: numYears }, (_, yearIndex) =>
+      yearIndex === 0
+        ? baseAmount
+        : Math.round(baseAmount * Math.pow(1 + defaultGrowthRate, yearIndex))
+    )
+  }
+
+  /**
+   * Revenu projeté d’un poste (hypothèses de « Estimation des revenus annuels »),
+   * utilisable depuis la page dépenses pour lier % → montant variable.
+   */
+  const getProjectedRevenueRowValue = (
+    revenueRowId: string,
+    yearIndex: number,
+    defaultValue: number,
+    baseValue?: number,
+    defaultTrendValues?: number[]
+  ): number => {
+    if (!isForecastSection) return defaultValue
+
+    let calculatedValue = getBaseValue(revenueRowId, yearIndex, defaultValue, baseValue)
+    const adjustments = getRevenueAdjustments(revenueRowId, yearIndex)
+    if (adjustments.length === 0) return calculatedValue
+
+    const adjustment = adjustments[adjustments.length - 1]!
+
+    if (adjustment.type === "amount" || adjustment.type === "custom") {
+      if (adjustment.type === "custom" && adjustment.customGrowth?.variables?.length) {
+        const chain = collectConsecutiveCustomGrowthChain(revenueRowId, yearIndex, (rid, y) => {
+          const list = getRevenueAdjustments(rid, y)
+          return list[list.length - 1]
+        })
+        if (chain.length > 0) {
+          const resolved = resolveCustomGrowthVariablesFromChain(chain)
+          const ev = evaluateRevenueCustomGrowth(adjustment.customGrowth.formula, resolved)
+          calculatedValue = ev.ok ? Math.round(ev.result) : Math.round(adjustment.value)
+        } else {
+          calculatedValue = Math.round(adjustment.value)
+        }
+      } else {
+        calculatedValue = adjustment.value
+      }
+    } else {
+      const prevDefault =
+        yearIndex > 0 ? (defaultTrendValues?.[yearIndex - 1] ?? defaultValue) : defaultValue
+      const previousValue =
+        yearIndex > 0
+          ? getProjectedRevenueRowValue(
+              revenueRowId,
+              yearIndex - 1,
+              prevDefault,
+              baseValue,
+              defaultTrendValues
+            )
+          : calculatedValue
+
+      if (adjustment.type === "growthPercent") {
+        calculatedValue = Math.round(previousValue * (1 + adjustment.value / 100))
+      } else if (adjustment.type === "growthAmount") {
+        calculatedValue = previousValue + adjustment.value
+      }
+    }
+
+    return calculatedValue
+  }
+
+  const projectedRevenueForVariableExpenseLink = (
+    revenueRowId: string,
+    yearIndex: number,
+    src: { defaultValue: number; baseAmount: number }
+  ): number => {
+    const revTrend = buildSeriesRevenueDefaultTrend(revenueRowId)
+    return getProjectedRevenueRowValue(
+      revenueRowId,
+      yearIndex,
+      revTrend[yearIndex] ?? src.defaultValue,
+      src.baseAmount,
+      revTrend
+    )
+  }
+
   // Get forecast value for a specific row and year (uses edited values if available, applies adjustments).
   // `defaultTrendValues` lets growth adjustments use the proper (yearIndex-1) default instead of reusing the current year.
   const getRevenueValue = (
@@ -2804,102 +2896,80 @@ export function IncomeStatementDetail({
         ? defaultTrendValues[0]
         : baseValue
 
-    // Get base value (without adjustments)
-    let calculatedValue = getBaseValue(rowId, yearIndex, defaultValue, effectiveBase)
-    
-    // Apply adjustments
     if (title === "Estimation des revenus annuels") {
-      // Get all revenue adjustments for this year
-      const adjustments = getRevenueAdjustments(rowId, yearIndex)
-      if (adjustments.length > 0) {
-        const adjustment = adjustments[adjustments.length - 1]!
-        
-        if (adjustment.type === "amount" || adjustment.type === "custom") {
-          // Montant direct (custom = résultat de la formule ; chaîne YoY sur hypothèses custom consécutives)
-          if (adjustment.type === "custom" && adjustment.customGrowth?.variables?.length) {
-            const chain = collectConsecutiveCustomGrowthChain(rowId, yearIndex, (rid, y) => {
-              const list = getRevenueAdjustments(rid, y)
-              return list[list.length - 1]
-            })
-            if (chain.length > 0) {
-              const resolved = resolveCustomGrowthVariablesFromChain(chain)
-              const ev = evaluateRevenueCustomGrowth(adjustment.customGrowth.formula, resolved)
-              calculatedValue = ev.ok ? Math.round(ev.result) : Math.round(adjustment.value)
-            } else {
-              calculatedValue = Math.round(adjustment.value)
-            }
-          } else {
-            calculatedValue = adjustment.value
-          }
-        } else {
-          // For growth types, we need the previous year's value
-          const prevDefault =
-            yearIndex > 0
-              ? (defaultTrendValues?.[yearIndex - 1] ?? defaultValue)
-              : defaultValue
-          const previousValue = yearIndex > 0 
-            ? getRevenueValue(rowId, yearIndex - 1, prevDefault, baseValue, defaultTrendValues)
-            : calculatedValue
-          
-          if (adjustment.type === "growthPercent") {
-            // Growth percentage
-            calculatedValue = Math.round(previousValue * (1 + adjustment.value / 100))
-          } else if (adjustment.type === "growthAmount") {
-            // Growth amount in dollars
-            calculatedValue = previousValue + adjustment.value
-          }
+      return getProjectedRevenueRowValue(
+        rowId,
+        yearIndex,
+        defaultValue,
+        effectiveBase,
+        defaultTrendValues
+      )
+    }
+
+    let calculatedValue = getBaseValue(rowId, yearIndex, defaultValue, effectiveBase)
+
+    if (title === "Estimation des dépenses annuelles") {
+      const expenseIsVariable = getExpenseType(rowId) === "variable"
+      const directAdjustments = getAdjustments(rowId, yearIndex)
+      const recurringAdjustments = getRecurringAdjustments(rowId, yearIndex)
+      const hasPercentageHypothesis =
+        directAdjustments.some((a) => a.type === "percentage") ||
+        recurringAdjustments.some((a) => a.type === "percentage")
+
+      // Base variable (% des revenus liés) avant les ajustements en $ ou en % ponctuels
+      if (
+        expenseIsVariable &&
+        yearIndex > 0 &&
+        getVariableRate(rowId) > 0 &&
+        !hasPercentageHypothesis
+      ) {
+        const src = resolveVariableExpenseRevenueSource(rowId, yearIndex)
+        if (src) {
+          const revenueValue = projectedRevenueForVariableExpenseLink(
+            src.revenueRowId,
+            yearIndex,
+            src
+          )
+          calculatedValue = Math.round(revenueValue * getVariableRate(rowId) / 100)
         }
       }
-    } else if (title === "Estimation des dépenses annuelles") {
-      const expenseIsVariable = getExpenseType(rowId) === "variable"
-      // Get all direct adjustments for this year
-      const directAdjustments = getAdjustments(rowId, yearIndex)
+
       for (const adjustment of directAdjustments) {
         if (adjustment.type === "amount") {
-          // Amount adjustment: add/subtract the amount
           calculatedValue = calculatedValue + (adjustment.amount || 0)
         } else if (adjustment.type === "percentage" && expenseIsVariable) {
-          // Percentage adjustment: calculate expense as percentage of revenue (réservé aux dépenses variables)
           const src = resolveVariableExpenseRevenueSource(rowId, yearIndex)
           if (src) {
-            const revenueValue = getRevenueValue(
+            const revenueValue = projectedRevenueForVariableExpenseLink(
               src.revenueRowId,
               yearIndex,
-              src.defaultValue,
-              src.baseAmount
+              src
             )
-            const expenseFromPercentage = Math.round(revenueValue * (adjustment.percentage || 0) / 100)
-            calculatedValue = expenseFromPercentage
+            calculatedValue = Math.round(revenueValue * (adjustment.percentage || 0) / 100)
           }
         }
       }
-      
-      // Get all recurring adjustments from previous years
-      const recurringAdjustments = getRecurringAdjustments(rowId, yearIndex)
+
       for (const adjustment of recurringAdjustments) {
         if (adjustment.type === "amount") {
-          // Apply the recurring amount adjustment with inflation from the adjustment year to this year
           const rate = getInflationRate(rowId)
           const yearsDiff = yearIndex - adjustment.yearIndex
           const adjustedAmount = (adjustment.amount || 0) * Math.pow(1 + rate / 100, yearsDiff)
           calculatedValue = calculatedValue + Math.round(adjustedAmount)
         } else if (adjustment.type === "percentage" && expenseIsVariable) {
-          // For recurring percentage adjustments, use the new percentage for all future years
           const src = resolveVariableExpenseRevenueSource(rowId, yearIndex)
           if (src) {
-            const revenueValue = getRevenueValue(
+            const revenueValue = projectedRevenueForVariableExpenseLink(
               src.revenueRowId,
               yearIndex,
-              src.defaultValue,
-              src.baseAmount
+              src
             )
-            const expenseFromPercentage = Math.round(revenueValue * (adjustment.percentage || 0) / 100)
-            calculatedValue = expenseFromPercentage
+            calculatedValue = Math.round(revenueValue * (adjustment.percentage || 0) / 100)
           }
         }
       }
     }
-    
+
     return calculatedValue
   }
 
@@ -2941,16 +3011,14 @@ export function IncomeStatementDetail({
             const compoundValue = actualBase * Math.pow(1 + rate / 100, yearIndex)
             defaultValue = Math.round(compoundValue)
           } else if (title === "Estimation des dépenses annuelles" && rowId && getExpenseType(rowId) === "variable") {
-            // For variable expenses, calculate as percentage of revenue
             const variableRate = getVariableRate(rowId)
             if (variableRate > 0) {
               const src = rowId ? resolveVariableExpenseRevenueSource(rowId, yearIndex) : null
               if (src) {
-                const revenueValue = getRevenueValue(
+                const revenueValue = projectedRevenueForVariableExpenseLink(
                   src.revenueRowId,
                   yearIndex,
-                  src.defaultValue,
-                  src.baseAmount
+                  src
                 )
                 defaultValue = Math.round(revenueValue * variableRate / 100)
               } else {
@@ -3009,13 +3077,16 @@ export function IncomeStatementDetail({
         const { amounts: yearlyAmounts } = aggregateToYears(rawAmounts, seriesPeriods)
         const baseAmount = yearlyAmounts.length > 0 ? yearlyAmounts[yearlyAmounts.length - 1] : 0
         const rowId = revenueSeries.id
-        const trend = Array.from({ length: numYears }, (_, yearIndex) => {
-          const defaultValue =
-            yearIndex === 0
-              ? baseAmount
-              : Math.round(baseAmount * Math.pow(1 + defaultGrowthRate, yearIndex))
-          return getRevenueValue(rowId, yearIndex, defaultValue, baseAmount)
-        })
+        const revTrend = buildSeriesRevenueDefaultTrend(rowId)
+        const trend = Array.from({ length: numYears }, (_, yearIndex) =>
+          getProjectedRevenueRowValue(
+            rowId,
+            yearIndex,
+            revTrend[yearIndex] ?? baseAmount,
+            baseAmount,
+            revTrend
+          )
+        )
         return { trend, rowId }
       }
 
@@ -7894,7 +7965,7 @@ export function IncomeStatementDetail({
                       revenueHypothesisInlineActive &&
                         revenueHypothesisAnchorIdx >= 0 &&
                         idx === revenueHypothesisAnchorIdx &&
-                        "bg-emerald-50/35 shadow-[inset_0_0_0_1px_rgba(16,185,129,0.28)]",
+                        "bg-orange-50/35 shadow-[inset_0_0_0_1px_rgba(224,116,45,0.28)]",
                       showStructureCols
                         ? cn(
                             nextRowIsSubtotal
@@ -8506,7 +8577,7 @@ export function IncomeStatementDetail({
                               showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate < 0 && title !== "Estimation des revenus annuels" ? "text-red-600 font-semibold" : "",
                               annexSubtotalDarkNumbers && "text-slate-900",
                               isRevenueHypothesisSelected &&
-                                "z-[1] bg-emerald-50/40 shadow-[inset_0_0_0_2px_rgb(16,185,129)]",
+                                "z-[1] bg-orange-50/50 shadow-[inset_0_0_0_2px_rgb(224,116,45)]",
                               isExpenseHypothesisSelected &&
                                 "z-[1] bg-blue-50/50 shadow-[inset_0_0_0_2px_rgb(59,130,246)]",
                               isRevenueProjectionCell && !isEditing && "cursor-pointer hover:bg-slate-50/90",
@@ -8772,7 +8843,7 @@ export function IncomeStatementDetail({
                     editingAdjustment && (
                       <tr
                         key={`revenue-hypothesis-inline-${editingAdjustment.rowId}-${editingAdjustment.yearIndex}`}
-                        className="border-b-2 border-emerald-200/90 bg-slate-50/95"
+                        className="border-b-2 border-[#E0742D]/35 bg-slate-50/95"
                       >
                         <td
                           colSpan={1 + getYearLabels().length}
