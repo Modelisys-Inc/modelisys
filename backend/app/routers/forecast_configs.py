@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.models.company import Company
 from app.models.forecast_config import EbitdaMultipleNote, ForecastConfig
-from app.models.user import User, UserOrganization
+from app.models.user import User
 from app.schemas.forecast_config import (
     EbitdaMultipleNoteListResponse,
     EbitdaMultipleNoteUpsert,
@@ -17,16 +17,6 @@ from app.schemas.forecast_config import (
 )
 
 router = APIRouter(prefix="/api/companies/{company_id}", tags=["forecast-configs"])
-
-
-def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    memberships = db.query(UserOrganization).filter(UserOrganization.user_id == user.id).all()
-    org_ids = {m.organization_id for m in memberships}
-
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or company.organization_id not in org_ids:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return company
 
 
 # --- Forecast Configs ---
@@ -41,7 +31,7 @@ def list_forecast_configs(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     query = db.query(ForecastConfig).filter(
         ForecastConfig.organization_id == company.organization_id,
         ForecastConfig.company_id == company_id,
@@ -66,7 +56,7 @@ def upsert_forecast_config(
     db: Session = Depends(get_db),
 ):
     """Upsert a forecast config. Matches on config_type + company + division + sub_division + projection_id."""
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
 
     existing = (
         db.query(ForecastConfig)
@@ -109,7 +99,7 @@ def delete_forecast_config(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     config = (
         db.query(ForecastConfig)
         .filter(
@@ -136,7 +126,7 @@ def list_ebitda_notes(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     query = db.query(EbitdaMultipleNote).filter(
         EbitdaMultipleNote.organization_id == company.organization_id,
         EbitdaMultipleNote.company_id == company_id,
@@ -159,7 +149,7 @@ def upsert_ebitda_note(
     db: Session = Depends(get_db),
 ):
     """Upsert an EBITDA multiple note. Matches on note_type + company + division + sub_division."""
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
 
     existing = (
         db.query(EbitdaMultipleNote)

@@ -1,0 +1,14 @@
+{
+  "Header": {
+    "ReportName": "TrialBalance",
+    "StartPeriod": "2026-03-01",
+    "EndPeriod": "2026-03-31"
+  },
+  "Rows": {
+    "Row": [
+      {"ColData": [{"value": "Cash (1000)", "id": "1"}, {"value": "5000.00"}, {"value": ""}]},
+      {"ColData": [{"value": "Sales (4000)", "id": "42"}, {"value": ""}, {"value": "12500.00"}]},
+      {"ColData": [{"value": "Office Supplies (6010)", "id": "60"}, {"value": "300.00"}, {"value": ""}]}
+    ]
+  }
+}

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { IncomeStatementSummary } from "@/components/income-statement-summary"
 import { IncomeStatementDetail } from "@/components/income-statement-detail"
-import { IncomeStatementChart } from "@/components/income-statement-chart"
+import { StatementChart } from "@/components/statement-chart"
 import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
@@ -22,13 +22,8 @@ import {
   type FinancialStatementParams,
 } from "@/lib/api"
 import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
-import {
-  appendPerformanceChartSlot,
-  DEFAULT_PERFORMANCE_CHART_CARD_TITLE,
-  loadPerformanceChartSlotIds,
-  loadPerformanceChartConfig,
-  removePerformanceChartSlot,
-} from "@/lib/performance-chart-config"
+import { defaultChartCardTitle } from "@/lib/statement-chart-config"
+import { useStatementChartSlots } from "@/hooks/use-statement-chart-slots"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
@@ -132,56 +127,24 @@ export default function IncomeStatementPage() {
   // Track the resolved company ID (falls back to first company when none selected)
   const [resolvedCompanyId, setResolvedCompanyId] = useState<string | null>(null)
   const effectiveCompanyId = selectedCompanyId || resolvedCompanyId
-  const [performanceChartSlotIds, setPerformanceChartSlotIds] = useState<string[]>(["default"])
-  const [activePerformanceChartSlotId, setActivePerformanceChartSlotId] = useState<string>("default")
-  const [chartConfigVersion, setChartConfigVersion] = useState(0)
+  const {
+    slots: chartSlots,
+    activeSlotId,
+    setActiveSlotId,
+    addSlot: addChartSlot,
+    removeSlot: removeChartSlot,
+    refresh: refreshChartSlots,
+  } = useStatementChartSlots(effectiveCompanyId, "income-statement")
 
-  const performanceChartSlotOptions = useMemo(() => {
-    if (!effectiveCompanyId) {
-      return performanceChartSlotIds.map((id, idx) => ({ id, label: `Graphique ${idx + 1}` }))
-    }
-    const base = performanceChartSlotIds.map((id, idx) => {
-      const cfg = loadPerformanceChartConfig(effectiveCompanyId, id)
-      const title = cfg.chartTitle.trim()
-      const label = title || DEFAULT_PERFORMANCE_CHART_CARD_TITLE || `Graphique ${idx + 1}`
-      return { id, label, fallbackIndex: idx + 1 }
+  const chartInstanceOptions = useMemo(() => {
+    return chartSlots.map((s, i) => {
+      const title = s.config.chartTitle.trim()
+      const label = title || defaultChartCardTitle("income-statement") || `Graphique ${i + 1}`
+      return { id: s.chartInstanceId, label }
     })
-    const counts = new Map<string, number>()
-    for (const item of base) counts.set(item.label, (counts.get(item.label) ?? 0) + 1)
-    return base.map((item) => {
-      if ((counts.get(item.label) ?? 0) <= 1) return { id: item.id, label: item.label }
-      return { id: item.id, label: `${item.label} (${item.fallbackIndex})` }
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveCompanyId, performanceChartSlotIds, chartConfigVersion])
+  }, [chartSlots])
 
-  useEffect(() => {
-    if (!effectiveCompanyId) {
-      setPerformanceChartSlotIds(["default"])
-      setActivePerformanceChartSlotId("default")
-      return
-    }
-    const ids = loadPerformanceChartSlotIds(effectiveCompanyId)
-    setPerformanceChartSlotIds(ids)
-    setActivePerformanceChartSlotId((prev) => (ids.includes(prev) ? prev : ids[0] ?? "default"))
-  }, [effectiveCompanyId])
-
-  const handleAddPerformanceChart = () => {
-    if (!effectiveCompanyId) return
-    appendPerformanceChartSlot(effectiveCompanyId)
-    const ids = loadPerformanceChartSlotIds(effectiveCompanyId)
-    setPerformanceChartSlotIds(ids)
-    const last = ids[ids.length - 1]
-    if (last) setActivePerformanceChartSlotId(last)
-  }
-
-  const handleRemovePerformanceChart = (slotId: string) => {
-    if (!effectiveCompanyId) return
-    removePerformanceChartSlot(effectiveCompanyId, slotId)
-    const ids = loadPerformanceChartSlotIds(effectiveCompanyId)
-    setPerformanceChartSlotIds(ids)
-    setActivePerformanceChartSlotId((prev) => (ids.includes(prev) ? prev : ids[0] ?? "default"))
-  }
+  const activeSlot = chartSlots.find((s) => s.chartInstanceId === activeSlotId) ?? chartSlots[0]
 
   useEffect(() => {
     if (lockedCompanyId && selectedCompanyId !== lockedCompanyId) {
@@ -522,7 +485,7 @@ export default function IncomeStatementPage() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={handleAddPerformanceChart}
+                  onClick={() => addChartSlot()}
                   className="gap-1.5 border-slate-200 bg-white/90 text-slate-800 shadow-sm hover:bg-white"
                 >
                   <Plus className="h-4 w-4" aria-hidden />
@@ -530,43 +493,39 @@ export default function IncomeStatementPage() {
                 </Button>
               </div>
             ) : null}
-            {(() => {
-              const index = performanceChartSlotIds.findIndex((id) => id === activePerformanceChartSlotId)
-              const safeIndex = index >= 0 ? index : 0
-              const slotId = performanceChartSlotIds[safeIndex] ?? "default"
-              return (
-                <IncomeStatementChart
-                  key={slotId}
-                  chartInstanceId={slotId}
-                  chartSlotNumber={safeIndex + 1}
-                  chartSlotCount={performanceChartSlotIds.length}
-                  chartInstanceOptions={performanceChartSlotOptions}
-                  onChartInstanceChange={(id) => setActivePerformanceChartSlotId(id)}
-                  onChartConfigSaved={() => setChartConfigVersion((v) => v + 1)}
-                  onRemoveChart={
-                    slotId !== "default" && performanceChartSlotIds.length > 1
-                      ? () => handleRemovePerformanceChart(slotId)
-                      : undefined
-                  }
-                  period={period}
-                  view={view}
-                  companyId={effectiveCompanyId}
-                  divisionId={selectedDivisionId}
-                  subDivisionId={selectedSubDivisionId}
-                  companies={companies}
-                  comparisonType={comparisonType}
-                  selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
-                  selectedBudgetName={
-                    comparisonType === "budget" && selectedBudgetId
-                      ? budgets.find((b) => b.id === selectedBudgetId)?.name || null
-                      : null
-                  }
-                  fiscalYear={selectedYear}
-                  referenceMonth={selectedMonth}
-                  structureVersion={structureVersion}
-                />
-              )
-            })()}
+            {activeSlot ? (
+              <StatementChart
+                statementType="income-statement"
+                key={activeSlot.chartInstanceId}
+                slot={activeSlot}
+                chartSlotNumber={chartSlots.findIndex((s) => s.chartInstanceId === activeSlotId) + 1}
+                chartSlotCount={chartSlots.length}
+                chartInstanceOptions={chartInstanceOptions}
+                onChartInstanceChange={setActiveSlotId}
+                onChartConfigSaved={refreshChartSlots}
+                onRemoveChart={
+                  activeSlot.chartInstanceId !== "default" && chartSlots.length > 1
+                    ? () => removeChartSlot(activeSlot.chartInstanceId)
+                    : undefined
+                }
+                period={period}
+                view={view}
+                companyId={effectiveCompanyId}
+                divisionId={selectedDivisionId}
+                subDivisionId={selectedSubDivisionId}
+                companies={companies}
+                comparisonType={comparisonType}
+                selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
+                selectedBudgetName={
+                  comparisonType === "budget" && selectedBudgetId
+                    ? budgets.find((b) => b.id === selectedBudgetId)?.name || null
+                    : null
+                }
+                fiscalYear={selectedYear}
+                referenceMonth={selectedMonth}
+                structureVersion={structureVersion}
+              />
+            ) : null}
           </div>
         </main>
       )}

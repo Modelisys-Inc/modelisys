@@ -3,7 +3,14 @@
 import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Input } from "@/components/ui/input"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
@@ -19,7 +26,101 @@ import {
   normalizeCodeList,
 } from "@/lib/income-statement-structure-utils"
 import { cn } from "@/lib/utils"
-import { Link2 } from "lucide-react"
+import { Check, ChevronsUpDown, Link2, Plus } from "lucide-react"
+
+function LinkCodeCombobox({
+  value,
+  onChange,
+  suggestions,
+}: {
+  value: string
+  onChange: (next: string) => void
+  suggestions: string[]
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const trimmed = query.trim()
+  const exactMatch = suggestions.includes(trimmed)
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) setQuery("")
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          role="combobox"
+          aria-expanded={open}
+          className="h-9 w-full justify-between font-mono text-xs"
+        >
+          <span className="truncate">
+            {value || (
+              <span className="text-slate-400">Sélectionner ou créer…</span>
+            )}
+          </span>
+          <ChevronsUpDown className="ml-2 h-3 w-3 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[260px] p-0" align="start">
+        <Command>
+          <CommandInput
+            placeholder="Rechercher ou saisir…"
+            value={query}
+            onValueChange={setQuery}
+            className="h-9"
+          />
+          <CommandList>
+            <CommandEmpty className="px-3 py-2 text-xs text-slate-500">
+              Saisissez un code et appuyez sur Entrée pour le créer.
+            </CommandEmpty>
+            {trimmed && !exactMatch && (
+              <CommandGroup heading="Nouveau">
+                <CommandItem
+                  value={trimmed}
+                  onSelect={() => {
+                    onChange(trimmed)
+                    setOpen(false)
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Créer « {trimmed} »
+                </CommandItem>
+              </CommandGroup>
+            )}
+            {suggestions.length > 0 && (
+              <CommandGroup heading="Codes existants">
+                {suggestions.map((s) => (
+                  <CommandItem
+                    key={s}
+                    value={s}
+                    onSelect={() => {
+                      onChange(s)
+                      setOpen(false)
+                    }}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 h-4 w-4",
+                        value === s ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    <span className="font-mono text-xs">{s}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
 
 export interface IncomeStatementLiaisonCellProps {
   structRow: Record<string, unknown>
@@ -184,19 +285,20 @@ export function IncomeStatementLiaisonCell({
           {(singleLiaisonModeOnly || mode === "single" || mode === "na") && (
             <div className="space-y-1.5">
               <Label className="text-xs text-slate-600">Code de liaison</Label>
-              <Input
+              <LinkCodeCombobox
                 value={String(structRow.linkCode ?? "")}
-                onChange={(e) =>
+                onChange={(next) =>
                   updateRow(
                     rowIndex,
                     patchWithDefine(hideDefineColumn, {
-                      linkCode: e.target.value || undefined,
+                      linkCode: next || undefined,
                       liaisonMode: "single",
                     })
                   )
                 }
-                placeholder="REV"
-                className="h-9 font-mono text-xs"
+                suggestions={codeOptions.filter(
+                  (c) => c !== String(structRow.linkCode ?? "")
+                )}
               />
             </div>
           )}

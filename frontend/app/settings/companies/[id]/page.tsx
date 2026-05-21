@@ -391,7 +391,7 @@ export default function CompanySettingsPage() {
                 Gérez les informations de votre société, ses divisions et sous-divisions. Configurez les paramètres
                 comptables et accédez aux différents modules de configuration pour cette entité.
               </p>
-              {/* Navigation Menu - Information de base, Mapping comptable et Mapping états financiers */}
+              {/* Navigation Menu */}
               <div className="flex items-end gap-8 mb-2">
                 <Link
                   href={`/settings/companies/${companyId}`}
@@ -445,23 +445,6 @@ export default function CompanySettingsPage() {
                   )}
                 </Link>
                 <Link
-                  href={`/settings/companies/${companyId}/financial-statements-mapping`}
-                  className="relative pb-4 border-b border-slate-600/30"
-                >
-                  <span
-                    className={`text-sm font-normal transition-colors ${
-                      pathname?.includes("/financial-statements-mapping")
-                        ? "text-slate-200"
-                        : "text-slate-200 hover:text-[#E6D6C3]"
-                    }`}
-                  >
-                    Mapping états financiers
-                  </span>
-                  {pathname?.includes("/financial-statements-mapping") && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
-                  )}
-                </Link>
-                <Link
                   href={`/settings/companies/${companyId}/trial-balance`}
                   className="relative pb-4 border-b border-slate-600/30"
                 >
@@ -475,6 +458,23 @@ export default function CompanySettingsPage() {
                     Balance de vérification
                   </span>
                   {pathname?.includes("/trial-balance") && (
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
+                  )}
+                </Link>
+                <Link
+                  href={`/settings/companies/${companyId}/quickbooks`}
+                  className="relative pb-4 border-b border-slate-600/30"
+                >
+                  <span
+                    className={`text-sm font-normal transition-colors ${
+                      pathname?.includes("/quickbooks")
+                        ? "text-slate-200"
+                        : "text-slate-200 hover:text-[#E6D6C3]"
+                    }`}
+                  >
+                    QuickBooks
+                  </span>
+                  {pathname?.includes("/quickbooks") && (
                     <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10"></div>
                   )}
                 </Link>

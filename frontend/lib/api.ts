@@ -1,3 +1,10 @@
+import {
+  normalizeChartConfig,
+  type ChartSlot,
+  type StatementChartConfig,
+  type StatementType as ChartStatementType,
+} from "@/lib/statement-chart-config"
+
 // Use relative URLs — Next.js rewrites proxy /api/* to the backend, avoiding CORS.
 const API_URL = ""
 
@@ -1686,4 +1693,258 @@ export async function deleteSupplier(
   await apiFetch(`/api/companies/${companyId}/suppliers/${supplierId}`, {
     method: "DELETE",
   })
+}
+
+// ============= QuickBooks Online =============
+
+export type QboConnectionStatus = {
+  status: "connected" | "revoked" | "not_connected"
+  realm_id?: string | null
+  connected_at?: string | null
+  connected_by_user_id?: string | null
+}
+
+export type QboMonthAmount = { debit: number; credit: number }
+
+export type QboTrialBalanceProposalRow = {
+  qbo_account_id: string
+  account_number: string
+  account_name: string
+  qbo_account_type: string | null
+  qbo_account_sub_type: string | null
+  existing_link_code: string | null
+  monthly_amounts: Record<string, QboMonthAmount>
+}
+
+export type QboTrialBalancePreview = {
+  fiscal_year: number
+  months: number[]
+  currency: string
+  fetched_at: string
+  existing_months: number[]
+  rows: QboTrialBalanceProposalRow[]
+}
+
+export type QboLinkCode = {
+  code: string
+  label: string
+  statement_type: string
+  parent_id: string | null
+  parent_label: string | null
+}
+
+export type QboCommitRow = {
+  account_number: string
+  account_name: string
+  link_code: string | null
+  skip?: boolean
+}
+
+export async function getQboConnectionStatus(companyId: string): Promise<QboConnectionStatus> {
+  return apiFetch<QboConnectionStatus>(`/api/quickbooks/companies/${companyId}/connection`)
+}
+
+export async function getQboAuthorizeUrl(companyId: string): Promise<string> {
+  const r = await apiFetch<{ authorize_url: string }>(
+    `/api/quickbooks/authorize?company_id=${companyId}`,
+  )
+  return r.authorize_url
+}
+
+export async function disconnectQbo(companyId: string): Promise<void> {
+  await apiFetch<void>(`/api/quickbooks/companies/${companyId}/connection`, {
+    method: "DELETE",
+  })
+}
+
+export async function previewQboTrialBalance(
+  companyId: string,
+  fiscalYear: number,
+  months: number[],
+): Promise<QboTrialBalancePreview> {
+  return apiFetch<QboTrialBalancePreview>(
+    `/api/quickbooks/companies/${companyId}/trial-balance/preview`,
+    { method: "POST", body: { fiscal_year: fiscalYear, months } },
+  )
+}
+
+export async function commitQboTrialBalance(
+  companyId: string,
+  fiscalYear: number,
+  months: number[],
+  rows: QboCommitRow[],
+  overwriteExistingTb: boolean,
+): Promise<{
+  months_imported: number
+  accounts_imported: number
+  mappings_created: number
+  mappings_updated: number
+}> {
+  return apiFetch(
+    `/api/quickbooks/companies/${companyId}/trial-balance/commit`,
+    {
+      method: "POST",
+      body: {
+        fiscal_year: fiscalYear,
+        months,
+        rows,
+        overwrite_existing_tb: overwriteExistingTb,
+      },
+    },
+  )
+}
+
+export async function listQboLinkCodes(companyId: string): Promise<QboLinkCode[]> {
+  return apiFetch<QboLinkCode[]>(`/api/quickbooks/companies/${companyId}/link-codes`)
+}
+
+export async function createLinkCode(
+  companyId: string,
+  body: {
+    statement_type: string
+    parent_id: string
+    link_code: string
+    label: string
+  },
+): Promise<QboLinkCode> {
+  return apiFetch<QboLinkCode>(
+    `/api/quickbooks/companies/${companyId}/link-codes`,
+    { method: "POST", body },
+  )
+}
+
+export type StatementStructureNode = {
+  id?: string
+  label?: string
+  isSection?: boolean
+  isBold?: boolean
+  isResult?: boolean
+  indent?: boolean
+  linkCode?: string
+  link_code?: string
+  children?: StatementStructureNode[]
+  detailRows?: StatementStructureNode[]
+}
+
+export async function getCompanyStatementStructure(
+  companyId: string,
+  statementType: string,
+): Promise<{ structure: StatementStructureNode[] }> {
+  return apiFetch<{ structure: StatementStructureNode[] }>(
+    `/api/companies/${companyId}/statement-structures/${statementType}`,
+  )
+}
+
+// --- Statement chart configs ------------------------------------------------
+
+export class StaleVersionError extends Error {
+  constructor(
+    public currentVersion: number,
+    public currentConfig: StatementChartConfig,
+    public updatedByUserEmail: string | null,
+    public updatedAt: string,
+  ) {
+    super("stale_version")
+    this.name = "StaleVersionError"
+  }
+}
+
+interface RawChartSlot {
+  chart_instance_id: string
+  slot_index: number
+  version: number
+  config: unknown
+  updated_by_user_email: string | null
+  updated_at: string
+}
+
+function rawSlotToChartSlot(raw: RawChartSlot): ChartSlot {
+  return {
+    chartInstanceId: raw.chart_instance_id,
+    slotIndex: raw.slot_index,
+    version: raw.version,
+    config: normalizeChartConfig(raw.config),
+    updatedByUserEmail: raw.updated_by_user_email,
+    updatedAt: raw.updated_at,
+  }
+}
+
+export async function listStatementChartSlots(
+  companyId: string,
+  statementType: ChartStatementType,
+): Promise<ChartSlot[]> {
+  const data = await apiFetch<{ slots: RawChartSlot[] }>(
+    `/api/companies/${companyId}/statement-chart-configs?statement_type=${statementType}`,
+  )
+  return data.slots.map(rawSlotToChartSlot)
+}
+
+export async function addStatementChartSlot(
+  companyId: string,
+  statementType: ChartStatementType,
+): Promise<ChartSlot> {
+  const raw = await apiFetch<RawChartSlot>(
+    `/api/companies/${companyId}/statement-chart-configs?statement_type=${statementType}`,
+    { method: "POST" },
+  )
+  return rawSlotToChartSlot(raw)
+}
+
+export async function removeStatementChartSlot(
+  companyId: string,
+  statementType: ChartStatementType,
+  chartInstanceId: string,
+): Promise<void> {
+  await apiFetch<void>(
+    `/api/companies/${companyId}/statement-chart-configs/${encodeURIComponent(
+      chartInstanceId,
+    )}?statement_type=${statementType}`,
+    { method: "DELETE" },
+  )
+}
+
+export async function saveStatementChartSlot(
+  companyId: string,
+  statementType: ChartStatementType,
+  chartInstanceId: string,
+  payload: { version: number; config: StatementChartConfig },
+): Promise<ChartSlot> {
+  try {
+    const raw = await apiFetch<RawChartSlot>(
+      `/api/companies/${companyId}/statement-chart-configs/${encodeURIComponent(
+        chartInstanceId,
+      )}?statement_type=${statementType}`,
+      { method: "PUT", body: payload },
+    )
+    return rawSlotToChartSlot(raw)
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409) {
+      // FastAPI wraps the detail under `detail` when raising HTTPException.
+      try {
+        const parsed = JSON.parse(err.detail) as {
+          detail?: string
+          current_version?: number
+          current_config?: unknown
+          updated_by_user_email?: string | null
+          updated_at?: string
+        }
+        if (
+          parsed.detail === "stale_version" &&
+          typeof parsed.current_version === "number" &&
+          typeof parsed.updated_at === "string"
+        ) {
+          throw new StaleVersionError(
+            parsed.current_version,
+            normalizeChartConfig(parsed.current_config),
+            parsed.updated_by_user_email ?? null,
+            parsed.updated_at,
+          )
+        }
+      } catch (parseErr) {
+        if (parseErr instanceof StaleVersionError) throw parseErr
+        // fall through to rethrow original ApiError
+      }
+    }
+    throw err
+  }
 }

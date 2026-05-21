@@ -4,11 +4,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.models.budget import Budget, BudgetEntry
 from app.models.company import Company
 from app.models.trial_balance import ChartOfAccount
-from app.models.user import User, UserOrganization
+from app.models.user import User
 from app.schemas.budget import (
     BudgetCreate,
     BudgetEntryUpsert,
@@ -19,16 +19,6 @@ from app.schemas.budget import (
 router = APIRouter(prefix="/api/companies/{company_id}/budgets", tags=["budgets"])
 
 
-def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    memberships = db.query(UserOrganization).filter(UserOrganization.user_id == user.id).all()
-    org_ids = {m.organization_id for m in memberships}
-
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or company.organization_id not in org_ids:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return company
-
-
 @router.get("", response_model=BudgetListResponse)
 def list_budgets(
     company_id: uuid.UUID,
@@ -37,7 +27,7 @@ def list_budgets(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     query = db.query(Budget).filter(Budget.company_id == company_id)
     total = query.count()
     budgets = query.order_by(Budget.fiscal_year.desc(), Budget.name).offset(offset).limit(limit).all()
@@ -57,7 +47,7 @@ def create_budget(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _verify_company_access(db, current_user, company_id)
+    company = verify_company_access(db, current_user, company_id)
     budget = Budget(
         organization_id=company.organization_id,
         company_id=company_id,
@@ -78,7 +68,7 @@ def get_budget(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
     budget = (
         db.query(Budget)
         .filter(Budget.id == budget_id, Budget.company_id == company_id)
@@ -98,7 +88,7 @@ def upsert_budget_entries(
     db: Session = Depends(get_db),
 ):
     """Bulk upsert budget entries. Matches on account + month."""
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
     budget = (
         db.query(Budget)
         .filter(Budget.id == budget_id, Budget.company_id == company_id)
@@ -151,7 +141,7 @@ def delete_budget(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
     budget = (
         db.query(Budget)
         .filter(Budget.id == budget_id, Budget.company_id == company_id)

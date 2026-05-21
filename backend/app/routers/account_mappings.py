@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.models.account_mapping import AccountMapping, Product
 from app.models.company import Company
-from app.models.user import User, UserOrganization
+from app.models.user import User
 from app.schemas.account_mapping import (
     AccountMappingListResponse,
     AccountMappingResponse,
@@ -20,16 +20,6 @@ from app.schemas.account_mapping import (
 router = APIRouter(prefix="/api/companies/{company_id}", tags=["account-mappings"])
 
 
-def _verify_company_access(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    memberships = db.query(UserOrganization).filter(UserOrganization.user_id == user.id).all()
-    org_ids = {m.organization_id for m in memberships}
-
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if not company or company.organization_id not in org_ids:
-        raise HTTPException(status_code=404, detail="Company not found")
-    return company
-
-
 # --- Account Mappings ---
 
 @router.get("/account-mappings", response_model=AccountMappingListResponse)
@@ -40,7 +30,7 @@ def list_account_mappings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
 
     # Get total count
     total = db.query(AccountMapping).filter(AccountMapping.company_id == company_id).count()
@@ -70,7 +60,7 @@ def delete_account_mapping(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
     mapping = db.query(AccountMapping).filter(
         AccountMapping.id == mapping_id,
         AccountMapping.company_id == company_id,
@@ -89,7 +79,7 @@ def upsert_account_mappings(
     db: Session = Depends(get_db),
 ):
     """Bulk upsert account mappings. Matches on account_number."""
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
 
     # Get existing mappings indexed by account_number
     existing = (
@@ -161,7 +151,7 @@ def list_products(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
     products = (
         db.query(Product)
         .filter(Product.company_id == company_id)
@@ -179,7 +169,7 @@ def upsert_products(
     db: Session = Depends(get_db),
 ):
     """Replace all products for a company with the given list."""
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
 
     # Delete existing products
     db.query(Product).filter(Product.company_id == company_id).delete()
@@ -207,7 +197,7 @@ def create_product(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _verify_company_access(db, current_user, company_id)
+    verify_company_access(db, current_user, company_id)
 
     # Get max sort_order
     max_order = (

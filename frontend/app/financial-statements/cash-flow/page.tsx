@@ -3,12 +3,14 @@
 import { useState, useEffect, useMemo } from "react"
 import { CashFlowSummary } from "@/components/cash-flow-summary"
 import { CashFlowDetail } from "@/components/cash-flow-detail"
-import { CashFlowChart } from "@/components/cash-flow-chart"
+import { StatementChart } from "@/components/statement-chart"
+import { useStatementChartSlots } from "@/hooks/use-statement-chart-slots"
+import { defaultChartCardTitle } from "@/lib/statement-chart-config"
 import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Calendar, TrendingUp, TrendingDown, ChevronRight } from "lucide-react"
+import { Calendar, TrendingUp, TrendingDown, ChevronRight, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
@@ -25,7 +27,7 @@ import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
-type Section = "summary" | "detail"
+type Section = "dashboard" | "summary" | "detail"
 type ColumnMode = "variations" | "percentage" | "comparison"
 type ComparisonType = "lastMonth" | "pastMonth" | "budget"
 
@@ -39,7 +41,7 @@ export default function CashFlowPage() {
   const { companies } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
   const [view, setView] = useState<View>("comparison")
-  const [section, setSection] = useState<Section>("summary")
+  const [section, setSection] = useState<Section>("dashboard")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
@@ -97,10 +99,41 @@ export default function CashFlowPage() {
     }
   }, [view, period, comparisonType])
 
+  // Tableau de bord : limiter aux horizons Mensuel (12 mois), Trimestriel 2 ans, Annuel 5 ans.
+  useEffect(() => {
+    if (section !== "dashboard") return
+    const allowed = view === "12months" || view === "quarters" || view === "years"
+    if (!allowed) {
+      setView("12months")
+      setColumnMode("variations")
+    }
+  }, [section, view])
+
   // --- Fetch financial statement data from the API ---
   const [rows, setRows] = useState<FinancialStatementRow[]>([])
   const [loading, setLoading] = useState(false)
   const [resolvedCompanyId, setResolvedCompanyId] = useState<string | null>(null)
+
+  const effectiveCompanyId = selectedCompanyId || resolvedCompanyId
+
+  const {
+    slots: chartSlots,
+    activeSlotId,
+    setActiveSlotId,
+    addSlot: addChartSlot,
+    removeSlot: removeChartSlot,
+    refresh: refreshChartSlots,
+  } = useStatementChartSlots(effectiveCompanyId, "cash-flow")
+
+  const chartInstanceOptions = useMemo(() => {
+    return chartSlots.map((s, i) => {
+      const title = s.config.chartTitle.trim()
+      const label = title || defaultChartCardTitle("cash-flow") || `Graphique ${i + 1}`
+      return { id: s.chartInstanceId, label }
+    })
+  }, [chartSlots])
+
+  const activeSlot = chartSlots.find((s) => s.chartInstanceId === activeSlotId) ?? chartSlots[0]
 
   useEffect(() => {
     if (lockedCompanyId && selectedCompanyId !== lockedCompanyId) {
@@ -281,6 +314,17 @@ export default function CashFlowPage() {
                   <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
                     <Button
                       variant="ghost"
+                      onClick={() => setSection("dashboard")}
+                      className={`h-8 text-xs px-3 transition-all ${
+                        section === "dashboard"
+                          ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                          : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                      }`}
+                    >
+                      Tableau de bord
+                    </Button>
+                    <Button
+                      variant="ghost"
                       onClick={() => setSection("summary")}
                       className={`h-8 text-xs px-3 transition-all ${
                         section === "summary"
@@ -416,24 +460,29 @@ export default function CashFlowPage() {
         </div>
       </div>
 
-      <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
-        {/* Chart Section - Overlap with dark section */}
-        <div className="relative -mt-32">
+      {section !== "dashboard" && (
+        <>
+          <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
+            {/* Chart Section - Overlap with dark section */}
+            <div className="relative -mt-32">
+              {chartSlots[0] ? (
+                <StatementChart
+                  statementType="cash-flow"
+                  slot={chartSlots[0]}
+                  period={period}
+                  view={view}
+                  companyId={effectiveCompanyId}
+                  divisionId={selectedDivisionId}
+                  subDivisionId={selectedSubDivisionId}
+                  companies={companies}
+                  fiscalYear={selectedYear}
+                />
+              ) : null}
+            </div>
+          </main>
 
-          <CashFlowChart
-            period={period}
-            view={view}
-            companyId={selectedCompanyId || resolvedCompanyId}
-            divisionId={selectedDivisionId}
-            subDivisionId={selectedSubDivisionId}
-            companies={companies}
-            fiscalYear={selectedYear}
-          />
-        </div>
-      </main>
-
-      {/* Dark Section between Chart and Summary/Detail */}
-      <div className="relative w-full pt-12 pb-32 overflow-hidden">
+          {/* Dark Section between Chart and Summary/Detail */}
+          <div className="relative w-full pt-12 pb-32 overflow-hidden">
         <div className="absolute inset-0">
           <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
             <div className="bg-[#2A2F3A]" />
@@ -496,7 +545,55 @@ export default function CashFlowPage() {
           </div>
         </div>
       </div>
+        </>
+      )}
 
+      {section === "dashboard" && (
+        <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
+          <div className="relative -mt-32 space-y-6">
+            {effectiveCompanyId ? (
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => addChartSlot()}
+                  className="gap-1.5 border-slate-200 bg-white/90 text-slate-800 shadow-sm hover:bg-white"
+                >
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Ajouter un graphique
+                </Button>
+              </div>
+            ) : null}
+            {activeSlot ? (
+              <StatementChart
+                statementType="cash-flow"
+                key={activeSlot.chartInstanceId}
+                slot={activeSlot}
+                chartSlotNumber={chartSlots.findIndex((s) => s.chartInstanceId === activeSlotId) + 1}
+                chartSlotCount={chartSlots.length}
+                chartInstanceOptions={chartInstanceOptions}
+                onChartInstanceChange={setActiveSlotId}
+                onChartConfigSaved={refreshChartSlots}
+                onRemoveChart={
+                  activeSlot.chartInstanceId !== "default" && chartSlots.length > 1
+                    ? () => removeChartSlot(activeSlot.chartInstanceId)
+                    : undefined
+                }
+                period={period}
+                view={view}
+                companyId={effectiveCompanyId}
+                divisionId={selectedDivisionId}
+                subDivisionId={selectedSubDivisionId}
+                companies={companies}
+                fiscalYear={selectedYear}
+              />
+            ) : null}
+          </div>
+        </main>
+      )}
+
+      {(section === "summary" || section === "detail") && (
       <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
         {/* Summary or Detail Section - Overlapping with dark section */}
         <div className="relative -mt-32">
@@ -535,6 +632,7 @@ export default function CashFlowPage() {
           )}
         </div>
       </main>
+      )}
     </div>
   )
 }

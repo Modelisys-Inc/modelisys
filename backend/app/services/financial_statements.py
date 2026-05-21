@@ -284,6 +284,74 @@ def _decumulate_amount_index(
     return result
 
 
+def _build_fiscal_year_data_multi(
+    db: Session,
+    company_id: uuid.UUID,
+    fiscal_years: list[int],
+    fy_end_month: int,
+    is_cumulative_tb: bool,
+) -> dict[int, dict[str, dict[int, Decimal]]]:
+    """Batched variant of _build_fiscal_year_data for several fiscal years in one query."""
+    if not fiscal_years:
+        return {}
+
+    if fy_end_month == 12:
+        entries = (
+            db.query(TrialBalanceEntry)
+            .options(joinedload(TrialBalanceEntry.account))
+            .filter(
+                TrialBalanceEntry.company_id == company_id,
+                TrialBalanceEntry.fiscal_year.in_(fiscal_years),
+            )
+            .all()
+        )
+        by_year: dict[int, list[TrialBalanceEntry]] = defaultdict(list)
+        for e in entries:
+            by_year[e.fiscal_year].append(e)
+        result: dict[int, dict[str, dict[int, Decimal]]] = {}
+        for fy in fiscal_years:
+            idx = _build_amount_index(by_year.get(fy, []))
+            if is_cumulative_tb:
+                idx = _decumulate_amount_index(idx)
+            result[fy] = idx
+        return result
+
+    # Non-December FY end: each fiscal year spans two calendar years.
+    cal_years = set()
+    for fy in fiscal_years:
+        cal_years.add(fy - 1)
+        cal_years.add(fy)
+
+    entries = (
+        db.query(TrialBalanceEntry)
+        .options(joinedload(TrialBalanceEntry.account))
+        .filter(
+            TrialBalanceEntry.company_id == company_id,
+            TrialBalanceEntry.fiscal_year.in_(cal_years),
+        )
+        .all()
+    )
+
+    fy_set = set(fiscal_years)
+    entries_by_fy: dict[int, list[TrialBalanceEntry]] = defaultdict(list)
+    for e in entries:
+        target_fy = e.fiscal_year + 1 if e.month > fy_end_month else e.fiscal_year
+        if target_fy in fy_set:
+            entries_by_fy[target_fy].append(e)
+
+    result = {}
+    for fy in fiscal_years:
+        index: dict[str, dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+        for entry in entries_by_fy.get(fy, []):
+            acct_number = entry.account.account_number
+            fm = _calendar_to_fiscal_month(entry.month, fy_end_month)
+            index[acct_number][fm] += Decimal(str(entry.amount))
+        if is_cumulative_tb:
+            index = _decumulate_amount_index(index)
+        result[fy] = dict(index)
+    return result
+
+
 def _build_mapping_index(
     mappings: list[AccountMapping],
 ) -> dict[str, list[str]]:
@@ -2247,14 +2315,13 @@ def compute_financial_statement_series(
     periods = _build_periods_from_reference(fiscal_year, month, months, fy_end_month)
 
     # 5. Determine which fiscal years we need data for
-    needed_fiscal_years = set(p["fiscalYear"] for p in periods)
+    needed_fiscal_years = sorted({p["fiscalYear"] for p in periods})
 
-    # 6. Build fiscal-month-keyed amount indices (handles calendar boundary + de-cumulation)
-    amount_indices: dict[int, dict[str, dict[int, Decimal]]] = {}
-    for fy in needed_fiscal_years:
-        amount_indices[fy] = _build_fiscal_year_data(
-            db, company.id, fy, fy_end_month, company.is_cumulative_tb,
-        )
+    # 6. Build fiscal-month-keyed amount indices in one batched query
+    #    (handles calendar boundary + de-cumulation).
+    amount_indices = _build_fiscal_year_data_multi(
+        db, company.id, needed_fiscal_years, fy_end_month, company.is_cumulative_tb,
+    )
 
     # Keep full periods for 12mo/5ans, but computation will output 0 for months with no TB.
 

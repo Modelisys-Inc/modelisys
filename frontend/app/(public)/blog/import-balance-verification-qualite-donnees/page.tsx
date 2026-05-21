@@ -25,6 +25,9 @@ export default function ArticleImportBalance() {
           category="Comptabilité · Qualité des données"
           title="Reporting financier: partir de la balance de vérification pour produire des états fiables (et actionnables)"
           date="29 janv. 2026"
+          datePublished="2026-01-29"
+          slug="import-balance-verification-qualite-donnees"
+          description="Bonnes pratiques pour partir d’une balance de vérification et fiabiliser le reporting dans Modelisys (import, contrôles, cohérence et traçabilité)."
           readTime="7 min"
           lead="Un reporting financier utile commence avant les graphiques: il commence à la source. Une balance de vérification (TB) “à peu près correcte” entraîne vite des états non comparables, des écarts mal expliqués et des cycles de clôture plus lents. L’objectif n’est pas d’avoir un fichier parfait; c’est d’avoir un flux d’import qui rend les anomalies visibles, maintient une traçabilité, et vous permet de produire des états fiables pour piloter (et communiquer) plus rapidement."
         />

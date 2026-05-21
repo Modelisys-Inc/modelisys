@@ -3,12 +3,14 @@
 import { useState, useEffect, useMemo } from "react"
 import { BalanceSheetSummary } from "@/components/balance-sheet-summary"
 import { BalanceSheetDetail } from "@/components/balance-sheet-detail"
-import { BalanceSheetChart } from "@/components/balance-sheet-chart"
+import { StatementChart } from "@/components/statement-chart"
 import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Calendar, ChevronRight } from "lucide-react"
+import { Calendar, ChevronRight, Plus } from "lucide-react"
+import { useStatementChartSlots } from "@/hooks/use-statement-chart-slots"
+import { defaultChartCardTitle } from "@/lib/statement-chart-config"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
@@ -114,6 +116,27 @@ export default function BalanceSheetPage() {
   const [resolvedCompanyId, setResolvedCompanyId] = useState<string | null>(null)
   /** Incrémenté après sauvegarde de la structure (Paramètres) pour relancer le fetch. */
   const [structureVersion, setStructureVersion] = useState(0)
+
+  const effectiveCompanyId = selectedCompanyId || resolvedCompanyId
+
+  const {
+    slots: chartSlots,
+    activeSlotId,
+    setActiveSlotId,
+    addSlot: addChartSlot,
+    removeSlot: removeChartSlot,
+    refresh: refreshChartSlots,
+  } = useStatementChartSlots(effectiveCompanyId, "balance-sheet")
+
+  const chartInstanceOptions = useMemo(() => {
+    return chartSlots.map((s, i) => {
+      const title = s.config.chartTitle.trim()
+      const label = title || defaultChartCardTitle("balance-sheet") || `Graphique ${i + 1}`
+      return { id: s.chartInstanceId, label }
+    })
+  }, [chartSlots])
+
+  const activeSlot = chartSlots.find((s) => s.chartInstanceId === activeSlotId) ?? chartSlots[0]
 
   useEffect(() => {
     if (lockedCompanyId && selectedCompanyId !== lockedCompanyId) {
@@ -434,16 +457,46 @@ export default function BalanceSheetPage() {
 
       {section === "dashboard" && (
         <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
-          <div className="relative -mt-32">
-            <BalanceSheetChart
-              period={period}
-              view={view}
-              companyId={selectedCompanyId || resolvedCompanyId}
-              divisionId={selectedDivisionId}
-              subDivisionId={selectedSubDivisionId}
-              companies={companies}
-              fiscalYear={selectedYear}
-            />
+          <div className="relative -mt-32 space-y-6">
+            {effectiveCompanyId ? (
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => addChartSlot()}
+                  className="gap-1.5 border-slate-200 bg-white/90 text-slate-800 shadow-sm hover:bg-white"
+                >
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Ajouter un graphique
+                </Button>
+              </div>
+            ) : null}
+            {activeSlot ? (
+              <StatementChart
+                statementType="balance-sheet"
+                key={activeSlot.chartInstanceId}
+                slot={activeSlot}
+                chartSlotNumber={chartSlots.findIndex((s) => s.chartInstanceId === activeSlotId) + 1}
+                chartSlotCount={chartSlots.length}
+                chartInstanceOptions={chartInstanceOptions}
+                onChartInstanceChange={setActiveSlotId}
+                onChartConfigSaved={refreshChartSlots}
+                onRemoveChart={
+                  activeSlot.chartInstanceId !== "default" && chartSlots.length > 1
+                    ? () => removeChartSlot(activeSlot.chartInstanceId)
+                    : undefined
+                }
+                period={period}
+                view={view}
+                companyId={effectiveCompanyId}
+                divisionId={selectedDivisionId}
+                subDivisionId={selectedSubDivisionId}
+                companies={companies}
+                fiscalYear={selectedYear}
+                structureVersion={structureVersion}
+              />
+            ) : null}
           </div>
         </main>
       )}
