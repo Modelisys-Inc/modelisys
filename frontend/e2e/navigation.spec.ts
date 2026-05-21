@@ -41,7 +41,7 @@ test.describe("Navigation & Routing", () => {
   });
 
   test("projection routes redirect to login", async ({ page }) => {
-    await page.goto("/projections/pro-forma");
+    await page.goto("/projections");
     await expect(page).toHaveURL(/\/login/);
   });
 

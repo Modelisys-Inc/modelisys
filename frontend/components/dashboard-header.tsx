@@ -20,7 +20,7 @@ const defaultNavigationItems = [
   { label: "Tableau de bord", href: "/dashboard" },
   { label: "Reporting financier", href: "/financial-statements/income-statement" },
   { label: "Analyse", href: "/analysis/working-capital" },
-  { label: "Projections", href: "/projections/pro-forma" },
+  { label: "Projections", href: "/projections" },
   { label: "Valorisation", href: "/evaluation/business-model" },
   { label: "Documentation", href: "/year-end-cpa" },
   { label: "Configuration", href: "/settings/companies" },

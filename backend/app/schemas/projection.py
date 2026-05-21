@@ -58,6 +58,9 @@ class ProjectionCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     projection_years: int = Field(default=5, ge=1, le=10)
     projection_mode: Literal["gl", "account"] = "gl"
+    projection_horizon: Literal["annual", "monthly"] = "annual"
+    start_year: int | None = Field(default=None, ge=1900, le=2200)
+    start_month: int | None = Field(default=None, ge=1, le=12)
     company_id: uuid.UUID | None = None
     division_id: uuid.UUID | None = None
     sub_division_id: uuid.UUID | None = None
@@ -67,6 +70,9 @@ class ProjectionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     projection_years: int | None = Field(default=None, ge=1, le=10)
     projection_mode: Literal["gl", "account"] | None = None
+    projection_horizon: Literal["annual", "monthly"] | None = None
+    start_year: int | None = Field(default=None, ge=1900, le=2200)
+    start_month: int | None = Field(default=None, ge=1, le=12)
 
 
 class ProjectionResponse(BaseModel):
@@ -74,6 +80,9 @@ class ProjectionResponse(BaseModel):
     name: str
     projection_years: int
     projection_mode: str
+    projection_horizon: str
+    start_year: int | None = None
+    start_month: int | None = None
     company_id: uuid.UUID | None = None
     division_id: uuid.UUID | None = None
     sub_division_id: uuid.UUID | None = None
@@ -89,6 +98,9 @@ class ProjectionWithDetailsResponse(BaseModel):
     name: str
     projection_years: int
     projection_mode: str
+    projection_horizon: str
+    start_year: int | None = None
+    start_month: int | None = None
     company_id: uuid.UUID | None = None
     division_id: uuid.UUID | None = None
     sub_division_id: uuid.UUID | None = None

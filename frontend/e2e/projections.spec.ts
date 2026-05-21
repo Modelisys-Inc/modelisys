@@ -15,8 +15,8 @@ test.describe("Projections", () => {
   });
 
   test("can navigate to pro-forma projections", async ({ page }) => {
-    await page.goto("/projections/pro-forma");
-    await expect(page).toHaveURL(/\/projections\/pro-forma/);
+    await page.goto("/projections");
+    await expect(page).toHaveURL(/\/projections/);
     // Use heading selector for more specificity
     await expect(
       page.locator("h2").filter({ hasText: /pro forma|projections/i }).first()
@@ -43,7 +43,7 @@ test.describe("Projections", () => {
   });
 
   test("pro-forma page has projection controls", async ({ page }) => {
-    await page.goto("/projections/pro-forma");
+    await page.goto("/projections");
     // Should have projection year selector or similar controls
     await page.waitForTimeout(2000);
     // Check for any form control element

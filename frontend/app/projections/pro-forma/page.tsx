@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
-import { Filter, TrendingUp, TrendingDown, Calculator, CreditCard, BarChart3, Scale, Waves, Save, FolderOpen, X, Plus, Wallet } from "lucide-react"
+import { TrendingUp, TrendingDown, Calculator, CreditCard, BarChart3, Scale, Waves, Save, FolderOpen, X, Plus, Wallet } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { IncomeStatementDetail } from "@/components/income-statement-detail"
 import { IncomeStatementSummary } from "@/components/income-statement-summary"
@@ -16,11 +16,22 @@ import { BalanceSheetDetail } from "@/components/balance-sheet-detail"
 import { BalanceSheetSummary } from "@/components/balance-sheet-summary"
 import { CashFlowDetail } from "@/components/cash-flow-detail"
 import { CashFlowSummary } from "@/components/cash-flow-summary"
-import { BaseSeasonalityDetail } from "@/components/base-seasonality-detail"
 import { CapexForecastDetail } from "@/components/capex-forecast-detail"
 import { DebtForecastDetail } from "@/components/debt-forecast-detail"
 import { FDRForecastDetail } from "@/components/fdr-forecast-detail"
 import { useCompanies } from "@/hooks/use-companies"
+import { useSearchParams } from "next/navigation"
+import { useRouter } from "next/navigation"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   listCompanies,
   listProjections,
@@ -31,6 +42,8 @@ import {
 } from "@/lib/api"
 
 type ModuleType = "income-statement" | "balance-sheet" | "cash-flow" | "revenue" | "expenses" | "capex" | "debt" | "fdr"
+type TopNav = "income-statement" | "balance-sheet" | "cash-flow" | "assumptions"
+type AssumptionsNav = "revenue" | "expenses" | "capex" | "debt"
 
 interface Module {
   id: ModuleType
@@ -103,6 +116,9 @@ interface SavedProjection {
   subDivisionId: string | null
   projectionYears: 3 | 4 | 5
   projectionMode: "gl" | "account"
+  projectionHorizon: "annual" | "monthly"
+  startYear: number | null
+  startMonth: number | null
   createdAt: string
   updatedAt: string
 }
@@ -116,6 +132,9 @@ function mapApiProjection(p: ProjectionData): SavedProjection {
     subDivisionId: p.sub_division_id,
     projectionYears: (p.projection_years as 3 | 4 | 5) || 5,
     projectionMode: (p.projection_mode as "gl" | "account") || "gl",
+    projectionHorizon: ((p.projection_horizon as "annual" | "monthly") || "annual"),
+    startYear: (p.start_year ?? null),
+    startMonth: (p.start_month ?? null),
     createdAt: p.created_at,
     updatedAt: p.updated_at,
   }
@@ -123,13 +142,21 @@ function mapApiProjection(p: ProjectionData): SavedProjection {
 
 export default function ProFormaPage() {
   const { companies } = useCompanies()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const projectionIdFromUrl = searchParams.get("projectionId")
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
   const [selectedModule, setSelectedModule] = useState<ModuleType>("income-statement")
+  const [topNav, setTopNav] = useState<TopNav>("income-statement")
+  const [assumptionsNav, setAssumptionsNav] = useState<AssumptionsNav>("revenue")
   const [section, setSection] = useState<"summary" | "detail">("detail")
   const [projectionYears, setProjectionYears] = useState<3 | 4 | 5>(5)
   const [projectionMode, setProjectionMode] = useState<"gl" | "account">("gl")
+  const [projectionHorizon, setProjectionHorizon] = useState<"annual" | "monthly">("annual")
+  const [projectionStartYear, setProjectionStartYear] = useState<number | null>(null)
+  const [projectionStartMonth, setProjectionStartMonth] = useState<number | null>(null)
   const [savedProjections, setSavedProjections] = useState<SavedProjection[]>([])
   const [currentProjectionId, setCurrentProjectionId] = useState<string | null>(null)
   const [saveModalOpen, setSaveModalOpen] = useState(false)
@@ -145,6 +172,8 @@ export default function ProFormaPage() {
   const [newProjectionMode, setNewProjectionMode] = useState<"gl" | "account">("gl")
   // Track which company the projections were loaded for
   const [loadedProjectionsCompanyId, setLoadedProjectionsCompanyId] = useState<string | null>(null)
+  const [backDialogOpen, setBackDialogOpen] = useState(false)
+  const [backPendingSave, setBackPendingSave] = useState(false)
 
   // Auto-select first company for new projection form
   useEffect(() => {
@@ -169,8 +198,27 @@ export default function ProFormaPage() {
         }
         setSavedProjections(allProjections)
 
+        // If we were deep-linked to a specific projection, auto-load it and skip the initial modal.
+        if (projectionIdFromUrl && !currentProjectionId) {
+          const found = allProjections.find((p) => p.id === projectionIdFromUrl)
+          if (found) {
+            setCompanyId(found.companyId)
+            setDivisionId(found.divisionId)
+            setSubDivisionId(found.subDivisionId)
+            setProjectionYears(found.projectionYears)
+            setProjectionMode(found.projectionMode || "gl")
+            setProjectionHorizon(found.projectionHorizon || "annual")
+            setProjectionStartYear(found.startYear ?? null)
+            setProjectionStartMonth(found.startMonth ?? null)
+            setCurrentProjectionId(found.id)
+            setInitialModalOpen(false)
+            setLoadModalOpen(false)
+            return
+          }
+          // If projectionId is invalid, fall back to the normal flow (show initial modal).
+        }
+
         if (allProjections.length > 0 && !currentProjectionId) {
-          // No active projection, show initial modal
           setInitialModalOpen(true)
         } else if (allProjections.length === 0) {
           setInitialModalOpen(true)
@@ -182,7 +230,7 @@ export default function ProFormaPage() {
     }
 
     loadAllProjections()
-  }, [companies])
+  }, [companies, projectionIdFromUrl, currentProjectionId])
 
   const saveProjection = async () => {
     if (!projectionName.trim()) return
@@ -223,6 +271,11 @@ export default function ProFormaPage() {
 
     setSaveModalOpen(false)
     setProjectionName("")
+
+    if (backPendingSave) {
+      setBackPendingSave(false)
+      router.push("/projections")
+    }
   }
 
   const loadProjection = (projection: SavedProjection) => {
@@ -231,10 +284,24 @@ export default function ProFormaPage() {
     setSubDivisionId(projection.subDivisionId)
     setProjectionYears(projection.projectionYears)
     setProjectionMode(projection.projectionMode || "gl")
+    setProjectionHorizon(projection.projectionHorizon || "annual")
+    setProjectionStartYear(projection.startYear ?? null)
+    setProjectionStartMonth(projection.startMonth ?? null)
     setCurrentProjectionId(projection.id)
     setLoadModalOpen(false)
     setInitialModalOpen(false)
   }
+
+  // Allow deep-linking directly to a saved projection
+  useEffect(() => {
+    if (!projectionIdFromUrl) return
+    if (savedProjections.length === 0) return
+    if (currentProjectionId === projectionIdFromUrl) return
+    const found = savedProjections.find((p) => p.id === projectionIdFromUrl)
+    if (!found) return
+    loadProjection(found)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectionIdFromUrl, savedProjections])
 
   const handleCreateNewProjection = async () => {
     if (!newProjectionName.trim() || !newProjectionCompanyId) return
@@ -301,216 +368,281 @@ export default function ProFormaPage() {
   // For revenue, expenses, capex, debt, fdr, income-statement, balance-sheet, and cash-flow, use annual years view
   const period: "monthly" | "quarterly" | "annual" = (selectedModule === "revenue" || selectedModule === "expenses" || selectedModule === "capex" || selectedModule === "debt" || selectedModule === "fdr" || selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") ? "annual" : "monthly"
   const view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years" = (selectedModule === "revenue" || selectedModule === "expenses" || selectedModule === "capex" || selectedModule === "debt" || selectedModule === "fdr" || selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") ? "years" : "current"
-  const columnMode: "variations" | "percentage" | "comparison" = "variations"
+  // In projections, we display amounts (not variations) by default.
+  const columnMode: "variations" | "percentage" | "comparison" = "comparison"
+  const isFinancialStatementModule =
+    selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow"
+  const isAssumptions = topNav === "assumptions"
+  const monthLabel = (m: number | null) => {
+    if (!m) return null
+    const labels = [
+      "Janvier",
+      "Février",
+      "Mars",
+      "Avril",
+      "Mai",
+      "Juin",
+      "Juillet",
+      "Août",
+      "Septembre",
+      "Octobre",
+      "Novembre",
+      "Décembre",
+    ]
+    return labels[m - 1] ?? null
+  }
+
+  const setFinancialStatementModule = (m: Exclude<TopNav, "assumptions">) => {
+    setTopNav(m)
+    setSelectedModule(m)
+  }
+
+  const setAssumptionsModule = (m: AssumptionsNav) => {
+    setTopNav("assumptions")
+    setAssumptionsNav(m)
+    setSelectedModule(m)
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
-      <DashboardHeader
-        title="Pro Forma"
-        description="Générez vos états financiers pro forma basés sur vos projections et hypothèses"
-      />
+      <DashboardHeader title="Modelisys" />
+      {/* Section sombre (comme income-statement) */}
+      <div className="relative w-full pt-15 pb-44 overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+            <div className="bg-[#2A2F3A]" />
+            <div className="bg-[#2A2F3A]" />
+          </div>
+          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
+          </div>
+        </div>
+        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
+          <div className="flex items-start mb-4">
+            {/* Espace équivalent au bouton menu du header pour l'alignement */}
+            <div className="w-2 flex-shrink-0" />
+            <div className="flex-1">
+              <div className="mb-2">
+                <h2 className="text-4xl font-semibold tracking-tight text-[#E6D6C3]">Pro Forma</h2>
+              </div>
+              <p className="text-base text-[#C9B8A5]/90 mb-6">
+                Générez vos états financiers pro forma basés sur vos projections et hypothèses
+              </p>
+
+              {/* Menu principal (Résultats / Bilan / Trésorerie / Hypothèses) — style income-statement */}
+              <div className="flex flex-wrap items-end gap-2 mb-2">
+                <div className="flex flex-wrap items-end gap-8">
+                  {[
+                    { id: "income-statement" as const, label: "Résultats" },
+                    { id: "balance-sheet" as const, label: "Bilan" },
+                    { id: "cash-flow" as const, label: "Trésorerie" },
+                  ].map((item) => {
+                    const isActive = topNav === item.id
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => setFinancialStatementModule(item.id)}
+                        className={cn(
+                          "relative inline-block rounded-md px-3 py-1.5 -mx-1 pb-4 border-b border-slate-600/30 text-sm font-normal text-slate-200 transition-colors",
+                          !isActive ? "hover:bg-white/5 hover:text-slate-100" : "hover:bg-white/[0.04]"
+                        )}
+                      >
+                        {item.label}
+                        {isActive && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10" />}
+                      </button>
+                    )
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => setAssumptionsModule("revenue")}
+                    className={cn(
+                      "relative inline-block rounded-md px-3 py-1.5 -mx-1 pb-4 border-b border-slate-600/30 text-sm font-normal text-slate-200 transition-colors",
+                      topNav !== "assumptions" ? "hover:bg-white/5 hover:text-slate-100" : "hover:bg-white/[0.04]"
+                    )}
+                  >
+                    Hypothèses
+                    {topNav === "assumptions" && (
+                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Barre de contrôle (Vue + Hypothèses) — style income-statement */}
+          <div className="mb-6">
+            <div className="rounded-2xl border border-white/10 bg-[#2A2F3A]/45 px-3 py-3 backdrop-blur-sm sm:px-4">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* États financiers: Vue (Sommaire / Détail) */}
+                {!isAssumptions && isFinancialStatementModule && (
+                  <div className="flex items-center gap-2">
+                    <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
+                      <Button
+                        variant="ghost"
+                        onClick={() => setSection("summary")}
+                        className={cn(
+                          "h-8 text-xs px-3 transition-all",
+                          section === "summary"
+                            ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                            : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                        )}
+                      >
+                        Sommaire
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => setSection("detail")}
+                        className={cn(
+                          "h-8 text-xs px-3 transition-all",
+                          section === "detail"
+                            ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                            : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                        )}
+                      >
+                        Détail
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Hypothèses: sous-menu (Revenus / Dépenses / Capex / Dettes) */}
+                {isAssumptions && (
+                  <div className="flex items-center gap-2">
+                    <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
+                      {[
+                        { id: "revenue" as const, label: "Revenus" },
+                        { id: "expenses" as const, label: "Dépenses" },
+                        { id: "capex" as const, label: "Capex" },
+                        { id: "debt" as const, label: "Dettes" },
+                      ].map((item) => {
+                        const isActive = assumptionsNav === item.id
+                        return (
+                          <Button
+                            key={item.id}
+                            variant="ghost"
+                            onClick={() => setAssumptionsModule(item.id)}
+                            className={cn(
+                              "h-8 text-xs px-3 transition-all",
+                              isActive
+                                ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                                : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                            )}
+                          >
+                            {item.label}
+                          </Button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
+        <div className="relative -mt-44">
+        {/* Séparateur (comme Notes) entre la barre sombre et le scénario */}
+        <div className="mb-4 h-px w-full bg-gradient-to-r from-[#E0742D]/80 via-white/15 to-transparent" />
         {/* Projection Details Bar - Only show if projection is active */}
         {currentProjectionId && (
-          <div className="bg-white rounded-xl border border-slate-200 shadow-lg mb-6 p-4">
-            <div className="flex flex-wrap items-center gap-4">
+          <div className="mb-6">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Scénario */}
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-slate-900">
-                  {savedProjections.find(p => p.id === currentProjectionId)?.name || "Sans nom"}
-                </span>
+                <span className="inline-flex h-2 w-2 rounded-full bg-[#E0742D]" aria-hidden />
+                <div className="text-sm font-semibold text-[#E6D6C3]">
+                  {savedProjections.find((p) => p.id === currentProjectionId)?.name || "Sans nom"}
+                </div>
               </div>
-              <div className="h-6 w-px bg-slate-200" />
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-600">
-                  Entité: <span className="font-medium text-slate-900">
-                    {companyId 
-                      ? companies.find(c => c.id === companyId)?.name || "N/A"
-                      : "Toutes les sociétés"}
-                    {divisionId && ` - ${companies.flatMap(c => c.divisions || []).find(d => d.id === divisionId)?.name || ""}`}
-                    {subDivisionId && ` - ${companies.flatMap(c => c.divisions || []).flatMap(d => d.subDivisions || []).find(s => s.id === subDivisionId)?.name || ""}`}
+
+              <div className="hidden sm:block h-8 w-px bg-white/10" />
+
+              {/* Métadonnées — sans cartes */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/70">
+                <div className="whitespace-nowrap">
+                  <span className="text-white/50">Entité</span>{" "}
+                  <span className="font-medium text-slate-100">
+                    {companyId ? companies.find((c) => c.id === companyId)?.name || "N/A" : "Toutes les sociétés"}
+                    {divisionId &&
+                      ` - ${companies.flatMap((c) => c.divisions || []).find((d) => d.id === divisionId)?.name || ""}`}
+                    {subDivisionId &&
+                      ` - ${
+                        companies
+                          .flatMap((c) => c.divisions || [])
+                          .flatMap((d) => d.subDivisions || [])
+                          .find((s) => s.id === subDivisionId)?.name || ""
+                      }`}
                   </span>
-                </span>
+                </div>
+                <div className="hidden md:block h-4 w-px bg-white/10" />
+                <div className="whitespace-nowrap">
+                  <span className="text-white/50">Projection</span>{" "}
+                  <span className="font-medium text-slate-100">{projectionYears} ans</span>
+                </div>
+                <div className="hidden md:block h-4 w-px bg-white/10" />
+                <div className="whitespace-nowrap">
+                  <span className="text-white/50">Date de référence</span>{" "}
+                  <span className="font-medium text-slate-100">
+                    {projectionStartYear ? (
+                      projectionHorizon === "monthly" ? (
+                        `${monthLabel(projectionStartMonth) ?? "—"} ${projectionStartYear}`
+                      ) : (
+                        String(projectionStartYear)
+                      )
+                    ) : (
+                      "—"
+                    )}
+                  </span>
+                </div>
               </div>
-              <div className="h-6 w-px bg-slate-200" />
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-600">
-                  Projection: <span className="font-medium text-slate-900">{projectionYears} ans</span>
-                </span>
-              </div>
-              <div className="h-6 w-px bg-slate-200" />
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-600">
-                  Mode: <span className="font-medium text-slate-900">{projectionMode === "gl" ? "Par GL" : "Par Compte"}</span>
-                </span>
-              </div>
+
               <div className="flex-1" />
-              <div className="flex items-center gap-2">
+
+              {/* Actions */}
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={openNewProjectionModal}
-                  className="h-8 text-xs"
+                  onClick={() => setBackDialogOpen(true)}
+                  className="h-9 text-xs border-white/15 bg-transparent text-[#E6D6C3] hover:bg-white/5 hover:text-white"
                 >
-                  <Plus className="w-3.5 h-3.5 mr-1.5" />
-                  Nouveau scénario
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setLoadModalOpen(true)}
-                  className="h-8 text-xs"
-                >
-                  <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
-                  Charger
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={openSaveModal}
-                  className="h-8 text-xs"
-                >
-                  <Save className="w-3.5 h-3.5 mr-1.5" />
-                  Enregistrer
+                  Retour aux scénarios
                 </Button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Module Selector */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-lg mb-6 p-4">
-          <div className="flex flex-wrap items-center gap-4">
-            {/* Filter Icon */}
-            <div className="flex items-center gap-2 text-slate-600">
-              <Filter className="w-4 h-4" />
-            </div>
-
-            {/* Separator */}
-            <div className="h-6 w-px bg-slate-200" />
-
-            {/* États financiers Section */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-500 whitespace-nowrap">États financiers:</span>
-              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
-                {financialStatementsModules.map((module) => {
-                  const ModuleIcon = module.icon
-                  const isActive = selectedModule === module.id
-                  return (
-                    <Button
-                      key={module.id}
-                      variant="ghost"
-                      onClick={() => setSelectedModule(module.id)}
-                      className={cn(
-                        "h-8 text-xs px-3 transition-all",
-                        isActive
-                          ? "bg-slate-900 text-white font-medium shadow-sm"
-                          : "text-slate-600 hover:text-slate-900"
-                      )}
-                    >
-                      <ModuleIcon className="w-3.5 h-3.5 mr-1.5" />
-                      {module.label}
-                    </Button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Separator */}
-            <div className="h-6 w-px bg-slate-200" />
-
-             {/* View Toggle - only show for income-statement, balance-sheet, and cash-flow */}
-             {(selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") && (
-               <>
-                 <div className="flex items-center gap-2">
-                   <span className="text-xs font-medium text-slate-500 whitespace-nowrap">Vue:</span>
-                   <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
-                     <Button
-                       variant="ghost"
-                       onClick={() => setSection("summary")}
-                       className={cn(
-                         "h-8 text-xs px-3 transition-all",
-                         section === "summary"
-                           ? "bg-slate-900 text-white font-medium shadow-sm"
-                           : "text-slate-600 hover:text-slate-900"
-                       )}
-                     >
-                       Sommaire
-                     </Button>
-                     <Button
-                       variant="ghost"
-                       onClick={() => setSection("detail")}
-                       className={cn(
-                         "h-8 text-xs px-3 transition-all",
-                         section === "detail"
-                           ? "bg-slate-900 text-white font-medium shadow-sm"
-                           : "text-slate-600 hover:text-slate-900"
-                       )}
-                     >
-                       Détail
-                     </Button>
-                   </div>
-                 </div>
-                 <div className="h-6 w-px bg-slate-200" />
-               </>
-             )}
-
-            {/* Hypothèses Section */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-500 whitespace-nowrap">Hypothèses:</span>
-              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
-                {assumptionsModules.map((module) => {
-                  const ModuleIcon = module.icon
-                  const isActive = selectedModule === module.id
-                  return (
-                    <Button
-                      key={module.id}
-                      variant="ghost"
-                      onClick={() => setSelectedModule(module.id)}
-                      className={cn(
-                        "h-8 text-xs px-3 transition-all",
-                        isActive
-                          ? "bg-slate-900 text-white font-medium shadow-sm"
-                          : "text-slate-600 hover:text-slate-900"
-                      )}
-                    >
-                      <ModuleIcon className="w-3.5 h-3.5 mr-1.5" />
-                      {module.label}
-                    </Button>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Module Content - Only show if projection is active */}
         {currentProjectionId && (
         <div className="space-y-6">
           {selectedModule === "revenue" ? (
-            <div className="space-y-6">
-              <IncomeStatementDetail
-                period={period}
-                view={view}
-                columnMode={columnMode}
-                companyId={companyId}
-                divisionId={divisionId}
-                subDivisionId={subDivisionId}
-                companies={companies}
-                title="Estimation des revenus annuels"
-                projectionYears={projectionYears}
-                projectionMode={projectionMode}
-                projectionId={currentProjectionId}
-              />
-              <BaseSeasonalityDetail
-                companyId={companyId}
-                divisionId={divisionId}
-                subDivisionId={subDivisionId}
-                companies={companies}
-                title="Saisonnalité des revenus"
-                projectionMode={projectionMode}
-                projectionId={currentProjectionId}
-              />
-            </div>
+            <IncomeStatementDetail
+              period={period}
+              view={view}
+              columnMode={columnMode}
+              companyId={companyId}
+              divisionId={divisionId}
+              subDivisionId={subDivisionId}
+              companies={companies}
+              title="Estimation des revenus annuels"
+              fiscalYear={
+                projectionHorizon === "annual" && projectionStartYear ? projectionStartYear - 1 : projectionStartYear ?? undefined
+              }
+              referenceMonth={projectionStartMonth ?? undefined}
+              forceForecastSection
+              forecastBaseYear={projectionStartYear ?? undefined}
+              forecastUseSeriesActuals
+              projectionYears={projectionYears}
+              projectionMode={projectionMode}
+              projectionId={currentProjectionId}
+            />
           ) : selectedModule === "expenses" ? (
             <IncomeStatementDetail
               period={period}
@@ -521,6 +653,13 @@ export default function ProFormaPage() {
               subDivisionId={subDivisionId}
               companies={companies}
               title="Estimation des dépenses annuelles"
+              fiscalYear={
+                projectionHorizon === "annual" && projectionStartYear ? projectionStartYear - 1 : projectionStartYear ?? undefined
+              }
+              referenceMonth={projectionStartMonth ?? undefined}
+              forceForecastSection
+              forecastBaseYear={projectionStartYear ?? undefined}
+              forecastUseSeriesActuals
               projectionYears={projectionYears}
               projectionMode={projectionMode}
               projectionId={currentProjectionId}
@@ -576,8 +715,15 @@ export default function ProFormaPage() {
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
                 companies={companies}
-                title="États des résultats pro forma"
                 projectionYears={projectionYears}
+                projectionId={currentProjectionId}
+                fiscalYear={
+                  projectionHorizon === "annual" && projectionStartYear ? projectionStartYear - 1 : projectionStartYear ?? undefined
+                }
+                referenceMonth={projectionStartMonth ?? undefined}
+                forceForecastSection
+                forecastBaseYear={projectionStartYear ?? undefined}
+                forecastUseSeriesActuals
               />
             ) : (
               <IncomeStatementDetail
@@ -588,7 +734,14 @@ export default function ProFormaPage() {
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
                 companies={companies}
-                title="États des résultats pro forma"
+                hideHeaderIcon
+                disableRowInteractions
+                fiscalYear={
+                  projectionHorizon === "annual" && projectionStartYear ? projectionStartYear - 1 : projectionStartYear ?? undefined
+                }
+                forceForecastSection
+                forecastBaseYear={projectionStartYear ?? undefined}
+                forecastUseSeriesActuals
                 projectionYears={projectionYears}
                 projectionMode={projectionMode}
                 projectionId={currentProjectionId}
@@ -661,6 +814,7 @@ export default function ProFormaPage() {
           )}
         </div>
         )}
+        </div>
 
         {/* Initial Modal - Load or Create Projection */}
         <Dialog open={initialModalOpen} onOpenChange={(open) => {
@@ -1015,6 +1169,48 @@ export default function ProFormaPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <AlertDialog open={backDialogOpen} onOpenChange={setBackDialogOpen}>
+          <AlertDialogContent className="sm:max-w-xl">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Retour aux scénarios</AlertDialogTitle>
+              <AlertDialogDescription>
+                Voulez-vous enregistrer les modifications avant de retourner à la liste des scénarios ?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                onClick={() => {
+                  setBackPendingSave(false)
+                }}
+              >
+                Annuler
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault()
+                  setBackPendingSave(false)
+                  setBackDialogOpen(false)
+                  router.push("/projections")
+                }}
+                className="bg-slate-900 text-white hover:bg-slate-800"
+              >
+                Quitter sans enregistrer
+              </AlertDialogAction>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault()
+                  setBackDialogOpen(false)
+                  setBackPendingSave(true)
+                  openSaveModal()
+                }}
+                className="bg-[#E0742D] text-white hover:bg-[#c96526]"
+              >
+                Enregistrer
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </main>
     </div>
   )

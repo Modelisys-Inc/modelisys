@@ -20,6 +20,9 @@ class Projection(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     projection_years: Mapped[int] = mapped_column(Integer, nullable=False, default=5)  # 3, 4, or 5
     projection_mode: Mapped[str] = mapped_column(String(10), nullable=False, default="gl")  # gl or account
+    projection_horizon: Mapped[str] = mapped_column(String(20), nullable=False, default="annual")  # annual or monthly
+    start_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_month: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1-12 for monthly horizon
 
     created_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

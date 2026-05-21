@@ -45,6 +45,24 @@ export function cloneStructure(s: Record<string, unknown>[]): Record<string, unk
   return JSON.parse(JSON.stringify(s)) as Record<string, unknown>[]
 }
 
+/** Nature du poste au sommaire (Paramètres) — revenus vs dépenses. */
+export type IncomeStatementPosteNature = "revenus" | "depenses"
+
+export function normalizePosteNature(raw: unknown): IncomeStatementPosteNature | undefined {
+  if (raw === "revenus" || raw === "depenses") return raw
+  if (raw === "revenue" || raw === "expense") return raw === "revenue" ? "revenus" : "depenses"
+  return undefined
+}
+
+/**
+ * Le choix Revenus / Dépenses n’est possible que lorsque l’annexe est activée (case « Annexe » cochée).
+ */
+export function isPosteNatureChoiceApplicable(row: Record<string, unknown>): boolean {
+  if (isStructureRowEmptyLabel(row) || isStructureRowHidden(row)) return false
+  if (!isCodeMappingEnabled(row)) return false
+  return row.showInDetail === true
+}
+
 export function newChargeRow(options?: { indent?: boolean; isBold?: boolean }): Record<string, unknown> {
   const id =
     typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -384,6 +402,100 @@ export function collectDistinctLinkCodesFromStructure(
     for (const c of normalizeCodeList(row.liaisonDenominatorCodes)) add(c)
   }
   return Array.from(seen).sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+}
+
+/** Au moins un poste du sommaire est marqué « Revenus » (nature). */
+export function structureHasRevenuePosteNatureRow(structure: Record<string, unknown>[]): boolean {
+  for (const row of structure) {
+    if (normalizePosteNature(row.posteNature) === "revenus") return true
+  }
+  return false
+}
+
+/**
+ * Le premier poste sommaire (non detailOnly) portant cette lettre d’annexe a-t-il la nature « Revenus » ?
+ * Les sous-lignes du Détail héritent du même bloc d’annexe que ce titre.
+ */
+export function structureAnnexIsRevenueNature(
+  structure: Record<string, unknown>[],
+  letter: string
+): boolean {
+  const L = normalizeAnnexLetter(letter)
+  if (!L) return false
+  for (const row of structure) {
+    if (isStructureRowDetailOnly(row)) continue
+    if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== L) continue
+    return normalizePosteNature(row.posteNature) === "revenus"
+  }
+  return false
+}
+
+/**
+ * Ligne série « Estimation des revenus annuels » : même périmètre que le Détail (annexe + codes actifs),
+ * restreint aux postes / annexes dont la nature au sommaire est « Revenus ».
+ */
+export function seriesRowBelongsToRevenueAnnexDetail(
+  sr: { id: string; label: string },
+  structure: Record<string, unknown>[]
+): boolean {
+  const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
+  if (!structRow) return false
+  if (!isCodeMappingEnabled(structRow) || !isShowInDetail(structRow)) return false
+
+  if (normalizePosteNature(structRow.posteNature) === "revenus") return true
+
+  if (isStructureRowDetailOnly(structRow)) {
+    return structureAnnexIsRevenueNature(structure, String(structRow.annexLetter ?? ""))
+  }
+
+  return false
+}
+
+/** Au moins un poste du sommaire est marqué « Dépenses » (nature). */
+export function structureHasDepensesPosteNatureRow(structure: Record<string, unknown>[]): boolean {
+  for (const row of structure) {
+    if (normalizePosteNature(row.posteNature) === "depenses") return true
+  }
+  return false
+}
+
+/**
+ * Le premier poste sommaire (non detailOnly) portant cette lettre d’annexe a-t-il la nature « Dépenses » ?
+ * Les sous-lignes du Détail héritent du même bloc d’annexe que ce titre.
+ */
+export function structureAnnexIsDepensesNature(
+  structure: Record<string, unknown>[],
+  letter: string
+): boolean {
+  const L = normalizeAnnexLetter(letter)
+  if (!L) return false
+  for (const row of structure) {
+    if (isStructureRowDetailOnly(row)) continue
+    if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== L) continue
+    return normalizePosteNature(row.posteNature) === "depenses"
+  }
+  return false
+}
+
+/**
+ * Ligne série « Estimation des dépenses annuelles » : même périmètre que le Détail (annexe + codes actifs),
+ * restreint aux postes / annexes dont la nature au sommaire est « Dépenses ».
+ */
+export function seriesRowBelongsToDepensesAnnexDetail(
+  sr: { id: string; label: string },
+  structure: Record<string, unknown>[]
+): boolean {
+  const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
+  if (!structRow) return false
+  if (!isCodeMappingEnabled(structRow) || !isShowInDetail(structRow)) return false
+
+  if (normalizePosteNature(structRow.posteNature) === "depenses") return true
+
+  if (isStructureRowDetailOnly(structRow)) {
+    return structureAnnexIsDepensesNature(structure, String(structRow.annexLetter ?? ""))
+  }
+
+  return false
 }
 
 /** Vérifie l’absence de doublons sur `linkCode` (postes visibles avec code renseigné). */

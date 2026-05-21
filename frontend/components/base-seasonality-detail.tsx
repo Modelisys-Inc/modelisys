@@ -4,7 +4,7 @@ import { formatCurrency } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import { ChevronRight, ChevronDown, Settings, Edit2, Trash2 } from "lucide-react"
-import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { Fragment, useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts } from "@/lib/series-utils"
@@ -534,8 +534,8 @@ export function BaseSeasonalityDetail({
               const rowTotal = normalizedPercentages.reduce((sum, pct) => sum + pct, 0)
 
               return (
-                <>
-                  <tr key={idx} className={cn(
+                <Fragment key={row.rowId ? `${row.rowId}-${idx}` : `row-${idx}`}>
+                  <tr className={cn(
                     "border-b",
                     row.label === "" ? "h-2 border-slate-200" : "",
                     nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
@@ -710,7 +710,7 @@ export function BaseSeasonalityDetail({
                       })}
                     </>
                   )}
-                </>
+                </Fragment>
               )
             })}
           </tbody>

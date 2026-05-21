@@ -84,6 +84,9 @@ def create_projection(
         name=request.name,
         projection_years=request.projection_years,
         projection_mode=request.projection_mode,
+        projection_horizon=request.projection_horizon,
+        start_year=request.start_year,
+        start_month=request.start_month,
         created_by_id=current_user.id,
     )
     db.add(projection)
@@ -120,6 +123,12 @@ def update_projection(
         projection.projection_years = request.projection_years
     if request.projection_mode is not None:
         projection.projection_mode = request.projection_mode
+    if request.projection_horizon is not None:
+        projection.projection_horizon = request.projection_horizon
+    if request.start_year is not None:
+        projection.start_year = request.start_year
+    if request.start_month is not None:
+        projection.start_month = request.start_month
 
     db.commit()
     db.refresh(projection)
