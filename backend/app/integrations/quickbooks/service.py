@@ -203,9 +203,9 @@ def _parse_general_ledger(report: dict[str, Any]) -> list[dict[str, Any]]:
     identity lives on the section header; each data line carries its own
     klass_name / dept_name positionally per the Columns array.
     """
-    col = _gl_column_index(report)
-    klass_idx = col.get("klass_name")
-    dept_idx = col.get("dept_name")
+    col_index = _gl_column_index(report)
+    klass_idx = col_index.get("klass_name")
+    dept_idx = col_index.get("dept_name")
     out: list[dict[str, Any]] = []
 
     def cell(cols: list[dict[str, Any]], idx: int | None) -> str:
@@ -215,13 +215,14 @@ def _parse_general_ledger(report: dict[str, Any]) -> list[dict[str, Any]]:
 
     def walk(rows: list[dict[str, Any]], account_id: str, account_name: str):
         for row in rows:
-            header = row.get("Header")
-            if row.get("type") == "Section" and header and header.get("ColData"):
-                hcols = header["ColData"]
-                acct_name = (hcols[0].get("value") or "").strip()
-                acct_id = (hcols[0].get("id") or "").strip()
-                nested = row.get("Rows", {}).get("Row", [])
-                walk(nested, acct_id or account_id, acct_name or account_name)
+            if row.get("type") == "Section":
+                acct_id, acct_name = account_id, account_name
+                header = row.get("Header")
+                if header and header.get("ColData"):
+                    hcols = header["ColData"]
+                    acct_name = (hcols[0].get("value") or "").strip() or account_name
+                    acct_id = (hcols[0].get("id") or "").strip() or account_id
+                walk(row.get("Rows", {}).get("Row", []), acct_id, acct_name)
                 continue
             cols = row.get("ColData")
             if not cols:

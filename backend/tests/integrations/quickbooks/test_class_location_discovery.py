@@ -6,6 +6,7 @@ from httpx import Response
 from app.config import settings
 from app.integrations.quickbooks import client as qbo_client
 from app.integrations.quickbooks import oauth, service
+from app.integrations.quickbooks.service import _parse_general_ledger
 from app.models.quickbooks_connection import QuickBooksConnection
 
 
@@ -47,8 +48,6 @@ def test_get_preferences_returns_json(db, org_user_company):
     body = qbo_client.get_preferences(db, conn)
     assert body["Preferences"]["AccountingInfoPrefs"]["ClassTrackingPerTxn"] is True
 
-
-from app.integrations.quickbooks.service import _parse_general_ledger
 
 _GL_REPORT = {
     "Columns": {"Column": [
@@ -104,3 +103,31 @@ def test_parse_general_ledger_flattens_account_class_location():
         and r["location_name"] == "Quebec" for r in rows
     )
     assert len(rows) == 3
+
+
+def test_parse_general_ledger_recurses_headerless_section():
+    report = {
+        "Columns": {"Column": [
+            {"MetaData": [{"Name": "ColKey", "Value": "klass_name"}]},
+            {"MetaData": [{"Name": "ColKey", "Value": "dept_name"}]},
+        ]},
+        "Rows": {"Row": [
+            {
+                "type": "Section",
+                "Header": {"ColData": [{"value": "Sales (4000)", "id": "33"}]},
+                "Rows": {"Row": [
+                    {
+                        "type": "Section",  # nested header-less subtotal section
+                        "Rows": {"Row": [
+                            {"ColData": [{"value": "East"}, {"value": "Montreal"}]},
+                        ]},
+                    },
+                ]},
+            },
+        ]},
+    }
+    rows = _parse_general_ledger(report)
+    assert rows == [{
+        "account_id": "33", "account_name": "Sales (4000)",
+        "class_name": "East", "location_name": "Montreal",
+    }]
