@@ -398,6 +398,24 @@ def propose_trial_balance(
                 "credit": r["credit"],
             }
 
+    discovery = run_class_location_discovery(
+        db, conn, company, fiscal_year, months, accounts_by_id
+    )
+    by_account = discovery["by_account"]
+    for acct_num, row in union.items():
+        disc = by_account.get(acct_num, {"classes": set(), "locations": set()})
+        disc_divs = sorted(disc["classes"])
+        disc_subs = sorted(disc["locations"])
+        existing = existing_mappings.get(acct_num)
+        row["discovered_divisions"] = disc_divs
+        row["discovered_sub_divisions"] = disc_subs
+        row["divisions"] = _merge_tag_csv(
+            existing.divisions if existing else None, disc_divs
+        )
+        row["sub_divisions"] = _merge_tag_csv(
+            existing.sub_divisions if existing else None, disc_subs
+        )
+
     existing_months = sorted({
         e.month
         for e in db.query(TrialBalanceEntry)
@@ -413,6 +431,14 @@ def propose_trial_balance(
         "currency": company.currency,
         "rows": list(union.values()),
         "existing_months": existing_months,
+        "observed_pairs": [
+            {"division": c, "sub_division": l}
+            for (c, l) in sorted(discovery["observed_pairs"])
+        ],
+        "class_location_tracking": {
+            "classes": bool(discovery["classes"]),
+            "locations": bool(discovery["locations"]),
+        },
     }
 
 

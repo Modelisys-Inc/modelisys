@@ -12,6 +12,7 @@ from app.integrations.quickbooks.service import (
     discover_class_location_tags,
     run_class_location_discovery,
 )
+from app.models.account_mapping import AccountMapping
 from app.models.quickbooks_connection import QuickBooksConnection
 
 
@@ -203,3 +204,40 @@ def test_run_discovery_parses_when_gl_ok(db, org_user_company):
     result = run_class_location_discovery(db, conn, company, 2024, [3], accounts_by_id)
     assert result["classes"] == {"East", "West"}
     assert ("East", "Montreal") in result["observed_pairs"]
+
+
+@respx.mock
+def test_propose_attaches_merged_tags(db, org_user_company):
+    _, user, company = org_user_company
+    conn = _make_conn(db, company, user)
+    # existing manual tag on account 4000 to prove the merge (union)
+    db.add(AccountMapping(
+        company_id=company.id, account_number="4000",
+        description="Sales", divisions="Legacy", sub_divisions=None,
+    ))
+    db.commit()
+    base = settings.intuit_api_base
+    respx.get(f"{base}/v3/company/realm-1/query").mock(return_value=Response(200, json={
+        "QueryResponse": {"Account": [
+            {"Id": "33", "AcctNum": "4000", "Name": "Sales",
+             "AccountType": "Income", "AccountSubType": "SalesOfProductIncome"},
+            {"Id": "44", "AcctNum": "6000", "Name": "Rent", "AccountType": "Expense"},
+        ]}
+    }))
+    respx.get(f"{base}/v3/company/realm-1/reports/TrialBalance").mock(
+        return_value=Response(200, json={"Rows": {"Row": [
+            {"ColData": [{"value": "Sales (4000)", "id": "33"}, {"value": "0"}, {"value": "150"}]},
+            {"ColData": [{"value": "Rent (6000)", "id": "44"}, {"value": "900"}, {"value": "0"}]},
+        ]}}))
+    respx.get(f"{base}/v3/company/realm-1/preferences").mock(
+        return_value=Response(200, json={"Preferences": {}}))
+    respx.get(f"{base}/v3/company/realm-1/reports/GeneralLedger").mock(
+        return_value=Response(200, json=_GL_REPORT))
+
+    result = service.propose_trial_balance(db, conn, company, 2024, [3])
+    rows = {r["account_number"]: r for r in result["rows"]}
+    assert rows["4000"]["discovered_divisions"] == ["East", "West"]
+    assert rows["4000"]["divisions"] == ["East", "Legacy", "West"]  # merged + sorted
+    assert rows["4000"]["sub_divisions"] == ["Montreal"]
+    assert result["class_location_tracking"] == {"classes": True, "locations": True}
+    assert {"division": "East", "sub_division": "Montreal"} in result["observed_pairs"]
