@@ -179,6 +179,64 @@ def parse_trial_balance_report(report: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _gl_column_index(report: dict[str, Any]) -> dict[str, int]:
+    """Map GL column keys (klass_name, dept_name, ...) to their ColData index."""
+    index: dict[str, int] = {}
+    columns = report.get("Columns", {}).get("Column", [])
+    for i, col in enumerate(columns):
+        key = None
+        for meta in col.get("MetaData", []) or []:
+            if meta.get("Name") == "ColKey":
+                key = meta.get("Value")
+                break
+        if not key:
+            key = col.get("ColType")
+        if key:
+            index[key] = i
+    return index
+
+
+def _parse_general_ledger(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten the GL report into rows: account (from section header) + class/location.
+
+    GL nests transaction lines under per-account Section headers. The account
+    identity lives on the section header; each data line carries its own
+    klass_name / dept_name positionally per the Columns array.
+    """
+    col = _gl_column_index(report)
+    klass_idx = col.get("klass_name")
+    dept_idx = col.get("dept_name")
+    out: list[dict[str, Any]] = []
+
+    def cell(cols: list[dict[str, Any]], idx: int | None) -> str:
+        if idx is None or idx >= len(cols):
+            return ""
+        return (cols[idx].get("value") or "").strip()
+
+    def walk(rows: list[dict[str, Any]], account_id: str, account_name: str):
+        for row in rows:
+            header = row.get("Header")
+            if row.get("type") == "Section" and header and header.get("ColData"):
+                hcols = header["ColData"]
+                acct_name = (hcols[0].get("value") or "").strip()
+                acct_id = (hcols[0].get("id") or "").strip()
+                nested = row.get("Rows", {}).get("Row", [])
+                walk(nested, acct_id or account_id, acct_name or account_name)
+                continue
+            cols = row.get("ColData")
+            if not cols:
+                continue
+            out.append({
+                "account_id": account_id,
+                "account_name": account_name,
+                "class_name": cell(cols, klass_idx),
+                "location_name": cell(cols, dept_idx),
+            })
+
+    walk(report.get("Rows", {}).get("Row", []), "", "")
+    return out
+
+
 def _date_range_for(company: Company, fiscal_year: int, month: int) -> tuple[str, str]:
     """Return (start_date, end_date) for the QBO TB pull.
 
