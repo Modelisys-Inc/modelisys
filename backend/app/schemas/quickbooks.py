@@ -22,6 +22,16 @@ class MonthAmount(BaseModel):
     credit: float
 
 
+class ObservedPair(BaseModel):
+    division: str
+    sub_division: str
+
+
+class ClassLocationTracking(BaseModel):
+    classes: bool = False
+    locations: bool = False
+
+
 class TrialBalanceRowProposal(BaseModel):
     qbo_account_id: str
     account_number: str
@@ -30,6 +40,10 @@ class TrialBalanceRowProposal(BaseModel):
     qbo_account_sub_type: str | None = None
     existing_link_code: str | None = None
     monthly_amounts: dict[str, MonthAmount]
+    discovered_divisions: list[str] = []
+    discovered_sub_divisions: list[str] = []
+    divisions: list[str] = []
+    sub_divisions: list[str] = []
 
 
 class TrialBalancePreviewRequest(BaseModel):
@@ -44,6 +58,8 @@ class TrialBalancePreviewResponse(BaseModel):
     fetched_at: datetime
     existing_months: list[int]
     rows: list[TrialBalanceRowProposal]
+    observed_pairs: list[ObservedPair] = []
+    class_location_tracking: ClassLocationTracking = ClassLocationTracking()
 
 
 class TrialBalanceCommitRow(BaseModel):
@@ -51,6 +67,8 @@ class TrialBalanceCommitRow(BaseModel):
     account_name: str
     link_code: str | None = None
     skip: bool = False
+    divisions: list[str] = []
+    sub_divisions: list[str] = []
 
 
 class TrialBalanceCommitRequest(BaseModel):
