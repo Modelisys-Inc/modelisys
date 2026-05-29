@@ -1714,6 +1714,10 @@ export type QboTrialBalanceProposalRow = {
   qbo_account_sub_type: string | null
   existing_link_code: string | null
   monthly_amounts: Record<string, QboMonthAmount>
+  discovered_divisions: string[]
+  discovered_sub_divisions: string[]
+  divisions: string[]
+  sub_divisions: string[]
 }
 
 export type QboTrialBalancePreview = {
@@ -1723,6 +1727,8 @@ export type QboTrialBalancePreview = {
   fetched_at: string
   existing_months: number[]
   rows: QboTrialBalanceProposalRow[]
+  observed_pairs: { division: string; sub_division: string }[]
+  class_location_tracking: { classes: boolean; locations: boolean }
 }
 
 export type QboLinkCode = {
@@ -1738,6 +1744,8 @@ export type QboCommitRow = {
   account_name: string
   link_code: string | null
   skip?: boolean
+  divisions?: string[]
+  sub_divisions?: string[]
 }
 
 export async function getQboConnectionStatus(companyId: string): Promise<QboConnectionStatus> {
