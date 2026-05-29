@@ -33,6 +33,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { CreateLinkCodeDialog } from "@/components/quickbooks-create-link-code-dialog"
+import { QuickBooksTagCell } from "@/components/quickbooks-tag-cell"
 import {
   ApiError,
   commitQboTrialBalance,
@@ -211,6 +212,8 @@ type RowState = {
   existing_link_code: string | null
   skip: boolean
   monthly_amounts: Record<string, { debit: number; credit: number }>
+  divisions: string[]
+  sub_divisions: string[]
 }
 
 interface ReviewTableProps {
@@ -243,8 +246,25 @@ export function QuickBooksReviewTable({
       existing_link_code: r.existing_link_code,
       skip: false,
       monthly_amounts: r.monthly_amounts,
+      divisions: r.divisions ?? [],
+      sub_divisions: r.sub_divisions ?? [],
     })),
   )
+  const showDivisions = preview.class_location_tracking?.classes ?? false
+  const showSubDivisions = preview.class_location_tracking?.locations ?? false
+
+  const divisionOptions = useMemo(() => {
+    const s = new Set<string>()
+    for (const r of preview.rows) for (const d of r.discovered_divisions ?? []) s.add(d)
+    return Array.from(s).sort()
+  }, [preview.rows])
+
+  const subDivisionOptions = useMemo(() => {
+    const s = new Set<string>()
+    for (const r of preview.rows) for (const d of r.discovered_sub_divisions ?? []) s.add(d)
+    return Array.from(s).sort()
+  }, [preview.rows])
+
   const [filter, setFilter] = useState<Filter>("all")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [committing, setCommitting] = useState(false)
@@ -425,6 +445,8 @@ export function QuickBooksReviewTable({
         account_name: r.account_name,
         link_code: r.link_code,
         skip: r.skip,
+        divisions: r.divisions,
+        sub_divisions: r.sub_divisions,
       }))
       const result = await commitQboTrialBalance(
         companyId,
@@ -612,6 +634,12 @@ export function QuickBooksReviewTable({
                     {MONTH_LABELS[preview.months[preview.months.length - 1] - 1]})
                   </TableHead>
                 )}
+                {showDivisions && (
+                  <TableHead className="w-[180px]">Division</TableHead>
+                )}
+                {showSubDivisions && (
+                  <TableHead className="w-[180px]">Sous-division</TableHead>
+                )}
                 <TableHead className="w-[260px]">Link code</TableHead>
                 <TableHead className="w-[60px]">Skip</TableHead>
               </TableRow>
@@ -671,6 +699,26 @@ export function QuickBooksReviewTable({
                           )
                           return formatCompactAmount(net)
                         })()}
+                      </TableCell>
+                    )}
+                    {showDivisions && (
+                      <TableCell>
+                        <QuickBooksTagCell
+                          values={r.divisions}
+                          options={divisionOptions}
+                          onChange={(next) => updateRow(idx, { divisions: next })}
+                          placeholder="Division…"
+                        />
+                      </TableCell>
+                    )}
+                    {showSubDivisions && (
+                      <TableCell>
+                        <QuickBooksTagCell
+                          values={r.sub_divisions}
+                          options={subDivisionOptions}
+                          onChange={(next) => updateRow(idx, { sub_divisions: next })}
+                          placeholder="Sous-division…"
+                        />
                       </TableCell>
                     )}
                     <TableCell>
