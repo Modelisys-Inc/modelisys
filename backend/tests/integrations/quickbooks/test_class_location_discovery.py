@@ -241,3 +241,6 @@ def test_propose_attaches_merged_tags(db, org_user_company):
     assert rows["4000"]["sub_divisions"] == ["Montreal"]
     assert result["class_location_tracking"] == {"classes": True, "locations": True}
     assert {"division": "East", "sub_division": "Montreal"} in result["observed_pairs"]
+    assert rows["6000"]["discovered_divisions"] == []
+    assert rows["6000"]["divisions"] == []
+    assert rows["6000"]["sub_divisions"] == ["Quebec"]

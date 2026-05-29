@@ -432,8 +432,8 @@ def propose_trial_balance(
         "rows": list(union.values()),
         "existing_months": existing_months,
         "observed_pairs": [
-            {"division": c, "sub_division": l}
-            for (c, l) in sorted(discovery["observed_pairs"])
+            {"division": c, "sub_division": loc}
+            for (c, loc) in sorted(discovery["observed_pairs"])
         ],
         "class_location_tracking": {
             "classes": bool(discovery["classes"]),
