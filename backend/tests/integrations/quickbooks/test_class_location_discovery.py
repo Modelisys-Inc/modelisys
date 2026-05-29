@@ -6,7 +6,7 @@ from httpx import Response
 from app.config import settings
 from app.integrations.quickbooks import client as qbo_client
 from app.integrations.quickbooks import oauth, service
-from app.integrations.quickbooks.service import _parse_general_ledger
+from app.integrations.quickbooks.service import _parse_general_ledger, discover_class_location_tags
 from app.models.quickbooks_connection import QuickBooksConnection
 
 
@@ -131,3 +131,28 @@ def test_parse_general_ledger_recurses_headerless_section():
         "account_id": "33", "account_name": "Sales (4000)",
         "class_name": "East", "location_name": "Montreal",
     }]
+
+
+def test_discover_builds_sets_and_observed_pairs():
+    accounts_by_id = {
+        "33": {"Id": "33", "AcctNum": "4000"},
+        "44": {"Id": "44", "AcctNum": "6000"},
+    }
+    result = discover_class_location_tags(_GL_REPORT, accounts_by_id)
+    by_acct = result["by_account"]
+    assert by_acct["4000"]["classes"] == {"East", "West"}
+    assert by_acct["4000"]["locations"] == {"Montreal"}
+    assert by_acct["6000"]["classes"] == set()
+    assert by_acct["6000"]["locations"] == {"Quebec"}
+    # observed pair requires BOTH class and location on the same line
+    assert ("East", "Montreal") in result["observed_pairs"]
+    assert ("West", "") not in result["observed_pairs"]
+    assert result["classes"] == {"East", "West"}
+    assert result["locations"] == {"Montreal", "Quebec"}
+
+
+def test_discover_falls_back_to_account_id_when_no_acctnum():
+    result = discover_class_location_tags(_GL_REPORT, accounts_by_id={})
+    # No AcctNum metadata → keyed by GL account id
+    assert "33" in result["by_account"]
+    assert result["by_account"]["33"]["classes"] == {"East", "West"}

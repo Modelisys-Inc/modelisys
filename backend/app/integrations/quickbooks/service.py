@@ -238,6 +238,42 @@ def _parse_general_ledger(report: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _empty_discovery() -> dict[str, Any]:
+    return {"by_account": {}, "observed_pairs": set(), "classes": set(), "locations": set()}
+
+
+def discover_class_location_tags(
+    report: dict[str, Any], accounts_by_id: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    """Derive per-account class/location membership + observed pairs from GL.
+
+    by_account: { account_number: {"classes": set, "locations": set} }
+    observed_pairs: set of (class_name, location_name) where a single line had both
+    classes / locations: global sets across all accounts
+    """
+    result = _empty_discovery()
+    by_account: dict[str, dict[str, set]] = result["by_account"]
+
+    for line in _parse_general_ledger(report):
+        meta = accounts_by_id.get(str(line["account_id"]), {})
+        acct_num = meta.get("AcctNum") or line["account_id"]
+        if not acct_num:
+            continue
+        entry = by_account.setdefault(acct_num, {"classes": set(), "locations": set()})
+        cls = line["class_name"]
+        loc = line["location_name"]
+        if cls:
+            entry["classes"].add(cls)
+            result["classes"].add(cls)
+        if loc:
+            entry["locations"].add(loc)
+            result["locations"].add(loc)
+        if cls and loc:
+            result["observed_pairs"].add((cls, loc))
+
+    return result
+
+
 def _date_range_for(company: Company, fiscal_year: int, month: int) -> tuple[str, str]:
     """Return (start_date, end_date) for the QBO TB pull.
 
