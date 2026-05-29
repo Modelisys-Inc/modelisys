@@ -480,7 +480,7 @@ def _upsert_division_tree(
     for cls, loc in observed_pairs:
         div = divisions.get(cls)
         if div is None:
-            continue  # only nest under classes the user kept
+            continue  # no matching division (class not committed and not pre-existing)
         if (div.id, loc) not in existing_subs:
             db.add(SubDivision(division_id=div.id, name=loc))
             existing_subs.add((div.id, loc))
