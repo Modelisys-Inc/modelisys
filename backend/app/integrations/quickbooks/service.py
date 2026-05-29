@@ -451,6 +451,11 @@ def _upsert_division_tree(
     """Additively upsert Division (per class) + SubDivision (per observed pair).
 
     Never deletes — protects manually created divisions. Idempotent.
+
+    The in-memory dedup guard is safe against concurrent commits because callers
+    run inside commit_trial_balance, which holds a row-level FOR UPDATE lock on
+    the company, serialising per-company tree builds. There is no DB-level unique
+    constraint on division/sub-division names; that lock is the safety net.
     """
     from app.models.company import Division, SubDivision
 

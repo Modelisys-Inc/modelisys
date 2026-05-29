@@ -292,6 +292,9 @@ def test_commit_writes_tags_and_creates_division_tree(db, org_user_company):
     assert "East" in divs and "West" in divs
     montreal = db.query(SubDivision).filter_by(division_id=divs["East"].id, name="Montreal").all()
     assert len(montreal) == 1
+    # "West" is a division (from row tags) but has no observed (class, location)
+    # pair in the GL fixture, so it must have no sub-divisions.
+    assert db.query(SubDivision).filter_by(division_id=divs["West"].id).count() == 0
 
 
 @respx.mock
