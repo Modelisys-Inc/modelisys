@@ -22,9 +22,11 @@ from app.models.quickbooks_connection import QuickBooksConnection
 from app.models.user import User, UserOrganization
 from app.schemas.quickbooks import (
     AuthorizeUrlResponse,
+    ClassLocationTracking,
     ConnectionStatusResponse,
     LinkCodeCreateRequest,
     LinkCodeOption,
+    ObservedPair,
     TrialBalanceCommitRequest,
     TrialBalanceCommitResponse,
     TrialBalancePreviewRequest,
@@ -208,6 +210,10 @@ def preview_trial_balance(
         fetched_at=datetime.now(timezone.utc),
         existing_months=result["existing_months"],
         rows=[TrialBalanceRowProposal(**r) for r in result["rows"]],
+        observed_pairs=[ObservedPair(**p) for p in result.get("observed_pairs", [])],
+        class_location_tracking=ClassLocationTracking(
+            **result.get("class_location_tracking", {})
+        ),
     )
 
 
