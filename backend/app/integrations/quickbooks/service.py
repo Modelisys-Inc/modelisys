@@ -274,6 +274,58 @@ def discover_class_location_tags(
     return result
 
 
+def _merge_tag_csv(existing_csv: str | None, discovered: list[str]) -> list[str]:
+    """Union of an existing comma-separated tag field and discovered values, deduped + sorted."""
+    seen: set[str] = set()
+    for token in [p for p in (existing_csv or "").split(",")] + list(discovered):
+        t = token.strip()
+        if t and t not in seen:
+            seen.add(t)
+    return sorted(seen)
+
+
+def _prefs_tracking_off(prefs_body: dict[str, Any]) -> bool:
+    """True only if Preferences clearly report BOTH class and location tracking off.
+
+    Used purely as an optimization to skip the heavy GL pull. Unknown / missing
+    fields return False (we then fall back to running GL and trusting its data).
+    """
+    acct = prefs_body.get("Preferences", {}).get("AccountingInfoPrefs", {})
+    if not acct:
+        return False
+    class_on = bool(acct.get("ClassTrackingPerTxn") or acct.get("ClassTrackingPerTxnLine"))
+    loc_on = bool(acct.get("TrackDepartments"))
+    return ("ClassTrackingPerTxn" in acct or "ClassTrackingPerTxnLine" in acct) \
+        and "TrackDepartments" in acct and not class_on and not loc_on
+
+
+def run_class_location_discovery(
+    db: Session,
+    conn: QuickBooksConnection,
+    company: Company,
+    fiscal_year: int,
+    months: list[int],
+    accounts_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Fetch + parse GL into discovery. Best-effort: any failure → empty discovery."""
+    from app.integrations.quickbooks import client as qbo_client
+
+    try:
+        try:
+            prefs = qbo_client.get_preferences(db, conn)
+            if _prefs_tracking_off(prefs):
+                return _empty_discovery()
+        except Exception:  # preferences is only an optimization — ignore failures
+            pass
+        # One GL pull over the widest YTD window covering all selected months.
+        start_iso, end_iso = _date_range_for(company, fiscal_year, max(months))
+        report = qbo_client.get_general_ledger_report(db, conn, start_iso, end_iso)
+        return discover_class_location_tags(report, accounts_by_id)
+    except Exception as e:  # noqa: BLE001 — discovery must never block the TB import
+        logger.warning("QBO class/location discovery failed for company %s: %s", company.id, e)
+        return _empty_discovery()
+
+
 def _date_range_for(company: Company, fiscal_year: int, month: int) -> tuple[str, str]:
     """Return (start_date, end_date) for the QBO TB pull.
 

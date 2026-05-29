@@ -6,7 +6,12 @@ from httpx import Response
 from app.config import settings
 from app.integrations.quickbooks import client as qbo_client
 from app.integrations.quickbooks import oauth, service
-from app.integrations.quickbooks.service import _parse_general_ledger, discover_class_location_tags
+from app.integrations.quickbooks.service import (
+    _merge_tag_csv,
+    _parse_general_ledger,
+    discover_class_location_tags,
+    run_class_location_discovery,
+)
 from app.models.quickbooks_connection import QuickBooksConnection
 
 
@@ -156,3 +161,45 @@ def test_discover_falls_back_to_account_id_when_no_acctnum():
     # No AcctNum metadata → keyed by GL account id
     assert "33" in result["by_account"]
     assert result["by_account"]["33"]["classes"] == {"East", "West"}
+
+
+def test_merge_tag_csv_unions_and_sorts():
+    assert _merge_tag_csv("West, East", ["East", "North"]) == ["East", "North", "West"]
+    assert _merge_tag_csv(None, ["Solo"]) == ["Solo"]
+    assert _merge_tag_csv("  ", []) == []
+    assert _merge_tag_csv("A,A,B", ["B"]) == ["A", "B"]
+
+
+@respx.mock
+def test_run_discovery_is_best_effort_on_gl_failure(db, org_user_company):
+    _, user, company = org_user_company
+    conn = _make_conn(db, company, user)
+    base = settings.intuit_api_base
+    respx.get(f"{base}/v3/company/realm-1/preferences").mock(
+        return_value=Response(200, json={"Preferences": {}})
+    )
+    respx.get(f"{base}/v3/company/realm-1/reports/GeneralLedger").mock(
+        return_value=Response(500)
+    )
+    accounts_by_id = {"33": {"Id": "33", "AcctNum": "4000"}}
+    result = run_class_location_discovery(db, conn, company, 2024, [3], accounts_by_id)
+    assert result == service._empty_discovery()
+
+
+@respx.mock
+def test_run_discovery_parses_when_gl_ok(db, org_user_company):
+    _, user, company = org_user_company
+    conn = _make_conn(db, company, user)
+    base = settings.intuit_api_base
+    respx.get(f"{base}/v3/company/realm-1/preferences").mock(
+        return_value=Response(200, json={"Preferences": {
+            "AccountingInfoPrefs": {"ClassTrackingPerTxn": True, "TrackDepartments": True}
+        }})
+    )
+    respx.get(f"{base}/v3/company/realm-1/reports/GeneralLedger").mock(
+        return_value=Response(200, json=_GL_REPORT)
+    )
+    accounts_by_id = {"33": {"Id": "33", "AcctNum": "4000"}, "44": {"Id": "44", "AcctNum": "6000"}}
+    result = run_class_location_discovery(db, conn, company, 2024, [3], accounts_by_id)
+    assert result["classes"] == {"East", "West"}
+    assert ("East", "Montreal") in result["observed_pairs"]
