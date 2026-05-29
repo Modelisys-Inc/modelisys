@@ -13,6 +13,7 @@ from app.integrations.quickbooks.service import (
     run_class_location_discovery,
 )
 from app.models.account_mapping import AccountMapping
+from app.models.company import Division, SubDivision
 from app.models.quickbooks_connection import QuickBooksConnection
 
 
@@ -244,3 +245,74 @@ def test_propose_attaches_merged_tags(db, org_user_company):
     assert rows["6000"]["discovered_divisions"] == []
     assert rows["6000"]["divisions"] == []
     assert rows["6000"]["sub_divisions"] == ["Quebec"]
+
+
+def _commit_mocks(base):
+    respx.get(f"{base}/v3/company/realm-1/query").mock(return_value=Response(200, json={
+        "QueryResponse": {"Account": [
+            {"Id": "33", "AcctNum": "4000", "Name": "Sales", "AccountType": "Income"},
+            {"Id": "44", "AcctNum": "6000", "Name": "Rent", "AccountType": "Expense"},
+        ]}
+    }))
+    respx.get(f"{base}/v3/company/realm-1/reports/TrialBalance").mock(
+        return_value=Response(200, json={"Rows": {"Row": [
+            {"ColData": [{"value": "Sales (4000)", "id": "33"}, {"value": "0"}, {"value": "150"}]},
+            {"ColData": [{"value": "Rent (6000)", "id": "44"}, {"value": "900"}, {"value": "0"}]},
+        ]}}))
+    respx.get(f"{base}/v3/company/realm-1/preferences").mock(
+        return_value=Response(200, json={"Preferences": {}}))
+    respx.get(f"{base}/v3/company/realm-1/reports/GeneralLedger").mock(
+        return_value=Response(200, json=_GL_REPORT))
+
+
+@respx.mock
+def test_commit_writes_tags_and_creates_division_tree(db, org_user_company):
+    _, user, company = org_user_company
+    conn = _make_conn(db, company, user)
+    _commit_mocks(settings.intuit_api_base)
+    rows = [
+        {"account_number": "4000", "account_name": "Sales", "link_code": "REV",
+         "skip": False, "divisions": ["East", "West"], "sub_divisions": ["Montreal"]},
+        {"account_number": "6000", "account_name": "Rent", "link_code": "EXP",
+         "skip": False, "divisions": [], "sub_divisions": ["Quebec"]},
+    ]
+    from app.models.financial_statement_mapping import CompanyStatementStructure
+    db.add(CompanyStatementStructure(
+        company_id=company.id, statement_type="income_statement",
+        structure=[{"label": "Rev", "linkCode": "REV"}, {"label": "Exp", "linkCode": "EXP"}],
+    ))
+    db.commit()
+
+    service.commit_trial_balance(db, conn, company, 2024, [3], rows, overwrite=False)
+
+    m4000 = db.query(AccountMapping).filter_by(company_id=company.id, account_number="4000").one()
+    assert m4000.divisions == "East, West"
+    assert m4000.sub_divisions == "Montreal"
+    divs = {d.name: d for d in db.query(Division).filter_by(company_id=company.id).all()}
+    assert "East" in divs and "West" in divs
+    montreal = db.query(SubDivision).filter_by(division_id=divs["East"].id, name="Montreal").all()
+    assert len(montreal) == 1
+
+
+@respx.mock
+def test_commit_division_tree_is_idempotent(db, org_user_company):
+    _, user, company = org_user_company
+    conn = _make_conn(db, company, user)
+    from app.models.financial_statement_mapping import CompanyStatementStructure
+    db.add(CompanyStatementStructure(
+        company_id=company.id, statement_type="income_statement",
+        structure=[{"label": "Rev", "linkCode": "REV"}, {"label": "Exp", "linkCode": "EXP"}],
+    ))
+    db.commit()
+    rows = [
+        {"account_number": "4000", "account_name": "Sales", "link_code": "REV",
+         "skip": False, "divisions": ["East"], "sub_divisions": ["Montreal"]},
+        {"account_number": "6000", "account_name": "Rent", "link_code": "EXP",
+         "skip": False, "divisions": [], "sub_divisions": []},
+    ]
+    _commit_mocks(settings.intuit_api_base)  # respx routes are reusable across calls
+    service.commit_trial_balance(db, conn, company, 2024, [3], rows, overwrite=True)
+    service.commit_trial_balance(db, conn, company, 2024, [3], rows, overwrite=True)
+    assert db.query(Division).filter_by(company_id=company.id, name="East").count() == 1
+    east = db.query(Division).filter_by(company_id=company.id, name="East").one()
+    assert db.query(SubDivision).filter_by(division_id=east.id, name="Montreal").count() == 1

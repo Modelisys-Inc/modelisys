@@ -442,6 +442,45 @@ def propose_trial_balance(
     }
 
 
+def _upsert_division_tree(
+    db: Session,
+    company: Company,
+    class_names: set[str],
+    observed_pairs: set[tuple[str, str]],
+) -> None:
+    """Additively upsert Division (per class) + SubDivision (per observed pair).
+
+    Never deletes — protects manually created divisions. Idempotent.
+    """
+    from app.models.company import Division, SubDivision
+
+    divisions = {
+        d.name: d
+        for d in db.query(Division).filter(Division.company_id == company.id).all()
+    }
+    for name in class_names:
+        if name not in divisions:
+            div = Division(company_id=company.id, name=name)
+            db.add(div)
+            db.flush()
+            divisions[name] = div
+
+    existing_subs = {
+        (s.division_id, s.name)
+        for s in db.query(SubDivision)
+        .join(Division, SubDivision.division_id == Division.id)
+        .filter(Division.company_id == company.id)
+        .all()
+    }
+    for cls, loc in observed_pairs:
+        div = divisions.get(cls)
+        if div is None:
+            continue  # only nest under classes the user kept
+        if (div.id, loc) not in existing_subs:
+            db.add(SubDivision(division_id=div.id, name=loc))
+            existing_subs.add((div.id, loc))
+
+
 def commit_trial_balance(
     db: Session,
     conn: QuickBooksConnection,
@@ -586,12 +625,23 @@ def commit_trial_balance(
                 account_number=acct_num,
                 description=acct_name,
                 link_code=link_code,
+                divisions=", ".join(r.get("divisions") or []) or None,
+                sub_divisions=", ".join(r.get("sub_divisions") or []) or None,
             ))
             mappings_created += 1
         else:
-            if existing.link_code != link_code or existing.description != acct_name:
+            new_divisions = ", ".join(r.get("divisions") or []) or None
+            new_sub_divisions = ", ".join(r.get("sub_divisions") or []) or None
+            if (
+                existing.link_code != link_code
+                or existing.description != acct_name
+                or existing.divisions != new_divisions
+                or existing.sub_divisions != new_sub_divisions
+            ):
                 existing.link_code = link_code
                 existing.description = acct_name
+                existing.divisions = new_divisions
+                existing.sub_divisions = new_sub_divisions
                 mappings_updated += 1
 
     # Insert one TrialBalanceEntry per (account, month) from the re-pull.
@@ -611,6 +661,18 @@ def commit_trial_balance(
                 amount=amount,
             ))
             accounts_written.add(acct_num)
+
+    # Build Division/SubDivision selector tree from observed (class, location) pairs.
+    class_names: set[str] = set()
+    for r in rows:
+        if r.get("skip"):
+            continue
+        class_names.update(t for t in (r.get("divisions") or []) if t)
+    if class_names:
+        discovery = run_class_location_discovery(
+            db, conn, company, fiscal_year, months, accounts_by_id
+        )
+        _upsert_division_tree(db, company, class_names, discovery["observed_pairs"])
 
     db.commit()
     return {
