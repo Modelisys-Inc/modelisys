@@ -211,6 +211,14 @@ Per-company connector in `backend/app/integrations/quickbooks/`:
   /api/quickbooks/companies/{id}/link-codes` appends a leaf to the structure).
   `commit_trial_balance` rejects any non-skipped row whose `link_code` is not
   in the structure (422).
+- **Class/Location tagging:** preview/commit also pull a GeneralLedger report to
+  discover which QBO Classes (→ `AccountMapping.divisions`) and Locations/Lieux
+  (→ `AccountMapping.sub_divisions`) each account appears under. The preview
+  merges discovered values with existing tags (union) and shows them as editable
+  chips (`QuickBooksTagCell`); commit writes the CSV and additively upserts
+  `Division`/`SubDivision` rows for observed (class, location) pairs. Discovery
+  is best-effort — GL/prefs failures degrade to empty tags and never block the
+  TB import. Tracking-on flags are derived from discovered data, not Preferences.
 - **Frontend:** `/settings/companies/[id]/quickbooks` with three states
   (not_connected / connected / revoked) and a `QuickBooksReviewTable` for
   per-row mapping review.
