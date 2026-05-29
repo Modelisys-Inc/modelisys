@@ -25,7 +25,8 @@ def test_get_general_ledger_report_requests_columns(db, org_user_company):
     route = respx.get(f"{base}/v3/company/realm-1/reports/GeneralLedger").mock(
         return_value=Response(200, json={"Rows": {"Row": []}})
     )
-    qbo_client.get_general_ledger_report(db, conn, "2024-01-01", "2024-03-31")
+    result = qbo_client.get_general_ledger_report(db, conn, "2024-01-01", "2024-03-31")
+    assert result == {"Rows": {"Row": []}}
     assert route.called
     sent = route.calls.last.request
     assert b"klass_name" in sent.url.query
