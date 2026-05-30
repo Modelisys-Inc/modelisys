@@ -166,6 +166,8 @@ type StructureRowCellsProps = {
   globalIdx: number
   structEdit: StatementSummaryStructureEditApi
   allLiaisonCodes: string[]
+  /** Code de liaison → libellé du poste, pour afficher « code — nom » dans les sélecteurs. */
+  linkCodeLabels?: Map<string, string>
   showSeparatorAbove: boolean
   onEditPresentation?: (globalIdx: number) => void
 }
@@ -175,6 +177,7 @@ export function StatementSummaryStructureRowCells({
   globalIdx,
   structEdit,
   allLiaisonCodes,
+  linkCodeLabels,
   showSeparatorAbove,
   onEditPresentation,
 }: StructureRowCellsProps) {
@@ -304,6 +307,7 @@ export function StatementSummaryStructureRowCells({
             structRow={structRow}
             rowIndex={globalIdx}
             allLinkCodes={allLiaisonCodes}
+            linkCodeLabels={linkCodeLabels}
             updateRow={structEdit.updateRow}
           />
         ) : (

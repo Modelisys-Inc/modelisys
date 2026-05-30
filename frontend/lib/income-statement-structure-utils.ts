@@ -404,6 +404,28 @@ export function collectDistinctLinkCodesFromStructure(
   return Array.from(seen).sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
 }
 
+/**
+ * Associe chaque code de liaison au libellé du poste qui le **définit** (ligne en
+ * mode « Code unique » dont le `linkCode` vaut ce code). Permet d'afficher « 4100 —
+ * Ventes nettes » dans les sélecteurs pour savoir à quoi on rattache un compte.
+ * Premier libellé rencontré conservé. Les codes n'apparaissant que dans des listes
+ * d'addition / soustraction (sans poste propriétaire) sont absents de la table.
+ */
+export function mapLinkCodesToOwnerLabel(
+  structure: Record<string, unknown>[]
+): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    if (normalizeLiaisonMode(row) !== "single") continue
+    const code = String(row.linkCode ?? "").trim()
+    if (!code || map.has(code)) continue
+    const label = String(row.label ?? "").trim()
+    if (label) map.set(code, label)
+  }
+  return map
+}
+
 /** Au moins un poste du sommaire est marqué « Revenus » (nature). */
 export function structureHasRevenuePosteNatureRow(structure: Record<string, unknown>[]): boolean {
   for (const row of structure) {

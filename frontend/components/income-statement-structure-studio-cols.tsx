@@ -29,6 +29,8 @@ interface IncomeStatementStructureStudioColsProps {
   structRow: Record<string, unknown>
   /** Codes de liaison collectés dans la structure (Sommaire) pour les listes multi-sélection. */
   allLinkCodes: string[]
+  /** Code de liaison → libellé du poste, pour afficher « code — nom » dans les sélecteurs. */
+  linkCodeLabels?: Map<string, string>
   updateRow: (index: number, patch: Record<string, unknown>) => void
   showRemoveButton: boolean
   onRemoveRow?: (index: number) => void
@@ -41,6 +43,7 @@ export function IncomeStatementStructureStudioCols({
   rowIndex: idx,
   structRow,
   allLinkCodes,
+  linkCodeLabels,
   updateRow,
   showRemoveButton,
   onRemoveRow,
@@ -189,6 +192,7 @@ export function IncomeStatementStructureStudioCols({
             structRow={structRow}
             rowIndex={idx}
             allLinkCodes={allLinkCodes}
+            linkCodeLabels={linkCodeLabels}
             updateRow={updateRow}
             readOnly={readOnly}
             hideDefineColumn={hideDefineColumn}

@@ -21,6 +21,7 @@ import {
 } from "@/lib/api"
 import {
   collectDistinctLinkCodesFromStructure,
+  mapLinkCodesToOwnerLabel,
   normalizeCodeList,
 } from "@/lib/income-statement-structure-utils"
 import {
@@ -54,16 +55,23 @@ function toggleCodeInList(list: string[], code: string, checked: boolean): strin
   return Array.from(set).sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
 }
 
+/** Libellé du poste (« nom du compte ») associé à un code de liaison, ou chaîne vide. */
+function labelForCode(labels: Map<string, string> | undefined, code: string): string {
+  return labels?.get(code.trim()) ?? ""
+}
+
 function CodeCheckboxList({
   codes,
   selected,
   onToggle,
   idPrefix,
+  labels,
 }: {
   codes: string[]
   selected: string[]
   onToggle: (next: string[]) => void
   idPrefix: string
+  labels?: Map<string, string>
 }) {
   if (codes.length === 0) {
     return (
@@ -82,8 +90,11 @@ function CodeCheckboxList({
             checked={selected.includes(code)}
             onCheckedChange={(v) => onToggle(toggleCodeInList(selected, code, v === true))}
           />
-          <label htmlFor={`${idPrefix}-${code}`} className="cursor-pointer font-mono text-xs">
-            {code}
+          <label htmlFor={`${idPrefix}-${code}`} className="cursor-pointer text-xs">
+            <span className="font-mono">{code}</span>
+            {labelForCode(labels, code) && (
+              <span className="ml-1.5 text-slate-500"> — {labelForCode(labels, code)}</span>
+            )}
           </label>
         </li>
       ))}
@@ -96,6 +107,7 @@ export function ChartMetricSpecEditor({
   onChange,
   idPrefix,
   allLinkCodes,
+  linkCodeLabels,
   allowDerivedMargin,
   barSeriesOptions,
   currentSeriesId,
@@ -106,6 +118,8 @@ export function ChartMetricSpecEditor({
   onChange: (s: ChartMetricSpec) => void
   idPrefix: string
   allLinkCodes: string[]
+  /** Code de liaison → libellé du poste, pour afficher « code — nom » dans les sélecteurs. */
+  linkCodeLabels?: Map<string, string>
   allowDerivedMargin?: boolean
   barSeriesOptions?: { id: string; label: string }[]
   currentSeriesId?: string
@@ -211,6 +225,7 @@ export function ChartMetricSpecEditor({
               spec={spec.grossProfitFromSpec}
               onChange={(grossProfitFromSpec) => onChange({ ...spec, grossProfitFromSpec })}
               allLinkCodes={codeOptions}
+              linkCodeLabels={linkCodeLabels}
               allowDerivedMargin={false}
               embedded
               structureHintLabel={structureHintLabelProp}
@@ -241,8 +256,11 @@ export function ChartMetricSpecEditor({
                   — Non choisi —
                 </SelectItem>
                 {codeOptions.map((code) => (
-                  <SelectItem key={code} value={code} className="font-mono text-sm">
-                    {code}
+                  <SelectItem key={code} value={code} className="text-sm">
+                    <span className="font-mono">{code}</span>
+                    {labelForCode(linkCodeLabels, code) && (
+                      <span className="ml-1.5 text-slate-500"> — {labelForCode(linkCodeLabels, code)}</span>
+                    )}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -258,6 +276,7 @@ export function ChartMetricSpecEditor({
             codes={codeOptions}
             selected={normalizeCodeList(spec.codes)}
             onToggle={(codes) => onChange({ type: "sum", codes })}
+            labels={linkCodeLabels}
           />
         </div>
       ) : null}
@@ -277,6 +296,7 @@ export function ChartMetricSpecEditor({
               codes={codeOptions}
               selected={normalizeCodeList(spec.numeratorCodes)}
               onToggle={(numeratorCodes) => onChange({ ...spec, numeratorCodes })}
+              labels={linkCodeLabels}
             />
           </div>
           <div className="space-y-2">
@@ -286,6 +306,7 @@ export function ChartMetricSpecEditor({
               codes={codeOptions}
               selected={normalizeCodeList(spec.denominatorCodes)}
               onToggle={(denominatorCodes) => onChange({ ...spec, denominatorCodes })}
+              labels={linkCodeLabels}
             />
           </div>
           {spec.type === "ratio" ? (
@@ -360,6 +381,7 @@ export function StatementChartSettingsDialog({
     updatedAt: string
   } | null>(null)
   const [linkCodes, setLinkCodes] = useState<string[]>([])
+  const [linkCodeLabels, setLinkCodeLabels] = useState<Map<string, string>>(new Map())
   const [loadingCodes, setLoadingCodes] = useState(false)
 
   useEffect(() => {
@@ -380,9 +402,13 @@ export function StatementChartSettingsDialog({
       .then((data) => {
         if (cancelled) return
         setLinkCodes(collectDistinctLinkCodesFromStructure(data.structure ?? []))
+        setLinkCodeLabels(mapLinkCodesToOwnerLabel(data.structure ?? []))
       })
       .catch(() => {
-        if (!cancelled) setLinkCodes([])
+        if (!cancelled) {
+          setLinkCodes([])
+          setLinkCodeLabels(new Map())
+        }
       })
       .finally(() => {
         if (!cancelled) setLoadingCodes(false)
@@ -760,6 +786,7 @@ export function StatementChartSettingsDialog({
                     spec={s.spec}
                     onChange={(spec) => updateSeries(idx, { spec })}
                     allLinkCodes={sortedCodes}
+                    linkCodeLabels={linkCodeLabels}
                     allowDerivedMargin={s.kind === "line"}
                     barSeriesOptions={barOptions.length ? barOptions : undefined}
                     currentSeriesId={s.id}

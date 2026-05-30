@@ -22,6 +22,7 @@ import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-ser
 import { useBalanceSheetStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import {
   collectDistinctLinkCodesFromStructure,
+  mapLinkCodesToOwnerLabel,
   detailLineLabelForDisplay,
   findStructureRowForStatementLine,
   getStructureRowGlobalIndex,
@@ -287,6 +288,10 @@ export function BalanceSheetDetail({
   const structEdit = useBalanceSheetStructureEdit(companyId ?? null, structureEditMode && canInlineStructureEdit)
   const allLinkCodes = useMemo(
     () => collectDistinctLinkCodesFromStructure(structEdit.structure),
+    [structEdit.structure]
+  )
+  const linkCodeLabels = useMemo(
+    () => mapLinkCodesToOwnerLabel(structEdit.structure),
     [structEdit.structure]
   )
 
@@ -1317,6 +1322,7 @@ export function BalanceSheetDetail({
                         rowIndex={globalIdx}
                         structRow={structRow}
                         allLinkCodes={allLinkCodes}
+                        linkCodeLabels={linkCodeLabels}
                         updateRow={structEdit.updateRow}
                         showRemoveButton={structEdit.canRemoveRowAt(globalIdx) && !summaryAnnexLockedInDetail}
                         onRemoveRow={structEdit.removeStructureRowAt}

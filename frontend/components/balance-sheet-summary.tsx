@@ -28,6 +28,7 @@ import {
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import {
   collectDistinctLinkCodesFromStructure,
+  mapLinkCodesToOwnerLabel,
   isStructureRowDetailOnly,
   isStructureRowEmptyLabel,
   normLabel,
@@ -502,6 +503,10 @@ export function BalanceSheetSummary({
 
   const allLiaisonCodes = useMemo(
     () => collectDistinctLinkCodesFromStructure(structEdit.structure),
+    [structEdit.structure]
+  )
+  const linkCodeLabels = useMemo(
+    () => mapLinkCodesToOwnerLabel(structEdit.structure),
     [structEdit.structure]
   )
 
@@ -2150,6 +2155,7 @@ export function BalanceSheetSummary({
                       globalIdx={globalIdx}
                       structEdit={structEdit}
                       allLiaisonCodes={allLiaisonCodes}
+                      linkCodeLabels={linkCodeLabels}
                       showSeparatorAbove={showSeparatorAbove}
                       onEditPresentation={beginEditPostPresentation}
                     />
