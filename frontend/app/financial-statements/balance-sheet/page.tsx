@@ -521,6 +521,7 @@ export default function BalanceSheetPage() {
               rows={rows}
               loading={loading}
               showBalanceSheetStructureSettings
+              showBalanceWarning
               structureVersion={structureVersion}
               onBalanceSheetStructureSaved={() => setStructureVersion((v) => v + 1)}
             />

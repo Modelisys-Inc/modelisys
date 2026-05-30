@@ -62,6 +62,7 @@ import {
   ChartTooltipContent,
 } from "@/components/ui/chart"
 import {
+  AlertTriangle,
   AlignLeft,
   ArrowLeft,
   ArrowRight,
@@ -109,6 +110,8 @@ interface BalanceSheetSummaryProps {
   rows?: FinancialStatementRow[]
   loading?: boolean
   showBalanceSheetStructureSettings?: boolean
+  /** Affiche un avertissement si Total des actifs ≠ Total passifs et capitaux propres (page Bilan uniquement). */
+  showBalanceWarning?: boolean
   structureVersion?: number
   onBalanceSheetStructureSaved?: () => void
 }
@@ -207,6 +210,7 @@ export function BalanceSheetSummary({
   rows: backendRows = [],
   loading = false,
   showBalanceSheetStructureSettings = false,
+  showBalanceWarning = false,
   structureVersion = 0,
   onBalanceSheetStructureSaved,
 }: BalanceSheetSummaryProps) {
@@ -646,6 +650,19 @@ export function BalanceSheetSummary({
   // Find total assets value for percentage calculations
   const totalAssetsRow = data.find((row) => row.label.toLowerCase() === "total des actifs")
   const totalAssetsCurrent = totalAssetsRow?.current || 1
+
+  // Équilibre du bilan : Total des actifs doit égaler Total passifs et capitaux propres.
+  // On compare la période courante ; tolérance de 1 $ pour les arrondis. Si l'une des
+  // lignes de total est absente (structure personnalisée), aucun avertissement.
+  const liabilitiesEquityRow = data.find(
+    (row) => row.label.toLowerCase() === "total passifs et capitaux propres"
+  )
+  const balanceEcart =
+    totalAssetsRow && liabilitiesEquityRow
+      ? totalAssetsRow.current - liabilitiesEquityRow.current
+      : null
+  const showBalanceMismatch =
+    showBalanceWarning && balanceEcart !== null && Math.abs(balanceEcart) >= 1
   const totalAssetsPrior = totalAssetsRow?.prior || 1
   const totalAssetsTrendValues = totalAssetsRow?.trendValues ?? []
 
@@ -1673,6 +1690,20 @@ export function BalanceSheetSummary({
     <div className={cn("w-full", dashboardCardFrameStaticClass)}>
       <div className={dashboardCardRingClass} aria-hidden />
       <div className="relative w-full min-w-0">
+      {showBalanceMismatch && totalAssetsRow && liabilitiesEquityRow && (
+        <div
+          role="alert"
+          className="flex items-start gap-2.5 border-b border-amber-200 bg-amber-50 px-6 py-3 text-sm text-amber-900 sm:px-7"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+          <p className="leading-snug">
+            <span className="font-semibold">Le bilan n’est pas équilibré.</span>{" "}
+            Total des actifs {formatCurrency(totalAssetsRow.current)} ≠ Total passifs et
+            capitaux propres {formatCurrency(liabilitiesEquityRow.current)} (écart{" "}
+            {formatCurrency(Math.abs(balanceEcart as number))}).
+          </p>
+        </div>
+      )}
       {/* Header */}
       <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
