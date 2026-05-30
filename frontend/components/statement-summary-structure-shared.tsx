@@ -28,6 +28,8 @@ import {
 
 export type StatementSummaryStructureEditApi = {
   updateRow: (index: number, patch: Record<string, unknown>) => void
+  /** Bascule « Annexe » et attribue automatiquement le prochain identifiant d'annexe. */
+  setShowInDetail: (index: number, checked: boolean) => void
   canRemoveRowAt: (index: number) => boolean
   removeStructureRowAt: (index: number) => void
 }
@@ -342,10 +344,7 @@ export function StatementSummaryStructureRowCells({
                 disabled={isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)}
                 onCheckedChange={(v) => {
                   if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
-                  structEdit.updateRow(globalIdx, {
-                    showInDetail: v === true,
-                    ...(v === false ? { annexLetter: undefined } : {}),
-                  })
+                  structEdit.setShowInDetail(globalIdx, v === true)
                 }}
                 aria-label="Annexe : afficher au détail"
                 className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"

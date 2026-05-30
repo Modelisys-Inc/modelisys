@@ -16,6 +16,8 @@ import {
   newChargeRow,
   newDetailSubLineRow,
   newEmptySpacerSummaryRow,
+  nextAnnexIdentifier,
+  normalizeAnnexLetter,
   normalizeCodeList,
   normalizeDtCt,
   normalizeLiaisonMode,
@@ -80,6 +82,34 @@ function useStatementStructureEdit(
       return next
     })
   }, [])
+
+  /**
+   * Bascule la case « Annexe » d'une ligne. À l'activation, attribue
+   * automatiquement le prochain identifiant d'annexe (après le plus élevé) si
+   * la ligne n'en a pas encore — lettres pour le compte de résultat, nombres
+   * pour le bilan. À la désactivation, efface lettre et nature (Revenus/Dépenses).
+   */
+  const setShowInDetail = useCallback(
+    (index: number, checked: boolean) => {
+      const scheme = statementType === "balance-sheet" ? "number" : "letter"
+      setStructure((prev) => {
+        if (!prev[index]) return prev
+        const next = cloneStructure(prev)
+        const row = next[index]
+        if (checked) {
+          row.showInDetail = true
+          const current = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+          if (!current) row.annexLetter = nextAnnexIdentifier(prev, scheme)
+        } else {
+          row.showInDetail = false
+          row.annexLetter = undefined
+          row.posteNature = undefined
+        }
+        return next
+      })
+    },
+    [statementType]
+  )
 
   const newPostRow = useCallback(
     (opts?: { indent?: boolean; isBold?: boolean }) =>
@@ -314,6 +344,7 @@ function useStatementStructureEdit(
     chargeRange,
     summaryStructureDisplayIndices,
     updateRow,
+    setShowInDetail,
     insertPostAbove,
     insertPostBelow,
     insertEmptySpacerAbove,

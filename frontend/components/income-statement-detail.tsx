@@ -8166,6 +8166,7 @@ export function IncomeStatementDetail({
                       allLinkCodes={allLiaisonCodes}
                       linkCodeLabels={linkCodeLabels}
                       updateRow={structEdit.updateRow}
+                      setShowInDetail={structEdit.setShowInDetail}
                       showRemoveButton={
                         structEdit.canRemoveRowAt(globalIdx) && !summaryAnnexLockedInDetail
                       }

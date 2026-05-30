@@ -32,6 +32,8 @@ interface IncomeStatementStructureStudioColsProps {
   /** Code de liaison → libellé du poste, pour afficher « code — nom » dans les sélecteurs. */
   linkCodeLabels?: Map<string, string>
   updateRow: (index: number, patch: Record<string, unknown>) => void
+  /** Bascule « Annexe » et attribue automatiquement le prochain identifiant d'annexe. */
+  setShowInDetail: (index: number, checked: boolean) => void
   showRemoveButton: boolean
   onRemoveRow?: (index: number) => void
   mappingColumnsReadOnly?: boolean
@@ -45,6 +47,7 @@ export function IncomeStatementStructureStudioCols({
   allLinkCodes,
   linkCodeLabels,
   updateRow,
+  setShowInDetail,
   showRemoveButton,
   onRemoveRow,
   mappingColumnsReadOnly = false,
@@ -284,10 +287,7 @@ export function IncomeStatementStructureStudioCols({
                   disabled={isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)}
                   onCheckedChange={(v) => {
                     if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
-                    updateRow(idx, {
-                      showInDetail: v === true,
-                      ...(v === false ? { annexLetter: undefined } : {}),
-                    })
+                    setShowInDetail(idx, v === true)
                   }}
                   aria-label="Annexe : afficher au détail"
                   className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"

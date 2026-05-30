@@ -2039,12 +2039,7 @@ export function IncomeStatementSummary({
                                 }
                                 onCheckedChange={(v) => {
                                   if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
-                                  structEdit.updateRow(globalIdx, {
-                                    showInDetail: v === true,
-                                    ...(v === false
-                                      ? { annexLetter: undefined, posteNature: undefined }
-                                      : {}),
-                                  })
+                                  structEdit.setShowInDetail(globalIdx, v === true)
                                 }}
                                 aria-label="Annexe : afficher au détail"
                                 className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"

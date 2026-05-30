@@ -1324,6 +1324,7 @@ export function BalanceSheetDetail({
                         allLinkCodes={allLinkCodes}
                         linkCodeLabels={linkCodeLabels}
                         updateRow={structEdit.updateRow}
+                        setShowInDetail={structEdit.setShowInDetail}
                         showRemoveButton={structEdit.canRemoveRowAt(globalIdx) && !summaryAnnexLockedInDetail}
                         onRemoveRow={structEdit.removeStructureRowAt}
                         mappingColumnsReadOnly={!isStructureRowDetailOnly(structRow)}
