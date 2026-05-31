@@ -396,6 +396,22 @@ def test_csv_import_with_link_codes(client, auth_headers):
     assert admin_row["detailRows"][0]["linkCode"] == "44-330"
 
 
+def test_get_cash_flow_structure_returns_default_when_unset(client, auth_headers):
+    """An unconfigured company returns the standard cash-flow default, not empty."""
+    company_id = _create_company(client, auth_headers)
+    response = client.get(
+        f"/api/companies/{company_id}/statement-structures/cash-flow",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["statement_type"] == "cash-flow"
+    labels = [r["label"].lower() for r in data["structure"]]
+    assert any("exploitation" in l for l in labels)
+    assert any("investissement" in l for l in labels)
+    assert any("financement" in l for l in labels)
+
+
 def test_csv_import_without_link_codes_column(client, auth_headers):
     """CSV without 5th column should still work (linkCode not set)."""
     company_id = _create_company(client, auth_headers)
