@@ -15,6 +15,9 @@ import {
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
+import { Button } from "@/components/ui/button"
+import { Settings } from "lucide-react"
+import { StatementStructureStudio } from "@/components/statement-structure-studio"
 
 interface CashFlowSummaryProps {
   period: "monthly" | "quarterly" | "annual"
@@ -31,6 +34,9 @@ interface CashFlowSummaryProps {
   fiscalYear?: number
   rows?: FinancialStatementRow[]
   loading?: boolean
+  showCashFlowStructureSettings?: boolean
+  structureVersion?: number
+  onCashFlowStructureSaved?: () => void
 }
 
 interface SummaryRow {
@@ -60,6 +66,9 @@ export function CashFlowSummary({
   fiscalYear,
   rows: backendRows = [],
   loading = false,
+  showCashFlowStructureSettings = false,
+  structureVersion = 0,
+  onCashFlowStructureSaved,
 }: CashFlowSummaryProps) {
   // Series data for multi-period views
   const isMultiPeriod = view === "12months" || view === "quarters" || view === "years"
@@ -185,6 +194,27 @@ export function CashFlowSummary({
     entitiesToCompare = selectedDivision?.subDivisions.map((sd) => ({ id: sd.id, name: sd.name })) || []
   }
   
+  // Structure edit mode
+  const [structureEditMode, setStructureEditMode] = useState(false)
+  const canInlineStructureEdit =
+    showCashFlowStructureSettings && !!companyId && view !== "comparison"
+
+  const renderParametresTrigger = () =>
+    canInlineStructureEdit && !structureEditMode ? (
+      <div className="mb-4 flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setStructureEditMode(true)}
+        >
+          <Settings className="h-4 w-4 text-[#E0742D]" />
+          Paramètres
+        </Button>
+      </div>
+    ) : null
+
   // Fetch real data for each entity in comparison mode
   const [entityDataMap, setEntityDataMap] = useState<Record<string, SummaryRow[]>>({})
   const [entityDataLoading, setEntityDataLoading] = useState(false)
@@ -334,6 +364,19 @@ export function CashFlowSummary({
 
   const getHorizonText = (): string => getHorizonModeLabel(view, period)
 
+  if (canInlineStructureEdit && structureEditMode && companyId) {
+    return (
+      <div className="w-full">
+        <StatementStructureStudio
+          companyId={companyId}
+          statementType="cash-flow"
+          onSaved={onCashFlowStructureSaved}
+          onClose={() => setStructureEditMode(false)}
+        />
+      </div>
+    )
+  }
+
   if (loading || (isMultiPeriod && seriesLoading) || entityDataLoading) {
     return (
       <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
@@ -351,15 +394,18 @@ export function CashFlowSummary({
 
   if (data.length === 0) {
     return (
-      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-        <div className="px-8 py-16 text-center">
-          <p className="text-sm text-slate-500">Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.</p>
+      <div className="w-full">
+        {renderParametresTrigger()}
+        <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+          <div className="px-8 py-16 text-center">
+            <p className="text-sm text-slate-500">Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.</p>
+          </div>
         </div>
       </div>
     )
   }
 
-  return (
+  const mainContent = (
     <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
       {/* Header */}
       <div className="bg-white px-8 py-5 border-b border-slate-200">
@@ -740,6 +786,13 @@ export function CashFlowSummary({
       <div className="bg-slate-50 px-8 py-4 border-t border-slate-200">
         <p className="text-xs text-slate-500">Note: Les données affichées sont à titre informatif. Consulter les états financiers audités pour les montants officiels.</p>
       </div>
+    </div>
+  )
+
+  return (
+    <div>
+      {renderParametresTrigger()}
+      {mainContent}
     </div>
   )
 }
