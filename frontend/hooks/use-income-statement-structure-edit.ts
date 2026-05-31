@@ -25,7 +25,7 @@ import {
   validateDuplicatePrimaryLinkCodes,
 } from "@/lib/income-statement-structure-utils"
 
-export type StatementStructureEditKind = Extract<StatementType, "income-statement" | "balance-sheet">
+export type StatementStructureEditKind = Extract<StatementType, "income-statement" | "balance-sheet" | "cash-flow">
 
 function useStatementStructureEdit(
   companyId: string | null | undefined,
@@ -370,4 +370,11 @@ export function useBalanceSheetStructureEdit(
   active: boolean
 ) {
   return useStatementStructureEdit(companyId, active, "balance-sheet")
+}
+
+export function useCashFlowStructureEdit(
+  companyId: string | null | undefined,
+  active: boolean
+) {
+  return useStatementStructureEdit(companyId, active, "cash-flow")
 }
