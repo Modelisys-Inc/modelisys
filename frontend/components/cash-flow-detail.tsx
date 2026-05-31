@@ -80,6 +80,7 @@ export function CashFlowDetail({
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: isMultiPeriod,
+    structureVersion,
   })
 
   // Map backend FinancialStatementRow[] to internal DetailRow[]
@@ -200,6 +201,7 @@ export function CashFlowDetail({
           const params: FinancialStatementSeriesParams = {
             fiscal_year: currentYear,
             months: 12,
+            structure_rev: structureVersion > 0 ? structureVersion : undefined,
           }
           let entityCompanyId = companyId || ""
 
@@ -251,7 +253,7 @@ export function CashFlowDetail({
 
     fetchEntityData()
     return () => { cancelled = true }
-  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, currentYear])
+  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, currentYear, structureVersion])
 
   // Find total cash flow value for percentage calculations
   const totalCashFlowRow = data.find((row) => row.label.toLowerCase().includes("flux net") && row.isSubtotal)

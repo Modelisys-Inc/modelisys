@@ -83,6 +83,7 @@ export function CashFlowSummary({
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: isMultiPeriod,
+    structureVersion,
   })
 
   // Helper function to get comparison label
@@ -254,6 +255,7 @@ export function CashFlowSummary({
           const params: FinancialStatementSeriesParams = {
             fiscal_year: currentYear,
             months: 12,
+            structure_rev: structureVersion > 0 ? structureVersion : undefined,
           }
           let entityCompanyId = companyId || ""
 
@@ -305,7 +307,7 @@ export function CashFlowSummary({
 
     fetchEntityData()
     return () => { cancelled = true }
-  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, currentYear])
+  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, currentYear, structureVersion])
 
   // Find total cash flow value for percentage calculations
   const totalCashFlowRow = data.find((row) => row.label.toLowerCase() === "flux net")
