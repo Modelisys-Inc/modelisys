@@ -41,6 +41,54 @@ export function normalizeAnnexLetter(raw: string): string {
   return raw.trim().toUpperCase().slice(0, 8)
 }
 
+/** Schéma d'identifiant d'annexe : lettres (Résultats) ou nombres (Bilan). */
+export type AnnexScheme = "letter" | "number"
+
+/** Décode une suite de lettres en entier bijectif base-26 (A=1 … Z=26, AA=27 …). 0 si invalide. */
+function annexLettersToNumber(s: string): number {
+  if (!/^[A-Z]+$/.test(s)) return 0
+  let n = 0
+  for (const ch of s) n = n * 26 + (ch.charCodeAt(0) - 64)
+  return n
+}
+
+/** Encode un entier ≥ 1 en lettres bijectives base-26 (1→A, 26→Z, 27→AA …). */
+function numberToAnnexLetters(n: number): string {
+  let out = ""
+  let x = n
+  while (x > 0) {
+    const rem = (x - 1) % 26
+    out = String.fromCharCode(65 + rem) + out
+    x = Math.floor((x - 1) / 26)
+  }
+  return out
+}
+
+/**
+ * Prochain identifiant d'annexe « après le plus élevé » utilisé dans la structure,
+ * selon le schéma du type d'état :
+ * - `number` : max des valeurs purement numériques + 1 (« 1 » si aucune).
+ * - `letter` : max des valeurs alphabétiques (base-26 bijective) + 1 (« A » si aucune).
+ * Les valeurs ne correspondant pas au schéma sont ignorées pour le calcul du max.
+ */
+export function nextAnnexIdentifier(
+  structure: Record<string, unknown>[],
+  scheme: AnnexScheme
+): string {
+  let max = 0
+  for (const row of structure) {
+    const v = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+    if (!v) continue
+    if (scheme === "number") {
+      if (/^\d+$/.test(v)) max = Math.max(max, parseInt(v, 10))
+    } else {
+      max = Math.max(max, annexLettersToNumber(v))
+    }
+  }
+  const next = max + 1
+  return scheme === "number" ? String(next) : numberToAnnexLetters(next)
+}
+
 export function cloneStructure(s: Record<string, unknown>[]): Record<string, unknown>[] {
   return JSON.parse(JSON.stringify(s)) as Record<string, unknown>[]
 }
@@ -402,6 +450,28 @@ export function collectDistinctLinkCodesFromStructure(
     for (const c of normalizeCodeList(row.liaisonDenominatorCodes)) add(c)
   }
   return Array.from(seen).sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+}
+
+/**
+ * Associe chaque code de liaison au libellé du poste qui le **définit** (ligne en
+ * mode « Code unique » dont le `linkCode` vaut ce code). Permet d'afficher « 4100 —
+ * Ventes nettes » dans les sélecteurs pour savoir à quoi on rattache un compte.
+ * Premier libellé rencontré conservé. Les codes n'apparaissant que dans des listes
+ * d'addition / soustraction (sans poste propriétaire) sont absents de la table.
+ */
+export function mapLinkCodesToOwnerLabel(
+  structure: Record<string, unknown>[]
+): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    if (normalizeLiaisonMode(row) !== "single") continue
+    const code = String(row.linkCode ?? "").trim()
+    if (!code || map.has(code)) continue
+    const label = String(row.label ?? "").trim()
+    if (label) map.set(code, label)
+  }
+  return map
 }
 
 /** Au moins un poste du sommaire est marqué « Revenus » (nature). */

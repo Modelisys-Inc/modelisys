@@ -18,6 +18,7 @@ from app.models.budget import BudgetEntry
 from app.models.company import Company, Division, SubDivision
 from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.trial_balance import ChartOfAccount, TrialBalanceEntry
+from app.services.statement_structure_defaults import DEFAULT_STRUCTURES
 
 
 def _parse_fiscal_year_end(fiscal_year_end: str) -> tuple[int, int]:
@@ -1516,7 +1517,7 @@ def _process_structure_rows(
             )
         elif (
             not detail_rows
-            and statement_type == "balance-sheet"
+            and statement_type in ("balance-sheet", "cash-flow")
             and mode == "single"
             and str(row.get("linkCode") or "").strip()
             and not formula
@@ -1572,6 +1573,8 @@ def _process_structure_rows(
             output_row["separatorAbove"] = True
         if bool(row.get("detailOnly")):
             output_row["detailOnly"] = True
+        if _is_show_in_detail(row):
+            output_row["showInDetail"] = True
         annex_letter = row.get("annexLetter")
         if annex_letter:
             output_row["annexLetter"] = annex_letter
@@ -1627,6 +1630,10 @@ def compute_financial_statement(
         .first()
     )
     if not structure:
+        structure_rows = DEFAULT_STRUCTURES.get(statement_type, [])
+    else:
+        structure_rows = list(structure.structure or [])
+    if not structure_rows:
         return {
             "companyId": str(company.id),
             "statementType": statement_type,
@@ -1753,14 +1760,13 @@ def compute_financial_statement(
     groupe_index = None
     dt_ct_by_link_code: dict[str, str] | None = None
     if statement_type == "income-statement":
-        struct_list = structure.structure if isinstance(structure.structure, list) else []
-        flat = _flatten_structure_preorder(struct_list)
+        flat = _flatten_structure_preorder(structure_rows)
         groupe_index = _build_groupe_index(mappings, flat)
         dt_ct_by_link_code = _map_link_codes_to_dt_ct(flat)
 
     # 7. Process the structure into computed rows
     rows = _process_structure_rows(
-        structure.structure,
+        structure_rows,
         mapping_index,
         current_amount_index,
         prior_amount_index,
@@ -2180,7 +2186,7 @@ def _process_structure_rows_series(
             )
         elif (
             not detail_rows
-            and statement_type == "balance-sheet"
+            and statement_type in ("balance-sheet", "cash-flow")
             and mode == "single"
             and str(row.get("linkCode") or "").strip()
             and not (formula and isinstance(formula, list))
@@ -2235,6 +2241,8 @@ def _process_structure_rows_series(
             output_row["separatorAbove"] = True
         if bool(row.get("detailOnly")):
             output_row["detailOnly"] = True
+        if _is_show_in_detail(row):
+            output_row["showInDetail"] = True
         annex_letter = row.get("annexLetter")
         if annex_letter:
             output_row["annexLetter"] = annex_letter
@@ -2277,7 +2285,8 @@ def compute_financial_statement_series(
         )
         .first()
     )
-    if not structure:
+    structure_rows = list(structure.structure or []) if structure else DEFAULT_STRUCTURES.get(statement_type, [])
+    if not structure_rows:
         return {
             "companyId": str(company.id),
             "statementType": statement_type,
@@ -2328,14 +2337,13 @@ def compute_financial_statement_series(
     groupe_index = None
     dt_ct_by_link_code: dict[str, str] | None = None
     if statement_type == "income-statement":
-        struct_list = structure.structure if isinstance(structure.structure, list) else []
-        flat = _flatten_structure_preorder(struct_list)
+        flat = _flatten_structure_preorder(structure_rows)
         groupe_index = _build_groupe_index(mappings, flat)
         dt_ct_by_link_code = _map_link_codes_to_dt_ct(flat)
 
     # 7. Process structure rows for series
     rows = _process_structure_rows_series(
-        structure.structure,
+        structure_rows,
         mapping_index,
         amount_indices,
         periods,

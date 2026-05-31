@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
-import type { FinancialStatementRow } from "@/lib/api"
+import type { FinancialStatementDetailRow, FinancialStatementRow, SeriesDetailRow } from "@/lib/api"
 import { getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import {
@@ -15,6 +15,9 @@ import {
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
+import { Button } from "@/components/ui/button"
+import { Settings } from "lucide-react"
+import { StatementStructureStudio } from "@/components/statement-structure-studio"
 
 interface CashFlowDetailProps {
   period: "monthly" | "quarterly" | "annual"
@@ -31,6 +34,9 @@ interface CashFlowDetailProps {
   fiscalYear?: number
   rows?: FinancialStatementRow[]
   loading?: boolean
+  showCashFlowStructureSettings?: boolean
+  structureVersion?: number
+  onCashFlowStructureSaved?: () => void
 }
 
 interface DetailRow {
@@ -41,6 +47,9 @@ interface DetailRow {
   isBold?: boolean
   isSubtotal?: boolean
   isSection?: boolean
+  annexLetter?: string
+  rowId?: string
+  isDetailAccount?: boolean
   // For trend views (12months, quarters, years)
   trendValues?: number[]
 }
@@ -57,6 +66,9 @@ export function CashFlowDetail({
   fiscalYear,
   rows: backendRows = [],
   loading = false,
+  showCashFlowStructureSettings = false,
+  structureVersion = 0,
+  onCashFlowStructureSaved,
 }: CashFlowDetailProps) {
   // Series data for multi-period views
   const isMultiPeriod = view === "12months" || view === "quarters" || view === "years"
@@ -71,26 +83,111 @@ export function CashFlowDetail({
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: isMultiPeriod,
+    structureVersion,
   })
+
+  const hasConfiguredDetailRows = (apiRows: FinancialStatementRow[]): boolean =>
+    apiRows.some((row) =>
+      row.showInDetail === true ||
+      row.detailOnly === true ||
+      String(row.annexLetter ?? "").trim() !== "" ||
+      (row.detailRows?.length ?? 0) > 0
+    )
+
+  const hasConfiguredSeriesDetailRows = (apiRows: typeof seriesRows): boolean =>
+    apiRows.some((row) =>
+      row.showInDetail === true ||
+      row.detailOnly === true ||
+      String(row.annexLetter ?? "").trim() !== "" ||
+      (row.detailRows?.length ?? 0) > 0
+    )
+
+  const detailLabel = (label: string, annexLetter?: string): string => {
+    const ann = String(annexLetter ?? "").trim().toUpperCase()
+    return ann ? `Annexe ${ann} — ${label}` : label
+  }
+
+  const mapAccountDetailRows = (detailRows: FinancialStatementDetailRow[] | undefined): DetailRow[] =>
+    (detailRows ?? []).map((dr) => ({
+      label: dr.label,
+      current: dr.current ?? 0,
+      prior: dr.prior ?? 0,
+      indent: true,
+      isBold: false,
+      isSubtotal: false,
+      isSection: false,
+      rowId: dr.id,
+      isDetailAccount: true,
+    }))
+
+  const mapSeriesAccountDetailRows = (detailRows: SeriesDetailRow[] | undefined): DetailRow[] =>
+    (detailRows ?? []).map((dr) => {
+      const rawAmounts = periods.map((p) => dr.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] || 0)
+      let values: number[]
+      if (view === "quarters") {
+        values = reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods).amounts)
+      } else if (view === "years") {
+        values = reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods).amounts)
+      } else {
+        values = reverseSeriesOrderForDisplay(rawAmounts)
+      }
+      return {
+        label: dr.label,
+        current: values[0] || 0,
+        prior: values.length >= 2 ? values[1] || 0 : 0,
+        indent: true,
+        isBold: false,
+        isSubtotal: false,
+        isSection: false,
+        rowId: dr.id,
+        isDetailAccount: true,
+        trendValues: values,
+      }
+    })
 
   // Map backend FinancialStatementRow[] to internal DetailRow[]
   const mapBackendRows = (apiRows: FinancialStatementRow[]): DetailRow[] => {
-    return apiRows.map((row) => ({
-      label: row.label,
-      current: row.current ?? 0,
-      prior: row.prior ?? 0,
-      indent: !row.isBold && !row.isSection && !row.isResult,
-      isBold: row.isBold,
-      isSubtotal: row.isResult,
-      isSection: row.isSection,
-    }))
+    const configured = hasConfiguredDetailRows(apiRows)
+    const rowsToDisplay = configured
+      ? apiRows.filter((row) =>
+          row.showInDetail === true ||
+          row.detailOnly === true ||
+          String(row.annexLetter ?? "").trim() !== "" ||
+          (row.detailRows?.length ?? 0) > 0
+        )
+      : apiRows
+
+    return rowsToDisplay.flatMap((row) => {
+      const base: DetailRow = {
+        label: configured ? detailLabel(row.label, row.annexLetter) : row.label,
+        current: row.current ?? 0,
+        prior: row.prior ?? 0,
+        indent: configured ? row.detailOnly === true : !row.isBold && !row.isSection && !row.isResult,
+        isBold: configured ? row.detailOnly !== true : row.isBold,
+        isSubtotal: row.isResult,
+        isSection: row.isSection,
+        annexLetter: row.annexLetter,
+        rowId: row.id,
+      }
+      return [base, ...mapAccountDetailRows(row.detailRows)]
+    })
   }
 
   // Build multi-period rows from series API data
   const getMultiPeriodData = (): DetailRow[] => {
     if (!seriesRows.length || !periods.length) return []
 
-    return seriesRows.map(row => {
+    const configured = hasConfiguredSeriesDetailRows(seriesRows)
+    const rowsToDisplay = configured
+      ? seriesRows.filter((row) =>
+          row.showInDetail === true ||
+          row.detailOnly === true ||
+          String(row.annexLetter ?? "").trim() !== "" ||
+          (row.detailRows?.length ?? 0) > 0
+        )
+      : seriesRows
+
+    return rowsToDisplay.flatMap(row => {
       const rawAmounts = getRowAmounts(row, periods)
 
       let values: number[]
@@ -102,16 +199,19 @@ export function CashFlowDetail({
         values = reverseSeriesOrderForDisplay(rawAmounts)
       }
 
-      return {
-        label: row.label,
+      const base = {
+        label: configured ? detailLabel(row.label, row.annexLetter) : row.label,
         current: values[0] || 0,
         prior: values.length >= 2 ? values[1] || 0 : 0,
-        indent: !row.isBold && !row.isSection && !row.isResult,
-        isBold: row.isBold,
+        indent: configured ? row.detailOnly === true : !row.isBold && !row.isSection && !row.isResult,
+        isBold: configured ? row.detailOnly !== true : row.isBold,
         isSubtotal: row.isResult,
         isSection: row.isSection,
+        annexLetter: row.annexLetter,
+        rowId: row.id,
         trendValues: row.isSection ? undefined : values,
       }
+      return [base, ...mapSeriesAccountDetailRows(row.detailRows)]
     })
   }
 
@@ -191,6 +291,7 @@ export function CashFlowDetail({
           const params: FinancialStatementSeriesParams = {
             fiscal_year: currentYear,
             months: 12,
+            structure_rev: structureVersion > 0 ? structureVersion : undefined,
           }
           let entityCompanyId = companyId || ""
 
@@ -242,7 +343,7 @@ export function CashFlowDetail({
 
     fetchEntityData()
     return () => { cancelled = true }
-  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, currentYear])
+  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, currentYear, structureVersion])
 
   // Find total cash flow value for percentage calculations
   const totalCashFlowRow = data.find((row) => row.label.toLowerCase().includes("flux net") && row.isSubtotal)
@@ -301,6 +402,40 @@ export function CashFlowDetail({
 
   const getHorizonText = (): string => getHorizonModeLabel(view, period)
 
+  // Structure edit mode
+  const [structureEditMode, setStructureEditMode] = useState(false)
+  const canInlineStructureEdit =
+    showCashFlowStructureSettings && !!companyId && view !== "comparison"
+
+  const renderParametresTrigger = () =>
+    canInlineStructureEdit && !structureEditMode ? (
+      <div className="mb-4 flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setStructureEditMode(true)}
+        >
+          <Settings className="h-4 w-4 text-[#E0742D]" />
+          Paramètres
+        </Button>
+      </div>
+    ) : null
+
+  if (canInlineStructureEdit && structureEditMode && companyId) {
+    return (
+      <div className="w-full">
+        <StatementStructureStudio
+          companyId={companyId}
+          statementType="cash-flow"
+          onSaved={onCashFlowStructureSaved}
+          onClose={() => setStructureEditMode(false)}
+        />
+      </div>
+    )
+  }
+
   if (loading || (isMultiPeriod && seriesLoading) || entityDataLoading) {
     return (
       <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
@@ -318,16 +453,21 @@ export function CashFlowDetail({
 
   if (data.length === 0) {
     return (
-      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-        <div className="px-8 py-16 text-center">
-          <p className="text-sm text-slate-500">Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.</p>
+      <div className="w-full">
+        {renderParametresTrigger()}
+        <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+          <div className="px-8 py-16 text-center">
+            <p className="text-sm text-slate-500">Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.</p>
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+    <div>
+      {renderParametresTrigger()}
+      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
       {/* Header */}
       <div className="bg-white px-8 py-5 border-b border-slate-200">
         <div className="flex items-center justify-between">
@@ -467,7 +607,7 @@ export function CashFlowDetail({
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const isSpacer = row.label === ""
               const shouldHideAmounts = isSpacer || !!row.isSection
-              const displayLabel = row.isSection ? capitalizeFirst(row.label) : row.label
+              const displayLabel = row.isDetailAccount ? row.label : row.isSection ? capitalizeFirst(row.label) : row.label
               
               // Check if next row is a subtotal to add dark border above it
               // Exclude "Variation de trésorerie" from getting a thick border above it
@@ -717,6 +857,7 @@ export function CashFlowDetail({
           officiels.
         </p>
       </div>
+    </div>
     </div>
   )
 }

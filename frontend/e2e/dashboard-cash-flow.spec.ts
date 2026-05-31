@@ -157,12 +157,11 @@ function defaultCashFlowSlot() {
 
 test.describe("Cash flow dashboard", () => {
   // The cash-flow page (see app/financial-statements/cash-flow/page.tsx)
-  // defaults section to "dashboard" since Task 16. Only one StatementChart is
-  // mounted at a time in dashboard mode (`{activeSlot ? <StatementChart … /> :
-  // null}`), and the Top-3 variations band is rendered inside the
-  // `section !== "dashboard"` branch, alongside the "Compréhension des flux
-  // de trésorerie" heading. These two tests pin both behaviors down.
-  test("section toggle is present and dashboard mode renders the default chart", async ({
+  // defaults section to "dashboard". The configurable StatementChart lives
+  // ONLY in the "Tableau de bord" section — the Sommaire/Détail views show
+  // the table alone (no chart, no "Compréhension des flux de trésorerie"
+  // band, both of which were removed). These tests pin that behavior down.
+  test("Tableau de bord is the default section and renders the chart", async ({
     page,
   }) => {
     await setupAuth(page)
@@ -204,7 +203,7 @@ test.describe("Cash flow dashboard", () => {
     ).toBeVisible({ timeout: 10000 })
   })
 
-  test("Top-3 variations band is hidden in Dashboard and visible in Sommaire", async ({
+  test("Sommaire/Détail show no chart and no Compréhension band", async ({
     page,
   }) => {
     await setupAuth(page)
@@ -226,18 +225,29 @@ test.describe("Cash flow dashboard", () => {
 
     await page.goto(`/financial-statements/cash-flow?companyId=${COMPANY_ID}`)
 
-    // Wait until the page has mounted (section toggle is visible).
+    // Wait until the page has mounted (section toggle is visible). The chart
+    // is present in the default Tableau de bord view.
     await expect(
       page.getByRole("button", { name: "Tableau de bord" }),
     ).toBeVisible({ timeout: 15000 })
+    const chartSettings = page.getByRole("button", {
+      name: /paramètres du graphique/i,
+    })
+    await expect(chartSettings.first()).toBeVisible({ timeout: 10000 })
 
-    // In dashboard mode, the "Compréhension des flux de trésorerie" heading
-    // is not rendered (it lives inside the `section !== "dashboard"` branch).
+    // The "Compréhension des flux de trésorerie" band was removed entirely.
     const cfHeading = page.getByText(/compréhension des flux de trésorerie/i)
     await expect(cfHeading).toHaveCount(0)
 
-    // Switch to Sommaire — the heading should now be visible.
+    // Switch to Sommaire — the chart disappears (it lives only in the
+    // dashboard) and the band is still gone.
     await page.getByRole("button", { name: "Sommaire" }).click()
-    await expect(cfHeading).toBeVisible({ timeout: 10000 })
+    await expect(chartSettings).toHaveCount(0)
+    await expect(cfHeading).toHaveCount(0)
+
+    // Same in Détail.
+    await page.getByRole("button", { name: "Détail" }).click()
+    await expect(chartSettings).toHaveCount(0)
+    await expect(cfHeading).toHaveCount(0)
   })
 })

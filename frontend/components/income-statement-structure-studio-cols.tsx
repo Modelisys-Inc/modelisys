@@ -29,7 +29,11 @@ interface IncomeStatementStructureStudioColsProps {
   structRow: Record<string, unknown>
   /** Codes de liaison collectés dans la structure (Sommaire) pour les listes multi-sélection. */
   allLinkCodes: string[]
+  /** Code de liaison → libellé du poste, pour afficher « code — nom » dans les sélecteurs. */
+  linkCodeLabels?: Map<string, string>
   updateRow: (index: number, patch: Record<string, unknown>) => void
+  /** Bascule « Annexe » et attribue automatiquement le prochain identifiant d'annexe. */
+  setShowInDetail: (index: number, checked: boolean) => void
   showRemoveButton: boolean
   onRemoveRow?: (index: number) => void
   mappingColumnsReadOnly?: boolean
@@ -41,7 +45,9 @@ export function IncomeStatementStructureStudioCols({
   rowIndex: idx,
   structRow,
   allLinkCodes,
+  linkCodeLabels,
   updateRow,
+  setShowInDetail,
   showRemoveButton,
   onRemoveRow,
   mappingColumnsReadOnly = false,
@@ -189,6 +195,7 @@ export function IncomeStatementStructureStudioCols({
             structRow={structRow}
             rowIndex={idx}
             allLinkCodes={allLinkCodes}
+            linkCodeLabels={linkCodeLabels}
             updateRow={updateRow}
             readOnly={readOnly}
             hideDefineColumn={hideDefineColumn}
@@ -280,10 +287,7 @@ export function IncomeStatementStructureStudioCols({
                   disabled={isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)}
                   onCheckedChange={(v) => {
                     if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
-                    updateRow(idx, {
-                      showInDetail: v === true,
-                      ...(v === false ? { annexLetter: undefined } : {}),
-                    })
+                    setShowInDetail(idx, v === true)
                   }}
                   aria-label="Annexe : afficher au détail"
                   className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"
