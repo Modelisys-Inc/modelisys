@@ -1517,7 +1517,7 @@ def _process_structure_rows(
             )
         elif (
             not detail_rows
-            and statement_type == "balance-sheet"
+            and statement_type in ("balance-sheet", "cash-flow")
             and mode == "single"
             and str(row.get("linkCode") or "").strip()
             and not formula
@@ -1573,6 +1573,8 @@ def _process_structure_rows(
             output_row["separatorAbove"] = True
         if bool(row.get("detailOnly")):
             output_row["detailOnly"] = True
+        if _is_show_in_detail(row):
+            output_row["showInDetail"] = True
         annex_letter = row.get("annexLetter")
         if annex_letter:
             output_row["annexLetter"] = annex_letter
@@ -2184,7 +2186,7 @@ def _process_structure_rows_series(
             )
         elif (
             not detail_rows
-            and statement_type == "balance-sheet"
+            and statement_type in ("balance-sheet", "cash-flow")
             and mode == "single"
             and str(row.get("linkCode") or "").strip()
             and not (formula and isinstance(formula, list))
@@ -2239,6 +2241,8 @@ def _process_structure_rows_series(
             output_row["separatorAbove"] = True
         if bool(row.get("detailOnly")):
             output_row["detailOnly"] = True
+        if _is_show_in_detail(row):
+            output_row["showInDetail"] = True
         annex_letter = row.get("annexLetter")
         if annex_letter:
             output_row["annexLetter"] = annex_letter

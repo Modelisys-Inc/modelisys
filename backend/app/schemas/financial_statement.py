@@ -28,6 +28,7 @@ class FinancialStatementRow(BaseModel):
     detailRows: list[FinancialStatementDetailRow] = []
     annexLetter: str | None = None
     detailOnly: bool | None = None
+    showInDetail: bool | None = None
     indent: bool | None = None
     separatorAbove: bool | None = None
     hasLiaisonCode: bool | None = None
@@ -81,6 +82,7 @@ class SeriesRow(BaseModel):
     detailRows: list[SeriesDetailRow] = []
     annexLetter: str | None = None
     detailOnly: bool | None = None
+    showInDetail: bool | None = None
     indent: bool | None = None
     separatorAbove: bool | None = None
     hasLiaisonCode: bool | None = None
