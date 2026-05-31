@@ -86,13 +86,14 @@ def test_upsert_updates_existing(client, auth_headers):
     assert len(response.json()["structure"]) == 1
     assert response.json()["structure"][0]["label"] == "revenus modifiés"
 
-    # Verify IS was updated (BS default still present → 2 total)
+    # Verify IS was updated (BS + CF defaults still present → 3 total)
     list_response = client.get(
         f"/api/companies/{company_id}/statement-structures", headers=auth_headers
     )
     types = {s["statement_type"] for s in list_response.json()["structures"]}
     assert "income-statement" in types
     assert "balance-sheet" in types
+    assert "cash-flow" in types
 
 
 def test_get_statement_structure(client, auth_headers):
@@ -138,9 +139,9 @@ def test_list_both_structures(client, auth_headers):
     )
     assert response.status_code == 200
     structures = response.json()["structures"]
-    assert len(structures) == 2
+    assert len(structures) == 3
     types = {s["statement_type"] for s in structures}
-    assert types == {"income-statement", "balance-sheet"}
+    assert types == {"income-statement", "balance-sheet", "cash-flow"}
 
 
 def test_company_not_found(client, auth_headers):
@@ -410,6 +411,16 @@ def test_get_cash_flow_structure_returns_default_when_unset(client, auth_headers
     assert any("exploitation" in l for l in labels)
     assert any("investissement" in l for l in labels)
     assert any("financement" in l for l in labels)
+
+
+def test_new_company_seeds_cash_flow_structure(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    response = client.get(
+        f"/api/companies/{company_id}/statement-structures", headers=auth_headers
+    )
+    assert response.status_code == 200
+    types = {s["statement_type"] for s in response.json()["structures"]}
+    assert "cash-flow" in types
 
 
 def test_csv_import_without_link_codes_column(client, auth_headers):
