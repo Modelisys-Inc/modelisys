@@ -1,7 +1,7 @@
 """Add projection horizon and start date
 
-Revision ID: 009
-Revises: 008
+Revision ID: 011
+Revises: 010
 Create Date: 2026-05-07
 """
 
@@ -10,8 +10,8 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "009"
-down_revision: Union[str, None] = "008"
+revision: str = "011"
+down_revision: Union[str, None] = "010"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -35,4 +35,3 @@ def downgrade() -> None:
     op.drop_column("projections", "start_month")
     op.drop_column("projections", "start_year")
     op.drop_column("projections", "projection_horizon")
-
