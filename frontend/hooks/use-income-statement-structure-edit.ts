@@ -230,6 +230,18 @@ export function useStatementStructureEdit(
     })
   }, [])
 
+  const moveStructureRow = useCallback((index: number, direction: -1 | 1) => {
+    setStructure((prev) => {
+      const target = index + direction
+      if (index < 0 || index >= prev.length || target < 0 || target >= prev.length) return prev
+      const next = cloneStructure(prev)
+      const [row] = next.splice(index, 1)
+      if (!row) return prev
+      next.splice(target, 0, row)
+      return next
+    })
+  }, [])
+
   const save = useCallback(async () => {
     if (!companyId) return false
     setSaving(true)
@@ -351,6 +363,7 @@ export function useStatementStructureEdit(
     insertEmptySpacerBelow,
     canRemoveRowAt,
     removeStructureRowAt,
+    moveStructureRow,
     addDetailSubLine,
     save,
     discard,

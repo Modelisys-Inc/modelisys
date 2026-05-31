@@ -1,7 +1,8 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Loader2, PanelTop, Plus } from "lucide-react"
@@ -38,6 +39,7 @@ export function StatementStructureStudio({
 }: StatementStructureStudioProps) {
   // active=true: this component only mounts while editing.
   const structEdit = useStatementStructureEdit(companyId, true, statementType)
+  const [presentationRowIdx, setPresentationRowIdx] = useState<number | null>(null)
 
   const displayIndices = structEdit.summaryStructureDisplayIndices
   const allLiaisonCodes = useMemo(
@@ -130,6 +132,43 @@ export function StatementStructureStudio({
           {structEdit.error}
         </div>
       )}
+      {presentationRowIdx != null && structEdit.structure[presentationRowIdx] ? (
+        <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 bg-white px-4 py-3 text-sm">
+          <span className="max-w-[18rem] truncate font-semibold text-slate-800">
+            {String(structEdit.structure[presentationRowIdx]?.label ?? "Poste")}
+          </span>
+          <label className="inline-flex items-center gap-2 text-slate-700">
+            <Checkbox
+              checked={structEdit.structure[presentationRowIdx]?.isBold === true}
+              onCheckedChange={(v) => structEdit.updateRow(presentationRowIdx, { isBold: v === true })}
+            />
+            Gras
+          </label>
+          <label className="inline-flex items-center gap-2 text-slate-700">
+            <Checkbox
+              checked={structEdit.structure[presentationRowIdx]?.isSection === true}
+              onCheckedChange={(v) => structEdit.updateRow(presentationRowIdx, { isSection: v === true })}
+            />
+            Section
+          </label>
+          <label className="inline-flex items-center gap-2 text-slate-700">
+            <Checkbox
+              checked={structEdit.structure[presentationRowIdx]?.indent === true}
+              onCheckedChange={(v) => structEdit.updateRow(presentationRowIdx, { indent: v === true })}
+            />
+            Indenté
+          </label>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="ml-auto text-slate-500"
+            onClick={() => setPresentationRowIdx(null)}
+          >
+            Fermer
+          </Button>
+        </div>
+      ) : null}
 
       {/* Table */}
       <div className="overflow-x-auto">
@@ -176,6 +215,7 @@ export function StatementStructureStudio({
                     allLiaisonCodes={allLiaisonCodes}
                     linkCodeLabels={linkCodeLabels}
                     showSeparatorAbove={structRow.separatorAbove === true}
+                    onEditPresentation={setPresentationRowIdx}
                   />
                 </tr>
               )

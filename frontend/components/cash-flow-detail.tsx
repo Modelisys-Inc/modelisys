@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
-import type { FinancialStatementRow } from "@/lib/api"
+import type { FinancialStatementDetailRow, FinancialStatementRow, SeriesDetailRow } from "@/lib/api"
 import { getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import {
@@ -47,6 +47,9 @@ interface DetailRow {
   isBold?: boolean
   isSubtotal?: boolean
   isSection?: boolean
+  annexLetter?: string
+  rowId?: string
+  isDetailAccount?: boolean
   // For trend views (12months, quarters, years)
   trendValues?: number[]
 }
@@ -83,24 +86,108 @@ export function CashFlowDetail({
     structureVersion,
   })
 
+  const hasConfiguredDetailRows = (apiRows: FinancialStatementRow[]): boolean =>
+    apiRows.some((row) =>
+      row.showInDetail === true ||
+      row.detailOnly === true ||
+      String(row.annexLetter ?? "").trim() !== "" ||
+      (row.detailRows?.length ?? 0) > 0
+    )
+
+  const hasConfiguredSeriesDetailRows = (apiRows: typeof seriesRows): boolean =>
+    apiRows.some((row) =>
+      row.showInDetail === true ||
+      row.detailOnly === true ||
+      String(row.annexLetter ?? "").trim() !== "" ||
+      (row.detailRows?.length ?? 0) > 0
+    )
+
+  const detailLabel = (label: string, annexLetter?: string): string => {
+    const ann = String(annexLetter ?? "").trim().toUpperCase()
+    return ann ? `Annexe ${ann} — ${label}` : label
+  }
+
+  const mapAccountDetailRows = (detailRows: FinancialStatementDetailRow[] | undefined): DetailRow[] =>
+    (detailRows ?? []).map((dr) => ({
+      label: dr.label,
+      current: dr.current ?? 0,
+      prior: dr.prior ?? 0,
+      indent: true,
+      isBold: false,
+      isSubtotal: false,
+      isSection: false,
+      rowId: dr.id,
+      isDetailAccount: true,
+    }))
+
+  const mapSeriesAccountDetailRows = (detailRows: SeriesDetailRow[] | undefined): DetailRow[] =>
+    (detailRows ?? []).map((dr) => {
+      const rawAmounts = periods.map((p) => dr.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] || 0)
+      let values: number[]
+      if (view === "quarters") {
+        values = reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods).amounts)
+      } else if (view === "years") {
+        values = reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods).amounts)
+      } else {
+        values = reverseSeriesOrderForDisplay(rawAmounts)
+      }
+      return {
+        label: dr.label,
+        current: values[0] || 0,
+        prior: values.length >= 2 ? values[1] || 0 : 0,
+        indent: true,
+        isBold: false,
+        isSubtotal: false,
+        isSection: false,
+        rowId: dr.id,
+        isDetailAccount: true,
+        trendValues: values,
+      }
+    })
+
   // Map backend FinancialStatementRow[] to internal DetailRow[]
   const mapBackendRows = (apiRows: FinancialStatementRow[]): DetailRow[] => {
-    return apiRows.map((row) => ({
-      label: row.label,
-      current: row.current ?? 0,
-      prior: row.prior ?? 0,
-      indent: !row.isBold && !row.isSection && !row.isResult,
-      isBold: row.isBold,
-      isSubtotal: row.isResult,
-      isSection: row.isSection,
-    }))
+    const configured = hasConfiguredDetailRows(apiRows)
+    const rowsToDisplay = configured
+      ? apiRows.filter((row) =>
+          row.showInDetail === true ||
+          row.detailOnly === true ||
+          String(row.annexLetter ?? "").trim() !== "" ||
+          (row.detailRows?.length ?? 0) > 0
+        )
+      : apiRows
+
+    return rowsToDisplay.flatMap((row) => {
+      const base: DetailRow = {
+        label: configured ? detailLabel(row.label, row.annexLetter) : row.label,
+        current: row.current ?? 0,
+        prior: row.prior ?? 0,
+        indent: configured ? row.detailOnly === true : !row.isBold && !row.isSection && !row.isResult,
+        isBold: configured ? row.detailOnly !== true : row.isBold,
+        isSubtotal: row.isResult,
+        isSection: row.isSection,
+        annexLetter: row.annexLetter,
+        rowId: row.id,
+      }
+      return [base, ...mapAccountDetailRows(row.detailRows)]
+    })
   }
 
   // Build multi-period rows from series API data
   const getMultiPeriodData = (): DetailRow[] => {
     if (!seriesRows.length || !periods.length) return []
 
-    return seriesRows.map(row => {
+    const configured = hasConfiguredSeriesDetailRows(seriesRows)
+    const rowsToDisplay = configured
+      ? seriesRows.filter((row) =>
+          row.showInDetail === true ||
+          row.detailOnly === true ||
+          String(row.annexLetter ?? "").trim() !== "" ||
+          (row.detailRows?.length ?? 0) > 0
+        )
+      : seriesRows
+
+    return rowsToDisplay.flatMap(row => {
       const rawAmounts = getRowAmounts(row, periods)
 
       let values: number[]
@@ -112,16 +199,19 @@ export function CashFlowDetail({
         values = reverseSeriesOrderForDisplay(rawAmounts)
       }
 
-      return {
-        label: row.label,
+      const base = {
+        label: configured ? detailLabel(row.label, row.annexLetter) : row.label,
         current: values[0] || 0,
         prior: values.length >= 2 ? values[1] || 0 : 0,
-        indent: !row.isBold && !row.isSection && !row.isResult,
-        isBold: row.isBold,
+        indent: configured ? row.detailOnly === true : !row.isBold && !row.isSection && !row.isResult,
+        isBold: configured ? row.detailOnly !== true : row.isBold,
         isSubtotal: row.isResult,
         isSection: row.isSection,
+        annexLetter: row.annexLetter,
+        rowId: row.id,
         trendValues: row.isSection ? undefined : values,
       }
+      return [base, ...mapSeriesAccountDetailRows(row.detailRows)]
     })
   }
 
@@ -517,7 +607,7 @@ export function CashFlowDetail({
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const isSpacer = row.label === ""
               const shouldHideAmounts = isSpacer || !!row.isSection
-              const displayLabel = row.isSection ? capitalizeFirst(row.label) : row.label
+              const displayLabel = row.isDetailAccount ? row.label : row.isSection ? capitalizeFirst(row.label) : row.label
               
               // Check if next row is a subtotal to add dark border above it
               // Exclude "Variation de trésorerie" from getting a thick border above it
