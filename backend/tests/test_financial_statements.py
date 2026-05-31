@@ -507,6 +507,78 @@ def test_compute_falls_back_to_default_when_structure_missing(client, auth_heade
     assert len(r.json()["rows"]) > 0
 
 
+def test_cash_flow_annex_row_includes_gl_detail_rows(client, auth_headers):
+    """Cash-flow rows marked for detail expose their linked GL accounts."""
+    company_id = _create_company(client, auth_headers, name="CF Detail Co")
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "1000", "description": "Bank account", "link_code": "CF-CASH"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "1000",
+            "description": "Bank account",
+            "monthly_amounts": {"Janvier": 1250.0},
+        },
+    ], fiscal_year=2026)
+    _upsert_structure(client, auth_headers, company_id, "cash-flow", [
+        {
+            "label": "trésorerie encaissée",
+            "linkCode": "CF-CASH",
+            "defineMapping": True,
+            "showInDetail": True,
+            "annexLetter": "A",
+        },
+    ])
+
+    r = client.get(
+        f"/api/companies/{company_id}/financial-statements/cash-flow",
+        params={"fiscal_year": 2026, "month": 1},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    row = r.json()["rows"][0]
+    assert row["showInDetail"] is True
+    assert row["annexLetter"] == "A"
+    assert row["detailRows"][0]["id"] == "1000"
+    assert "Bank account" in row["detailRows"][0]["label"]
+    assert row["detailRows"][0]["current"] == 1250.0
+
+
+def test_cash_flow_series_annex_row_includes_gl_detail_rows(client, auth_headers):
+    """Cash-flow series keeps GL detail rows for annex-enabled rows."""
+    company_id = _create_company(client, auth_headers, name="CF Series Detail Co")
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "1000", "description": "Bank account", "link_code": "CF-CASH"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "1000",
+            "description": "Bank account",
+            "monthly_amounts": {"Janvier": 1250.0},
+        },
+    ], fiscal_year=2026)
+    _upsert_structure(client, auth_headers, company_id, "cash-flow", [
+        {
+            "label": "trésorerie encaissée",
+            "linkCode": "CF-CASH",
+            "defineMapping": True,
+            "showInDetail": True,
+            "annexLetter": "A",
+        },
+    ])
+
+    r = client.get(
+        f"/api/companies/{company_id}/financial-statements/cash-flow/series",
+        params={"fiscal_year": 2026, "month": 1, "months": 1},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    row = r.json()["rows"][0]
+    assert row["showInDetail"] is True
+    assert row["detailRows"][0]["id"] == "1000"
+    assert row["detailRows"][0]["amounts"]["2026-1"] == 1250.0
+
+
 # --- Summary metrics ---
 
 
