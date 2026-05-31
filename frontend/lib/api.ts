@@ -552,7 +552,7 @@ export async function listStatementStructures(
   return data.structures;
 }
 
-export type StatementType = "income-statement" | "balance-sheet" | "capex" | "baiia";
+export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "capex" | "baiia";
 
 export async function getStatementStructure(
   companyId: string,
