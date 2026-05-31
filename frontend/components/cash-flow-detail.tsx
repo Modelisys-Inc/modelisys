@@ -15,6 +15,9 @@ import {
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
+import { Button } from "@/components/ui/button"
+import { Settings } from "lucide-react"
+import { StatementStructureStudio } from "@/components/statement-structure-studio"
 
 interface CashFlowDetailProps {
   period: "monthly" | "quarterly" | "annual"
@@ -31,6 +34,9 @@ interface CashFlowDetailProps {
   fiscalYear?: number
   rows?: FinancialStatementRow[]
   loading?: boolean
+  showCashFlowStructureSettings?: boolean
+  structureVersion?: number
+  onCashFlowStructureSaved?: () => void
 }
 
 interface DetailRow {
@@ -57,6 +63,9 @@ export function CashFlowDetail({
   fiscalYear,
   rows: backendRows = [],
   loading = false,
+  showCashFlowStructureSettings = false,
+  structureVersion = 0,
+  onCashFlowStructureSaved,
 }: CashFlowDetailProps) {
   // Series data for multi-period views
   const isMultiPeriod = view === "12months" || view === "quarters" || view === "years"
@@ -301,6 +310,40 @@ export function CashFlowDetail({
 
   const getHorizonText = (): string => getHorizonModeLabel(view, period)
 
+  // Structure edit mode
+  const [structureEditMode, setStructureEditMode] = useState(false)
+  const canInlineStructureEdit =
+    showCashFlowStructureSettings && !!companyId && view !== "comparison"
+
+  const renderParametresTrigger = () =>
+    canInlineStructureEdit && !structureEditMode ? (
+      <div className="mb-4 flex justify-end">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setStructureEditMode(true)}
+        >
+          <Settings className="h-4 w-4 text-[#E0742D]" />
+          Paramètres
+        </Button>
+      </div>
+    ) : null
+
+  if (canInlineStructureEdit && structureEditMode && companyId) {
+    return (
+      <div className="w-full">
+        <StatementStructureStudio
+          companyId={companyId}
+          statementType="cash-flow"
+          onSaved={onCashFlowStructureSaved}
+          onClose={() => setStructureEditMode(false)}
+        />
+      </div>
+    )
+  }
+
   if (loading || (isMultiPeriod && seriesLoading) || entityDataLoading) {
     return (
       <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
@@ -318,16 +361,21 @@ export function CashFlowDetail({
 
   if (data.length === 0) {
     return (
-      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-        <div className="px-8 py-16 text-center">
-          <p className="text-sm text-slate-500">Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.</p>
+      <div className="w-full">
+        {renderParametresTrigger()}
+        <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+          <div className="px-8 py-16 text-center">
+            <p className="text-sm text-slate-500">Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.</p>
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+    <div>
+      {renderParametresTrigger()}
+      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
       {/* Header */}
       <div className="bg-white px-8 py-5 border-b border-slate-200">
         <div className="flex items-center justify-between">
@@ -717,6 +765,7 @@ export function CashFlowDetail({
           officiels.
         </p>
       </div>
+    </div>
     </div>
   )
 }
