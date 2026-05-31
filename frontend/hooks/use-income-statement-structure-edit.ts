@@ -27,7 +27,7 @@ import {
 
 export type StatementStructureEditKind = Extract<StatementType, "income-statement" | "balance-sheet" | "cash-flow">
 
-function useStatementStructureEdit(
+export function useStatementStructureEdit(
   companyId: string | null | undefined,
   active: boolean,
   statementType: StatementStructureEditKind
