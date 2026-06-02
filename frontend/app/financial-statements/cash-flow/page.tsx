@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Calendar, TrendingUp, TrendingDown, ChevronRight, Plus } from "lucide-react"
+import { Calendar, ChevronRight, Plus } from "lucide-react"
 import Link from "next/link"
 import { usePathname, useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
@@ -48,6 +48,7 @@ export default function CashFlowPage() {
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
   const [comparisonType, setComparisonType] = useState<ComparisonType>("lastMonth")
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null)
+  const [structureVersion, setStructureVersion] = useState(0)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const companyIdFromUrl = searchParams.get("companyId")
@@ -172,6 +173,7 @@ export default function CashFlowPage() {
           budget_id: comparisonType === "budget" && selectedBudgetId ? selectedBudgetId : undefined,
           division_id: selectedDivisionId || undefined,
           sub_division_id: selectedSubDivisionId || undefined,
+          structure_rev: structureVersion,
         }
 
         const response = await getCashFlow(companyId, params)
@@ -184,22 +186,7 @@ export default function CashFlowPage() {
       }
     }
     fetchData()
-  }, [lockedCompanyId, selectedCompanyId, selectedYear, selectedMonth, period, view, comparisonType, selectedBudgetId, selectedDivisionId, selectedSubDivisionId])
-
-  // --- Compute top 3 variations from fetched rows ---
-  const topVariations = useMemo(() => {
-    if (rows.length === 0) return []
-    // Filter rows that have meaningful variation and are not empty/section-only
-    const withVariation = rows
-      .filter((r) => r.label && r.current !== 0 && r.prior !== 0 && !r.isSection)
-      .map((r) => ({
-        label: r.label,
-        variation: r.variation,
-        variationAmount: r.variationAmount,
-      }))
-      .sort((a, b) => Math.abs(b.variation) - Math.abs(a.variation))
-    return withVariation.slice(0, 3)
-  }, [rows])
+  }, [lockedCompanyId, selectedCompanyId, selectedYear, selectedMonth, period, view, comparisonType, selectedBudgetId, selectedDivisionId, selectedSubDivisionId, structureVersion])
 
   // Fonction pour obtenir la valeur actuelle du sélecteur Horizon
   const getCurrentHorizon = (): string => {
@@ -460,94 +447,6 @@ export default function CashFlowPage() {
         </div>
       </div>
 
-      {section !== "dashboard" && (
-        <>
-          <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
-            {/* Chart Section - Overlap with dark section */}
-            <div className="relative -mt-32">
-              {chartSlots[0] ? (
-                <StatementChart
-                  statementType="cash-flow"
-                  slot={chartSlots[0]}
-                  period={period}
-                  view={view}
-                  companyId={effectiveCompanyId}
-                  divisionId={selectedDivisionId}
-                  subDivisionId={selectedSubDivisionId}
-                  companies={companies}
-                  fiscalYear={selectedYear}
-                />
-              ) : null}
-            </div>
-          </main>
-
-          {/* Dark Section between Chart and Summary/Detail */}
-          <div className="relative w-full pt-12 pb-32 overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
-            <div className="bg-[#2A2F3A]" />
-            <div className="bg-[#2A2F3A]" />
-          </div>
-          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
-            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
-          </div>
-        </div>
-        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
-          <div className="flex items-start gap-3">
-            <div className="w-2 flex-shrink-0"></div>
-            <div className="flex-1">
-              <div className="mb-6">
-                <h3 className="text-2xl font-semibold text-[#E6D6C3] mb-3">Compréhension des flux de trésorerie</h3>
-                <p className="text-base text-[#C9B8A5]/90 leading-relaxed max-w-4xl">
-                  Les flux de trésorerie sont l'indicateur clé pour l'évaluation d'entreprise. Analysez ce qui impacte votre trésorerie et identifiez les opportunités d'optimisation de vos flux opérationnels, d'investissement et de financement.
-                </p>
-              </div>
-              
-              {/* Top 3 Variations */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {topVariations.length > 0 ? topVariations.map((v, i) => {
-                  const isPositive = v.variation >= 0
-                  const labels = ["Variation la plus importante", "2e variation importante", "3e variation importante"]
-                  return (
-                    <div key={i} className="rounded-lg border border-white/10 bg-[#2A2F3A]/50 p-4 backdrop-blur-sm">
-                      <div className="text-xs text-slate-400 mb-1">{labels[i]}</div>
-                      <div className="text-lg font-semibold text-white mb-1">{v.label}</div>
-                      <div className="flex items-center gap-2">
-                        {isPositive ? (
-                          <TrendingUp className="w-4 h-4 text-emerald-500" />
-                        ) : (
-                          <TrendingDown className="w-4 h-4 text-red-500" />
-                        )}
-                        <span className={`text-sm font-medium ${isPositive ? "text-emerald-500" : "text-red-500"}`}>
-                          {isPositive ? "+" : ""}{v.variation.toFixed(1)}%
-                        </span>
-                        <span className="text-xs text-slate-400">vs période précédente</span>
-                      </div>
-                    </div>
-                  )
-                }) : (
-                  <>
-                    {[0, 1, 2].map((i) => (
-                      <div key={i} className="rounded-lg border border-white/10 bg-[#2A2F3A]/50 p-4 backdrop-blur-sm">
-                        <div className="text-xs text-slate-400 mb-1">{["Variation la plus importante", "2e variation importante", "3e variation importante"][i]}</div>
-                        <div className="text-lg font-semibold text-white mb-1">--</div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-slate-500">Aucune donnée</span>
-                        </div>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-        </>
-      )}
-
       {section === "dashboard" && (
         <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
           <div className="relative -mt-32 space-y-6">
@@ -587,6 +486,7 @@ export default function CashFlowPage() {
                 subDivisionId={selectedSubDivisionId}
                 companies={companies}
                 fiscalYear={selectedYear}
+                structureVersion={structureVersion}
               />
             ) : null}
           </div>
@@ -612,6 +512,9 @@ export default function CashFlowPage() {
               fiscalYear={selectedYear}
               rows={rows}
               loading={loading}
+              showCashFlowStructureSettings
+              structureVersion={structureVersion}
+              onCashFlowStructureSaved={() => setStructureVersion((v) => v + 1)}
             />
           ) : (
             <CashFlowDetail
@@ -628,6 +531,9 @@ export default function CashFlowPage() {
               fiscalYear={selectedYear}
               rows={rows}
               loading={loading}
+              showCashFlowStructureSettings
+              structureVersion={structureVersion}
+              onCashFlowStructureSaved={() => setStructureVersion((v) => v + 1)}
             />
           )}
         </div>

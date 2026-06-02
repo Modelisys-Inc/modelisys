@@ -16,6 +16,11 @@ from app.schemas.statement_structure import (
     StatementStructureResponse,
     StatementStructureUpsert,
 )
+from app.services.statement_structure_defaults import (
+    DEFAULT_BALANCE_SHEET,
+    DEFAULT_INCOME_STATEMENT,
+    DEFAULT_STRUCTURES,
+)
 from app.utils.income_statement_structure_clean import strip_obsolete_income_statement_structure_rows
 
 router = APIRouter(prefix="/api/companies/{company_id}", tags=["statement-structures"])
@@ -37,40 +42,6 @@ CHARGES_TYPE_TO_PARENT = {
     "frais de vente": "frais de vente",
     "frais financiers": "frais financiers",
 }
-
-DEFAULT_BALANCE_SHEET = [
-    {"label": "actifs", "isBold": True, "isSection": True},
-    {"label": "actifs courants", "isSection": True, "indent": True},
-    {"label": "actifs non courants", "isSection": True, "indent": True},
-    {"label": "total des actifs", "isBold": True, "isResult": True},
-    {"label": ""},
-    {"label": "passifs", "isBold": True, "isSection": True},
-    {"label": "passifs courants", "indent": True},
-    {"label": "passifs non courants", "indent": True},
-    {"label": "total des passifs", "isBold": True},
-    {"label": ""},
-    {"label": "capitaux propres", "isBold": True, "isResult": True},
-    {"label": "total passifs et capitaux propres", "isBold": True, "isResult": True},
-]
-
-DEFAULT_INCOME_STATEMENT = [
-    {"label": "revenus", "isBold": True, "isSection": True},
-    {"label": "coût des produits vendus", "isSection": True, "indent": True},
-    {"label": "bénéfice brut", "isBold": True, "isResult": True},
-    {"label": ""},
-    {"label": "charges d'exploitation", "isBold": True, "isSection": True},
-    {"label": "frais d'administration", "indent": True},
-    {"label": "frais de vente", "indent": True},
-    {"label": "frais financiers", "indent": True},
-    {"label": "autres dépenses (revenus)", "indent": True},
-    {"label": "total des charges", "isBold": True},
-    {"label": ""},
-    {"label": "bénéfice avant impôts", "isBold": True, "isResult": True},
-    {"label": "impôts (26%)", "indent": True},
-    {"label": "bénéfice net", "isBold": True, "isNetIncome": True},
-    {"label": ""},
-    {"label": "BAIIA", "isBold": True, "isEBITA": True},
-]
 
 
 @router.get("/statement-structures", response_model=StatementStructureListResponse)
@@ -110,16 +81,12 @@ def get_statement_structure(
         .first()
     )
     if not structure:
-        # Return a default empty structure instead of 404
-        defaults = {
-            "income-statement": DEFAULT_INCOME_STATEMENT,
-            "balance-sheet": DEFAULT_BALANCE_SHEET,
-        }
+        # Return the standard default structure instead of 404 / empty.
         return StatementStructureResponse(
             id=None,
             company_id=company_id,
             statement_type=statement_type,
-            structure=defaults.get(statement_type, []),
+            structure=DEFAULT_STRUCTURES.get(statement_type, []),
         )
     if statement_type == "income-statement" and structure.structure:
         cleaned = strip_obsolete_income_statement_structure_rows(list(structure.structure))

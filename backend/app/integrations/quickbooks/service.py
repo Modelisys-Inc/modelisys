@@ -179,6 +179,153 @@ def parse_trial_balance_report(report: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _gl_column_index(report: dict[str, Any]) -> dict[str, int]:
+    """Map GL column keys (klass_name, dept_name, ...) to their ColData index."""
+    index: dict[str, int] = {}
+    columns = report.get("Columns", {}).get("Column", [])
+    for i, col in enumerate(columns):
+        key = None
+        for meta in col.get("MetaData", []) or []:
+            if meta.get("Name") == "ColKey":
+                key = meta.get("Value")
+                break
+        if not key:
+            key = col.get("ColType")
+        if key:
+            index[key] = i
+    return index
+
+
+def _parse_general_ledger(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten the GL report into rows: account (from section header) + class/location.
+
+    GL nests transaction lines under per-account Section headers. The account
+    identity lives on the section header; each data line carries its own
+    klass_name / dept_name positionally per the Columns array.
+    """
+    col_index = _gl_column_index(report)
+    klass_idx = col_index.get("klass_name")
+    dept_idx = col_index.get("dept_name")
+    out: list[dict[str, Any]] = []
+
+    def cell(cols: list[dict[str, Any]], idx: int | None) -> str:
+        if idx is None or idx >= len(cols):
+            return ""
+        return (cols[idx].get("value") or "").strip()
+
+    def walk(rows: list[dict[str, Any]], account_id: str, account_name: str):
+        for row in rows:
+            if row.get("type") == "Section":
+                acct_id, acct_name = account_id, account_name
+                header = row.get("Header")
+                if header and header.get("ColData"):
+                    hcols = header["ColData"]
+                    acct_name = (hcols[0].get("value") or "").strip() or account_name
+                    acct_id = (hcols[0].get("id") or "").strip() or account_id
+                walk(row.get("Rows", {}).get("Row", []), acct_id, acct_name)
+                continue
+            cols = row.get("ColData")
+            if not cols:
+                continue
+            out.append({
+                "account_id": account_id,
+                "account_name": account_name,
+                "class_name": cell(cols, klass_idx),
+                "location_name": cell(cols, dept_idx),
+            })
+
+    walk(report.get("Rows", {}).get("Row", []), "", "")
+    return out
+
+
+def _empty_discovery() -> dict[str, Any]:
+    return {"by_account": {}, "observed_pairs": set(), "classes": set(), "locations": set()}
+
+
+def discover_class_location_tags(
+    report: dict[str, Any], accounts_by_id: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    """Derive per-account class/location membership + observed pairs from GL.
+
+    by_account: { account_number: {"classes": set, "locations": set} }
+    observed_pairs: set of (class_name, location_name) where a single line had both
+    classes / locations: global sets across all accounts
+    """
+    result = _empty_discovery()
+    by_account: dict[str, dict[str, set]] = result["by_account"]
+
+    for line in _parse_general_ledger(report):
+        meta = accounts_by_id.get(str(line["account_id"]), {})
+        acct_num = meta.get("AcctNum") or line["account_id"]
+        if not acct_num:
+            continue
+        entry = by_account.setdefault(acct_num, {"classes": set(), "locations": set()})
+        cls = line["class_name"]
+        loc = line["location_name"]
+        if cls:
+            entry["classes"].add(cls)
+            result["classes"].add(cls)
+        if loc:
+            entry["locations"].add(loc)
+            result["locations"].add(loc)
+        if cls and loc:
+            result["observed_pairs"].add((cls, loc))
+
+    return result
+
+
+def _merge_tag_csv(existing_csv: str | None, discovered: list[str]) -> list[str]:
+    """Union of an existing comma-separated tag field and discovered values, deduped + sorted."""
+    seen: set[str] = set()
+    for token in [p for p in (existing_csv or "").split(",")] + list(discovered):
+        t = token.strip()
+        if t and t not in seen:
+            seen.add(t)
+    return sorted(seen)
+
+
+def _prefs_tracking_off(prefs_body: dict[str, Any]) -> bool:
+    """True only if Preferences clearly report BOTH class and location tracking off.
+
+    Used purely as an optimization to skip the heavy GL pull. Unknown / missing
+    fields return False (we then fall back to running GL and trusting its data).
+    """
+    acct = prefs_body.get("Preferences", {}).get("AccountingInfoPrefs", {})
+    if not acct:
+        return False
+    class_on = bool(acct.get("ClassTrackingPerTxn") or acct.get("ClassTrackingPerTxnLine"))
+    loc_on = bool(acct.get("TrackDepartments"))
+    return ("ClassTrackingPerTxn" in acct or "ClassTrackingPerTxnLine" in acct) \
+        and "TrackDepartments" in acct and not class_on and not loc_on
+
+
+def run_class_location_discovery(
+    db: Session,
+    conn: QuickBooksConnection,
+    company: Company,
+    fiscal_year: int,
+    months: list[int],
+    accounts_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Fetch + parse GL into discovery. Best-effort: any failure → empty discovery."""
+    from app.integrations.quickbooks import client as qbo_client
+
+    try:
+        try:
+            prefs = qbo_client.get_preferences(db, conn)
+            if _prefs_tracking_off(prefs):
+                return _empty_discovery()
+        except Exception:  # preferences is only an optimization — ignore failures
+            pass
+        # One GL pull over the widest YTD window covering all selected months.
+        start_iso, end_iso = _date_range_for(company, fiscal_year, max(months))
+        report = qbo_client.get_general_ledger_report(db, conn, start_iso, end_iso)
+        return discover_class_location_tags(report, accounts_by_id)
+    except Exception as e:  # noqa: BLE001 — discovery must never block the TB import
+        logger.warning("QBO class/location discovery failed for company %s: %s", company.id, e)
+        return _empty_discovery()
+
+
 def _date_range_for(company: Company, fiscal_year: int, month: int) -> tuple[str, str]:
     """Return (start_date, end_date) for the QBO TB pull.
 
@@ -251,6 +398,24 @@ def propose_trial_balance(
                 "credit": r["credit"],
             }
 
+    discovery = run_class_location_discovery(
+        db, conn, company, fiscal_year, months, accounts_by_id
+    )
+    by_account = discovery["by_account"]
+    for acct_num, row in union.items():
+        disc = by_account.get(acct_num, {"classes": set(), "locations": set()})
+        disc_divs = sorted(disc["classes"])
+        disc_subs = sorted(disc["locations"])
+        existing = existing_mappings.get(acct_num)
+        row["discovered_divisions"] = disc_divs
+        row["discovered_sub_divisions"] = disc_subs
+        row["divisions"] = _merge_tag_csv(
+            existing.divisions if existing else None, disc_divs
+        )
+        row["sub_divisions"] = _merge_tag_csv(
+            existing.sub_divisions if existing else None, disc_subs
+        )
+
     existing_months = sorted({
         e.month
         for e in db.query(TrialBalanceEntry)
@@ -266,7 +431,59 @@ def propose_trial_balance(
         "currency": company.currency,
         "rows": list(union.values()),
         "existing_months": existing_months,
+        "observed_pairs": [
+            {"division": c, "sub_division": loc}
+            for (c, loc) in sorted(discovery["observed_pairs"])
+        ],
+        "class_location_tracking": {
+            "classes": bool(discovery["classes"]),
+            "locations": bool(discovery["locations"]),
+        },
     }
+
+
+def _upsert_division_tree(
+    db: Session,
+    company: Company,
+    class_names: set[str],
+    observed_pairs: set[tuple[str, str]],
+) -> None:
+    """Additively upsert Division (per class) + SubDivision (per observed pair).
+
+    Never deletes — protects manually created divisions. Idempotent.
+
+    The in-memory dedup guard is safe against concurrent commits because callers
+    run inside commit_trial_balance, which holds a row-level FOR UPDATE lock on
+    the company, serialising per-company tree builds. There is no DB-level unique
+    constraint on division/sub-division names; that lock is the safety net.
+    """
+    from app.models.company import Division, SubDivision
+
+    divisions = {
+        d.name: d
+        for d in db.query(Division).filter(Division.company_id == company.id).all()
+    }
+    for name in class_names:
+        if name not in divisions:
+            div = Division(company_id=company.id, name=name)
+            db.add(div)
+            db.flush()
+            divisions[name] = div
+
+    existing_subs = {
+        (s.division_id, s.name)
+        for s in db.query(SubDivision)
+        .join(Division, SubDivision.division_id == Division.id)
+        .filter(Division.company_id == company.id)
+        .all()
+    }
+    for cls, loc in observed_pairs:
+        div = divisions.get(cls)
+        if div is None:
+            continue  # no matching division (class not committed and not pre-existing)
+        if (div.id, loc) not in existing_subs:
+            db.add(SubDivision(division_id=div.id, name=loc))
+            existing_subs.add((div.id, loc))
 
 
 def commit_trial_balance(
@@ -413,12 +630,23 @@ def commit_trial_balance(
                 account_number=acct_num,
                 description=acct_name,
                 link_code=link_code,
+                divisions=", ".join(r.get("divisions") or []) or None,
+                sub_divisions=", ".join(r.get("sub_divisions") or []) or None,
             ))
             mappings_created += 1
         else:
-            if existing.link_code != link_code or existing.description != acct_name:
+            new_divisions = ", ".join(r.get("divisions") or []) or None
+            new_sub_divisions = ", ".join(r.get("sub_divisions") or []) or None
+            if (
+                existing.link_code != link_code
+                or existing.description != acct_name
+                or existing.divisions != new_divisions
+                or existing.sub_divisions != new_sub_divisions
+            ):
                 existing.link_code = link_code
                 existing.description = acct_name
+                existing.divisions = new_divisions
+                existing.sub_divisions = new_sub_divisions
                 mappings_updated += 1
 
     # Insert one TrialBalanceEntry per (account, month) from the re-pull.
@@ -438,6 +666,18 @@ def commit_trial_balance(
                 amount=amount,
             ))
             accounts_written.add(acct_num)
+
+    # Build Division/SubDivision selector tree from observed (class, location) pairs.
+    class_names: set[str] = set()
+    for r in rows:
+        if r.get("skip"):
+            continue
+        class_names.update(t for t in (r.get("divisions") or []) if t)
+    if class_names:
+        discovery = run_class_location_discovery(
+            db, conn, company, fiscal_year, months, accounts_by_id
+        )
+        _upsert_division_tree(db, company, class_names, discovery["observed_pairs"])
 
     db.commit()
     return {

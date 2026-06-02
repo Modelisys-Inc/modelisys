@@ -26,6 +26,7 @@ import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-st
 import {
   TOTAL_CHARGES_LABEL,
   collectDistinctLinkCodesFromStructure,
+  mapLinkCodesToOwnerLabel,
   findStructureRowForStatementLine,
   seriesRowBelongsToRevenueAnnexDetail,
   extractGroupePrefixFromCompositeLinkCode,
@@ -744,6 +745,10 @@ export function IncomeStatementSummary({
 
   const allLiaisonCodes = useMemo(
     () => collectDistinctLinkCodesFromStructure(structEdit.structure),
+    [structEdit.structure]
+  )
+  const linkCodeLabels = useMemo(
+    () => mapLinkCodesToOwnerLabel(structEdit.structure),
     [structEdit.structure]
   )
 
@@ -1997,6 +2002,7 @@ export function IncomeStatementSummary({
                             structRow={structRow}
                             rowIndex={globalIdx}
                             allLinkCodes={allLiaisonCodes}
+                            linkCodeLabels={linkCodeLabels}
                             updateRow={structEdit.updateRow}
                           />
                         ) : (
@@ -2033,12 +2039,7 @@ export function IncomeStatementSummary({
                                 }
                                 onCheckedChange={(v) => {
                                   if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
-                                  structEdit.updateRow(globalIdx, {
-                                    showInDetail: v === true,
-                                    ...(v === false
-                                      ? { annexLetter: undefined, posteNature: undefined }
-                                      : {}),
-                                  })
+                                  structEdit.setShowInDetail(globalIdx, v === true)
                                 }}
                                 aria-label="Annexe : afficher au détail"
                                 className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"

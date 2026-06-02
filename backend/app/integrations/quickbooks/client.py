@@ -111,3 +111,28 @@ def list_accounts(db: Session, conn: QuickBooksConnection) -> list[dict[str, Any
         },
     )
     return body.get("QueryResponse", {}).get("Account", [])
+
+
+# Columns we request from the GL report. klass_name / dept_name are only
+# populated when the company has class / location tracking enabled.
+_GL_COLUMNS = "tx_date,account_name,klass_name,dept_name,subt_nat_amount"
+
+
+def get_general_ledger_report(
+    db: Session, conn: QuickBooksConnection, start_date: str, end_date: str
+) -> dict[str, Any]:
+    # QBO Reports API returns the full report in one response (no STARTPOSITION
+    # pagination like the query endpoint) — a single request is sufficient.
+    return _request(
+        db, conn, "GET", "/reports/GeneralLedger",
+        params={
+            "start_date": start_date,
+            "end_date": end_date,
+            "accounting_method": "Accrual",
+            "columns": _GL_COLUMNS,
+        },
+    )
+
+
+def get_preferences(db: Session, conn: QuickBooksConnection) -> dict[str, Any]:
+    return _request(db, conn, "GET", "/preferences")

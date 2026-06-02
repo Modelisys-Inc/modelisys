@@ -942,3 +942,43 @@ def test_create_link_code_supports_flat_sibling_schema(auth_client, db, org_user
     # but before "actifs non courants".
     assert labels.index("Débiteurs") > labels.index("actifs courants")
     assert labels.index("Débiteurs") < labels.index("actifs non courants")
+
+
+def test_preview_response_includes_tracking_and_tags(auth_client, db, org_user_company, monkeypatch):
+    from app.integrations.quickbooks import oauth
+    from app.integrations.quickbooks import service as svc
+    _, user, company = org_user_company
+    svc.upsert_connection(
+        db, company.id, "realm-1",
+        oauth.TokenResponse(
+            access_token="AT", refresh_token="RT",
+            expires_in=3600, x_refresh_token_expires_in=8640000,
+        ),
+        user.id,
+    )
+
+    def fake_propose(db_, conn_, company_, fy, months):
+        return {
+            "currency": "CAD",
+            "existing_months": [],
+            "rows": [{
+                "qbo_account_id": "33", "account_number": "4000", "account_name": "Sales",
+                "qbo_account_type": "Income", "qbo_account_sub_type": None,
+                "existing_link_code": None, "monthly_amounts": {},
+                "discovered_divisions": ["East"], "discovered_sub_divisions": ["Montreal"],
+                "divisions": ["East"], "sub_divisions": ["Montreal"],
+            }],
+            "observed_pairs": [{"division": "East", "sub_division": "Montreal"}],
+            "class_location_tracking": {"classes": True, "locations": True},
+        }
+    monkeypatch.setattr(svc, "propose_trial_balance", fake_propose)
+
+    resp = auth_client.post(
+        f"/api/quickbooks/companies/{company.id}/trial-balance/preview",
+        json={"fiscal_year": 2024, "months": [3]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["class_location_tracking"] == {"classes": True, "locations": True}
+    assert body["rows"][0]["divisions"] == ["East"]
+    assert body["observed_pairs"] == [{"division": "East", "sub_division": "Montreal"}]

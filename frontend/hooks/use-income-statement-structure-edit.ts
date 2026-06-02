@@ -16,6 +16,8 @@ import {
   newChargeRow,
   newDetailSubLineRow,
   newEmptySpacerSummaryRow,
+  nextAnnexIdentifier,
+  normalizeAnnexLetter,
   normalizeCodeList,
   normalizeDtCt,
   normalizeLiaisonMode,
@@ -23,9 +25,9 @@ import {
   validateDuplicatePrimaryLinkCodes,
 } from "@/lib/income-statement-structure-utils"
 
-export type StatementStructureEditKind = Extract<StatementType, "income-statement" | "balance-sheet">
+export type StatementStructureEditKind = Extract<StatementType, "income-statement" | "balance-sheet" | "cash-flow">
 
-function useStatementStructureEdit(
+export function useStatementStructureEdit(
   companyId: string | null | undefined,
   active: boolean,
   statementType: StatementStructureEditKind
@@ -80,6 +82,34 @@ function useStatementStructureEdit(
       return next
     })
   }, [])
+
+  /**
+   * Bascule la case « Annexe » d'une ligne. À l'activation, attribue
+   * automatiquement le prochain identifiant d'annexe (après le plus élevé) si
+   * la ligne n'en a pas encore — lettres pour le compte de résultat, nombres
+   * pour le bilan. À la désactivation, efface lettre et nature (Revenus/Dépenses).
+   */
+  const setShowInDetail = useCallback(
+    (index: number, checked: boolean) => {
+      const scheme = statementType === "balance-sheet" ? "number" : "letter"
+      setStructure((prev) => {
+        if (!prev[index]) return prev
+        const next = cloneStructure(prev)
+        const row = next[index]
+        if (checked) {
+          row.showInDetail = true
+          const current = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+          if (!current) row.annexLetter = nextAnnexIdentifier(prev, scheme)
+        } else {
+          row.showInDetail = false
+          row.annexLetter = undefined
+          row.posteNature = undefined
+        }
+        return next
+      })
+    },
+    [statementType]
+  )
 
   const newPostRow = useCallback(
     (opts?: { indent?: boolean; isBold?: boolean }) =>
@@ -200,6 +230,18 @@ function useStatementStructureEdit(
     })
   }, [])
 
+  const moveStructureRow = useCallback((index: number, direction: -1 | 1) => {
+    setStructure((prev) => {
+      const target = index + direction
+      if (index < 0 || index >= prev.length || target < 0 || target >= prev.length) return prev
+      const next = cloneStructure(prev)
+      const [row] = next.splice(index, 1)
+      if (!row) return prev
+      next.splice(target, 0, row)
+      return next
+    })
+  }, [])
+
   const save = useCallback(async () => {
     if (!companyId) return false
     setSaving(true)
@@ -314,12 +356,14 @@ function useStatementStructureEdit(
     chargeRange,
     summaryStructureDisplayIndices,
     updateRow,
+    setShowInDetail,
     insertPostAbove,
     insertPostBelow,
     insertEmptySpacerAbove,
     insertEmptySpacerBelow,
     canRemoveRowAt,
     removeStructureRowAt,
+    moveStructureRow,
     addDetailSubLine,
     save,
     discard,
@@ -339,4 +383,11 @@ export function useBalanceSheetStructureEdit(
   active: boolean
 ) {
   return useStatementStructureEdit(companyId, active, "balance-sheet")
+}
+
+export function useCashFlowStructureEdit(
+  companyId: string | null | undefined,
+  active: boolean
+) {
+  return useStatementStructureEdit(companyId, active, "cash-flow")
 }

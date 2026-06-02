@@ -63,6 +63,7 @@ import {
 } from "@/lib/series-reference-columns"
 import {
   collectDistinctLinkCodesFromStructure,
+  mapLinkCodesToOwnerLabel,
   detailLineLabelForDisplay,
   findStructureRowForStatementLine,
   getStructureRowGlobalIndex,
@@ -1514,6 +1515,10 @@ export function IncomeStatementDetail({
 
   const allLiaisonCodes = useMemo(
     () => collectDistinctLinkCodesFromStructure(structEdit.structure),
+    [structEdit.structure]
+  )
+  const linkCodeLabels = useMemo(
+    () => mapLinkCodesToOwnerLabel(structEdit.structure),
     [structEdit.structure]
   )
 
@@ -8950,7 +8955,9 @@ export function IncomeStatementDetail({
                       rowIndex={globalIdx}
                       structRow={structRow}
                       allLinkCodes={allLiaisonCodes}
+                      linkCodeLabels={linkCodeLabels}
                       updateRow={structEdit.updateRow}
+                      setShowInDetail={structEdit.setShowInDetail}
                       showRemoveButton={
                         structEdit.canRemoveRowAt(globalIdx) && !summaryAnnexLockedInDetail
                       }

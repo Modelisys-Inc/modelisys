@@ -3,6 +3,11 @@
 Revision ID: 011
 Revises: 010
 Create Date: 2026-05-07
+
+Note: originally authored as revision "009" on a parallel branch, which
+collided with 009_add_note_reference_and_fiscal_year. Re-chained after 010
+to restore a single linear head. This migration was never applied under the
+old (duplicate) id, so it runs here to add the missing projections columns.
 """
 
 from typing import Sequence, Union

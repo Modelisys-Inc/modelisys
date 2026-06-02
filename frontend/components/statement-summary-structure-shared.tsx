@@ -7,6 +7,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { IncomeStatementLiaisonCell } from "@/components/income-statement-liaison-cell"
 import {
   BookMarked,
+  ArrowDown,
+  ArrowUp,
   Eye,
   EyeOff,
   Hash,
@@ -28,8 +30,11 @@ import {
 
 export type StatementSummaryStructureEditApi = {
   updateRow: (index: number, patch: Record<string, unknown>) => void
+  /** Bascule « Annexe » et attribue automatiquement le prochain identifiant d'annexe. */
+  setShowInDetail: (index: number, checked: boolean) => void
   canRemoveRowAt: (index: number) => boolean
   removeStructureRowAt: (index: number) => void
+  moveStructureRow?: (index: number, direction: -1 | 1) => void
 }
 
 export function StatementSummaryStructureColgroup() {
@@ -42,7 +47,7 @@ export function StatementSummaryStructureColgroup() {
       <col style={{ width: "7rem" }} />
       <col style={{ width: "7rem" }} />
       <col style={{ width: "7rem" }} />
-      <col style={{ width: "5.5rem" }} />
+      <col style={{ width: "9.5rem" }} />
     </colgroup>
   )
 }
@@ -154,7 +159,7 @@ export function StatementSummaryStructureThead({ posteHeader = "Poste" }: { post
           </TooltipContent>
         </Tooltip>
       </th>
-      <th className="px-6 py-4 text-center text-sm font-semibold text-slate-900 min-w-[5.5rem]">
+      <th className="px-6 py-4 text-center text-sm font-semibold text-slate-900 min-w-[9.5rem]">
         Actions
       </th>
     </>
@@ -166,6 +171,8 @@ type StructureRowCellsProps = {
   globalIdx: number
   structEdit: StatementSummaryStructureEditApi
   allLiaisonCodes: string[]
+  /** Code de liaison → libellé du poste, pour afficher « code — nom » dans les sélecteurs. */
+  linkCodeLabels?: Map<string, string>
   showSeparatorAbove: boolean
   onEditPresentation?: (globalIdx: number) => void
 }
@@ -175,6 +182,7 @@ export function StatementSummaryStructureRowCells({
   globalIdx,
   structEdit,
   allLiaisonCodes,
+  linkCodeLabels,
   showSeparatorAbove,
   onEditPresentation,
 }: StructureRowCellsProps) {
@@ -304,6 +312,7 @@ export function StatementSummaryStructureRowCells({
             structRow={structRow}
             rowIndex={globalIdx}
             allLinkCodes={allLiaisonCodes}
+            linkCodeLabels={linkCodeLabels}
             updateRow={structEdit.updateRow}
           />
         ) : (
@@ -338,10 +347,7 @@ export function StatementSummaryStructureRowCells({
                 disabled={isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)}
                 onCheckedChange={(v) => {
                   if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
-                  structEdit.updateRow(globalIdx, {
-                    showInDetail: v === true,
-                    ...(v === false ? { annexLetter: undefined } : {}),
-                  })
+                  structEdit.setShowInDetail(globalIdx, v === true)
                 }}
                 aria-label="Annexe : afficher au détail"
                 className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"
@@ -380,6 +386,30 @@ export function StatementSummaryStructureRowCells({
       </td>
       <td className="px-2 py-2 text-center align-middle">
         <div className="flex items-center justify-center gap-0.5">
+          {structEdit.moveStructureRow ? (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-slate-400 hover:text-[#E0742D]"
+                title="Monter la ligne"
+                onClick={() => structEdit.moveStructureRow?.(globalIdx, -1)}
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-slate-400 hover:text-[#E0742D]"
+                title="Descendre la ligne"
+                onClick={() => structEdit.moveStructureRow?.(globalIdx, 1)}
+              >
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+            </>
+          ) : null}
           {onEditPresentation && !isStructureRowEmptyLabel(structRow) ? (
             <Button
               type="button"

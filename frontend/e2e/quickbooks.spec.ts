@@ -428,6 +428,201 @@ test.describe("QuickBooks page", () => {
     ).toBeVisible()
   })
 
+  test("Division/Sous-division columns visible, editable, and carried on commit", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/connection`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            status: "connected",
+            realm_id: "12345",
+            connected_at: "2026-04-14T00:00:00Z",
+          }),
+        }),
+    )
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/trial-balance/preview`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            fiscal_year: 2026,
+            months: [3],
+            currency: "CAD",
+            fetched_at: "2026-04-14T00:00:00Z",
+            existing_months: [],
+            class_location_tracking: { classes: true, locations: true },
+            observed_pairs: [{ division: "East", sub_division: "Montreal" }],
+            rows: [
+              {
+                qbo_account_id: "33",
+                account_number: "4000",
+                account_name: "Sales",
+                qbo_account_type: "Income",
+                qbo_account_sub_type: null,
+                existing_link_code: null,
+                monthly_amounts: { "3": { debit: 0, credit: 150 } },
+                discovered_divisions: ["East"],
+                discovered_sub_divisions: ["Montreal"],
+                divisions: ["East"],
+                sub_divisions: ["Montreal"],
+              },
+            ],
+          }),
+        }),
+    )
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/link-codes`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify([
+            {
+              code: "revenus.ventes",
+              label: "Ventes",
+              statement_type: "income-statement",
+              parent_id: "revenue",
+              parent_label: "Revenus",
+            },
+          ]),
+        }),
+    )
+
+    // Capture the commit request body so we can assert on tags.
+    let committedBody: Record<string, unknown> | null = null
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/trial-balance/commit`,
+      async (route) => {
+        committedBody = JSON.parse(route.request().postData() ?? "{}")
+        await route.fulfill({
+          status: 201,
+          contentType: "application/json",
+          body: JSON.stringify({
+            months_imported: 1,
+            accounts_imported: 1,
+            mappings_created: 1,
+            mappings_updated: 0,
+          }),
+        })
+      },
+    )
+
+    await page.goto(URL)
+    await page.getByRole("button", { name: /preview 1 month/i }).click()
+
+    // Wait for the review table to appear by checking a column header.
+    await expect(page.getByRole("columnheader", { name: "Division", exact: true })).toBeVisible({
+      timeout: 15000,
+    })
+
+    // Division and Sous-division columns must be visible.
+    await expect(page.getByRole("columnheader", { name: "Division", exact: true })).toBeVisible()
+    await expect(page.getByRole("columnheader", { name: "Sous-division", exact: true })).toBeVisible()
+
+    // The "East" chip must be present.
+    await expect(page.getByRole("button", { name: "Remove East" })).toBeVisible()
+
+    // Remove the "East" division tag.
+    await page.getByRole("button", { name: "Remove East" }).click()
+    await expect(page.getByRole("button", { name: "Remove East" })).toHaveCount(0)
+
+    // Make the row committable: open the link code combobox and pick "revenus.ventes".
+    await page.locator('button[role="combobox"]:has-text("Pick a link code")').click()
+    await page.getByRole("option", { name: /ventes/i }).click()
+    // The picker should now show the selected code.
+    await expect(
+      page.locator('button[role="combobox"]:has-text("revenus.ventes")'),
+    ).toBeVisible()
+
+    // Import button should now be enabled.
+    await page.getByRole("button", { name: /^Import/i }).click()
+    await expect(page.getByText(/trial balance imported/i)).toBeVisible()
+
+    // The commit payload must carry the edited tags.
+    await expect.poll(() => (committedBody as Record<string, unknown> | null)?.rows as unknown[] | undefined).toEqual([
+      expect.objectContaining({ divisions: [], sub_divisions: ["Montreal"] }),
+    ])
+  })
+
+  test("Division/Sous-division columns hidden when class_location_tracking is off", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/connection`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            status: "connected",
+            realm_id: "12345",
+            connected_at: "2026-04-14T00:00:00Z",
+          }),
+        }),
+    )
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/trial-balance/preview`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            fiscal_year: 2026,
+            months: [3],
+            currency: "CAD",
+            fetched_at: "2026-04-14T00:00:00Z",
+            existing_months: [],
+            class_location_tracking: { classes: false, locations: false },
+            observed_pairs: [],
+            rows: [
+              {
+                qbo_account_id: "1",
+                account_number: "1000",
+                account_name: "Cash",
+                qbo_account_type: "Bank",
+                qbo_account_sub_type: "Checking",
+                existing_link_code: "actif.encaisse",
+                monthly_amounts: { "3": { debit: 5000, credit: 0 } },
+                discovered_divisions: [],
+                discovered_sub_divisions: [],
+                divisions: [],
+                sub_divisions: [],
+              },
+            ],
+          }),
+        }),
+    )
+    await page.route(
+      `**/api/quickbooks/companies/${COMPANY_ID}/link-codes`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify([
+            {
+              code: "actif.encaisse",
+              label: "Encaisse",
+              statement_type: "balance-sheet",
+              parent_id: "actifs-courants",
+              parent_label: "Actifs courants",
+            },
+          ]),
+        }),
+    )
+
+    await page.goto(URL)
+    await page.getByRole("button", { name: /preview 1 month/i }).click()
+    await expect(page.getByText("Cash")).toBeVisible()
+
+    // Neither column should appear when tracking is off.
+    await expect(page.getByRole("columnheader", { name: "Division", exact: true })).toHaveCount(0)
+    await expect(page.getByRole("columnheader", { name: "Sous-division", exact: true })).toHaveCount(0)
+  })
+
   test("create new link code from review table", async ({ page }) => {
     await setupAuthAndCommonMocks(page)
     await page.route(

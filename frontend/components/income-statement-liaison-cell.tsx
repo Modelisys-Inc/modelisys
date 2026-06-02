@@ -28,14 +28,40 @@ import {
 import { cn } from "@/lib/utils"
 import { Check, ChevronsUpDown, Link2, Plus } from "lucide-react"
 
+/** Libellé du poste (« nom du compte ») associé à un code de liaison, ou chaîne vide. */
+function labelFor(labels: Map<string, string> | undefined, code: string): string {
+  return labels?.get(code.trim()) ?? ""
+}
+
+/** Code en chasse fixe suivi, si connu, du libellé du poste en gris. */
+function CodeWithLabel({
+  code,
+  labels,
+  className,
+}: {
+  code: string
+  labels?: Map<string, string>
+  className?: string
+}) {
+  const label = labelFor(labels, code)
+  return (
+    <span className={cn("min-w-0", className)}>
+      <span className="font-mono">{code}</span>
+      {label && <span className="ml-1.5 text-slate-500"> — {label}</span>}
+    </span>
+  )
+}
+
 function LinkCodeCombobox({
   value,
   onChange,
   suggestions,
+  labels,
 }: {
   value: string
   onChange: (next: string) => void
   suggestions: string[]
+  labels?: Map<string, string>
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -60,7 +86,9 @@ function LinkCodeCombobox({
           className="h-9 w-full justify-between font-mono text-xs"
         >
           <span className="truncate">
-            {value || (
+            {value ? (
+              <CodeWithLabel code={value} labels={labels} />
+            ) : (
               <span className="text-slate-400">Sélectionner ou créer…</span>
             )}
           </span>
@@ -98,7 +126,7 @@ function LinkCodeCombobox({
                 {suggestions.map((s) => (
                   <CommandItem
                     key={s}
-                    value={s}
+                    value={`${s} ${labelFor(labels, s)}`.trim()}
                     onSelect={() => {
                       onChange(s)
                       setOpen(false)
@@ -106,11 +134,11 @@ function LinkCodeCombobox({
                   >
                     <Check
                       className={cn(
-                        "mr-2 h-4 w-4",
+                        "mr-2 h-4 w-4 shrink-0",
                         value === s ? "opacity-100" : "opacity-0",
                       )}
                     />
-                    <span className="font-mono text-xs">{s}</span>
+                    <CodeWithLabel code={s} labels={labels} className="text-xs" />
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -127,6 +155,8 @@ export interface IncomeStatementLiaisonCellProps {
   rowIndex: number
   /** Tous les codes de liaison présents dans la structure (sauf cette ligne si besoin). */
   allLinkCodes: string[]
+  /** Code de liaison → libellé du poste (« nom du compte ») affiché dans les sélecteurs. */
+  linkCodeLabels?: Map<string, string>
   updateRow: (index: number, patch: Record<string, unknown>) => void
   readOnly?: boolean
   /** Détail : forcer defineMapping sur changements sensibles */
@@ -155,6 +185,7 @@ export function IncomeStatementLiaisonCell({
   structRow,
   rowIndex,
   allLinkCodes,
+  linkCodeLabels,
   updateRow,
   readOnly = false,
   hideDefineColumn,
@@ -299,6 +330,7 @@ export function IncomeStatementLiaisonCell({
                 suggestions={codeOptions.filter(
                   (c) => c !== String(structRow.linkCode ?? "")
                 )}
+                labels={linkCodeLabels}
               />
             </div>
           )}
@@ -330,9 +362,9 @@ export function IncomeStatementLiaisonCell({
                       />
                       <label
                         htmlFor={`sum-${rowIndex}-${code}`}
-                        className="cursor-pointer font-mono text-xs"
+                        className="cursor-pointer text-xs"
                       >
-                        {code}
+                        <CodeWithLabel code={code} labels={linkCodeLabels} />
                       </label>
                     </li>
                   ))}
@@ -369,9 +401,9 @@ export function IncomeStatementLiaisonCell({
                         />
                         <label
                           htmlFor={`num-${rowIndex}-${code}`}
-                          className="cursor-pointer font-mono text-xs"
+                          className="cursor-pointer text-xs"
                         >
-                          {code}
+                          <CodeWithLabel code={code} labels={linkCodeLabels} />
                         </label>
                       </li>
                     ))}
@@ -399,9 +431,9 @@ export function IncomeStatementLiaisonCell({
                         />
                         <label
                           htmlFor={`den-${rowIndex}-${code}`}
-                          className="cursor-pointer font-mono text-xs"
+                          className="cursor-pointer text-xs"
                         >
-                          {code}
+                          <CodeWithLabel code={code} labels={linkCodeLabels} />
                         </label>
                       </li>
                     ))}
