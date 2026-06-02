@@ -125,6 +125,26 @@ import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ForecastCollectionCashEditor } from "@/components/forecast-collection-cash-editor"
+import { ForecastHypothesisSummaryChart } from "@/components/forecast-hypothesis-summary-chart"
+import { ForecastSeasonalityEditor } from "@/components/forecast-seasonality-editor"
+import {
+  computeHypothesisSummaryMoneyPoints,
+  type HypothesisYearSummaryInput,
+} from "@/lib/forecast-hypothesis-summary-utils"
+import {
+  createDefaultForecastSeasonalityMonthPercents,
+  normalizeForecastSeasonalityMonthPercents,
+  parseSeasonalityMonthPercentsFromStorage as parseForecastSeasonalityFromStorage,
+} from "@/lib/forecast-seasonality-utils"
+import {
+  buildCollectionCashForSave as buildForecastCollectionCashForSave,
+  createDefaultAdvancedBuckets as createDefaultForecastCollectionBuckets,
+  normalizeAdvancedBuckets as normalizeForecastCollectionBuckets,
+  parseCollectionCashFromStorage,
+  DEFAULT_FORECAST_COLLECTION_CASH,
+  type ForecastCollectionCash,
+} from "@/lib/forecast-collection-cash-utils"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import {
   Bar,
@@ -1264,11 +1284,83 @@ export function IncomeStatementDetail({
     id: string // Unique ID for this adjustment
     rowId: string
     yearIndex: number
-    type: "amount" | "percentage" // Type of adjustment: amount in $ or percentage change
+    type: "amount" | "percentage" | "inflation" // amount ($), % revenus (variable), ou taux d'inflation (fixe)
     amount?: number // Adjustment amount (for type "amount", can be positive or negative)
     percentage?: number // New percentage value (for type "percentage", e.g., 38 instead of 40)
+    inflationRate?: number // Taux d'inflation % (for type "inflation", dépenses fixes)
+    /** Décaissement : échéances (parts par délai) + part non payée. */
+    disbursementCash?: ForecastCollectionCash
+    /** Répartition saisonnière de la dépense annuelle (12 mois, somme 100 %). */
+    seasonalityMonthPercents?: number[]
+    /** Enregistrement créé seulement pour saisonnalité / décaissement (pas un ajustement de croissance). */
+    hypothesisMetaOnly?: boolean
     isRecurring: boolean // If true, adjustment continues in future years (for amount: with inflation, for percentage: keeps new rate)
     note: string // Explanatory note for this adjustment
+  }
+
+  const isExpenseHypothesisMetaOnly = (adj: ExpenseAdjustment): boolean => {
+    if (adj.hypothesisMetaOnly) return true
+    if (adj.type === "inflation") return false
+    if (adj.type === "percentage" && (adj.percentage ?? 0) !== 0) return false
+    if (adj.type === "amount" && (adj.amount ?? 0) !== 0) return false
+    if (adj.seasonalityMonthPercents != null || adj.disbursementCash != null) return true
+    if (adj.type === "amount" && (adj.amount ?? 0) === 0 && !adj.note?.trim()) return true
+    return false
+  }
+
+  const isExpenseHypothesisGrowthAdjustment = (adj: ExpenseAdjustment): boolean =>
+    !isExpenseHypothesisMetaOnly(adj)
+
+  const applySeasonalityToExpenseAdjustmentList = (
+    list: ExpenseAdjustment[],
+    rowId: string,
+    yearIndex: number,
+    seasonality: number[],
+    createIfEmpty: boolean
+  ): ExpenseAdjustment[] => {
+    if (list.length > 0) {
+      return list.map((a) => ({ ...a, seasonalityMonthPercents: seasonality }))
+    }
+    if (!createIfEmpty) return []
+    return [
+      {
+        id: generateId(),
+        rowId,
+        yearIndex,
+        type: "amount",
+        amount: 0,
+        isRecurring: false,
+        note: "",
+        seasonalityMonthPercents: seasonality,
+        hypothesisMetaOnly: true,
+      },
+    ]
+  }
+
+  const applyDisbursementToExpenseAdjustmentList = (
+    list: ExpenseAdjustment[],
+    rowId: string,
+    yearIndex: number,
+    cash: ForecastCollectionCash,
+    createIfEmpty: boolean
+  ): ExpenseAdjustment[] => {
+    if (list.length > 0) {
+      return list.map((a) => ({ ...a, disbursementCash: cash }))
+    }
+    if (!createIfEmpty) return []
+    return [
+      {
+        id: generateId(),
+        rowId,
+        yearIndex,
+        type: "amount",
+        amount: 0,
+        isRecurring: false,
+        note: "",
+        disbursementCash: cash,
+        hypothesisMetaOnly: true,
+      },
+    ]
   }
 
   // Interface for revenue adjustments
@@ -1294,9 +1386,10 @@ export function IncomeStatementDetail({
   // State for expense adjustments: key = "rowId-yearIndex" -> ExpenseAdjustment[]
   const [expenseAdjustments, setExpenseAdjustments] = useState<Record<string, ExpenseAdjustment[]>>({})
   const [editingAdjustment, setEditingAdjustment] = useState<{ rowId: string; yearIndex: number } | null>(null)
-  const [adjustmentType, setAdjustmentType] = useState<"amount" | "percentage">("amount")
+  const [adjustmentType, setAdjustmentType] = useState<"amount" | "percentage" | "inflation">("amount")
   const [adjustmentAmount, setAdjustmentAmount] = useState<number>(0)
   const [adjustmentPercentage, setAdjustmentPercentage] = useState<number>(0)
+  const [adjustmentInflationRate, setAdjustmentInflationRate] = useState<number>(2.0)
   const [adjustmentIsRecurring, setAdjustmentIsRecurring] = useState<boolean>(false)
   const [adjustmentNote, setAdjustmentNote] = useState<string>("")
   const [editingAdjustmentId, setEditingAdjustmentId] = useState<string | null>(null) // ID of adjustment being edited, null if adding new
@@ -1316,6 +1409,28 @@ export function IncomeStatementDetail({
   const [revenueHypothesisPanelOpen, setRevenueHypothesisPanelOpen] = useState(false)
   /** Hypothèses dépenses : même principe que les revenus (panneau latéral au clic sur une cellule). */
   const [expenseHypothesisPanelOpen, setExpenseHypothesisPanelOpen] = useState(false)
+  const [expenseHypothesisEditorTab, setExpenseHypothesisEditorTab] = useState<
+    "sommaire" | "ajustement" | "decaissement" | "saisonnalite"
+  >("ajustement")
+  const [expenseSummarySeriesVisible, setExpenseSummarySeriesVisible] = useState({
+    primary: true,
+    cashFlow: true,
+    balance: true,
+  })
+  const [expenseDisbursementBadDebtPercent, setExpenseDisbursementBadDebtPercent] = useState(0)
+  const [expenseDisbursementBuckets, setExpenseDisbursementBuckets] = useState(() =>
+    createDefaultForecastCollectionBuckets(0)
+  )
+  const [expenseCustomDelayDrafts, setExpenseCustomDelayDrafts] = useState<Record<number, string>>({})
+  const [expensePreRevenueNeedEnabled, setExpensePreRevenueNeedEnabled] = useState(false)
+  const [expensePreRevenueAdvanceDays, setExpensePreRevenueAdvanceDays] = useState(30)
+  const [replicateExpenseDisbursementToFollowingYears, setReplicateExpenseDisbursementToFollowingYears] =
+    useState(false)
+  const [expenseSeasonalityMonthPercents, setExpenseSeasonalityMonthPercents] = useState<number[]>(() =>
+    createDefaultForecastSeasonalityMonthPercents()
+  )
+  const [replicateExpenseSeasonalityToFollowingYears, setReplicateExpenseSeasonalityToFollowingYears] =
+    useState(false)
   /** À l'enregistrement, copier le même type / valeur / note sur les années projetées suivantes (même poste). */
   const [replicateRevenueAdjustmentToFollowingYears, setReplicateRevenueAdjustmentToFollowingYears] =
     useState(false)
@@ -1507,6 +1622,8 @@ export function IncomeStatementDetail({
 
   // Debounced save to API
   const saveConfigRef = useRef<NodeJS.Timeout>()
+  /** Évite d’écraser la config API avec des états vides avant la fin du chargement initial. */
+  const [incomeStatementConfigHydrated, setIncomeStatementConfigHydrated] = useState(false)
 
   const saveConfig = useCallback((data: Record<string, unknown>) => {
     if (!companyId || !isForecastSection) return
@@ -1524,13 +1641,28 @@ export function IncomeStatementDetail({
     }, 500)
   }, [companyId, isForecastSection, projectionId])
 
+  const persistIncomeStatementConfig = useCallback(
+    (data: Record<string, unknown>) => {
+      if (!incomeStatementConfigHydrated) return
+      saveConfig(data)
+    },
+    [incomeStatementConfigHydrated, saveConfig]
+  )
+
   // Load forecast config from API on mount
   useEffect(() => {
-    if (!companyId || !isForecastSection) return
+    if (!companyId || !isForecastSection) {
+      setIncomeStatementConfigHydrated(false)
+      return
+    }
+
+    setIncomeStatementConfigHydrated(false)
+    let cancelled = false
 
     const loadConfig = async () => {
       try {
         const configs = await listForecastConfigs(companyId, { config_type: "income-statement-detail", projection_id: projectionId ?? undefined })
+        if (cancelled) return
         if (configs.length > 0) {
           const data = configs[0].data as Record<string, unknown>
           if (data.revenueValues) setRevenueValues(data.revenueValues as typeof revenueValues)
@@ -1575,9 +1707,14 @@ export function IncomeStatementDetail({
         }
       } catch (err) {
         console.error("Error loading income statement config:", err)
+      } finally {
+        if (!cancelled) setIncomeStatementConfigHydrated(true)
       }
     }
     loadConfig()
+    return () => {
+      cancelled = true
+    }
   }, [companyId, isForecastSection, projectionId])
 
   // Helper to build the full config data bundle
@@ -1595,50 +1732,50 @@ export function IncomeStatementDetail({
   // Save forecast values whenever they change
   useEffect(() => {
     if (!isForecastSection || Object.keys(revenueValues).length === 0) return
-    saveConfig(buildConfigData())
-  }, [revenueValues, saveConfig, isForecastSection, buildConfigData])
+    persistIncomeStatementConfig(buildConfigData())
+  }, [revenueValues, persistIncomeStatementConfig, isForecastSection, buildConfigData])
 
   // Save expense types whenever they change
   useEffect(() => {
     if (title !== "Estimation des dépenses annuelles" || Object.keys(expenseTypes).length === 0) return
-    saveConfig(buildConfigData())
-  }, [expenseTypes, saveConfig, title, buildConfigData])
+    persistIncomeStatementConfig(buildConfigData())
+  }, [expenseTypes, persistIncomeStatementConfig, title, buildConfigData])
 
   // Save inflation rate whenever it changes
   useEffect(() => {
     if (title !== "Estimation des dépenses annuelles") return
-    saveConfig(buildConfigData())
-  }, [inflationRate, saveConfig, title, buildConfigData])
+    persistIncomeStatementConfig(buildConfigData())
+  }, [inflationRate, persistIncomeStatementConfig, title, buildConfigData])
 
   // Save variable rates whenever they change
   useEffect(() => {
     if (title !== "Estimation des dépenses annuelles" || Object.keys(variableRates).length === 0) return
-    saveConfig(buildConfigData())
-  }, [variableRates, saveConfig, title, buildConfigData])
+    persistIncomeStatementConfig(buildConfigData())
+  }, [variableRates, persistIncomeStatementConfig, title, buildConfigData])
 
   // Save lien revenus ↔ dépense variable
   useEffect(() => {
     if (title !== "Estimation des dépenses annuelles") return
-    saveConfig(buildConfigData())
-  }, [variableExpenseRevenueLink, saveConfig, title, buildConfigData])
+    persistIncomeStatementConfig(buildConfigData())
+  }, [variableExpenseRevenueLink, persistIncomeStatementConfig, title, buildConfigData])
 
   // Save specific inflation rates whenever they change
   useEffect(() => {
     if (title !== "Estimation des dépenses annuelles") return
-    saveConfig(buildConfigData())
-  }, [specificInflationRates, saveConfig, title, buildConfigData])
+    persistIncomeStatementConfig(buildConfigData())
+  }, [specificInflationRates, persistIncomeStatementConfig, title, buildConfigData])
 
   // Save expense adjustments whenever they change
   useEffect(() => {
     if (title !== "Estimation des dépenses annuelles" || Object.keys(expenseAdjustments).length === 0) return
-    saveConfig(buildConfigData())
-  }, [expenseAdjustments, saveConfig, title, buildConfigData])
+    persistIncomeStatementConfig(buildConfigData())
+  }, [expenseAdjustments, persistIncomeStatementConfig, title, buildConfigData])
 
   // Save revenue adjustments whenever they change
   useEffect(() => {
     if (title !== "Estimation des revenus annuels" || Object.keys(revenueAdjustments).length === 0) return
-    saveConfig(buildConfigData())
-  }, [revenueAdjustments, saveConfig, title, buildConfigData])
+    persistIncomeStatementConfig(buildConfigData())
+  }, [revenueAdjustments, persistIncomeStatementConfig, title, buildConfigData])
 
   // Get expense type for a row (defaults to "variable")
   const getExpenseType = (rowId: string | undefined): "variable" | "fixe" => {
@@ -1687,6 +1824,147 @@ export function IncomeStatementDetail({
       delete updated[rowId]
       return updated
     })
+  }
+
+  const clearFixedExpenseProjectedYearOverrides = (rowId: string) => {
+    setRevenueValues((prev) => {
+      const updated = { ...prev }
+      for (let y = 1; y <= projectionYears; y++) {
+        delete updated[`${rowId}-${y}`]
+      }
+      return updated
+    })
+  }
+
+  const initExpenseHypothesisInflationFields = (rowId: string) => {
+    setAdjustmentInflationRate(getInflationRate(rowId))
+  }
+
+  const loadExpenseDisbursementFields = (rowId: string, yearIndex: number) => {
+    const adjs = getAdjustments(rowId, yearIndex)
+    const withDisb = adjs.find((a) => a.disbursementCash != null)
+    const cash = withDisb
+      ? parseCollectionCashFromStorage({ disbursementCash: withDisb.disbursementCash })
+      : parseCollectionCashFromStorage({})
+    setExpenseDisbursementBadDebtPercent(0)
+    let buckets =
+      cash.advancedBuckets?.length
+        ? cash.advancedBuckets.map((b) => ({ ...b }))
+        : createDefaultForecastCollectionBuckets(0)
+    const payableSum = buckets.reduce((a, b) => a + b.percent, 0)
+    if (cash.badDebtPercent > 0 && payableSum > 0 && payableSum < 100) {
+      const factor = 100 / payableSum
+      buckets = buckets.map((b) => ({ ...b, percent: Math.round(b.percent * factor) }))
+    }
+    setExpenseDisbursementBuckets(normalizeForecastCollectionBuckets(buckets, 0))
+    const preRev = cash.preRevenueNeed
+    setExpensePreRevenueNeedEnabled(preRev?.enabled === true)
+    setExpensePreRevenueAdvanceDays(preRev?.advanceDays ?? 30)
+  }
+
+  const applyExpenseDisbursementToYear = (
+    rowId: string,
+    yearIndex: number,
+    cash: ForecastCollectionCash,
+    replicate: boolean
+  ) => {
+    const yearLabelsLen = getYearLabels().length
+    setExpenseAdjustments((prev) => {
+      const next: Record<string, ExpenseAdjustment[]> = { ...prev }
+      const key0 = `${rowId}-${yearIndex}`
+      next[key0] = applyDisbursementToExpenseAdjustmentList(
+        prev[key0] || [],
+        rowId,
+        yearIndex,
+        cash,
+        true
+      )
+
+      if (replicate && yearIndex < yearLabelsLen - 1) {
+        for (let y = yearIndex + 1; y < yearLabelsLen; y++) {
+          const keyY = `${rowId}-${y}`
+          const arr = next[keyY] ?? prev[keyY] ?? []
+          next[keyY] = applyDisbursementToExpenseAdjustmentList(arr, rowId, y, cash, true)
+        }
+      }
+      return next
+    })
+  }
+
+  const loadExpenseSeasonalityFields = (rowId: string, yearIndex: number) => {
+    const adjs = getAdjustments(rowId, yearIndex)
+    const withSeason = adjs.find((a) => a.seasonalityMonthPercents != null)
+    setExpenseSeasonalityMonthPercents(
+      withSeason
+        ? parseForecastSeasonalityFromStorage(withSeason)
+        : createDefaultForecastSeasonalityMonthPercents()
+    )
+  }
+
+  const applyExpenseSeasonalityToYear = (
+    rowId: string,
+    yearIndex: number,
+    seasonality: number[],
+    replicate: boolean
+  ) => {
+    const yearLabelsLen = getYearLabels().length
+    setExpenseAdjustments((prev) => {
+      const next: Record<string, ExpenseAdjustment[]> = { ...prev }
+      const key0 = `${rowId}-${yearIndex}`
+      next[key0] = applySeasonalityToExpenseAdjustmentList(
+        prev[key0] || [],
+        rowId,
+        yearIndex,
+        seasonality,
+        true
+      )
+
+      if (replicate && yearIndex < yearLabelsLen - 1) {
+        for (let y = yearIndex + 1; y < yearLabelsLen; y++) {
+          const keyY = `${rowId}-${y}`
+          const arr = next[keyY] ?? prev[keyY] ?? []
+          next[keyY] = applySeasonalityToExpenseAdjustmentList(arr, rowId, y, seasonality, true)
+        }
+      }
+      return next
+    })
+  }
+
+  /** Taux d'inflation pour une année projetée (hypothèses par année + défaut global/spécifique du poste). */
+  const getInflationRateForFixedExpenseYear = (rowId: string, yearIndex: number): number => {
+    if (yearIndex < 1) return getInflationRate(rowId)
+
+    const thisYear = getAdjustments(rowId, yearIndex)
+    const nonRec = thisYear.find(
+      (a) => a.type === "inflation" && !a.isRecurring && a.inflationRate !== undefined
+    )
+    if (nonRec) return nonRec.inflationRate!
+
+    // Récurrent sur l'année cliquée : doit s'appliquer dès cette année (pas seulement à partir de la suivante).
+    const recThisYear = thisYear.find(
+      (a) => a.type === "inflation" && a.isRecurring && a.inflationRate !== undefined
+    )
+    if (recThisYear) return recThisYear.inflationRate!
+
+    for (let y = yearIndex - 1; y >= 1; y--) {
+      const adjs = getAdjustments(rowId, y)
+      const rec = adjs.find(
+        (a) => a.type === "inflation" && a.isRecurring && a.inflationRate !== undefined
+      )
+      if (rec) return rec.inflationRate!
+    }
+
+    return getInflationRate(rowId)
+  }
+
+  const computeFixedExpenseYearValue = (rowId: string, yearIndex: number, baseAmount: number): number => {
+    if (yearIndex <= 0) {
+      const baseKey = `${rowId}-0`
+      return revenueValues[baseKey] !== undefined ? revenueValues[baseKey]! : baseAmount
+    }
+    const prev = computeFixedExpenseYearValue(rowId, yearIndex - 1, baseAmount)
+    const rate = getInflationRateForFixedExpenseYear(rowId, yearIndex)
+    return Math.round(prev * (1 + rate / 100))
   }
 
   // Get variable rate for a row (defaults to 0 if not set)
@@ -1941,6 +2219,11 @@ export function IncomeStatementDetail({
           setAdjustmentType(existingAdjustment.type || "amount")
           setAdjustmentAmount(existingAdjustment.amount || 0)
           setAdjustmentPercentage(existingAdjustment.percentage || 0)
+          if (existingAdjustment.type === "inflation") {
+            setAdjustmentInflationRate(existingAdjustment.inflationRate ?? getInflationRate(rowId))
+          } else {
+            initExpenseHypothesisInflationFields(rowId)
+          }
           setAdjustmentIsRecurring(existingAdjustment.isRecurring)
           setAdjustmentNote(existingAdjustment.note || "")
         }
@@ -1952,7 +2235,12 @@ export function IncomeStatementDetail({
         setAdjustmentPercentage(0)
         setAdjustmentIsRecurring(false)
         setAdjustmentNote("")
+        initExpenseHypothesisInflationFields(rowId)
       }
+      loadExpenseDisbursementFields(rowId, yearIndex)
+      loadExpenseSeasonalityFields(rowId, yearIndex)
+      setReplicateExpenseDisbursementToFollowingYears(false)
+      setReplicateExpenseSeasonalityToFollowingYears(false)
     }
     if (title === "Estimation des revenus annuels") {
       setLineAnalysis(null)
@@ -2004,8 +2292,19 @@ export function IncomeStatementDetail({
     setAdjustmentType("amount")
     setAdjustmentAmount(0)
     setAdjustmentPercentage(0)
+    setAdjustmentInflationRate(2.0)
     setAdjustmentIsRecurring(false)
     setAdjustmentNote("")
+    setExpenseHypothesisEditorTab("ajustement")
+    setExpenseSummarySeriesVisible({ primary: true, cashFlow: true, balance: true })
+    setReplicateExpenseDisbursementToFollowingYears(false)
+    setExpenseDisbursementBadDebtPercent(0)
+    setExpenseDisbursementBuckets(createDefaultForecastCollectionBuckets(0))
+    setExpenseCustomDelayDrafts({})
+    setExpensePreRevenueNeedEnabled(false)
+    setExpensePreRevenueAdvanceDays(30)
+    setExpenseSeasonalityMonthPercents(createDefaultForecastSeasonalityMonthPercents())
+    setReplicateExpenseSeasonalityToFollowingYears(false)
   }, [])
 
   const returnToExpenseHypothesisRow = useCallback(() => {
@@ -2075,6 +2374,14 @@ export function IncomeStatementDetail({
   useEffect(() => {
     setRevenueHypothesisEditorTab("croissance")
   }, [revenueHypothesisPanelOpen, editingAdjustment?.rowId])
+
+  useEffect(() => {
+    setExpenseHypothesisEditorTab("ajustement")
+  }, [expenseHypothesisPanelOpen, editingAdjustment?.rowId])
+
+  useEffect(() => {
+    setExpenseCustomDelayDrafts({})
+  }, [expenseHypothesisPanelOpen, editingAdjustment?.rowId, editingAdjustment?.yearIndex])
 
   /** Sommaire : toutes les courbes visibles à l’ouverture du panneau ou au changement de poste. */
   useEffect(() => {
@@ -2352,64 +2659,137 @@ export function IncomeStatementDetail({
       setReplicateRevenueSeasonalityToFollowingYears(false)
     } else {
       // Expense adjustments
-      // Validate based on type
-      if (adjustmentType === "amount" && adjustmentAmount === 0) {
-        setExpenseHypothesisPanelOpen(false)
-        setEditingAdjustment(null)
-        setEditingAdjustmentId(null)
-        return
+      const expenseRowId = editingAdjustment.rowId
+      const yearIdx = editingAdjustment.yearIndex
+      const isFixe = getExpenseType(expenseRowId) === "fixe"
+      const isVariableForDisbursement = getExpenseType(expenseRowId) === "variable"
+      const disbursementSaved = buildForecastCollectionCashForSave({
+        badDebtPercent: 0,
+        buckets: expenseDisbursementBuckets,
+        preRevenueNeed: isVariableForDisbursement
+          ? {
+              enabled: expensePreRevenueNeedEnabled,
+              advanceDays: expensePreRevenueAdvanceDays,
+            }
+          : { enabled: false, advanceDays: 30 },
+      })
+      const seasonalitySaved = normalizeForecastSeasonalityMonthPercents(expenseSeasonalityMonthPercents)
+      const canReplicateDisbursement = yearIdx < getYearLabels().length - 1
+      const saveDisbursementOnly =
+        expenseHypothesisEditorTab === "decaissement" &&
+        adjustmentType !== "inflation" &&
+        adjustmentType === "amount" &&
+        adjustmentAmount === 0 &&
+        adjustmentPercentage === 0
+      const saveSeasonalityOnly =
+        expenseHypothesisEditorTab === "saisonnalite" &&
+        adjustmentType !== "inflation" &&
+        adjustmentType === "amount" &&
+        adjustmentAmount === 0 &&
+        adjustmentPercentage === 0
+      if (!saveDisbursementOnly && !saveSeasonalityOnly) {
+        if (adjustmentType === "amount" && adjustmentAmount === 0) {
+          setExpenseHypothesisPanelOpen(false)
+          setEditingAdjustment(null)
+          setEditingAdjustmentId(null)
+          return
+        }
+        if (adjustmentType === "percentage" && adjustmentPercentage === 0) {
+          setExpenseHypothesisPanelOpen(false)
+          setEditingAdjustment(null)
+          setEditingAdjustmentId(null)
+          return
+        }
+        if (adjustmentType === "inflation" && isFixe) {
+          clearFixedExpenseProjectedYearOverrides(expenseRowId)
+        }
       }
-      if (adjustmentType === "percentage" && adjustmentPercentage === 0) {
-        setExpenseHypothesisPanelOpen(false)
-        setEditingAdjustment(null)
-        setEditingAdjustmentId(null)
-        return
-      }
-      
+
+      if (!saveDisbursementOnly && !saveSeasonalityOnly) {
       setExpenseAdjustments((prev) => {
-        const existingAdjustments = prev[key] || []
-        
-        if (editingAdjustmentId) {
-          // Update existing adjustment
-          const updatedAdjustments = existingAdjustments.map(adj =>
-            adj.id === editingAdjustmentId
-              ? {
-                  ...adj,
-                  type: adjustmentType,
-                  amount: adjustmentType === "amount" ? adjustmentAmount : undefined,
-                  percentage: adjustmentType === "percentage" ? adjustmentPercentage : undefined,
-                  isRecurring: adjustmentIsRecurring,
-                  note: adjustmentNote
-                }
-              : adj
-          )
-          return {
-            ...prev,
-            [key]: updatedAdjustments
+        const existingAdjustments = (prev[key] || []).filter((a) => !isExpenseHypothesisMetaOnly(a))
+
+        const patchFromForm = (adj: ExpenseAdjustment): ExpenseAdjustment => {
+          if (adjustmentType === "inflation" && isFixe) {
+            return {
+              ...adj,
+              type: "inflation",
+              amount: undefined,
+              percentage: undefined,
+              inflationRate: adjustmentInflationRate,
+              isRecurring: adjustmentIsRecurring,
+              note: adjustmentNote,
+              disbursementCash: disbursementSaved,
+              seasonalityMonthPercents: seasonalitySaved,
+            }
           }
-        } else {
-          // Add new adjustment
-          const newAdjustment: ExpenseAdjustment = {
-            id: generateId(),
-            rowId: editingAdjustment.rowId,
-            yearIndex: editingAdjustment.yearIndex,
+          const patched = {
+            ...adj,
             type: adjustmentType,
             amount: adjustmentType === "amount" ? adjustmentAmount : undefined,
             percentage: adjustmentType === "percentage" ? adjustmentPercentage : undefined,
+            inflationRate: undefined,
             isRecurring: adjustmentIsRecurring,
-            note: adjustmentNote
+            note: adjustmentNote,
+            disbursementCash: disbursementSaved,
+            seasonalityMonthPercents: seasonalitySaved,
           }
           return {
-            ...prev,
-            [key]: [...existingAdjustments, newAdjustment]
+            ...patched,
+            seasonalityMonthPercents: patched.seasonalityMonthPercents ?? metaSeasonality,
+            disbursementCash: patched.disbursementCash ?? metaDisbursement,
           }
         }
-      })
 
+        if (editingAdjustmentId) {
+          const updatedAdjustments = existingAdjustments.map((adj) =>
+            adj.id === editingAdjustmentId ? patchFromForm(adj) : adj
+          )
+          return {
+            ...prev,
+            [key]: updatedAdjustments,
+          }
+        }
+
+        const newAdjustment: ExpenseAdjustment = {
+          ...patchFromForm({
+            id: "",
+            rowId: editingAdjustment.rowId,
+            yearIndex: editingAdjustment.yearIndex,
+            type: adjustmentType,
+            isRecurring: adjustmentIsRecurring,
+            note: adjustmentNote,
+          }),
+          id: generateId(),
+        }
+        return {
+          ...prev,
+          [key]: [...existingAdjustments, newAdjustment],
+        }
+      })
+      }
+
+      applyExpenseDisbursementToYear(
+        expenseRowId,
+        yearIdx,
+        disbursementSaved,
+        replicateExpenseDisbursementToFollowingYears && canReplicateDisbursement
+      )
+      applyExpenseSeasonalityToYear(
+        expenseRowId,
+        yearIdx,
+        seasonalitySaved,
+        replicateExpenseSeasonalityToFollowingYears && canReplicateDisbursement
+      )
+
+      setExpenseSeasonalityMonthPercents(seasonalitySaved)
+      setReplicateExpenseDisbursementToFollowingYears(false)
+      setReplicateExpenseSeasonalityToFollowingYears(false)
       setEditingAdjustmentId(null)
       setAdjustmentType("amount")
       setAdjustmentAmount(0)
       setAdjustmentPercentage(0)
+      initExpenseHypothesisInflationFields(expenseRowId)
       setAdjustmentIsRecurring(false)
       setAdjustmentNote("")
     }
@@ -2757,6 +3137,39 @@ export function IncomeStatementDetail({
     return null
   }
 
+  /** Saisonnalité mensuelle des revenus servant de base à une dépense variable (année projetée). */
+  const getLinkedRevenueSeasonalityForVariableExpense = (
+    expenseRowId: string,
+    yearIndex: number
+  ): { revenueRowId: string; monthPercents: number[]; linkLabel: string } | null => {
+    if (getExpenseType(expenseRowId) !== "variable") return null
+    const source = resolveVariableExpenseRevenueSource(expenseRowId, yearIndex)
+    if (!source) return null
+    const revList = getRevenueAdjustments(source.revenueRowId, yearIndex)
+    const sole = revList[revList.length - 1]
+    const monthPercents = sole
+      ? parseForecastSeasonalityFromStorage(sole)
+      : createDefaultForecastSeasonalityMonthPercents()
+    const linkKey = variableExpenseRevenueLink[expenseRowId] ?? "__default__"
+    const linkLabel =
+      variableExpenseRevenueSelectOptions.find((o) => o.value === linkKey)?.label ??
+      seriesRows.find((s) => s.id === source.revenueRowId)?.label ??
+      "Revenus liés"
+    return { revenueRowId: source.revenueRowId, monthPercents, linkLabel }
+  }
+
+  const setVariableExpenseRevenueLinkForRow = (expenseRowId: string, linkValue: string) => {
+    setVariableExpenseRevenueLink((prev) => {
+      const next = { ...prev }
+      if (linkValue === "__default__") {
+        delete next[expenseRowId]
+      } else {
+        next[expenseRowId] = linkValue
+      }
+      return next
+    })
+  }
+
   // Get base value (without adjustments) for a specific row and year
   const getBaseValue = (rowId: string, yearIndex: number, defaultValue: number, baseValue?: number): number => {
     const key = `${rowId}-${yearIndex}`
@@ -2777,13 +3190,13 @@ export function IncomeStatementDetail({
     if (title === "Estimation des dépenses annuelles" && getExpenseType(rowId) === "fixe" && yearIndex > 0) {
       // Get the base value (year 0) - either edited, provided, or default
       const baseKey = `${rowId}-0`
-      const actualBaseValue = revenueValues[baseKey] !== undefined 
-        ? revenueValues[baseKey] 
-        : (baseValue !== undefined ? baseValue : defaultValue)
-      // Calculate with compound inflation using the specific or global inflation rate
-      const rate = getInflationRate(rowId)
-      const compoundValue = actualBaseValue * Math.pow(1 + rate / 100, yearIndex)
-      return Math.round(compoundValue)
+      const actualBase =
+        revenueValues[baseKey] !== undefined
+          ? revenueValues[baseKey]!
+          : baseValue !== undefined
+            ? baseValue
+            : defaultValue
+      return computeFixedExpenseYearValue(rowId, yearIndex, actualBase)
     }
     
     return defaultValue
@@ -3010,11 +3423,7 @@ export function IncomeStatementDetail({
         } else {
           // For fixed expenses with inflation, use compound inflation with year-specific rates
           if (title === "Estimation des dépenses annuelles" && rowId && getExpenseType(rowId) === "fixe") {
-            const baseKey = `${rowId}-0`
-            const actualBase = revenueValues[baseKey] !== undefined ? revenueValues[baseKey] : base
-            const rate = getInflationRate(rowId)
-            const compoundValue = actualBase * Math.pow(1 + rate / 100, yearIndex)
-            defaultValue = Math.round(compoundValue)
+            defaultValue = computeFixedExpenseYearValue(rowId, yearIndex, base)
           } else if (title === "Estimation des dépenses annuelles" && rowId && getExpenseType(rowId) === "variable") {
             const variableRate = getVariableRate(rowId)
             if (variableRate > 0) {
@@ -4055,6 +4464,51 @@ export function IncomeStatementDetail({
   /** Sous-totaux annexe (hypothèses revenus) : somme des montants affichés (`getRevenueValue`) par lettre — aligné sur la ligne « Revenus » / Pro forma, pas sur les tendances brutes injectées. */
   const revenueAnnexForecastYearTotalsByLetter = useMemo(() => {
     if (title !== "Estimation des revenus annuels") return null
+    if (!isForecastSection || view !== "years") return null
+    if (showStructureCols) return null
+
+    const posts = data.filter(
+      (r) =>
+        !!r.rowId &&
+        !!r.indent &&
+        !r.isSection &&
+        !r.isAnnexPlaceholder &&
+        !r.isAnnexTitle &&
+        !r.isAnnexSubtotal &&
+        Array.isArray(r.trendValues) &&
+        r.trendValues.length > 0
+    )
+    if (posts.length === 0) return null
+
+    const len = posts[0]!.trendValues!.length
+    const letters = new Set<string>()
+    for (const r of data) {
+      const L = normalizeAnnexLetter(String(r.annexLetter ?? ""))
+      if (L) letters.add(L)
+    }
+    const out = new Map<string, number[]>()
+    for (const L of letters) {
+      const perLetter = posts.filter(
+        (r) => normalizeAnnexLetter(String(r.annexLetter ?? "")) === L
+      )
+      if (perLetter.length === 0) continue
+      out.set(
+        L,
+        Array.from({ length: len }, (_, j) =>
+          perLetter.reduce((acc, r) => {
+            const raw = r.trendValues?.[j] ?? 0
+            const v = getRevenueValue(r.rowId!, j, raw, undefined, r.trendValues)
+            return acc + (v ?? 0)
+          }, 0)
+        )
+      )
+    }
+    return out.size > 0 ? out : null
+  }, [data, getRevenueValue, isForecastSection, showStructureCols, title, view])
+
+  /** Sous-totaux annexe (hypothèses dépenses) : somme des montants affichés (`getRevenueValue`) par lettre — aligné sur les postes projetés, pas sur les tendances brutes. */
+  const expenseAnnexForecastYearTotalsByLetter = useMemo(() => {
+    if (title !== "Estimation des dépenses annuelles") return null
     if (!isForecastSection || view !== "years") return null
     if (showStructureCols) return null
 
@@ -5171,26 +5625,12 @@ export function IncomeStatementDetail({
 
     return (
       <>
-      <div className={cn(embedded ? "w-full min-w-0 max-w-full" : "flex min-h-0 flex-1 flex-col")}>
-        <div
-          className={cn(
-            "relative flex min-w-0 max-w-full flex-col border border-slate-200/90",
-            "bg-gradient-to-b from-slate-50 via-white to-slate-50/70",
-            embedded
-              ? "w-full overflow-x-auto overflow-y-visible rounded-2xl shadow-md"
-              : "min-h-0 flex-1 overflow-hidden rounded-[28px] shadow-[0_24px_80px_-40px_rgba(15,23,42,0.35)]"
-          )}
-        >
-          <div className="pointer-events-none absolute inset-0 rounded-[28px]" aria-hidden>
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_45%_at_50%_-10%,rgba(224,116,45,0.08),transparent_55%)]" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_55%_50%_at_100%_55%,rgba(148,163,184,0.12),transparent_65%)]" />
-            {!embedded && (
-              <div className="absolute right-3 top-5 hidden max-w-[55%] select-none text-[52px] font-semibold leading-none tracking-tight text-[#2A2F3A]/[0.05] sm:block sm:text-[64px]">
-                hypothèse<span className="text-[#E0742D]/20">.</span>
-              </div>
-            )}
-          </div>
-
+      <div
+        className={cn(
+          embedded ? "w-full min-w-0 max-w-full overflow-x-auto overflow-y-visible" : "flex min-h-0 flex-1 flex-col",
+          "min-w-0 max-w-full"
+        )}
+      >
           <Tabs
             value={revenueHypothesisEditorTab}
             onValueChange={(v) =>
@@ -5205,7 +5645,7 @@ export function IncomeStatementDetail({
               )
             }
             className={cn(
-              "relative z-10 flex min-h-0 min-w-0 max-w-full flex-col gap-0 p-4 sm:p-5",
+              "flex min-h-0 min-w-0 max-w-full flex-col gap-0",
               embedded ? "" : "min-h-0 flex-1"
             )}
           >
@@ -5296,7 +5736,7 @@ export function IncomeStatementDetail({
                 className="mt-0 flex min-h-0 min-w-0 max-w-full flex-1 flex-col outline-none focus-visible:ring-0"
               >
                 <div className={cn(embedded && "min-w-0 max-w-full")}>
-                  <div className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 sm:p-4">
+                  <div className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-white p-3 sm:p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                       <div className="min-w-0">
                         <span className="font-medium text-slate-800">
@@ -5466,10 +5906,10 @@ export function IncomeStatementDetail({
                             </div>
 
                             <div
-                              className="grid min-w-0 divide-x divide-slate-200 border-b border-slate-200 bg-slate-50/60"
+                              className="grid min-w-0 divide-x divide-slate-200 border-b border-slate-200 bg-white"
                               style={{ gridTemplateColumns: revenueSummaryGridTemplate }}
                             >
-                              <div className="flex w-full shrink-0 items-start justify-end overflow-visible bg-slate-50/60 px-2 py-2.5 sm:px-2.5">
+                              <div className="flex w-full shrink-0 items-start justify-end overflow-visible bg-white px-2 py-2.5 sm:px-2.5">
                                 <span className="text-right text-[9px] font-medium leading-snug text-slate-400 sm:text-[10px]">
                                   Mois
                                 </span>
@@ -6237,7 +6677,7 @@ export function IncomeStatementDetail({
                   ) : (
                     <p className="mb-3 text-xs text-slate-400">Aucune année projetée après {yearLabel}.</p>
                   )}
-                  <div className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 sm:p-4">
+                  <div className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-white p-3 sm:p-4">
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                                 <span className="font-medium text-slate-800">
                                   Délai moyen de collection estimé :{" "}
@@ -6352,10 +6792,10 @@ export function IncomeStatementDetail({
                                       </div>
 
                                       <div
-                                        className="grid min-w-0 divide-x divide-slate-200 bg-slate-50/60"
+                                        className="grid min-w-0 divide-x divide-slate-200 bg-white"
                                         style={{ gridTemplateColumns: revenueCollGridTemplate }}
                                       >
-                                        <div className="flex w-full items-start justify-end bg-slate-50/60 py-2.5">
+                                        <div className="flex w-full items-start justify-end bg-white py-2.5">
                                           <span className="relative inline-block text-[9px] tabular-nums sm:text-[10px]">
                                             <span className="invisible select-none" aria-hidden="true">
                                               100%
@@ -6634,7 +7074,7 @@ export function IncomeStatementDetail({
                   ) : (
                     <p className="mb-3 text-xs text-slate-400">Aucune année projetée après {yearLabel}.</p>
                   )}
-                  <div className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 sm:p-4">
+                  <div className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-white p-3 sm:p-4">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                       <span className="font-medium text-slate-800">
                         Répartition du revenu annuel par mois (janvier à décembre)
@@ -6737,10 +7177,10 @@ export function IncomeStatementDetail({
                           </div>
                         </div>
                         <div
-                          className="grid min-w-0 divide-x divide-slate-200 bg-slate-50/60"
+                          className="grid min-w-0 divide-x divide-slate-200 bg-white"
                           style={{ gridTemplateColumns: revenueSeasonGridTemplate }}
                         >
-                          <div className="flex w-full items-start justify-end bg-slate-50/60 py-2.5 pr-1 sm:pr-1.5">
+                          <div className="flex w-full items-start justify-end bg-white py-2.5 pr-1 sm:pr-1.5">
                             <span className="relative inline-block text-[9px] tabular-nums sm:text-[10px]">
                               <span className="invisible select-none" aria-hidden="true">
                                 100%
@@ -6831,7 +7271,6 @@ export function IncomeStatementDetail({
               </TabsContent>
             </div>
           </Tabs>
-        </div>
       </div>
       <AlertDialog open={revenueHypothesisDeleteConfirmOpen} onOpenChange={setRevenueHypothesisDeleteConfirmOpen}>
         <AlertDialogContent>
@@ -6885,36 +7324,113 @@ export function IncomeStatementDetail({
         ? editingAdjustment.yearIndex
         : 0
     const yearLabel = yearLabels[yearIndex] || `${yearIndex}`
-    const existingAdjustments = getAdjustments(editingAdjustment.rowId, editingAdjustment.yearIndex)
+    const existingAdjustments = getAdjustments(editingAdjustment.rowId, editingAdjustment.yearIndex).filter(
+      isExpenseHypothesisGrowthAdjustment
+    )
+    const canReplicateToFollowingYears = yearIndex < yearLabels.length - 1
+    const followingYearsLabel = yearLabels.slice(yearIndex + 1).join(", ")
+    const expenseDisbursementPayableSum = expenseDisbursementBuckets.reduce((a, b) => a + b.percent, 0)
+    const expenseDisbursementGrandTotal = expenseDisbursementPayableSum
+    const expenseDisbursementSaveOk = expenseDisbursementGrandTotal === 100
+    const expenseSeasonalityTotal = expenseSeasonalityMonthPercents.reduce((a, b) => a + b, 0)
+    const expenseSeasonalitySaveOk = expenseSeasonalityTotal === 100
+    const expenseAjustementSaveDisabled =
+      adjustmentType === "amount"
+        ? adjustmentAmount === 0
+        : adjustmentType === "percentage"
+          ? adjustmentPercentage === 0
+          : false
+    const expenseRowId = editingAdjustment.rowId
+    const isVariableExpense = getExpenseType(expenseRowId) === "variable"
+    const linkedRevenueSeasonality = isVariableExpense
+      ? getLinkedRevenueSeasonalityForVariableExpense(expenseRowId, yearIndex)
+      : null
+    const variableRevenueLinkValue = variableExpenseRevenueLink[expenseRowId] ?? "__default__"
+    const summaryRowForExpenseDraft = data.find((r) => r.rowId === editingAdjustment.rowId)
+    const summaryTrendForExpenseDraft = summaryRowForExpenseDraft?.trendValues
+    const expenseSummaryReady =
+      !!summaryRowForExpenseDraft?.rowId && Array.isArray(summaryTrendForExpenseDraft)
+    const expenseSummaryYearsParams: HypothesisYearSummaryInput[] = []
+    if (expenseSummaryReady) {
+      const rowIdD = summaryRowForExpenseDraft!.rowId!
+      const trend = summaryTrendForExpenseDraft!
+      for (let y = 0; y <= yearIndex; y++) {
+        const isDraftYear = y === yearIndex
+        const savedList = getAdjustments(rowIdD, y)
+        const savedWithSeason = savedList.find((a) => a.seasonalityMonthPercents != null)
+        const savedWithDisb = savedList.find((a) => a.disbursementCash != null)
+        const annualResolved = getRevenueValue(rowIdD, y, trend[y] ?? 0, undefined, trend)
+        const seasonalityMonthPercents = isDraftYear
+          ? normalizeForecastSeasonalityMonthPercents(expenseSeasonalityMonthPercents)
+          : savedWithSeason
+            ? parseForecastSeasonalityFromStorage(savedWithSeason)
+            : createDefaultForecastSeasonalityMonthPercents()
+        const cash = savedWithDisb
+          ? parseCollectionCashFromStorage({ disbursementCash: savedWithDisb.disbursementCash })
+          : parseCollectionCashFromStorage({})
+        const buckets = isDraftYear
+          ? expenseDisbursementBuckets
+          : cash.advancedBuckets && cash.advancedBuckets.length > 0
+            ? cash.advancedBuckets
+            : createDefaultForecastCollectionBuckets(0)
+        const preRevenueNeed = isDraftYear
+          ? isVariableExpense
+            ? {
+                enabled: expensePreRevenueNeedEnabled,
+                advanceDays: expensePreRevenueAdvanceDays,
+              }
+            : { enabled: false, advanceDays: 30 }
+          : cash.preRevenueNeed
+        expenseSummaryYearsParams.push({
+          annual: annualResolved,
+          seasonalityMonthPercents,
+          badDebtPercent: 0,
+          buckets,
+          preRevenueNeed,
+        })
+      }
+    }
+    const firstProjectedYearIndexForExpenseSummary = forceForecastSection ? 1 : 0
+    const expenseSummaryMoneyPoints =
+      expenseSummaryReady && expenseSummaryYearsParams.length === yearIndex + 1
+        ? computeHypothesisSummaryMoneyPoints(
+            expenseSummaryYearsParams,
+            yearIndex,
+            firstProjectedYearIndexForExpenseSummary
+          )
+        : []
+    const expenseSummarySeries = [
+      { key: "primary" as const, label: "Dépenses", color: "#475569", lineName: "Dépense" },
+      { key: "cashFlow" as const, label: "Décaissements", color: "#059669", lineName: "Décaissement" },
+      { key: "balance" as const, label: "Créditeurs", color: "#d97706", lineName: "Créditeurs" },
+    ] as const
 
     return (
-      <div className={cn(embedded ? "w-full min-w-0 max-w-full" : "flex min-h-0 flex-1 flex-col")}>
-        <div
-          className={cn(
-            "relative flex min-w-0 max-w-full flex-col border border-slate-200/90",
-            "bg-gradient-to-b from-slate-50 via-white to-slate-50/70",
-            embedded
-              ? "w-full overflow-x-auto overflow-y-visible rounded-2xl shadow-md"
-              : "min-h-0 flex-1 overflow-hidden rounded-[28px] shadow-[0_24px_80px_-40px_rgba(15,23,42,0.35)]"
-          )}
-        >
-          <div className="pointer-events-none absolute inset-0 rounded-[28px]" aria-hidden>
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_45%_at_50%_-10%,rgba(59,130,246,0.07),transparent_55%)]" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_55%_50%_at_100%_55%,rgba(148,163,184,0.12),transparent_65%)]" />
-            {!embedded && (
-              <div className="absolute right-3 top-5 hidden max-w-[55%] select-none text-[52px] font-semibold leading-none tracking-tight text-[#2A2F3A]/[0.05] sm:block sm:text-[64px]">
-                hypothèse<span className="text-blue-500/25">.</span>
-              </div>
-            )}
-          </div>
-
-          <div
+      <div
+        className={cn(
+          embedded ? "w-full min-w-0 max-w-full overflow-x-auto overflow-y-visible" : "flex min-h-0 flex-1 flex-col",
+          "min-w-0 max-w-full"
+        )}
+      >
+          <Tabs
+            value={expenseHypothesisEditorTab}
+            onValueChange={(v) =>
+              setExpenseHypothesisEditorTab(
+                v === "decaissement"
+                  ? "decaissement"
+                  : v === "saisonnalite"
+                    ? "saisonnalite"
+                    : v === "sommaire"
+                      ? "sommaire"
+                      : "ajustement"
+              )
+            }
             className={cn(
-              "relative z-10 flex min-w-0 max-w-full flex-col p-4 sm:p-5",
+              "flex min-h-0 min-w-0 max-w-full flex-col gap-6",
               embedded ? "" : "min-h-0 flex-1"
             )}
           >
-            <div className="flex shrink-0 items-start justify-between gap-3">
+            <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Hypothèse</p>
                 <h3 className="mt-3 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">{rowLabel}</h3>
@@ -6922,21 +7438,110 @@ export function IncomeStatementDetail({
                   Année sélectionnée <span className="text-blue-600/50" aria-hidden>·</span>{" "}
                   <span className="font-semibold text-blue-900">{yearLabel}</span>
                 </p>
+                <TabsList className="mt-3 flex w-full max-w-lg flex-wrap gap-1 rounded-lg border border-slate-200/90 bg-slate-100/80 p-0.5 sm:inline-flex sm:w-fit sm:max-w-none">
+                  <TabsTrigger
+                    value="sommaire"
+                    className="h-8 flex-1 rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial sm:px-3"
+                  >
+                    Sommaire
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="ajustement"
+                    className="h-8 flex-1 rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial sm:px-3"
+                  >
+                    Ajustement
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="decaissement"
+                    className="h-8 flex-1 rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial sm:px-3"
+                  >
+                    Décaissement
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="saisonnalite"
+                    className="h-8 flex-1 rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial sm:px-3"
+                  >
+                    Saisonnalité
+                  </TabsTrigger>
+                </TabsList>
               </div>
-              {(!analysisPanelNarrow || embedded) && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 gap-1.5 border-blue-200/90 text-xs font-medium text-blue-900 hover:bg-blue-50/90"
-                  onClick={returnToExpenseHypothesisRow}
-                >
-                  Fermer
-                </Button>
-              )}
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                {expenseHypothesisEditorTab !== "sommaire" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9 border-slate-200 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:border-slate-200 disabled:text-slate-400"
+                    onClick={saveAdjustment}
+                    disabled={
+                      expenseHypothesisEditorTab === "decaissement"
+                        ? !expenseDisbursementSaveOk
+                        : expenseHypothesisEditorTab === "saisonnalite"
+                          ? !expenseSeasonalitySaveOk
+                          : expenseAjustementSaveDisabled
+                    }
+                  >
+                    {expenseHypothesisEditorTab === "decaissement"
+                      ? "Enregistrer le décaissement"
+                      : expenseHypothesisEditorTab === "saisonnalite"
+                        ? "Enregistrer la saisonnalité"
+                        : editingAdjustmentId
+                          ? "Enregistrer"
+                          : "Enregistrer l'ajustement"}
+                  </Button>
+                ) : null}
+                {(!analysisPanelNarrow || embedded) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 gap-1.5 border-blue-200/90 text-xs font-medium text-blue-900 hover:bg-blue-50/90"
+                    onClick={returnToExpenseHypothesisRow}
+                  >
+                    Fermer
+                  </Button>
+                )}
+              </div>
             </div>
 
-            <div className={cn("mt-5 pr-0.5", embedded && "min-w-0 max-w-full", !embedded && "min-h-0 flex-1 overflow-y-auto")}>
+            <TabsContent
+              value="sommaire"
+              className="mt-0 flex min-h-0 min-w-0 max-w-full flex-1 flex-col outline-none focus-visible:ring-0"
+            >
+              <div className={cn("pr-0.5", embedded && "min-w-0 max-w-full", !embedded && "min-h-0 flex-1 overflow-y-auto")}>
+                <div className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-white p-3 sm:p-4">
+                  <span className="font-medium text-slate-800">
+                    Sommaire des dépenses, des décaissements et des créditeurs mensuellement
+                  </span>
+                  {!expenseSummaryReady ? (
+                    <p className="rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-900">
+                      Données de projection indisponibles pour ce poste.
+                    </p>
+                  ) : expenseSummaryMoneyPoints.length === 0 ? null : (
+                    <ForecastHypothesisSummaryChart
+                      points={expenseSummaryMoneyPoints}
+                      series={expenseSummarySeries}
+                      visible={expenseSummarySeriesVisible}
+                      onToggleVisible={(key) =>
+                        setExpenseSummarySeriesVisible((s) => ({ ...s, [key]: !s[key] }))
+                      }
+                      formatValue={formatCurrency}
+                      chartAriaLabel="Sommaire dépenses, décaissements et créditeurs par mois"
+                    />
+                  )}
+                </div>
+              </div>
+            </TabsContent>
+            <TabsContent
+              value="ajustement"
+              className="mt-0 min-h-0 min-w-0 max-w-full flex-1 outline-none focus-visible:ring-0"
+            >
+            <div className={cn("mt-2 pr-0.5", embedded && "min-w-0 max-w-full", !embedded && "min-h-0 flex-1 overflow-y-auto")}>
+              <p className="mb-4 text-xs leading-relaxed text-slate-600">
+                La croissance de base provient du menu <span className="font-medium text-slate-800">Type et Taux</span>{" "}
+                (variable, fixe, inflation). Les ajustements ci-dessous permettent de modifier ponctuellement
+                l&apos;hypothèse pour une année.
+              </p>
               <div className={cn("flex flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-6", embedded && "min-w-0 max-w-full")}>
                 {/* Gauche : ajouter / modifier un ajustement */}
                 <div className="min-w-0 flex-1 rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5">
@@ -6956,6 +7561,9 @@ export function IncomeStatementDetail({
                             setAdjustmentPercentage(0)
                             setAdjustmentIsRecurring(false)
                             setAdjustmentNote("")
+                            if (editingAdjustment?.rowId) {
+                              initExpenseHypothesisInflationFields(editingAdjustment.rowId)
+                            }
                           }}
                         >
                           Annuler
@@ -6967,7 +7575,7 @@ export function IncomeStatementDetail({
                       <div>
                         <label className="mb-2 block text-sm font-medium text-slate-700">Type d&apos;ajustement</label>
                         <Select
-                          value={adjustmentType}
+                          value={adjustmentType === "inflation" ? "amount" : adjustmentType}
                           onValueChange={(value: "amount" | "percentage") => {
                             setAdjustmentType(value)
                             if (value === "amount") {
@@ -6993,7 +7601,76 @@ export function IncomeStatementDetail({
                       </div>
                     )}
 
-                    {adjustmentType === "amount" ? (
+                    {editingAdjustment && getExpenseType(editingAdjustment.rowId) === "fixe" && (
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Type d&apos;ajustement</label>
+                        <Select
+                          value={adjustmentType === "percentage" ? "amount" : adjustmentType}
+                          onValueChange={(value: "amount" | "inflation") => {
+                            setAdjustmentType(value)
+                            if (value === "amount") {
+                              setAdjustmentAmount(0)
+                            } else {
+                              initExpenseHypothesisInflationFields(editingAdjustment.rowId)
+                              setAdjustmentIsRecurring(false)
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="amount">Montant ($)</SelectItem>
+                            <SelectItem value="inflation">Taux d&apos;inflation (%)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {adjustmentType === "inflation"
+                            ? "Définir un taux d'inflation pour cette année (récurrent ou ponctuel)"
+                            : "Ajustement ponctuel en montant (positif pour augmenter, négatif pour diminuer)"}
+                        </p>
+                      </div>
+                    )}
+
+                    {adjustmentType === "inflation" &&
+                    editingAdjustment &&
+                    getExpenseType(editingAdjustment.rowId) === "fixe" ? (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-slate-700">
+                            Taux d&apos;inflation pour ce poste
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="number"
+                              step="0.1"
+                              value={adjustmentInflationRate}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value) || 0
+                                setAdjustmentInflationRate(value)
+                              }}
+                              className="w-full"
+                            />
+                            <span className="text-sm text-slate-600">%</span>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Taux actuel du poste (défaut) : {getInflationRate(editingAdjustment.rowId).toFixed(1)} % —
+                            taux global du tableau : {inflationRate.toFixed(1)} %
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setAdjustmentInflationRate(inflationRate)}
+                            className="text-xs"
+                          >
+                            Reprendre le taux global ({inflationRate.toFixed(1)} %)
+                          </Button>
+                        </div>
+                      </div>
+                    ) : adjustmentType === "amount" ? (
                       <div>
                         <label className="mb-2 block text-sm font-medium text-slate-700">
                           Montant de l&apos;ajustement ($)
@@ -7029,7 +7706,7 @@ export function IncomeStatementDetail({
                     )}
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Type d&apos;ajustement</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-700">Récurrence</label>
                       <Select
                         value={adjustmentIsRecurring ? "recurring" : "non-recurring"}
                         onValueChange={(value) => setAdjustmentIsRecurring(value === "recurring")}
@@ -7043,13 +7720,17 @@ export function IncomeStatementDetail({
                         </SelectContent>
                       </Select>
                       <p className="mt-1 text-xs text-slate-500">
-                        {adjustmentType === "amount"
+                        {adjustmentType === "inflation"
                           ? adjustmentIsRecurring
-                            ? "L'ajustement continuera dans les années suivantes avec l'inflation"
-                            : "L'ajustement s'appliquera uniquement à cette année"
-                          : adjustmentIsRecurring
-                            ? "Le nouveau pourcentage sera utilisé pour toutes les années suivantes"
-                            : "Le nouveau pourcentage s'appliquera uniquement à cette année, puis retour au taux initial"}
+                            ? "Ce taux s'applique à la croissance de cette année et des années projetées suivantes"
+                            : "Ce taux s'applique uniquement à la croissance entre l'année précédente et cette année"
+                          : adjustmentType === "amount"
+                            ? adjustmentIsRecurring
+                              ? "L'ajustement continuera dans les années suivantes avec l'inflation"
+                              : "L'ajustement s'appliquera uniquement à cette année"
+                            : adjustmentIsRecurring
+                              ? "Le nouveau pourcentage sera utilisé pour toutes les années suivantes"
+                              : "Le nouveau pourcentage s'appliquera uniquement à cette année, puis retour au taux initial"}
                       </p>
                     </div>
 
@@ -7065,15 +7746,6 @@ export function IncomeStatementDetail({
                     </div>
                   </div>
 
-                  <div className="mt-6 flex flex-col gap-2 border-t border-slate-200/70 pt-4 sm:flex-row sm:justify-end">
-                    <Button
-                      className="w-full sm:w-auto"
-                      onClick={saveAdjustment}
-                      disabled={adjustmentType === "amount" ? adjustmentAmount === 0 : adjustmentPercentage === 0}
-                    >
-                      {editingAdjustmentId ? "Enregistrer les modifications" : "Ajouter l'ajustement"}
-                    </Button>
-                  </div>
                 </div>
 
                 {/* Droite : ajustements existants */}
@@ -7097,7 +7769,9 @@ export function IncomeStatementDetail({
                                   <span className="font-semibold text-slate-900">
                                     {expenseAdj.type === "amount"
                                       ? formatCurrency(expenseAdj.amount || 0)
-                                      : `${expenseAdj.percentage?.toFixed(1)}%`}
+                                      : expenseAdj.type === "inflation"
+                                        ? `${(expenseAdj.inflationRate ?? getInflationRate(expenseAdj.rowId)).toFixed(1)} % inflation`
+                                        : `${expenseAdj.percentage?.toFixed(1)}%`}
                                   </span>
                                   <span
                                     className={cn(
@@ -7106,28 +7780,32 @@ export function IncomeStatementDetail({
                                         ? expenseAdj.isRecurring
                                           ? "bg-purple-100 text-purple-700"
                                           : "bg-blue-100 text-blue-700"
-                                        : expenseAdj.isRecurring
-                                          ? "bg-green-100 text-green-700"
-                                          : "bg-orange-100 text-orange-700"
+                                        : expenseAdj.type === "inflation"
+                                          ? expenseAdj.isRecurring
+                                            ? "bg-purple-100 text-purple-700"
+                                            : "bg-orange-100 text-orange-700"
+                                          : expenseAdj.isRecurring
+                                            ? "bg-green-100 text-green-700"
+                                            : "bg-orange-100 text-orange-700"
                                     )}
                                   >
-                                    {expenseAdj.type === "amount"
-                                      ? expenseAdj.isRecurring
-                                        ? "Récurrent"
-                                        : "Non récurrent"
-                                      : expenseAdj.isRecurring
-                                        ? "Récurrent"
-                                        : "Non récurrent"}
+                                    {expenseAdj.isRecurring ? "Récurrent" : "Non récurrent"}
                                   </span>
                                   <span
                                     className={cn(
                                       "rounded px-2 py-0.5 text-xs",
                                       expenseAdj.type === "amount"
                                         ? "bg-slate-100 text-slate-700"
-                                        : "bg-indigo-100 text-indigo-700"
+                                        : expenseAdj.type === "inflation"
+                                          ? "bg-purple-100 text-purple-700"
+                                          : "bg-indigo-100 text-indigo-700"
                                     )}
                                   >
-                                    {expenseAdj.type === "amount" ? "Montant ($)" : "Pourcentage (%)"}
+                                    {expenseAdj.type === "amount"
+                                      ? "Montant ($)"
+                                      : expenseAdj.type === "inflation"
+                                        ? "Inflation (%)"
+                                        : "Pourcentage (%)"}
                                   </span>
                                 </div>
                                 {expenseAdj.note ? (
@@ -7167,8 +7845,121 @@ export function IncomeStatementDetail({
                 </div>
               </div>
             </div>
-          </div>
-        </div>
+            </TabsContent>
+            <TabsContent
+              value="decaissement"
+              className="mt-0 min-h-0 min-w-0 max-w-full flex-1 outline-none focus-visible:ring-0"
+            >
+              <div className={cn("mt-2 pr-0.5", embedded && "min-w-0 max-w-full")}>
+                <ForecastCollectionCashEditor
+                  variant="decaissement"
+                  embedded={embedded}
+                  yearLabel={yearLabel}
+                  followingYearsLabel={followingYearsLabel}
+                  canReplicateToFollowingYears={canReplicateToFollowingYears}
+                  replicateToFollowingYears={replicateExpenseDisbursementToFollowingYears}
+                  onReplicateChange={(on) => {
+                    setReplicateExpenseDisbursementToFollowingYears(on)
+                    if (on) setReplicateExpenseSeasonalityToFollowingYears(false)
+                  }}
+                  replicateCheckboxId="expense-hypothesis-replicate-disbursement"
+                  badDebtPercent={expenseDisbursementBadDebtPercent}
+                  onBadDebtPercentChange={setExpenseDisbursementBadDebtPercent}
+                  buckets={expenseDisbursementBuckets}
+                  onBucketsChange={setExpenseDisbursementBuckets}
+                  customDelayDrafts={expenseCustomDelayDrafts}
+                  onCustomDelayDraftsChange={setExpenseCustomDelayDrafts}
+                />
+              </div>
+            </TabsContent>
+            <TabsContent
+              value="saisonnalite"
+              className="mt-0 min-h-0 min-w-0 max-w-full flex-1 outline-none focus-visible:ring-0"
+            >
+              <div className={cn("pr-0.5", embedded && "min-w-0 max-w-full")}>
+                {!isVariableExpense ? (
+                  <p className="mb-3 text-xs text-slate-500">
+                    Poste fixe : la saisonnalité ci-dessous décrit la répartition mensuelle de la dépense, indépendamment
+                    des revenus.
+                  </p>
+                ) : null}
+                <ForecastSeasonalityEditor
+                  variant="depense"
+                  embedded={embedded}
+                  yearLabel={yearLabel}
+                  followingYearsLabel={followingYearsLabel}
+                  canReplicateToFollowingYears={canReplicateToFollowingYears}
+                  replicateToFollowingYears={replicateExpenseSeasonalityToFollowingYears}
+                  onReplicateChange={(on) => {
+                    setReplicateExpenseSeasonalityToFollowingYears(on)
+                    if (on) setReplicateExpenseDisbursementToFollowingYears(false)
+                  }}
+                  replicateCheckboxId="expense-hypothesis-replicate-seasonality"
+                  monthPercents={expenseSeasonalityMonthPercents}
+                  onMonthPercentsChange={setExpenseSeasonalityMonthPercents}
+                  showPreRevenueNeed={isVariableExpense}
+                  preRevenueNeedEnabled={expensePreRevenueNeedEnabled}
+                  onPreRevenueNeedEnabledChange={setExpensePreRevenueNeedEnabled}
+                  preRevenueAdvanceDays={expensePreRevenueAdvanceDays}
+                  onPreRevenueAdvanceDaysChange={setExpensePreRevenueAdvanceDays}
+                  preRevenueCheckboxId="expense-hypothesis-pre-revenue-need"
+                  overlayLine={
+                    linkedRevenueSeasonality
+                      ? {
+                          monthPercents: linkedRevenueSeasonality.monthPercents,
+                          label: linkedRevenueSeasonality.linkLabel,
+                        }
+                      : undefined
+                  }
+                  linkedRevenueSeasonalityApply={
+                    linkedRevenueSeasonality
+                      ? {
+                          label: linkedRevenueSeasonality.linkLabel,
+                          monthPercents: linkedRevenueSeasonality.monthPercents,
+                        }
+                      : undefined
+                  }
+                  afterReplicate={
+                    isVariableExpense ? (
+                      <div className="space-y-2">
+                        <label className="mb-1.5 block text-xs font-medium text-slate-800">
+                          Variation en fonction des revenus
+                        </label>
+                        <Select
+                          value={variableRevenueLinkValue}
+                          onValueChange={(v) => setVariableExpenseRevenueLinkForRow(expenseRowId, v)}
+                        >
+                          <SelectTrigger className="h-9 w-full text-xs">
+                            <SelectValue placeholder="Choisir la base de revenus" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {variableExpenseRevenueSelectOptions.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-[11px] leading-relaxed text-slate-600">
+                          {variableRevenueLinkValue === "__default__"
+                            ? "Cette dépense suit le total des revenus (estimation globale). La courbe bleue en pointillés reprend la saisonnalité de ce total pour "
+                            : "Cette dépense suit un poste de revenus précis. La courbe bleue en pointillés reprend la saisonnalité de ce poste pour "}
+                          <span className="font-medium text-slate-800">{yearLabel}</span>.
+                          {linkedRevenueSeasonality &&
+                          !getRevenueAdjustments(linkedRevenueSeasonality.revenueRowId, yearIndex).length ? (
+                            <span className="mt-1 block text-amber-800">
+                              Aucune hypothèse de saisonnalité enregistrée pour ces revenus : répartition uniforme
+                              affichée.
+                            </span>
+                          ) : null}
+                        </p>
+                      </div>
+                    ) : undefined
+                  }
+                />
+              </div>
+            </TabsContent>
+          </Tabs>
       </div>
     )
   }
@@ -8498,11 +9289,15 @@ export function IncomeStatementDetail({
                       {row.trendValues.map((value, valueIdx) => {
                         const annexLetterNorm = normalizeAnnexLetter(String(row.annexLetter ?? ""))
                         const annexForecastTotalsForRow =
-                          title === "Estimation des revenus annuels" &&
                           isForecastSection &&
                           row.isAnnexSubtotal &&
                           annexLetterNorm
-                            ? revenueAnnexForecastYearTotalsByLetter?.get(annexLetterNorm)
+                            ? (title === "Estimation des revenus annuels"
+                                ? revenueAnnexForecastYearTotalsByLetter
+                                : title === "Estimation des dépenses annuelles"
+                                  ? expenseAnnexForecastYearTotalsByLetter
+                                  : undefined
+                              )?.get(annexLetterNorm)
                             : undefined
                         // Get the actual value (edited or default) for forecast sections
                         const actualValue = isForecastSection && row.rowId 
@@ -8856,7 +9651,7 @@ export function IncomeStatementDetail({
                           colSpan={1 + getYearLabels().length}
                           className="min-w-0 p-0 align-top"
                         >
-                          <div className="min-w-0 max-w-full overflow-x-auto px-2 pb-4 pt-1 sm:px-4 sm:pb-5 sm:pt-2">
+                          <div className="min-w-0 max-w-full overflow-x-auto px-3 py-3 sm:px-5 sm:py-4">
                             {renderRevenueHypothesisPanel(true)}
                           </div>
                         </td>
@@ -8874,7 +9669,7 @@ export function IncomeStatementDetail({
                           colSpan={3 + getYearLabels().length}
                           className="min-w-0 p-0 align-top"
                         >
-                          <div className="min-w-0 max-w-full overflow-x-auto px-2 pb-4 pt-1 sm:px-4 sm:pb-5 sm:pt-2">
+                          <div className="min-w-0 max-w-full overflow-x-auto px-3 py-3 sm:px-5 sm:py-4">
                             {renderExpenseHypothesisPanel(true)}
                           </div>
                         </td>

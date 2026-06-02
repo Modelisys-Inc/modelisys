@@ -40,4 +40,3 @@ def downgrade() -> None:
     op.drop_column("projections", "start_month")
     op.drop_column("projections", "start_year")
     op.drop_column("projections", "projection_horizon")
-
