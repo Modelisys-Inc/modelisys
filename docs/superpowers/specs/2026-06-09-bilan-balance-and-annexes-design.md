@@ -27,14 +27,20 @@ report appearance order, the "Lettre" field becomes a computed, read-only value.
   - Current single-period balance check: lines ~650-665 (`balanceEcart`,
     `showBalanceMismatch`).
   - Amber banner: lines ~1693-1706.
-  - Per-column values live in each `SummaryRow.trendValues` (aligned arrays).
-    The multi-column views are `12months`, `quarters`, `years` (render
-    `trendValues.map(...)`, lines ~2337-2419). The default view is two columns
-    (`current` / `prior`) plus a third delta column. There is **no** `comparison`
-    view in the render path.
-  - `columnMode` switches every column between raw amount (default), `percentage`,
-    `variationAmount`, and `variationPercent`. Indicators are only meaningful
-    when columns show **raw amounts**.
+  - `view` ∈ {`current`, `comparison`, `ytd`, `ddm`, `12months`, `quarters`,
+    `years`} (prop type line ~96).
+  - **Per-period multi-column views:** `12months` (12 cols), `quarters` (5),
+    `years` (6) render `row.trendValues.map(...)` (lines ~2337-2419). These are
+    the "each month / period" views.
+  - **Two-period views** (`comparison` non-entity, `ddm`, `ytd`) render
+    `current` | `prior` | delta (lines ~2201-2304). `comparison` +
+    `isComparisonMode` renders one column **per entity** (line ~2241).
+    `current` is a single column (line ~2195).
+  - `columnMode` ∈ {`variationAmount` (**default**, line ~198), `variationPercent`,
+    `percentage`, `comparison`}. It only changes how a column is *displayed*;
+    `trendValues` always holds the **raw balances**, and `percentage` / variation
+    columns are derived from them. So the balance écart is computable from
+    `trendValues` regardless of `columnMode`.
 - `frontend/lib/income-statement-structure-utils.ts`
   - `nextAnnexIdentifier()` (lines ~74-90): current check-order, max+1 assignment.
   - `newChargeRow()` (lines ~114-131): defaults `showInDetail: true`.
@@ -53,15 +59,16 @@ report appearance order, the "Lettre" field becomes a computed, read-only value.
 (Total des actifs == Total passifs et capitaux propres).
 
 **Computation.** Generalize the existing scalar `balanceEcart` into a per-column
-écart derived from the two total rows' aligned `trendValues` arrays (and
-`current` / `prior` for the two-column view):
+écart derived from the two total rows' aligned `trendValues` arrays:
 
 ```
 ecartForColumn(i) = totalAssetsRow.trendValues[i] - liabilitiesEquityRow.trendValues[i]
 ```
 
-Tolerance stays $1 (`Math.abs(ecart) >= 1` is a mismatch), matching today. If
-either total row is missing (custom structure), no indicators render.
+Because `trendValues` holds raw balances irrespective of `columnMode`, this écart
+is valid in every display mode. Tolerance stays $1 (`Math.abs(ecart) >= 1` is a
+mismatch), matching today. If either total row is missing (custom structure), no
+indicators render.
 
 **Display.** A compact indicator aligned under each period column, rendered
 directly beneath the "Total passifs et capitaux propres" row:
@@ -72,13 +79,23 @@ directly beneath the "Total passifs et capitaux propres" row:
 This indicator row reuses the same per-column layout/width as the value columns
 so each marker sits under its column.
 
-**Where it renders (precise).** Only in views `12months` / `quarters` / `years`,
-**and only when `columnMode` is the raw-amount mode** (not `percentage`,
-`variationAmount`, or `variationPercent`) — under those other modes the columns
-are deltas/percentages, where a balance écart marker is meaningless, so the
-indicator row is suppressed. The first leading label column(s) get an empty cell;
-each amount column gets its marker. The existing amber banner is retained for the
-two-column `current` / `prior` view (covers the single reference period).
+**Where it renders (precise).** Only in the per-period multi-column views
+`12months` / `quarters` / `years` — one marker under each period column, aligned
+to the same `trendValues.map` columns. **Independent of `columnMode`** (the marker
+reflects whether that period's bilan balances, which is true/false regardless of
+whether the column displays the raw amount, a variation, or a percentage). The
+leading label column gets an empty cell.
+
+Decision recorded: I considered gating on a raw-amount `columnMode` (and a
+`isRawAmountColumnMode` helper) but rejected it — gating would hide the balance
+status in the default `variationAmount` mode, which is exactly when a 12-month
+scan needs it, and it reintroduces the "is the default raw?" hazard. If we later
+decide the marker should only appear in `comparison` (raw-amount) mode, add
+`isRawAmountColumnMode(m) => m === "comparison"` and gate on it.
+
+The two-period / single / entity views (`current`, `comparison`, `ddm`, `ytd`)
+keep the **existing amber banner** (covers the single reference period); no
+per-column markers there.
 
 **Gating.** Only when `showBalanceWarning` is true (same prop that gates the
 banner today), so pro-forma and other embeddings are unaffected.
@@ -167,7 +184,10 @@ is no longer user-fillable, so the error is unreachable and misleading.
 - Missing total rows (Change 1): render no indicators (no crash).
 - Differing `trendValues` lengths between the two total rows: iterate the shorter
   length; columns beyond it get no indicator.
-- Non-raw `columnMode` (Change 1): indicator row suppressed entirely.
+- Two-period / entity / single views (`current`, `comparison`, `ddm`, `ytd`,
+  Change 1): no per-column markers; existing banner applies.
+- Any `columnMode` in the trend views (Change 1): markers still render, computed
+  from raw `trendValues` (display mode does not affect balance status).
 - First toggle from blank (Change 4): row is `showInDetail: true`,
   `annexLetter: ""`; block detection keys on `showInDetail`, so it correctly
   receives `A` / `1`.
@@ -192,8 +212,9 @@ is no longer user-fillable, so the error is unreachable and misleading.
   children and leaves no gaps; saving a structure with out-of-order ids normalizes
   before validation (no "renseignez la lettre" error).
 - **Playwright e2e:**
-  - Bilan Sommaire shows per-column ✓ when every month balances and ✗ + écart on
-    a deliberately unbalanced column.
+  - Bilan Sommaire (12months view) shows per-column ✓ when every month balances
+    and ✗ + écart on a deliberately unbalanced month; markers appear in the
+    default `variationAmount` mode (not only the amounts mode).
   - Adding a new structure row does not create an annexe by default.
   - Ticking annexe checkboxes out of order yields identifiers in report
     appearance order; the "Lettre" field is read-only.
