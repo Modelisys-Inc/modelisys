@@ -121,7 +121,10 @@ export function renumberAnnexesByAppearance(
     }
     if (isStructureRowDetailOnly(row)) {
       // Sous-ligne détail : hérite de l'annexe du bloc en cours (si contiguë).
-      if (currentId) row.annexLetter = currentId
+      // Orpheline (aucun bloc parent contigu, ex. données héritées d'un ancien
+      // décochage sans nettoyage) : on efface la lettre périmée pour éviter qu'elle
+      // ne se rattache par erreur à une annexe renumérotée différente.
+      row.annexLetter = currentId ?? undefined
       continue
     }
     // Ligne sommaire : démarre un nouveau bloc si la case « Annexe » est cochée.

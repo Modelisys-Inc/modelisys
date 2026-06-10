@@ -152,6 +152,12 @@ rows in the block receive the same new identifier.
   existing bijective base-26 encoder for letters.
 - Non-annexe rows (empty-label, hidden, `showInDetail !== true` and not a
   `detailOnly` continuation) are passed through unchanged and do not consume an id.
+- **Orphan `detailOnly` rows** (a `detailOnly` row with no contiguous parent block
+  — e.g. left behind by the old uncheck behavior that did not remove children) have
+  their stale `annexLetter` **cleared** during normalization, so they cannot
+  mis-attach to an unrelated renumbered annexe. The row itself is kept (a spacer
+  between a title and its sub-lines is an unlikely-but-legitimate case not worth
+  destroying).
 - **Legacy non-contiguous duplicates:** two non-contiguous summary rows that today
   share an identifier become **separate** annexes (each contiguous block gets its
   own new id). This is the single explicit rule — "block = contiguous run"
@@ -223,25 +229,35 @@ is no longer user-fillable, so the error is unreachable and misleading.
 
 ## Testing
 
-- **Unit (lib):** `renumberAnnexesByAppearance` for letters and numbers —
-  appearance order; **first block from a blank (`annexLetter: ""`,
-  `showInDetail: true`) row gets `A` / `1`**; gap closing after disable;
-  `detailOnly` sub-line inheritance; legacy non-contiguous duplicates split into
-  separate annexes; no-op on empty. `newChargeRow` defaults `showInDetail: false`.
-  `isAnnexLetterInputEditable` returns false for auto annexe rows **and**
-  `detailOnly` rows.
-- **Unit (hook):** disabling an annexe removes its contiguous `detailOnly`
-  children and leaves no gaps; saving a structure with out-of-order ids normalizes
-  before validation (no "renseignez la lettre" error).
-- **Playwright e2e:**
-  - Bilan Sommaire (12months view) shows per-column ✓ when every month balances
-    and ✗ + écart on a deliberately unbalanced month; markers appear in the
-    default `variationAmount` mode (not only the amounts mode).
-  - Adding a new structure row does not create an annexe by default.
-  - Ticking annexe checkboxes out of order yields identifiers in report
-    appearance order; the "Lettre" field is read-only.
-  - Update/extend `frontend/e2e/annex-auto-increment.spec.ts` for the
-    appearance-order behavior.
+Tooling note: the frontend had no JS unit runner (Playwright e2e only). **vitest**
+was added (`pnpm test:unit`, scoped to `lib/**` + `hooks/**` via `vitest.config.ts`
+so it never picks up the Playwright `e2e/*.spec.ts`). `renumberAnnexesByAppearance`
+is self-contained, so it is unit-tested directly.
+
+- **Unit (lib) — delivered** in `lib/__tests__/income-statement-structure-utils.test.ts`
+  (13 tests, green): `renumberAnnexesByAppearance` for letters and numbers —
+  appearance order; first block from a blank (`annexLetter: ""`,
+  `showInDetail: true`) row gets `A` / `1`; earlier-position annexe wins over a
+  later pre-lettered one; `detailOnly` sub-line inheritance; legacy non-contiguous
+  duplicates split into separate annexes; orphan `detailOnly` letter cleared;
+  empty / hidden / unchecked rows consume no id; no-op on empty; **no input
+  mutation**. `newChargeRow` defaults `showInDetail: false`.
+  `isAnnexLetterInputEditable` returns false for annexe rows **and** `detailOnly`.
+- **e2e (hook behavior)** covers disabling an annexe removing its contiguous
+  `detailOnly` children + gap-free renumber, and load-time normalization of stale
+  ids (a `save()`-path unit test is not added because the hook is a React hook,
+  not a pure function; the gap-close path is exercised via e2e).
+- **Playwright e2e — delivered:**
+  - `balance-sheet-balance-warning.spec.ts`: Bilan Sommaire (forced 12months view)
+    shows per-column ✓ when balanced and an écart-flagged column when not, in the
+    default `variationAmount` mode; the reference-period banner still shows.
+  - `annex-auto-increment.spec.ts` (rewritten): identifiers follow report order not
+    check order (income + balance), stale ids normalized on load, the "Lettre"
+    field is read-only, and disabling a middle annexe closes the gap.
+  - Change 3 (no annexe by default) is covered indirectly: the appearance-order
+    specs render `showInDetail:false` rows with an unchecked Annexe box and empty
+    letter (the new-row default state); a dedicated add-post-dialog e2e was judged
+    low-value vs. the fragile multi-step modal.
 
 ## Out of scope
 
