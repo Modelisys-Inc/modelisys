@@ -661,8 +661,28 @@ export function BalanceSheetSummary({
     totalAssetsRow && liabilitiesEquityRow
       ? totalAssetsRow.current - liabilitiesEquityRow.current
       : null
+  // Vues multi-périodes (12 mois / trimestres / années) : une colonne par période.
+  const isBalanceTrendView = view === "12months" || view === "quarters" || view === "years"
+  // Bannière : déséquilibre de la période de référence (toutes vues). Dans les
+  // vues multi-périodes, les indicateurs par colonne s'ajoutent (détail par période).
   const showBalanceMismatch =
     showBalanceWarning && balanceEcart !== null && Math.abs(balanceEcart) >= 1
+
+  // Équilibre par colonne (vues multi-périodes) : écart Total des actifs −
+  // Total passifs et capitaux propres pour chaque période. Calculé sur les
+  // `trendValues` bruts (indépendant du mode d'affichage des colonnes).
+  const balanceTrendEcarts: number[] =
+    totalAssetsRow?.trendValues && liabilitiesEquityRow?.trendValues
+      ? (() => {
+          const a = totalAssetsRow.trendValues as number[]
+          const l = liabilitiesEquityRow.trendValues as number[]
+          const n = Math.min(a.length, l.length)
+          return Array.from({ length: n }, (_, i) => (a[i] ?? 0) - (l[i] ?? 0))
+        })()
+      : []
+  const showBalanceTrendIndicators =
+    showBalanceWarning && isBalanceTrendView && balanceTrendEcarts.length > 0
+
   const totalAssetsPrior = totalAssetsRow?.prior || 1
   const totalAssetsTrendValues = totalAssetsRow?.trendValues ?? []
 
@@ -2438,6 +2458,43 @@ export function BalanceSheetSummary({
                     </>
                   )}
                 </tr>
+                {showBalanceTrendIndicators &&
+                  !showStructureCols &&
+                  row.label.toLowerCase() === "total passifs et capitaux propres" && (
+                    <tr className="border-b border-b-slate-200 bg-slate-50/40">
+                      <td className="whitespace-nowrap px-6 py-1.5 text-xs font-medium uppercase tracking-wide text-slate-400">
+                        Équilibre
+                      </td>
+                      {(row.trendValues ?? []).map((_, colIdx) => {
+                        const ecart = balanceTrendEcarts[colIdx]
+                        if (ecart === undefined) return <td key={colIdx} className="px-6 py-1.5" />
+                        const balanced = Math.abs(ecart) < 1
+                        return (
+                          <td key={colIdx} className="px-6 py-1.5 text-right align-middle">
+                            {balanced ? (
+                              <span
+                                className="inline-flex items-center justify-end text-emerald-600"
+                                title="Équilibré"
+                              >
+                                <CheckCircle2 className="h-4 w-4" aria-hidden />
+                                <span className="sr-only">Équilibré</span>
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center justify-end gap-1 text-amber-600"
+                                title={`Déséquilibre : écart ${formatCurrency(ecart)}`}
+                              >
+                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                <span className="text-[11px] font-semibold tabular-nums">
+                                  {formatCurrency(ecart)}
+                                </span>
+                              </span>
+                            )}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )}
                 {canExpand && isExpanded && row.balanceAccounts?.map((account, accIdx) => {
                   const accountVariation =
                     account.priorAmount !== undefined && account.amount && account.priorAmount

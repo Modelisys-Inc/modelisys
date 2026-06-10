@@ -328,7 +328,7 @@ export function IncomeStatementStructureStudioCols({
               placeholder="A"
               title={
                 !isAnnexLetterInputEditable(structRow)
-                  ? "Activez « Annexe » pour saisir une lettre (inutile pour addition / soustraction)."
+                  ? "Identifiant attribué automatiquement selon l’ordre d’apparition de l’annexe dans le rapport."
                   : undefined
               }
               className={cn(

@@ -16,14 +16,14 @@ import {
   newChargeRow,
   newDetailSubLineRow,
   newEmptySpacerSummaryRow,
-  nextAnnexIdentifier,
-  normalizeAnnexLetter,
   normalizeCodeList,
   normalizeDtCt,
   normalizeLiaisonMode,
+  renumberAnnexesByAppearance,
   stripObsoleteIncomeStatementStructureRows,
   validateDuplicatePrimaryLinkCodes,
 } from "@/lib/income-statement-structure-utils"
+import type { AnnexScheme } from "@/lib/income-statement-structure-utils"
 
 export type StatementStructureEditKind = Extract<StatementType, "income-statement" | "balance-sheet" | "cash-flow">
 
@@ -42,6 +42,12 @@ export function useStatementStructureEdit(
     [structure, statementType]
   )
 
+  /** Schéma d'identifiant d'annexe : nombres pour le bilan, lettres sinon. */
+  const annexScheme: AnnexScheme = useMemo(
+    () => (statementType === "balance-sheet" ? "number" : "letter"),
+    [statementType]
+  )
+
   /** Indices globaux pour la grille Paramètres Sommaire (sans lignes `detailOnly`). */
   const summaryStructureDisplayIndices = useMemo(
     () =>
@@ -56,11 +62,14 @@ export function useStatementStructureEdit(
     try {
       const data = await getStatementStructure(companyId, statementType)
       const raw = cloneStructure(data.structure ?? [])
-      setStructure(
+      const cleaned =
         statementType === "income-statement"
           ? stripObsoleteIncomeStatementStructureRows(raw)
           : raw
-      )
+      // Normaliser les identifiants d'annexe selon l'ordre d'apparition dès le
+      // chargement : les structures anciennes (identifiants désordonnés) sont
+      // corrigées en mémoire et le champ « Lettre » (lecture seule) est exact.
+      setStructure(renumberAnnexesByAppearance(cleaned, annexScheme))
     } catch (e) {
       console.error(e)
       setError("Impossible de charger la structure.")
@@ -68,7 +77,7 @@ export function useStatementStructureEdit(
     } finally {
       setLoading(false)
     }
-  }, [companyId, active, statementType])
+  }, [companyId, active, statementType, annexScheme])
 
   useEffect(() => {
     if (active && companyId) void load()
@@ -84,31 +93,34 @@ export function useStatementStructureEdit(
   }, [])
 
   /**
-   * Bascule la case « Annexe » d'une ligne. À l'activation, attribue
-   * automatiquement le prochain identifiant d'annexe (après le plus élevé) si
-   * la ligne n'en a pas encore — lettres pour le compte de résultat, nombres
-   * pour le bilan. À la désactivation, efface lettre et nature (Revenus/Dépenses).
+   * Bascule la case « Annexe » d'une ligne, puis renumérote toutes les annexes
+   * selon leur ordre d'apparition dans le rapport (et non l'ordre de cochage).
+   * À l'activation : `showInDetail = true` ; l'identifiant est attribué par la
+   * renumérotation. À la désactivation : efface lettre et nature, supprime les
+   * sous-lignes `detailOnly` contiguës (sinon orphelines), puis renumérote pour
+   * que les annexes restantes soient sans trou.
    */
   const setShowInDetail = useCallback(
     (index: number, checked: boolean) => {
-      const scheme = statementType === "balance-sheet" ? "number" : "letter"
       setStructure((prev) => {
         if (!prev[index]) return prev
         const next = cloneStructure(prev)
         const row = next[index]
         if (checked) {
           row.showInDetail = true
-          const current = normalizeAnnexLetter(String(row.annexLetter ?? ""))
-          if (!current) row.annexLetter = nextAnnexIdentifier(prev, scheme)
         } else {
           row.showInDetail = false
           row.annexLetter = undefined
           row.posteNature = undefined
+          // Retirer les sous-lignes détail contiguës de cette annexe désactivée.
+          while (index + 1 < next.length && isStructureRowDetailOnly(next[index + 1]!)) {
+            next.splice(index + 1, 1)
+          }
         }
-        return next
+        return renumberAnnexesByAppearance(next, annexScheme)
       })
     },
-    [statementType]
+    [annexScheme]
   )
 
   const newPostRow = useCallback(
@@ -262,10 +274,13 @@ export function useStatementStructureEdit(
         }
         return r
       })
-      const toSave =
+      const cleaned =
         statementType === "income-statement"
           ? stripObsoleteIncomeStatementStructureRows(normalized)
           : normalized
+      // Renuméroter les annexes selon l'ordre d'apparition avant validation /
+      // sauvegarde : chaque annexe possède donc déjà un identifiant.
+      const toSave = renumberAnnexesByAppearance(cleaned, annexScheme)
       const duplicateMsg = validateDuplicatePrimaryLinkCodes(toSave)
       if (duplicateMsg) {
         setError(duplicateMsg)
@@ -311,15 +326,8 @@ export function useStatementStructureEdit(
           setSaving(false)
           return false
         }
-        if (r.showInDetail === true) {
-          if (!String(r.annexLetter ?? "").trim()) {
-            setError(
-              `« ${lab} » : renseignez la lettre d’annexe lorsque la case « Annexe » est activée.`
-            )
-            setSaving(false)
-            return false
-          }
-        }
+        // L'identifiant d'annexe est désormais attribué automatiquement
+        // (renumberAnnexesByAppearance ci-dessus) : plus de validation manuelle.
       }
       await upsertStatementStructure(companyId, statementType, toSave)
       return true
@@ -338,7 +346,7 @@ export function useStatementStructureEdit(
     } finally {
       setSaving(false)
     }
-  }, [companyId, structure, statementType])
+  }, [companyId, structure, statementType, annexScheme])
 
   const discard = useCallback(() => {
     setStructure([])

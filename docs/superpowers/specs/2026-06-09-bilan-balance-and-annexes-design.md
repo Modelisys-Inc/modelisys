@@ -93,9 +93,13 @@ scan needs it, and it reintroduces the "is the default raw?" hazard. If we later
 decide the marker should only appear in `comparison` (raw-amount) mode, add
 `isRawAmountColumnMode(m) => m === "comparison"` and gate on it.
 
-The two-period / single / entity views (`current`, `comparison`, `ddm`, `ytd`)
-keep the **existing amber banner** (covers the single reference period); no
-per-column markers there.
+**Banner coexists (do not suppress).** The existing amber banner reflects the
+**reference period** and is shown in all views (the balance-sheet page forces a
+`12months` trend view when a company is selected — page.tsx:106-108 — so removing
+the banner there would be a regression). In the trend views the per-column markers
+are **added** beneath the totals; the banner stays as the headline. The two-period
+/ single / entity views (`current`, `comparison`, `ddm`, `ytd`) show only the
+banner (no per-column markers).
 
 **Gating.** Only when `showBalanceWarning` is true (same prop that gates the
 banner today), so pro-forma and other embeddings are unaffected.
@@ -133,13 +137,16 @@ creation.
 `renumberAnnexesByAppearance(structure, scheme)` walks the structure array in
 report order and assigns sequential identifiers to each distinct annexe block.
 
-**Block detection — critical.** A block starts at a **summary row with
-`showInDetail === true`** (`isShowInDetail` true, not `detailOnly`), *regardless
-of its current `annexLetter`* — which may be blank on a freshly-toggled row. This
-is the key correction: the renumberer must NOT key off a non-blank `annexLetter`,
-or the first toggle (where `annexLetter === ""`) would never receive an id. The
-block extends through the contiguous `detailOnly` sub-lines immediately following
-that summary row; all rows in the block receive the same new identifier.
+**Block detection — critical.** A block starts at a **non-`detailOnly` summary row
+with strict `showInDetail === true`**, *regardless of its current `annexLetter`*
+— which may be blank on a freshly-toggled row. Two corrections captured here:
+(a) the renumberer must NOT key off a non-blank `annexLetter`, or the first toggle
+(where `annexLetter === ""`) would never receive an id; (b) it uses strict
+`showInDetail === true`, **not** the `isShowInDetail` fallback — otherwise legacy
+rows that are detail-visible only by virtue of a `linkCode` (no checkbox) would be
+assigned annexe ids they never had, a behavior change. The block extends through
+the contiguous `detailOnly` sub-lines immediately following that summary row; all
+rows in the block receive the same new identifier.
 
 - First block → `A` (letter) / `1` (number); second → `B` / `2`; etc., using the
   existing bijective base-26 encoder for letters.
@@ -165,11 +172,25 @@ The function returns a new structure (no mutation), consistent with
 - **In `load()`** (edit-session boundary), after fetch: normalize the loaded
   structure so stale/out-of-order persisted ids are corrected in-memory and the
   read-only field shows the right value.
-- **In `save()`**, on `toSave` **before** the validation loop.
-- **At detail-render build** in `income-statement-detail.tsx` and
-  `balance-sheet-detail.tsx`: apply the same normalization to the structure used
-  to build annexe groups, so never-edited stale structures still display in
-  appearance order (display-only; deterministic, so it equals the post-save value).
+- **In `save()`**, on `toSave` **before** the validation loop. This persists the
+  appearance-ordered `annexLetter` to the DB.
+
+**Implementation finding — detail render is backend-driven (no FE render
+normalization).** The read-only Détail views render `row.annexLetter` from the
+**backend** statement rows (`balance-sheet-detail.tsx` / `income-statement-detail.tsx`
+use `row.annexLetter`, not the structure's). The backend
+(`financial_statements.py:_normalize_annex_letter`) **passes the stored
+`annexLetter` through** — it does not renumber. Therefore the displayed letter is
+the persisted one, and once `save()` persists appearance-ordered letters the
+Détail displays them correctly. A frontend render-time normalization would be dead
+code (the backend value wins), so it is **not** added. The Paramètres edit grid
+uses the hook's `structure`, which is normalized on `load()`, so it is already
+correct in-session.
+
+**Stale data caveat.** Structures saved before this feature and never re-saved
+keep their old order in the read-only Détail until the next save (which renumbers
+and persists). This is acceptable; a backend appearance-order pass could fix it
+later but is out of scope (see below).
 
 **Save validation.** The "showInDetail must have annexLetter" check
 (`use-income-statement-structure-edit.ts` lines ~314-322) is **removed** — with
@@ -194,8 +215,9 @@ is no longer user-fillable, so the error is unreachable and misleading.
 - Disable with sub-lines (Change 4): contiguous `detailOnly` children are removed;
   no orphan rows remain; remaining annexes are gap-free.
 - Empty structure / no annexes (Change 4): normalization is a no-op.
-- Stale persisted structures with out-of-order ids: normalized on load, before
-  save-validation, and at detail render — so display and stored value converge.
+- Stale persisted structures with out-of-order ids: normalized on load and before
+  save; the read-only Détail (backend-driven) reflects the new order after the next
+  save (see "Stale data caveat" above).
 - Legacy non-contiguous duplicate ids: split into separate annexes by contiguous
   block (see Change 4).
 
@@ -223,7 +245,9 @@ is no longer user-fillable, so the error is unreachable and misleading.
 
 ## Out of scope
 
-- Backend annexe numbering changes (numbering is frontend-derived;
-  `annexLetter` round-trips through the API unchanged).
+- Backend annexe numbering changes. The frontend persists appearance-ordered
+  `annexLetter`; the backend passes it through unchanged. A backend appearance-order
+  pass (to fix stale never-resaved structures without an edit) is a possible future
+  addition, not part of this work.
 - Reworking the Détail grouping/subtotal logic beyond consuming the normalized
   identifiers.
