@@ -3,11 +3,14 @@
 import { TrendingUp } from "lucide-react"
 
 const items = [
-  "Croissance des revenus +4% (T4 2025)",
-  "Marge brute 44% • amélioration +2 pts",
-  "BAIIA +9% vs 2024 • trajectoire confirmée",
-  "Trésorerie: 6 mois de visibilité • alertes automatiques",
-  "Valorisation estimée 5,0 M$ (2025) • +10% vs 2024",
+  "Diagnostic — Valeur actuelle : 4,2 M$ · point de départ chiffré",
+  "Diagnostic — Concentration client 45 % · liquidité 1,1",
+  "Vision — Objectif 7 M$ en 3 ans · rend. annualisé +18,6 %",
+  "Vision — Acquisition à 24 mois · fermeture d'une division",
+  "Planification — Besoin de financement : 850 k$ à l'acquisition",
+  "Planification — Fermeture division : +180 k$ de trésorerie · +0,6 M$ de valeur",
+  "Exécution — Réel vs scénario : écart traduit en −80 k$ de valeur",
+  "Ajustement — Scénario recalibré : 5,4 M$ → 7 M$ avec Modelisys",
 ]
 
 export function HeroMarquee() {
@@ -19,7 +22,7 @@ export function HeroMarquee() {
       <div className="relative">
         <div className="marquee-mask">
           <div className="marquee-track">
-            <div className="marquee-row" aria-label="Exemples d'insights financiers générés par Modelisys">
+            <div className="marquee-row" aria-label="Insights de l'approche Modelisys — diagnostic à ajustement">
               {items.map((text) => (
                 <div key={text} className="marquee-item">
                   <span className="marquee-dot" />
@@ -61,7 +64,7 @@ export function HeroMarquee() {
           display: flex;
           width: max-content;
           will-change: transform;
-          animation: marqueeLeft 22s linear infinite;
+          animation: marqueeLeft 30s linear infinite;
         }
 
         .marquee-row {

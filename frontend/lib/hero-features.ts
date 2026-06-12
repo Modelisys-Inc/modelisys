@@ -1,31 +1,29 @@
+import { getApprochePhaseHref, type ApprochePhaseId } from "@/lib/approche-navigation"
+
 /**
- * Libellés de la carte « Fonctionnalités » du hero (ordre d’affichage).
- * Ancres : ids dans `features-section` (`/#slug` depuis la landing).
+ * Libellés de la carte « Notre approche » du hero (ordre d’affichage).
+ * Alignés sur les cinq phases de l’approche Modelisys (`landing-client-journey-section`).
  */
 export const HERO_FEATURE_LABELS = [
-  "Consolidation",
-  "Reporting financier",
-  "Analyse financière",
-  "Projections",
-  "Valorisation",
-  "Documentation",
-  "Collaboration",
+  "Diagnostic",
+  "Vision",
+  "Planification",
+  "Exécution",
+  "Ajustement",
 ] as const
 
 export type HeroFeatureLabel = (typeof HERO_FEATURE_LABELS)[number]
 
-/** Correspondance thématique hero → bloc détaillé sur /#features. */
-export const HERO_FEATURE_ANCHOR_BY_LABEL: Record<HeroFeatureLabel, string> = {
-  Consolidation: "consolidation-financiere",
-  "Reporting financier": "fonds-de-roulement-capex",
-  "Analyse financière": "analyse-financiere-approfondie",
-  Projections: "previsions-budgets",
-  Valorisation: "valorisation-diagnostic",
-  Documentation: "documentation-comptable",
-  Collaboration: "portail-collaboratif",
+/** Correspondance hero → identifiant de phase sur la landing. */
+export const HERO_FEATURE_PHASE_BY_LABEL: Record<HeroFeatureLabel, ApprochePhaseId> = {
+  Diagnostic: "diagnostic",
+  Vision: "vision",
+  Planification: "planification",
+  Exécution: "execution",
+  Ajustement: "ajustement",
 }
 
 export const heroFeatureFooterLinks = HERO_FEATURE_LABELS.map((label) => ({
   title: label,
-  href: `/#${HERO_FEATURE_ANCHOR_BY_LABEL[label]}`,
+  href: getApprochePhaseHref(HERO_FEATURE_PHASE_BY_LABEL[label]),
 }))

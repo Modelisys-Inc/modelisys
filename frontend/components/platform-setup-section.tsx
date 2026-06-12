@@ -7,42 +7,48 @@ const steps: {
   step: number
   icon: ComponentType<{ className?: string }>
   title: string
+  approachPhase: string
   description: string
 }[] = [
   {
     step: 1,
     icon: ClipboardList,
-    title: "Cadrage et diagnostic",
+    title: "Cadrage du déploiement",
+    approachPhase: "Périmètre & usages",
     description:
-      "Nous clarifions vos objectifs de pilotage, votre organisation et le périmètre fonctionnel : entités, flux comptables et usages attendus par les équipes.",
+      "Nous clarifions le périmètre du déploiement : objectifs de pilotage, organisation, entités, flux comptables et usages attendus par vos équipes. Ce cadrage technique pose les bases — sans réaliser à votre place le diagnostic financier ni l'évaluation de valeur.",
   },
   {
     step: 2,
     icon: Database,
     title: "Intégration des données",
+    approachPhase: "Données comptables",
     description:
-      "Connexion de vos sources comptables, définition des périmètres et des règles de consolidation pour alimenter la plateforme avec des données fiables.",
+      "Connexion de vos sources comptables, définition des périmètres et des règles de consolidation pour alimenter la plateforme avec des données fiables et actualisées.",
   },
   {
     step: 3,
     icon: SlidersHorizontal,
     title: "Paramétrage sur mesure",
+    approachPhase: "Structure de la plateforme",
     description:
-      "Configuration des axes d’analyse, des indicateurs, des reportings et des droits utilisateurs selon vos processus et votre gouvernance.",
+      "Configuration des axes d'analyse, des indicateurs, des reportings et des droits utilisateurs selon vos processus et votre gouvernance. L'environnement est prêt à accueillir vos scénarios et objectifs — définis par vos équipes ou dans le cadre d'un accompagnement stratégique.",
   },
   {
     step: 4,
     icon: CheckCircle2,
     title: "Recette et validation",
+    approachPhase: "Validation technique",
     description:
-      "Phases de test avec vos équipes finance et contrôle de gestion : contrôles, ajustements et validation avant passage en environnement de production.",
+      "Tests avec vos équipes finance et contrôle de gestion : cohérence des données, fonctionnement des reportings et des indicateurs avant passage en environnement de production.",
   },
   {
     step: 5,
     icon: Rocket,
-    title: "Mise en production et accompagnement",
+    title: "Mise en production et support",
+    approachPhase: "Go-live & formation",
     description:
-      "Go-live encadré, formation des utilisateurs, documentation et support pour une adoption progressive et durable.",
+      "Go-live encadré, formation des utilisateurs, documentation et support technique pour une adoption progressive. L'accompagnement stratégique — diagnostic, valorisation, projections, analyse des écarts — s'active en option selon le plan choisi.",
   },
 ]
 
@@ -101,14 +107,18 @@ export function PlatformSetupSection() {
             isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Mise en place</p>
-          <h2 className="text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-5xl">
+          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+            Mise en place
+          </p>
+          <h2 className="mt-5 text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-[2.5rem] md:leading-tight">
             Comment nous déployons{" "}
             <span className="text-[#5C5F66]">la plateforme chez vous</span>
           </h2>
-          <p className="mt-5 text-lg leading-relaxed text-[#5C5F66] sm:text-xl">
-            Un parcours structuré en plusieurs étapes pour intégrer Modelisys à votre réalité : de la prise de besoin au
-            suivi après le go-live, avec une équipe dédiée à vos équipes financières.
+          <p className="mt-4 text-base leading-relaxed text-[#5C5F66] sm:text-lg">
+            Cinq étapes pour installer Modelisys chez vous : connexion des données comptables, paramétrage de la
+            plateforme et validation technique avec vos équipes. La plateforme est conçue pour supporter l&apos;approche
+            Modelisys en cinq phases — l&apos;évaluation initiale, les projections, l&apos;analyse des écarts et le suivi
+            stratégique relèvent, eux, d&apos;un plan d&apos;accompagnement optionnel.
           </p>
           <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent lg:mx-0 mx-auto" />
         </div>
@@ -194,7 +204,10 @@ export function PlatformSetupSection() {
                   </span>
                 </div>
                 <div className="min-w-0 pt-0.5">
-                  <h3 className="text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">{item.title}</h3>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]/90">
+                    {item.approachPhase}
+                  </p>
+                  <h3 className="mt-1.5 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">{item.title}</h3>
                   <p className="mt-3 text-base leading-relaxed text-[#5C5F66] sm:text-[17px]">{item.description}</p>
                 </div>
               </li>

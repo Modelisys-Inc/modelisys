@@ -2,15 +2,14 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { GlassmorphismNav } from "@/components/glassmorphism-nav"
 import { Footer } from "@/components/footer"
-import { AboutHeroMarquee } from "@/components/about-hero-marquee"
-import { AboutHeroSection } from "@/components/about-hero-section"
+import { AboutQuebecHeroSection } from "@/components/about-quebec-hero-section"
 import { AboutOurStorySection } from "@/components/about-our-story-section"
 import { ArrowUpRight } from "lucide-react"
 
 export const metadata: Metadata = {
   title: "À propos | Modelisys",
   description:
-    "Modelisys — plateforme SaaS de gestion financière pour PME et groupes multi-entités, fièrement québécoise. Notre histoire et équipe fondatrice.",
+    "Modelisys — plateforme de pilotage financier et de trajectoire de valeur pour PME et groupes multi-entités. Notre histoire, notre approche en cinq phases et notre équipe fondatrice.",
 }
 
 export default function AProposPage() {
@@ -18,58 +17,7 @@ export default function AProposPage() {
     <div className="relative min-h-screen overflow-hidden bg-[#1a1d24]">
       <GlassmorphismNav />
 
-      <AboutHeroSection />
-      <AboutHeroMarquee />
-
-      {/* 100 % québécois — sous la bande « Fièrement québécois », même langage visuel que « Pour qui » */}
-      <section
-        id="quebec"
-        className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 scroll-mt-28 overflow-hidden"
-      >
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-3">
-            <div className="bg-[#2A2F3A]" />
-            <div className="bg-[#262B36] lg:border-x lg:border-white/5" />
-            <div className="bg-[#1F2430]" />
-          </div>
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -top-24 -left-28 h-[520px] w-[520px] rounded-full bg-white/5 blur-3xl" />
-            <div className="absolute -bottom-28 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
-          </div>
-        </div>
-
-        <div className="relative z-10 mx-auto max-w-[1920px] px-5 pb-10 pt-12 sm:px-10 sm:pb-12 sm:pt-14 lg:px-14 lg:pb-14 lg:pt-16 xl:px-20 2xl:px-24">
-          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.22em] text-slate-300/95">
-            Une entreprise 100 % québécoise
-          </p>
-          <h2 className="mt-5 max-w-3xl text-3xl font-semibold tracking-tight text-[#E6D6C3] sm:text-4xl md:text-[2.5rem] md:leading-tight">
-            Fondée, développée et opérée à{" "}
-            <span className="text-[#C9B8A5]/95">Québec</span>
-          </h2>
-          <p className="mt-4 mb-8 max-w-2xl text-base leading-[1.65] text-[#C9B8A5]/85 sm:mb-10 sm:text-lg lg:mb-12">
-            Nous croyons que les PME québécoises méritent des outils financiers conçus par des gens qui comprennent leur
-            réalité : leur langue, leurs normes comptables, leur structure fiscale, leur rapport aux banques et aux
-            cabinets comptables locaux. Choisir Modelisys, c&apos;est aussi choisir d&apos;investir dans l&apos;écosystème
-            technologique québécois — et de travailler avec une équipe joignable, imputable et ancrée ici.
-          </p>
-        </div>
-
-        <div aria-hidden className="relative h-16 overflow-hidden bg-[#1F2430] sm:h-20">
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute -bottom-8 left-1/3 h-56 w-56 rounded-full bg-[#E6D6C3]/10 blur-3xl" />
-          </div>
-          <svg
-            viewBox="0 0 1440 120"
-            preserveAspectRatio="none"
-            className="absolute inset-x-0 bottom-0 h-full w-full text-slate-100"
-          >
-            <path
-              d="M0,30 C180,95 360,95 540,60 C720,25 900,25 1080,60 C1230,90 1335,95 1440,75 L1440,120 L0,120 Z"
-              fill="currentColor"
-            />
-          </svg>
-        </div>
-      </section>
+      <AboutQuebecHeroSection />
 
       <div className="relative z-10 bg-slate-100/90">
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -152,9 +100,9 @@ export default function AProposPage() {
                           produit, par division ou par société, de préparer des budgets, de bâtir des projections et de
                           suivre l&apos;évolution de leurs résultats réels comparativement à ces repères — simplement parce
                           qu&apos;aucun outil ne le permettait facilement. C&apos;est de ce constat que Modelisys est né.
-                          Aujourd&apos;hui, en tant que
-                          cofondateur et PDG, Tristan porte la vision du produit, définit et priorise les fonctionnalités,
-                          et assure l&apos;accompagnement comptable et financier des clients — en lien direct avec les
+                          Aujourd&apos;hui, en tant que cofondateur et PDG, Tristan porte la vision du produit et de
+                          l&apos;approche Modelisys, définit et priorise les fonctionnalités, et conduit
+                          l&apos;accompagnement stratégique lorsque les clients le choisissent — en lien direct avec les
                           équipes et les partenaires, il ancre ces responsabilités dans une connaissance concrète de
                           l&apos;analyse financière, de la consolidation, de la valorisation et des échanges avec les
                           cabinets, afin que Modelisys reste alignée sur les attentes des professionnels et la réalité des

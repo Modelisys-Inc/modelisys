@@ -7,21 +7,32 @@ import {
   BarChart3,
   Briefcase,
   Building2,
-  CheckCircle2,
   FileText,
   Layers,
   Store,
-  Target,
   Wallet,
 } from "lucide-react"
+import {
+  APPROCHE_PHASE_IDS,
+  navigateToApprochePhase,
+  type ApprochePhaseId,
+} from "@/lib/approche-navigation"
+
+const PHASE_FULL_LABELS: Record<ApprochePhaseId, string> = {
+  diagnostic: "Phase 1 — Diagnostic",
+  vision: "Phase 2 — Vision",
+  planification: "Phase 3 — Planification",
+  execution: "Phase 4 — Exécution",
+  ajustement: "Phase 5 — Ajustement",
+}
 
 type CaseStudy = {
   client: string
   tagline: string
   context: string
+  keyFigures: readonly { label: string; value: string }[]
   icon: ComponentType<{ className?: string; strokeWidth?: number }>
-  painPoints: string[]
-  outcomes: string[]
+  journey: Record<ApprochePhaseId, string>
 }
 
 const CASE_STUDIES: CaseStudy[] = [
@@ -29,108 +40,199 @@ const CASE_STUDIES: CaseStudy[] = [
     client: "Entreprise de services",
     tagline: "Rentabilité par division enfin lisible",
     context:
-      "Entreprise de services avec plusieurs divisions/entités, des frais partagés, et un pilotage budgétaire difficile à comparer au réel.",
+      "PME de services à 8,5 M$ de revenus et deux divisions. Les résultats consolidés semblaient sains — jusqu'à ce que Modelisys révèle ce qui se cachait derrière les totaux.",
+    keyFigures: [
+      { label: "Valeur initiale", value: "4,2 M$" },
+      { label: "Objectif visé", value: "5,8 M$" },
+      { label: "Horizon", value: "3 ans" },
+    ],
     icon: BarChart3,
-    painPoints: [
-      "Impossible de voir les marges par division : les résultats “bons au total” masquaient une division déficitaire.",
-      "Coûts indirects et frais partagés sans règles stables (Excel), donc des analyses qui changent d’une version à l’autre.",
-      "Budgets par division/entité difficiles à suivre et à consolider, avec peu de lecture réel vs budget en cours d’année.",
-      "Aucun diagnostic clair : difficile de savoir s’il fallait agir sur le pricing, les coûts, le mix, ou la discipline budgétaire.",
-    ],
-    outcomes: [
-      "Vue des marges par division (réel vs historique vs budget) avec des allocations de coûts reproductibles.",
-      "Suivi mensuel budget vs réel par division/entité, avec analyse d’écarts actionnable pour corriger plus tôt.",
-      "Identification rapide des causes de sous-performance et plan d’actions (pricing, efficacité, coûts indirects, mix).",
-      "Amélioration mesurable de la rentabilité et meilleure lecture des leviers qui augmentent la valeur d’entreprise.",
-    ],
+    journey: {
+      diagnostic:
+        "Modelisys évalue la société à 4,2 M$ (multiple de 4,5× sur un BAIIA normalisé de 935 000 $). La marge consolidée affiche 12 % — mais la division conseil tourne à 18 % tandis que la division technique affiche −4 %. Problème identifié : 320 000 $ de frais partagés mal alloués masquent une division déficitaire. Le diagnostic rend enfin visible ce que les totaux cachaient.",
+      vision:
+        "Objectif fixé : porter la division technique à 8 % de marge et la marge consolidée à 15 %, pour atteindre une valeur de 5,8 M$ en 3 ans. Actions ciblées : resserrer le pricing (+3 % sur les contrats renouvelés), clarifier l'allocation des frais partagés et discipliner les coûts variables de la division en difficulté.",
+      planification:
+        "Deux scénarios modélisés dans Modelisys : statu quo (valeur stagnante à 4,4 M$) et plan d'action (réallocation de 180 000 $ de frais, réduction de 90 000 $ de coûts variables). Le scénario retenu projette une trajectoire vers 5,8 M$ avec des budgets mensuels par division alignés sur le plan.",
+      execution:
+        "Au sixième mois, la division technique progresse mais reste à −1 % de marge — en dessous des 8 % visés. Modelisys traduit l'écart en impact concret : −45 000 $ sur la trajectoire de valeur projetée. Le dirigeant voit immédiatement que les dépenses variables grimpent plus vite que prévu et que la discipline budgétaire doit se resserrer.",
+      ajustement:
+        "Hypothèses recalibrées : pricing ajusté sur trois contrats clés, plafond de dépenses variables réduit de 60 000 $/an, allocation des frais partagés revue. Modelisys recalcule la trajectoire : valeur projetée remontée à 5,4 M$ à l'horizon 18 mois — le cap de 5,8 M$ reste maintenu avec des actions correctives identifiées.",
+    },
   },
   {
-    client: "Entreprise en croissance",
-    tagline: "Suivi de la valeur et du modèle d’affaires",
-    context: "Entreprise en croissance, sans cadre de suivi des déterminants de valeur.",
+    client: "Entreprise manufacturière",
+    tagline: "De 4,2 M$ à 7 M$ — acquisition et restructuration",
+    context:
+      "Dirigeant d'une PME manufacturière qui souhaite acquérir une cible et fermer une division non rentable — sans outil pour chiffrer l'impact sur la valeur.",
+    keyFigures: [
+      { label: "Valeur actuelle", value: "4,2 M$" },
+      { label: "Objectif visé", value: "7 M$" },
+      { label: "Financement anticipé", value: "850 k$" },
+    ],
     icon: Briefcase,
-    painPoints: [
-      "Aucune vue structurée sur la valeur d’entreprise et son évolution.",
-      "Hypothèses de croissance et de rentabilité non documentées, difficiles à défendre.",
-      "Modèle d’affaires mal formalisé, rendant difficile l’identification des leviers qui créent (ou détruisent) de la valeur.",
-    ],
-    outcomes: [
-      "Cadre d’analyse pour suivre la valeur et ses moteurs (rentabilité, croissance, risque).",
-      "Hypothèses centralisées et traçables, faciles à actualiser.",
-      "Compréhension claire des leviers à activer pour optimiser la valeur d’entreprise (marge, croissance, risque).",
-    ],
+    journey: {
+      diagnostic:
+        "L'analyse révèle une marge brute stable à 32 %, mais 45 % des revenus proviennent de trois clients. Valeur actuelle : 4,2 M$. Risques identifiés : dépendance client élevée, fonds de roulement sous tension (ratio de liquidité à 1,1, délai de recouvrement de 68 jours). Leviers : diversifier la clientèle, réduire le BFR de 15 % et gagner 2 points de marge opérationnelle.",
+      vision:
+        "Le dirigeant fixe un cap clair : atteindre 7 M$ de valeur en 3 ans par une acquisition à 24 mois et la fermeture d'une division non rentable. Rendement annualisé souhaité : +18,6 %. L'ambition cesse d'être une intuition — elle devient un objectif modélisable.",
+      planification:
+        "Modelisys modélise l'acquisition et la fermeture de division : impact sur revenus, dépenses fixes et variables, fonds de roulement. Les flux de trésorerie révèlent un besoin de financement de 850 000 $ au moment de l'acquisition. La fermeture de division libère +180 000 $ de trésorerie et +0,6 M$ de valeur projetée à terme.",
+      execution:
+        "À mi-parcours, les ventes dépassent le modèle grâce à l'embauche d'un vendeur — mais les dépenses variables grimpent plus vite que prévu (matériaux en hausse, salaire non budgétisé). Modelisys traduit l'écart : −80 000 $ sur la trajectoire de valeur vers les 7 M$. Le dirigeant comprend ce qui dérape et pourquoi cela menace sa vision.",
+      ajustement:
+        "Scénario recalibré : dépenses variables resserrées, embauche reportée de six mois, besoin de financement réévalué à 780 000 $. Modelisys recalcule l'impact sur la trésorerie et la trajectoire : cap de 7 M$ maintenu, avec un plan vivant mis à jour chaque mois.",
+    },
   },
   {
     client: "Entreprise cyclique",
     tagline: "Fonds de roulement, capex et cash sous contrôle",
     context:
-      "Organisation avec un cycle de conversion de l’encaisse variable (BFR, stocks, délais clients/fournisseurs), des investissements à planifier, et un besoin de visibilité continue sur la trésorerie.",
+      "Manufacturier au cycle de conversion long : stocks élevés, délais clients tendus et investissements à planifier sans visibilité sur les creux de trésorerie.",
+    keyFigures: [
+      { label: "Valeur actuelle", value: "3,5 M$" },
+      { label: "BFR initial", value: "2,1 M$" },
+      { label: "Trésorerie minimale visée", value: "600 k$" },
+    ],
     icon: Wallet,
-    painPoints: [
-      "Trésorerie pilotée “à reculons” : manque de visibilité sur les encaissements, les décaissements et les tensions à venir.",
-      "Fonds de roulement difficile à suivre (clients, stocks, fournisseurs) et actions correctrices décidées trop tard.",
-      "Capex planifiés sans lecture claire des impacts sur le cash et la trajectoire de l’entreprise.",
-    ],
-    outcomes: [
-      "Lecture structurée du fonds de roulement et de ses leviers (clients, stocks, fournisseurs) pour agir plus tôt.",
-      "Suivi des capex et de leurs impacts sur la trésorerie, avec priorisation et scénarios.",
-      "Budget complet (résultat, variation du fonds de roulement, capex, financement) — et projection des flux de trésorerie pour piloter l’année.",
-      "Meilleure visibilité sur les flux et la trajectoire de cash pour sécuriser les décisions et optimiser la valeur d’entreprise.",
-    ],
+    journey: {
+      diagnostic:
+        "Modelisys situe la valeur à 3,5 M$ et le BFR à 2,1 M$ — dont 980 000 $ immobilisés en stocks et un délai de recouvrement de 72 jours. La trésorerie disponible : 420 000 $, jugée insuffisante pour absorber le prochain creux de cycle. Le diagnostic met en lumière le risque avant qu'il ne devienne une crise.",
+      vision:
+        "Objectif : maintenir la valeur à 3,5 M$ minimum tout en finançant 1,2 M$ de capex sur deux ans pour moderniser la production. Trésorerie minimale cible : 600 000 $ en tout temps — un plan de sécurité chiffré, pas une aspiration.",
+      planification:
+        "Scénarios de capex modélisés : phase 1 (600 000 $) et phase 2 (600 000 $). Les projections de flux révèlent un besoin de marge de crédit de 350 000 $ au creux du cycle, à négocier avant la tension. Chaque hypothèse de délai fournisseur et client est testée.",
+      execution:
+        "Au quatrième mois, le prix des matières premières grimpe de 12 % par rapport au scénario. La trésorerie descend à 380 000 $ — sous le seuil de 600 000 $ visé. Modelisys quantifie l'écart : 220 000 $ de tension non anticipée et impact de −0,3 M$ sur la valeur projetée.",
+      ajustement:
+        "Phase 2 des capex reportée de neuf mois, délai de recouvrement cible ramené de 72 à 58 jours, renégociation fournisseurs (−15 jours). Trésorerie remontée à 520 000 $ au mois suivant. Le plan de cash devient un outil de pilotage mensuel, pas un exercice annuel.",
+    },
   },
   {
     client: "Groupe de 4 sociétés",
     tagline: "Vision consolidée multi-sociétés",
     context:
-      "Groupe de 4 sociétés avec transactions intercos, reporting hétérogène et besoin de suivre la valeur du groupe et de chacune des sociétés.",
+      "Groupe familial de quatre sociétés : consolidation manuelle, 1,8 M$ d'intercos et une filiale qui tire la performance vers le bas.",
+    keyFigures: [
+      { label: "Valeur groupe", value: "12 M$" },
+      { label: "Objectif visé", value: "16 M$" },
+      { label: "Perte filiale C", value: "−200 k$/an" },
+    ],
     icon: Layers,
-    painPoints: [
-      "Consolidation lente, éliminations intercos manuelles et risquées.",
-      "Reporting financier produit tard, peu comparable entre sociétés.",
-      "Difficulté à expliquer les écarts, à piloter la performance et à suivre la valeur d’entreprise (groupe + sociétés).",
-    ],
-    outcomes: [
-      "Vue d’ensemble consolidée et règles d’élimination intercos structurées.",
-      "Reporting uniformisé (mêmes périodes, mêmes KPI, mêmes vues).",
-      "Suivi de la valeur d’entreprise du groupe et de chaque société, avec lecture des déterminants (marge, croissance, risque).",
-      "Clôtures plus rapides et meilleure lecture pour direction, banque et actionnaires.",
-    ],
+    journey: {
+      diagnostic:
+        "Modelisys consolide le groupe à 12 M$ de valeur. Société A (4,8 M$) et B (4,2 M$) performent — société C affiche −200 000 $ de perte annuelle et tire le groupe vers le bas. Les intercos (1,8 M$) sont mal documentées : écarts de consolidation récurrents et clôtures retardées. Le problème n'est plus abstrait — il est chiffré par entité.",
+      vision:
+        "Objectif groupe : 16 M$ en 4 ans. Deux options structurées : intégrer et redresser la société C, ou céder cette filiale. Chaque option est traduite en impact sur la valeur groupe et par société — la direction peut décider sur des chiffres, pas des opinions.",
+      planification:
+        "Scénario intégration : économies de 150 000 $/an, valeur groupe projetée à 14,5 M$ en 3 ans. Scénario cession : valeur immédiate +2,2 M$, mais perte de revenus croisés de 400 000 $. Modelisys modélise les deux trajectoires avec trésorerie groupe et besoins de financement.",
+      execution:
+        "Reporting uniformisé chaque mois : mêmes KPI, mêmes périodes. Au troisième mois, Modelisys détecte un écart intercos de 90 000 $ non éliminé — corrigé avant la clôture trimestrielle. Le temps de consolidation passe de 12 à 4 jours.",
+      ajustement:
+        "Plan hybride retenu : cession partielle de la société C (60 %) et plan de redressement sur le reste. Valeur groupe suivie en continu : 13,2 M$ à mi-parcours, trajectoire révisée vers 15,4 M$ à 4 ans. Le groupe pilote enfin sa valeur, pas seulement ses résultats.",
+    },
   },
   {
     client: "Cabinet comptable",
-    tagline: "Devenir proactif avec des chiffres en temps réel",
+    tagline: "Accompagner un client PME sur tout le parcours",
     context:
-      "Cabinet comptable qui veut passer d’une posture “réactive” à un accompagnement continu : chiffres à jour, suivi mensuel et décisions orientées valeur.",
+      "Un cabinet accompagne une PME cliente de 5,2 M$ de revenus — du diagnostic initial au suivi mensuel, avec un langage commun autour de la valeur.",
+    keyFigures: [
+      { label: "Valeur client (départ)", value: "2,8 M$" },
+      { label: "Objectif client", value: "4,5 M$" },
+      { label: "BFR à optimiser", value: "200 k$" },
+    ],
     icon: FileText,
-    painPoints: [
-      "Chiffres disponibles trop tard : difficile d’anticiper et d’alerter avant que les écarts ne s’installent.",
-      "Peu de visibilité continue sur le fonds de roulement, les capex et les budgets du client.",
-      "Accompagnement “ponctuel” plutôt que proactif, alors que l’objectif est d’aider à optimiser la valeur d’entreprise.",
-    ],
-    outcomes: [
-      "Accès aux chiffres en temps réel et à des états financiers mensuels clairs, prêts à commenter.",
-      "Suivi structuré du fonds de roulement, des capex et des budgets (réel vs budget) pour anticiper et prioriser les actions.",
-      "Analyse de groupe possible en cours d’année (consolidation, intercos, performance), sans attendre la fin d’exercice.",
-      "Conseil plus proactif : discussions régulières sur les leviers (marge, croissance, risque) pour optimiser la valeur d’entreprise.",
-    ],
+    journey: {
+      diagnostic:
+        "Le cabinet structure le diagnostic dans Modelisys : valeur du client à 2,8 M$, ratio de liquidité à 1,1, marge opérationnelle de 9 % (sous la médiane sectorielle de 14 %). Concentration : 52 % des revenus chez deux clients. Le dirigeant et le conseiller partagent la même lecture — fini les fichiers Excel contradictoires.",
+      vision:
+        "Ambition du dirigeant : atteindre 4,5 M$ de valeur en 3 ans en diversifiant la clientèle et en portant la marge à 15 %. Le cabinet documente l'objectif dans Modelisys — chaque revue mensuelle s'y réfère.",
+      planification:
+        "Scénario modélisé : acquisition de deux clients cibles (+800 000 $ de revenus), optimisation du BFR (−200 000 $ immobilisés), marge progressive de 9 % à 15 %. Besoin de financement ponctuel de 120 000 $ pour le fonds de roulement identifié avant la croissance.",
+      execution:
+        "Revues mensuelles dans Modelisys : réel vs scénario. Au quatrième mois, un dépassement de 60 000 $ sur les coûts variables est détecté — le cabinet alerte le dirigeant avant la clôture. L'écart est traduit en −0,15 M$ sur la trajectoire de valeur. Action corrective lancée dans les deux semaines.",
+      ajustement:
+        "Plan recalibré avec le dirigeant : embauche reportée, plafond de dépenses resserré, nouveau client signé (+12 % de revenus). Valeur projetée remontée de 3,1 M$ à 3,6 M$ à 12 mois. Le cabinet passe d'une posture réactive à un accompagnement proactif sur la trajectoire de valeur.",
+    },
   },
   {
     client: "Franchise",
     tagline: "Pilotage multi-sites simple et comparable",
-    context: "Réseau de franchises avec plusieurs points de vente et une lecture financière difficile à uniformiser.",
+    context:
+      "Réseau de 12 franchises, 14 M$ de revenus consolidés — mais trois sites tirent la marge réseau vers le bas.",
+    keyFigures: [
+      { label: "Valeur réseau", value: "6,1 M$" },
+      { label: "Objectif visé", value: "7,5 M$" },
+      { label: "Sites sous-performants", value: "3 / 12" },
+    ],
     icon: Store,
-    painPoints: [
-      "Résultats par site difficilement comparables (plans de comptes, périodicité, KPI).",
-      "Suivi des marges et des coûts opérationnels trop lent pour agir (mix produit, promotions, main-d’œuvre).",
-      "Manque de visibilité consolidée pour la direction, et de repères pour accompagner les franchisés.",
-    ],
-    outcomes: [
-      "Lecture uniforme par site et consolidée : KPI comparables, vues standardisées, tendances visibles.",
-      "Détection rapide des écarts et des causes (marge, coûts, trafic) pour corriger plus tôt.",
-      "Meilleure gouvernance du réseau et décisions orientées valeur (performance durable et optimisation).",
-    ],
+    journey: {
+      diagnostic:
+        "Modelisys évalue le réseau à 6,1 M$ de valeur. Marge moyenne : 14 % — mais trois sites affichent moins de 8 % (dont un à 4,1 %). Écart de performance : le meilleur site tourne à 19 % de marge, le pire à 4,1 %. Coûts de main-d'œuvre mal calibrés sur les sites faibles et promotions non rentables identifiées comme causes racines.",
+      vision:
+        "Objectif : porter tous les sites à 12 %+ de marge et atteindre 7,5 M$ de valeur réseau en 3 ans. Plan d'accompagnement ciblé pour les trois franchisés en difficulté — avec repères clairs et objectifs chiffrés par site.",
+      planification:
+        "Scénarios par site modélisés : optimisation main-d'œuvre (−8 % de coûts sur sites faibles), promotions ciblées (+5 % de trafic sur sites moyens), consolidation des achats (−3 % sur le coût des marchandises). Trajectoire réseau projetée : 7,5 M$ si le plan est exécuté.",
+      execution:
+        "Suivi mensuel par site vs scénario. Au troisième mois, le site #7 voit sa marge passer de 6,2 % à 4,1 % — Modelisys alerte dès la semaine 3. Cause : heures supplémentaires non budgétisées (+22 000 $/mois). Le franchisé est accompagné avant que l'écart ne devienne structurel.",
+      ajustement:
+        "Coaching ciblé sur les trois sites faibles, partage des pratiques du site à 19 % de marge, promotions révisées. Marge réseau remontée à 13,1 % à 12 mois, valeur projetée à 7,1 M$ — en ligne vers l'objectif de 7,5 M$.",
+    },
   },
 ]
+
+function KeyFiguresBar({ figures }: { figures: readonly { label: string; value: string }[] }) {
+  return (
+    <div className="mt-6 flex flex-wrap gap-3">
+      {figures.map((fig) => (
+        <div
+          key={fig.label}
+          className="rounded-xl border border-slate-200/90 bg-white/90 px-4 py-3 shadow-sm"
+        >
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{fig.label}</p>
+          <p className="mt-1 font-mono text-lg font-semibold tabular-nums tracking-tight text-[#2A2F3A]">
+            {fig.value}
+          </p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PhaseJourneyList({ journey }: { journey: Record<ApprochePhaseId, string> }) {
+  return (
+    <div className="mt-10 border-t border-slate-200/90 pt-8">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+        Le parcours en cinq phases
+      </p>
+      <ul className="mt-6 space-y-6">
+        {APPROCHE_PHASE_IDS.map((id) => (
+          <li key={id}>
+            <button
+              type="button"
+              onClick={() => navigateToApprochePhase(id)}
+              className="group w-full text-left"
+            >
+              <div className="flex gap-3 sm:gap-4">
+                <span className="relative mt-1 inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                  <span className="absolute h-2 w-2 rounded-full bg-[#E0742D]/80 transition group-hover:bg-[#E0742D]" />
+                  <span className="absolute h-5 w-5 rounded-full border border-slate-200/90 bg-white transition group-hover:border-[#E0742D]/35" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-[#2A2F3A] transition group-hover:text-[#E0742D] sm:text-[15px]">
+                    {PHASE_FULL_LABELS[id]}
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-[#5C5F66] sm:text-[15px]">{journey[id]}</p>
+                </div>
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 export function CaseStudiesSection() {
   const sectionRef = useRef<HTMLElement>(null)
@@ -139,7 +241,7 @@ export function CaseStudiesSection() {
   const reduceMotion = useReducedMotion()
 
   const commonQuote =
-    "« Une meilleure vision financière, une meilleure compréhension de la valeur — et surtout, la capacité d’optimiser la valeur d’entreprise. »"
+    "« Chaque chiffre raconte une histoire — et Modelisys la rend lisible, du diagnostic initial jusqu'aux ajustements qui rapprochent de l'objectif de valeur. »"
 
   useEffect(() => {
     const el = sectionRef.current
@@ -171,7 +273,7 @@ export function CaseStudiesSection() {
     <section
       id="etudes-de-cas"
       ref={sectionRef}
-      className="scroll-mt-24 relative z-10 border-t border-slate-200/80 bg-gradient-to-b from-slate-50 via-slate-50/95 to-slate-100/70 pt-20 sm:pt-28 pb-12 sm:pb-16 overflow-hidden"
+      className="scroll-mt-24 relative z-10 border-t border-slate-200/80 bg-gradient-to-b from-slate-50 via-slate-50/95 to-slate-100/70 pt-16 sm:pt-24 pb-12 sm:pb-16 overflow-hidden"
     >
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_85%_45%_at_50%_-15%,rgba(224,116,45,0.055),transparent_55%)]" />
@@ -188,22 +290,24 @@ export function CaseStudiesSection() {
             WebkitMaskImage: "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
           }}
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-50/30 via-transparent to-slate-100/35" />
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1920px] px-8 sm:px-12 lg:px-16 xl:px-20">
+      <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-14 xl:px-20 2xl:px-24">
         <div
-          className={`mx-auto mb-12 max-w-3xl text-center transition-all duration-1000 sm:mb-16 lg:mx-0 lg:max-w-2xl lg:text-left ${
+          className={`mx-auto mb-12 max-w-3xl text-center transition-all duration-1000 sm:mb-14 lg:mx-0 lg:max-w-2xl lg:text-left ${
             isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Études de cas</p>
-          <h2 className="text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-5xl">
-            Des situations réelles, <span className="text-[#5C5F66]">des gains concrets</span>
+          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+            Études de cas
+          </p>
+          <h2 className="mt-5 text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-[2.5rem] md:leading-tight">
+            L&apos;approche Modelisys,{" "}
+            <span className="text-[#5C5F66]">dans des contextes réels</span>
           </h2>
-          <p className="mt-5 text-lg leading-relaxed text-[#5C5F66] sm:text-xl">
-            Des situations concrètes, vécues par de nombreuses organisations : rentabilité, valorisation,
-            consolidation, trésorerie et pilotage budgétaire.
+          <p className="mt-4 text-base leading-relaxed text-[#5C5F66] sm:text-lg">
+            Chaque étude de cas suit les cinq phases du parcours — du diagnostic à l&apos;ajustement — pour montrer
+            comment Modelisys s&apos;applique concrètement à des situations variées.
           </p>
           <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent lg:mx-0 mx-auto" />
         </div>
@@ -214,179 +318,152 @@ export function CaseStudiesSection() {
           }`}
         >
           <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(280px,360px)_1fr] lg:gap-14">
-              {/* Left rail (desktop) */}
-              <div className="hidden lg:block">
-                <div className="rounded-2xl border border-slate-200/90 bg-white/80 p-6 shadow-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1.5 text-[11px] font-semibold tracking-wide text-[#2A2F3A]">
-                      <Building2 className="h-4 w-4 text-[#E0742D]" strokeWidth={2} aria-hidden />
-                      Études de cas
-                    </div>
-                    <span className="text-[11px] font-semibold tracking-wide text-slate-500">
-                      {String(activeIndex + 1).padStart(2, "0")} / {String(total).padStart(2, "0")}
-                    </span>
+            <div className="hidden lg:block">
+              <div className="rounded-2xl border border-slate-200/90 bg-white/80 p-6 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1.5 text-[11px] font-semibold tracking-wide text-[#2A2F3A]">
+                    <Building2 className="h-4 w-4 text-[#E0742D]" strokeWidth={2} aria-hidden />
+                    Études de cas
                   </div>
-
-                  <div className="mt-5">
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200/70">
-                      <div
-                        className="h-full rounded-full bg-[#E0742D] transition-[width] duration-300"
-                        style={{ width: `${((activeIndex + 1) / total) * 100}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="mt-6 space-y-2">
-                    {CASE_STUDIES.map((cs, i) => {
-                      const isActive = i === activeIndex
-                      return (
-                        <button
-                          key={cs.client}
-                          type="button"
-                          onClick={() => setActiveIndex(i)}
-                          className={`group flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition ${
-                            isActive
-                              ? "bg-[#E0742D]/10 ring-1 ring-[#E0742D]/35"
-                              : "hover:bg-slate-50 ring-1 ring-transparent"
-                          }`}
-                          aria-current={isActive ? "true" : undefined}
-                        >
-                          <span
-                            className={`mt-1 inline-flex h-2.5 w-2.5 shrink-0 rounded-full ${
-                              isActive ? "bg-[#E0742D]" : "bg-slate-300 group-hover:bg-slate-400"
-                            }`}
-                            aria-hidden
-                          />
-                          <span className="min-w-0">
-                            <span className="block text-sm font-semibold text-[#2A2F3A]">{cs.client}</span>
-                            <span className="mt-0.5 block text-xs leading-relaxed text-slate-600">{cs.tagline}</span>
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-
-                  <p className="mt-6 text-xs leading-relaxed text-slate-500">Exemples inspirés de situations fréquentes.</p>
-                </div>
-              </div>
-
-              {/* Main stage */}
-              <div className="relative">
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute -top-10 right-0 hidden select-none text-[120px] font-semibold leading-none tracking-tight text-[#2A2F3A]/[0.035] lg:block xl:text-[150px]"
-                >
-                  étude<span className="text-[#E0742D]/20">.</span>
+                  <span className="text-[11px] font-semibold tracking-wide text-slate-500">
+                    {String(activeIndex + 1).padStart(2, "0")} / {String(total).padStart(2, "0")}
+                  </span>
                 </div>
 
-                {/* Mobile selector */}
-                <div className="lg:hidden">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white/90 px-4 py-2 text-xs font-semibold text-[#2A2F3A] shadow-sm">
-                      <Building2 className="h-4 w-4 text-[#E0742D]" strokeWidth={2} aria-hidden />
-                      Études de cas
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {CASE_STUDIES.map((cs, i) => (
-                        <button
-                          key={cs.client}
-                          type="button"
-                          onClick={() => setActiveIndex(i)}
-                          aria-label={`Voir ${cs.client}`}
-                          className={`h-2.5 w-2.5 rounded-full ring-1 transition ${
-                            i === activeIndex
-                              ? "bg-[#E0742D] ring-[#E0742D]/40"
-                              : "bg-white ring-slate-300 hover:ring-slate-400"
+                <div className="mt-5">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200/70">
+                    <div
+                      className="h-full rounded-full bg-[#E0742D] transition-[width] duration-300"
+                      style={{ width: `${((activeIndex + 1) / total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-6 space-y-2">
+                  {CASE_STUDIES.map((cs, i) => {
+                    const isActive = i === activeIndex
+                    return (
+                      <button
+                        key={cs.client}
+                        type="button"
+                        onClick={() => setActiveIndex(i)}
+                        className={`group flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition ${
+                          isActive
+                            ? "bg-[#E0742D]/10 ring-1 ring-[#E0742D]/35"
+                            : "hover:bg-slate-50 ring-1 ring-transparent"
+                        }`}
+                        aria-current={isActive ? "true" : undefined}
+                      >
+                        <span
+                          className={`mt-1 inline-flex h-2.5 w-2.5 shrink-0 rounded-full ${
+                            isActive ? "bg-[#E0742D]" : "bg-slate-300 group-hover:bg-slate-400"
                           }`}
+                          aria-hidden
                         />
-                      ))}
-                    </div>
-                  </div>
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-[#2A2F3A]">{cs.client}</span>
+                          <span className="mt-0.5 block text-xs leading-relaxed text-slate-600">{cs.tagline}</span>
+                          <span className="mt-1.5 text-[9px] font-medium uppercase tracking-wide text-slate-400">
+                            5 phases
+                          </span>
+                        </span>
+                      </button>
+                    )
+                  })}
                 </div>
 
-                <div className="mt-8 lg:mt-0">
-                  <AnimatePresence mode="wait">
-                    <motion.div key={active.client} {...contentMotion} className="relative">
-                      <div className="flex items-start justify-between gap-6">
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                            Situation
-                          </p>
-                          <h3 className="mt-3 text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl">
-                            {active.client}
-                          </h3>
-                          <p className="mt-3 max-w-3xl text-base font-semibold text-[#E0742D] sm:text-lg">
-                            {active.tagline}
-                          </p>
-                          <p className="mt-4 max-w-3xl text-base leading-relaxed text-[#5C5F66] sm:text-lg">
-                            {active.context}
-                          </p>
-                        </div>
-                        <div className="hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-white/90 shadow-sm">
-                          <ActiveIcon className="h-7 w-7 text-[#2A2F3A]" strokeWidth={1.75} aria-hidden />
-                        </div>
-                      </div>
-
-                      <div className="mt-10 grid gap-8 lg:grid-cols-12 lg:gap-10">
-                        <div className="lg:col-span-5">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Défis</p>
-                            <span className="h-px flex-1 mx-4 bg-slate-200/90" aria-hidden />
-                          </div>
-                          <ul className="mt-5 space-y-4">
-                            {active.painPoints.map((x) => (
-                              <li key={x}>
-                                <div className="flex gap-3">
-                                  <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-slate-300" aria-hidden />
-                                  <p className="text-sm leading-relaxed text-[#5C5F66] sm:text-[15px]">{x}</p>
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-
-                        <div className="hidden lg:col-span-1 lg:block">
-                          <div className="mx-auto h-full w-px bg-gradient-to-b from-transparent via-slate-200/90 to-transparent" />
-                        </div>
-
-                        <div className="lg:col-span-6">
-                          <div className="flex items-center justify-between">
-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                              Avec Modelisys
-                            </p>
-                            <span className="h-px flex-1 mx-4 bg-slate-200/90" aria-hidden />
-                          </div>
-                          <ul className="mt-5 space-y-4">
-                            {active.outcomes.map((x) => (
-                              <li key={x} className="flex gap-3">
-                                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#E0742D]" strokeWidth={2} />
-                                <p className="text-sm leading-relaxed text-[#5C5F66] sm:text-[15px]">{x}</p>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-
-                      <div className="mt-10">
-                        <p className="text-sm italic leading-relaxed text-[#E0742D]">{commonQuote}</p>
-                        <div className="mt-6 border-t border-slate-200/80 pt-4">
-                          <a
-                            href="#demo"
-                            className="inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-[#5C5F66] transition hover:text-[#2A2F3A]"
-                          >
-                            Voir comment ça s’applique à votre cas
-                            <ArrowRight className="h-4 w-4 text-[#E0742D]" />
-                          </a>
-                        </div>
-                      </div>
-                    </motion.div>
-                  </AnimatePresence>
-                </div>
+                <p className="mt-6 text-xs leading-relaxed text-slate-500">
+                  Exemples inspirés de situations fréquentes — chaque étude détaille les cinq phases du parcours
+                  Modelisys.
+                </p>
               </div>
             </div>
+
+            <div className="relative">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute -top-10 right-0 hidden select-none text-[120px] font-semibold leading-none tracking-tight text-[#2A2F3A]/[0.035] lg:block xl:text-[150px]"
+              >
+                étude<span className="text-[#E0742D]/20">.</span>
+              </div>
+
+              <div className="lg:hidden">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white/90 px-4 py-2 text-xs font-semibold text-[#2A2F3A] shadow-sm">
+                    <Building2 className="h-4 w-4 text-[#E0742D]" strokeWidth={2} aria-hidden />
+                    Études de cas
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {CASE_STUDIES.map((cs, i) => (
+                      <button
+                        key={cs.client}
+                        type="button"
+                        onClick={() => setActiveIndex(i)}
+                        aria-label={`Voir ${cs.client}`}
+                        className={`h-2.5 w-2.5 rounded-full ring-1 transition ${
+                          i === activeIndex
+                            ? "bg-[#E0742D] ring-[#E0742D]/40"
+                            : "bg-white ring-slate-300 hover:ring-slate-400"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8 lg:mt-0">
+                <AnimatePresence mode="wait">
+                  <motion.div key={active.client} {...contentMotion} className="relative">
+                    <div className="flex items-start justify-between gap-6">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          Situation
+                        </p>
+                        <h3 className="mt-3 text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl">
+                          {active.client}
+                        </h3>
+                        <p className="mt-3 max-w-3xl text-base font-semibold text-[#E0742D] sm:text-lg">
+                          {active.tagline}
+                        </p>
+                        <p className="mt-4 max-w-3xl text-base leading-relaxed text-[#5C5F66] sm:text-lg">
+                          {active.context}
+                        </p>
+                        <KeyFiguresBar figures={active.keyFigures} />
+                      </div>
+                      <div className="hidden sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-white/90 shadow-sm">
+                        <ActiveIcon className="h-7 w-7 text-[#2A2F3A]" strokeWidth={1.75} aria-hidden />
+                      </div>
+                    </div>
+
+                    <PhaseJourneyList journey={active.journey} />
+
+                    <div className="mt-10">
+                      <p className="text-sm italic leading-relaxed text-[#E0742D]">{commonQuote}</p>
+                      <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-slate-200/80 pt-4">
+                        <button
+                          type="button"
+                          onClick={() => navigateToApprochePhase("diagnostic")}
+                          className="group inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-[#5C5F66] transition hover:text-[#2A2F3A]"
+                        >
+                          Explorer le parcours
+                          <ArrowRight className="h-4 w-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+                        </button>
+                        <a
+                          href="#demo"
+                          className="inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-400 transition hover:text-[#E0742D]"
+                        >
+                          Réserver une démo
+                          <span className="inline-block h-px w-8 bg-[#E0742D]/70" />
+                        </a>
+                      </div>
+                    </div>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
   )
 }
-
