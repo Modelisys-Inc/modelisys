@@ -1,16 +1,17 @@
 "use client"
 
 import { TrendingUp } from "lucide-react"
+import { NARRATIVE_BASELINE, NARRATIVE_PROJECTION, NARRATIVE_TARGET } from "@/lib/hero-narrative-metrics"
 
 const items = [
-  "Diagnostic — Valeur actuelle : 4,2 M$ · point de départ chiffré",
+  `Diagnostic — Revenus ${NARRATIVE_BASELINE.revenus} · BAIIA ${NARRATIVE_BASELINE.baiia} · valeur ${NARRATIVE_BASELINE.valeur}`,
   "Diagnostic — Concentration client 45 % · liquidité 1,1",
-  "Vision — Objectif 7 M$ en 3 ans · rend. annualisé +18,6 %",
-  "Vision — Acquisition à 24 mois · fermeture d'une division",
-  "Planification — Besoin de financement : 850 k$ à l'acquisition",
-  "Planification — Fermeture division : +180 k$ de trésorerie · +0,6 M$ de valeur",
-  "Exécution — Réel vs scénario : écart traduit en −80 k$ de valeur",
-  "Ajustement — Scénario recalibré : 5,4 M$ → 7 M$ avec Modelisys",
+  `Planification — Vision ${NARRATIVE_TARGET.valeur} · revenus ${NARRATIVE_BASELINE.revenus} → ${NARRATIVE_TARGET.revenus}`,
+  `Planification — Besoin de financement : ${NARRATIVE_PROJECTION.an2.capex} à l'acquisition`,
+  "Pilotage — Réel vs passé vs prévu · notes d'explication des écarts",
+  "Pilotage — Scénario recalibré sans repartir de zéro",
+  `Pilotage — Trajectoire maintenue vers ${NARRATIVE_TARGET.valeur}`,
+  "Pilotage — Écart capex documenté · impact sur trésorerie",
 ]
 
 export function HeroMarquee() {
@@ -22,7 +23,7 @@ export function HeroMarquee() {
       <div className="relative">
         <div className="marquee-mask">
           <div className="marquee-track">
-            <div className="marquee-row" aria-label="Insights de l'approche Modelisys — diagnostic à ajustement">
+            <div className="marquee-row" aria-label="Insights de l'approche Modelisys — diagnostic à pilotage">
               {items.map((text) => (
                 <div key={text} className="marquee-item">
                   <span className="marquee-dot" />
@@ -115,4 +116,3 @@ export function HeroMarquee() {
     </section>
   )
 }
-

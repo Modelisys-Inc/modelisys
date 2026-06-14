@@ -7,10 +7,8 @@ import { cn } from "@/lib/utils"
 
 const APPROCHE_PHASES = [
   { title: "Diagnostic", body: "Ancrer le point de départ : analyse, évaluation, risques et KPI" },
-  { title: "Vision", body: "Transformer l'ambition en objectif de valeur chiffré" },
-  { title: "Planification", body: "Modéliser le scénario et la trajectoire vers l'objectif" },
-  { title: "Exécution", body: "Confronter le réel au scénario, mois après mois" },
-  { title: "Ajustement", body: "Recalibrer le cap et faire évoluer la trajectoire — en continu" },
+  { title: "Planification", body: "Clarifier la vision, modéliser les scénarios et projeter la trajectoire" },
+  { title: "Pilotage", body: "Analyser les écarts réel vs prévu vs passé et recalibrer le plan en continu" },
 ] as const
 
 const TWO_REALITIES = [
@@ -324,7 +322,7 @@ export function AboutOurStorySection() {
                   C&apos;est l&apos;accumulation de ces constats — répétés pendant des années, dans les deux univers — qui a déclenché
                   la décision. Non pas de critiquer les outils existants, mais de construire ce qui n&apos;existait pas : une
                   plateforme qui réunit le dirigeant et son conseiller dans le même environnement financier, avec un parcours
-                  structuré en cinq phases — du diagnostic au suivi continu.
+                  structuré en trois phases — comprendre, planifier et piloter.
                 </p>
                 <div className="h-px w-full max-w-2xl bg-slate-200/90" aria-hidden />
                 <p className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
@@ -343,7 +341,7 @@ export function AboutOurStorySection() {
           >
             <StepRail n="07" />
             <div className="min-w-0">
-              <StorySectionHeader eyebrow="L'approche Modelisys" title="Cinq phases pour piloter la valeur" />
+              <StorySectionHeader eyebrow="L'approche Modelisys" title="Trois phases pour piloter la valeur" />
               <motion.div {...contentMotion} className="divide-y divide-slate-200/80 border-t border-slate-200/80">
                 {APPROCHE_PHASES.map((item) => (
                   <div

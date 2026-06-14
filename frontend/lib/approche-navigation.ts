@@ -5,18 +5,24 @@ export const APPROCHE_SCROLL_TARGET_ID = "approche-modelisys-start" as const
 
 const DEFAULT_LANDING_NAV_OFFSET_PX = 96
 
-export const APPROCHE_PHASE_IDS = [
-  "diagnostic",
-  "vision",
-  "planification",
-  "execution",
-  "ajustement",
-] as const
+export const APPROCHE_PHASE_IDS = ["diagnostic", "planification", "pilotage"] as const
 
 export type ApprochePhaseId = (typeof APPROCHE_PHASE_IDS)[number]
 
+/** Anciens identifiants (5 phases) — redirigés vers les 3 phases regroupées. */
+const LEGACY_PHASE_ALIASES: Record<string, ApprochePhaseId> = {
+  vision: "planification",
+  execution: "pilotage",
+  ajustement: "pilotage",
+}
+
 export function isApprochePhaseId(value: string): value is ApprochePhaseId {
   return (APPROCHE_PHASE_IDS as readonly string[]).includes(value)
+}
+
+export function resolveApprochePhaseId(value: string): ApprochePhaseId | null {
+  if (isApprochePhaseId(value)) return value
+  return LEGACY_PHASE_ALIASES[value] ?? null
 }
 
 export function getApprochePhaseHash(phaseId: ApprochePhaseId): string {
@@ -31,7 +37,7 @@ export function parseApprochePhaseFromHash(hash: string): ApprochePhaseId | null
   const raw = hash.startsWith("#") ? hash.slice(1) : hash
   if (!raw.startsWith("phase-")) return null
   const phaseId = raw.slice("phase-".length)
-  return isApprochePhaseId(phaseId) ? phaseId : null
+  return resolveApprochePhaseId(phaseId)
 }
 
 export const APPROCHE_PHASE_NAVIGATE_EVENT = "approche-phase-navigate" as const

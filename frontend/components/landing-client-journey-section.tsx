@@ -9,24 +9,21 @@ import {
   parseApprochePhaseFromHash,
   type ApprochePhaseId,
 } from "@/lib/approche-navigation"
+import { NARRATIVE_BASELINE, NARRATIVE_PROJECTION, NARRATIVE_TARGET } from "@/lib/hero-narrative-metrics"
 
 const PHASE_ORDER = APPROCHE_PHASE_IDS
 type PhaseId = ApprochePhaseId
 
 const phaseLabels: Record<PhaseId, string> = {
   diagnostic: "Phase 1 — Diagnostic",
-  vision: "Phase 2 — Vision",
-  planification: "Phase 3 — Planification",
-  execution: "Phase 4 — Exécution",
-  ajustement: "Phase 5 — Ajustement",
+  planification: "Phase 2 — Planification",
+  pilotage: "Phase 3 — Pilotage",
 }
 
 const phaseShortLabels: Record<PhaseId, string> = {
   diagnostic: "Diagnostic",
-  vision: "Vision",
   planification: "Planification",
-  execution: "Exécution",
-  ajustement: "Ajustement",
+  pilotage: "Pilotage",
 }
 
 type PhaseContent = {
@@ -51,70 +48,40 @@ const phaseContent: Record<PhaseId, PhaseContent> = {
     ],
     example: {
       label: "Exemple",
-      text: "L'analyse financière révèle une marge brute stable à 32 %, mais une concentration de 45 % des revenus chez trois clients. L'évaluation initiale situe la valeur de l'entreprise à environ 4,2 M$, fondée sur un multiple de 4,5x le BAIIA normalisé de 935 000 $. Le diagnostic des risques met en évidence une dépendance client élevée et un fonds de roulement sous tension. Les KPI actuels montrent un ratio de liquidité de 1,1 et un délai de recouvrement de 68 jours. Parmi les leviers de valeur identifiés : diversifier la clientèle, réduire le BFR de 15 % et améliorer la marge opérationnelle de 2 points. Ce diagnostic devient le point de référence pour toutes les phases suivantes.",
-    },
-  },
-  vision: {
-    description:
-      "La valeur ne se construit pas au hasard. Cette phase clarifie l'ambition du dirigeant et transforme une intention en objectif chiffré.",
-    listLabel: "Questions clés",
-    items: [
-      "Voulez-vous vendre ?",
-      "Voulez-vous procéder à l'acquisition d'une nouvelle entreprise ?",
-      "Voulez-vous fermer une division actuelle de votre société ou bien en développer une nouvelle ?",
-      "Quelle valeur cible recherchez-vous ?",
-    ],
-    example: {
-      label: "Exemple",
-      text: "Le dirigeant confirme qu'il ne souhaite pas vendre à court terme. La vision retenue : atteindre une valeur cible de 7 M$ dans 3 ans par l'entremise d'une acquisition dans 24 mois et la fermeture d'une division non rentable. Cette ambition chiffrée sera modélisée à l'étape suivante pour en mesurer les impacts concrets sur la performance de l'entreprise.",
+      text: `L'analyse financière révèle des revenus de ${NARRATIVE_BASELINE.revenus} et un BAIIA de ${NARRATIVE_BASELINE.baiia} (marge BAIIA de ${NARRATIVE_BASELINE.margeBaiia}), avec une marge brute stable à ${NARRATIVE_BASELINE.margeBrute}, mais une concentration de 45 % des revenus chez trois clients. L'évaluation initiale situe la valeur de l'entreprise à environ ${NARRATIVE_BASELINE.valeur}, fondée sur un multiple de ${NARRATIVE_BASELINE.multiple} le BAIIA normalisé de ${NARRATIVE_BASELINE.baiiaNormalise}. Le diagnostic des risques met en évidence une dépendance client élevée et un fonds de roulement sous tension. Les KPI actuels montrent un ratio de liquidité de 1,1 et un délai de recouvrement de 68 jours. Parmi les leviers de valeur identifiés : diversifier la clientèle, réduire le BFR de 15 % et améliorer la marge opérationnelle de 2 points. Ce diagnostic devient le point de référence pour toutes les phases suivantes.`,
     },
   },
   planification: {
     description:
-      "Modelisys met à la disposition des dirigeants un outil de projection et de création de scénarios pour modéliser la vision, suivre les flux de trésorerie de près et déterminer si des besoins de financement seront nécessaires à sa réalisation.",
-    listLabel: "Éléments modélisés",
+      "Fixez une ambition chiffrée, puis modélisez-la. Modelisys clarifie la vision du dirigeant, transforme l'objectif en scénarios comparables et projette revenus, dépenses, trésorerie et valeur sur l'horizon choisi.",
+    listLabel: "Vision et scénarios",
     items: [
-      "Revenus",
-      "Dépenses fixes",
-      "Dépenses variables",
-      "Fonds de roulement",
-      "Flux de trésorerie",
+      "Objectif de valeur et horizon",
+      "Acquisition, cession ou développement organique",
+      "Revenus, dépenses fixes et variables",
+      "Fonds de roulement et flux de trésorerie",
       "Besoins de financement",
-      "Valeur d'entreprise",
+      "Trajectoire de valeur sur 3 ans",
     ],
     example: {
       label: "Exemple",
-      text: "La vision — 7 M$ par l'entremise d'une acquisition dans 24 mois et la fermeture d'une division non rentable — est modélisée dans Modelisys. Le dirigeant projette l'impact sur les revenus, les dépenses fixes, les dépenses variables et le fonds de roulement. Le suivi serré des flux de trésorerie révèle un besoin de financement de 850 000 $ au moment de l'acquisition, avant que la fermeture de la division et l'intégration de la cible ne rééquilibrent la trésorerie. L'outil consolide ces hypothèses pour offrir un aperçu global de la performance projetée et de la trajectoire de valeur vers l'objectif de 7 M$.",
+      text: `Le dirigeant confirme qu'il ne souhaite pas vendre à court terme. La vision retenue : porter les revenus de ${NARRATIVE_BASELINE.revenus} à ${NARRATIVE_TARGET.revenus}, le BAIIA de ${NARRATIVE_BASELINE.baiia} à ${NARRATIVE_TARGET.baiia} (marge BAIIA de ${NARRATIVE_BASELINE.margeBaiia} à ${NARRATIVE_TARGET.margeBaiia}) et atteindre une valeur cible de ${NARRATIVE_TARGET.valeur} dans 3 ans par l'entremise d'une acquisition dans 24 mois et la fermeture d'une division non rentable. Modelisys modélise cette ambition : revenus de ${NARRATIVE_PROJECTION.an1.revenus} à ${NARRATIVE_PROJECTION.an3.revenus} sur trois ans, BAIIA de ${NARRATIVE_PROJECTION.an1.baiia} à ${NARRATIVE_PROJECTION.an3.baiia}, valeur de ${NARRATIVE_PROJECTION.an1.valeur} à ${NARRATIVE_PROJECTION.an3.valeur}. Le suivi serré des flux de trésorerie révèle un besoin de financement de ${NARRATIVE_PROJECTION.an2.capex} au moment de l'acquisition, avant que la fermeture de la division et l'intégration de la cible ne rééquilibrent la trésorerie.`,
     },
   },
-  execution: {
+  pilotage: {
     description:
-      "Chaque mois, Modelisys confronte le réel au scénario modélisé en planification et traduit les écarts en impact sur la trésorerie et la valeur projetée — pas seulement en pourcentages isolés.",
-    listLabel: "Chaque mois",
+      "Chaque mois ou trimestre, confrontez le réel au passé et au scénario prévu. Modelisys traduit les écarts en impact sur la trésorerie et la valeur, documente leurs causes et permet de recalibrer le plan sans repartir de zéro.",
+    listLabel: "Suivi et ajustements",
     items: [
-      "Réel vs passé",
-      "Réel vs scénario",
-      "Réel vs objectif de valeur",
-      "Explication et compréhension des écarts",
+      "Réel vs passé vs prévu",
+      "Analyse et notes sur les écarts",
+      "Impact sur trésorerie et valeur",
+      "Nouvelles hypothèses et scénarios",
+      "Recalibrage continu du plan",
     ],
     example: {
       label: "Exemple",
-      text: "Le scénario modélisé en planification devient la référence de suivi. Chaque mois, Modelisys confronte le réel à ce qui avait été projeté — revenus, dépenses, trésorerie et valeur. À mi-parcours vers l'acquisition, les ventes dépassent le modèle grâce à l'embauche d'un vendeur, mais les dépenses variables grimpent plus vite que prévu : prix des matériaux en hausse et salaire non budgétisé. L'écart ne se lit plus en pourcentages isolés : Modelisys en traduit l'impact sur la trésorerie et sur la trajectoire vers les 7 M$. La situation se complique au moment où un besoin de financement de 850 000 $ avait déjà été identifié pour réaliser l'acquisition. Le dirigeant comprend immédiatement ce qui dérape, pourquoi cela menace sa vision et ce qu'il doit corriger.",
-    },
-  },
-  ajustement: {
-    description:
-      "La valeur évolue avec le marché, les décisions et les risques. Modelisys permet de recalibrer le scénario en continu — nouvelles hypothèses, risques et opportunités — sans repartir de zéro.",
-    listLabel: "Tous les mois ou trimestres",
-    items: [
-      "Nouvelles hypothèses",
-      "Nouveaux scénarios",
-      "Nouveaux risques",
-      "Nouvelles opportunités",
-    ],
-    example: {
-      label: "Exemple",
-      text: "Les écarts constatés en exécution ne remettent pas en cause la vision — ils mettent à jour le scénario. Dans Modelisys, le dirigeant ajuste ses hypothèses : dépenses variables resserrées, embauche reportée, besoin de financement réévalué à 780 000 $. L'outil recalcule aussitôt l'impact sur la trésorerie, la performance et la trajectoire vers les 7 M$. Chaque mois ou trimestre, le scénario évolue avec la réalité de l'entreprise : nouveaux risques intégrés, nouvelles opportunités testées, cap maintenu. Modelisys devient le lieu où la vision se pilote au quotidien — pas un rapport figé, mais un plan vivant.",
+      text: `Le scénario modélisé en planification devient la référence de suivi. Chaque mois, Modelisys confronte le réel au passé, au prévu et à l'objectif — revenus (${NARRATIVE_BASELINE.revenus} → ${NARRATIVE_TARGET.revenus}), marge, BAIIA, capex et trésorerie. À mi-parcours vers l'acquisition, les ventes dépassent le modèle grâce à l'embauche d'un vendeur, mais les dépenses variables grimpent plus vite que prévu : prix des matériaux en hausse et salaire non budgétisé. Modelisys documente l'écart sur la trajectoire vers les ${NARRATIVE_TARGET.valeur} et en traduit l'impact sur la trésorerie. Le dirigeant ajuste ses hypothèses — dépenses variables resserrées, embauche reportée, besoin de financement réévalué à 780 k$ — et l'outil recalcule aussitôt la performance (BAIIA cible ${NARRATIVE_TARGET.baiia}, marge ${NARRATIVE_TARGET.margeBaiia}) et la trajectoire vers les ${NARRATIVE_TARGET.valeur}. Le plan reste vivant, pas figé.`,
     },
   },
 }
@@ -257,8 +224,8 @@ export function LandingClientJourneySection() {
               <span className="text-[#C9B8A5]/95">comprendre ce qui crée de la valeur</span>
             </h2>
             <p className="mt-4 max-w-full text-base leading-[1.65] text-[#C9B8A5]/85 sm:text-lg">
-              Modelisys accompagne les dirigeants à travers cinq phases — du diagnostic initial au suivi continu — pour
-              mesurer, piloter et augmenter la valeur de leur entreprise.
+              Modelisys accompagne les dirigeants en trois phases — comprendre, planifier et piloter — pour mesurer,
+              piloter et augmenter la valeur de leur entreprise.
             </p>
 
             <div className="mt-8 flex w-full justify-center sm:mt-10">
@@ -280,7 +247,7 @@ export function LandingClientJourneySection() {
                     <div className="shrink-0 text-center">
                       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E6D6C3]/95">Phases</p>
                       <p className="mt-2 text-[10px] sm:text-[11px] leading-snug text-[#C9B8A5]/72">
-                        Du diagnostic à l&apos;ajustement.
+                        Comprendre → Planifier → Piloter.
                       </p>
                     </div>
 

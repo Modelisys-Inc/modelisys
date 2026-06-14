@@ -46,14 +46,12 @@ const audienceContent: Record<AudienceId, AudienceContent> = {
   },
   conseils: {
     description:
-      "Les cabinets accompagnent leurs clients PME sur le même parcours en cinq phases — avec des chiffres structurés, défendables et exploitables ensemble.",
+      "Les cabinets accompagnent leurs clients PME sur le même parcours en trois phases — avec des chiffres structurés, défendables et exploitables ensemble.",
     listLabel: "Au service du client",
     items: [
       "Diagnostic & évaluation initiale",
-      "Vision & cadrage stratégique",
-      "Modélisation de scénarios",
-      "Suivi de l'exécution",
-      "Recalibrage du plan",
+      "Vision, scénarios et planification",
+      "Pilotage, écarts et recalibrage",
     ],
     example: {
       label: "Exemple",
@@ -194,7 +192,7 @@ export function LandingAudiencesSection() {
               Pour qui
             </p>
             <h2 className="mt-5 max-w-full text-3xl font-semibold tracking-tight text-[#E6D6C3] sm:text-4xl md:text-[2.5rem] md:leading-tight">
-              Le même parcours en cinq phases,{" "}
+              Le même parcours en trois phases,{" "}
               <span className="text-[#C9B8A5]/95">quel que soit votre rôle</span>
             </h2>
             <p className="mt-4 max-w-full text-base leading-[1.65] text-[#C9B8A5]/85 sm:text-lg">

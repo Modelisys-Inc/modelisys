@@ -1,321 +1,392 @@
 import type { ReactNode } from "react"
-import type { HeroFeatureLabel } from "@/lib/hero-features"
+import { Check, AlertTriangle } from "lucide-react"
+import type { HeroPerformancePhase } from "@/lib/hero-performance-phases"
+import {
+  NARRATIVE_BASELINE,
+  NARRATIVE_COMPARISON,
+  NARRATIVE_DIVISIONS,
+  NARRATIVE_PILOTAGE,
+  NARRATIVE_PROJECTION,
+} from "@/lib/hero-narrative-metrics"
 
-type Props = { phase: HeroFeatureLabel }
+type Props = { phase: HeroPerformancePhase }
 
-const CREAM = "#E6D6C3"
-const BEIGE = "#C9B8A5"
-const ORANGE = "#E0742D"
-const GOLD = "#E6B08C"
-const TRACK = "rgba(255,255,255,0.12)"
-const LABEL = "rgba(230,214,195,0.92)"
-const MUTED = "rgba(201,184,165,0.78)"
-
-const COL = {
-  decision: 16,
-  tres: 228,
-  val: 318,
-} as const
-
-function ChartBlock({
-  label,
-  caption,
-  children,
-  tall = false,
-}: {
-  label: string
-  caption: string
-  children: ReactNode
-  tall?: boolean
-}) {
+function DashboardSectionLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="w-full" role="img" aria-label={label}>
-      <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E6D6C3]/95">
-        {caption}
-      </p>
-      <svg
-        viewBox={tall ? "0 0 360 140" : "0 0 360 112"}
-        className={`block w-full ${tall ? "h-36 sm:h-40" : "h-28 w-full sm:h-32"}`}
-        preserveAspectRatio="xMidYMid meet"
-        aria-hidden
-      >
-        {children}
-      </svg>
+    <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#C9B8A5]/65">{children}</p>
+  )
+}
+
+function HierarchyPerimeterNav({ active = "Divisions" }: { active: "Groupe" | "Sociétés" | "Divisions" }) {
+  const levels = ["Groupe", "Sociétés", "Divisions"] as const
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-1.5 text-[9px] font-semibold uppercase tracking-[0.12em]"
+      aria-label={`Périmètre : ${levels.join(", ")} — ${active} sélectionné`}
+    >
+      {levels.map((level, index) => (
+        <span key={level} className="inline-flex items-center gap-x-1.5">
+          {index > 0 ? <span className="text-[#C9B8A5]/30">|</span> : null}
+          <span className={level === active ? "text-[#E0742D]" : "text-[#C9B8A5]/55"}>{level}</span>
+        </span>
+      ))}
     </div>
   )
 }
 
-function DiagnosticChart() {
-  const risks = [
-    { title: "Concentration client", detail: "45 % des revenus · 3 clients" },
-    { title: "BFR sous tension", detail: "Liquidité 1,1 · 68 jours" },
-  ]
-  const levers = [
-    { title: "Diversification", detail: "Réduire la dépendance" },
-    { title: "Marge opérationnelle", detail: "+2 pts visés" },
-    { title: "Fonds de roulement", detail: "BFR −15 %" },
+function DiagnosticVisual() {
+  const products = [
+    { name: "Produit A", margin: "32 %" },
+    { name: "Produit B", margin: "24 %" },
   ]
 
   return (
-    <ChartBlock caption="Risques & leviers" label="Risques opérationnels et leviers de valeur identifiés">
-      <text x="16" y="18" fill={MUTED} fontSize="9" fontWeight="600" letterSpacing="1.2">
-        RISQUES
-      </text>
-      <text x="196" y="18" fill={MUTED} fontSize="9" fontWeight="600" letterSpacing="1.2">
-        LEVIERS
-      </text>
-      <line x1="188" y1="10" x2="188" y2="108" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
-
-      {risks.map((r, i) => {
-        const y = 38 + i * 40
-        return (
-          <g key={r.title}>
-            <circle cx="22" cy={y - 3} r="3" fill={ORANGE} />
-            <text x="32" y={y} fill={LABEL} fontSize="10" fontWeight="600">
-              {r.title}
-            </text>
-            <text x="32" y={y + 13} fill={MUTED} fontSize="9" fontWeight="500">
-              {r.detail}
-            </text>
-          </g>
-        )
-      })}
-
-      {levers.map((l, i) => {
-        const y = 38 + i * 30
-        return (
-          <g key={l.title}>
-            <rect x="198" y={y - 5} width="6" height="2" rx="1" fill={GOLD} />
-            <text x="210" y={y} fill={LABEL} fontSize="10" fontWeight="600">
-              {l.title}
-            </text>
-            <text x="210" y={y + 12} fill={MUTED} fontSize="9" fontWeight="500">
-              {l.detail}
-            </text>
-          </g>
-        )
-      })}
-    </ChartBlock>
-  )
-}
-
-function VisionChart() {
-  return (
-    <ChartBlock
-      caption="Vision chiffrée"
-      label="Vision : acquisition dans 24 mois et fermeture d'une division vers 7 M dollars en 3 ans"
+    <div
+      className="overflow-hidden rounded-xl border border-white/[0.09] bg-white/[0.025] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]"
+      role="img"
+      aria-label="Tableau de bord diagnostic : groupe, sociétés, divisions, marges, valeur et risques"
     >
-      <line x1="48" y1="54" x2="312" y2="54" stroke={TRACK} strokeWidth="1.5" />
+      <div className="border-b border-white/[0.07] px-3 py-2.5">
+        <HierarchyPerimeterNav active="Divisions" />
+        <table className="mt-2 w-full table-fixed border-separate border-spacing-y-1">
+          <colgroup>
+            <col />
+            <col className="w-[4.75rem]" />
+            <col className="w-[4.75rem]" />
+            <col className="w-[4.75rem]" />
+          </colgroup>
+          <thead>
+            <tr className="text-[9px] font-medium uppercase tracking-wide text-[#C9B8A5]/50">
+              <th className="pb-1.5 pr-2 text-left font-medium" scope="col" />
+              <th className="px-1 pb-1.5 text-right font-medium" scope="col">
+                Revenus
+              </th>
+              <th className="px-1 pb-1.5 text-right font-medium" scope="col">
+                Marge brute
+              </th>
+              <th className="pl-1 pb-1.5 text-right font-medium" scope="col">
+                BAIIA
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {NARRATIVE_DIVISIONS.map((division) => (
+              <tr key={division.name}>
+                <th
+                  className="rounded-l-lg bg-white/[0.03] py-1.5 pr-2 pl-2 text-left text-[11px] font-medium text-[#E6D6C3]/92"
+                  scope="row"
+                >
+                  {division.name}
+                </th>
+                <td className="bg-white/[0.03] px-1 py-1.5 text-right font-mono text-[11px] tabular-nums text-[#E6D6C3]/88">
+                  {division.revenue}
+                </td>
+                <td className="bg-white/[0.03] px-1 py-1.5 text-right font-mono text-[11px] tabular-nums text-[#E0742D]/90">
+                  {division.grossMargin}
+                </td>
+                <td className="rounded-r-lg bg-white/[0.03] py-1.5 pr-2 pl-1 text-right font-mono text-[11px] tabular-nums text-[#E6B08C]/90">
+                  {division.baiia}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-      <circle cx="52" cy="54" r="8" fill="rgba(224,116,45,0.18)" stroke={ORANGE} strokeWidth="2" />
-      <text x="52" y="78" textAnchor="middle" fill={CREAM} fontSize="13" fontWeight="700" fontFamily="ui-monospace, monospace">
-        4,2 M$
-      </text>
-      <text x="52" y="36" textAnchor="middle" fill={BEIGE} fontSize="9" fontWeight="600">
-        {"Aujourd'hui"}
-      </text>
+      <div className="grid grid-cols-2 border-b border-white/[0.07]">
+        {/* Marges produits */}
+        <div className="border-r border-white/[0.07] px-3 py-2.5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#C9B8A5]/65">Marges</p>
+          <ul className="mt-2 space-y-1.5">
+            {products.map((product) => (
+              <li key={product.name} className="flex items-center justify-between gap-2">
+                <span className="truncate text-[11px] text-[#E6D6C3]/88">{product.name}</span>
+                <span className="shrink-0 font-mono text-[11px] font-semibold tabular-nums text-[#E0742D]">
+                  {product.margin}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
 
-      <rect x="128" y="34" width="104" height="40" rx="8" fill="rgba(224,116,45,0.1)" stroke={ORANGE} strokeWidth="1.5" />
-      <text x="180" y="26" textAnchor="middle" fill={ORANGE} fontSize="9" fontWeight="700">
-        Objectif : 3 ans
-      </text>
-      <text x="180" y="50" textAnchor="middle" fill={LABEL} fontSize="9" fontWeight="600">
-        Acquisition
-      </text>
-      <text x="180" y="64" textAnchor="middle" fill={LABEL} fontSize="9" fontWeight="600">
-        Fermeture division
-      </text>
+        {/* Valeur */}
+        <div className="px-3 py-2.5">
+          <DashboardSectionLabel>Valeur d&apos;entreprise</DashboardSectionLabel>
+          <p className="mt-2 font-mono text-xl font-semibold tabular-nums tracking-tight text-[#E6D6C3]">
+            {NARRATIVE_BASELINE.valeur}
+          </p>
+          <p className="mt-1 text-[10px] text-[#C9B8A5]/65">
+            {NARRATIVE_BASELINE.multiple} BAIIA norm. · {NARRATIVE_BASELINE.revenus} revenus
+          </p>
+        </div>
+      </div>
 
-      <circle cx="308" cy="54" r="9" fill="rgba(230,176,140,0.15)" stroke={GOLD} strokeWidth="2" />
-      <text x="308" y="78" textAnchor="middle" fill={CREAM} fontSize="14" fontWeight="700" fontFamily="ui-monospace, monospace">
-        7 M$
-      </text>
-      <text x="308" y="36" textAnchor="middle" fill={BEIGE} fontSize="9" fontWeight="600">
-        Objectif
-      </text>
-
-      <line x1="62" y1="54" x2="124" y2="54" stroke={ORANGE} strokeWidth="2" />
-      <polygon points="122,54 118,51 118,57" fill={ORANGE} />
-      <line x1="236" y1="54" x2="296" y2="54" stroke={GOLD} strokeWidth="2" />
-      <polygon points="294,54 290,51 290,57" fill={GOLD} />
-    </ChartBlock>
+      {/* Risques */}
+      <div className="px-3 py-2.5">
+        <DashboardSectionLabel>Risques opérationnels</DashboardSectionLabel>
+        <ul className="mt-2 space-y-1.5">
+          <li className="flex items-start gap-2 rounded-lg border border-[#E0742D]/20 bg-[#E0742D]/[0.06] px-2 py-1.5">
+            <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-[#E0742D]" strokeWidth={2} />
+            <span className="text-[10px] leading-snug text-[#E6D6C3]/90">
+              <span className="font-medium text-[#E0742D]/90">Risque · </span>
+              Concentration client — 45 % chez 3 clients
+            </span>
+          </li>
+          <li className="flex items-start gap-2 rounded-lg border border-[#E6B08C]/20 bg-[#E6B08C]/[0.06] px-2 py-1.5">
+            <Check className="mt-0.5 h-3 w-3 shrink-0 text-[#E6B08C]" strokeWidth={2.5} />
+            <span className="text-[10px] leading-snug text-[#E6D6C3]/90">
+              <span className="font-medium text-[#E6B08C]/90">Force · </span>
+              Marge brute stable — {NARRATIVE_BASELINE.margeBrute} consolidée · BAIIA {NARRATIVE_BASELINE.baiia}
+            </span>
+          </li>
+        </ul>
+      </div>
+    </div>
   )
 }
 
-function PlanificationChart() {
-  const rows = [
+function PlanificationVisual() {
+  const { an1, an2, an3 } = NARRATIVE_PROJECTION
+
+  const projectionRows: {
+    label: string
+    an1: string
+    an2: string
+    an3: string
+    valueTone?: "default" | "accent" | "gold"
+    groupStart?: boolean
+  }[] = [
+    { label: "Revenus", an1: an1.revenus, an2: an2.revenus, an3: an3.revenus },
+    { label: "Marge BAIIA", an1: an1.margeBaiia, an2: an2.margeBaiia, an3: an3.margeBaiia, valueTone: "accent" },
+    { label: "BAIIA", an1: an1.baiia, an2: an2.baiia, an3: an3.baiia, valueTone: "gold" },
     {
-      action: "Fermeture division",
-      tres: "+180 k$",
-      tresColor: GOLD,
-      val: "+0,6 M$",
+      label: "Valeur d'entreprise",
+      an1: an1.valeur,
+      an2: an2.valeur,
+      an3: an3.valeur,
+      valueTone: "gold",
+      groupStart: true,
     },
-    {
-      action: "Acquisition",
-      tres: "−850 k$",
-      tresColor: ORANGE,
-      val: "+2,2 M$",
-    },
+    { label: "Fonds de roulement", an1: an1.fondsRoulement, an2: an2.fondsRoulement, an3: an3.fondsRoulement },
+    { label: "Capex", an1: an1.capex, an2: an2.capex, an3: an3.capex },
+    { label: "Dette", an1: an1.dette, an2: an2.dette, an3: an3.dette },
+    { label: "Cash flow", an1: an1.cashFlow, an2: an2.cashFlow, an3: an3.cashFlow, valueTone: "gold" },
   ]
 
+  const valueClass = (tone: "default" | "accent" | "gold" = "default") => {
+    if (tone === "accent") return "text-[#E0742D]/90"
+    if (tone === "gold") return "text-[#E6B08C]/90"
+    return "text-[#E6D6C3]/90"
+  }
+
   return (
-    <ChartBlock
-      caption="Projection du scénario"
-      label="Modélisation de la vision : impact de la fermeture de division et de l'acquisition sur la trésorerie et la valeur"
+    <div
+      className="overflow-hidden rounded-xl border border-white/[0.09] bg-white/[0.025] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]"
+      role="img"
+      aria-label="Tableau de bord planification : projections sur trois ans"
     >
-      <text x={COL.decision} y="22" fill={MUTED} fontSize="9" fontWeight="600" letterSpacing="1">
-        DÉCISION
-      </text>
-      <text x={COL.tres} y="22" textAnchor="middle" fill={ORANGE} fontSize="9" fontWeight="600" letterSpacing="1">
-        TRÉSORERIE
-      </text>
-      <text x={COL.val} y="22" textAnchor="middle" fill={GOLD} fontSize="9" fontWeight="600" letterSpacing="1">
-        VALEUR
-      </text>
-      <line x1="12" y1="28" x2="348" y2="28" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-      <line x1="152" y1="28" x2="152" y2="96" stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
-      <line x1="272" y1="28" x2="272" y2="96" stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+      <div className="border-b border-white/[0.07] px-3 py-2">
+        <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#E0742D]/85">
+          Scénario projeté · horizon 36 mois
+        </p>
+      </div>
 
-      {rows.map((row, i) => {
-        const y = 52 + i * 28
-        return (
-          <g key={row.action}>
-            <text x={COL.decision} y={y} fill={LABEL} fontSize="10" fontWeight="500">
-              {row.action}
-            </text>
-            <text
-              x={COL.tres}
-              y={y}
-              textAnchor="middle"
-              fill={row.tresColor}
-              fontSize="11"
-              fontWeight="700"
-              fontFamily="ui-monospace, monospace"
-            >
-              {row.tres}
-            </text>
-            <text
-              x={COL.val}
-              y={y}
-              textAnchor="middle"
-              fill={CREAM}
-              fontSize="11"
-              fontWeight="700"
-              fontFamily="ui-monospace, monospace"
-            >
-              {row.val}
-            </text>
-          </g>
-        )
-      })}
-
-      <text x={COL.decision} y="104" fill={MUTED} fontSize="9" fontWeight="500">
-        4,2 M$ → 7 M$ après consolidation
-      </text>
-    </ChartBlock>
+      <div className="px-3 py-2">
+        <table className="w-full table-fixed border-collapse">
+          <colgroup>
+            <col />
+            <col className="w-[3.25rem] sm:w-[3.75rem]" />
+            <col className="w-[3.25rem] sm:w-[3.75rem]" />
+            <col className="w-[3.25rem] sm:w-[3.75rem]" />
+          </colgroup>
+          <thead>
+            <tr className="border-b border-white/[0.07] text-[9px] font-medium uppercase tracking-wide text-[#C9B8A5]/50">
+              <th className="pb-2 pr-2 text-left font-medium" scope="col" />
+              <th className="px-0.5 pb-2 text-right font-medium" scope="col">
+                An 1
+              </th>
+              <th className="px-0.5 pb-2 text-right font-medium" scope="col">
+                An 2
+              </th>
+              <th className="pl-0.5 pb-2 text-right font-medium" scope="col">
+                An 3
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {projectionRows.map((row) => (
+              <tr
+                key={row.label}
+                className={row.groupStart ? "border-t border-white/[0.07]" : undefined}
+              >
+                <th
+                  className="py-[0.4rem] pr-2 text-left text-[10px] font-medium text-[#C9B8A5]/75 sm:text-[11px]"
+                  scope="row"
+                >
+                  {row.label}
+                </th>
+                <td
+                  className={`px-0.5 py-[0.4rem] text-right font-mono text-[10px] tabular-nums sm:text-[11px] ${valueClass(row.valueTone)}`}
+                >
+                  {row.an1}
+                </td>
+                <td
+                  className={`px-0.5 py-[0.4rem] text-right font-mono text-[10px] tabular-nums sm:text-[11px] ${valueClass(row.valueTone)}`}
+                >
+                  {row.an2}
+                </td>
+                <td
+                  className={`py-[0.4rem] pr-0 pl-0.5 text-right font-mono text-[10px] tabular-nums sm:text-[11px] ${valueClass(row.valueTone)}`}
+                >
+                  {row.an3}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   )
 }
 
-function ExecutionChart() {
-  const scenario = "M 20 30 L 80 22 L 140 16 L 200 12 L 260 8 L 320 6"
-  const real = "M 20 30 L 80 26 L 140 22 L 200 20 L 260 22 L 320 24"
+function PilotageVisual() {
+  const { periode, rows, note } = NARRATIVE_PILOTAGE
+
+  const ecartClass = (tone: "positive" | "negative" | "neutral") => {
+    if (tone === "positive") return "text-[#E6B08C]/90"
+    if (tone === "negative") return "text-[#E0742D]/90"
+    return "text-[#C9B8A5]/70"
+  }
 
   return (
-    <ChartBlock tall caption="Réel vs scénario" label="Écart traduit en impact sur la valeur">
-      <path d={`${real} L 320 58 L 20 58 Z`} fill={ORANGE} opacity="0.14" />
-      <path
-        d={scenario}
-        fill="none"
-        stroke={GOLD}
-        strokeWidth="2.5"
-        strokeDasharray="6 5"
-        strokeLinecap="round"
-      />
-      <path d={real} fill="none" stroke={ORANGE} strokeWidth="3" strokeLinecap="round" />
+    <div
+      className="overflow-hidden rounded-xl border border-white/[0.09] bg-white/[0.025] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)]"
+      role="img"
+      aria-label="Tableau de bord pilotage : comparaison réel, prévu et passé avec notes d'explication des écarts"
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-white/[0.07] px-3 py-2">
+        <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#E0742D]/85">
+          Analyse des écarts
+        </p>
+        <span className="shrink-0 font-mono text-[9px] tabular-nums text-[#C9B8A5]/55">{periode}</span>
+      </div>
 
-      <line x1="16" y1="58" x2="324" y2="58" stroke={TRACK} strokeWidth="1" />
+      <div className="px-3 py-2">
+        <table className="w-full table-fixed border-collapse">
+          <colgroup>
+            <col />
+            <col className="w-[2.5rem] sm:w-[2.85rem]" />
+            <col className="w-[2.5rem] sm:w-[2.85rem]" />
+            <col className="w-[2.5rem] sm:w-[2.85rem]" />
+            <col className="w-[2.35rem] sm:w-[2.65rem]" />
+          </colgroup>
+          <thead>
+            <tr className="border-b border-white/[0.07] text-[9px] font-medium uppercase tracking-wide text-[#C9B8A5]/50">
+              <th className="pb-2 pr-2 text-left font-medium" scope="col" />
+              <th className="px-0.5 pb-2 text-right font-medium" scope="col">
+                Passé
+              </th>
+              <th className="px-0.5 pb-2 text-right font-medium" scope="col">
+                Prévu
+              </th>
+              <th className="px-0.5 pb-2 text-right font-medium" scope="col">
+                Réel
+              </th>
+              <th className="pb-2 pl-0.5 text-right font-medium" scope="col">
+                Écart
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.label}>
+                <th
+                  className="py-[0.35rem] pr-2 text-left text-[10px] font-medium text-[#C9B8A5]/75 sm:text-[11px]"
+                  scope="row"
+                >
+                  {row.label}
+                </th>
+                <td className="px-0.5 py-[0.35rem] text-right font-mono text-[10px] tabular-nums text-[#C9B8A5]/55 sm:text-[11px]">
+                  {row.passe}
+                </td>
+                <td className="px-0.5 py-[0.35rem] text-right font-mono text-[10px] tabular-nums text-[#E6D6C3]/75 sm:text-[11px]">
+                  {row.prevu}
+                </td>
+                <td className="px-0.5 py-[0.35rem] text-right font-mono text-[10px] font-medium tabular-nums text-[#E6D6C3]/92 sm:text-[11px]">
+                  {row.reel}
+                </td>
+                <td
+                  className={`py-[0.35rem] pl-0.5 text-right font-mono text-[10px] font-medium tabular-nums sm:text-[11px] ${ecartClass(row.ecartTone)}`}
+                >
+                  {row.ecart}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-      <text x="20" y="82" fill={ORANGE} fontSize="16" fontWeight="700" fontFamily="ui-monospace, monospace">
-        −80 k$
-      </text>
-      <text x="20" y="98" fill={MUTED} fontSize="10" fontWeight="500">
-        impact valeur
-      </text>
-
-      <circle cx="148" cy="78" r="4" fill="none" stroke={GOLD} strokeWidth="2" strokeDasharray="2 2" />
-      <text x="158" y="82" fill={LABEL} fontSize="10" fontWeight="600">
-        Scénario
-      </text>
-      <circle cx="148" cy="94" r="4" fill={ORANGE} />
-      <text x="158" y="98" fill={LABEL} fontSize="10" fontWeight="600">
-        Réel
-      </text>
-    </ChartBlock>
+      <div className="border-t border-white/[0.07] px-3 py-2.5">
+        <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#C9B8A5]/60">
+          Notes · explication des écarts
+        </p>
+        <ul className="mt-2 space-y-1.5">
+          <li className="flex gap-2 text-[10px] leading-snug text-[#E6D6C3]/85 sm:text-[11px]">
+            <span className="mt-1.5 h-px w-2 shrink-0 bg-[#E6B08C]/60" aria-hidden />
+            <span>
+              <span className="font-medium text-[#E6B08C]/90">Revenus · </span>
+              {note.revenus}
+            </span>
+          </li>
+          <li className="flex gap-2 text-[10px] leading-snug text-[#E6D6C3]/85 sm:text-[11px]">
+            <span className="mt-1.5 h-px w-2 shrink-0 bg-[#E0742D]/60" aria-hidden />
+            <span>
+              <span className="font-medium text-[#E0742D]/90">Marge · </span>
+              {note.marge}
+            </span>
+          </li>
+          <li className="flex gap-2 text-[10px] leading-snug text-[#E6D6C3]/85 sm:text-[11px]">
+            <span className="mt-1.5 h-px w-2 shrink-0 bg-[#E0742D]/60" aria-hidden />
+            <span>
+              <span className="font-medium text-[#E0742D]/90">Capex · </span>
+              {note.capex}
+            </span>
+          </li>
+        </ul>
+      </div>
+    </div>
   )
 }
 
-function AdjustmentChart() {
-  const sansModelisys = "M 24 88 L 96 82 L 168 78 L 208 76 L 268 74 L 332 68"
-  const avecModelisys = "M 24 88 L 96 82 L 168 78 L 208 76 L 268 48 L 332 32"
+const visuals: Record<HeroPerformancePhase, () => ReactNode> = {
+  Diagnostic: DiagnosticVisual,
+  Planification: PlanificationVisual,
+  Pilotage: PilotageVisual,
+}
 
+export function HeroPerformanceMetrics() {
   return (
-    <ChartBlock caption="Plan vivant" label="Scénario recalibré avec Modelisys">
-      <line x1="16" y1="98" x2="344" y2="98" stroke={TRACK} strokeWidth="1" />
-
-      <path d={avecModelisys} fill="none" stroke={GOLD} strokeWidth="2.5" strokeLinecap="round" />
-      <path
-        d={sansModelisys}
-        fill="none"
-        stroke={BEIGE}
-        strokeWidth="2.5"
-        strokeDasharray="7 5"
-        strokeLinecap="round"
-        opacity="0.9"
-      />
-
-      <path d="M 208 76 L 268 48 L 268 98 L 208 98 Z" fill={ORANGE} opacity="0.1" />
-      <line x1="208" y1="28" x2="208" y2="98" stroke={ORANGE} strokeWidth="1.5" strokeDasharray="4 3" opacity="0.55" />
-
-      <circle cx="208" cy="76" r="5" fill="rgba(224,116,45,0.2)" stroke={ORANGE} strokeWidth="2" />
-      <text x="208" y="112" textAnchor="middle" fill={ORANGE} fontSize="9" fontWeight="700">
-        Ajustement
-      </text>
-
-      <circle cx="332" cy="68" r="3.5" fill="none" stroke={BEIGE} strokeWidth="2" strokeDasharray="2 2" />
-      <text x="332" y="84" textAnchor="end" fill={BEIGE} fontSize="10" fontWeight="600" fontFamily="ui-monospace, monospace">
-        5,4 M$
-      </text>
-
-      <circle cx="332" cy="32" r="4" fill={GOLD} />
-      <text x="332" y="24" textAnchor="end" fill={CREAM} fontSize="12" fontWeight="700" fontFamily="ui-monospace, monospace">
-        7 M$
-      </text>
-
-      <line x1="16" y1="14" x2="40" y2="14" stroke={BEIGE} strokeWidth="2.5" strokeDasharray="5 4" opacity="0.9" />
-      <text x="46" y="17" fill={BEIGE} fontSize="8.5" fontWeight="600">
-        Sans Modelisys
-      </text>
-      <line x1="148" y1="14" x2="172" y2="14" stroke={GOLD} strokeWidth="2.5" />
-      <text x="178" y="17" fill={GOLD} fontSize="8.5" fontWeight="600">
-        Avec Modelisys
-      </text>
-    </ChartBlock>
+    <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 sm:gap-x-4">
+      {NARRATIVE_COMPARISON.map(({ label, today, target }, index) => (
+        <div key={label} className="flex items-center gap-3">
+          {index > 0 ? <span className="hidden h-3 w-px bg-white/10 sm:block" aria-hidden /> : null}
+          <p className="text-[10px] leading-none text-[#C9B8A5]/65">
+            <span className="text-[#C9B8A5]/50">{label}</span>{" "}
+            <span className="font-mono tabular-nums text-[#E6D6C3]/85">{today}</span>
+            <span className="mx-1 text-[#E0742D]/55">→</span>
+            <span className="font-mono tabular-nums text-[#E6B08C]/85">{target}</span>
+          </p>
+        </div>
+      ))}
+    </div>
   )
-}
-
-const charts: Record<HeroFeatureLabel, () => ReactNode> = {
-  Diagnostic: DiagnosticChart,
-  Vision: VisionChart,
-  Planification: PlanificationChart,
-  Exécution: ExecutionChart,
-  Ajustement: AdjustmentChart,
 }
 
 export function HeroPhaseVisual({ phase }: Props) {
-  const Chart = charts[phase]
+  const Visual = visuals[phase]
   return (
-    <div key={phase} className="animate-in fade-in-0 duration-300">
-      <Chart />
+    <div key={phase} className="animate-in fade-in-0 w-full min-w-0 duration-300">
+      <Visual />
     </div>
   )
 }

@@ -117,7 +117,7 @@ export function PlatformSetupSection() {
           <p className="mt-4 text-base leading-relaxed text-[#5C5F66] sm:text-lg">
             Cinq étapes pour installer Modelisys chez vous : connexion des données comptables, paramétrage de la
             plateforme et validation technique avec vos équipes. La plateforme est conçue pour supporter l&apos;approche
-            Modelisys en cinq phases — l&apos;évaluation initiale, les projections, l&apos;analyse des écarts et le suivi
+            Modelisys en trois phases — l&apos;évaluation initiale, les projections, l&apos;analyse des écarts et le suivi
             stratégique relèvent, eux, d&apos;un plan d&apos;accompagnement optionnel.
           </p>
           <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent lg:mx-0 mx-auto" />

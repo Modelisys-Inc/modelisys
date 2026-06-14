@@ -16,8 +16,6 @@ import {
   Mail,
   AlertCircle,
   Compass,
-  Building2,
-  UserRound,
   ClipboardList,
   Route,
   Gauge,
@@ -61,39 +59,30 @@ const SUBSCRIPTION_INCLUDES = [
 
 const ACCOMPANIMENT_INCLUDES = [
   "Diagnostic — phase 1, forfait ponctuel",
-  "Trajectoire — phases 1 à 3, forfait ponctuel",
-  "Pilotage — phases 1 à 5 avec suivi, abonnement",
+  "Planification — phases 1 à 2, forfait ponctuel",
+  "Pilotage — phases 1 à 3 avec suivi, abonnement",
   "Réalisable avec l'équipe Modelisys ou vos professionnels de confiance",
 ] as const
 
 const ACCOMPANIMENT_PATHS: {
   step: number
-  icon: LucideIcon
   title: string
-  tag: string
-  description: string
   duration: string
   durationNote: string
+  durationSubnote?: string
 }[] = [
   {
     step: 1,
-    icon: Building2,
     title: "Directement par l'équipe Modelisys",
-    tag: "Équipe Modelisys",
-    description:
-      "Trois formules selon l'ampleur souhaitée — du diagnostic initial au pilotage complet de votre trajectoire de valeur, en forfait ou en abonnement.",
     duration: "Forfait ou abonnement",
-    durationNote: "Diagnostic, Trajectoire ou Pilotage — selon vos objectifs et votre niveau d'autonomie.",
+    durationNote: "Diagnostic, Planification ou Pilotage — selon vos objectifs et votre niveau d'autonomie.",
   },
   {
     step: 2,
-    icon: UserRound,
     title: "Par les professionnels de confiance de votre organisation",
-    tag: "Vos professionnels",
-    description:
-      "Conservez la relation avec votre CPA, conseiller ou équipe interne. Modelisys fournit les outils, modèles et standards d'analyse permettant à vos professionnels d'exploiter la plateforme dans leurs interventions auprès de vous.",
     duration: "Selon votre mandat",
     durationNote: "Vos professionnels s'appuient sur la plateforme et la méthodologie Modelisys.",
+    durationSubnote: "Vous conservez la relation conseil avec votre CPA ou votre équipe.",
   },
 ]
 
@@ -120,27 +109,27 @@ const MODELISYS_ACCOMPANIMENT_OFFERS: {
   },
   {
     icon: Route,
-    title: "Trajectoire",
-    phases: "Phases 1 à 3 — Diagnostic, Vision, Planification",
+    title: "Planification",
+    phases: "Phases 1 à 2 — Diagnostic et Planification",
     billing: "forfait",
     description:
-      "Pour les entreprises qui veulent établir leur situation, définir des objectifs et élaborer différents scénarios de croissance.",
+      "Pour les entreprises qui veulent établir leur situation, définir leurs objectifs et élaborer différents scénarios de croissance.",
     highlights: [
       "Diagnostic et valorisation comme point de départ",
-      "Définition de la vision et des objectifs chiffrés",
+      "Vision et objectifs chiffrés",
       "Modélisation de scénarios et projections de trajectoire",
     ],
   },
   {
     icon: Gauge,
     title: "Pilotage",
-    phases: "Phases 1 à 5 — parcours complet",
+    phases: "Phases 1 à 3 — parcours complet",
     billing: "abonnement",
     description:
       "Accompagnement sur l'ensemble de la trajectoire de valeur, avec un suivi mensuel ou trimestriel selon vos besoins.",
     highlights: [
-      "Diagnostic, vision, planification, exécution et ajustement",
-      "Analyse des écarts réel vs scénario et recalibrage continu",
+      "Diagnostic, planification et pilotage",
+      "Analyse des écarts réel vs passé vs prévu et recalibrage continu",
       "Suivi récurrent mensuel ou trimestriel avec notre équipe",
     ],
   },
@@ -528,7 +517,7 @@ export function PricingProcessSection() {
             </header>
             <div className="flex flex-1 flex-col px-5 py-5 sm:px-6">
               <p className="text-[13px] leading-relaxed text-[#5C5F66]">
-                Diagnostic, trajectoire ou pilotage complet — au-delà de la mise en place technique, en forfait ou en
+                Diagnostic, planification ou pilotage complet — au-delà de la mise en place technique, en forfait ou en
                 abonnement selon l&apos;ampleur souhaitée.
               </p>
               <div className="mt-4 flex-1">
@@ -583,95 +572,35 @@ export function PricingProcessSection() {
               </p>
             </div>
 
-            <div className="hidden px-5 pb-2 pt-6 sm:px-6 lg:block">
-              <div className="grid grid-cols-2 gap-3">
-                {ACCOMPANIMENT_PATHS.map(({ step, title }) => (
-                  <div key={step} className="flex flex-col items-center gap-2 text-center">
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2A2F3A] text-sm font-bold text-white shadow-md ring-4 ring-white/80">
-                      {step}
-                    </span>
-                    <span className="line-clamp-3 text-[11px] font-medium leading-snug text-slate-600 lg:text-xs">
-                      {title}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 pt-1">
-                {ACCOMPANIMENT_PATHS.map(({ step, duration, durationNote }) => (
-                  <div key={step} className="min-w-0">
-                    <div className="rounded-t-xl border-l-2 border-r-2 border-t-2 border-[#E0742D]/45 bg-gradient-to-b from-[#E0742D]/[0.07] to-transparent px-3 pb-3 pt-3 text-center shadow-[inset_0_1px_0_0_rgb(255_255_255_/0.6)]">
-                      <p className="text-xs font-semibold tracking-tight text-[#2A2F3A] sm:text-sm">{duration}</p>
-                      <p className="mx-auto mt-1.5 max-w-sm text-[10px] leading-snug text-[#5C5F66] sm:text-[11px]">
-                        {durationNote}
-                      </p>
+            <div className="border-b border-slate-100 px-5 py-6 sm:px-6">
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:gap-3">
+                {ACCOMPANIMENT_PATHS.map(({ step, title, duration, durationNote, durationSubnote }) => (
+                  <div key={step} className="flex min-w-0 flex-col">
+                    <div className="flex flex-col items-center gap-2 text-center">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2A2F3A] text-sm font-bold text-white shadow-md ring-4 ring-white/80">
+                        {step}
+                      </span>
+                      <span className="text-[11px] font-medium leading-snug text-slate-600 sm:text-xs">{title}</span>
+                    </div>
+                    <div className="mt-4 min-w-0">
+                      <div className="rounded-t-xl border-l-2 border-r-2 border-t-2 border-[#E0742D]/45 bg-gradient-to-b from-[#E0742D]/[0.07] to-transparent px-3 pb-3 pt-3 text-center shadow-[inset_0_1px_0_0_rgb(255_255_255_/0.6)]">
+                        <p className="text-xs font-semibold tracking-tight text-[#2A2F3A] sm:text-sm">{duration}</p>
+                        <p className="mx-auto mt-1.5 max-w-sm text-[10px] leading-snug text-[#5C5F66] sm:text-[11px]">
+                          {durationNote}
+                          {durationSubnote ? (
+                            <>
+                              <br />
+                              {durationSubnote}
+                            </>
+                          ) : null}
+                        </p>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <ol className="border-t border-slate-200/90 lg:hidden">
-              {ACCOMPANIMENT_PATHS.map(({ step, icon: Icon, title, tag, description }, index) => {
-                const isLast = index === ACCOMPANIMENT_PATHS.length - 1
-                return (
-                  <li
-                    key={step}
-                    className={cn(
-                      "grid gap-4 border-b border-slate-200/80 px-5 py-6 sm:grid-cols-[auto_1fr] sm:gap-6 sm:px-6",
-                      isLast && "border-b-0",
-                    )}
-                  >
-                    <div className="flex items-start gap-3 sm:flex-col sm:gap-2">
-                      <span className="font-mono text-3xl font-bold leading-none tabular-nums text-[#E0742D]/20">
-                        {String(step).padStart(2, "0")}
-                      </span>
-                      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-white text-[#2A2F3A] shadow-sm">
-                        <Icon className="h-5 w-5" strokeWidth={1.5} />
-                      </span>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]/90">{tag}</p>
-                      <h4 className="mt-1 text-base font-semibold tracking-tight text-[#2A2F3A]">{title}</h4>
-                      <p className="mt-2 text-sm leading-relaxed text-[#5C5F66]">{description}</p>
-                    </div>
-                  </li>
-                )
-              })}
-            </ol>
-
-            <div className="hidden border-t border-slate-200/90 lg:block">
-              <ol className="px-5 sm:px-6">
-                {ACCOMPANIMENT_PATHS.map(({ step, icon: Icon, title, tag, description }, index) => {
-                  const isLast = index === ACCOMPANIMENT_PATHS.length - 1
-                  return (
-                    <li
-                      key={step}
-                      className={cn(
-                        "grid gap-6 border-b border-slate-200/80 py-8 sm:grid-cols-[auto_1fr] sm:gap-8",
-                        isLast && "border-b-0",
-                      )}
-                    >
-                      <div className="flex items-start gap-4 sm:flex-col sm:items-stretch sm:gap-3">
-                        <span className="font-mono text-4xl font-bold leading-none tabular-nums text-[#E0742D]/20">
-                          {String(step).padStart(2, "0")}
-                        </span>
-                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-white text-[#2A2F3A] shadow-sm">
-                          <Icon className="h-6 w-6" strokeWidth={1.5} />
-                        </span>
-                      </div>
-                      <div className="min-w-0 pt-0.5">
-                        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]/90">{tag}</p>
-                        <h4 className="mt-1.5 text-lg font-semibold tracking-tight text-[#2A2F3A]">{title}</h4>
-                        <p className="mt-3 text-sm leading-relaxed text-[#5C5F66]">{description}</p>
-                      </div>
-                    </li>
-                  )
-                })}
-              </ol>
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
             <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]/90">
                 Équipe Modelisys
@@ -680,10 +609,11 @@ export function PricingProcessSection() {
                 Trois formules d&apos;accompagnement
               </h3>
               <p className="mt-2 max-w-3xl text-sm leading-relaxed text-[#5C5F66]">
-                Le Diagnostic et la Trajectoire sont des forfaits — des actes ponctuels. Le Pilotage est un abonnement,
+                Le Diagnostic et la Planification sont des forfaits — des actes ponctuels. Le Pilotage est un abonnement,
                 avec un suivi récurrent adapté à votre rythme.
               </p>
             </div>
+
             <div className="grid gap-4 px-5 py-5 sm:grid-cols-2 lg:grid-cols-3 sm:px-6 sm:py-6">
               {MODELISYS_ACCOMPANIMENT_OFFERS.map(
                 ({ icon: Icon, title, phases, billing, description, highlights }) => (

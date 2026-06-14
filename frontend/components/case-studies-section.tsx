@@ -20,10 +20,8 @@ import {
 
 const PHASE_FULL_LABELS: Record<ApprochePhaseId, string> = {
   diagnostic: "Phase 1 — Diagnostic",
-  vision: "Phase 2 — Vision",
-  planification: "Phase 3 — Planification",
-  execution: "Phase 4 — Exécution",
-  ajustement: "Phase 5 — Ajustement",
+  planification: "Phase 2 — Planification",
+  pilotage: "Phase 3 — Pilotage",
 }
 
 type CaseStudy = {
@@ -50,14 +48,10 @@ const CASE_STUDIES: CaseStudy[] = [
     journey: {
       diagnostic:
         "Modelisys évalue la société à 4,2 M$ (multiple de 4,5× sur un BAIIA normalisé de 935 000 $). La marge consolidée affiche 12 % — mais la division conseil tourne à 18 % tandis que la division technique affiche −4 %. Problème identifié : 320 000 $ de frais partagés mal alloués masquent une division déficitaire. Le diagnostic rend enfin visible ce que les totaux cachaient.",
-      vision:
-        "Objectif fixé : porter la division technique à 8 % de marge et la marge consolidée à 15 %, pour atteindre une valeur de 5,8 M$ en 3 ans. Actions ciblées : resserrer le pricing (+3 % sur les contrats renouvelés), clarifier l'allocation des frais partagés et discipliner les coûts variables de la division en difficulté.",
       planification:
-        "Deux scénarios modélisés dans Modelisys : statu quo (valeur stagnante à 4,4 M$) et plan d'action (réallocation de 180 000 $ de frais, réduction de 90 000 $ de coûts variables). Le scénario retenu projette une trajectoire vers 5,8 M$ avec des budgets mensuels par division alignés sur le plan.",
-      execution:
-        "Au sixième mois, la division technique progresse mais reste à −1 % de marge — en dessous des 8 % visés. Modelisys traduit l'écart en impact concret : −45 000 $ sur la trajectoire de valeur projetée. Le dirigeant voit immédiatement que les dépenses variables grimpent plus vite que prévu et que la discipline budgétaire doit se resserrer.",
-      ajustement:
-        "Hypothèses recalibrées : pricing ajusté sur trois contrats clés, plafond de dépenses variables réduit de 60 000 $/an, allocation des frais partagés revue. Modelisys recalcule la trajectoire : valeur projetée remontée à 5,4 M$ à l'horizon 18 mois — le cap de 5,8 M$ reste maintenu avec des actions correctives identifiées.",
+        "Objectif fixé : porter la division technique à 8 % de marge et la marge consolidée à 15 %, pour atteindre une valeur de 5,8 M$ en 3 ans. Deux scénarios modélisés dans Modelisys : statu quo (valeur stagnante à 4,4 M$) et plan d'action (réallocation de 180 000 $ de frais, réduction de 90 000 $ de coûts variables). Le scénario retenu projette une trajectoire vers 5,8 M$ avec des budgets mensuels par division alignés sur le plan.",
+      pilotage:
+        "Au sixième mois, la division technique progresse mais reste à −1 % de marge — en dessous des 8 % visés. Modelisys traduit l'écart en impact concret : −45 000 $ sur la trajectoire de valeur projetée. Hypothèses recalibrées : pricing ajusté sur trois contrats clés, plafond de dépenses variables réduit de 60 000 $/an, allocation des frais partagés revue. Modelisys recalcule la trajectoire : valeur projetée remontée à 5,4 M$ à l'horizon 18 mois — le cap de 5,8 M$ reste maintenu avec des actions correctives identifiées.",
     },
   },
   {
@@ -74,14 +68,10 @@ const CASE_STUDIES: CaseStudy[] = [
     journey: {
       diagnostic:
         "L'analyse révèle une marge brute stable à 32 %, mais 45 % des revenus proviennent de trois clients. Valeur actuelle : 4,2 M$. Risques identifiés : dépendance client élevée, fonds de roulement sous tension (ratio de liquidité à 1,1, délai de recouvrement de 68 jours). Leviers : diversifier la clientèle, réduire le BFR de 15 % et gagner 2 points de marge opérationnelle.",
-      vision:
-        "Le dirigeant fixe un cap clair : atteindre 7 M$ de valeur en 3 ans par une acquisition à 24 mois et la fermeture d'une division non rentable. Rendement annualisé souhaité : +18,6 %. L'ambition cesse d'être une intuition — elle devient un objectif modélisable.",
       planification:
-        "Modelisys modélise l'acquisition et la fermeture de division : impact sur revenus, dépenses fixes et variables, fonds de roulement. Les flux de trésorerie révèlent un besoin de financement de 850 000 $ au moment de l'acquisition. La fermeture de division libère +180 000 $ de trésorerie et +0,6 M$ de valeur projetée à terme.",
-      execution:
-        "À mi-parcours, les ventes dépassent le modèle grâce à l'embauche d'un vendeur — mais les dépenses variables grimpent plus vite que prévu (matériaux en hausse, salaire non budgétisé). Modelisys traduit l'écart : −80 000 $ sur la trajectoire de valeur vers les 7 M$. Le dirigeant comprend ce qui dérape et pourquoi cela menace sa vision.",
-      ajustement:
-        "Scénario recalibré : dépenses variables resserrées, embauche reportée de six mois, besoin de financement réévalué à 780 000 $. Modelisys recalcule l'impact sur la trésorerie et la trajectoire : cap de 7 M$ maintenu, avec un plan vivant mis à jour chaque mois.",
+        "Le dirigeant fixe un cap clair : atteindre 7 M$ de valeur en 3 ans par une acquisition à 24 mois et la fermeture d'une division non rentable. Modelisys modélise l'acquisition et la fermeture de division : impact sur revenus, dépenses fixes et variables, fonds de roulement. Les flux de trésorerie révèlent un besoin de financement de 850 000 $ au moment de l'acquisition. La fermeture de division libère +180 000 $ de trésorerie et +0,6 M$ de valeur projetée à terme.",
+      pilotage:
+        "À mi-parcours, les ventes dépassent le modèle grâce à l'embauche d'un vendeur — mais les dépenses variables grimpent plus vite que prévu (matériaux en hausse, salaire non budgétisé). Modelisys traduit l'écart : −80 000 $ sur la trajectoire de valeur vers les 7 M$. Scénario recalibré : dépenses variables resserrées, embauche reportée de six mois, besoin de financement réévalué à 780 000 $. Le cap de 7 M$ est maintenu, avec un plan vivant mis à jour chaque mois.",
     },
   },
   {
@@ -98,14 +88,10 @@ const CASE_STUDIES: CaseStudy[] = [
     journey: {
       diagnostic:
         "Modelisys situe la valeur à 3,5 M$ et le BFR à 2,1 M$ — dont 980 000 $ immobilisés en stocks et un délai de recouvrement de 72 jours. La trésorerie disponible : 420 000 $, jugée insuffisante pour absorber le prochain creux de cycle. Le diagnostic met en lumière le risque avant qu'il ne devienne une crise.",
-      vision:
-        "Objectif : maintenir la valeur à 3,5 M$ minimum tout en finançant 1,2 M$ de capex sur deux ans pour moderniser la production. Trésorerie minimale cible : 600 000 $ en tout temps — un plan de sécurité chiffré, pas une aspiration.",
       planification:
-        "Scénarios de capex modélisés : phase 1 (600 000 $) et phase 2 (600 000 $). Les projections de flux révèlent un besoin de marge de crédit de 350 000 $ au creux du cycle, à négocier avant la tension. Chaque hypothèse de délai fournisseur et client est testée.",
-      execution:
-        "Au quatrième mois, le prix des matières premières grimpe de 12 % par rapport au scénario. La trésorerie descend à 380 000 $ — sous le seuil de 600 000 $ visé. Modelisys quantifie l'écart : 220 000 $ de tension non anticipée et impact de −0,3 M$ sur la valeur projetée.",
-      ajustement:
-        "Phase 2 des capex reportée de neuf mois, délai de recouvrement cible ramené de 72 à 58 jours, renégociation fournisseurs (−15 jours). Trésorerie remontée à 520 000 $ au mois suivant. Le plan de cash devient un outil de pilotage mensuel, pas un exercice annuel.",
+        "Objectif : maintenir la valeur à 3,5 M$ minimum tout en finançant 1,2 M$ de capex sur deux ans pour moderniser la production. Scénarios de capex modélisés : phase 1 (600 000 $) et phase 2 (600 000 $). Les projections de flux révèlent un besoin de marge de crédit de 350 000 $ au creux du cycle, à négocier avant la tension.",
+      pilotage:
+        "Au quatrième mois, le prix des matières premières grimpe de 12 % par rapport au scénario. La trésorerie descend à 380 000 $ — sous le seuil de 600 000 $ visé. Modelisys quantifie l'écart : 220 000 $ de tension non anticipée. Phase 2 des capex reportée de neuf mois, délai de recouvrement cible ramené de 72 à 58 jours, renégociation fournisseurs (−15 jours). Le plan de cash devient un outil de pilotage mensuel.",
     },
   },
   {
@@ -122,14 +108,10 @@ const CASE_STUDIES: CaseStudy[] = [
     journey: {
       diagnostic:
         "Modelisys consolide le groupe à 12 M$ de valeur. Société A (4,8 M$) et B (4,2 M$) performent — société C affiche −200 000 $ de perte annuelle et tire le groupe vers le bas. Les intercos (1,8 M$) sont mal documentées : écarts de consolidation récurrents et clôtures retardées. Le problème n'est plus abstrait — il est chiffré par entité.",
-      vision:
-        "Objectif groupe : 16 M$ en 4 ans. Deux options structurées : intégrer et redresser la société C, ou céder cette filiale. Chaque option est traduite en impact sur la valeur groupe et par société — la direction peut décider sur des chiffres, pas des opinions.",
       planification:
-        "Scénario intégration : économies de 150 000 $/an, valeur groupe projetée à 14,5 M$ en 3 ans. Scénario cession : valeur immédiate +2,2 M$, mais perte de revenus croisés de 400 000 $. Modelisys modélise les deux trajectoires avec trésorerie groupe et besoins de financement.",
-      execution:
-        "Reporting uniformisé chaque mois : mêmes KPI, mêmes périodes. Au troisième mois, Modelisys détecte un écart intercos de 90 000 $ non éliminé — corrigé avant la clôture trimestrielle. Le temps de consolidation passe de 12 à 4 jours.",
-      ajustement:
-        "Plan hybride retenu : cession partielle de la société C (60 %) et plan de redressement sur le reste. Valeur groupe suivie en continu : 13,2 M$ à mi-parcours, trajectoire révisée vers 15,4 M$ à 4 ans. Le groupe pilote enfin sa valeur, pas seulement ses résultats.",
+        "Objectif groupe : 16 M$ en 4 ans. Deux options structurées : intégrer et redresser la société C, ou céder cette filiale. Scénario intégration : économies de 150 000 $/an, valeur groupe projetée à 14,5 M$ en 3 ans. Scénario cession : valeur immédiate +2,2 M$, mais perte de revenus croisés de 400 000 $. Modelisys modélise les deux trajectoires avec trésorerie groupe et besoins de financement.",
+      pilotage:
+        "Reporting uniformisé chaque mois : mêmes KPI, mêmes périodes. Au troisième mois, Modelisys détecte un écart intercos de 90 000 $ non éliminé — corrigé avant la clôture trimestrielle. Plan hybride retenu : cession partielle de la société C (60 %) et plan de redressement sur le reste. Valeur groupe suivie en continu : 13,2 M$ à mi-parcours, trajectoire révisée vers 15,4 M$ à 4 ans.",
     },
   },
   {
@@ -146,14 +128,10 @@ const CASE_STUDIES: CaseStudy[] = [
     journey: {
       diagnostic:
         "Le cabinet structure le diagnostic dans Modelisys : valeur du client à 2,8 M$, ratio de liquidité à 1,1, marge opérationnelle de 9 % (sous la médiane sectorielle de 14 %). Concentration : 52 % des revenus chez deux clients. Le dirigeant et le conseiller partagent la même lecture — fini les fichiers Excel contradictoires.",
-      vision:
-        "Ambition du dirigeant : atteindre 4,5 M$ de valeur en 3 ans en diversifiant la clientèle et en portant la marge à 15 %. Le cabinet documente l'objectif dans Modelisys — chaque revue mensuelle s'y réfère.",
       planification:
-        "Scénario modélisé : acquisition de deux clients cibles (+800 000 $ de revenus), optimisation du BFR (−200 000 $ immobilisés), marge progressive de 9 % à 15 %. Besoin de financement ponctuel de 120 000 $ pour le fonds de roulement identifié avant la croissance.",
-      execution:
-        "Revues mensuelles dans Modelisys : réel vs scénario. Au quatrième mois, un dépassement de 60 000 $ sur les coûts variables est détecté — le cabinet alerte le dirigeant avant la clôture. L'écart est traduit en −0,15 M$ sur la trajectoire de valeur. Action corrective lancée dans les deux semaines.",
-      ajustement:
-        "Plan recalibré avec le dirigeant : embauche reportée, plafond de dépenses resserré, nouveau client signé (+12 % de revenus). Valeur projetée remontée de 3,1 M$ à 3,6 M$ à 12 mois. Le cabinet passe d'une posture réactive à un accompagnement proactif sur la trajectoire de valeur.",
+        "Ambition du dirigeant : atteindre 4,5 M$ de valeur en 3 ans en diversifiant la clientèle et en portant la marge à 15 %. Scénario modélisé : acquisition de deux clients cibles (+800 000 $ de revenus), optimisation du BFR (−200 000 $ immobilisés), marge progressive de 9 % à 15 %. Besoin de financement ponctuel de 120 000 $ pour le fonds de roulement identifié avant la croissance.",
+      pilotage:
+        "Revues mensuelles dans Modelisys : réel vs scénario. Au quatrième mois, un dépassement de 60 000 $ sur les coûts variables est détecté — le cabinet alerte le dirigeant avant la clôture. Plan recalibré : embauche reportée, plafond de dépenses resserré, nouveau client signé (+12 % de revenus). Valeur projetée remontée de 3,1 M$ à 3,6 M$ à 12 mois.",
     },
   },
   {
@@ -170,14 +148,10 @@ const CASE_STUDIES: CaseStudy[] = [
     journey: {
       diagnostic:
         "Modelisys évalue le réseau à 6,1 M$ de valeur. Marge moyenne : 14 % — mais trois sites affichent moins de 8 % (dont un à 4,1 %). Écart de performance : le meilleur site tourne à 19 % de marge, le pire à 4,1 %. Coûts de main-d'œuvre mal calibrés sur les sites faibles et promotions non rentables identifiées comme causes racines.",
-      vision:
-        "Objectif : porter tous les sites à 12 %+ de marge et atteindre 7,5 M$ de valeur réseau en 3 ans. Plan d'accompagnement ciblé pour les trois franchisés en difficulté — avec repères clairs et objectifs chiffrés par site.",
       planification:
-        "Scénarios par site modélisés : optimisation main-d'œuvre (−8 % de coûts sur sites faibles), promotions ciblées (+5 % de trafic sur sites moyens), consolidation des achats (−3 % sur le coût des marchandises). Trajectoire réseau projetée : 7,5 M$ si le plan est exécuté.",
-      execution:
-        "Suivi mensuel par site vs scénario. Au troisième mois, le site #7 voit sa marge passer de 6,2 % à 4,1 % — Modelisys alerte dès la semaine 3. Cause : heures supplémentaires non budgétisées (+22 000 $/mois). Le franchisé est accompagné avant que l'écart ne devienne structurel.",
-      ajustement:
-        "Coaching ciblé sur les trois sites faibles, partage des pratiques du site à 19 % de marge, promotions révisées. Marge réseau remontée à 13,1 % à 12 mois, valeur projetée à 7,1 M$ — en ligne vers l'objectif de 7,5 M$.",
+        "Objectif : porter tous les sites à 12 %+ de marge et atteindre 7,5 M$ de valeur réseau en 3 ans. Scénarios par site modélisés : optimisation main-d'œuvre (−8 % de coûts sur sites faibles), promotions ciblées (+5 % de trafic sur sites moyens), consolidation des achats (−3 % sur le coût des marchandises). Trajectoire réseau projetée : 7,5 M$ si le plan est exécuté.",
+      pilotage:
+        "Suivi mensuel par site vs scénario. Au troisième mois, le site #7 voit sa marge passer de 6,2 % à 4,1 % — Modelisys alerte dès la semaine 3. Coaching ciblé sur les trois sites faibles, partage des pratiques du site à 19 % de marge, promotions révisées. Marge réseau remontée à 13,1 % à 12 mois, valeur projetée à 7,1 M$ — en ligne vers l'objectif de 7,5 M$.",
     },
   },
 ]
@@ -204,7 +178,7 @@ function PhaseJourneyList({ journey }: { journey: Record<ApprochePhaseId, string
   return (
     <div className="mt-10 border-t border-slate-200/90 pt-8">
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-        Le parcours en cinq phases
+        Le parcours en trois phases
       </p>
       <ul className="mt-6 space-y-6">
         {APPROCHE_PHASE_IDS.map((id) => (
@@ -241,7 +215,7 @@ export function CaseStudiesSection() {
   const reduceMotion = useReducedMotion()
 
   const commonQuote =
-    "« Chaque chiffre raconte une histoire — et Modelisys la rend lisible, du diagnostic initial jusqu'aux ajustements qui rapprochent de l'objectif de valeur. »"
+    "« Chaque chiffre raconte une histoire — et Modelisys la rend lisible, du diagnostic initial au pilotage qui rapproche de l'objectif de valeur. »"
 
   useEffect(() => {
     const el = sectionRef.current
@@ -306,7 +280,7 @@ export function CaseStudiesSection() {
             <span className="text-[#5C5F66]">dans des contextes réels</span>
           </h2>
           <p className="mt-4 text-base leading-relaxed text-[#5C5F66] sm:text-lg">
-            Chaque étude de cas suit les cinq phases du parcours — du diagnostic à l&apos;ajustement — pour montrer
+            Chaque étude de cas suit les trois phases du parcours — du diagnostic au pilotage — pour montrer
             comment Modelisys s&apos;applique concrètement à des situations variées.
           </p>
           <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent lg:mx-0 mx-auto" />
@@ -364,7 +338,7 @@ export function CaseStudiesSection() {
                           <span className="block text-sm font-semibold text-[#2A2F3A]">{cs.client}</span>
                           <span className="mt-0.5 block text-xs leading-relaxed text-slate-600">{cs.tagline}</span>
                           <span className="mt-1.5 text-[9px] font-medium uppercase tracking-wide text-slate-400">
-                            5 phases
+                            3 phases
                           </span>
                         </span>
                       </button>
@@ -373,7 +347,7 @@ export function CaseStudiesSection() {
                 </div>
 
                 <p className="mt-6 text-xs leading-relaxed text-slate-500">
-                  Exemples inspirés de situations fréquentes — chaque étude détaille les cinq phases du parcours
+                  Exemples inspirés de situations fréquentes — chaque étude détaille les trois phases du parcours
                   Modelisys.
                 </p>
               </div>

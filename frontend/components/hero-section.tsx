@@ -3,83 +3,27 @@
 import { ArrowRight } from "lucide-react"
 import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
-import { HeroPhaseVisual } from "@/components/hero-phase-visual"
+import { HeroPerformanceMetrics, HeroPhaseVisual } from "@/components/hero-phase-visual"
 import { navigateToApprochePhase, scrollToApprocheSection } from "@/lib/approche-navigation"
 import {
-  HERO_FEATURE_LABELS,
-  HERO_FEATURE_PHASE_BY_LABEL,
-  type HeroFeatureLabel,
-} from "@/lib/hero-features"
-
-type Feature = HeroFeatureLabel
-
-type PhaseInsight = {
-  step: string
-  headline: string
-  outcome: string
-  metricLabel: string
-  metricValue: string
-  metricSecondary?: { label: string; value: string }
-  trajectory: number
-}
-
-const phaseInsights: Record<Feature, PhaseInsight> = {
-  Diagnostic: {
-    step: "01",
-    headline: "Mesurer votre point de départ",
-    outcome: "Obtenez une lecture claire de la valeur, des risques et des leviers — la base de tout le reste.",
-    metricLabel: "Valeur actuelle",
-    metricValue: "4,2 M$",
-    trajectory: 18,
-  },
-  Vision: {
-    step: "02",
-    headline: "Fixer un cap chiffré",
-    outcome: "Transformez une ambition — vendre, acquérir, restructurer — en objectif de valeur concret.",
-    metricLabel: "Objectif visé",
-    metricValue: "7 M$",
-    metricSecondary: { label: "Rend. annualisé souhaité", value: "+18,6 %" },
-    trajectory: 38,
-  },
-  Planification: {
-    step: "03",
-    headline: "Modéliser vos décisions",
-    outcome: "Projetez l'impact de vos choix sur la performance, la trésorerie et les besoins de financement.",
-    metricLabel: "Financement anticipé",
-    metricValue: "850 k$",
-    trajectory: 55,
-  },
-  Exécution: {
-    step: "04",
-    headline: "Relier le réel à la valeur",
-    outcome: "Chaque écart se traduit en impact sur la trésorerie et la trajectoire — pas en pourcentages isolés.",
-    metricLabel: "Écart sur la valeur",
-    metricValue: "−80 k$",
-    trajectory: 72,
-  },
-  Ajustement: {
-    step: "05",
-    headline: "Piloter un plan vivant",
-    outcome: "Recalibrez hypothèses et scénarios en continu, sans repartir de zéro.",
-    metricLabel: "Scénario",
-    metricValue: "Recalibré",
-    trajectory: 88,
-  },
-}
+  HERO_PERFORMANCE_PHASES,
+  HERO_PERFORMANCE_PHASE_CONTENT,
+  type HeroPerformancePhase,
+} from "@/lib/hero-performance-phases"
 
 export function HeroSection() {
   const [isVisible, setIsVisible] = useState(false)
   const sectionRef = useRef<HTMLElement>(null)
-  const features = HERO_FEATURE_LABELS
-  const [activeFeature, setActiveFeature] = useState<Feature>("Diagnostic")
+  const phases = HERO_PERFORMANCE_PHASES
+  const [activePhase, setActivePhase] = useState<HeroPerformancePhase>("Planification")
   const [autoRotate, setAutoRotate] = useState(true)
 
-  const selectFeature = (feature: Feature) => {
-    setActiveFeature(feature)
+  const selectPhase = (phase: HeroPerformancePhase) => {
+    setActivePhase(phase)
     setAutoRotate(false)
   }
 
-  const active = phaseInsights[activeFeature]
+  const active = HERO_PERFORMANCE_PHASE_CONTENT[activePhase]
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -104,15 +48,15 @@ export function HeroSection() {
     if (!autoRotate) return
 
     const interval = window.setInterval(() => {
-      setActiveFeature((current) => {
-        const idx = features.indexOf(current)
-        const nextIdx = idx === -1 ? 0 : (idx + 1) % features.length
-        return features[nextIdx]
+      setActivePhase((current) => {
+        const idx = phases.indexOf(current)
+        const nextIdx = idx === -1 ? 0 : (idx + 1) % phases.length
+        return phases[nextIdx]
       })
     }, 5000)
 
     return () => window.clearInterval(interval)
-  }, [autoRotate, features])
+  }, [autoRotate, phases])
 
   return (
     <section ref={sectionRef} className="relative overflow-hidden">
@@ -141,13 +85,17 @@ export function HeroSection() {
             </p>
 
             <h1 className="mt-8 max-w-[28rem] text-[1.65rem] font-semibold leading-[1.18] tracking-tight text-[#E6D6C3] sm:mt-10 sm:max-w-[32rem] sm:text-[2rem] sm:leading-[1.16] lg:max-w-[34rem] lg:text-[2.35rem] xl:text-[2.5rem] xl:leading-[1.14]">
-              Augmenter la valeur de votre entreprise ne devrait pas être laissé au hasard.
+              Prenez de meilleures décisions grâce à une vision claire de votre entreprise.
             </h1>
 
             <p className="mt-8 max-w-[28rem] text-sm leading-[1.65] text-[#C9B8A5]/85 sm:mt-10 sm:text-[15px] lg:max-w-[34rem]">
-              Modelisys combine diagnostic, valorisation, planification stratégique et suivi de performance dans une
-              méthodologie en cinq phases permettant de mesurer votre valeur actuelle, définir une cible et suivre les
-              actions qui contribuent réellement à l&apos;atteindre.
+              Modelisys combine diagnostic, planification stratégique, analyse financière, valorisation et suivi de
+              performance dans une approche intégrée qui vous aide à mesurer votre situation actuelle, définir vos
+              priorités et piloter votre croissance avec confiance.
+            </p>
+
+            <p className="mt-6 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#E6D6C3]/75">
+              Comprendre → Planifier → Piloter
             </p>
 
             <div className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-3 sm:mt-10">
@@ -173,7 +121,7 @@ export function HeroSection() {
             </div>
           </div>
 
-          {/* Colonnes 2 & 3 — panneau unifié trajectoire + insight */}
+          {/* Colonnes 2 & 3 — trajectoire de performance */}
           <div
             className={`order-2 lg:col-span-2 lg:col-start-2 transition-all duration-1000 delay-100 ${
               isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
@@ -195,17 +143,22 @@ export function HeroSection() {
                 <div className="pointer-events-none absolute inset-0 rounded-[26px] ring-1 ring-[#E6B08C]/12" />
                 <div className="pointer-events-none absolute inset-0 rounded-[26px] bg-gradient-to-br from-[#E6D6C3]/10 via-transparent to-[#E6B08C]/10" />
 
-                {/* En-tête partagé */}
+                {/* En-tête */}
                 <div className="relative border-b border-white/[0.08] px-5 py-5 sm:px-6">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E6D6C3]/95">
-                      Trajectoire de valeur
-                    </p>
-                    <span className="font-mono text-[11px] tabular-nums text-[#E0742D]">{active.step}/05</span>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E6D6C3]/95">
+                        Trajectoire de performance
+                      </p>
+                      <p className="mt-1.5 text-[10px] font-medium tracking-wide text-[#C9B8A5]/72">
+                        Diagnostic → Planification → Pilotage
+                      </p>
+                    </div>
+                    <span className="font-mono text-[11px] tabular-nums text-[#E0742D]">{active.step}/03</span>
                   </div>
                   <div className="mt-4 flex items-end justify-between gap-2 text-[10px] font-medium uppercase tracking-wide text-[#C9B8A5]/72">
-                    <span>4,2 M$</span>
-                    <span>7 M$</span>
+                    <span>Aujourd&apos;hui</span>
+                    <span>Objectif</span>
                   </div>
                   <div className="relative mt-2.5 h-2.5 overflow-hidden rounded-full bg-white/[0.08]">
                     <div
@@ -213,38 +166,37 @@ export function HeroSection() {
                       style={{ width: `${active.trajectory}%` }}
                     />
                   </div>
+                  <HeroPerformanceMetrics />
                 </div>
 
-                {/* Corps : sélecteur + insight */}
-                <div className="relative grid lg:grid-cols-[minmax(0,0.95fr)_1px_minmax(0,1.05fr)]">
+                {/* Corps : phases + panneau */}
+                <div className="relative grid lg:grid-cols-[minmax(0,0.82fr)_1px_minmax(0,1.18fr)] xl:grid-cols-[minmax(0,0.78fr)_1px_minmax(0,1.22fr)]">
                   {/* Gauche — phases */}
                   <div className="px-5 py-5 sm:px-6 sm:py-6">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E6D6C3]/95">
-                      Phases
-                    </p>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E6D6C3]/95">Phases</p>
                     <p className="mt-1.5 text-[10px] sm:text-[11px] leading-snug text-[#C9B8A5]/72">
-                      Du diagnostic à l&apos;ajustement.
+                      Comprendre, planifier et piloter.
                     </p>
 
                     <div className="mt-4 rounded-2xl border border-white/[0.09] bg-white/[0.035] p-3 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] sm:p-3.5">
                       <div className="relative">
                         <div className="pointer-events-none absolute left-[19px] top-3 bottom-3 w-px bg-gradient-to-b from-[#E6D6C3]/30 via-white/[0.08] to-[#E6B08C]/28" />
                         <ul className="flex flex-col gap-2 py-1">
-                          {features.map((feature) => {
-                            const isActive = activeFeature === feature
-                            const insight = phaseInsights[feature]
+                          {phases.map((phase) => {
+                            const isActive = activePhase === phase
+                            const insight = HERO_PERFORMANCE_PHASE_CONTENT[phase]
                             return (
-                              <li key={feature}>
+                              <li key={phase}>
                                 <button
                                   type="button"
-                                  onClick={() => selectFeature(feature)}
+                                  onClick={() => selectPhase(phase)}
                                   className={`flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition sm:px-3 sm:py-3 ${
                                     isActive
                                       ? "border border-white/[0.12] bg-white/[0.07] shadow-sm"
                                       : "border border-transparent hover:bg-white/[0.04]"
                                   }`}
                                   aria-pressed={isActive}
-                                  aria-label={`Phase ${insight.step} — ${feature}`}
+                                  aria-label={`Phase ${insight.step} — ${phase}`}
                                 >
                                   <span className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center">
                                     <span
@@ -259,7 +211,7 @@ export function HeroSection() {
                                       isActive ? "text-[#E6D6C3]" : "text-[#E6D6C3]/90"
                                     }`}
                                   >
-                                    {feature}
+                                    {phase}
                                   </span>
                                 </button>
                               </li>
@@ -270,48 +222,29 @@ export function HeroSection() {
                     </div>
                   </div>
 
-                  {/* Séparateur */}
                   <div className="hidden bg-white/[0.08] lg:block" aria-hidden />
 
-                  {/* Droite — insight + graphique */}
-                  <div className="border-t border-white/[0.08] px-5 py-5 sm:px-6 sm:py-6 lg:border-t-0">
+                  {/* Droite — contenu de phase */}
+                  <div className="border-t border-white/[0.08] px-5 py-5 sm:px-6 sm:py-6 lg:border-t-0 lg:px-4 lg:py-5 xl:px-5 xl:py-6">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E6D6C3]/95">
-                      {active.metricLabel}
+                      {active.panelTitle}
                     </p>
-                    <div className="mt-1.5 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                      <p className="font-mono text-2xl font-semibold tabular-nums tracking-tight text-[#E6D6C3] sm:text-[1.65rem]">
-                        {active.metricValue}
-                      </p>
-                      {active.metricSecondary ? (
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#C9B8A5]/65">
-                            {active.metricSecondary.label}
-                          </span>
-                          <span className="font-mono text-base font-semibold tabular-nums tracking-tight text-[#E6B08C] sm:text-lg">
-                            {active.metricSecondary.value}
-                          </span>
-                        </div>
-                      ) : null}
-                    </div>
-                    <h2 className="mt-3 text-sm font-semibold leading-snug tracking-tight text-[#E6D6C3] sm:text-base">
-                      {active.headline}
-                    </h2>
-                    <p className="mt-2 text-xs leading-relaxed text-[#C9B8A5]/80 sm:text-sm">{active.outcome}</p>
+                    <p className="mt-1.5 text-xs leading-relaxed text-[#C9B8A5]/80 sm:text-sm">{active.panelSubtitle}</p>
 
-                    <div className="mt-5">
-                      <HeroPhaseVisual phase={activeFeature} />
+                    <div className="mt-5 min-h-[10rem] w-full min-w-0 sm:min-h-[11rem]">
+                      <HeroPhaseVisual phase={activePhase} />
                     </div>
                   </div>
                 </div>
 
-                {/* Pied partagé */}
+                {/* Pied */}
                 <div className="relative flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.08] px-5 py-4 sm:px-6">
                   <Link
-                    href={`/#phase-${HERO_FEATURE_PHASE_BY_LABEL[activeFeature]}`}
+                    href={`/#phase-${active.approchePhaseId}`}
                     onClick={(e) => {
                       if (typeof window === "undefined" || window.location.pathname !== "/") return
                       e.preventDefault()
-                      navigateToApprochePhase(HERO_FEATURE_PHASE_BY_LABEL[activeFeature])
+                      navigateToApprochePhase(active.approchePhaseId)
                     }}
                     className="group inline-flex items-center gap-2.5 text-xs font-semibold tracking-wide text-slate-100 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
                   >
