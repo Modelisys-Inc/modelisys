@@ -14,6 +14,7 @@ from app.models.projection import Projection, ProjectionAdjustment, Loan
 from app.models.budget import Budget, BudgetEntry
 from app.models.quickbooks_connection import QuickBooksConnection
 from app.models.statement_chart_config import StatementChartConfig
+from app.models.standard_link_code import StandardLinkCode
 
 __all__ = [
     "User",
@@ -44,4 +45,5 @@ __all__ = [
     "BudgetEntry",
     "QuickBooksConnection",
     "StatementChartConfig",
+    "StandardLinkCode",
 ]

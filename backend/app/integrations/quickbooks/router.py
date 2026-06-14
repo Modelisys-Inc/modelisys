@@ -7,24 +7,21 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.integrations.quickbooks import oauth
 from app.integrations.quickbooks import service as qbo_service
-from app.routers.statement_structures import VALID_STATEMENT_TYPES
 from app.integrations.quickbooks.client import QBOClientError
 from app.models.company import Company
-from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.quickbooks_connection import QuickBooksConnection
+from app.models.standard_link_code import StandardLinkCode
 from app.models.user import User, UserOrganization
 from app.schemas.quickbooks import (
     AuthorizeUrlResponse,
     ClassLocationTracking,
     ConnectionStatusResponse,
-    LinkCodeCreateRequest,
     LinkCodeOption,
     ObservedPair,
     TrialBalanceCommitRequest,
@@ -266,182 +263,36 @@ def list_link_codes(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _get_company_for_user(db, current_user, company_id)
-    structures = (
-        db.query(CompanyStatementStructure)
-        .filter(CompanyStatementStructure.company_id == company.id)
-        .order_by(CompanyStatementStructure.statement_type)
-        .all()
-    )
-    options: list[LinkCodeOption] = []
-    seen: set[str] = set()
+    """Return all assignable (leaf) standard link codes for the QBO review picker.
 
-    def walk(node, statement_type: str, parent_id: str | None, parent_label: str | None):
-        if isinstance(node, dict):
-            code = node.get("linkCode") or node.get("link_code")
-            if code and code not in seen:
-                seen.add(code)
-                options.append(LinkCodeOption(
-                    code=str(code),
-                    label=str(node.get("label") or code),
-                    statement_type=statement_type,
-                    parent_id=parent_id,
-                    parent_label=parent_label,
-                ))
-            next_parent_id = node.get("id") or node.get("label")
-            next_parent_label = node.get("label")
-            for key in ("children", "detailRows"):
-                children = node.get(key)
-                if isinstance(children, list):
-                    for child in children:
-                        walk(child, statement_type, next_parent_id, next_parent_label)
-        elif isinstance(node, list):
-            for item in node:
-                walk(item, statement_type, parent_id, parent_label)
-
-    for s in structures:
-        walk(s.structure, s.statement_type, None, None)
-    return options
-
-
-def _node_matches(node: dict, target: str) -> bool:
-    return node.get("id") == target or node.get("label") == target
-
-
-def _find_insertion_point(structure, target: str):
-    """Find where to insert a new leaf identified by id-or-label.
-
-    Returns (target_list, insert_index, parent_label) or None if not found.
-
-    Three real-world structure shapes are supported:
-    - Tree via `children`: append at the end of `parent.children`.
-    - Tree via `detailRows`: append at the end of `parent.detailRows`.
-    - Flat (sections and leaves are siblings): insert into the parent array
-      right before the next section header (or at the end of the array).
+    Previously sourced from per-company statement structures; now returns global
+    standardized codes so all companies share the same chart of accounts.
+    The company_id is kept in the path for auth scoping only.
     """
-    def walk(arr):
-        if not isinstance(arr, list):
-            return None
-        for i, n in enumerate(arr):
-            if not isinstance(n, dict):
-                continue
-            if _node_matches(n, target):
-                if isinstance(n.get("detailRows"), list):
-                    return (n["detailRows"], len(n["detailRows"]), n.get("label"))
-                if isinstance(n.get("children"), list):
-                    return (n["children"], len(n["children"]), n.get("label"))
-                # Flat: parent is a marker; insert siblings after it, before
-                # the next section header.
-                next_idx = i + 1
-                while next_idx < len(arr):
-                    sib = arr[next_idx]
-                    if isinstance(sib, dict) and (
-                        sib.get("isSection") or sib.get("isBold")
-                    ):
-                        break
-                    next_idx += 1
-                return (arr, next_idx, n.get("label"))
-            for key in ("children", "detailRows"):
-                sub = n.get(key)
-                if isinstance(sub, list):
-                    found = walk(sub)
-                    if found is not None:
-                        return found
-        return None
+    _get_company_for_user(db, current_user, company_id)
 
-    return walk(structure)
-
-
-def _collect_all_codes(structure) -> set[str]:
-    out: set[str] = set()
-
-    def walk(node):
-        if isinstance(node, list):
-            for item in node:
-                walk(item)
-        elif isinstance(node, dict):
-            code = node.get("linkCode") or node.get("link_code")
-            if code:
-                out.add(str(code))
-            for key in ("children", "detailRows"):
-                walk(node.get(key))
-
-    walk(structure)
-    return out
-
-
-@router.post(
-    "/companies/{company_id}/link-codes",
-    response_model=LinkCodeOption,
-    status_code=201,
-)
-def create_link_code(
-    company_id: uuid.UUID,
-    body: LinkCodeCreateRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    company = _get_company_for_user(db, current_user, company_id)
-
-    if body.statement_type not in VALID_STATEMENT_TYPES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid statement_type: {body.statement_type}",
-        )
-
-    link_code = body.link_code.strip()
-    label = body.label.strip()
-    if not link_code:
-        raise HTTPException(status_code=422, detail="link_code must not be empty")
-    if not label:
-        raise HTTPException(status_code=422, detail="label must not be empty")
-
-    target = (
-        db.query(CompanyStatementStructure)
-        .filter(
-            CompanyStatementStructure.company_id == company.id,
-            CompanyStatementStructure.statement_type == body.statement_type,
-        )
-        .with_for_update()
-        .first()
-    )
-    if target is None:
-        raise HTTPException(
-            status_code=422,
-            detail=f"No {body.statement_type} structure exists for this company",
-        )
-
-    all_structures = (
-        db.query(CompanyStatementStructure)
-        .filter(CompanyStatementStructure.company_id == company.id)
+    codes = (
+        db.query(StandardLinkCode)
+        .filter(StandardLinkCode.is_leaf.is_(True))
+        .order_by(StandardLinkCode.sort_order)
         .all()
     )
-    for s in all_structures:
-        if link_code in _collect_all_codes(s.structure):
-            raise HTTPException(
-                status_code=422,
-                detail=f"link_code {link_code} already exists for this company",
-            )
 
-    insertion = _find_insertion_point(target.structure, body.parent_id)
-    if insertion is None:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Parent node {body.parent_id} not found in structure",
+    _BALANCE_SHEET_FAMILIES = {"ACT", "ALT", "PCT", "PLT", "CAP"}
+
+    return [
+        LinkCodeOption(
+            code=c.code,
+            label=c.label_sub_account or c.label_account or c.code,
+            statement_type=(
+                "income_statement"
+                if c.family not in _BALANCE_SHEET_FAMILIES
+                else "balance_sheet"
+            ),
+            parent_id=c.parent_code,
+            parent_label=c.label_account,
         )
-    target_list, insert_index, parent_label = insertion
+        for c in codes
+    ]
 
-    # Match the visual style most production leaves use (indent under section).
-    new_leaf = {"label": label, "linkCode": link_code, "indent": True}
-    target_list.insert(insert_index, new_leaf)
 
-    flag_modified(target, "structure")
-    db.commit()
-
-    return LinkCodeOption(
-        code=link_code,
-        label=label,
-        statement_type=body.statement_type,
-        parent_id=body.parent_id,
-        parent_label=parent_label,
-    )

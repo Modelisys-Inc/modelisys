@@ -44,6 +44,7 @@ from app.routers import (
     notes,
     organizations,
     projections,
+    standard_link_codes,
     statement_chart_configs,
     statement_structures,
     suppliers,
@@ -183,6 +184,7 @@ app.include_router(business_risks.router)
 app.include_router(forecast_configs.router)
 app.include_router(customers.router)
 app.include_router(suppliers.router)
+app.include_router(standard_link_codes.router)
 app.include_router(quickbooks_router.router)
 
 

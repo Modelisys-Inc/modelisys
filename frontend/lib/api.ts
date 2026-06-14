@@ -1809,20 +1809,6 @@ export async function listQboLinkCodes(companyId: string): Promise<QboLinkCode[]
   return apiFetch<QboLinkCode[]>(`/api/quickbooks/companies/${companyId}/link-codes`)
 }
 
-export async function createLinkCode(
-  companyId: string,
-  body: {
-    statement_type: string
-    parent_id: string
-    link_code: string
-    label: string
-  },
-): Promise<QboLinkCode> {
-  return apiFetch<QboLinkCode>(
-    `/api/quickbooks/companies/${companyId}/link-codes`,
-    { method: "POST", body },
-  )
-}
 
 export type StatementStructureNode = {
   id?: string
@@ -1912,6 +1898,47 @@ export async function removeStatementChartSlot(
     )}?statement_type=${statementType}`,
     { method: "DELETE" },
   )
+}
+
+// ─── Standard Link Codes (global chart of accounts) ──────────────────────────
+
+export type StandardLinkCode = {
+  id: string
+  code: string
+  parent_code: string | null
+  family: string
+  label_account: string | null
+  label_sub_account: string | null
+  account_type: string | null
+  account_sub_type: string | null
+  variable_or_fixed: string | null
+  ft_category: string | null
+  ft_line_item: string | null
+  projections: string | null
+  is_leaf: boolean
+  sort_order: number
+  label: string
+}
+
+export type StandardLinkCodeFamilyGroup = {
+  family: string
+  account_type: string | null
+  codes: StandardLinkCode[]
+}
+
+/** Returns all standard codes grouped by family. Pass leafOnly=true for assignable codes only. */
+export async function listStandardLinkCodes(leafOnly = false): Promise<StandardLinkCodeFamilyGroup[]> {
+  const qs = leafOnly ? "?leaf_only=true" : ""
+  return apiFetch<StandardLinkCodeFamilyGroup[]>(`/api/standard-link-codes${qs}`)
+}
+
+/** Flat list — useful for dropdowns. */
+export async function listStandardLinkCodesFlat(leafOnly = false, family?: string): Promise<StandardLinkCode[]> {
+  const params = new URLSearchParams()
+  if (leafOnly) params.set("leaf_only", "true")
+  if (family) params.set("family", family)
+  const qs = params.toString() ? `?${params.toString()}` : ""
+  return apiFetch<StandardLinkCode[]>(`/api/standard-link-codes/flat${qs}`)
 }
 
 export async function saveStatementChartSlot(

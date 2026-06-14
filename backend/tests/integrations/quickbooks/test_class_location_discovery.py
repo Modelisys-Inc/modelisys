@@ -271,18 +271,11 @@ def test_commit_writes_tags_and_creates_division_tree(db, org_user_company):
     conn = _make_conn(db, company, user)
     _commit_mocks(settings.intuit_api_base)
     rows = [
-        {"account_number": "4000", "account_name": "Sales", "link_code": "REV",
+        {"account_number": "4000", "account_name": "Sales", "link_code": "actif.encaisse",
          "skip": False, "divisions": ["East", "West"], "sub_divisions": ["Montreal"]},
-        {"account_number": "6000", "account_name": "Rent", "link_code": "EXP",
+        {"account_number": "6000", "account_name": "Rent", "link_code": "revenus.ventes",
          "skip": False, "divisions": [], "sub_divisions": ["Quebec"]},
     ]
-    from app.models.financial_statement_mapping import CompanyStatementStructure
-    db.add(CompanyStatementStructure(
-        company_id=company.id, statement_type="income_statement",
-        structure=[{"label": "Rev", "linkCode": "REV"}, {"label": "Exp", "linkCode": "EXP"}],
-    ))
-    db.commit()
-
     service.commit_trial_balance(db, conn, company, 2024, [3], rows, overwrite=False)
 
     m4000 = db.query(AccountMapping).filter_by(company_id=company.id, account_number="4000").one()
@@ -301,16 +294,10 @@ def test_commit_writes_tags_and_creates_division_tree(db, org_user_company):
 def test_commit_division_tree_is_idempotent(db, org_user_company):
     _, user, company = org_user_company
     conn = _make_conn(db, company, user)
-    from app.models.financial_statement_mapping import CompanyStatementStructure
-    db.add(CompanyStatementStructure(
-        company_id=company.id, statement_type="income_statement",
-        structure=[{"label": "Rev", "linkCode": "REV"}, {"label": "Exp", "linkCode": "EXP"}],
-    ))
-    db.commit()
     rows = [
-        {"account_number": "4000", "account_name": "Sales", "link_code": "REV",
+        {"account_number": "4000", "account_name": "Sales", "link_code": "actif.encaisse",
          "skip": False, "divisions": ["East"], "sub_divisions": ["Montreal"]},
-        {"account_number": "6000", "account_name": "Rent", "link_code": "EXP",
+        {"account_number": "6000", "account_name": "Rent", "link_code": "revenus.ventes",
          "skip": False, "divisions": [], "sub_divisions": []},
     ]
     _commit_mocks(settings.intuit_api_base)  # respx routes are reusable across calls

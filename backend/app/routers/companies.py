@@ -11,11 +11,8 @@ from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.note import Note
 from app.models.trial_balance import TrialBalanceEntry
 from app.models.user import User, UserOrganization
-from app.services.statement_structure_defaults import (
-    DEFAULT_BALANCE_SHEET,
-    DEFAULT_CASH_FLOW,
-    DEFAULT_INCOME_STATEMENT,
-)
+from app.services.statement_structure_defaults import DEFAULT_CASH_FLOW
+from app.services.statement_template import build_all_structures
 from app.schemas.company import (
     CompanyCreate,
     CompanyListResponse,
@@ -114,12 +111,9 @@ def create_company(
     db.add(company)
     db.flush()
 
-    # Seed default statement structures
-    for stmt_type, structure in [
-        ("income-statement", DEFAULT_INCOME_STATEMENT),
-        ("balance-sheet", DEFAULT_BALANCE_SHEET),
-        ("cash-flow", DEFAULT_CASH_FLOW),
-    ]:
+    # Seed statement structures from the global standard codes chart
+    structures = build_all_structures(db)
+    for stmt_type, structure in structures.items():
         db.add(CompanyStatementStructure(
             company_id=company.id,
             statement_type=stmt_type,
