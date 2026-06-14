@@ -7,7 +7,7 @@ import { blogPosts as posts } from "@/lib/blog-posts"
 export const metadata: Metadata = {
   title: "Blog | Modelisys",
   description:
-    "Articles finance et comptabilité — reporting financier, valorisation et budget dans Modelisys.",
+    "Articles sur la valorisation, le reporting et les projections — pour piloter votre trajectoire de valeur avec Modelisys.",
 }
 
 export default function BlogPage() {

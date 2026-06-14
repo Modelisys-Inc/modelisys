@@ -51,12 +51,9 @@ export function PricingQuickEstimatePanel({
   return (
     <div className="space-y-8">
       <p className="text-sm leading-relaxed text-[#5C5F66]">
-        Ajustez les paramètres : les fourchettes correspondantes s&apos;affichent à droite, à côté des{" "}
-        <span className="font-medium text-[#2A2F3A]">frais d&apos;implantation</span> et de l&apos;
-        <span className="font-medium text-[#2A2F3A]">abonnement</span>. L&apos;estimation inclut l&apos;ensemble des
-        fonctionnalités utiles au pilotage et à la{" "}
-        <span className="font-medium text-[#2A2F3A]">valorisation de l&apos;entreprise</span>, dont les prévisions et
-        l&apos;évaluation.
+        Ajustez les paramètres : les fourchettes se mettent à jour dans les cartes{" "}
+        <span className="font-medium text-[#2A2F3A]">01 et 02</span>. L&apos;
+        <span className="font-medium text-[#2A2F3A]">accompagnement stratégique</span> reste sur devis.
       </p>
 
       <div>
@@ -126,11 +123,11 @@ export function PricingQuickEstimatePanel({
       </div>
 
       <div className="rounded-xl border border-slate-200/90 bg-slate-50/80 p-4">
-        <p className="text-sm font-semibold text-[#2A2F3A]">Offre reflétée dans l&apos;estimation</p>
+        <p className="text-sm font-semibold text-[#2A2F3A]">Ce que couvre l&apos;estimation</p>
         <p className="mt-2 text-xs leading-relaxed text-[#5C5F66]">
-          Prévisions financières et budgets, ainsi que valorisation et diagnostic d&apos;entreprise, sont intégrés à
-          l&apos;offre prise en compte ici — au même titre que le reste de la plateforme — pour soutenir la création de
-          valeur.
+          L&apos;abonnement estimé inclut l&apos;accès à l&apos;ensemble des fonctionnalités de la plateforme
+          (prévisions, valorisation, diagnostic, etc.). La réalisation de ces analyses par notre équipe relève du volet{" "}
+          <span className="font-medium text-[#2A2F3A]">accompagnement stratégique</span>, chiffré à part.
         </p>
       </div>
     </div>

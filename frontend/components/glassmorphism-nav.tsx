@@ -3,25 +3,45 @@
 import { useState, useEffect, useRef, type MouseEvent } from "react"
 import { Menu, X, ArrowRight, ChevronDown } from "lucide-react"
 import Link from "next/link"
+import { handleApprocheLandingLink } from "@/lib/approche-navigation"
+import {
+  FEATURE_SECTION_ID,
+  featureCategoryNavLinks,
+  handleFeatureLandingLink,
+} from "@/lib/feature-category-navigation"
+import { heroFeatureFooterLinks } from "@/lib/hero-features"
 
+const NOTRE_APPROCHE_SECTION = "/#approche-modelisys"
 const POUR_QUI_SECTION = "/#pour-qui"
+const FONCTIONNALITES_SECTION = `/#${FEATURE_SECTION_ID}`
+
+const approcheSubLinks = heroFeatureFooterLinks.map((link) => ({
+  name: link.title,
+  href: link.href,
+}))
 
 const pourQuiSubLinks = [
-  { name: "Entreprises", href: "/#problem-solution" },
+  { name: "Entreprises", href: NOTRE_APPROCHE_SECTION },
   { name: "Partenaires comptables", href: "/cabinets-comptables" },
   { name: "Partenaires financiers", href: "/partenaires-financiers" },
 ] as const
 
+const fonctionnalitesSubLinks = featureCategoryNavLinks.map((link) => ({
+  name: link.title,
+  href: link.href,
+}))
+
 const mainNavLinks = [
-  { name: "Pourquoi", href: "/#problem-solution" },
   { name: "Études de cas", href: "/#etudes-de-cas" },
   { name: "Mise en place", href: "/#platform-setup" },
   { name: "Tarification", href: "/#pricing-process" },
   { name: "À propos", href: "/a-propos" },
 ] as const
 
-/** Ordre du menu mobile (indent = sous-entrées de « Pour qui »). */
+/** Ordre du menu mobile (indent = sous-entrées d’un groupe). */
 const mobileNavItems = [
+  { name: "Notre approche", href: NOTRE_APPROCHE_SECTION, indent: false },
+  ...approcheSubLinks.map((l) => ({ name: l.name, href: l.href, indent: true as const })),
   { name: "Pour qui", href: POUR_QUI_SECTION, indent: false },
   ...pourQuiSubLinks.map((l) => ({ name: l.name, href: l.href, indent: true as const })),
   ...mainNavLinks.map((l) => ({ name: l.name, href: l.href, indent: false as const })),
@@ -32,6 +52,8 @@ function goToLandingSection(e: MouseEvent<HTMLAnchorElement>, href: string) {
   if (typeof window === "undefined") return
   if (!href.startsWith("/#")) return
   if (window.location.pathname !== "/") return
+  if (handleApprocheLandingLink(e, href)) return
+  if (handleFeatureLandingLink(e, href)) return
   e.preventDefault()
   const hash = href.slice(1)
   const id = decodeURIComponent(hash.slice(1))
@@ -133,6 +155,30 @@ export function GlassmorphismNav() {
                 <div className="hidden md:flex items-center space-x-1">
                   <div className="relative group">
                     <Link
+                      href={NOTRE_APPROCHE_SECTION}
+                      onClick={(e) => goToLandingSection(e, NOTRE_APPROCHE_SECTION)}
+                      className="inline-flex items-center gap-1 px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
+                    >
+                      Notre approche
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
+                    </Link>
+                    <div className="absolute left-0 top-full z-50 pt-2 opacity-0 invisible transition-all duration-150 group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible">
+                      <div className="rounded-lg border border-white/10 bg-[#2A2F3A]/98 py-1.5 shadow-xl backdrop-blur-md min-w-[12rem]">
+                        {approcheSubLinks.map((sub) => (
+                          <Link
+                            key={sub.href}
+                            href={sub.href}
+                            onClick={(e) => goToLandingSection(e, sub.href)}
+                            className="block px-3 py-2.5 text-sm font-medium text-[#C9B8A5]/90 transition-colors hover:bg-white/5 hover:text-[#E6D6C3]"
+                          >
+                            {sub.name}
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="relative group">
+                    <Link
                       href={POUR_QUI_SECTION}
                       onClick={(e) => goToLandingSection(e, POUR_QUI_SECTION)}
                       className="inline-flex items-center gap-1 px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
@@ -143,6 +189,30 @@ export function GlassmorphismNav() {
                     <div className="absolute left-0 top-full z-50 pt-2 opacity-0 invisible transition-all duration-150 group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible">
                       <div className="rounded-lg border border-white/10 bg-[#2A2F3A]/98 py-1.5 shadow-xl backdrop-blur-md min-w-[15rem]">
                         {pourQuiSubLinks.map((sub) => (
+                          <Link
+                            key={sub.href}
+                            href={sub.href}
+                            onClick={(e) => goToLandingSection(e, sub.href)}
+                            className="block px-3 py-2.5 text-sm font-medium text-[#C9B8A5]/90 transition-colors hover:bg-white/5 hover:text-[#E6D6C3]"
+                          >
+                            {sub.name}
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="relative group">
+                    <Link
+                      href={FONCTIONNALITES_SECTION}
+                      onClick={(e) => goToLandingSection(e, FONCTIONNALITES_SECTION)}
+                      className="inline-flex items-center gap-1 px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
+                    >
+                      Fonctionnalités
+                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
+                    </Link>
+                    <div className="absolute left-0 top-full z-50 pt-2 opacity-0 invisible transition-all duration-150 group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible">
+                      <div className="rounded-lg border border-white/10 bg-[#2A2F3A]/98 py-1.5 shadow-xl backdrop-blur-md min-w-[12rem]">
+                        {fonctionnalitesSubLinks.map((sub) => (
                           <Link
                             key={sub.href}
                             href={sub.href}

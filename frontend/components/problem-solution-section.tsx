@@ -2,41 +2,252 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ComponentType } from "react"
 import {
-  Clock,
-  LayoutDashboard,
-  FileSpreadsheet,
-  Users,
-  DollarSign,
-  Calendar,
-  Building2,
-  BarChart3,
-  Briefcase,
-  FileText,
-  MessageSquare,
-  UserCog,
-  History,
-  PieChart,
-  CheckCircle2,
   ArrowRight,
+  BarChart3,
+  Building2,
+  Calendar,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Presentation,
+  Clock,
+  DollarSign,
+  FileSpreadsheet,
+  FileText,
+  History,
+  LayoutDashboard,
+  MessageSquare,
+  PieChart,
+  RefreshCw,
+  Target,
+  TrendingUp,
+  UserCog,
+  Users,
 } from "lucide-react"
+import { scrollToApprocheSection } from "@/lib/approche-navigation"
+import {
+  FEATURE_CATEGORY_IDS,
+  FEATURE_CATEGORY_LABELS,
+  FEATURE_CATEGORY_NAVIGATE_EVENT,
+  getFeatureCategoryHash,
+  parseFeatureCategoryFromHash,
+  type FeatureCategoryId,
+} from "@/lib/feature-category-navigation"
 
-interface Challenge {
-  icon: any
+const CATEGORY_ORDER = FEATURE_CATEGORY_IDS
+type CategoryId = FeatureCategoryId
+const categoryLabels = FEATURE_CATEGORY_LABELS
+
+type Feature = {
+  icon: ComponentType<{ className?: string; strokeWidth?: number }>
   title: string
   description: string
-  solution: string
+  visionLink: string
 }
 
-interface Category {
-  id: string
-  name: string
-  /** Libellé court pour la grille mobile (aperçu d’un coup d’œil). */
-  mobileLabel: string
-  icon: ComponentType<{ className?: string; strokeWidth?: number }>
-  challenges: Challenge[]
+type CategoryBlock = {
+  intro: string
+  features: Feature[]
+}
+
+const categoryContent: Record<CategoryId, CategoryBlock> = {
+  valorisation: {
+    intro:
+      "Mesurer, fixer et suivre la valeur — du point de départ à la trajectoire visée, avec des chiffres défendables à chaque étape du parcours.",
+    features: [
+      {
+        icon: Building2,
+        title: "Évaluation de la valeur d'entreprise",
+        description:
+          "Structure guidée pour normaliser le BAIIA, retenir les multiples et formaliser une lecture de la valeur — un travail méthodique, pas un calcul automatique. Cette base devient le repère pour comparer, suivre et piloter tout le parcours Modelisys.",
+        visionLink: "Ancre la trajectoire à un point de départ structuré, ex. 4,2 M$.",
+      },
+      {
+        icon: Target,
+        title: "Objectif de valeur chiffré",
+        description:
+          "Fixez un cap concret — horizon, rendement annualisé souhaité — que toute l'équipe et vos partenaires peuvent comprendre et suivre.",
+        visionLink: "Transforme l'ambition en cible mesurable, ex. 7 M$ en 3 ans.",
+      },
+      {
+        icon: BarChart3,
+        title: "Leviers de création de valeur",
+        description:
+          "Scénarios comparatifs pour estimer l'impact des initiatives et prioriser celles qui rapprochent le plus de l'objectif.",
+        visionLink: "Quantifie l'effet des décisions sur la valeur projetée.",
+      },
+      {
+        icon: Target,
+        title: "Diagnostic des risques",
+        description:
+          "Concentration client, fonds de roulement, dépendances opérationnelles : Modelisys met en évidence ce qui menace ou soutient la valeur.",
+        visionLink: "Identifie les risques qui pèsent sur la trajectoire.",
+      },
+      {
+        icon: TrendingUp,
+        title: "Trajectoire et rendement visé",
+        description:
+          "Visualisez le chemin entre la valeur actuelle et la cible pour valider que l'ambition est réaliste avant de modéliser en détail.",
+        visionLink: "Valide la faisabilité de la trajectoire avant les projections.",
+      },
+    ],
+  },
+  projections: {
+    intro:
+      "Modéliser l'avenir : scénarios, trésorerie, budget et recalibrage — pour garder le cap sur votre objectif de valeur tout au long du parcours.",
+    features: [
+      {
+        icon: PieChart,
+        title: "Création de scénarios",
+        description:
+          "Acquisition, fermeture de division, croissance organique : testez l'impact de chaque décision sur la performance et la valeur projetée.",
+        visionLink: "Traduit la vision en hypothèses exploitables et comparables.",
+      },
+      {
+        icon: History,
+        title: "Projections financières 2 à 5 ans",
+        description:
+          "Revenus, dépenses fixes et variables, fonds de roulement et capex — structurés dans un scénario unique, lisible et partageable.",
+        visionLink: "Projette la trajectoire vers l'objectif de valeur.",
+      },
+      {
+        icon: DollarSign,
+        title: "Flux de trésorerie et financement",
+        description:
+          "Révèle les tensions de liquidité avant qu'elles ne deviennent critiques et quantifie les besoins de financement à chaque étape.",
+        visionLink: "Anticipe les besoins, ex. 850 k$ à l'acquisition.",
+      },
+      {
+        icon: Calendar,
+        title: "Budget mensuel",
+        description:
+          "Budget structuré avec suivi des écarts en continu pour ajuster rapidement vos actions opérationnelles en cours d'année.",
+        visionLink: "Traduit le scénario en repères de pilotage mensuel.",
+      },
+      {
+        icon: Building2,
+        title: "Analyse des Capex",
+        description:
+          "Suivi des scénarios d'investissement, impacts sur la trésorerie et priorisation des projets à court et moyen terme.",
+        visionLink: "Intègre les investissements dans la trajectoire de valeur.",
+      },
+      {
+        icon: BarChart3,
+        title: "Fonds de roulement",
+        description:
+          "Cycles d'encaissement et de décaissement suivis pour identifier les leviers d'optimisation de la liquidité.",
+        visionLink: "Alimente les projections de trésorerie du scénario.",
+      },
+      {
+        icon: RefreshCw,
+        title: "Recalibrage de scénarios",
+        description:
+          "Nouvelles hypothèses, dépenses resserrées, embauche reportée : Modelisys recalcule l'impact sur la trésorerie et la valeur en temps réel.",
+        visionLink: "Met à jour le plan sans remettre en cause la vision.",
+      },
+    ],
+  },
+  analyse: {
+    intro:
+      "Décortiquer la performance et la rentabilité — une lecture fiable de l'entreprise, alimentée par des données à jour.",
+    features: [
+      {
+        icon: PieChart,
+        title: "Analyse financière et KPI",
+        description:
+          "Marges, liquidité, ratios et performance consolidés en temps réel — plus de fichiers dispersés ni de versions contradictoires.",
+        visionLink: "Structure une lecture complète et continue de l'entreprise.",
+      },
+      {
+        icon: DollarSign,
+        title: "Rentabilité par division, produit ou client",
+        description:
+          "Reconstruction automatique des marges avec allocation précise des coûts — pour savoir ce qui crée vraiment de la valeur.",
+        visionLink: "Mesure où la valeur se crée dans l'organisation.",
+      },
+      {
+        icon: PieChart,
+        title: "Bibliothèque de ratios financiers",
+        description:
+          "Liquidité, solvabilité, rentabilité : suivi temporel, comparatifs et alertes pour orienter les décisions financières.",
+        visionLink: "Complète le diagnostic avec un suivi continu.",
+      },
+    ],
+  },
+  reporting: {
+    intro:
+      "Consolider, synchroniser et confronter le réel au plan — états financiers, écarts et rapports pour piloter mois après mois.",
+    features: [
+      {
+        icon: RefreshCw,
+        title: "Réel vs passé vs scénario et vs valeur",
+        description:
+          "Chaque écart se lit face au passé, au scénario modélisé et à la trajectoire de valeur — traduit en impact concret sur la trésorerie, ex. −80 k$ sur la valeur.",
+        visionLink: "Confronte le réel au passé, au plan et à l'objectif — pas en pourcentages isolés.",
+      },
+      {
+        icon: FileText,
+        title: "États financiers et reporting",
+        description:
+          "Production instantanée de rapports conformes aux standards comptables, avec personnalisation et export facilité.",
+        visionLink: "Structure le suivi mensuel et les revues de direction.",
+      },
+      {
+        icon: LayoutDashboard,
+        title: "Consolidation multi-entités",
+        description:
+          "Tableau de bord unifié — entités, divisions et sous-divisions — pour une vision groupe instantanée et comparable.",
+        visionLink: "Offre une base commune pour reporter l'ensemble du groupe.",
+      },
+      {
+        icon: FileSpreadsheet,
+        title: "Élimination intercos",
+        description:
+          "Règles structurées et contrôles automatiques pour fiabiliser les écritures de consolidation et accélérer les clôtures.",
+        visionLink: "Fiabilise les chiffres sur lesquels reposent vos rapports.",
+      },
+      {
+        icon: Clock,
+        title: "Synchronisation comptable",
+        description:
+          "Données actualisées depuis votre logiciel comptable — fini les décisions sur des chiffres obsolètes ou recomposés à la main.",
+        visionLink: "Alimente le reporting avec des données fiables et à jour.",
+      },
+    ],
+  },
+  documentation: {
+    intro:
+      "Traçabilité, pièces justificatives et collaboration — pour des décisions documentées, partagées et défendables auprès de vos partenaires.",
+    features: [
+      {
+        icon: MessageSquare,
+        title: "Notes sur les écarts",
+        description:
+          "Documentez les causes directement sur les écarts, conservez l'historique et facilitez les revues mensuelles ou trimestrielles.",
+        visionLink: "Capitalise sur ce qui a été appris au fil du parcours.",
+      },
+      {
+        icon: FileSpreadsheet,
+        title: "Dépôt de documents par GL",
+        description:
+          "Pièces justificatives centralisées et liées aux bons comptes pour accélérer la revue et la clôture annuelle.",
+        visionLink: "Renforce la traçabilité des ajustements et des clôtures.",
+      },
+      {
+        icon: UserCog,
+        title: "Traçabilité des modifications",
+        description:
+          "Journal des mises à jour — qui, quand, quoi — pour une gouvernance transparente et des contrôles internes solides.",
+        visionLink: "Assure la continuité et la confiance dans le plan vivant.",
+      },
+      {
+        icon: Users,
+        title: "Collaboration comptable et bancaire",
+        description:
+          "Espace partagé et informations financières structurées pour fluidifier les échanges avec votre comptable et votre banque.",
+        visionLink: "Aligne les partenaires autour de chiffres défendables.",
+      },
+    ],
+  },
 }
 
 export function ProblemSolutionSection() {
@@ -45,11 +256,52 @@ export function ProblemSolutionSection() {
   const carouselViewportRef = useRef<HTMLDivElement>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
   const [isVisible, setIsVisible] = useState(false)
-  const [activeCategory, setActiveCategory] = useState<string>("consolidation")
-  const [hoveredChallenge, setHoveredChallenge] = useState<number | null>(null)
+  const [activeCategory, setActiveCategory] = useState<CategoryId>("valorisation")
+  const [hoveredFeature, setHoveredFeature] = useState<number | null>(null)
   const [carouselIndex, setCarouselIndex] = useState(0)
-  /** Cartes visibles selon la largeur : 1 (mobile), 2 (sm), 3 (lg+) — aligné sur w-full / sm:w-1/2 / lg:w-1/3 */
   const [slidesPerView, setSlidesPerView] = useState(1)
+  const [autoRotate, setAutoRotate] = useState(true)
+
+  const active = categoryContent[activeCategory]
+  const totalFeatures = active.features.length
+  const maxIndex = Math.max(0, totalFeatures - slidesPerView)
+  const slideStepPx = viewportWidth > 0 && slidesPerView > 0 ? viewportWidth / slidesPerView : 0
+
+  const selectCategory = (id: CategoryId, options?: { updateHash?: boolean }) => {
+    setActiveCategory(id)
+    setAutoRotate(false)
+    if (options?.updateHash !== false && typeof window !== "undefined" && window.location.pathname === "/") {
+      const hash = getFeatureCategoryHash(id)
+      if (window.location.hash !== `#${hash}`) {
+        window.history.replaceState(null, "", `/#${hash}`)
+      }
+    }
+  }
+
+  useEffect(() => {
+    const applyCategory = (id: CategoryId) => {
+      setActiveCategory(id)
+      setAutoRotate(false)
+    }
+
+    const onNavigate = (event: Event) => {
+      const { categoryId } = (event as CustomEvent<{ categoryId: CategoryId }>).detail
+      applyCategory(categoryId)
+    }
+
+    const onHashChange = () => {
+      const categoryId = parseFeatureCategoryFromHash(window.location.hash)
+      if (categoryId) applyCategory(categoryId)
+    }
+
+    onHashChange()
+    window.addEventListener(FEATURE_CATEGORY_NAVIGATE_EVENT, onNavigate)
+    window.addEventListener("hashchange", onHashChange)
+    return () => {
+      window.removeEventListener(FEATURE_CATEGORY_NAVIGATE_EVENT, onNavigate)
+      window.removeEventListener("hashchange", onHashChange)
+    }
+  }, [])
 
   useEffect(() => {
     const mqLg = window.matchMedia("(min-width: 1024px)")
@@ -68,7 +320,6 @@ export function ProblemSolutionSection() {
     }
   }, [])
 
-  /** Largeur du viewport (px) — translation en pixels (le % sur une piste flex restait ~ largeur écran). */
   useLayoutEffect(() => {
     const el = carouselViewportRef.current
     if (!el) return
@@ -84,332 +335,55 @@ export function ProblemSolutionSection() {
     return () => ro.disconnect()
   }, [activeCategory, slidesPerView])
 
-  const slideStepPx =
-    viewportWidth > 0 && slidesPerView > 0 ? viewportWidth / slidesPerView : 0
-
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true)
-        }
+        if (entry.isIntersecting) setIsVisible(true)
       },
-      {
-        threshold: 0.1,
-        rootMargin: "0px 0px -100px 0px",
-      },
+      { threshold: 0.1, rootMargin: "0px 0px -80px 0px" },
     )
-
-    if (sectionRef.current) {
-      observer.observe(sectionRef.current)
-    }
-
+    const el = sectionRef.current
+    if (el) observer.observe(el)
     return () => {
-      if (sectionRef.current) {
-        observer.unobserve(sectionRef.current)
-      }
+      if (el) observer.unobserve(el)
     }
   }, [])
 
-  /** Aligné sur la liste « Fonctionnalités » du hero (même ordre). Cartes réorganisées par thème. */
-  const categories: Category[] = [
-    {
-      id: "consolidation",
-      name: "Consolidation",
-      mobileLabel: "Consol.",
-      icon: LayoutDashboard,
-      challenges: [
-        {
-          icon: LayoutDashboard,
-          title: "Manque de vision consolidée",
-          description:
-            "Absence de consolidation multi-entités en temps réel, rendant difficile la gestion globale du groupe et l'analyse comparative.",
-          solution:
-            "Tableau de bord unifié consolidant automatiquement toutes vos entités, divisions et sous-divisions pour une vision globale instantanée.",
-        },
-        {
-          icon: FileSpreadsheet,
-          title: "Élimination intercos complexe",
-          description:
-            "Les opérations intercompagnies sont difficiles à repérer et à éliminer de façon fiable, ce qui peut fausser les résultats consolidés.",
-          solution:
-            "Règles d'élimination intercos structurées avec contrôles automatiques pour fiabiliser les écritures de consolidation et accélérer les clôtures.",
-        },
-        {
-          icon: BarChart3,
-          title: "Prise en compte des taux de change insuffisante",
-          description:
-            "La conversion multi-devises est souvent manuelle et incohérente, créant des écarts de consolidation et des analyses moins fiables.",
-          solution:
-            "Gestion des taux de change par période avec conversion automatisée et suivi des impacts pour une consolidation multi-devises cohérente.",
-        },
-      ],
-    },
-    {
-      id: "reporting-financier",
-      name: "Reporting financier",
-      mobileLabel: "Reporting",
-      icon: Presentation,
-      challenges: [
-        {
-          icon: Clock,
-          title: "Informations financières trop tardives",
-          description:
-            "Décisions stratégiques prises sur des données comptables obsolètes, impactant la réactivité opérationnelle et la prise de décision.",
-          solution:
-            "Synchronisation automatique avec votre logiciel comptable pour des données financières actualisées en continu et accessibles en temps réel.",
-        },
-        {
-          icon: FileText,
-          title: "Perte de temps à produire des rapports",
-          description:
-            "Temps considérable consacré à la production manuelle de rapports financiers récurrents, réduisant le temps disponible pour l'analyse stratégique.",
-          solution:
-            "Production instantanée de rapports financiers conformes aux standards comptables (États financiers, analyses) avec personnalisation et export facilité.",
-        },
-        {
-          icon: BarChart3,
-          title: "Comparaisons historiques et budgétaires limitées",
-          description:
-            "Difficulté à comparer rapidement la performance actuelle avec les périodes passées ou le budget, ce qui ralentit l'interprétation des écarts.",
-          solution:
-            "Comparaison instantanée réel vs passé et réel vs budget avec visualisation des écarts pour accélérer l'analyse et la prise de décision.",
-        },
-        {
-          icon: History,
-          title: "Historique financier inexploitable",
-          description:
-            "Données historiques mal structurées, limitant les analyses comparatives et les tendances, réduisant la capacité d'apprentissage organisationnel.",
-          solution:
-            "Archivage automatique et structuré de vos données financières pour analyses comparatives et tendances avec visualisations temporelles détaillées.",
-        },
-      ],
-    },
-    {
-      id: "analyse-financiere",
-      name: "Analyse financière",
-      mobileLabel: "Analyse",
-      icon: PieChart,
-      challenges: [
-        {
-          icon: DollarSign,
-          title: "Incapacité à mesurer la rentabilité",
-          description:
-            "Impossibilité d'identifier précisément les sources de profitabilité par division, produit ou client, limitant l'optimisation des performances.",
-          solution:
-            "Reconstruction automatique de la rentabilité par division, produit, client ou projet avec allocation précise des coûts et visualisation détaillée des marges.",
-        },
-        {
-          icon: Calendar,
-          title: "Manque de suivi des Capex",
-          description:
-            "Difficulté à planifier et prioriser les investissements, avec une visibilité limitée sur les impacts financiers à court et moyen terme.",
-          solution:
-            "Analyse dédiée des capex avec suivi des scénarios, impacts sur la trésorerie et priorisation des projets d'investissement.",
-        },
-        {
-          icon: DollarSign,
-          title: "Fonds de roulement mal maîtrisé",
-          description:
-            "Manque de suivi structuré des leviers du fonds de roulement (clients, fournisseurs, inventaires), ce qui réduit la liquidité disponible.",
-          solution:
-            "Module fonds de roulement pour suivre les cycles d'encaissement et de décaissement, et identifier les leviers d'optimisation.",
-        },
-        {
-          icon: PieChart,
-          title: "Ratios financiers non exploités",
-          description:
-            "Absence de lecture continue des ratios clés (liquidité, solvabilité, rentabilité), limitant l'anticipation des risques et la prise de décision.",
-          solution:
-            "Bibliothèque de ratios financiers avec suivi temporel, comparatifs et alertes pour orienter les décisions financières.",
-        },
-        {
-          icon: FileSpreadsheet,
-          title: "Dépendance aux fichiers Excel instables",
-          description:
-            "Risques d'erreurs, formules brisées et versions multiples compromettant l'intégrité des données financières et la fiabilité des analyses.",
-          solution:
-            "Remplacement d'Excel par une plateforme cloud sécurisée, éliminant les risques de perte de données et garantissant la cohérence des informations.",
-        },
-      ],
-    },
-    {
-      id: "projections",
-      name: "Projections",
-      mobileLabel: "Proj.",
-      icon: Calendar,
-      challenges: [
-        {
-          icon: Calendar,
-          title: "Budget mensuel difficile à piloter",
-          description:
-            "Le suivi budgétaire mensuel est souvent manuel, dispersé et peu réactif, ce qui ralentit les ajustements en cours d'année.",
-          solution:
-            "Budget mensuel structuré avec suivi des écarts en continu pour ajuster rapidement vos actions opérationnelles.",
-        },
-        {
-          icon: History,
-          title: "Projections 2-5 ans limitées",
-          description:
-            "La planification à moyen terme manque de structure, rendant difficile l'anticipation des besoins financiers et des trajectoires de croissance.",
-          solution:
-            "Projections financières sur 2 à 5 ans avec hypothèses claires et vues synthétiques pour soutenir les décisions stratégiques.",
-        },
-        {
-          icon: PieChart,
-          title: "Création de scénarios possibles insuffisante",
-          description:
-            "L'absence de scénarios comparatifs limite la capacité à tester les impacts d'options stratégiques avant de prendre des décisions.",
-          solution:
-            "Création rapide de scénarios (prudent, réaliste, ambitieux) avec comparaison des impacts pour éclairer vos choix.",
-        },
-      ],
-    },
-    {
-      id: "valorisation",
-      name: "Valorisation",
-      mobileLabel: "Valor.",
-      icon: Building2,
-      challenges: [
-        {
-          icon: Building2,
-          title: "Manque de suivi de la valeur d'entreprise",
-          description:
-            "Absence de suivi continu de la valorisation et des multiples, impactant les décisions stratégiques et les opportunités de croissance.",
-          solution:
-            "Suivi en temps réel de la valeur d'entreprise avec calcul automatique des multiples et analyse des déterminants pour optimiser la valorisation.",
-        },
-        {
-          icon: Briefcase,
-          title: "Évaluation du modèle d'affaires insuffisante",
-          description:
-            "Le modèle d'affaires est rarement évalué de manière structurée, ce qui limite la compréhension des forces, faiblesses et axes d'amélioration.",
-          solution:
-            "Cadre d'évaluation du modèle d'affaires avec indicateurs clés et lecture synthétique pour guider les décisions de positionnement.",
-        },
-        {
-          icon: BarChart3,
-          title: "Leviers créant de la valeur peu identifiés",
-          description:
-            "Les principaux leviers de création de valeur ne sont pas clairement quantifiés, rendant difficile la priorisation des initiatives stratégiques.",
-          solution:
-            "Identification des leviers créant de la valeur avec scénarios comparatifs pour estimer les impacts et orienter les priorités.",
-        },
-      ],
-    },
-    {
-      id: "documentation",
-      name: "Documentation",
-      mobileLabel: "Doc.",
-      icon: FileText,
-      challenges: [
-        {
-          icon: MessageSquare,
-          title: "Possibilité de prendre des notes sur les écarts",
-          description:
-            "Les explications d'écarts sont souvent dispersées dans des courriels ou fichiers non centralisés, ce qui nuit au suivi et à la compréhension collective.",
-          solution:
-            "Ajout de notes directement sur les écarts pour documenter les causes, conserver l'historique et faciliter les revues mensuelles.",
-        },
-        {
-          icon: FileSpreadsheet,
-          title: "Dépôt des documents comptables par GL limité",
-          description:
-            "Le classement des pièces justificatives n'est pas toujours lié aux bons comptes GL, ce qui ralentit les validations et la clôture annuelle.",
-          solution:
-            "Dépôt des documents comptables par GL pour centraliser les preuves, accélérer la revue et faciliter la clôture annuelle.",
-        },
-        {
-          icon: UserCog,
-          title: "Traçabilité des mises à jour insuffisante",
-          description:
-            "Il est difficile de savoir qui a modifié quoi et quand, ce qui réduit la transparence et complique les contrôles internes.",
-          solution:
-            "Journal des modifications indiquant qui a effectué les dernières mises à jour et à quel moment, pour une traçabilité complète.",
-        },
-      ],
-    },
-    {
-      id: "collaboration",
-      name: "Collaboration",
-      mobileLabel: "Collab.",
-      icon: Users,
-      challenges: [
-        {
-          icon: Users,
-          title: "Risque lié aux employés clés",
-          description:
-            "Concentration des connaissances financières sur une seule personne, créant un risque opérationnel et une dépendance critique pour l'organisation.",
-          solution:
-            "Processus financiers standardisés et documentés, garantissant la continuité opérationnelle et la transmission des connaissances au sein de l'équipe.",
-        },
-        {
-          icon: MessageSquare,
-          title: "Communication avec son comptable difficile",
-          description:
-            "Les échanges avec le cabinet comptable sont souvent fragmentés, ce qui ralentit le traitement des demandes et la validation des informations.",
-          solution:
-            "Espace partagé centralisant les échanges et documents avec votre comptable pour fluidifier la collaboration et réduire les délais.",
-        },
-        {
-          icon: Building2,
-          title: "Communication avec sa banque limitée",
-          description:
-            "Les informations financières demandées par la banque ne sont pas toujours prêtes ou bien structurées, ce qui peut nuire aux discussions de financement.",
-          solution:
-            "Production rapide d'informations financières claires et partageables pour améliorer les échanges avec votre institution bancaire.",
-        },
-        {
-          icon: UserCog,
-          title: "Suivi interne des modifications insuffisant",
-          description:
-            "L'équipe manque de visibilité sur les changements récents, ce qui complique les validations internes et le contrôle de qualité.",
-          solution:
-            "Historique des modifications avec utilisateur, date et détail des changements pour renforcer la coordination et la gouvernance interne.",
-        },
-      ],
-    },
-  ]
-
-  const activeCategoryData = categories.find(cat => cat.id === activeCategory) || categories[0]
-  const totalChallenges = activeCategoryData.challenges.length
-  const maxIndex = Math.max(0, totalChallenges - slidesPerView)
-
-  // Reset carousel index when category changes
   useEffect(() => {
     setCarouselIndex(0)
   }, [activeCategory])
 
-  // Ne pas dépasser le dernier « écran » quand la largeur ou le nombre de cartes change
   useEffect(() => {
-    setCarouselIndex((prev) => Math.min(prev, Math.max(0, totalChallenges - slidesPerView)))
-  }, [slidesPerView, totalChallenges])
+    setCarouselIndex((prev) => Math.min(prev, Math.max(0, totalFeatures - slidesPerView)))
+  }, [slidesPerView, totalFeatures])
 
-  const nextCards = () => {
-    setCarouselIndex((prev) => Math.min(prev + 1, maxIndex))
-  }
-
-  const prevCards = () => {
-    setCarouselIndex((prev) => Math.max(prev - 1, 0))
-  }
+  useEffect(() => {
+    if (!autoRotate) return
+    const interval = window.setInterval(() => {
+      setActiveCategory((current) => {
+        const idx = CATEGORY_ORDER.indexOf(current)
+        const nextIdx = idx === -1 ? 0 : (idx + 1) % CATEGORY_ORDER.length
+        return CATEGORY_ORDER[nextIdx]
+      })
+    }, 12000)
+    return () => window.clearInterval(interval)
+  }, [autoRotate])
 
   return (
     <section
       id="problem-solution"
       ref={sectionRef}
-      className="scroll-mt-24 relative z-10 overflow-hidden bg-slate-100/50 py-24 sm:py-32"
+      className="relative scroll-mt-24 z-10 overflow-hidden bg-[#F8FAFC] py-16 sm:py-24 lg:py-28"
     >
-      {/* Fond : dégradé + cadrillage léger + accents (sans split deux colonnes) */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-50 via-slate-50/95 to-slate-100/80" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_85%_45%_at_50%_-15%,rgba(224,116,45,0.055),transparent_55%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_100%_50%,rgba(148,163,184,0.12),transparent_65%)]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#F8FAFC] via-slate-50/95 to-slate-100/80" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_85%_45%_at_50%_-15%,rgba(224,116,45,0.045),transparent_55%)]" />
         <div
           className="absolute inset-0"
           style={{
             backgroundImage: `
-              linear-gradient(to right, rgb(148 163 184 / 0.1) 1px, transparent 1px),
-              linear-gradient(to bottom, rgb(148 163 184 / 0.1) 1px, transparent 1px)
+              linear-gradient(to right, rgb(148 163 184 / 0.08) 1px, transparent 1px),
+              linear-gradient(to bottom, rgb(148 163 184 / 0.08) 1px, transparent 1px)
             `,
             backgroundSize: "44px 44px",
             maskImage: "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
@@ -417,267 +391,196 @@ export function ProblemSolutionSection() {
               "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
           }}
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-50/30 via-transparent to-slate-100/35" />
-        <div className="absolute left-1/2 top-1/2 h-[min(72vh,520px)] w-[min(92vw,880px)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-200/20 blur-3xl" />
       </div>
-      <div className="relative max-w-[1920px] mx-auto px-8 sm:px-12 lg:px-16 xl:px-20">
-        {/* Header */}
+
+      <div className="relative mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-14 xl:px-20 2xl:px-24">
+        {/* En-tête */}
         <div
-          className={`mb-12 transition-all duration-1000 ${
-            isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+          className={`mb-10 transition-all duration-1000 sm:mb-12 ${
+            isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          <div className="mb-6">
-            <div className="mb-6">
-              <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Pourquoi</p>
-              <h2 className="mb-4 text-2xl font-semibold leading-tight tracking-tight text-[#2A2F3A] sm:text-3xl md:text-4xl lg:text-5xl">
-                <span className="lg:hidden">Ce que nous changeons concrètement</span>
-                <span className="hidden lg:inline">
-                  Les enjeux financiers du quotidien et ce que nous changeons concrètement
-                </span>
-              </h2>
-              <p className="max-w-3xl text-base leading-relaxed text-[#5C5F66] lg:hidden">
-                Modelisys centralise vos données financières et clarifie vos analyses pour décider plus vite. Moins de
-                silos, plus de valeur pour votre entreprise.
-              </p>
-              <p className="hidden max-w-3xl text-lg leading-relaxed text-[#5C5F66] sm:text-xl lg:block">
-                Retards d&apos;information, silos de données et outils peu robustes freinent vos décisions. Modelisys
-                centralise vos données et structure vos analyses pour vous rendre plus rapide, plus efficace et plus
-                stratégique. Parce qu&apos;au bout de chaque décision financière, un seul enjeu compte : créer et
-                maximiser la valeur de votre entreprise.
-              </p>
-              <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
-            </div>
-            {/* Mobile : grille 3×3 (tout visible) · Desktop : bandeau horizontal + points */}
-            <div
-              className={`flex flex-col gap-4 transition-all duration-1000 delay-200 sm:flex-row sm:items-center sm:justify-between sm:gap-4 ${
-                isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
-              }`}
-            >
-              <div className="min-w-0 flex-1 border-b border-slate-200/90 pb-3">
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500 lg:hidden">
-                  Thèmes
-                </p>
-                <div
-                  role="tablist"
-                  aria-label="Thématiques"
-                  className="grid grid-cols-3 gap-1.5 sm:gap-2 lg:flex lg:flex-nowrap lg:items-center lg:gap-2 lg:overflow-x-auto lg:py-0.5 lg:[-ms-overflow-style:none] lg:[scrollbar-width:none] lg:[&::-webkit-scrollbar]:hidden xl:flex-wrap xl:overflow-visible"
-                >
-                  {categories.map((category) => {
-                    const isActive = activeCategory === category.id
-                    const CategoryIcon = category.icon
-                    return (
-                      <button
-                        key={category.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={isActive}
-                        aria-label={category.name}
-                        title={category.name}
-                        onClick={() => setActiveCategory(category.id)}
-                        className={`inline-flex min-h-[50px] w-full shrink-0 flex-col items-center justify-center gap-1 rounded-xl border px-1 py-2 text-center transition active:scale-[0.98] sm:min-h-[54px] lg:min-h-0 lg:w-auto lg:flex-row lg:justify-start lg:gap-2.5 lg:px-2 lg:py-2 lg:text-left ${
-                          isActive
-                            ? "border-[#E0742D]/45 bg-white shadow-sm ring-1 ring-[#E0742D]/18"
-                            : "border-slate-200/85 bg-slate-50/90 hover:border-slate-300/90 hover:bg-white lg:border-transparent lg:hover:bg-slate-100/90"
-                        }`}
-                      >
-                        <CategoryIcon
-                          className={`h-4 w-4 shrink-0 lg:hidden ${isActive ? "text-[#C45F24]" : "text-slate-500"}`}
-                          strokeWidth={2}
-                          aria-hidden
-                        />
+          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Fonctionnalités</p>
+          <h2 className="mt-5 max-w-3xl text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-[2.5rem] md:leading-tight">
+            Les fonctionnalités Modelisys au service de{" "}
+            <span className="text-[#5C5F66]">votre trajectoire de valeur</span>
+          </h2>
+          <p className="mt-4 max-w-3xl text-base leading-relaxed text-[#5C5F66] sm:text-lg">
+            Les modules sont regroupés par usage — valorisation, projections, analyse, reporting et documentation —
+            plutôt que par phase, car plusieurs s&apos;inscrivent à différents moments de votre trajectoire de valeur.
+          </p>
+        </div>
+
+        {/* Contexte de catégorie + sélecteur */}
+        <div
+          className={`mb-8 transition-all duration-1000 delay-100 lg:mb-10 ${
+            isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
+          }`}
+        >
+          <div className="min-w-0 max-w-3xl" aria-live="polite">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#E0742D]/90">
+              {categoryLabels[activeCategory]}
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-[#5C5F66] sm:text-[15px]">{active.intro}</p>
+
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-3">
+              <div
+                role="tablist"
+                aria-label="Catégories de fonctionnalités"
+                className="flex flex-wrap gap-1.5 sm:gap-2"
+              >
+                {CATEGORY_ORDER.map((id) => {
+                  const isActive = activeCategory === id
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => selectCategory(id)}
+                      className={`inline-flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition sm:px-3 ${
+                        isActive
+                          ? "border-[#E0742D]/45 bg-white shadow-sm ring-1 ring-[#E0742D]/18"
+                          : "border-slate-200/85 bg-white/70 hover:border-slate-300/90 hover:bg-white"
+                      }`}
+                    >
+                      <span className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center">
                         <span
-                          className={`text-[10px] font-semibold leading-tight text-balance lg:hidden ${
-                            isActive ? "text-[#2A2F3A]" : "text-slate-600"
-                          }`}
-                        >
-                          {category.mobileLabel}
-                        </span>
-                        <span className="hidden items-center gap-2.5 lg:inline-flex">
-                          <span className="relative inline-flex h-5 w-5 flex-shrink-0 items-center justify-center">
-                            <span className="absolute inset-0 rounded-full border border-slate-200/90 bg-white/90" />
-                            <span
-                              className={`absolute left-1/2 top-1/2 z-10 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full ${
-                                isActive ? "bg-[#E0742D]" : "bg-slate-400"
-                              }`}
-                            />
-                          </span>
-                          <span
-                            className={`whitespace-nowrap text-[11px] font-medium tracking-wide ${
-                              isActive ? "text-[#2A2F3A]" : "text-slate-600"
-                            }`}
-                          >
-                            {category.name}
-                          </span>
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
+                          className={`absolute h-1.5 w-1.5 rounded-full ${isActive ? "bg-[#E0742D]" : "bg-slate-400"}`}
+                        />
+                        <span className="absolute h-4 w-4 rounded-full border border-slate-200/90" />
+                      </span>
+                      <span
+                        className={`text-[11px] font-medium tracking-wide ${isActive ? "text-[#2A2F3A]" : "text-slate-600"}`}
+                      >
+                        {categoryLabels[id]}
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
-              {/* Navigation carrousel (desktop surtout ; mobile conserve le swipe / flèches) */}
-              <div className="flex flex-shrink-0 items-center gap-2">
+
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={prevCards}
+                  type="button"
+                  onClick={() => setCarouselIndex((prev) => Math.max(prev - 1, 0))}
                   disabled={carouselIndex === 0}
-                  className={`
-                    w-10 h-10 rounded-full border border-slate-300/90 bg-white/95
-                    flex items-center justify-center
-                    transition-all duration-200
-                    ${carouselIndex === 0 
-                      ? "opacity-40 cursor-not-allowed" 
-                      : "hover:border-slate-400 hover:bg-slate-50 cursor-pointer"
-                    }
-                  `}
-                  aria-label="Précédent"
+                  className={`flex h-10 w-10 items-center justify-center rounded-full border border-slate-300/90 bg-white/95 transition ${
+                    carouselIndex === 0 ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-slate-50"
+                  }`}
+                  aria-label="Fonctionnalité précédente"
                 >
-                  <ChevronLeft className="w-5 h-5 text-[#2A2F3A]" />
+                  <ChevronLeft className="h-5 w-5 text-[#2A2F3A]" />
                 </button>
                 <button
-                  onClick={nextCards}
+                  type="button"
+                  onClick={() => setCarouselIndex((prev) => Math.min(prev + 1, maxIndex))}
                   disabled={carouselIndex >= maxIndex}
-                  className={`
-                    w-10 h-10 rounded-full border border-slate-300/90 bg-white/95
-                    flex items-center justify-center
-                    transition-all duration-200
-                    ${carouselIndex >= maxIndex 
-                      ? "opacity-40 cursor-not-allowed" 
-                      : "hover:border-slate-400 hover:bg-slate-50 cursor-pointer"
-                    }
-                  `}
-                  aria-label="Suivant"
+                  className={`flex h-10 w-10 items-center justify-center rounded-full border border-slate-300/90 bg-white/95 transition ${
+                    carouselIndex >= maxIndex ? "cursor-not-allowed opacity-40" : "cursor-pointer hover:bg-slate-50"
+                  }`}
+                  aria-label="Fonctionnalité suivante"
                 >
-                  <ChevronRight className="w-5 h-5 text-[#2A2F3A]" />
+                  <ChevronRight className="h-5 w-5 text-[#2A2F3A]" />
                 </button>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Carousel Container - Full Width (padding sur le parent pour que contentRect = largeur des cartes) */}
-        <div className="relative -mx-8 px-8 py-2 sm:-mx-12 sm:px-12 lg:-mx-16 lg:px-16 xl:-mx-20 xl:px-20">
+        {/* Carrousel de fonctionnalités */}
+        <div className="relative -mx-5 px-5 sm:-mx-10 sm:px-10 lg:-mx-14 lg:px-14 xl:-mx-20 xl:px-20">
           <div ref={carouselViewportRef} className="overflow-hidden">
             <div
               ref={carouselRef}
-              className={`
-                flex transition-transform duration-700 ease-out
-                ${isVisible ? "opacity-100" : "opacity-0"}
-              `}
+              className={`flex transition-transform duration-700 ease-out ${isVisible ? "opacity-100" : "opacity-0"}`}
               style={{
-                transform:
-                  slideStepPx > 0
-                    ? `translateX(-${carouselIndex * slideStepPx}px)`
-                    : undefined,
+                transform: slideStepPx > 0 ? `translateX(-${carouselIndex * slideStepPx}px)` : undefined,
               }}
             >
-              {activeCategoryData.challenges.map((challenge, index) => {
-                const Icon = challenge.icon
-                const isHovered = hoveredChallenge === index
+              {active.features.map((feature, index) => {
+                const Icon = feature.icon
+                const isHovered = hoveredFeature === index
 
                 return (
                   <div
-                    key={`${activeCategory}-${challenge.title}`}
-                    onMouseEnter={() => setHoveredChallenge(index)}
-                    onMouseLeave={() => setHoveredChallenge(null)}
+                    key={`${activeCategory}-${feature.title}`}
+                    onMouseEnter={() => setHoveredFeature(index)}
+                    onMouseLeave={() => setHoveredFeature(null)}
                     className="box-border flex-shrink-0 px-3 py-2"
                     style={
-                      slideStepPx > 0
-                        ? { width: slideStepPx, minWidth: slideStepPx }
-                        : { minWidth: "100%" }
+                      slideStepPx > 0 ? { width: slideStepPx, minWidth: slideStepPx } : { minWidth: "100%" }
                     }
                   >
-                    {/* Carte — présentation proche de « Profils » (en-tête centré, panneau intérieur, tons clairs) */}
                     <div
-                      className={`
-                        relative flex h-full flex-col overflow-hidden
-                        rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50
-                        shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70
-                        transition-all duration-500 ease-out
-                        hover:shadow-xl hover:shadow-slate-900/[0.07]
-                        ${isHovered ? "scale-[1.015] shadow-2xl ring-slate-300/80" : ""}
-                      `}
+                      className={`relative flex h-full flex-col overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70 transition-all duration-500 ease-out hover:shadow-xl hover:shadow-slate-900/[0.07] ${
+                        isHovered ? "scale-[1.015] shadow-2xl ring-slate-300/80" : ""
+                      }`}
                     >
                       <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
 
                       <div className="relative flex flex-1 flex-col px-5 py-6 sm:px-6">
-                        {/* Bloc titre type « Profils / sous-ligne » */}
                         <div className="mb-4 text-center">
-                          <p className="text-xs font-semibold tracking-wide text-slate-600">Enjeu</p>
-                          <p className="mt-1 text-[10px] tracking-wide text-slate-500">
-                            {activeCategoryData.name}
+                          <p className="text-xs font-semibold tracking-wide text-slate-600">Fonctionnalité</p>
+                          <p className="mt-1 text-[10px] tracking-wide text-[#E0742D]/90">
+                            {categoryLabels[activeCategory]}
                           </p>
                         </div>
 
                         <div className="mb-4 flex gap-3">
                           <div
-                            className={`
-                            flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-slate-100
-                            text-black transition-transform duration-300
-                            ${isHovered ? "scale-105" : ""}
-                          `}
+                            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-black transition-transform duration-300 ${
+                              isHovered ? "scale-105" : ""
+                            }`}
                           >
                             <Icon className="h-5 w-5" strokeWidth={1.75} />
                           </div>
                           <h3 className="text-lg font-semibold leading-tight tracking-tight text-[#2A2F3A] sm:text-xl">
-                            {challenge.title}
+                            {feature.title}
                           </h3>
                         </div>
 
-                        <p className="mb-4 flex-1 text-sm leading-relaxed text-[#5C5F66] lg:mb-5">
-                          {challenge.description}
-                        </p>
+                        <p className="mb-4 flex-1 text-sm leading-relaxed text-[#5C5F66]">{feature.description}</p>
 
-                        {/* Panneau solution — masqué sur mobile pour alléger la lecture */}
                         <div
-                          className={`
-                          mt-auto hidden rounded-2xl border border-slate-200/90 bg-slate-50/95 p-4
-                          transition-colors duration-300 lg:block
-                          ${isHovered ? "border-slate-300/90 bg-slate-50" : ""}
-                        `}
+                          className={`mt-auto hidden rounded-2xl border border-slate-200/90 bg-slate-50/95 p-4 transition-colors duration-300 lg:block ${
+                            isHovered ? "border-slate-300/90 bg-slate-50" : ""
+                          }`}
                         >
                           <div className="relative">
-                            <div className="pointer-events-none absolute left-[18px] top-2 bottom-2 w-px bg-gradient-to-b from-slate-300/90 via-slate-200/60 to-[#E0742D]/40" />
+                            <div className="pointer-events-none absolute bottom-2 left-[18px] top-2 w-px bg-gradient-to-b from-slate-300/90 via-[#E0742D]/30 to-[#E0742D]/50" />
                             <div className="flex items-start gap-2.5 pl-7">
-                              <div className="flex flex-shrink-0 text-[#E0742D]">
-                                <CheckCircle2 className="h-5 w-5" strokeWidth={2} />
-                              </div>
+                              <CheckCircle2 className="h-5 w-5 shrink-0 text-[#E0742D]" strokeWidth={2} />
                               <div className="min-w-0 flex-1">
-                                <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                                  <span className="text-xs font-semibold text-[#2A2F3A]">Notre solution</span>
-                                  <span className="rounded-full bg-white px-2 py-0.5 text-xs font-medium text-[#2A2F3A] ring-1 ring-slate-200/90">
-                                    Modelisys
-                                  </span>
-                                </div>
-                                <p className="text-xs leading-relaxed text-[#4A4F5C]">{challenge.solution}</p>
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                  Lien avec l&apos;approche Modelisys
+                                </p>
+                                <p className="mt-1.5 text-xs leading-relaxed text-[#4A4F5C]">{feature.visionLink}</p>
                               </div>
                             </div>
                           </div>
                         </div>
 
-                        <div className="mt-4 border-t border-slate-200/80 pt-3">
+                        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-3">
+                          <button
+                            type="button"
+                            onClick={() => scrollToApprocheSection()}
+                            className={`inline-flex items-center gap-2 text-xs font-semibold transition-colors ${
+                              isHovered ? "text-[#2A2F3A]" : "text-[#5C5F66] hover:text-[#E0742D]"
+                            }`}
+                          >
+                            Explorer l&apos;approche
+                            <ArrowRight
+                              className={`h-3.5 w-3.5 text-[#E0742D] transition-transform ${isHovered ? "translate-x-1" : ""}`}
+                            />
+                          </button>
                           <a
                             href="#demo"
-                            className={`
-                            inline-flex items-center gap-2 text-xs font-semibold transition-colors duration-300
-                            ${isHovered ? "text-[#2A2F3A]" : "text-[#5C5F66] hover:text-[#E0742D]"}
-                          `}
+                            className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 transition hover:text-[#E0742D]"
                           >
-                            Découvrir Modelisys en action
-                            <ArrowRight
-                              className={`h-3.5 w-3.5 text-[#E0742D] transition-transform duration-300 ${isHovered ? "translate-x-1" : ""}`}
-                            />
+                            Démo
                           </a>
                         </div>
-                      </div>
-
-                      <div className="pointer-events-none absolute inset-0 opacity-[0.03]">
-                        <div
-                          className="absolute inset-0"
-                          style={{
-                            backgroundImage: `radial-gradient(circle at 2px 2px, rgb(42 47 58) 1px, transparent 0)`,
-                            backgroundSize: "24px 24px",
-                          }}
-                        />
                       </div>
                     </div>
                   </div>
@@ -685,6 +588,31 @@ export function ProblemSolutionSection() {
               })}
             </div>
           </div>
+        </div>
+
+        {/* Pied de section */}
+        <div
+          className={`mt-10 flex flex-wrap items-center gap-x-6 gap-y-3 transition-all duration-1000 delay-200 sm:mt-12 ${
+            isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => scrollToApprocheSection()}
+            className="group inline-flex items-center gap-2.5 text-xs font-semibold tracking-wide text-[#2A2F3A] transition hover:text-[#E0742D]"
+          >
+            VOIR L&apos;APPROCHE MODELISYS
+            <ArrowRight className="h-4 w-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+          </button>
+          <span className="hidden h-px w-10 bg-slate-300/60 sm:block" aria-hidden />
+          <button
+            type="button"
+            onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
+            className="inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-500 transition hover:text-[#2A2F3A]"
+          >
+            RÉSERVER UNE DÉMO
+            <span className="inline-block h-px w-8 bg-[#E0742D]/70" />
+          </button>
         </div>
       </div>
     </section>

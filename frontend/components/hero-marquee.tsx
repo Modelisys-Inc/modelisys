@@ -1,13 +1,17 @@
 "use client"
 
 import { TrendingUp } from "lucide-react"
+import { NARRATIVE_BASELINE, NARRATIVE_PROJECTION, NARRATIVE_TARGET } from "@/lib/hero-narrative-metrics"
 
 const items = [
-  "Croissance des revenus +4% (T4 2025)",
-  "Marge brute 44% • amélioration +2 pts",
-  "BAIIA +9% vs 2024 • trajectoire confirmée",
-  "Trésorerie: 6 mois de visibilité • alertes automatiques",
-  "Valorisation estimée 5,0 M$ (2025) • +10% vs 2024",
+  `Diagnostic — Revenus ${NARRATIVE_BASELINE.revenus} · BAIIA ${NARRATIVE_BASELINE.baiia} · valeur ${NARRATIVE_BASELINE.valeur}`,
+  "Diagnostic — Concentration client 45 % · liquidité 1,1",
+  `Planification — Vision ${NARRATIVE_TARGET.valeur} · revenus ${NARRATIVE_BASELINE.revenus} → ${NARRATIVE_TARGET.revenus}`,
+  `Planification — Besoin de financement : ${NARRATIVE_PROJECTION.an2.capex} à l'acquisition`,
+  "Pilotage — Réel vs passé vs prévu · notes d'explication des écarts",
+  "Pilotage — Scénario recalibré sans repartir de zéro",
+  `Pilotage — Trajectoire maintenue vers ${NARRATIVE_TARGET.valeur}`,
+  "Pilotage — Écart capex documenté · impact sur trésorerie",
 ]
 
 export function HeroMarquee() {
@@ -19,7 +23,7 @@ export function HeroMarquee() {
       <div className="relative">
         <div className="marquee-mask">
           <div className="marquee-track">
-            <div className="marquee-row" aria-label="Exemples d'insights financiers générés par Modelisys">
+            <div className="marquee-row" aria-label="Insights de l'approche Modelisys — diagnostic à pilotage">
               {items.map((text) => (
                 <div key={text} className="marquee-item">
                   <span className="marquee-dot" />
@@ -61,7 +65,7 @@ export function HeroMarquee() {
           display: flex;
           width: max-content;
           will-change: transform;
-          animation: marqueeLeft 22s linear infinite;
+          animation: marqueeLeft 30s linear infinite;
         }
 
         .marquee-row {
@@ -112,4 +116,3 @@ export function HeroMarquee() {
     </section>
   )
 }
-

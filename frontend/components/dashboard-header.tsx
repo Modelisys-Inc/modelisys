@@ -1,7 +1,7 @@
 "use client"
 
 import { Fragment, Suspense } from "react"
-import { Book, Settings, LogOut } from "lucide-react"
+import { Book, Settings, LogOut, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -10,6 +10,7 @@ import { useCompanies } from "@/hooks/use-companies"
 import { logout } from "@/lib/api"
 import { isFinancialStatementPath } from "@/hooks/use-financial-statement-reference-date"
 import { FinancialStatementReferenceControls } from "@/components/financial-statement-reference-controls"
+import { companyDashboardNavItem, companyModuleNavItems } from "@/lib/company-module-navigation"
 
 interface DashboardHeaderProps {
   title?: string
@@ -17,12 +18,20 @@ interface DashboardHeaderProps {
 }
 
 const defaultNavigationItems = [
-  { label: "Tableau de bord", href: "/dashboard" },
+  { label: "Outils financiers", href: "/dashboard" },
   { label: "Reporting financier", href: "/financial-statements/income-statement" },
   { label: "Analyse", href: "/analysis/working-capital" },
   { label: "Projections", href: "/projections" },
   { label: "Valorisation", href: "/evaluation/business-model" },
   { label: "Documentation", href: "/year-end-cpa" },
+  { label: "Configuration", href: "/settings/companies" },
+]
+
+/** Menu affiché lorsqu'une société est sélectionnée (pages outils masquées du menu principal). */
+const companyNavigationItems = [
+  companyDashboardNavItem,
+  ...companyModuleNavItems,
+  { label: "Outils financiers", href: "/dashboard" },
   { label: "Configuration", href: "/settings/companies" },
 ]
 
@@ -33,6 +42,47 @@ const portalNavigationItems = [
   { label: "Paramètres", href: "/settings" },
   { label: "Support", href: "/contact" },
 ]
+
+type NavItem = { label: string; href: string }
+
+function NavVerticalSeparator() {
+  return <div className="mx-2 h-6 w-px shrink-0 bg-white/10" aria-hidden />
+}
+
+function PhaseJourneyArrow() {
+  return <ChevronRight className="mx-0.5 h-3.5 w-3.5 shrink-0 text-[#E0742D]/75" strokeWidth={2.25} aria-hidden />
+}
+
+function getNavItemActive(pathname: string | null, item: NavItem): boolean {
+  const itemPath = item.href.split("?")[0]
+  if (item.label === "Mon portail") return pathname?.startsWith("/mon-portail") || false
+  if (item.label === "Formation") return pathname?.startsWith("/formation") || false
+  if (item.label === "Ressources") return pathname?.startsWith("/resources") || false
+  if (item.label === "Paramètres") return pathname?.startsWith("/settings") || false
+  if (item.label === "Support") return pathname?.startsWith("/contact") || false
+  if (item.label === "Tableau de bord") return pathname?.startsWith("/tableau-de-bord") || false
+  if (item.label === "Outils financiers") return pathname === "/dashboard"
+  if (item.label === "Configuration") return pathname?.startsWith("/settings/companies") || false
+  if (item.label === "Reporting financier") return pathname?.startsWith("/financial-statements") || false
+  if (item.label === "Analyse") return pathname?.startsWith("/analysis") || false
+  if (item.label === "Projections") return pathname?.startsWith("/projections") || false
+  if (item.label === "Valorisation") return pathname?.startsWith("/evaluation") || false
+  return pathname?.startsWith(itemPath) || false
+}
+
+function NavLink({ item, pathname }: { item: NavItem; pathname: string | null }) {
+  const isActive = getNavItemActive(pathname, item)
+  return (
+    <Link
+      href={item.href}
+      className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+        isActive ? "text-slate-200" : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+      }`}
+    >
+      {item.label}
+    </Link>
+  )
+}
 
 export function DashboardHeader({ title = "Gestion Comptable", description }: DashboardHeaderProps) {
   return (
@@ -69,7 +119,7 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
   const baseNavigationItems = isPortalHeader
     ? portalNavigationItems
     : selectedCompanyId
-      ? [{ label: "Mon portail", href: "/mon-portail" }, ...defaultNavigationItems]
+      ? [{ label: "Mon portail", href: "/mon-portail" }, ...companyNavigationItems]
       : defaultNavigationItems
 
   const navigationItems = baseNavigationItems.map((item) => {
@@ -88,6 +138,19 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
 
   const showFsRefInHeader = !isPortalHeader && isFinancialStatementPath(pathname)
   const fsRefCompanyId = selectedCompanyId ?? companies[0]?.id ?? null
+  const showCompanyTrajectoryNav = Boolean(selectedCompanyId && !isPortalHeader)
+  const companyNavItems = showCompanyTrajectoryNav
+    ? navigationItems.filter((item) => item.label !== "Mon portail")
+    : []
+  const monPortailItem = showCompanyTrajectoryNav
+    ? navigationItems.find((item) => item.label === "Mon portail")
+    : null
+  const companyDashboardItem = companyNavItems.find((item) => item.label === "Tableau de bord")
+  const companyPhaseItems = companyNavItems.filter((item) =>
+    companyModuleNavItems.some((module) => module.label === item.label),
+  )
+  const companyToolsItem = companyNavItems.find((item) => item.label === "Outils financiers")
+  const companyConfigItem = companyNavItems.find((item) => item.label === "Configuration")
 
   return (
     <header className="w-full border-b border-white/10 bg-[#2A2F3A]/92 backdrop-blur-md shadow-md">
@@ -181,51 +244,44 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
             aria-hidden
           />
           <nav className="hidden md:flex items-center gap-1">
-            {navigationItems.map((item) => {
-              const itemPath = item.href.split("?")[0]
-              let isActive
-              if (item.label === "Mon portail") {
-                isActive = pathname?.startsWith("/mon-portail") || false
-              } else if (item.label === "Formation") {
-                isActive = pathname?.startsWith("/formation") || false
-              } else if (item.label === "Ressources") {
-                isActive = pathname?.startsWith("/resources") || false
-              } else if (item.label === "Paramètres") {
-                isActive = pathname?.startsWith("/settings") || false
-              } else if (item.label === "Support") {
-                isActive = pathname?.startsWith("/contact") || false
-              } else if (item.label === "Configuration") {
-                isActive = pathname?.startsWith("/settings/companies") || false
-              } else if (item.label === "Reporting financier") {
-                isActive = pathname?.startsWith("/financial-statements") || false
-              } else if (item.label === "Analyse") {
-                isActive = pathname?.startsWith("/analysis") || false
-              } else if (item.label === "Projections") {
-                isActive = pathname?.startsWith("/projections") || false
-              } else if (item.label === "Valorisation") {
-                isActive = pathname?.startsWith("/evaluation") || false
-              } else {
-                isActive = pathname?.startsWith(itemPath) || false
-              }
-              const isLastBeforeConfig = isPortalHeader ? item.label === "Ressources" : item.label === "Documentation"
-              return (
-                <Fragment key={item.href}>
-                  <Link
-                    href={item.href}
-                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                      isActive
-                        ? "text-slate-200"
-                        : "text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
-                    }`}
-                  >
-                    {item.label}
-                  </Link>
-                  {isLastBeforeConfig && (
-                    <div className="h-6 w-px bg-white/10 mx-2"></div>
-                  )}
-                </Fragment>
-              )
-            })}
+            {showCompanyTrajectoryNav && monPortailItem && companyDashboardItem && companyToolsItem && companyConfigItem ? (
+              <>
+                <NavLink item={monPortailItem} pathname={pathname} />
+                <NavVerticalSeparator />
+                <NavLink item={companyDashboardItem} pathname={pathname} />
+                {companyPhaseItems.map((item, index) => (
+                  <Fragment key={`${item.label}-${item.href}`}>
+                    {index > 0 ? <PhaseJourneyArrow /> : null}
+                    <NavLink item={item} pathname={pathname} />
+                  </Fragment>
+                ))}
+                <NavVerticalSeparator />
+                <NavLink item={companyToolsItem} pathname={pathname} />
+                <NavLink item={companyConfigItem} pathname={pathname} />
+              </>
+            ) : (
+              navigationItems.map((item) => {
+                const isActive = getNavItemActive(pathname, item)
+                const isLastBeforeConfig = isPortalHeader
+                  ? item.label === "Ressources"
+                  : item.label === "Documentation"
+                return (
+                  <Fragment key={`${item.label}-${item.href}`}>
+                    <Link
+                      href={item.href}
+                      className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                        isActive
+                          ? "text-slate-200"
+                          : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                      }`}
+                    >
+                      {item.label}
+                    </Link>
+                    {isLastBeforeConfig ? <NavVerticalSeparator /> : null}
+                  </Fragment>
+                )
+              })
+            )}
           </nav>
         </div>
       </div>
