@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AlertTriangle, Check, ChevronsUpDown, Plus } from "lucide-react"
+import { AlertTriangle, Check, ChevronsUpDown } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from "@/components/ui/command"
 import {
   Dialog,
@@ -32,7 +31,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { CreateLinkCodeDialog } from "@/components/quickbooks-create-link-code-dialog"
 import { QuickBooksTagCell } from "@/components/quickbooks-tag-cell"
 import {
   ApiError,
@@ -117,7 +115,6 @@ interface LinkCodePickerProps {
   codeIndex: Map<string, QboLinkCode>
   codesByStatement: Map<string, QboLinkCode[]>
   onPick: (idx: number, code: string) => void
-  onCreateRequest: (idx: number) => void
 }
 
 function LinkCodePicker({
@@ -126,7 +123,6 @@ function LinkCodePicker({
   codeIndex,
   codesByStatement,
   onPick,
-  onCreateRequest,
 }: LinkCodePickerProps) {
   const [open, setOpen] = useState(false)
   const selected = row.link_code ? codeIndex.get(row.link_code) : null
@@ -155,19 +151,6 @@ function LinkCodePicker({
           <CommandInput placeholder="Search link codes…" />
           <CommandList>
             <CommandEmpty>No codes found.</CommandEmpty>
-            <CommandGroup>
-              <CommandItem
-                onSelect={() => {
-                  onCreateRequest(idx)
-                  setOpen(false)
-                }}
-                className="font-medium"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Create new link code…
-              </CommandItem>
-            </CommandGroup>
-            <CommandSeparator />
             {Array.from(codesByStatement.entries()).map(([stmt, list]) => (
               <CommandGroup key={stmt} heading={stmt}>
                 {list.map((c) => (
@@ -270,8 +253,6 @@ export function QuickBooksReviewTable({
   const [committing, setCommitting] = useState(false)
   const [conflictOpen, setConflictOpen] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const [createOpenForRow, setCreateOpenForRow] = useState<number | null>(null)
-
   const refreshLinkCodes = () =>
     listQboLinkCodes(companyId)
       .then((codes) => {
@@ -728,7 +709,6 @@ export function QuickBooksReviewTable({
                         codeIndex={codeIndex}
                         codesByStatement={codesByStatement}
                         onPick={(i, code) => updateRow(i, { link_code: code })}
-                        onCreateRequest={setCreateOpenForRow}
                       />
                       {r.existing_link_code &&
                         r.existing_link_code !== r.link_code && (
@@ -815,19 +795,6 @@ export function QuickBooksReviewTable({
         </DialogContent>
       </Dialog>
 
-      <CreateLinkCodeDialog
-        companyId={companyId}
-        open={createOpenForRow !== null}
-        defaultLabel={createOpenForRow !== null ? rows[createOpenForRow]?.account_name : ""}
-        existingCodes={codeSet}
-        onClose={() => setCreateOpenForRow(null)}
-        onCreated={async (created) => {
-          await refreshLinkCodes()
-          if (createOpenForRow !== null) {
-            updateRow(createOpenForRow, { link_code: created.code })
-          }
-        }}
-      />
     </Card>
   )
 }

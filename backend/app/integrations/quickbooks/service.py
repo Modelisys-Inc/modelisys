@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 from app.integrations.quickbooks import encryption, oauth
 from app.models.account_mapping import AccountMapping
 from app.models.company import Company
-from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.quickbooks_connection import QuickBooksConnection
+from app.models.standard_link_code import StandardLinkCode
 from app.models.trial_balance import ChartOfAccount, TrialBalanceEntry
 
 logger = logging.getLogger(__name__)
@@ -503,34 +503,31 @@ def commit_trial_balance(
     """
     from app.integrations.quickbooks import client as qbo_client
 
-    # ---- validate link codes against statement structure ----
-    structures = (
-        db.query(CompanyStatementStructure)
-        .filter(CompanyStatementStructure.company_id == company.id)
-        .all()
-    )
-    valid_codes: set[str] = set()
-
-    def _collect(node):
-        if isinstance(node, list):
-            for item in node:
-                _collect(item)
-        elif isinstance(node, dict):
-            code = node.get("linkCode") or node.get("link_code")
-            if code:
-                valid_codes.add(str(code))
-            for key in ("children", "detailRows"):
-                _collect(node.get(key))
-
-    for s in structures:
-        _collect(s.structure)
+    # ---- validate link codes against global standard leaf codes ----
+    requested_codes = {
+        r["link_code"]
+        for r in rows
+        if not r.get("skip") and r.get("link_code")
+    }
+    if requested_codes:
+        valid_leaf_codes: set[str] = {
+            row.code
+            for row in db.query(StandardLinkCode.code)
+            .filter(
+                StandardLinkCode.code.in_(requested_codes),
+                StandardLinkCode.is_leaf.is_(True),
+            )
+            .all()
+        }
+    else:
+        valid_leaf_codes = set()
 
     offending: list[tuple[str, str]] = []
     for r in rows:
         if r.get("skip"):
             continue
         link_code = r.get("link_code")
-        if not link_code or link_code not in valid_codes:
+        if not link_code or link_code not in valid_leaf_codes:
             offending.append((str(r.get("account_number") or ""), str(link_code or "")))
     if offending:
         raise InvalidLinkCodesError(offending)
