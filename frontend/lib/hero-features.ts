@@ -2,7 +2,7 @@ import { getApprochePhaseHref, type ApprochePhaseId } from "@/lib/approche-navig
 
 /**
  * Libellés de la carte « Notre approche » du hero (ordre d’affichage).
- * Alignés sur les trois phases de l’approche Modelisys (`landing-client-journey-section`).
+ * Les liens `#phase-*` ciblent la carte Trajectoire de performance du hero.
  */
 export const HERO_FEATURE_LABELS = ["Diagnostic", "Planification", "Pilotage"] as const
 

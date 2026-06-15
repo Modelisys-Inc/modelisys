@@ -1,13 +1,20 @@
 "use client"
 
 import { ArrowRight } from "lucide-react"
-import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import { HeroPerformanceMetrics, HeroPhaseVisual } from "@/components/hero-phase-visual"
-import { navigateToApprochePhase, scrollToApprocheSection } from "@/lib/approche-navigation"
+import {
+  APPROCHE_PHASE_NAVIGATE_EVENT,
+  APPROCHE_SCROLL_TARGET_ID,
+  APPROCHE_SECTION_ID,
+  parseApprochePhaseFromHash,
+  scrollToApprocheSection,
+  type ApprochePhaseId,
+} from "@/lib/approche-navigation"
 import {
   HERO_PERFORMANCE_PHASES,
   HERO_PERFORMANCE_PHASE_CONTENT,
+  heroPerformancePhaseFromApprocheId,
   type HeroPerformancePhase,
 } from "@/lib/hero-performance-phases"
 
@@ -21,6 +28,10 @@ export function HeroSection() {
   const selectPhase = (phase: HeroPerformancePhase) => {
     setActivePhase(phase)
     setAutoRotate(false)
+  }
+
+  const selectApprochePhase = (phaseId: ApprochePhaseId) => {
+    selectPhase(heroPerformancePhaseFromApprocheId(phaseId))
   }
 
   const active = HERO_PERFORMANCE_PHASE_CONTENT[activePhase]
@@ -58,8 +69,24 @@ export function HeroSection() {
     return () => window.clearInterval(interval)
   }, [autoRotate, phases])
 
+  useEffect(() => {
+    const onPhaseNavigate = (event: Event) => {
+      const phaseId = (event as CustomEvent<{ phaseId: ApprochePhaseId }>).detail?.phaseId
+      if (!phaseId) return
+      selectApprochePhase(phaseId)
+    }
+
+    window.addEventListener(APPROCHE_PHASE_NAVIGATE_EVENT, onPhaseNavigate)
+    return () => window.removeEventListener(APPROCHE_PHASE_NAVIGATE_EVENT, onPhaseNavigate)
+  }, [])
+
+  useEffect(() => {
+    const phaseId = parseApprochePhaseFromHash(window.location.hash)
+    if (phaseId) selectApprochePhase(phaseId)
+  }, [])
+
   return (
-    <section ref={sectionRef} className="relative overflow-hidden">
+    <section id={APPROCHE_SECTION_ID} ref={sectionRef} className="relative overflow-hidden scroll-mt-24">
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-3">
           <div className="bg-[#2A2F3A]" />
@@ -89,9 +116,7 @@ export function HeroSection() {
             </h1>
 
             <p className="mt-8 max-w-[28rem] text-sm leading-[1.65] text-[#C9B8A5]/85 sm:mt-10 sm:text-[15px] lg:max-w-[34rem]">
-              Modelisys combine diagnostic, planification stratégique, analyse financière, valorisation et suivi de
-              performance dans une approche intégrée qui vous aide à mesurer votre situation actuelle, définir vos
-              priorités et piloter votre croissance avec confiance.
+              Comprenez votre situation actuelle, planifiez votre avenir et pilotez votre croissance avec confiance.
             </p>
 
             <p className="mt-6 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#E6D6C3]/75">
@@ -123,6 +148,7 @@ export function HeroSection() {
 
           {/* Colonnes 2 & 3 — trajectoire de performance */}
           <div
+            id={APPROCHE_SCROLL_TARGET_ID}
             className={`order-2 lg:col-span-2 lg:col-start-2 transition-all duration-1000 delay-100 ${
               isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
             }`}
@@ -157,8 +183,8 @@ export function HeroSection() {
                     <span className="font-mono text-[11px] tabular-nums text-[#E0742D]">{active.step}/03</span>
                   </div>
                   <div className="mt-4 flex items-end justify-between gap-2 text-[10px] font-medium uppercase tracking-wide text-[#C9B8A5]/72">
-                    <span>Aujourd&apos;hui</span>
-                    <span>Objectif</span>
+                    <span>{active.progressStartLabel}</span>
+                    <span>{active.progressEndLabel}</span>
                   </div>
                   <div className="relative mt-2.5 h-2.5 overflow-hidden rounded-full bg-white/[0.08]">
                     <div
@@ -166,7 +192,7 @@ export function HeroSection() {
                       style={{ width: `${active.trajectory}%` }}
                     />
                   </div>
-                  <HeroPerformanceMetrics />
+                  <HeroPerformanceMetrics phase={activePhase} />
                 </div>
 
                 {/* Corps : phases + panneau */}
@@ -226,40 +252,17 @@ export function HeroSection() {
 
                   {/* Droite — contenu de phase */}
                   <div className="border-t border-white/[0.08] px-5 py-5 sm:px-6 sm:py-6 lg:border-t-0 lg:px-4 lg:py-5 xl:px-5 xl:py-6">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E6D6C3]/95">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]/90">
                       {active.panelTitle}
                     </p>
-                    <p className="mt-1.5 text-xs leading-relaxed text-[#C9B8A5]/80 sm:text-sm">{active.panelSubtitle}</p>
+                    {active.panelSubtitle ? (
+                      <p className="mt-2 text-xs leading-relaxed text-[#C9B8A5]/80 sm:text-sm">{active.panelSubtitle}</p>
+                    ) : null}
 
-                    <div className="mt-5 min-h-[10rem] w-full min-w-0 sm:min-h-[11rem]">
+                    <div className="mt-4 min-h-[8rem] w-full min-w-0 sm:min-h-[9rem]">
                       <HeroPhaseVisual phase={activePhase} />
                     </div>
                   </div>
-                </div>
-
-                {/* Pied */}
-                <div className="relative flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.08] px-5 py-4 sm:px-6">
-                  <Link
-                    href={`/#phase-${active.approchePhaseId}`}
-                    onClick={(e) => {
-                      if (typeof window === "undefined" || window.location.pathname !== "/") return
-                      e.preventDefault()
-                      navigateToApprochePhase(active.approchePhaseId)
-                    }}
-                    className="group inline-flex items-center gap-2.5 text-xs font-semibold tracking-wide text-slate-100 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
-                  >
-                    EXPLORER CETTE PHASE
-                    <ArrowRight className="h-4 w-4 shrink-0 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
-                  </Link>
-
-                  <button
-                    type="button"
-                    onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
-                    className="group inline-flex items-center gap-2.5 rounded-lg px-1 py-1.5 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
-                  >
-                    Démo
-                    <ArrowRight className="h-4 w-4 shrink-0 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
-                  </button>
                 </div>
               </div>
             </div>

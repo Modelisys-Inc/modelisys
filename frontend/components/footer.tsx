@@ -29,9 +29,9 @@ const footerLinks: FooterSection[] = [
     label: "Parcours",
     links: [
       { title: "Fonctionnalités", href: "/#problem-solution" },
-      { title: "Études de cas", href: "/#etudes-de-cas" },
+      { title: "Études de cas", href: "/etudes-de-cas" },
       { title: "Mise en place", href: "/#platform-setup" },
-      { title: "Tarification", href: "/#pricing-process" },
+      { title: "Tarification", href: "/tarification" },
       { title: "Démarrer", href: "/#demo" },
     ],
   },
@@ -42,7 +42,7 @@ const footerLinks: FooterSection[] = [
   {
     label: "Utilisateurs",
     links: [
-      { title: "PME", href: "/#problem-solution" },
+      { title: "Entreprises", href: "/#problem-solution" },
       { title: "Partenaires comptables", href: "/cabinets-comptables" },
       { title: "Partenaires financiers", href: "/partenaires-financiers" },
     ],

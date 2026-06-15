@@ -9,6 +9,8 @@ export const PUBLIC_PATHS = [
   "/blog",
   "/contact",
   "/a-propos",
+  "/etudes-de-cas",
+  "/tarification",
   "/cabinets-comptables",
   "/partenaires-financiers",
   "/partenaires-institutionnels",
