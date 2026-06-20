@@ -3,6 +3,8 @@ import {
   renumberAnnexesByAppearance,
   newChargeRow,
   isAnnexLetterInputEditable,
+  listAnnexLettersForDetailSubLines,
+  listAnnexOptionsForDetailSubLineModal,
 } from "../income-statement-structure-utils"
 
 type Row = Record<string, unknown>
@@ -11,7 +13,7 @@ describe("renumberAnnexesByAppearance — letters (Résultats)", () => {
   it("numbers annexes by appearance order, not by existing identifier", () => {
     const s: Row[] = [
       { label: "Revenus", showInDetail: true, annexLetter: "Z" },
-      { label: "Charges", showInDetail: true, annexLetter: "" },
+      { label: "Charges", showInDetail: true, defineMapping: true, annexLetter: "" },
     ]
     const out = renumberAnnexesByAppearance(s, "letter")
     // The stale "Z" appears first → becomes "A"; the blank one → "B".
@@ -20,7 +22,7 @@ describe("renumberAnnexesByAppearance — letters (Résultats)", () => {
   })
 
   it("assigns the first id from a blank, freshly-toggled row (showInDetail:true, annexLetter:'')", () => {
-    const s: Row[] = [{ label: "Revenus", showInDetail: true, annexLetter: "" }]
+    const s: Row[] = [{ label: "Revenus", showInDetail: true, defineMapping: true, annexLetter: "" }]
     const out = renumberAnnexesByAppearance(s, "letter")
     expect(out[0]!.annexLetter).toBe("A")
   })
@@ -28,7 +30,7 @@ describe("renumberAnnexesByAppearance — letters (Résultats)", () => {
   it("makes an earlier-positioned annexe win over a later one regardless of prior letters", () => {
     // Row 0 enabled-but-blank (appears first), row 1 already lettered "A".
     const s: Row[] = [
-      { label: "Revenus", showInDetail: true, annexLetter: "" },
+      { label: "Revenus", showInDetail: true, defineMapping: true, annexLetter: "" },
       { label: "Autres", showInDetail: true, annexLetter: "A" },
     ]
     const out = renumberAnnexesByAppearance(s, "letter")
@@ -38,9 +40,9 @@ describe("renumberAnnexesByAppearance — letters (Résultats)", () => {
 
   it("propagates the block id to contiguous detailOnly sub-lines", () => {
     const s: Row[] = [
-      { label: "Revenus", showInDetail: true, annexLetter: "" },
+      { label: "Revenus", showInDetail: true, defineMapping: true, annexLetter: "" },
       { label: "Sous-ligne", detailOnly: true, annexLetter: "OLD" },
-      { label: "Charges", showInDetail: true, annexLetter: "" },
+      { label: "Charges", showInDetail: true, defineMapping: true, annexLetter: "" },
     ]
     const out = renumberAnnexesByAppearance(s, "letter")
     expect(out[0]!.annexLetter).toBe("A")
@@ -62,7 +64,7 @@ describe("renumberAnnexesByAppearance — letters (Résultats)", () => {
   it("clears the stale letter on an orphan detailOnly row (no contiguous parent block)", () => {
     const s: Row[] = [
       { label: "Orpheline", detailOnly: true, annexLetter: "B" },
-      { label: "Revenus", showInDetail: true, annexLetter: "" },
+      { label: "Revenus", showInDetail: true, defineMapping: true, annexLetter: "" },
     ]
     const out = renumberAnnexesByAppearance(s, "letter")
     expect(out[0]!.annexLetter).toBeUndefined()
@@ -74,10 +76,25 @@ describe("renumberAnnexesByAppearance — letters (Résultats)", () => {
       { label: "" }, // spacer
       { label: "Masquée", hidden: true, showInDetail: true, annexLetter: "X" },
       { label: "Non-annexe", showInDetail: false },
-      { label: "Real", showInDetail: true, annexLetter: "" },
+      { label: "Real", showInDetail: true, defineMapping: true, annexLetter: "" },
     ]
     const out = renumberAnnexesByAppearance(s, "letter")
     expect(out[3]!.annexLetter).toBe("A") // first id goes to the only real annexe
+  })
+
+  it("skips a showInDetail:true row that is not code-mapping-enabled (no id, no gap)", () => {
+    // A row toggled on but without a mapping (e.g. defineMapping:false from imported
+    // data) is invisible in the Détail / sub-line pickers; it must not consume an id,
+    // otherwise the visible numbering would skip a letter.
+    const s: Row[] = [
+      { label: "Vrai", showInDetail: true, defineMapping: true, annexLetter: "" },
+      { label: "Fantôme", showInDetail: true, defineMapping: false, annexLetter: "" },
+      { label: "Vrai2", showInDetail: true, defineMapping: true, annexLetter: "" },
+    ]
+    const out = renumberAnnexesByAppearance(s, "letter")
+    expect(out[0]!.annexLetter).toBe("A")
+    expect(out[1]!.annexLetter).toBe("") // phantom untouched, no id
+    expect(out[2]!.annexLetter).toBe("B") // no gap — phantom consumed nothing
   })
 
   it("is a no-op on an empty structure", () => {
@@ -96,7 +113,7 @@ describe("renumberAnnexesByAppearance — numbers (Bilan)", () => {
   it("uses sequential numbers in appearance order", () => {
     const s: Row[] = [
       { label: "Encaisse", showInDetail: true, annexLetter: "5" },
-      { label: "Clients", showInDetail: true, annexLetter: "" },
+      { label: "Clients", showInDetail: true, defineMapping: true, annexLetter: "" },
     ]
     const out = renumberAnnexesByAppearance(s, "number")
     expect(out[0]!.annexLetter).toBe("1")
@@ -128,5 +145,29 @@ describe("isAnnexLetterInputEditable", () => {
     expect(
       isAnnexLetterInputEditable({ label: "Sous", detailOnly: true, annexLetter: "A" }),
     ).toBe(false)
+  })
+})
+
+describe("detail annex option ordering", () => {
+  it("keeps annex letters in structure appearance order", () => {
+    const s: Row[] = [
+      { label: "Clients", defineMapping: true, showInDetail: true, annexLetter: "2" },
+      { label: "Stocks", defineMapping: true, showInDetail: true, annexLetter: "1" },
+      { label: "Sous-ligne", detailOnly: true, defineMapping: true, showInDetail: true, annexLetter: "1" },
+    ]
+
+    expect(listAnnexLettersForDetailSubLines(s)).toEqual(["2", "1"])
+  })
+
+  it("keeps annex modal options in structure appearance order", () => {
+    const s: Row[] = [
+      { label: "Autres revenus", defineMapping: true, showInDetail: true, annexLetter: "B" },
+      { label: "Produits financiers", defineMapping: true, showInDetail: true, annexLetter: "A" },
+    ]
+
+    expect(listAnnexOptionsForDetailSubLineModal(s)).toEqual([
+      { letter: "B", title: "Autres revenus" },
+      { letter: "A", title: "Produits financiers" },
+    ])
   })
 })

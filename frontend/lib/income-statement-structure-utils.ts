@@ -131,7 +131,13 @@ export function renumberAnnexesByAppearance(
     // Critère strict `showInDetail === true` (et non le repli `isShowInDetail`) :
     // on n'attribue pas d'identifiant aux lignes anciennes qui ne sont visibles au
     // détail que par héritage d'un code de liaison sans case cochée.
-    if (row.showInDetail === true) {
+    // Gardé aussi par `isCodeMappingEnabled` : une ligne `showInDetail:true` mais
+    // sans mapping (ex. `defineMapping:false` issu de données importées) n'apparaît
+    // ni dans le Détail ni dans les sélecteurs de sous-lignes ; lui attribuer un
+    // identifiant créerait un « trou » de numérotation visible. Dans l'UI la case
+    // « Annexe » est désactivée tant que `isCodeMappingEnabled` est faux, donc ce
+    // garde n'exclut aucune annexe légitime cochée à la main.
+    if (row.showInDetail === true && isCodeMappingEnabled(row)) {
       counter += 1
       currentId = idForCounter(counter)
       row.annexLetter = currentId
@@ -430,7 +436,6 @@ export function listAnnexLettersForDetailSubLines(structure: Record<string, unkn
     seen.add(a)
     out.push(a)
   }
-  out.sort((x, y) => compareAnnexLetters(x, y))
   return out
 }
 
@@ -451,7 +456,6 @@ export function listAnnexOptionsForDetailSubLineModal(
     const raw = String(row.label ?? "").trim()
     out.push({ letter: a, title: raw || `Annexe ${a}` })
   }
-  out.sort((x, y) => compareAnnexLetters(x.letter, y.letter))
   return out
 }
 
