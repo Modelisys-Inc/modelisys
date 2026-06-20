@@ -9,10 +9,13 @@ from app.database import get_db
 from app.dependencies import get_current_user, verify_company_access
 from app.models.account_mapping import AccountMapping
 from app.models.company import Company
-from app.models.trial_balance import ChartOfAccount, TrialBalanceEntry
+from app.models.trial_balance import AccountAnnualBalance, ChartOfAccount, TrialBalanceEntry
 from app.models.user import User
+from app.services.tb_rollup import refresh_annual_balances
 from app.schemas.trial_balance import (
+    AccountAnnualBalanceResponse,
     TrialBalanceAccountResponse,
+    TrialBalanceAnnualSummaryResponse,
     TrialBalanceEntryUpsert,
     TrialBalanceResponse,
     TrialBalanceUnknownAccountPreview,
@@ -251,6 +254,47 @@ def list_fiscal_years_with_trial_balance_data(
     return [int(r[0]) for r in rows]
 
 
+@router.get("/annual-summary", response_model=TrialBalanceAnnualSummaryResponse)
+def get_annual_summary(
+    company_id: uuid.UUID,
+    fiscal_year: int = Query(..., description="Exercice fiscal"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Annual total per GL account for a fiscal year, served from the
+    pre-aggregated rollup (account_annual_balances)."""
+    verify_company_access(db, current_user, company_id)
+
+    rows = (
+        db.query(AccountAnnualBalance, ChartOfAccount)
+        .join(ChartOfAccount, ChartOfAccount.id == AccountAnnualBalance.account_id)
+        .filter(
+            AccountAnnualBalance.company_id == company_id,
+            AccountAnnualBalance.fiscal_year == fiscal_year,
+        )
+        .order_by(ChartOfAccount.account_number)
+        .all()
+    )
+
+    accounts = [
+        AccountAnnualBalanceResponse(
+            account_id=bal.account_id,
+            account_number=chart.account_number,
+            account_name=chart.account_name,
+            fiscal_year=bal.fiscal_year,
+            amount=float(bal.amount),
+            month_count=bal.month_count,
+        )
+        for bal, chart in rows
+    ]
+    return TrialBalanceAnnualSummaryResponse(
+        company_id=company_id,
+        fiscal_year=fiscal_year,
+        accounts=accounts,
+        total=sum(a.amount for a in accounts),
+    )
+
+
 @router.delete("", response_model=TrialBalanceResponse)
 def delete_trial_balance_month(
     company_id: uuid.UUID,
@@ -267,6 +311,7 @@ def delete_trial_balance_month(
         TrialBalanceEntry.fiscal_year == fiscal_year,
         TrialBalanceEntry.month == month,
     ).delete(synchronize_session=False)
+    refresh_annual_balances(db, company_id, fiscal_year)
     db.commit()
 
     return get_trial_balance(company_id, fiscal_year, current_user, db)
@@ -350,6 +395,8 @@ def upsert_trial_balance(
     if new_entries:
         db.add_all(new_entries)
 
+    db.flush()
+    refresh_annual_balances(db, company_id, fiscal_year)
     db.commit()
 
     # Return updated data
@@ -504,6 +551,8 @@ async def upload_trial_balance(
     if new_entries:
         db.add_all(new_entries)
 
+    db.flush()
+    refresh_annual_balances(db, company_id, fiscal_year)
     db.commit()
 
     return TrialBalanceUploadResponse(
