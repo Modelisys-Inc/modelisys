@@ -12,7 +12,6 @@ from app.dependencies import get_current_user
 from app.integrations.quickbooks import oauth, service
 from app.main import app
 from app.models.account_mapping import AccountMapping
-from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.quickbooks_connection import QuickBooksConnection
 from app.models.trial_balance import ChartOfAccount, TrialBalanceEntry
 
@@ -364,7 +363,6 @@ def test_preview_dedupes_and_sorts_months(auth_client, db, org_user_company):
 def test_commit_creates_tb_chart_and_mappings(auth_client, db, org_user_company):
     _, user, company = org_user_company
     service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
-    _seed_legacy_codes_structure(db, company)
     _mock_preview_endpoints()
     body = {
         "fiscal_year": 2026, "months": [3],
@@ -395,7 +393,6 @@ def test_commit_creates_tb_chart_and_mappings(auth_client, db, org_user_company)
 def test_commit_skips_rows(auth_client, db, org_user_company):
     _, user, company = org_user_company
     service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
-    _seed_legacy_codes_structure(db, company)
     _mock_preview_endpoints()
     body = {
         "fiscal_year": 2026, "months": [3],
@@ -419,7 +416,6 @@ def test_commit_skips_rows(auth_client, db, org_user_company):
 def test_commit_updates_existing_mapping(auth_client, db, org_user_company):
     _, user, company = org_user_company
     service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
-    _seed_legacy_codes_structure(db, company)
     _mock_preview_endpoints()
     db.add(AccountMapping(
         company_id=company.id, account_number="1000",
@@ -452,7 +448,6 @@ def test_commit_rejects_unknown_link_code(auth_client, db, org_user_company):
     # Link-code validation runs BEFORE the QBO re-pull, so no QBO mocking needed.
     _, user, company = org_user_company
     service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
-    _seed_income_structure(db, company)
     r = auth_client.post(
         f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
         json={
@@ -479,7 +474,6 @@ def test_commit_rejects_unknown_link_code(auth_client, db, org_user_company):
 def test_commit_skipped_rows_exempt_from_validation(auth_client, db, org_user_company):
     _, user, company = org_user_company
     service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
-    _seed_income_structure(db, company)
     _mock_preview_endpoints()
     r = auth_client.post(
         f"/api/quickbooks/companies/{company.id}/trial-balance/commit",
@@ -524,7 +518,6 @@ def test_commit_multi_month_conflict_without_overwrite_writes_nothing(
 ):
     _, user, company = org_user_company
     service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
-    _seed_legacy_codes_structure(db, company)
     _mock_preview_endpoints()
 
     # First commit succeeds for months 1, 2.
@@ -572,7 +565,6 @@ def test_commit_overwrite_replaces_conflicting_months_only(
 ):
     _, user, company = org_user_company
     service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
-    _seed_legacy_codes_structure(db, company)
     _mock_preview_endpoints()
 
     auth_client.post(
@@ -617,7 +609,6 @@ def test_commit_data_drift_returns_409_and_writes_nothing(
 ):
     _, user, company = org_user_company
     service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
-    _seed_legacy_codes_structure(db, company)
     _mock_preview_endpoints()
 
     # User submits only 1 of the 3 accounts present in the QBO re-pull.
@@ -650,228 +641,28 @@ def test_commit_empty_months_returns_422(auth_client, db, org_user_company):
 
 # ============= /link-codes =============
 
-def test_list_link_codes_reads_from_company_statement_structure(auth_client, db, org_user_company):
+def test_list_link_codes_returns_global_standard_codes(auth_client, org_user_company):
     _, _, company = org_user_company
-    db.add(CompanyStatementStructure(
-        company_id=company.id,
-        statement_type="income-statement",
-        structure=[
-            {
-                "id": "revenue",
-                "label": "Revenus",
-                "isSection": True,
-                "children": [
-                    {"id": "20-101", "label": "Développement sur mesure", "linkCode": "20-101"},
-                    {"id": "20-102", "label": "Ventes de logiciels", "linkCode": "20-102"},
-                ],
-            },
-        ],
-    ))
-    db.add(CompanyStatementStructure(
-        company_id=company.id,
-        statement_type="balance-sheet",
-        structure=[
-            {
-                "id": "actifs-courants",
-                "label": "Actifs courants",
-                "isSection": True,
-                "children": [
-                    {"id": "10-100", "label": "Encaisse", "linkCode": "10-100"},
-                ],
-            },
-        ],
-    ))
-    db.commit()
-
     r = auth_client.get(f"/api/quickbooks/companies/{company.id}/link-codes")
     assert r.status_code == 200, r.text
     body = r.json()
-    codes = {o["code"]: o for o in body}
-    assert set(codes) == {"20-101", "20-102", "10-100"}
-    assert codes["20-101"]["statement_type"] == "income-statement"
-    assert codes["20-101"]["parent_id"] == "revenue"
-    assert codes["20-101"]["parent_label"] == "Revenus"
-    assert codes["10-100"]["statement_type"] == "balance-sheet"
-    assert codes["10-100"]["parent_id"] == "actifs-courants"
-
-
-def _seed_legacy_codes_structure(db, company):
-    """Seed a CompanyStatementStructure containing the legacy link codes used by
-    the existing commit tests. Required so strict commit validation passes."""
-    db.add(CompanyStatementStructure(
-        company_id=company.id,
-        statement_type="income-statement",
-        structure=[
-            {
-                "id": "revenus", "label": "Revenus", "isSection": True,
-                "children": [
-                    {"id": "revenus.ventes", "label": "Ventes", "linkCode": "revenus.ventes"},
-                ],
-            },
-        ],
-    ))
-    db.add(CompanyStatementStructure(
-        company_id=company.id,
-        statement_type="balance-sheet",
-        structure=[
-            {
-                "id": "actifs-courants", "label": "Actifs courants", "isSection": True,
-                "children": [
-                    {"id": "actif.encaisse", "label": "Encaisse", "linkCode": "actif.encaisse"},
-                    {"id": "actif.old", "label": "Legacy", "linkCode": "actif.old"},
-                ],
-            },
-        ],
-    ))
-    db.commit()
-
-
-def _seed_income_structure(db, company):
-    db.add(CompanyStatementStructure(
-        company_id=company.id,
-        statement_type="income-statement",
-        structure=[
-            {
-                "id": "admin-expenses",
-                "label": "Frais d'administration",
-                "isSection": True,
-                "children": [
-                    {"id": "44-330", "label": "Salaires admin", "linkCode": "44-330"},
-                ],
-            },
-        ],
-    ))
-    db.commit()
-
-
-def test_create_link_code_appends_leaf_and_returns_option(auth_client, db, org_user_company):
-    _, _, company = org_user_company
-    _seed_income_structure(db, company)
-
-    r = auth_client.post(
-        f"/api/quickbooks/companies/{company.id}/link-codes",
-        json={
-            "statement_type": "income-statement",
-            "parent_id": "admin-expenses",
-            "link_code": "44-999",
-            "label": "Nouveau poste",
-        },
-    )
-    assert r.status_code == 201, r.text
-    body = r.json()
-    assert body == {
-        "code": "44-999",
-        "label": "Nouveau poste",
-        "statement_type": "income-statement",
-        "parent_id": "admin-expenses",
-        "parent_label": "Frais d'administration",
-    }
-
-    db.expire_all()
-    structure = (
-        db.query(CompanyStatementStructure)
-        .filter(
-            CompanyStatementStructure.company_id == company.id,
-            CompanyStatementStructure.statement_type == "income-statement",
-        )
-        .first()
-    )
-    children = structure.structure[0]["children"]
-    assert {"label": "Nouveau poste", "linkCode": "44-999", "indent": True} in children
-
-
-def test_create_link_code_invalid_statement_type_returns_422(auth_client, db, org_user_company):
-    _, _, company = org_user_company
-    r = auth_client.post(
-        f"/api/quickbooks/companies/{company.id}/link-codes",
-        json={
-            "statement_type": "not-a-real-type",
-            "parent_id": "admin-expenses",
-            "link_code": "44-999",
-            "label": "X",
-        },
-    )
-    assert r.status_code == 422
-
-
-def test_create_link_code_missing_parent_returns_422(auth_client, db, org_user_company):
-    _, _, company = org_user_company
-    _seed_income_structure(db, company)
-    r = auth_client.post(
-        f"/api/quickbooks/companies/{company.id}/link-codes",
-        json={
-            "statement_type": "income-statement",
-            "parent_id": "does-not-exist",
-            "link_code": "44-999",
-            "label": "X",
-        },
-    )
-    assert r.status_code == 422
-    assert "parent" in r.json()["detail"].lower()
-
-
-def test_create_link_code_duplicate_returns_422(auth_client, db, org_user_company):
-    _, _, company = org_user_company
-    _seed_income_structure(db, company)
-    r = auth_client.post(
-        f"/api/quickbooks/companies/{company.id}/link-codes",
-        json={
-            "statement_type": "income-statement",
-            "parent_id": "admin-expenses",
-            "link_code": "44-330",
-            "label": "Conflict",
-        },
-    )
-    assert r.status_code == 422
-    assert "already" in r.json()["detail"].lower()
-
-
-def test_create_link_code_supports_detail_rows_schema(auth_client, db, org_user_company):
-    """Production structures often use `detailRows` instead of `children` and
-    rely on `label` as the parent identifier (no `id` field)."""
-    _, _, company = org_user_company
-    db.add(CompanyStatementStructure(
-        company_id=company.id,
-        statement_type="income-statement",
-        structure=[
-            {
-                "label": "frais d'administration",
-                "indent": True,
-                "isSection": True,
-                "detailRows": [
-                    {"label": "Loyer", "indent": True, "linkCode": "44-540"},
-                ],
-            },
-        ],
-    ))
-    db.commit()
-
-    r = auth_client.post(
-        f"/api/quickbooks/companies/{company.id}/link-codes",
-        json={
-            "statement_type": "income-statement",
-            "parent_id": "frais d'administration",
-            "link_code": "44-999",
-            "label": "Nouveau poste",
-        },
-    )
-    assert r.status_code == 201, r.text
-
-    db.expire_all()
-    structure = (
-        db.query(CompanyStatementStructure)
-        .filter(CompanyStatementStructure.company_id == company.id)
-        .first()
-    )
-    detail_rows = structure.structure[0]["detailRows"]
-    assert any(r.get("linkCode") == "44-999" for r in detail_rows)
+    assert isinstance(body, list)
+    assert len(body) > 0
+    codes = {o["code"] for o in body}
+    # Codes seeded in conftest.seed_standard_link_codes must be present
+    assert "actif.encaisse" in codes
+    assert "revenus.ventes" in codes
+    # Each item has the required LinkCodeOption fields
+    first = body[0]
+    assert "code" in first
+    assert "label" in first
+    assert "statement_type" in first
 
 
 @respx.mock
 def test_commit_multi_month_writes_entry_per_month(auth_client, db, org_user_company):
     _, user, company = org_user_company
     service.upsert_connection(db, company.id, "realm-1", _tokens(), user.id)
-    _seed_legacy_codes_structure(db, company)
     _mock_preview_endpoints()  # same fixture across months
 
     r = auth_client.post(
@@ -902,46 +693,6 @@ def test_commit_multi_month_writes_entry_per_month(auth_client, db, org_user_com
     assert months_written == {1, 2, 3}
 
 
-def test_create_link_code_supports_flat_sibling_schema(auth_client, db, org_user_company):
-    """Some production structures are flat: sections and leaves are siblings.
-    A new leaf must be inserted after the chosen section, before the next
-    section header."""
-    _, _, company = org_user_company
-    db.add(CompanyStatementStructure(
-        company_id=company.id,
-        statement_type="balance-sheet",
-        structure=[
-            {"label": "actifs", "isBold": True, "isSection": True},
-            {"label": "actifs courants", "indent": True, "isSection": True},
-            {"label": "Encaisse", "indent": True, "linkCode": "A"},
-            {"label": "actifs non courants", "indent": True, "isSection": True},
-            {"label": "Immobilisations", "indent": True, "linkCode": "G"},
-        ],
-    ))
-    db.commit()
-
-    r = auth_client.post(
-        f"/api/quickbooks/companies/{company.id}/link-codes",
-        json={
-            "statement_type": "balance-sheet",
-            "parent_id": "actifs courants",
-            "link_code": "B",
-            "label": "Débiteurs",
-        },
-    )
-    assert r.status_code == 201, r.text
-
-    db.expire_all()
-    structure = (
-        db.query(CompanyStatementStructure)
-        .filter(CompanyStatementStructure.company_id == company.id)
-        .first()
-    )
-    labels = [n.get("label") for n in structure.structure]
-    # The new leaf should land after "actifs courants" and "Encaisse",
-    # but before "actifs non courants".
-    assert labels.index("Débiteurs") > labels.index("actifs courants")
-    assert labels.index("Débiteurs") < labels.index("actifs non courants")
 
 
 def test_preview_response_includes_tracking_and_tags(auth_client, db, org_user_company, monkeypatch):

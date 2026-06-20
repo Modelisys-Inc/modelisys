@@ -5,6 +5,7 @@ import type React from "react"
 import { motion, useReducedMotion } from "framer-motion"
 import { ArrowRight, FacebookIcon, InstagramIcon, LinkedinIcon } from "lucide-react"
 import Link from "next/link"
+import { handleApprocheLandingLink } from "@/lib/approche-navigation"
 import { heroFeatureFooterLinks } from "@/lib/hero-features"
 
 interface FooterLink {
@@ -27,7 +28,7 @@ const footerLinks: FooterSection[] = [
   {
     label: "Parcours",
     links: [
-      { title: "Pourquoi Modelisys", href: "/#problem-solution" },
+      { title: "Fonctionnalités", href: "/#problem-solution" },
       { title: "Études de cas", href: "/#etudes-de-cas" },
       { title: "Mise en place", href: "/#platform-setup" },
       { title: "Tarification", href: "/#pricing-process" },
@@ -35,7 +36,7 @@ const footerLinks: FooterSection[] = [
     ],
   },
   {
-    label: "Fonctionnalités",
+    label: "L'approche Modelisys",
     links: [...heroFeatureFooterLinks],
   },
   {
@@ -226,7 +227,11 @@ export function Footer() {
                     {section.links.map((link) => (
                       <li key={link.title}>
                         {link.href.startsWith("/") ? (
-                          <Link href={link.href} className={linkClass}>
+                          <Link
+                            href={link.href}
+                            className={linkClass}
+                            onClick={(e) => handleApprocheLandingLink(e, link.href)}
+                          >
                             {link.title}
                           </Link>
                         ) : (

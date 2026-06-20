@@ -77,7 +77,7 @@ export default function DashboardPage() {
           <div className="flex items-start gap-3 mb-8">
             <div className="w-2"></div>
             <div className="flex-1">
-              <h2 className="text-4xl font-semibold text-[#E6D6C3] mb-2 tracking-tight">Tableau de bord</h2>
+              <h2 className="text-4xl font-semibold text-[#E6D6C3] mb-2 tracking-tight">Outils financiers</h2>
               <p className="text-base text-[#C9B8A5]/90 mb-6">
                 Vue d'ensemble de votre plateforme d'intelligence financière
               </p>

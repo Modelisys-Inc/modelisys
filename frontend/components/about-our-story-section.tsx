@@ -5,12 +5,10 @@ import { Briefcase, Building2 } from "lucide-react"
 import { motion, useReducedMotion } from "framer-motion"
 import { cn } from "@/lib/utils"
 
-const PILLARS = [
-  { title: "Analyser", body: "Comprendre ce qui s'est passé et pourquoi" },
-  { title: "Projeter", body: "Simuler l'avenir avec des données réelles" },
-  { title: "Valoriser", body: "Connaître la valeur de son entreprise en continu" },
-  { title: "Documenter", body: "Expliquer les écarts et décisions" },
-  { title: "Collaborer", body: "Réunir dirigeant et CPA dans le même outil" },
+const APPROCHE_PHASES = [
+  { title: "Diagnostic", body: "Ancrer le point de départ : analyse, évaluation, risques et KPI" },
+  { title: "Planification", body: "Clarifier la vision, modéliser les scénarios et projeter la trajectoire" },
+  { title: "Pilotage", body: "Analyser les écarts réel vs prévu vs passé et recalibrer le plan en continu" },
 ] as const
 
 const TWO_REALITIES = [
@@ -48,7 +46,7 @@ const STORY_STEPS = [
   { id: "story-realites", step: 4, roadmap: "Réalités" },
   { id: "story-blocage", step: 5, roadmap: "Blocage" },
   { id: "story-declic", step: 6, roadmap: "Déclic" },
-  { id: "story-verbes", step: 7, roadmap: "Verbes" },
+  { id: "story-verbes", step: 7, roadmap: "Approche" },
   { id: "story-fin", step: 8, roadmap: "Mission" },
 ] as const
 
@@ -323,15 +321,15 @@ export function AboutOurStorySection() {
                 <p className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
                   C&apos;est l&apos;accumulation de ces constats — répétés pendant des années, dans les deux univers — qui a déclenché
                   la décision. Non pas de critiquer les outils existants, mais de construire ce qui n&apos;existait pas : une
-                  plateforme qui réunit le dirigeant et son CPA dans le même environnement financier, en temps réel, avec les bonnes
-                  données au bon moment.
+                  plateforme qui réunit le dirigeant et son conseiller dans le même environnement financier, avec un parcours
+                  structuré en trois phases — comprendre, planifier et piloter.
                 </p>
                 <div className="h-px w-full max-w-2xl bg-slate-200/90" aria-hidden />
                 <p className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
-                  Modelisys a été construit autour d&apos;une conviction simple : un dirigeant de PME qui comprend vraiment ses
-                  finances — qui peut analyser, projeter, valoriser, documenter et collaborer avec son équipe comptable — prend de
-                  meilleures décisions. Et un CPA qui a accès aux mêmes données en temps réel que son client peut enfin jouer
-                  pleinement son rôle de conseiller stratégique.
+                  Modelisys structure les données, les outils et la méthode pour mesurer, visionner, modéliser, exécuter et
+                  ajuster. La plateforme prépare le terrain ; l&apos;accompagnement stratégique — diagnostic, valorisation,
+                  projections, analyse des écarts — s&apos;active lorsque le client le choisit. Un CPA qui partage les mêmes
+                  chiffres en temps réel peut enfin jouer pleinement son rôle de conseiller.
                 </p>
               </motion.div>
             </div>
@@ -343,9 +341,9 @@ export function AboutOurStorySection() {
           >
             <StepRail n="07" />
             <div className="min-w-0">
-              <StorySectionHeader eyebrow="Ce que la plateforme porte" title="Cinq façons d'agir sur la finance" />
+              <StorySectionHeader eyebrow="L'approche Modelisys" title="Trois phases pour piloter la valeur" />
               <motion.div {...contentMotion} className="divide-y divide-slate-200/80 border-t border-slate-200/80">
-                {PILLARS.map((item) => (
+                {APPROCHE_PHASES.map((item) => (
                   <div
                     key={item.title}
                     className="flex flex-col gap-1 py-4 sm:flex-row sm:items-baseline sm:gap-10 sm:py-5"
@@ -374,10 +372,10 @@ export function AboutOurStorySection() {
               >
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]">Pourquoi Modelisys existe</p>
                 <p className="mt-6 max-w-3xl text-[15px] leading-[1.8] text-[#5C5F66] sm:text-[17px]">
-                  C&apos;est pour ça que Modelisys existe. Non pas pour remplacer le CPA — mais pour lui donner, ainsi qu&apos;à son
-                  client, la plateforme commune qu&apos;ils n&apos;avaient jamais eue. Celle qui transforme une conversation réactive
-                  en un vrai partenariat financier, ancré dans les données, en temps réel, adapté à la réalité des groupes PME
-                  d&apos;ici.
+                  C&apos;est pour ça que Modelisys existe. Non pas pour remplacer le conseiller — mais pour lui donner, ainsi qu&apos;au
+                  dirigeant, la plateforme et le parcours qu&apos;ils n&apos;avaient jamais eus : ancrer un point de départ, fixer une
+                  vision chiffrée, modéliser la trajectoire, suivre les écarts et recalibrer au fil du temps — en partenariat, sur
+                  des données communes, adapté à la réalité des PME d&apos;ici.
                 </p>
               </motion.div>
             </div>

@@ -7,6 +7,7 @@ from app.database import get_db
 from app.dependencies import get_current_user, verify_company_access
 from app.models.account_mapping import AccountMapping, Product
 from app.models.company import Company
+from app.models.standard_link_code import StandardLinkCode
 from app.models.user import User
 from app.schemas.account_mapping import (
     AccountMappingListResponse,
@@ -78,8 +79,33 @@ def upsert_account_mappings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Bulk upsert account mappings. Matches on account_number."""
+    """Bulk upsert account mappings. Matches on account_number.
+
+    link_code, when provided, must be a leaf code in standard_link_codes.
+    """
     verify_company_access(db, current_user, company_id)
+
+    # Validate that all provided link_codes are leaf codes in the standard chart
+    requested_codes = {e.link_code for e in entries if e.link_code}
+    if requested_codes:
+        valid_leaf_codes = {
+            row.code
+            for row in db.query(StandardLinkCode.code)
+            .filter(
+                StandardLinkCode.code.in_(requested_codes),
+                StandardLinkCode.is_leaf.is_(True),
+            )
+            .all()
+        }
+        invalid = sorted(requested_codes - valid_leaf_codes)
+        if invalid:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "message": "Codes de liaison invalides ou non-feuilles",
+                    "invalid_codes": invalid,
+                },
+            )
 
     # Get existing mappings indexed by account_number
     existing = (
