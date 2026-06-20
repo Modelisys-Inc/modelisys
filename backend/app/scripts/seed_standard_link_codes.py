@@ -162,9 +162,89 @@ def parse_excel(path: Path) -> list[dict]:
     return records
 
 
+# Fields copied from a parsed record onto a StandardLinkCode row.
+_RECORD_FIELDS = (
+    "parent_code",
+    "family",
+    "label_account",
+    "label_sub_account",
+    "account_type",
+    "account_sub_type",
+    "variable_or_fixed",
+    "ft_category",
+    "ft_line_item",
+    "projections",
+    "is_leaf",
+    "sort_order",
+)
+
+
+def next_coa_version(session) -> int:
+    """Return the next version number (max existing + 1, or 1)."""
+    from sqlalchemy import func as sa_func
+    from app.models.coa_version import CoaVersion
+
+    current = session.query(sa_func.max(CoaVersion.version)).scalar()
+    return (current or 0) + 1
+
+
+def apply_records(session, records: list[dict], source: str = "MO.xlsx") -> dict:
+    """Publish a new chart version into the DB (dialect-agnostic, ORM-based).
+
+    - Records a new ``coa_versions`` row (version = max + 1).
+    - Upserts each parsed code by ``code`` (reactivating any previously tombstoned
+      code that reappears), stamping it with the new version.
+    - Tombstones codes present in the DB but absent from this file
+      (``is_active=False`` + ``deprecated_at``) — never hard-deletes, so
+      historical references stay resolvable.
+
+    Returns a summary dict. Caller commits.
+    """
+    from datetime import datetime, timezone
+
+    from app.models.coa_version import CoaVersion
+    from app.models.standard_link_code import StandardLinkCode
+
+    version = next_coa_version(session)
+    file_codes = {r["code"] for r in records}
+    existing = {c.code: c for c in session.query(StandardLinkCode).all()}
+
+    upserted = 0
+    for rec in records:
+        obj = existing.get(rec["code"])
+        if obj is None:
+            obj = StandardLinkCode(id=uuid.uuid4(), code=rec["code"])
+            session.add(obj)
+        for field in _RECORD_FIELDS:
+            setattr(obj, field, rec.get(field))
+        obj.is_active = True
+        obj.deprecated_at = None
+        obj.coa_version = version
+        upserted += 1
+
+    tombstoned = 0
+    now = datetime.now(timezone.utc)
+    for code, obj in existing.items():
+        if code not in file_codes and obj.is_active:
+            obj.is_active = False
+            obj.deprecated_at = now
+            tombstoned += 1
+
+    session.add(
+        CoaVersion(
+            version=version,
+            source=source,
+            code_count=len(records),
+            tombstoned_count=tombstoned,
+        )
+    )
+
+    return {"version": version, "upserted": upserted, "tombstoned": tombstoned}
+
+
 def seed(db_url: str | None = None) -> None:
     """Run the seed against the configured database."""
-    from sqlalchemy import create_engine, text
+    from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
 
     if db_url is None:
@@ -187,34 +267,14 @@ def seed(db_url: str | None = None) -> None:
     records = parse_excel(excel_path)
     print(f"Parsed {len(records)} codes from {excel_path.name}")
 
-    with engine.connect() as conn:
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
-        from app.models.standard_link_code import StandardLinkCode
+    with Session(engine) as session:
+        summary = apply_records(session, records, source=excel_path.name)
+        session.commit()
 
-        stmt = pg_insert(StandardLinkCode).values(
-            [{**rec, "id": uuid.uuid4()} for rec in records]
-        )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["code"],
-            set_={
-                "parent_code": stmt.excluded.parent_code,
-                "family": stmt.excluded.family,
-                "label_account": stmt.excluded.label_account,
-                "label_sub_account": stmt.excluded.label_sub_account,
-                "account_type": stmt.excluded.account_type,
-                "account_sub_type": stmt.excluded.account_sub_type,
-                "variable_or_fixed": stmt.excluded.variable_or_fixed,
-                "ft_category": stmt.excluded.ft_category,
-                "ft_line_item": stmt.excluded.ft_line_item,
-                "projections": stmt.excluded.projections,
-                "is_leaf": stmt.excluded.is_leaf,
-                "sort_order": stmt.excluded.sort_order,
-            },
-        )
-        conn.execute(stmt)
-        conn.commit()
-        print(f"Done: {len(records)} codes upserted")
-
+    print(
+        f"Done: published COA version {summary['version']} — "
+        f"{summary['upserted']} codes upserted, {summary['tombstoned']} tombstoned"
+    )
     leaf_count = sum(1 for r in records if r["is_leaf"])
     print(f"Leaf codes (assignable): {leaf_count} / {len(records)}")
 
