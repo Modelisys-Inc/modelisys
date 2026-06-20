@@ -5,6 +5,7 @@ import Link from "next/link"
 import { useParams } from "next/navigation"
 import { Loader2, Link2, ChevronDown, ChevronRight } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
+import { CompanyCustomLinkCodes } from "@/components/company-custom-link-codes"
 import { useStandardLinkCodes } from "@/hooks/use-standard-link-codes"
 import { cn } from "@/lib/utils"
 import {
@@ -231,7 +232,8 @@ export default function CompanyLinkCodesPage() {
       </div>
 
       <div className="relative -mt-32 mb-12">
-        <div className="mx-auto max-w-[1920px] px-6">
+        <div className="mx-auto max-w-[1920px] space-y-6 px-6">
+          <CompanyCustomLinkCodes companyId={companyId} />
           <div className={cn("w-full overflow-hidden", dashboardCardFrameStaticClass)}>
             <div className={dashboardCardRingClass} aria-hidden />
             <div className="relative w-full min-w-0">

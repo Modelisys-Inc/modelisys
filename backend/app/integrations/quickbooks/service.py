@@ -14,8 +14,9 @@ from app.integrations.quickbooks import encryption, oauth
 from app.models.account_mapping import AccountMapping
 from app.models.company import Company
 from app.models.quickbooks_connection import QuickBooksConnection
-from app.models.standard_link_code import StandardLinkCode
 from app.models.trial_balance import ChartOfAccount, TrialBalanceEntry
+from app.services.link_code_resolver import valid_leaf_codes as resolve_valid_leaf_codes
+from app.services.tb_rollup import refresh_annual_balances
 
 logger = logging.getLogger(__name__)
 
@@ -503,31 +504,24 @@ def commit_trial_balance(
     """
     from app.integrations.quickbooks import client as qbo_client
 
-    # ---- validate link codes against global standard leaf codes ----
+    # ---- validate link codes against global standard ∪ company overlay ----
     requested_codes = {
         r["link_code"]
         for r in rows
         if not r.get("skip") and r.get("link_code")
     }
-    if requested_codes:
-        valid_leaf_codes: set[str] = {
-            row.code
-            for row in db.query(StandardLinkCode.code)
-            .filter(
-                StandardLinkCode.code.in_(requested_codes),
-                StandardLinkCode.is_leaf.is_(True),
-            )
-            .all()
-        }
-    else:
-        valid_leaf_codes = set()
+    valid_codes = (
+        resolve_valid_leaf_codes(db, company.id, requested_codes)
+        if requested_codes
+        else set()
+    )
 
     offending: list[tuple[str, str]] = []
     for r in rows:
         if r.get("skip"):
             continue
         link_code = r.get("link_code")
-        if not link_code or link_code not in valid_leaf_codes:
+        if not link_code or link_code not in valid_codes:
             offending.append((str(r.get("account_number") or ""), str(link_code or "")))
     if offending:
         raise InvalidLinkCodesError(offending)
@@ -675,6 +669,9 @@ def commit_trial_balance(
             db, conn, company, fiscal_year, months, accounts_by_id
         )
         _upsert_division_tree(db, company, class_names, discovery["observed_pairs"])
+
+    db.flush()
+    refresh_annual_balances(db, company.id, fiscal_year)
 
     db.commit()
     return {
