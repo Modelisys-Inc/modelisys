@@ -35,7 +35,9 @@ from app.routers import (
     auth,
     budgets,
     business_risks,
+    coa_promotion,
     companies,
+    company_link_codes,
     customers,
     exchange_rates,
     financial_statements,
@@ -172,6 +174,8 @@ app.include_router(auth.router)
 app.include_router(companies.router)
 app.include_router(trial_balance.router)
 app.include_router(account_mappings.router)
+app.include_router(company_link_codes.router)
+app.include_router(coa_promotion.router)
 app.include_router(statement_structures.router)
 app.include_router(statement_chart_configs.router)
 app.include_router(financial_statements.router)
