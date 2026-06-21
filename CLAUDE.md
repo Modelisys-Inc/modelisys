@@ -192,7 +192,9 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
 
 Roles (see `app/dependencies.py`):
 - **superadmin** — `User.is_superadmin` (platform staff): full access to every org,
-  and the only role allowed to manage the global chart of accounts.
+  and the only role allowed to manage the global chart of accounts. Granted
+  out-of-band (not via the UI): `python -m app.scripts.set_superadmin <email>`
+  (add `--revoke` to remove).
 - **admin** — `UserOrganization.role = admin`: full read+write on all companies in
   their org; manages company entities (create/update/delete + divisions) and
   (later) grants access to others.
