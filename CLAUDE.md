@@ -104,7 +104,9 @@ pnpm test:e2e:ui   # interactive UI mode
 
 - **"use client"** directive on all interactive components
 - **Custom hooks** for API data fetching (e.g., `useFinancialStatement`, `useCompanies`)
-- **`apiFetch()` in lib/api.ts** handles auth token injection and automatic refresh on 401
+- **`apiFetch()` in lib/api.ts** handles auth token injection and automatic refresh on 401.
+  It JSON-stringifies the `body` for you — pass a **raw object** (`body: payload`),
+  NOT `body: JSON.stringify(payload)` (that double-encodes → 422).
 - **Path alias:** `@/*` maps to project root
 - **Styling:** Tailwind utility classes; slate neutrals, emerald accents
 - **Components follow naming pattern:** `{Entity}{View}.tsx` (e.g., `BalanceSheetSummary`)
@@ -212,6 +214,15 @@ Enforcement is centralized:
   gated explicitly instead, because it has an unauthenticated OAuth callback.)
 - `require_org_admin` / `require_superadmin` gate org-admin and platform actions.
 - `list_companies` is role-scoped; `create_company` + division CRUD are admin-only.
+
+Client (organization) management + feature flags are **superadmin-only**
+(`app/routers/admin.py`, prefix `/api/admin`): list clients, create a client
+(org + first admin user by email — they set their password via "forgot password"),
+and toggle per-client feature flags. Flags are a fixed registry
+(`app/services/feature_flags.py`); `Organization.feature_flags` stores overrides,
+and the effective flags (defaults merged with overrides) are returned on each org
+in `/api/auth/me`. Frontend: `/settings/clients` (superadmin-only). Read flags in
+the UI via `usePermissions`/auth-context org `feature_flags` to gate features.
 
 Grant management (admin-only) lives on the org members API
 (`/api/organizations/{org_id}/members`): list/invite/update-role/remove plus

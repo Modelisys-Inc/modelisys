@@ -34,6 +34,7 @@ setup_logging()
 logger = get_logger(__name__)
 from app.routers import (
     account_mappings,
+    admin,
     auth,
     budgets,
     business_risks,
@@ -195,6 +196,7 @@ app.include_router(forecast_configs.router, dependencies=_write_guard)
 app.include_router(customers.router, dependencies=_write_guard)
 app.include_router(suppliers.router, dependencies=_write_guard)
 app.include_router(standard_link_codes.router)
+app.include_router(admin.router)
 # QBO router has an unauthenticated OAuth callback, so it can't take the
 # auth-forcing write guard; its write endpoints enforce access explicitly.
 app.include_router(quickbooks_router.router)

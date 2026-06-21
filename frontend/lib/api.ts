@@ -187,6 +187,7 @@ export interface UserInfo {
     name: string
     slug: string
     role: string
+    feature_flags?: Record<string, boolean>
   }>
 }
 
@@ -2006,7 +2007,7 @@ export async function createCompanyLinkCode(
 ): Promise<CompanyLinkCode> {
   return apiFetch<CompanyLinkCode>(`/api/companies/${companyId}/custom-link-codes`, {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: payload,
   })
 }
 
@@ -2064,7 +2065,7 @@ export async function promotePromotionCandidate(
 ): Promise<PromoteResponse> {
   return apiFetch<PromoteResponse>(`/api/coa/promotion-candidates/${candidateId}/promote`, {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: payload,
   })
 }
 
@@ -2092,7 +2093,7 @@ export type StandardLinkCodeCreate = {
 export async function createStandardLinkCode(payload: StandardLinkCodeCreate): Promise<StandardLinkCode> {
   return apiFetch<StandardLinkCode>("/api/standard-link-codes", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: payload,
   })
 }
 
@@ -2103,7 +2104,7 @@ export async function updateStandardLinkCode(
 ): Promise<StandardLinkCode> {
   return apiFetch<StandardLinkCode>(`/api/standard-link-codes/${encodeURIComponent(code)}`, {
     method: "PATCH",
-    body: JSON.stringify(payload),
+    body: payload,
   })
 }
 
@@ -2114,6 +2115,50 @@ export async function setStandardLinkCodeActive(code: string, active: boolean): 
     `/api/standard-link-codes/${encodeURIComponent(code)}${qs}`,
     { method: "DELETE" },
   )
+}
+
+// --- Superadmin: client (organization) management + feature flags ---
+
+export type FeatureFlagDef = { key: string; label: string; default: boolean }
+
+export type AdminOrg = {
+  id: string
+  name: string
+  slug: string
+  member_count: number
+  company_count: number
+  feature_flags: Record<string, boolean>
+  created_at: string
+}
+
+/** List all clients (organizations) with counts + effective feature flags. */
+export async function listClients(): Promise<AdminOrg[]> {
+  const res = await apiFetch<{ organizations: AdminOrg[] }>("/api/admin/organizations")
+  return res.organizations
+}
+
+/** Create a client + first admin user (superadmin only). */
+export async function createClient(payload: { name: string; admin_email: string }): Promise<AdminOrg> {
+  return apiFetch<AdminOrg>("/api/admin/organizations", {
+    method: "POST",
+    body: payload,
+  })
+}
+
+/** The fixed registry of known feature flags. */
+export async function listFeatureFlagRegistry(): Promise<FeatureFlagDef[]> {
+  return apiFetch<FeatureFlagDef[]>("/api/admin/feature-flags")
+}
+
+/** Replace a client's feature-flag overrides (superadmin only). */
+export async function setClientFeatureFlags(
+  orgId: string,
+  flags: Record<string, boolean>,
+): Promise<AdminOrg> {
+  return apiFetch<AdminOrg>(`/api/admin/organizations/${orgId}/feature-flags`, {
+    method: "PATCH",
+    body: { flags },
+  })
 }
 
 export async function saveStatementChartSlot(
