@@ -56,6 +56,7 @@ class OrganizationResponse(BaseModel):
     name: str
     slug: str
     role: str
+    feature_flags: dict[str, bool] = {}  # effective per-client toggles
 
     model_config = {"from_attributes": True}
 
