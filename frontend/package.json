@@ -6,6 +6,7 @@
   "scripts": {
     "build": "next build",
     "dev": "next dev -p 3000 --webpack",
+    "dev:clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\" && next dev -p 3000 --webpack",
     "lint": "next lint",
     "start": "next start",
     "test:e2e": "playwright test",

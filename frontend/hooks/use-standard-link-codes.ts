@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import {
   listStandardLinkCodes,
   listStandardLinkCodesFlat,
@@ -14,32 +14,51 @@ export function useStandardLinkCodes(leafOnly = false) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    setLoading(true)
-    setError(null)
-    listStandardLinkCodes(leafOnly)
-      .then(setGroups)
-      .catch(() => setError("Impossible de charger les codes de liaison"))
-      .finally(() => setLoading(false))
-  }, [leafOnly])
+  const load = useCallback(
+    async (showLoading: boolean) => {
+      if (showLoading) setLoading(true)
+      setError(null)
+      try {
+        const data = await listStandardLinkCodes(leafOnly)
+        setGroups(data)
+      } catch {
+        setError("Impossible de charger les codes de liaison")
+      } finally {
+        if (showLoading) setLoading(false)
+      }
+    },
+    [leafOnly],
+  )
 
-  return { groups, loading, error }
+  useEffect(() => {
+    void load(true)
+  }, [load])
+
+  const refetch = useCallback(() => load(false), [load])
+
+  return { groups, loading, error, refetch }
 }
 
-/** Fetch all leaf standard codes as a flat list (for dropdowns/pickers). */
-export function useStandardLinkCodesFlat(leafOnly = true, family?: string) {
+/** Fetch standard codes as a flat list (for dropdowns/pickers). */
+export function useStandardLinkCodesFlat(leafOnly = true, family?: string, enabled = true) {
   const [codes, setCodes] = useState<StandardLinkCode[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(enabled)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!enabled) {
+      setCodes([])
+      setLoading(false)
+      setError(null)
+      return
+    }
     setLoading(true)
     setError(null)
     listStandardLinkCodesFlat(leafOnly, family)
       .then(setCodes)
       .catch(() => setError("Impossible de charger les codes de liaison"))
       .finally(() => setLoading(false))
-  }, [leafOnly, family])
+  }, [leafOnly, family, enabled])
 
   return { codes, loading, error }
 }

@@ -6,6 +6,9 @@ import { Company } from "@/components/entity-selector"
 import { ChevronRight, ChevronDown, StickyNote, Plus, X } from "lucide-react"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
+import type { DebtForecastLoan } from "@/lib/debt-forecast-types"
+import { DEBT_REPAYMENT_MODE_LABELS } from "@/lib/debt-forecast-types"
+import { calculateLoanYearAmortization } from "@/lib/debt-amortization-utils"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
@@ -25,15 +28,7 @@ interface DebtForecastDetailProps {
   projectionId?: string | null
 }
 
-interface Loan {
-  id: string
-  name: string
-  principal: number // Montant initial de la dette
-  interestRate: number // Taux d'intérêt annuel (%)
-  remainingPayments: number // Nombre de paiements restants
-  paymentAmount?: number // Montant du paiement (calculé ou manuel)
-  startMonth: number // Mois de début (0 = janvier 2026, 1 = février 2026, etc.)
-}
+type Loan = DebtForecastLoan
 
 interface LoanYearData {
   beginningBalance: number
@@ -134,98 +129,16 @@ export function DebtForecastDetail({
     saveConfig({ loans })
   }, [loans, saveConfig, isForecast])
 
-  // Calculate monthly payment (PMT formula) based on current balance and remaining payments
-  const calculateMonthlyPayment = (balance: number, annualRate: number, numPayments: number): number => {
-    if (numPayments === 0) return 0
-    if (annualRate === 0) return balance / numPayments
-    const monthlyRate = annualRate / 100 / 12
-    if (monthlyRate === 0) return balance / numPayments
-    const payment = balance * (monthlyRate * Math.pow(1 + monthlyRate, numPayments)) / (Math.pow(1 + monthlyRate, numPayments) - 1)
-    return payment
-  }
-
   // Calculate loan amortization for a year
   const calculateLoanYearData = (loan: Loan, yearIndex: number): LoanYearData | null => {
-    // Check if loan has started by this year
-    // yearIndex 0 = 2026, yearIndex 1 = 2027, etc.
-    // startMonth is 0-based from January 2026
-    const yearStartMonth = yearIndex * 12 // First month of this year (0, 12, 24, 36, 48, 60)
-    const yearEndMonth = (yearIndex + 1) * 12 - 1 // Last month of this year (11, 23, 35, 47, 59, 71)
-    
-    // If loan hasn't started yet, return null
-    if (loan.startMonth > yearEndMonth) {
-      return null
-    }
-    
-    const annualRate = loan.interestRate / 100
-    const monthlyRate = annualRate / 12
-    const monthsInYear = 12
-    
-    // Calculate beginning balance - need to track balance through all previous months
-    let beginningBalance = loan.principal
-    let remainingPaymentsAtStart = loan.remainingPayments
-    
-    // If loan started before this year, calculate balance at start of this year
-    if (loan.startMonth < yearStartMonth) {
-      let currentBalance = loan.principal
-      let remainingPayments = loan.remainingPayments
-      
-      // Process all months from loan start to the start of this year
-      const monthsToProcess = yearStartMonth - loan.startMonth
-      for (let month = 0; month < Math.min(monthsToProcess, loan.remainingPayments); month++) {
-        if (currentBalance <= 0 || remainingPayments <= 0) break
-        
-        // Recalculate monthly payment based on current balance and remaining payments
-        const monthlyPayment = calculateMonthlyPayment(currentBalance, loan.interestRate, remainingPayments)
-        const interest = currentBalance * monthlyRate
-        const principal = Math.min(monthlyPayment - interest, currentBalance)
-        
-        currentBalance = Math.max(0, currentBalance - principal)
-        remainingPayments--
-      }
-      beginningBalance = currentBalance
-      remainingPaymentsAtStart = remainingPayments
-    }
-    
-    // Calculate for the year
-    let currentBalance = beginningBalance
-    let remainingPayments = remainingPaymentsAtStart
-    let totalPrincipal = 0
-    let totalInterest = 0
-    
-    // Calculate months to process this year
-    // If loan starts during this year, only process months from start to end of year
-    // If loan started before this year, process all 12 months (or remaining payments)
-    let monthsToProcessThisYear: number
-    if (loan.startMonth >= yearStartMonth) {
-      // Loan starts during this year
-      const monthsFromStartToEndOfYear = yearEndMonth - loan.startMonth + 1
-      monthsToProcessThisYear = Math.min(monthsFromStartToEndOfYear, remainingPayments)
-    } else {
-      // Loan started before this year, process all months of this year
-      monthsToProcessThisYear = Math.min(monthsInYear, remainingPayments)
-    }
-    
-    for (let month = 0; month < monthsToProcessThisYear; month++) {
-      if (currentBalance <= 0 || remainingPayments <= 0) break
-      
-      // Recalculate monthly payment based on current balance and remaining payments
-      const monthlyPayment = calculateMonthlyPayment(currentBalance, loan.interestRate, remainingPayments)
-      const interest = currentBalance * monthlyRate
-      const principal = Math.min(monthlyPayment - interest, currentBalance)
-      
-      totalInterest += interest
-      totalPrincipal += principal
-      currentBalance = Math.max(0, currentBalance - principal)
-      remainingPayments--
-    }
-    
+    const result = calculateLoanYearAmortization(loan, yearIndex)
+    if (!result) return null
     return {
-      beginningBalance: Math.round(beginningBalance),
-      totalPayment: Math.round(totalPrincipal + totalInterest),
-      principalPayment: Math.round(totalPrincipal),
-      interestPayment: Math.round(totalInterest),
-      endingBalance: Math.round(currentBalance),
+      beginningBalance: result.beginningBalance,
+      totalPayment: result.totalPayment,
+      principalPayment: result.principalPayment,
+      interestPayment: result.interestPayment,
+      endingBalance: result.endingBalance,
     }
   }
 
@@ -459,9 +372,19 @@ export function DebtForecastDetail({
                             setEditingLoan(loan.id)
                             setEditingField({ loanId: loan.id, field: "name" })
                           }}
-                          className="hover:bg-slate-50 px-2 py-1 rounded transition-colors"
+                          className="flex flex-wrap items-center gap-2 hover:bg-slate-50 px-2 py-1 rounded transition-colors text-left"
                         >
-                          {loan.name}
+                          <span>{loan.name}</span>
+                          {loan.sourceType === "capex" ? (
+                            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-800">
+                              Capex
+                            </span>
+                          ) : null}
+                          {loan.repaymentMode ? (
+                            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+                              {DEBT_REPAYMENT_MODE_LABELS[loan.repaymentMode] ?? loan.repaymentMode}
+                            </span>
+                          ) : null}
                         </button>
                       )}
                     </td>

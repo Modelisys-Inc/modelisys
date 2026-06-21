@@ -1,8 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { Fragment, useMemo } from "react"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Loader2, PanelTop, Plus } from "lucide-react"
@@ -11,16 +10,121 @@ import {
   useStatementStructureEdit,
   type StatementStructureEditKind,
 } from "@/hooks/use-income-statement-structure-edit"
+import { useStatementSummaryStructureDialogs } from "@/hooks/use-statement-summary-structure-dialogs"
+import { useIncomeStatementParentLinkCodes } from "@/hooks/use-income-statement-parent-link-codes"
+import { useBalanceSheetParentLinkCodes } from "@/hooks/use-balance-sheet-parent-link-codes"
+import { useCashFlowCategoryLinkCodes } from "@/hooks/use-cash-flow-category-link-codes"
 import {
   StatementSummaryStructureColgroup,
   StatementSummaryStructureThead,
   StatementSummaryStructureRowCells,
 } from "@/components/statement-summary-structure-shared"
+import { StatementSummaryStructureDialogs } from "@/components/statement-summary-structure-dialogs"
 import {
   collectDistinctLinkCodesFromStructure,
+  isCodeMappingEnabled,
   isStructureRowEmptyLabel,
+  isTruthySeparatorAbove,
   mapLinkCodesToOwnerLabel,
+  normalizeLiaisonMode,
 } from "@/lib/income-statement-structure-utils"
+
+const SUMMARY_STRUCTURE_COLUMN_COUNT = 8
+const SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX = 6
+
+interface StatementStructureStudioToolbarProps {
+  companyId: string
+  structEdit: ReturnType<typeof useStatementStructureEdit>
+  onAddSpaceClick: () => void
+  onAddPostClick: () => void
+  onSaved?: () => void
+  onClose: () => void
+  className?: string
+}
+
+/** Barre d’actions édition structure (Ajouter / Annuler / Enregistrer). */
+export function StatementStructureStudioToolbar({
+  companyId,
+  structEdit,
+  onAddSpaceClick,
+  onAddPostClick,
+  onSaved,
+  onClose,
+  className,
+}: StatementStructureStudioToolbarProps) {
+  return (
+    <div
+      className={cn(
+        "flex w-full flex-wrap items-center justify-end gap-2 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm",
+        className
+      )}
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="gap-1.5 rounded-xl text-[#2A2F3A] hover:bg-slate-100"
+        disabled={structEdit.loading}
+        title="Insérer une ligne vide au-dessus ou en dessous d’un poste du sommaire"
+        onClick={onAddSpaceClick}
+      >
+        <PanelTop className="h-4 w-4 text-[#E0742D]" />
+        Ajouter un espace
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="gap-1.5 rounded-xl text-[#2A2F3A] hover:bg-slate-100"
+        disabled={structEdit.loading}
+        title="Choisir au-dessus de quel poste insérer le nouveau poste"
+        onClick={onAddPostClick}
+      >
+        <Plus className="h-4 w-4 text-[#E0742D]" />
+        Ajouter un poste
+      </Button>
+      <Separator orientation="vertical" className="hidden h-7 sm:block" />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="rounded-xl text-[#5C5F66] hover:bg-slate-100"
+        disabled={structEdit.saving}
+        onClick={() => {
+          structEdit.discard()
+          void structEdit.reload()
+          onClose()
+        }}
+      >
+        Annuler
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        className="rounded-xl bg-[#E0742D] px-4 font-semibold text-white shadow-sm hover:bg-[#c96526] disabled:opacity-60"
+        disabled={structEdit.saving || structEdit.loading || !companyId}
+        onClick={async () => {
+          const ok = await structEdit.save()
+          if (ok) {
+            onSaved?.()
+            structEdit.discard()
+            void structEdit.reload()
+            onClose()
+          }
+        }}
+      >
+        {structEdit.saving ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Enregistrement…
+          </>
+        ) : (
+          "Enregistrer"
+        )}
+      </Button>
+    </div>
+  )
+}
 
 interface StatementStructureStudioProps {
   companyId: string
@@ -29,6 +133,12 @@ interface StatementStructureStudioProps {
   onSaved?: () => void
   /** Called to leave edit mode (Annuler, or after a successful save). */
   onClose: () => void
+  /** Intégré dans une carte dashboard (sans bordure/shadow propre). */
+  embedded?: boolean
+  /** Masque la barre d’actions (fournie par le parent, ex. en-tête Sommaire). */
+  hideToolbar?: boolean
+  /** Masque les colonnes Annexe et Lettre (ex. Trésorerie Détail). */
+  hideAnnexColumns?: boolean
 }
 
 export function StatementStructureStudio({
@@ -36,10 +146,35 @@ export function StatementStructureStudio({
   statementType,
   onSaved,
   onClose,
+  embedded = false,
+  hideToolbar = false,
+  hideAnnexColumns = false,
 }: StatementStructureStudioProps) {
-  // active=true: this component only mounts while editing.
   const structEdit = useStatementStructureEdit(companyId, true, statementType)
-  const [presentationRowIdx, setPresentationRowIdx] = useState<number | null>(null)
+  const dialogs = useStatementSummaryStructureDialogs(structEdit)
+  const isIncomeStatement = statementType === "income-statement"
+  const isBalanceSheet = statementType === "balance-sheet"
+  const isCashFlow = statementType === "cash-flow" || statementType === "cash-flow-detail"
+  const { codes: incomeParentLinkCodes, labels: incomeParentLinkLabels } =
+    useIncomeStatementParentLinkCodes(isIncomeStatement)
+  const { codes: balanceParentLinkCodes, labels: balanceParentLinkLabels } =
+    useBalanceSheetParentLinkCodes(isBalanceSheet)
+  const { codes: cashFlowCategoryLinkCodes, labels: cashFlowCategoryLinkLabels } =
+    useCashFlowCategoryLinkCodes(isCashFlow)
+  const singleModeLinkCodes = isIncomeStatement
+    ? incomeParentLinkCodes
+    : isBalanceSheet
+      ? balanceParentLinkCodes
+      : isCashFlow
+        ? cashFlowCategoryLinkCodes
+        : undefined
+  const singleModeLinkCodeLabels = isIncomeStatement
+    ? incomeParentLinkLabels
+    : isBalanceSheet
+      ? balanceParentLinkLabels
+      : isCashFlow
+        ? cashFlowCategoryLinkLabels
+        : undefined
 
   const displayIndices = structEdit.summaryStructureDisplayIndices
   const allLiaisonCodes = useMemo(
@@ -51,75 +186,30 @@ export function StatementStructureStudio({
     [structEdit.structure]
   )
 
-  const lastGlobalIdx =
-    displayIndices.length > 0 ? displayIndices[displayIndices.length - 1]! : -1
+  const annexIdentifierAutoAssigned = isBalanceSheet
+  const structureColumnCount = hideAnnexColumns
+    ? SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX
+    : SUMMARY_STRUCTURE_COLUMN_COUNT
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center justify-end gap-2 border-b border-slate-200 bg-slate-50/80 p-2">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 rounded-xl text-[#2A2F3A] hover:bg-slate-100"
-          disabled={structEdit.loading}
-          onClick={() => structEdit.insertEmptySpacerBelow(Math.max(lastGlobalIdx, 0))}
-        >
-          <PanelTop className="h-4 w-4 text-[#E0742D]" />
-          Ajouter un espace
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 rounded-xl text-[#2A2F3A] hover:bg-slate-100"
-          disabled={structEdit.loading}
-          onClick={() => structEdit.insertPostBelow(Math.max(lastGlobalIdx, 0), { indent: true })}
-        >
-          <Plus className="h-4 w-4 text-[#E0742D]" />
-          Ajouter un poste
-        </Button>
-        <Separator orientation="vertical" className="hidden h-7 sm:block" />
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="rounded-xl text-[#5C5F66] hover:bg-slate-100"
-          disabled={structEdit.saving}
-          onClick={() => {
-            structEdit.discard()
-            void structEdit.reload()
-            onClose()
-          }}
-        >
-          Annuler
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          className="rounded-xl bg-[#E0742D] px-4 font-semibold text-white shadow-sm hover:bg-[#c96526] disabled:opacity-60"
-          disabled={structEdit.saving || structEdit.loading || !companyId}
-          onClick={async () => {
-            const ok = await structEdit.save()
-            if (ok) {
-              onSaved?.()
-              structEdit.discard()
-              void structEdit.reload()
-              onClose()
-            }
-          }}
-        >
-          {structEdit.saving ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Enregistrement…
-            </>
-          ) : (
-            "Enregistrer"
-          )}
-        </Button>
-      </div>
+    <div
+      className={cn(
+        embedded ? "min-w-0" : "overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      )}
+    >
+      {!hideToolbar ? (
+        <div className="flex flex-wrap items-center justify-end gap-2 border-b border-slate-200 bg-slate-50/80 p-2">
+          <StatementStructureStudioToolbar
+            companyId={companyId}
+            structEdit={structEdit}
+            onAddSpaceClick={dialogs.openAddSpaceDialog}
+            onAddPostClick={dialogs.openAddPostDialog}
+            onSaved={onSaved}
+            onClose={onClose}
+            className="border-0 bg-transparent p-0 shadow-none"
+          />
+        </div>
+      ) : null}
 
       {structEdit.loading && (
         <div className="border-b border-slate-200 bg-slate-50/80 px-6 py-3 text-center text-sm text-slate-600">
@@ -132,97 +222,102 @@ export function StatementStructureStudio({
           {structEdit.error}
         </div>
       )}
-      {presentationRowIdx != null && structEdit.structure[presentationRowIdx] ? (
-        <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 bg-white px-4 py-3 text-sm">
-          <span className="max-w-[18rem] truncate font-semibold text-slate-800">
-            {String(structEdit.structure[presentationRowIdx]?.label ?? "Poste")}
-          </span>
-          <label className="inline-flex items-center gap-2 text-slate-700">
-            <Checkbox
-              checked={structEdit.structure[presentationRowIdx]?.isBold === true}
-              onCheckedChange={(v) => structEdit.updateRow(presentationRowIdx, { isBold: v === true })}
-            />
-            Gras
-          </label>
-          <label className="inline-flex items-center gap-2 text-slate-700">
-            <Checkbox
-              checked={structEdit.structure[presentationRowIdx]?.isSection === true}
-              onCheckedChange={(v) => structEdit.updateRow(presentationRowIdx, { isSection: v === true })}
-            />
-            Section
-          </label>
-          <label className="inline-flex items-center gap-2 text-slate-700">
-            <Checkbox
-              checked={structEdit.structure[presentationRowIdx]?.indent === true}
-              onCheckedChange={(v) => structEdit.updateRow(presentationRowIdx, { indent: v === true })}
-            />
-            Indenté
-          </label>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="ml-auto text-slate-500"
-            onClick={() => setPresentationRowIdx(null)}
-          >
-            Fermer
-          </Button>
-        </div>
-      ) : null}
 
-      {/* Table */}
       <div className="overflow-x-auto">
         <table className="w-full table-fixed border-collapse">
-          <StatementSummaryStructureColgroup />
+          <StatementSummaryStructureColgroup hideAnnexColumns={hideAnnexColumns} />
           <thead className="bg-slate-50/70">
             <tr>
-              <StatementSummaryStructureThead posteHeader="Poste" />
+              <StatementSummaryStructureThead posteHeader="Poste" hideAnnexColumns={hideAnnexColumns} />
             </tr>
           </thead>
           <tbody>
+            {displayIndices.length === 0 && !structEdit.loading ? (
+              <tr>
+                <td
+                  colSpan={structureColumnCount}
+                  className="px-6 py-10 text-center text-sm text-slate-500"
+                >
+                  Aucun poste dans la structure. Utilisez « Ajouter un poste » ou « Ajouter un espace » pour commencer.
+                </td>
+              </tr>
+            ) : null}
             {displayIndices.map((globalIdx, idx) => {
               const structRow = structEdit.structure[globalIdx]!
+              const rowKey = String(structRow.id ?? `row-${globalIdx}`)
               const isEmpty = isStructureRowEmptyLabel(structRow)
               const isBoldRow = structRow.isBold === true
+              const liaisonMode = normalizeLiaisonMode(structRow)
+              const isLabelLockedBySingleLinkCode =
+                isCodeMappingEnabled(structRow) &&
+                !!String(structRow.linkCode ?? "").trim() &&
+                liaisonMode !== "sum" &&
+                liaisonMode !== "difference"
+              const showSeparatorAbove = isTruthySeparatorAbove(structRow.separatorAbove)
               return (
-                <tr
-                  key={globalIdx}
-                  className={cn(
-                    "border-b border-b-slate-200 hover:bg-slate-100/70",
-                    idx % 2 === 1 && "bg-slate-50/50"
-                  )}
-                >
-                  <td className="min-w-0 px-3 py-3 pl-4">
-                    {isEmpty ? (
-                      <span className="inline-flex items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-xs font-medium text-slate-400">
-                        Ligne vide — renommez ou supprimez
-                      </span>
-                    ) : (
-                      <Input
-                        value={String(structRow.label ?? "")}
-                        onChange={(e) => structEdit.updateRow(globalIdx, { label: e.target.value })}
-                        className={cn(
-                          "h-9 w-full max-w-full rounded-xl border-slate-200/90 bg-white text-sm shadow-sm focus-visible:border-[#E0742D]/50 focus-visible:ring-2 focus-visible:ring-[#E0742D]/20",
-                          isBoldRow ? "font-semibold" : "font-normal"
-                        )}
+                <Fragment key={rowKey}>
+                  {showSeparatorAbove && (
+                    <tr aria-hidden>
+                      <td
+                        colSpan={structureColumnCount}
+                        className="border-0 p-0 align-top leading-none border-t border-t-slate-600"
                       />
+                    </tr>
+                  )}
+                  <tr
+                    className={cn(
+                      "border-b border-b-slate-200 hover:bg-slate-100/70",
+                      isEmpty && "h-2",
+                      idx % 2 === 1 && !isEmpty && "bg-slate-50/50"
                     )}
-                  </td>
-                  <StatementSummaryStructureRowCells
-                    structRow={structRow}
-                    globalIdx={globalIdx}
-                    structEdit={structEdit}
-                    allLiaisonCodes={allLiaisonCodes}
-                    linkCodeLabels={linkCodeLabels}
-                    showSeparatorAbove={structRow.separatorAbove === true}
-                    onEditPresentation={setPresentationRowIdx}
-                  />
-                </tr>
+                  >
+                    <td className="min-w-0 px-3 py-3 pl-4">
+                      {isEmpty ? (
+                        <span className="inline-flex items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-3 py-2 text-xs font-medium text-slate-400">
+                          Ligne vide — renommez ou supprimez
+                        </span>
+                      ) : (
+                        <Input
+                          value={String(structRow.label ?? "")}
+                          disabled={isLabelLockedBySingleLinkCode}
+                          readOnly={isLabelLockedBySingleLinkCode}
+                          onChange={(e) => structEdit.updateRow(globalIdx, { label: e.target.value })}
+                          title={
+                            isLabelLockedBySingleLinkCode
+                              ? "Libellé défini par le code de liaison sélectionné."
+                              : undefined
+                          }
+                          className={cn(
+                            "h-9 w-full max-w-full rounded-xl border-slate-200/90 bg-white text-sm shadow-sm focus-visible:border-[#E0742D]/50 focus-visible:ring-2 focus-visible:ring-[#E0742D]/20",
+                            isBoldRow ? "font-semibold" : "font-normal",
+                            isLabelLockedBySingleLinkCode &&
+                              "cursor-not-allowed bg-slate-50 text-slate-700 opacity-100"
+                          )}
+                        />
+                      )}
+                    </td>
+                    <StatementSummaryStructureRowCells
+                      structRow={structRow}
+                      globalIdx={globalIdx}
+                      structEdit={structEdit}
+                      allLiaisonCodes={allLiaisonCodes}
+                      linkCodeLabels={linkCodeLabels}
+                      singleModeLinkCodes={singleModeLinkCodes}
+                      singleModeLinkCodeLabels={singleModeLinkCodeLabels}
+                      showSeparatorAbove={showSeparatorAbove}
+                      onEditPresentation={dialogs.beginEditPostPresentation}
+                      annexIdentifierAutoAssigned={annexIdentifierAutoAssigned}
+                      hideAnnexColumns={hideAnnexColumns}
+                    />
+                  </tr>
+                </Fragment>
               )
             })}
           </tbody>
         </table>
       </div>
+
+      <StatementSummaryStructureDialogs structEdit={structEdit} dialogs={dialogs} idPrefix="studio" />
     </div>
   )
 }

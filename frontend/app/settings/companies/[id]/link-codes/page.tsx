@@ -3,9 +3,23 @@
 import { useState } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { Loader2, Link2, ChevronDown, ChevronRight } from "lucide-react"
+import { Loader2, Link2, ChevronDown, ChevronRight, Plus, RefreshCw } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
+import { StandardLinkCodeFormDialog } from "@/components/standard-link-code-form-dialog"
+import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { useStandardLinkCodes } from "@/hooks/use-standard-link-codes"
+import { syncStandardLinkCodesToCompanies } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
   dashboardCardFrameStaticClass,
@@ -16,6 +30,7 @@ import {
   dashboardCardBodyMutedClass,
 } from "@/lib/dashboard-card-style"
 import type { StandardLinkCode } from "@/lib/api"
+import { sortStandardLinkCodesHierarchically, attachedLinkCodesDisplay, cashFlowAttachableLinkCodeOptions, isCashFlowFamily, isComputedNetIncomeLinkCode, isMappableStandardLinkCode, filterMappableLeafLinkCodes } from "@/lib/standard-link-code-utils"
 
 const FAMILY_LABELS: Record<string, string> = {
   ACT: "Actif à court terme",
@@ -31,6 +46,9 @@ const FAMILY_LABELS: Record<string, string> = {
   FIN: "Frais financiers",
   AUT: "Autres dépenses (produits)",
   IMP: "Impôts",
+  TEX: "Trésorerie — Exploitation",
+  TIN: "Trésorerie — Investissement",
+  TFI: "Trésorerie — Financement",
 }
 
 const SECTION_TYPE_LABELS: Record<string, string> = {
@@ -47,10 +65,24 @@ const SECTION_TYPE_LABELS: Record<string, string> = {
   FIN: "Compte de résultat",
   AUT: "Compte de résultat",
   IMP: "Compte de résultat",
+  TEX: "Trésorerie",
+  TIN: "Trésorerie",
+  TFI: "Trésorerie",
 }
 
-function CodeRow({ code }: { code: StandardLinkCode }) {
+function CodeRow({
+  code,
+  onEdit,
+  showAttachedColumn = false,
+  attachableLabels,
+}: {
+  code: StandardLinkCode
+  onEdit: (code: StandardLinkCode) => void
+  showAttachedColumn?: boolean
+  attachableLabels?: Map<string, string>
+}) {
   const hasParent = code.parent_code !== null
+  const isComputedNetIncome = isComputedNetIncomeLinkCode(code.code)
   return (
     <tr className="border-b border-slate-100 hover:bg-slate-50">
       <td className={cn("px-6 py-3 font-mono text-sm text-slate-800", hasParent && "pl-10")}>
@@ -58,29 +90,30 @@ function CodeRow({ code }: { code: StandardLinkCode }) {
       </td>
       <td className="px-6 py-3 text-sm text-slate-700">
         {code.label_sub_account || code.label_account || "—"}
-      </td>
-      <td className="px-6 py-3 text-sm text-slate-500">
-        {code.variable_or_fixed || "—"}
-      </td>
-      <td className="px-6 py-3 text-sm text-slate-500">
-        {code.ft_category ? (
-          <span>
-            {code.ft_category}
-            {code.ft_line_item ? <span className="text-slate-400"> · {code.ft_line_item}</span> : null}
+        {isComputedNetIncome ? (
+          <span className="ml-2 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
+            Calculé
           </span>
-        ) : "—"}
+        ) : null}
       </td>
-      <td className="px-6 py-3 text-center">
-        <span
-          className={cn(
-            "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-            code.is_leaf
-              ? "bg-emerald-50 text-emerald-700"
-              : "bg-slate-100 text-slate-500",
-          )}
+      <td className="px-6 py-3 text-sm text-slate-500">
+        {code.parent_code ?? "—"}
+      </td>
+      {showAttachedColumn ? (
+        <td className="px-6 py-3 text-sm text-slate-600">
+          {attachedLinkCodesDisplay(code.attached_link_codes, attachableLabels ?? new Map())}
+        </td>
+      ) : null}
+      <td className="px-4 py-3 text-right">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 border-slate-200 px-3 text-xs font-medium text-slate-600 hover:border-[#E0742D]/40 hover:bg-[#E0742D]/5 hover:text-[#E0742D]"
+          onClick={() => onEdit(code)}
         >
-          {code.is_leaf ? "Feuille" : "Parent"}
-        </span>
+          Modifier
+        </Button>
       </td>
     </tr>
   )
@@ -90,13 +123,18 @@ function FamilySection({
   family,
   accountType,
   codes,
+  onEdit,
+  attachableLabels,
 }: {
   family: string
   accountType: string | null
   codes: StandardLinkCode[]
+  onEdit: (code: StandardLinkCode) => void
+  attachableLabels: Map<string, string>
 }) {
   const [expanded, setExpanded] = useState(true)
-  const leafCount = codes.filter((c) => c.is_leaf).length
+  const isCashFlow = isCashFlowFamily(family)
+  const leafCount = codes.filter((c) => isMappableStandardLinkCode(c)).length
 
   return (
     <div className="border-b border-slate-200 last:border-b-0">
@@ -119,7 +157,11 @@ function FamilySection({
         </div>
         <div className="flex items-center gap-4 text-xs text-slate-400">
           <span>{codes.length} codes</span>
-          <span>{leafCount} assignables</span>
+          {isCashFlow ? (
+            <span>agrégats</span>
+          ) : (
+            <span>{leafCount} assignables</span>
+          )}
           <span className="rounded bg-slate-100 px-2 py-0.5 font-medium text-slate-600">
             {SECTION_TYPE_LABELS[family] || "—"}
           </span>
@@ -133,14 +175,22 @@ function FamilySection({
               <tr className="border-b border-t border-slate-100 bg-slate-50/60">
                 <th className="px-6 py-2 text-left text-xs font-semibold text-slate-500">Code</th>
                 <th className="px-6 py-2 text-left text-xs font-semibold text-slate-500">Libellé</th>
-                <th className="px-6 py-2 text-left text-xs font-semibold text-slate-500">Variables/Fixes</th>
-                <th className="px-6 py-2 text-left text-xs font-semibold text-slate-500">Flux de trésorerie</th>
-                <th className="px-6 py-2 text-center text-xs font-semibold text-slate-500">Type</th>
+                <th className="px-6 py-2 text-left text-xs font-semibold text-slate-500">Parent</th>
+                {isCashFlow ? (
+                  <th className="px-6 py-2 text-left text-xs font-semibold text-slate-500">Codes associés</th>
+                ) : null}
+                <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500 w-12" />
               </tr>
             </thead>
             <tbody>
-              {codes.map((c) => (
-                <CodeRow key={c.id} code={c} />
+              {sortStandardLinkCodesHierarchically(codes).map((c) => (
+                <CodeRow
+                  key={c.id}
+                  code={c}
+                  onEdit={onEdit}
+                  showAttachedColumn={isCashFlow}
+                  attachableLabels={attachableLabels}
+                />
               ))}
             </tbody>
           </table>
@@ -153,23 +203,65 @@ function FamilySection({
 export default function CompanyLinkCodesPage() {
   const params = useParams()
   const companyId = params.id as string
-  const { groups, loading, error } = useStandardLinkCodes(false)
+  const { groups, loading, error, refetch } = useStandardLinkCodes(false)
   const [search, setSearch] = useState("")
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [dialogMode, setDialogMode] = useState<"create" | "edit">("create")
+  const [editingCode, setEditingCode] = useState<StandardLinkCode | null>(null)
+  const [createParentCode, setCreateParentCode] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
+
+  const openCreateDialog = () => {
+    setDialogMode("create")
+    setEditingCode(null)
+    setCreateParentCode(null)
+    setDialogOpen(true)
+  }
+
+  const openEditDialog = (code: StandardLinkCode) => {
+    setDialogMode("edit")
+    setEditingCode(code)
+    setDialogOpen(true)
+  }
+
+  const handleSyncToCompanies = async () => {
+    setSyncError(null)
+    setSyncMessage(null)
+    setSyncing(true)
+    try {
+      const result = await syncStandardLinkCodesToCompanies()
+      setSyncMessage(
+        `${result.companies_updated} société${result.companies_updated > 1 ? "s" : ""} mise${result.companies_updated > 1 ? "s" : ""} à jour avec la charte actuelle.`,
+      )
+    } catch (err: unknown) {
+      setSyncError(err instanceof Error ? err.message : "Impossible d'appliquer la charte aux sociétés")
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const allCodes = groups.flatMap((g) => g.codes)
+  const attachableLabels = cashFlowAttachableLinkCodeOptions(allCodes).labels
+  const displayGroups = groups
 
   const filteredGroups = search.trim()
-    ? groups.map((g) => ({
-        ...g,
-        codes: g.codes.filter(
-          (c) =>
-            c.code.toLowerCase().includes(search.toLowerCase()) ||
-            (c.label_account || "").toLowerCase().includes(search.toLowerCase()) ||
-            (c.label_sub_account || "").toLowerCase().includes(search.toLowerCase()),
-        ),
-      })).filter((g) => g.codes.length > 0)
-    : groups
+    ? displayGroups
+        .map((g) => ({
+          ...g,
+          codes: g.codes.filter(
+            (c) =>
+              c.code.toLowerCase().includes(search.toLowerCase()) ||
+              (c.label_account || "").toLowerCase().includes(search.toLowerCase()) ||
+              (c.label_sub_account || "").toLowerCase().includes(search.toLowerCase()),
+          ),
+        }))
+        .filter((g) => g.codes.length > 0)
+    : displayGroups
 
-  const totalCodes = groups.reduce((sum, g) => sum + g.codes.length, 0)
-  const totalLeaf = groups.reduce((sum, g) => sum + g.codes.filter((c) => c.is_leaf).length, 0)
+  const totalCodes = allCodes.length
+  const totalLeaf = filterMappableLeafLinkCodes(allCodes).length
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -203,6 +295,15 @@ export default function CompanyLinkCodesPage() {
                 Ces codes sont communs à toutes les sociétés. Lors du mapping comptable, seuls les codes
                 de type <strong className="text-[#E6D6C3]">Feuille</strong> peuvent être assignés aux comptes du grand livre.
                 Les codes Parents servent uniquement à l'organisation visuelle des états financiers.
+                Pour les codes <strong className="text-[#E6D6C3]">feuilles</strong> du compte de
+                résultat (REV.1, REV.2, …), vous pouvez associer une section Trésorerie
+                (Exploitation → TEX, Investissement → TIN, Financement → TFI). Les codes parents
+                du compte de résultat (REV, REV-A, …) n&apos;ont pas cette option. Les codes
+                parents du bilan peuvent toujours être associés. Les codes feuilles du groupe{" "}
+                <strong className="text-[#E6D6C3]">CAP-C</strong> (CAP-C.1, CAP-C.2, …) le peuvent
+                aussi. Le code <strong className="text-[#E6D6C3]">CAP-C.1 (Bénéfice net)</strong> est
+                calculé automatiquement à partir des familles REV, CMV, EXP, ADM, VNT, FIN, AUT et IMP —
+                il ne se mappe pas à un compte du grand livre.
               </p>
               <div className="mb-2 flex flex-wrap items-end gap-6 sm:gap-8">
                 <Link href={`/settings/companies/${companyId}`} className="relative border-b border-slate-600/30 pb-4">
@@ -246,11 +347,11 @@ export default function CompanyLinkCodesPage() {
                         Charte de comptes standardisée
                       </h2>
                       <p className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
-                        Codes partagés par toutes les sociétés · seuls les codes Feuilles peuvent être mappés à des comptes GL
+                        Charte partagée par toutes les sociétés · base par défaut pour le mapping et les états financiers
                       </p>
                     </div>
                   </div>
-                  <div className="flex-shrink-0">
+                  <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-3">
                     <input
                       type="search"
                       placeholder="Rechercher un code ou libellé…"
@@ -258,9 +359,74 @@ export default function CompanyLinkCodesPage() {
                       onChange={(e) => setSearch(e.target.value)}
                       className="w-64 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#E0742D]/40"
                     />
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={syncing}
+                          className="whitespace-nowrap border-slate-200 text-slate-700 hover:bg-slate-50"
+                        >
+                          {syncing ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                          )}
+                          Appliquer à toutes les sociétés
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Appliquer la charte à toutes les sociétés ?</AlertDialogTitle>
+                          <AlertDialogDescription asChild>
+                            <div className="space-y-2 text-sm text-slate-600">
+                              <p>
+                                Les structures de compte de résultat, de bilan et de trésorerie de{" "}
+                                <strong>toutes les sociétés</strong> seront remplacées par la charte
+                                de codes actuelle.
+                              </p>
+                              <p className="font-medium text-amber-700">
+                                Cette action écrase les structures existantes. Les mappings comptables
+                                déjà configurés ne sont pas supprimés, mais ils doivent correspondre
+                                à des codes encore présents dans la charte.
+                              </p>
+                            </div>
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Annuler</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => void handleSyncToCompanies()}
+                            className="bg-[#E0742D] text-white hover:bg-[#c96324]"
+                          >
+                            Appliquer la charte
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => openCreateDialog()}
+                      className="whitespace-nowrap border-[#E0742D]/50 bg-white text-[#E0742D] hover:border-[#E0742D] hover:bg-[#E0742D]/5"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Nouveau code de liaison
+                    </Button>
                   </div>
                 </div>
               </div>
+
+              {syncMessage ? (
+                <div className="border-b border-emerald-100 bg-emerald-50 px-6 py-3 text-sm text-emerald-800">
+                  {syncMessage}
+                </div>
+              ) : null}
+              {syncError ? (
+                <div className="border-b border-red-100 bg-red-50 px-6 py-3 text-sm text-red-700">
+                  {syncError}
+                </div>
+              ) : null}
 
               {loading ? (
                 <div className="flex min-h-[200px] items-center justify-center bg-white/80">
@@ -284,6 +450,8 @@ export default function CompanyLinkCodesPage() {
                       family={g.family}
                       accountType={g.account_type}
                       codes={g.codes}
+                      onEdit={openEditDialog}
+                      attachableLabels={attachableLabels}
                     />
                   ))}
                 </div>
@@ -292,6 +460,16 @@ export default function CompanyLinkCodesPage() {
           </div>
         </div>
       </div>
+
+      <StandardLinkCodeFormDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        mode={dialogMode}
+        initialCode={editingCode}
+        familyCodes={allCodes}
+        defaultParentCode={createParentCode}
+        onSaved={refetch}
+      />
     </div>
   )
 }

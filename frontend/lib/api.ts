@@ -552,7 +552,7 @@ export async function listStatementStructures(
   return data.structures;
 }
 
-export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "capex" | "baiia";
+export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "capex" | "baiia";
 
 export async function getStatementStructure(
   companyId: string,
@@ -1913,6 +1913,7 @@ export type StandardLinkCode = {
   account_sub_type: string | null
   variable_or_fixed: string | null
   ft_category: string | null
+  attached_link_codes: string[]
   ft_line_item: string | null
   projections: string | null
   is_leaf: boolean
@@ -1939,6 +1940,69 @@ export async function listStandardLinkCodesFlat(leafOnly = false, family?: strin
   if (family) params.set("family", family)
   const qs = params.toString() ? `?${params.toString()}` : ""
   return apiFetch<StandardLinkCode[]>(`/api/standard-link-codes/flat${qs}`)
+}
+
+export type StandardLinkCodeCreatePayload = {
+  code: string
+  family: string
+  parent_code?: string | null
+  label_account?: string | null
+  label_sub_account?: string | null
+  account_type?: string | null
+  account_sub_type?: string | null
+  variable_or_fixed?: string | null
+  ft_category?: string | null
+  attached_link_codes?: string[]
+  ft_line_item?: string | null
+  projections?: string | null
+  is_leaf?: boolean
+  sort_order?: number | null
+}
+
+export type StandardLinkCodeUpdatePayload = {
+  parent_code?: string | null
+  label_account?: string | null
+  label_sub_account?: string | null
+  account_type?: string | null
+  account_sub_type?: string | null
+  variable_or_fixed?: string | null
+  ft_category?: string | null
+  attached_link_codes?: string[]
+  ft_line_item?: string | null
+  projections?: string | null
+  is_leaf?: boolean
+  sort_order?: number | null
+}
+
+export async function createStandardLinkCode(
+  payload: StandardLinkCodeCreatePayload,
+): Promise<StandardLinkCode> {
+  return apiFetch<StandardLinkCode>("/api/standard-link-codes", {
+    method: "POST",
+    body: payload,
+  })
+}
+
+export async function updateStandardLinkCode(
+  code: string,
+  payload: StandardLinkCodeUpdatePayload,
+): Promise<StandardLinkCode> {
+  return apiFetch<StandardLinkCode>(`/api/standard-link-codes/${encodeURIComponent(code)}`, {
+    method: "PATCH",
+    body: payload,
+  })
+}
+
+export async function deleteStandardLinkCode(code: string): Promise<void> {
+  await apiFetch<void>(`/api/standard-link-codes/${encodeURIComponent(code)}`, {
+    method: "DELETE",
+  })
+}
+
+export async function syncStandardLinkCodesToCompanies(): Promise<{ companies_updated: number }> {
+  return apiFetch<{ companies_updated: number }>("/api/standard-link-codes/sync-companies", {
+    method: "POST",
+  })
 }
 
 export async function saveStatementChartSlot(

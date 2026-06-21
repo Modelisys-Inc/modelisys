@@ -19,6 +19,8 @@ const securityHeaders = [
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  // Racine explicite pour éviter que Next infère un mauvais workspace (routes /settings/... en 404 en dev Docker).
+  outputFileTracingRoot: __dirname,
   // 37 type errors remain after the @types/react@19 bump (real bugs in
   // app pages — string literals outside ColumnMode union, missing JSX
   // namespace). Keep the safety net until those are fixed.

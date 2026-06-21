@@ -8,6 +8,7 @@ import type { FinancialStatementRow } from "@/lib/api"
 import { getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { useBalanceSheetStructureEdit } from "@/hooks/use-income-statement-structure-edit"
+import { useBalanceSheetParentLinkCodes } from "@/hooks/use-balance-sheet-parent-link-codes"
 import {
   aggregateToQuarters,
   aggregateToYears,
@@ -16,7 +17,7 @@ import {
   getRowAmounts,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
-import { monthTrendFromReference } from "@/lib/series-reference-columns"
+import { monthTrendFromReference, yearTrendFromReference } from "@/lib/series-reference-columns"
 import {
   calendarQuarterFromMonth,
   formatCalendarMonthYear,
@@ -29,8 +30,10 @@ import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import {
   collectDistinctLinkCodesFromStructure,
   mapLinkCodesToOwnerLabel,
+  isCodeMappingEnabled,
   isStructureRowDetailOnly,
   isStructureRowEmptyLabel,
+  normalizeLiaisonMode,
   normLabel,
 } from "@/lib/income-statement-structure-utils"
 import { Badge } from "@/components/ui/badge"
@@ -114,6 +117,13 @@ interface BalanceSheetSummaryProps {
   showBalanceWarning?: boolean
   structureVersion?: number
   onBalanceSheetStructureSaved?: () => void
+  /** Désactive l’analyse par ligne et les notes (ex. page Projections). */
+  disableRowInteractions?: boolean
+  projectionYears?: 3 | 4 | 5
+  /** Année de référence de la projection (ex. 2026 → colonnes 2025, 2026, 2027…). */
+  forecastBaseYear?: number
+  /** En projections : réel pour (baseYear - 1) depuis les séries, années projetées à 0. */
+  forecastUseSeriesActuals?: boolean
 }
 
 interface SummaryRow {
@@ -213,7 +223,14 @@ export function BalanceSheetSummary({
   showBalanceWarning = false,
   structureVersion = 0,
   onBalanceSheetStructureSaved,
+  disableRowInteractions = false,
+  projectionYears = 5,
+  forecastBaseYear,
+  forecastUseSeriesActuals = false,
 }: BalanceSheetSummaryProps) {
+  const isForecastSection = title === "Bilan pro forma"
+  const forecastYearColumnCount = projectionYears + 1
+
   useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
   const [lineAnalysis, setLineAnalysis] = useState<LineAnalysisSnapshot | null>(null)
@@ -266,7 +283,7 @@ export function BalanceSheetSummary({
     months: monthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
-    enabled: isMultiPeriod,
+    enabled: isMultiPeriod && (!isForecastSection || forecastUseSeriesActuals),
     structureVersion,
   })
 
@@ -415,6 +432,14 @@ export function BalanceSheetSummary({
   const getMultiPeriodData = (): SummaryRow[] => {
     if (!seriesRows.length || !periods.length) return []
 
+    const buildYearTrendValues = (row: (typeof seriesRows)[number], rawAmounts: Record<string, number>) => {
+      if (isForecastSection && forecastUseSeriesActuals) {
+        const actual = yearTrendFromReference(row, periods, refYear, 1)[0] || 0
+        return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+      }
+      return reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods, "last").amounts)
+    }
+
     return seriesRows.map(row => {
       const rawAmounts = getRowAmounts(row, periods)
 
@@ -422,7 +447,7 @@ export function BalanceSheetSummary({
       if (view === "quarters") {
         values = reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods, "last").amounts)
       } else if (view === "years") {
-        values = reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods, "last").amounts)
+        values = buildYearTrendValues(row, rawAmounts)
       } else {
         values = reverseSeriesOrderForDisplay(rawAmounts)
       }
@@ -454,7 +479,18 @@ export function BalanceSheetSummary({
               view === "quarters"
                 ? reverseSeriesOrderForDisplay(aggregateToQuarters(rawDetailAmounts, periods, "last").amounts)
                 : view === "years"
-                  ? reverseSeriesOrderForDisplay(aggregateToYears(rawDetailAmounts, periods, "last").amounts)
+                  ? buildYearTrendValues(
+                      {
+                        id: dr.id,
+                        label: dr.label,
+                        isBold: false,
+                        isSection: false,
+                        isResult: false,
+                        amounts: dr.amounts,
+                        detailRows: [],
+                      },
+                      rawDetailAmounts
+                    )
                   : reverseSeriesOrderForDisplay(rawDetailAmounts)
             return {
               accountNumber: dr.id,
@@ -490,6 +526,8 @@ export function BalanceSheetSummary({
     companyId ?? null,
     structureEditMode && canInlineStructureEdit
   )
+  const { codes: balanceParentLinkCodes, labels: balanceParentLinkLabels } =
+    useBalanceSheetParentLinkCodes(structureEditMode && canInlineStructureEdit)
 
   const spacerTargetPosts = useMemo(() => {
     const s = structEdit.structure
@@ -774,6 +812,14 @@ export function BalanceSheetSummary({
 
   // Helper function to generate year labels from series data or fallback
   const getYearLabels = (): string[] => {
+    if (isForecastSection) {
+      const baseYear = forecastBaseYear ?? refYear ?? new Date().getFullYear()
+      const labels: string[] = [`${baseYear - 1}`]
+      for (let i = 0; i < projectionYears; i++) {
+        labels.push(`${baseYear + i}`)
+      }
+      return labels
+    }
     if (periods.length > 0 && seriesRows.length > 0) {
       const rawAmounts = getRowAmounts(seriesRows[0], periods)
       return reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods, "last").labels)
@@ -2003,7 +2049,13 @@ export function BalanceSheetSummary({
               {view === "years" && (
                 <>
                   {getYearLabels().map((label, idx) => (
-                    <th key={idx} className="px-6 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
+                    <th
+                      key={idx}
+                      className={cn(
+                        "px-6 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap",
+                        isForecastSection && idx === 0 ? "bg-slate-50" : ""
+                      )}
+                    >
                       {label}
                     </th>
                   ))}
@@ -2055,6 +2107,13 @@ export function BalanceSheetSummary({
               const rawSeparator =
                 showStructureCols && structRow ? structRow.separatorAbove : row.separatorAbove
               const showSeparatorAbove = isTruthySeparatorAbove(rawSeparator)
+              const liaisonMode = structRow ? normalizeLiaisonMode(structRow) : "na"
+              const isLabelLockedBySingleLinkCode =
+                !!structRow &&
+                isCodeMappingEnabled(structRow) &&
+                !!String(structRow.linkCode ?? "").trim() &&
+                liaisonMode !== "sum" &&
+                liaisonMode !== "difference"
               const canExpand =
                 !showStructureCols &&
                 !!row.rowId &&
@@ -2121,10 +2180,19 @@ export function BalanceSheetSummary({
                       ) : (
                         <Input
                           value={String(structRow.label ?? "")}
+                          disabled={isLabelLockedBySingleLinkCode}
+                          readOnly={isLabelLockedBySingleLinkCode}
                           onChange={(e) => structEdit.updateRow(globalIdx, { label: e.target.value })}
+                          title={
+                            isLabelLockedBySingleLinkCode
+                              ? "Libellé défini par le code de liaison sélectionné."
+                              : undefined
+                          }
                           className={cn(
                             "h-9 w-full max-w-full rounded-xl border-slate-200/90 bg-white text-sm shadow-sm transition-shadow focus-visible:border-[#E0742D]/50 focus-visible:ring-2 focus-visible:ring-[#E0742D]/20",
-                            isBoldRow ? "font-semibold" : "font-normal"
+                            isBoldRow ? "font-semibold" : "font-normal",
+                            isLabelLockedBySingleLinkCode &&
+                              "cursor-not-allowed bg-slate-50 text-slate-700 opacity-100"
                           )}
                         />
                       )
@@ -2138,7 +2206,7 @@ export function BalanceSheetSummary({
                         >
                           {displayLabel}
                         </span>
-                        {row.rowId && hasLiaisonCode ? (
+                        {row.rowId && hasLiaisonCode && !disableRowInteractions ? (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -2187,8 +2255,11 @@ export function BalanceSheetSummary({
                       structEdit={structEdit}
                       allLiaisonCodes={allLiaisonCodes}
                       linkCodeLabels={linkCodeLabels}
+                      singleModeLinkCodes={balanceParentLinkCodes}
+                      singleModeLinkCodeLabels={balanceParentLinkLabels}
                       showSeparatorAbove={showSeparatorAbove}
                       onEditPresentation={beginEditPostPresentation}
+                      annexIdentifierAutoAssigned
                     />
                   )}
 
@@ -2386,16 +2457,14 @@ export function BalanceSheetSummary({
                   )}
                   {!showStructureCols && view === "years" && row.trendValues && (
                     <>
-                      {row.trendValues.map((value, valueIdx) => {
-                        const isForecastSection = title === "Bilan pro forma"
-                        return (
+                      {row.trendValues.map((value, valueIdx) => (
                           <td
                             key={valueIdx}
                             className={cn(
                               "px-6 py-3 text-right",
                               isBoldRow ? "font-semibold font-bold" : "text-slate-500",
                               shouldHideAmounts ? "text-white" : "",
-                              isForecastSection && valueIdx === 0 && !shouldHideAmounts ? "bg-slate-50" : ""
+                              isForecastSection && valueIdx === 0 ? "bg-slate-50" : ""
                             )}
                           >
                             {columnMode === "percentage"
@@ -2413,17 +2482,17 @@ export function BalanceSheetSummary({
                                   })()
                                 : (value !== 0 ? formatCurrency(value) : "-")}
                           </td>
-                        )
-                      })}
+                      ))}
                     </>
                   )}
                   {!showStructureCols &&
                     (view === "12months" || view === "quarters" || view === "years") &&
                     !row.trendValues && (
                     <>
-                      {Array.from({ length: view === "12months" ? 12 : view === "quarters" ? 5 : 6 }).map((_, idx) => {
-                        const isForecastSection = title === "Bilan pro forma"
-                        return (
+                      {Array.from({
+                        length:
+                          view === "12months" ? 12 : view === "quarters" ? 5 : isForecastSection ? forecastYearColumnCount : 6,
+                      }).map((_, idx) => (
                           <td
                             key={idx}
                             className={cn(
@@ -2433,8 +2502,7 @@ export function BalanceSheetSummary({
                           >
                             -
                           </td>
-                        )
-                      })}
+                      ))}
                     </>
                   )}
                 </tr>
@@ -2519,8 +2587,17 @@ export function BalanceSheetSummary({
                         ))
                       )}
                       {(view === "12months" || view === "quarters" || view === "years") && (
-                        Array.from({ length: view === "12months" ? 12 : view === "quarters" ? 5 : 6 }).map((_, cellIdx) => (
-                          <td key={cellIdx} className="px-6 py-2 text-right font-semibold text-sm text-slate-400">
+                        Array.from({
+                          length:
+                            view === "12months" ? 12 : view === "quarters" ? 5 : isForecastSection ? forecastYearColumnCount : 6,
+                        }).map((_, cellIdx) => (
+                          <td
+                            key={cellIdx}
+                            className={cn(
+                              "px-6 py-2 text-right font-semibold text-sm text-slate-400",
+                              isForecastSection && view === "years" && cellIdx === 0 ? "bg-slate-50" : ""
+                            )}
+                          >
                             -
                           </td>
                         ))
@@ -2542,7 +2619,7 @@ export function BalanceSheetSummary({
         </p>
       </div>
 
-      {lineAnalysis && (
+      {lineAnalysis && !disableRowInteractions && (
         <aside
           ref={analysisCardRef}
           className="border-t border-slate-200 bg-gradient-to-b from-slate-50 via-white to-slate-50/60 px-5 py-6 sm:px-6 sm:py-7"

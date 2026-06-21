@@ -1,8 +1,12 @@
 """Single source of truth for default financial-statement structures.
 
-Used both to seed new companies (routers/companies.py) and as the runtime
-fallback when a company has no saved structure (routers/statement_structures.py
-GET, services/financial_statements.py compute).
+Used to seed new companies (routers/companies.py) and as the runtime fallback
+when a company has no saved structure (routers/statement_structures.py GET,
+services/financial_statements.py compute).
+
+These canonical templates are intentionally independent of the global standard
+link-code chart. Use sync_standard_codes_to_companies to push chart-derived
+structures onto existing companies when needed.
 """
 
 DEFAULT_BALANCE_SHEET = [
@@ -49,8 +53,19 @@ DEFAULT_CASH_FLOW = [
     {"label": "trésorerie à la fin de l'exercice", "isBold": True, "isResult": True},
 ]
 
+DEFAULT_CASH_FLOW_DETAIL = [
+    {"label": "Trésorerie - Exploitation", "isBold": True, "isSection": True},
+    {"label": "Trésorerie - Investissement", "isBold": True, "isSection": True},
+    {"label": "Trésorerie - Financement", "isBold": True, "isSection": True},
+    {"label": "Variation nette de la trésorerie", "isBold": True, "isResult": True},
+    {"label": ""},
+    {"label": "Trésorerie au début de l'exercice"},
+    {"label": "Trésorerie à la fin de l'exercice", "isBold": True, "isResult": True},
+]
+
 DEFAULT_STRUCTURES = {
     "income-statement": DEFAULT_INCOME_STATEMENT,
     "balance-sheet": DEFAULT_BALANCE_SHEET,
     "cash-flow": DEFAULT_CASH_FLOW,
+    "cash-flow-detail": DEFAULT_CASH_FLOW_DETAIL,
 }

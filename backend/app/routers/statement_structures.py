@@ -16,16 +16,19 @@ from app.schemas.statement_structure import (
     StatementStructureResponse,
     StatementStructureUpsert,
 )
-from app.services.statement_structure_defaults import (
-    DEFAULT_BALANCE_SHEET,
-    DEFAULT_INCOME_STATEMENT,
-    DEFAULT_STRUCTURES,
-)
+from app.services.statement_template import get_default_structure
 from app.utils.income_statement_structure_clean import strip_obsolete_income_statement_structure_rows
 
 router = APIRouter(prefix="/api/companies/{company_id}", tags=["statement-structures"])
 
-VALID_STATEMENT_TYPES = {"income-statement", "balance-sheet", "cash-flow", "capex", "baiia"}
+VALID_STATEMENT_TYPES = {
+    "income-statement",
+    "balance-sheet",
+    "cash-flow",
+    "cash-flow-detail",
+    "capex",
+    "baiia",
+}
 
 BALANCE_SHEET_CATEGORIES = {"actif", "passif", "capitaux propres"}
 INCOME_STATEMENT_CATEGORIES = {"revenus", "coûts des produits vendus", "charges", "impôts"}
@@ -86,7 +89,7 @@ def get_statement_structure(
             id=None,
             company_id=company_id,
             statement_type=statement_type,
-            structure=DEFAULT_STRUCTURES.get(statement_type, []),
+            structure=get_default_structure(db, statement_type),
         )
     if statement_type == "income-statement" and structure.structure:
         cleaned = strip_obsolete_income_statement_structure_rows(list(structure.structure))
@@ -145,7 +148,7 @@ def upsert_statement_structure(
 # ---------------------------------------------------------------------------
 
 
-def _get_or_default_structure(db, company_id, statement_type, default):
+def _get_or_default_structure(db, company_id, statement_type):
     structure = (
         db.query(CompanyStatementStructure)
         .filter(
@@ -156,7 +159,7 @@ def _get_or_default_structure(db, company_id, statement_type, default):
     )
     if structure and structure.structure:
         return list(structure.structure)
-    return [dict(row) for row in default]
+    return get_default_structure(db, statement_type)
 
 
 def _save_structure(db, company_id, statement_type, structure):
@@ -419,11 +422,11 @@ async def import_csv_statement_structure(
         else:
             skipped_details.append({"nom": r["nom"], "reason": f"Catégorie '{r['categorie']}' non reconnue"})
 
-    bs_structure = _get_or_default_structure(db, company_id, "balance-sheet", DEFAULT_BALANCE_SHEET)
+    bs_structure = _get_or_default_structure(db, company_id, "balance-sheet")
     bs_added, bs_skipped = _merge_balance_sheet(bs_structure, balance_rows)
     skipped_details.extend(bs_skipped)
 
-    is_structure = _get_or_default_structure(db, company_id, "income-statement", DEFAULT_INCOME_STATEMENT)
+    is_structure = _get_or_default_structure(db, company_id, "income-statement")
     is_added, is_skipped = _merge_income_statement(is_structure, income_rows)
     skipped_details.extend(is_skipped)
 

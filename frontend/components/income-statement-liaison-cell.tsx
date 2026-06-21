@@ -57,11 +57,13 @@ function LinkCodeCombobox({
   onChange,
   suggestions,
   labels,
+  allowCreate = true,
 }: {
   value: string
   onChange: (next: string) => void
   suggestions: string[]
   labels?: Map<string, string>
+  allowCreate?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
@@ -98,16 +100,18 @@ function LinkCodeCombobox({
       <PopoverContent className="w-[260px] p-0" align="start">
         <Command>
           <CommandInput
-            placeholder="Rechercher ou saisir…"
+            placeholder={allowCreate ? "Rechercher ou saisir…" : "Rechercher…"}
             value={query}
             onValueChange={setQuery}
             className="h-9"
           />
           <CommandList>
             <CommandEmpty className="px-3 py-2 text-xs text-slate-500">
-              Saisissez un code et appuyez sur Entrée pour le créer.
+              {allowCreate
+                ? "Saisissez un code et appuyez sur Entrée pour le créer."
+                : "Aucun code correspondant."}
             </CommandEmpty>
-            {trimmed && !exactMatch && (
+            {allowCreate && trimmed && !exactMatch && (
               <CommandGroup heading="Nouveau">
                 <CommandItem
                   value={trimmed}
@@ -163,6 +167,9 @@ export interface IncomeStatementLiaisonCellProps {
   hideDefineColumn?: boolean
   /** Paramètres Détail : liaison uniquement en « Code unique », pas addition / soustraction. */
   singleLiaisonModeOnly?: boolean
+  /** Codes parents du plan standard (Compte de résultat ou Bilan) pour le mode « Code unique ». */
+  singleModeLinkCodes?: string[]
+  singleModeLinkCodeLabels?: Map<string, string>
 }
 
 function patchWithDefine(
@@ -190,6 +197,8 @@ export function IncomeStatementLiaisonCell({
   readOnly = false,
   hideDefineColumn,
   singleLiaisonModeOnly = false,
+  singleModeLinkCodes,
+  singleModeLinkCodeLabels,
 }: IncomeStatementLiaisonCellProps) {
   const [open, setOpen] = useState(false)
   const mode = normalizeLiaisonMode(structRow)
@@ -205,6 +214,66 @@ export function IncomeStatementLiaisonCell({
     () => normalizeCodeList(structRow.liaisonDenominatorCodes),
     [structRow.liaisonDenominatorCodes]
   )
+
+  const codeOptions = useMemo(
+    () => allLinkCodes.filter(Boolean),
+    [allLinkCodes]
+  )
+  const useStandardSingleMode = singleModeLinkCodes !== undefined
+  const singleSuggestions = useMemo(() => {
+    const base = (singleModeLinkCodes ?? codeOptions).filter(Boolean)
+    const current = String(structRow.linkCode ?? "").trim()
+    if (current && !base.includes(current)) {
+      return [current, ...base].sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+    }
+    return base
+  }, [singleModeLinkCodes, codeOptions, structRow.linkCode])
+  const liaisonCodeOptions = useMemo(() => {
+    const base = (singleModeLinkCodes ?? codeOptions).filter(Boolean)
+    if (!singleModeLinkCodes) return base
+    const extras = new Set<string>()
+    for (const code of [
+      String(structRow.linkCode ?? ""),
+      ...sumCodes,
+      ...numCodes,
+      ...denCodes,
+    ]) {
+      const trimmed = code.trim()
+      if (trimmed && !base.includes(trimmed)) extras.add(trimmed)
+    }
+    if (extras.size === 0) return base
+    return [...extras, ...base].sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+  }, [
+    singleModeLinkCodes,
+    codeOptions,
+    structRow.linkCode,
+    sumCodes,
+    numCodes,
+    denCodes,
+  ])
+  const singleLabels = useMemo(() => {
+    if (!singleModeLinkCodeLabels) return linkCodeLabels
+    const merged = new Map(singleModeLinkCodeLabels)
+    if (linkCodeLabels) {
+      for (const [code, label] of linkCodeLabels) {
+        if (!merged.has(code)) merged.set(code, label)
+      }
+    }
+    return merged
+  }, [singleModeLinkCodeLabels, linkCodeLabels])
+  const liaisonLabels = singleModeLinkCodeLabels ? singleLabels : linkCodeLabels
+
+  const applySingleLinkCode = (next: string) => {
+    const patch: Record<string, unknown> = {
+      linkCode: next || undefined,
+      liaisonMode: "single",
+    }
+    if (next && useStandardSingleMode) {
+      const stdLabel = singleLabels?.get(next.trim())
+      if (stdLabel) patch.label = stdLabel
+    }
+    updateRow(rowIndex, patchWithDefine(hideDefineColumn, patch))
+  }
 
   const hint = formatLiaisonCellHint(structRow)
   /** Anciennes lignes « n/a » : affichage du sélecteur sur « Code unique » sans forcer l’enregistrement. */
@@ -271,8 +340,6 @@ export function IncomeStatementLiaisonCell({
     )
   }
 
-  const codeOptions = allLinkCodes.filter(Boolean)
-
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -318,19 +385,12 @@ export function IncomeStatementLiaisonCell({
               <Label className="text-xs text-slate-600">Code de liaison</Label>
               <LinkCodeCombobox
                 value={String(structRow.linkCode ?? "")}
-                onChange={(next) =>
-                  updateRow(
-                    rowIndex,
-                    patchWithDefine(hideDefineColumn, {
-                      linkCode: next || undefined,
-                      liaisonMode: "single",
-                    })
-                  )
-                }
-                suggestions={codeOptions.filter(
+                onChange={applySingleLinkCode}
+                suggestions={singleSuggestions.filter(
                   (c) => c !== String(structRow.linkCode ?? "")
                 )}
-                labels={linkCodeLabels}
+                labels={singleLabels}
+                allowCreate={!useStandardSingleMode}
               />
             </div>
           )}
@@ -338,14 +398,15 @@ export function IncomeStatementLiaisonCell({
           {mode === "sum" && (
             <div className="space-y-2">
               <Label className="text-xs text-slate-600">Codes à additionner</Label>
-              {codeOptions.length === 0 ? (
+              {liaisonCodeOptions.length === 0 ? (
                 <p className="text-[11px] leading-snug text-amber-700">
-                  Aucun code de liaison dans la structure pour l’instant. Définissez d’abord des codes sur
-                  d’autres postes (mode « Code unique »).
+                  {useStandardSingleMode
+                    ? "Aucun code de liaison disponible dans le plan standard."
+                    : "Aucun code de liaison dans la structure pour l'instant. Définissez d'abord des codes sur d'autres postes (mode « Code unique »)."}
                 </p>
               ) : (
                 <ul className="max-h-40 space-y-1.5 overflow-y-auto rounded-md border border-slate-200/80 bg-slate-50/50 p-2">
-                  {codeOptions.map((code) => (
+                  {liaisonCodeOptions.map((code) => (
                     <li key={code} className="flex items-center gap-2">
                       <Checkbox
                         id={`sum-${rowIndex}-${code}`}
@@ -364,7 +425,7 @@ export function IncomeStatementLiaisonCell({
                         htmlFor={`sum-${rowIndex}-${code}`}
                         className="cursor-pointer text-xs"
                       >
-                        <CodeWithLabel code={code} labels={linkCodeLabels} />
+                        <CodeWithLabel code={code} labels={liaisonLabels} />
                       </label>
                     </li>
                   ))}
@@ -380,11 +441,11 @@ export function IncomeStatementLiaisonCell({
               </p>
               <div className="space-y-2">
                 <Label className="text-xs text-slate-600">Numérateur</Label>
-                {codeOptions.length === 0 ? (
+                {liaisonCodeOptions.length === 0 ? (
                   <p className="text-[11px] text-amber-700">Aucun code disponible.</p>
                 ) : (
                   <ul className="max-h-32 space-y-1.5 overflow-y-auto rounded-md border border-slate-200/80 bg-slate-50/50 p-2">
-                    {codeOptions.map((code) => (
+                    {liaisonCodeOptions.map((code) => (
                       <li key={`n-${code}`} className="flex items-center gap-2">
                         <Checkbox
                           id={`num-${rowIndex}-${code}`}
@@ -403,7 +464,7 @@ export function IncomeStatementLiaisonCell({
                           htmlFor={`num-${rowIndex}-${code}`}
                           className="cursor-pointer text-xs"
                         >
-                          <CodeWithLabel code={code} labels={linkCodeLabels} />
+                          <CodeWithLabel code={code} labels={liaisonLabels} />
                         </label>
                       </li>
                     ))}
@@ -412,9 +473,9 @@ export function IncomeStatementLiaisonCell({
               </div>
               <div className="space-y-2">
                 <Label className="text-xs text-slate-600">Dénominateur</Label>
-                {codeOptions.length === 0 ? null : (
+                {liaisonCodeOptions.length === 0 ? null : (
                   <ul className="max-h-32 space-y-1.5 overflow-y-auto rounded-md border border-slate-200/80 bg-slate-50/50 p-2">
-                    {codeOptions.map((code) => (
+                    {liaisonCodeOptions.map((code) => (
                       <li key={`d-${code}`} className="flex items-center gap-2">
                         <Checkbox
                           id={`den-${rowIndex}-${code}`}
@@ -433,7 +494,7 @@ export function IncomeStatementLiaisonCell({
                           htmlFor={`den-${rowIndex}-${code}`}
                           className="cursor-pointer text-xs"
                         >
-                          <CodeWithLabel code={code} labels={linkCodeLabels} />
+                          <CodeWithLabel code={code} labels={liaisonLabels} />
                         </label>
                       </li>
                     ))}

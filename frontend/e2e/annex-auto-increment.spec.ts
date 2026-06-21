@@ -186,10 +186,10 @@ test("income statement: checking Annexe auto-assigns the next letter", async ({
   await expect(annexInputs.nth(1)).toHaveValue("D", { timeout: 10000 })
 })
 
-test("balance sheet: checking Annexe auto-assigns the next number", async ({
+test("balance sheet: checking Annexe renumbers all annexes in structure order", async ({
   page,
 }) => {
-  // Highest existing annex is "3" → checking an un-annexed row yields "4".
+  // Highest saved annex is "3" on row 0; checking row 1 renumbers 3→1 and assigns 2.
   const structure: StructRow[] = [
     {
       label: "Encaisse",
@@ -216,12 +216,13 @@ test("balance sheet: checking Annexe auto-assigns the next number", async ({
   const checkboxes = page.getByRole("checkbox", {
     name: "Annexe : afficher au détail",
   })
-  const annexInputs = page.getByPlaceholder("A")
+  const annexInputs = page.getByPlaceholder("1")
   await expect(checkboxes).toHaveCount(2, { timeout: 15000 })
-  // Row 0 already carries the highest annex "3"; row 1 is un-annexed.
-  await expect(annexInputs.nth(0)).toHaveValue("3")
+  // On load, existing annexes are normalized to 1…n in structure order.
+  await expect(annexInputs.nth(0)).toHaveValue("1")
   await expect(annexInputs.nth(1)).toHaveValue("")
 
   await toggleAnnex(checkboxes.nth(1))
-  await expect(annexInputs.nth(1)).toHaveValue("4", { timeout: 10000 })
+  await expect(annexInputs.nth(0)).toHaveValue("1", { timeout: 10000 })
+  await expect(annexInputs.nth(1)).toHaveValue("2", { timeout: 10000 })
 })

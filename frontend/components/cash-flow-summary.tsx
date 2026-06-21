@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Fragment } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
@@ -14,10 +14,26 @@ import {
   getRowAmounts,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
+import { yearTrendFromReference } from "@/lib/series-reference-columns"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import { Button } from "@/components/ui/button"
-import { Settings } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { LayoutList, Settings, Sparkles } from "lucide-react"
 import { StatementStructureStudio } from "@/components/statement-structure-studio"
+import {
+  indentForSummaryRow,
+  isTruthySeparatorAbove,
+} from "@/lib/income-statement-structure-utils"
+import {
+  dashboardCardBodyMutedClass,
+  dashboardCardAccentClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardHeaderIconBoxClass,
+  dashboardCardRingClass,
+  dashboardCardStructureSettingsButtonClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 
 interface CashFlowSummaryProps {
   period: "monthly" | "quarterly" | "annual"
@@ -32,11 +48,16 @@ interface CashFlowSummaryProps {
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
   fiscalYear?: number
+  refMonth?: number
+  refYear?: number
   rows?: FinancialStatementRow[]
   loading?: boolean
   showCashFlowStructureSettings?: boolean
   structureVersion?: number
   onCashFlowStructureSaved?: () => void
+  projectionYears?: 3 | 4 | 5
+  forecastBaseYear?: number
+  forecastUseSeriesActuals?: boolean
 }
 
 interface SummaryRow {
@@ -47,6 +68,8 @@ interface SummaryRow {
   isSection?: boolean
   isResult?: boolean
   indent?: boolean
+  separatorAbove?: boolean
+  hasLiaisonCode?: boolean
   // For trend views (12months, quarters, years)
   trendValues?: number[]
 }
@@ -64,12 +87,22 @@ export function CashFlowSummary({
   selectedBudgetId = null,
   selectedBudgetName = null,
   fiscalYear,
+  refMonth: refMonthProp,
+  refYear: refYearProp,
   rows: backendRows = [],
   loading = false,
   showCashFlowStructureSettings = false,
   structureVersion = 0,
   onCashFlowStructureSaved,
+  projectionYears = 5,
+  forecastBaseYear,
+  forecastUseSeriesActuals = false,
 }: CashFlowSummaryProps) {
+  const isForecastSection = title?.endsWith("pro forma") ?? false
+  const forecastYearColumnCount = projectionYears + 1
+  const refMonth = refMonthProp ?? new Date().getMonth() + 1
+  const refYear = refYearProp ?? fiscalYear ?? new Date().getFullYear()
+
   // Series data for multi-period views
   const isMultiPeriod = view === "12months" || view === "quarters" || view === "years"
   const currentYear = fiscalYear || new Date().getFullYear()
@@ -79,10 +112,11 @@ export function CashFlowSummary({
     companyId: companyId || null,
     statementType: "cash-flow",
     fiscalYear: currentYear,
+    month: refMonth,
     months: monthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
-    enabled: isMultiPeriod,
+    enabled: isMultiPeriod && (!isForecastSection || forecastUseSeriesActuals),
     structureVersion,
   })
 
@@ -118,7 +152,6 @@ export function CashFlowSummary({
     return "Passé"
   }
 
-  // Map backend FinancialStatementRow[] to internal SummaryRow[]
   const mapBackendRows = (apiRows: FinancialStatementRow[]): SummaryRow[] => {
     return apiRows.map((row) => ({
       label: row.label,
@@ -127,7 +160,14 @@ export function CashFlowSummary({
       isBold: row.isBold,
       isSection: row.isSection,
       isResult: row.isResult,
-      indent: !row.isBold && !row.isSection && !row.isResult,
+      indent: indentForSummaryRow({
+        isBold: !!row.isBold,
+        isSection: !!row.isSection,
+        isResult: !!row.isResult,
+        indent: row.indent,
+      }),
+      separatorAbove: isTruthySeparatorAbove(row.separatorAbove),
+      hasLiaisonCode: row.hasLiaisonCode,
     }))
   }
 
@@ -137,17 +177,17 @@ export function CashFlowSummary({
     return str.charAt(0).toUpperCase() + str.slice(1)
   }
 
-  // Helper function to check if label should be bold
-  const shouldBeBold = (label: string, row: SummaryRow): boolean => {
-    const boldLabels = [
-      "flux net"
-    ]
-    return boldLabels.includes(label.toLowerCase()) || !!row.isResult
-  }
-
   // Build multi-period rows from series API data
   const getMultiPeriodData = (): SummaryRow[] => {
     if (!seriesRows.length || !periods.length) return []
+
+    const buildYearTrendValues = (row: (typeof seriesRows)[number], rawAmounts: ReturnType<typeof getRowAmounts>) => {
+      if (isForecastSection && forecastUseSeriesActuals) {
+        const actual = yearTrendFromReference(row, periods, refYear, 1)[0] || 0
+        return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+      }
+      return reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods).amounts)
+    }
 
     return seriesRows.map(row => {
       const rawAmounts = getRowAmounts(row, periods)
@@ -156,7 +196,7 @@ export function CashFlowSummary({
       if (view === "quarters") {
         values = reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods).amounts)
       } else if (view === "years") {
-        values = reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods).amounts)
+        values = buildYearTrendValues(row, rawAmounts)
       } else {
         values = reverseSeriesOrderForDisplay(rawAmounts)
       }
@@ -168,7 +208,14 @@ export function CashFlowSummary({
         isBold: row.isBold,
         isSection: row.isSection,
         isResult: row.isResult,
-        indent: !row.isBold && !row.isSection && !row.isResult,
+        indent: indentForSummaryRow({
+          isBold: !!row.isBold,
+          isSection: !!row.isSection,
+          isResult: !!row.isResult,
+          indent: (row as { indent?: boolean }).indent,
+        }),
+        separatorAbove: isTruthySeparatorAbove((row as { separatorAbove?: unknown }).separatorAbove),
+        hasLiaisonCode: (row as { hasLiaisonCode?: boolean }).hasLiaisonCode,
         trendValues: row.isSection ? undefined : values,
       }
     })
@@ -198,23 +245,91 @@ export function CashFlowSummary({
   // Structure edit mode
   const [structureEditMode, setStructureEditMode] = useState(false)
   const canInlineStructureEdit =
-    showCashFlowStructureSettings && !!companyId && view !== "comparison"
+    showCashFlowStructureSettings && !!companyId && !isComparisonMode
+  const isStructureStudio = structureEditMode && canInlineStructureEdit && !!companyId
 
-  const renderParametresTrigger = () =>
-    canInlineStructureEdit && !structureEditMode ? (
-      <div className="mb-4 flex justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={() => setStructureEditMode(true)}
-        >
-          <Settings className="h-4 w-4 text-[#E0742D]" />
-          Paramètres
-        </Button>
+  const renderCardHeader = () => (
+    <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-4">
+          <div className={dashboardCardHeaderIconBoxClass}>
+            <LayoutList className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title || "Sommaire"}</h2>
+              {isStructureStudio && (
+                <Badge
+                  variant="secondary"
+                  className="border border-slate-200 bg-slate-100 font-medium text-[#2A2F3A] shadow-none"
+                >
+                  <Sparkles className="h-3 w-3 text-[#E0742D]" />
+                  Édition structure
+                </Badge>
+              )}
+            </div>
+            {isStructureStudio ? (
+              <p className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
+                Ajustez les libellés. <span className="font-medium text-[#2A2F3A]">Masquer</span> retire la ligne du
+                sommaire et du détail. <span className="font-medium text-[#2A2F3A]">Code</span> active la colonne
+                liaison ; <span className="font-medium text-[#2A2F3A]">Liaison</span> définit le code ou la formule.
+                Enregistrez pour appliquer partout.
+              </p>
+            ) : (
+              <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+                <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
+                <span className="text-slate-400">•</span>
+                {subDivisionId && divisionId && companyId ? (
+                  <>
+                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                    <span className="text-slate-400">•</span>
+                    <span>
+                      {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name ||
+                        "Division"}
+                    </span>
+                    <span className="text-slate-400">•</span>
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                      {companies
+                        .find((c) => c.id === companyId)
+                        ?.divisions.find((d) => d.id === divisionId)
+                        ?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
+                    </span>
+                  </>
+                ) : divisionId && companyId ? (
+                  <>
+                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                      {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name ||
+                        "Division"}
+                    </span>
+                  </>
+                ) : companyId ? (
+                  <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                    {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+                  </span>
+                ) : (
+                  <span className="truncate">Toutes les sociétés</span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        {canInlineStructureEdit && !structureEditMode && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={dashboardCardStructureSettingsButtonClass}
+            onClick={() => setStructureEditMode(true)}
+          >
+            <Settings className={cn("h-4 w-4", dashboardCardAccentClass)} />
+            Paramètres
+          </Button>
+        )}
       </div>
-    ) : null
+    </div>
+  )
 
   // Fetch real data for each entity in comparison mode
   const [entityDataMap, setEntityDataMap] = useState<Record<string, SummaryRow[]>>({})
@@ -289,7 +404,14 @@ export function CashFlowSummary({
                 isBold: row.isBold,
                 isSection: row.isSection,
                 isResult: row.isResult,
-                indent: !row.isBold && !row.isSection && !row.isResult,
+                indent: indentForSummaryRow({
+                  isBold: !!row.isBold,
+                  isSection: !!row.isSection,
+                  isResult: !!row.isResult,
+                  indent: (row as { indent?: boolean }).indent,
+                }),
+                separatorAbove: isTruthySeparatorAbove((row as { separatorAbove?: unknown }).separatorAbove),
+                hasLiaisonCode: (row as { hasLiaisonCode?: boolean }).hasLiaisonCode,
               }
             })
             results[entity.id] = mapped
@@ -352,6 +474,14 @@ export function CashFlowSummary({
 
   // Helper function to generate year labels from series data or fallback
   const getYearLabels = (): string[] => {
+    if (isForecastSection) {
+      const baseYear = forecastBaseYear ?? refYear ?? new Date().getFullYear()
+      const labels: string[] = [`${baseYear - 1}`]
+      for (let i = 0; i < projectionYears; i++) {
+        labels.push(`${baseYear + i}`)
+      }
+      return labels
+    }
     if (periods.length > 0 && seriesRows.length > 0) {
       const rawAmounts = getRowAmounts(seriesRows[0], periods)
       return reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods).labels)
@@ -366,90 +496,71 @@ export function CashFlowSummary({
 
   const getHorizonText = (): string => getHorizonModeLabel(view, period)
 
-  if (canInlineStructureEdit && structureEditMode && companyId) {
-    return (
-      <div className="w-full">
-        <StatementStructureStudio
-          companyId={companyId}
-          statementType="cash-flow"
-          onSaved={onCashFlowStructureSaved}
-          onClose={() => setStructureEditMode(false)}
-        />
-      </div>
-    )
-  }
+  let summaryTableColumnCount = 2
+  if (view === "current") summaryTableColumnCount = 2
+  else if (view === "comparison" || view === "ddm" || view === "ytd") {
+    if (isComparisonMode) summaryTableColumnCount = 1 + entitiesToCompare.length
+    else if (columnMode === "percentage") summaryTableColumnCount = 4
+    else if (columnMode === "variations") summaryTableColumnCount = 5
+    else summaryTableColumnCount = 3
+  } else if (view === "12months") summaryTableColumnCount = 1 + getMonthLabels().length
+  else if (view === "quarters") summaryTableColumnCount = 1 + getQuarterLabels().length
+  else if (view === "years") summaryTableColumnCount = 1 + getYearLabels().length
 
   if (loading || (isMultiPeriod && seriesLoading) || entityDataLoading) {
     return (
-      <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-        <div className="px-8 py-16 text-center">
+      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+        <div className={dashboardCardRingClass} aria-hidden />
+        <div className="relative px-8 py-16 text-center">
           <div className="animate-pulse space-y-4">
-            <div className="h-4 bg-slate-200 rounded w-1/3 mx-auto"></div>
-            <div className="h-4 bg-slate-200 rounded w-2/3 mx-auto"></div>
-            <div className="h-4 bg-slate-200 rounded w-1/2 mx-auto"></div>
+            <div className="mx-auto h-4 w-1/3 rounded bg-slate-200" />
+            <div className="mx-auto h-4 w-2/3 rounded bg-slate-200" />
+            <div className="mx-auto h-4 w-1/2 rounded bg-slate-200" />
           </div>
-          <p className="text-sm text-slate-500 mt-4">Chargement des données...</p>
+          <p className={cn("mt-4 text-sm", dashboardCardBodyMutedClass)}>Chargement des données...</p>
         </div>
       </div>
     )
   }
 
-  if (data.length === 0) {
+  if (data.length === 0 && !isStructureStudio) {
     return (
-      <div className="w-full">
-        {renderParametresTrigger()}
-        <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+        <div className={dashboardCardRingClass} aria-hidden />
+        <div className="relative w-full min-w-0">
+          {renderCardHeader()}
           <div className="px-8 py-16 text-center">
-            <p className="text-sm text-slate-500">Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.</p>
+            <p className={cn("text-sm", dashboardCardBodyMutedClass)}>
+              Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des
+              états financiers.
+            </p>
           </div>
         </div>
       </div>
     )
   }
 
-  const mainContent = (
-    <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-      {/* Header */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">{title || "Sommaire"}</h2>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                <span className="font-medium">{getHorizonText()}</span>
-                <span className="text-slate-400">•</span>
-                {subDivisionId && divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
-                  </>
-                ) : divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                  </>
-                ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
-                ) : (
-                  <span className="truncate">Toutes les sociétés</span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+  return (
+    <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+      <div className={dashboardCardRingClass} aria-hidden />
+      <div className="relative w-full min-w-0">
+        {renderCardHeader()}
 
-      {/* Table */}
-      <div className="overflow-x-auto bg-white">
-        <table className="w-full">
+        {isStructureStudio ? (
+          <StatementStructureStudio
+            embedded
+            companyId={companyId!}
+            statementType="cash-flow"
+            onSaved={onCashFlowStructureSaved}
+            onClose={() => setStructureEditMode(false)}
+          />
+        ) : (
+          <>
+            <div className="min-w-0 overflow-x-auto bg-white">
+              <table className="w-full min-w-full border-collapse">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Poste</th>
+            <tr className="border-b-2 border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80">
+              <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900 w-2/5 whitespace-nowrap">Poste</th>
               {view === "current" && (
                 <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Montant</th>
               )}
@@ -534,7 +645,13 @@ export function CashFlowSummary({
               {view === "years" && (
                 <>
                   {getYearLabels().map((label, idx) => (
-                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
+                    <th
+                      key={idx}
+                      className={cn(
+                        "px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap",
+                        isForecastSection && idx === 0 ? "bg-slate-50" : ""
+                      )}
+                    >
                       {label}
                     </th>
                   ))}
@@ -546,23 +663,41 @@ export function CashFlowSummary({
             {data.map((row, idx) => {
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
-              const isBoldRow = shouldBeBold(row.label, row)
+              const isBoldRow = !!row.isBold
               const displayLabel = row.label ? capitalizeFirst(row.label) : ""
               const isSpacer = row.label === ""
-              const shouldHideAmounts = isSpacer || !!row.isSection
-              
-              // Check if next row is a key result line
+              const hasLiaisonCode = row.hasLiaisonCode !== undefined ? row.hasLiaisonCode : true
+              const shouldHideAmounts = isSpacer || !hasLiaisonCode || !!row.isSection
+              const showSeparatorAbove = isTruthySeparatorAbove(row.separatorAbove)
+
               const nextRow = idx < data.length - 1 ? data[idx + 1] : null
-              const nextRowLabel = nextRow?.label?.toLowerCase() || ""
               const nextRowIsKeyResult = nextRow && nextRow.isResult
 
               return (
-                <tr key={idx} className={cn(
-                  "border-b",
-                  row.label === "" ? "h-2 border-slate-200" : "",
-                  nextRowIsKeyResult ? "border-slate-900 border-b-2" : "border-slate-200"
-                )}>
-                  <td className={`px-6 py-3 ${isBoldRow ? "font-bold text-slate-900" : "text-slate-700"} ${row.indent ? "pl-12" : ""}`}>
+                <Fragment key={`${row.label}-${idx}`}>
+                  {showSeparatorAbove && (
+                    <tr aria-hidden>
+                      <td
+                        colSpan={summaryTableColumnCount}
+                        className="border-0 p-0 align-top leading-none border-t border-t-slate-600"
+                      />
+                    </tr>
+                  )}
+                  <tr
+                    className={cn(
+                      "border-b",
+                      isSpacer ? "h-2 border-b border-b-slate-200" : "border-b border-b-slate-200",
+                      !isSpacer && "hover:bg-slate-50/90",
+                      nextRowIsKeyResult && "border-slate-900 border-b-2"
+                    )}
+                  >
+                  <td
+                    className={cn(
+                      "px-6 py-3 whitespace-nowrap",
+                      isBoldRow ? "font-bold text-slate-900" : "text-slate-700",
+                      row.indent ? "pl-12" : ""
+                    )}
+                  >
                     {displayLabel}
                   </td>
 
@@ -740,30 +875,28 @@ export function CashFlowSummary({
                   )}
                   {view === "years" && row.trendValues && (
                     <>
-                      {row.trendValues.map((value, valueIdx) => {
-                        const isForecastSection = title === "Flux de trésorerie pro forma"
-                        return (
+                      {row.trendValues.map((value, valueIdx) => (
                           <td
                             key={valueIdx}
                             className={cn(
                               "px-4 py-3 text-right",
                               isBoldRow ? "font-semibold font-bold" : "text-slate-500",
                               shouldHideAmounts ? "text-white" : "",
-                              isForecastSection && valueIdx === 0 && !shouldHideAmounts ? "bg-slate-50" : ""
+                              isForecastSection && valueIdx === 0 ? "bg-slate-50" : ""
                             )}
                           >
                             {value !== 0 ? formatCurrency(value) : "-"}
                           </td>
-                        )
-                      })}
+                      ))}
                     </>
                   )}
                   {/* Empty cells for spacer rows in trend views */}
                   {(view === "12months" || view === "quarters" || view === "years") && !row.trendValues && (
                     <>
-                      {Array.from({ length: view === "12months" ? 12 : view === "quarters" ? 5 : 6 }).map((_, idx) => {
-                        const isForecastSection = title === "Flux de trésorerie pro forma"
-                        return (
+                      {Array.from({
+                        length:
+                          view === "12months" ? 12 : view === "quarters" ? 5 : isForecastSection ? forecastYearColumnCount : 6,
+                      }).map((_, idx) => (
                           <td 
                             key={idx} 
                             className={cn(
@@ -773,28 +906,26 @@ export function CashFlowSummary({
                           >
                             -
                           </td>
-                        )
-                      })}
+                      ))}
                     </>
                   )}
                 </tr>
+                </Fragment>
               )
             })}
           </tbody>
         </table>
-      </div>
+            </div>
 
-      {/* Footer note */}
-      <div className="bg-slate-50 px-8 py-4 border-t border-slate-200">
-        <p className="text-xs text-slate-500">Note: Les données affichées sont à titre informatif. Consulter les états financiers audités pour les montants officiels.</p>
+            <div className="border-t border-slate-200 bg-slate-50/90 px-6 py-4 sm:px-7">
+              <p className={cn("text-xs", dashboardCardBodyMutedClass)}>
+                Note: Les données affichées sont à titre informatif. Consulter les états financiers audités pour les
+                montants officiels.
+              </p>
+            </div>
+          </>
+        )}
       </div>
-    </div>
-  )
-
-  return (
-    <div>
-      {renderParametresTrigger()}
-      {mainContent}
     </div>
   )
 }

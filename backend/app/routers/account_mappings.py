@@ -9,6 +9,10 @@ from app.models.account_mapping import AccountMapping, Product
 from app.models.company import Company
 from app.models.standard_link_code import StandardLinkCode
 from app.models.user import User
+from app.services.standard_link_code_utils import (
+    NET_INCOME_BALANCE_LINK_CODE,
+    is_mappable_standard_link_code,
+)
 from app.schemas.account_mapping import (
     AccountMappingListResponse,
     AccountMappingResponse,
@@ -90,12 +94,13 @@ def upsert_account_mappings(
     if requested_codes:
         valid_leaf_codes = {
             row.code
-            for row in db.query(StandardLinkCode.code)
+            for row in db.query(StandardLinkCode)
             .filter(
                 StandardLinkCode.code.in_(requested_codes),
                 StandardLinkCode.is_leaf.is_(True),
             )
             .all()
+            if is_mappable_standard_link_code(row.code, row.is_leaf, row.family)
         }
         invalid = sorted(requested_codes - valid_leaf_codes)
         if invalid:
