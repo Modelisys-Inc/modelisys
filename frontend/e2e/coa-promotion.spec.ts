@@ -20,7 +20,7 @@ async function setupAuth(page: Page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        user: { id: "u1", email: "u@e.com", full_name: "Test", is_active: true, created_at: "2026-01-01T00:00:00Z" },
+        user: { id: "u1", email: "u@e.com", full_name: "Test", is_active: true, is_superadmin: true, created_at: "2026-01-01T00:00:00Z" },
         organizations: [{ id: "o1", name: "Org", slug: "org", role: "admin" }],
       }),
     }),

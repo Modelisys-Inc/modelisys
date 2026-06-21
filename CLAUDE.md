@@ -272,8 +272,9 @@ the hook is UX only.
   global code (`link_to_existing_code`) or publishes a NEW global code additively
   as a fresh `CoaVersion` (`app/services/coa_promotion.py`); `POST .../{id}/reject`
   drops it from the queue. Promotion sets `promoted_to_standard_code`. Never
-  auto-shares. Frontend: `CoaPromotionQueue` at `/settings/coa-promotion`
-  (e2e `frontend/e2e/coa-promotion.spec.ts`).
+  auto-shares. **Superadmin-only** (it writes the shared global chart) — the queue
+  lists pending candidates across all orgs. Frontend: `CoaPromotionQueue` at
+  `/settings/coa-promotion` (superadmin-gated; e2e `frontend/e2e/coa-promotion.spec.ts`).
 - **Versioning (lightweight):** `coa_versions` (model `CoaVersion`) is an audit
   history — one row per seed/publish run; current version = `max(version)`.
   `Company.coa_version` stamps the chart cohort a company was created under.

@@ -4,10 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import require_superadmin
 from app.models.company import Company
 from app.models.company_link_code import CompanyLinkCode
-from app.models.user import User, UserOrganization
+from app.models.user import User
 from app.schemas.coa_promotion import (
     GlobalMatchSuggestion,
     PromoteRequest,
@@ -17,20 +17,16 @@ from app.schemas.coa_promotion import (
 )
 from app.services import coa_promotion
 
+# Promotion writes to the GLOBAL chart of accounts (shared by every org), so it is
+# platform curation — superadmin only. Org admins manage their own companies, not
+# the shared registry.
 router = APIRouter(prefix="/api/coa/promotion-candidates", tags=["coa-promotion"])
 
 
-def _get_candidate_for_user(db: Session, user: User, candidate_id: uuid.UUID) -> CompanyLinkCode:
-    """Fetch a custom code the user may curate (its company is in the user's org)."""
+def _get_candidate(db: Session, candidate_id: uuid.UUID) -> CompanyLinkCode:
+    """Fetch any custom code by id (superadmin is platform-wide)."""
     candidate = (
-        db.query(CompanyLinkCode)
-        .join(Company, Company.id == CompanyLinkCode.company_id)
-        .join(UserOrganization, UserOrganization.organization_id == Company.organization_id)
-        .filter(
-            CompanyLinkCode.id == candidate_id,
-            UserOrganization.user_id == user.id,
-        )
-        .first()
+        db.query(CompanyLinkCode).filter(CompanyLinkCode.id == candidate_id).first()
     )
     if candidate is None:
         raise HTTPException(status_code=404, detail="Candidat de promotion introuvable")
@@ -39,19 +35,15 @@ def _get_candidate_for_user(db: Session, user: User, candidate_id: uuid.UUID) ->
 
 @router.get("", response_model=PromotionCandidateList)
 def list_promotion_candidates(
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(require_superadmin),
     db: Session = Depends(get_db),
 ):
-    """List pending tenant-local codes (across the user's org) awaiting curation,
+    """List all pending tenant-local codes awaiting curation (across every org),
     each with a duplicate-suggestion by rollup signature."""
     rows = (
         db.query(CompanyLinkCode, Company.name)
         .join(Company, Company.id == CompanyLinkCode.company_id)
-        .join(UserOrganization, UserOrganization.organization_id == Company.organization_id)
-        .filter(
-            UserOrganization.user_id == current_user.id,
-            CompanyLinkCode.promotion_status == "pending",
-        )
+        .filter(CompanyLinkCode.promotion_status == "pending")
         .order_by(CompanyLinkCode.family, CompanyLinkCode.code)
         .all()
     )
@@ -88,11 +80,11 @@ def list_promotion_candidates(
 def promote_candidate(
     candidate_id: uuid.UUID,
     payload: PromoteRequest,
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(require_superadmin),
     db: Session = Depends(get_db),
 ):
     """Promote a candidate: link it to an existing global code, or publish a new one."""
-    candidate = _get_candidate_for_user(db, current_user, candidate_id)
+    candidate = _get_candidate(db, candidate_id)
     if candidate.promotion_status == "promoted":
         raise HTTPException(status_code=409, detail="Ce code a déjà été promu")
 
@@ -124,10 +116,10 @@ def promote_candidate(
 @router.post("/{candidate_id}/reject", status_code=status.HTTP_204_NO_CONTENT)
 def reject_promotion_candidate(
     candidate_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(require_superadmin),
     db: Session = Depends(get_db),
 ):
     """Mark a candidate as company-specific so it leaves the curation queue."""
-    candidate = _get_candidate_for_user(db, current_user, candidate_id)
+    candidate = _get_candidate(db, candidate_id)
     coa_promotion.reject_candidate(db, candidate)
     db.commit()

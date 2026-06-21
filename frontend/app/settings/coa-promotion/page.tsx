@@ -1,8 +1,9 @@
 "use client"
 
-import { GitMerge } from "lucide-react"
+import { GitMerge, ShieldAlert, Loader2 } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { CoaPromotionQueue } from "@/components/coa-promotion-queue"
+import { useUser } from "@/hooks/use-user"
 import { cn } from "@/lib/utils"
 import {
   dashboardCardFrameStaticClass,
@@ -14,6 +15,35 @@ import {
 } from "@/lib/dashboard-card-style"
 
 export default function CoaPromotionPage() {
+  const { user: userInfo, loading } = useUser()
+  const isSuperadmin = !!userInfo?.user?.is_superadmin
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <DashboardHeader title="Modelisys" />
+        <div className="flex min-h-[60vh] items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+        </div>
+      </div>
+    )
+  }
+
+  if (!isSuperadmin) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <DashboardHeader title="Modelisys" />
+        <main className="mx-auto max-w-2xl px-6 py-20 text-center">
+          <ShieldAlert className="mx-auto mb-4 h-10 w-10 text-amber-500" />
+          <h1 className="mb-2 text-2xl font-semibold text-slate-900">Accès réservé</h1>
+          <p className="text-slate-500">
+            La promotion de codes vers la charte globale est réservée aux super-administrateurs.
+          </p>
+        </main>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
