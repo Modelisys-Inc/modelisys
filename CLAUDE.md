@@ -215,8 +215,15 @@ Grant management (admin-only) lives on the org members API
 (`/api/organizations/{org_id}/members`): list/invite/update-role/remove plus
 `PATCH .../{user_id}` for the `all_companies` toggle and
 `PUT .../{user_id}/companies` to set per-company grants. Frontend:
-`/settings/users` (the "Accès" dialog per member). Not yet built: superadmin
-global-code CRUD, and hiding edit controls for viewers in the rest of the UI.
+`/settings/users` (the "Accès" dialog per member).
+
+Superadmin global-code CRUD (the only writes to the shared chart): `POST/PATCH/DELETE
+/api/standard-link-codes` gated by `require_superadmin` (`app/services/coa_admin.py`)
+— create is additive + versioned, delete tombstones (never hard-deletes), edits are
+in-place metadata. `is_superadmin` is exposed on `/api/auth/me`. Frontend:
+`/settings/standard-codes` (superadmin-only). This retires the MO.xlsx seed for
+ongoing changes. Not yet built: hiding edit controls for viewers across the rest
+of the UI.
 
 ### Trial balance storage
 

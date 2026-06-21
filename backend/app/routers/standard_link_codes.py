@@ -1,11 +1,19 @@
 from collections import defaultdict
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.dependencies import require_superadmin
 from app.models.standard_link_code import StandardLinkCode
-from app.schemas.standard_link_code import StandardLinkCodeFamilyGroup, StandardLinkCodeResponse
+from app.models.user import User
+from app.schemas.standard_link_code import (
+    StandardLinkCodeCreate,
+    StandardLinkCodeFamilyGroup,
+    StandardLinkCodeResponse,
+    StandardLinkCodeUpdate,
+)
+from app.services import coa_admin
 
 router = APIRouter(prefix="/api/standard-link-codes", tags=["standard-link-codes"])
 
@@ -87,4 +95,60 @@ def get_standard_link_code(code: str, db: Session = Depends(get_db)):
     record = db.query(StandardLinkCode).filter(StandardLinkCode.code == code.upper()).first()
     if not record:
         raise HTTPException(status_code=404, detail=f"Code '{code}' not found")
+    return StandardLinkCodeResponse.model_validate(record)
+
+
+# --- Superadmin global-code administration -----------------------------------
+
+@router.post("", response_model=StandardLinkCodeResponse, status_code=status.HTTP_201_CREATED)
+def create_standard_link_code(
+    payload: StandardLinkCodeCreate,
+    _: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Publish a new global code (superadmin only). Additive + versioned."""
+    try:
+        record = coa_admin.create_standard_code(db, **payload.model_dump())
+    except coa_admin.CoaAdminError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    db.commit()
+    db.refresh(record)
+    return StandardLinkCodeResponse.model_validate(record)
+
+
+@router.patch("/{code}", response_model=StandardLinkCodeResponse)
+def update_standard_link_code(
+    code: str,
+    payload: StandardLinkCodeUpdate,
+    _: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Edit a global code's metadata in place (superadmin only)."""
+    try:
+        record = coa_admin.update_standard_code(db, code, **payload.model_dump())
+    except coa_admin.CoaAdminError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    db.commit()
+    db.refresh(record)
+    return StandardLinkCodeResponse.model_validate(record)
+
+
+@router.delete("/{code}", response_model=StandardLinkCodeResponse)
+def deprecate_standard_link_code(
+    code: str,
+    reactivate: bool = False,
+    _: User = Depends(require_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Deprecate (tombstone) a global code, or reactivate with ?reactivate=true.
+    Never hard-deletes, so historical references stay resolvable."""
+    try:
+        if reactivate:
+            record = coa_admin.reactivate_standard_code(db, code)
+        else:
+            record = coa_admin.deprecate_standard_code(db, code)
+    except coa_admin.CoaAdminError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    db.commit()
+    db.refresh(record)
     return StandardLinkCodeResponse.model_validate(record)

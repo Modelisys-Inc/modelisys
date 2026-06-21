@@ -19,6 +19,7 @@ class StandardLinkCodeResponse(BaseModel):
     projections: str | None
     is_leaf: bool
     sort_order: int
+    is_active: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -34,3 +35,31 @@ class StandardLinkCodeFamilyGroup(BaseModel):
     family: str
     account_type: str | None
     codes: list[StandardLinkCodeResponse]
+
+
+class StandardLinkCodeCreate(BaseModel):
+    code: str
+    family: str
+    parent_code: str | None = None
+    label_account: str | None = None
+    label_sub_account: str | None = None
+    account_type: str | None = None
+    account_sub_type: str | None = None
+    variable_or_fixed: str | None = None
+    ft_category: str | None = None
+    ft_line_item: str | None = None
+    projections: str | None = None
+    sort_order: int | None = None
+
+
+class StandardLinkCodeUpdate(BaseModel):
+    parent_code: str | None = None
+    label_account: str | None = None
+    label_sub_account: str | None = None
+    account_type: str | None = None
+    account_sub_type: str | None = None
+    variable_or_fixed: str | None = None
+    ft_category: str | None = None
+    ft_line_item: str | None = None
+    projections: str | None = None
+    sort_order: int | None = None

@@ -179,6 +179,7 @@ export interface UserInfo {
     email: string
     full_name: string
     is_active: boolean
+    is_superadmin?: boolean
     created_at: string
   }
   organizations: Array<{
@@ -1941,6 +1942,7 @@ export type StandardLinkCode = {
   projections: string | null
   is_leaf: boolean
   sort_order: number
+  is_active?: boolean
   label: string
 }
 
@@ -2071,6 +2073,47 @@ export async function rejectPromotionCandidate(candidateId: string): Promise<voi
   await apiFetch<void>(`/api/coa/promotion-candidates/${candidateId}/reject`, {
     method: "POST",
   })
+}
+
+// --- Superadmin: global chart-of-accounts administration ---
+
+export type StandardLinkCodeCreate = {
+  code: string
+  family: string
+  parent_code?: string | null
+  label_account?: string | null
+  label_sub_account?: string | null
+  account_type?: string | null
+  ft_category?: string | null
+  variable_or_fixed?: string | null
+}
+
+/** Create a global standard code (superadmin only). */
+export async function createStandardLinkCode(payload: StandardLinkCodeCreate): Promise<StandardLinkCode> {
+  return apiFetch<StandardLinkCode>("/api/standard-link-codes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+/** Edit a global code's metadata (superadmin only). */
+export async function updateStandardLinkCode(
+  code: string,
+  payload: Partial<StandardLinkCodeCreate>,
+): Promise<StandardLinkCode> {
+  return apiFetch<StandardLinkCode>(`/api/standard-link-codes/${encodeURIComponent(code)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  })
+}
+
+/** Deprecate (tombstone) or reactivate a global code (superadmin only). */
+export async function setStandardLinkCodeActive(code: string, active: boolean): Promise<StandardLinkCode> {
+  const qs = active ? "?reactivate=true" : ""
+  return apiFetch<StandardLinkCode>(
+    `/api/standard-link-codes/${encodeURIComponent(code)}${qs}`,
+    { method: "DELETE" },
+  )
 }
 
 export async function saveStatementChartSlot(
