@@ -22,6 +22,7 @@ import {
   type TrialBalanceData,
   type TrialBalanceUploadPreview,
 } from "@/lib/api"
+import { usePermissions } from "@/hooks/use-permissions"
 import { cn } from "@/lib/utils"
 import {
   dashboardCardFrameStaticClass,
@@ -92,6 +93,7 @@ function mapTrialBalanceAccounts(data: TrialBalanceData): TrialBalanceAccount[] 
 export default function TrialBalancePage() {
   const params = useParams()
   const router = useRouter()
+  const { canEdit } = usePermissions()
   const companyId = params.id as string
   const [company, setCompany] = useState<Company | null>(null)
   const [accounts, setAccounts] = useState<TrialBalanceAccount[]>([])
@@ -575,6 +577,7 @@ export default function TrialBalancePage() {
                       </p>
                     </div>
                   </div>
+                  {canEdit && (
                   <div className="flex shrink-0 flex-row items-center gap-2">
                     <Button
                       type="button"
@@ -605,6 +608,7 @@ export default function TrialBalancePage() {
                       Importer Excel
                     </Button>
                   </div>
+                  )}
                 </div>
               </div>
 

@@ -11,6 +11,7 @@ import {
   listCompanyLinkCodes,
   type CompanyLinkCode,
 } from "@/lib/api"
+import { usePermissions } from "@/hooks/use-permissions"
 import { cn } from "@/lib/utils"
 
 const FAMILY_OPTIONS: { value: string; label: string }[] = [
@@ -30,6 +31,7 @@ const FAMILY_OPTIONS: { value: string; label: string }[] = [
 ]
 
 export function CompanyCustomLinkCodes({ companyId }: { companyId: string }) {
+  const { canEdit } = usePermissions()
   const [codes, setCodes] = useState<CompanyLinkCode[]>([])
   const [loading, setLoading] = useState(true)
   const [family, setFamily] = useState("EXP")
@@ -98,6 +100,7 @@ export function CompanyCustomLinkCodes({ companyId }: { companyId: string }) {
         </div>
       </div>
 
+      {canEdit && (
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <div className="sm:w-72">
           <label className="mb-1 block text-xs font-medium text-slate-600">Famille</label>
@@ -137,6 +140,7 @@ export function CompanyCustomLinkCodes({ companyId }: { companyId: string }) {
           Créer un code
         </Button>
       </div>
+      )}
 
       {errorMsg && <p className="mt-3 text-sm text-red-600">{errorMsg}</p>}
 
@@ -165,17 +169,19 @@ export function CompanyCustomLinkCodes({ companyId }: { companyId: string }) {
                     <td className="px-4 py-2 text-sm text-slate-700">{c.label}</td>
                     <td className="px-4 py-2 font-mono text-xs text-slate-500">{c.family}</td>
                     <td className="px-4 py-2 text-center">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 text-slate-400 hover:text-red-600"
-                        onClick={() => void handleDelete(c)}
-                        title="Supprimer ce code personnalisé"
-                        aria-label={`Supprimer le code ${c.code}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {canEdit && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-slate-400 hover:text-red-600"
+                          onClick={() => void handleDelete(c)}
+                          title="Supprimer ce code personnalisé"
+                          aria-label={`Supprimer le code ${c.code}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 ))}
