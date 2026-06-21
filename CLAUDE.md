@@ -211,6 +211,13 @@ Enforcement is centralized:
 - `require_org_admin` / `require_superadmin` gate org-admin and platform actions.
 - `list_companies` is role-scoped; `create_company` + division CRUD are admin-only.
 
+Grant management (admin-only) lives on the org members API
+(`/api/organizations/{org_id}/members`): list/invite/update-role/remove plus
+`PATCH .../{user_id}` for the `all_companies` toggle and
+`PUT .../{user_id}/companies` to set per-company grants. Frontend:
+`/settings/users` (the "Accès" dialog per member). Not yet built: superadmin
+global-code CRUD, and hiding edit controls for viewers in the rest of the UI.
+
 ### Trial balance storage
 
 - `trial_balance_entries` is **RANGE-partitioned by `fiscal_year`** in PostgreSQL

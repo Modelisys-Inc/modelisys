@@ -1562,6 +1562,8 @@ export interface OrgMember {
   email: string
   full_name: string
   role: string
+  all_companies: boolean
+  company_ids: string[]
   created_at: string
 }
 
@@ -1590,6 +1592,28 @@ export async function updateMemberRole(
   return apiFetch<OrgMember>(
     `/api/organizations/${orgId}/members/${userId}`,
     { method: "PATCH", body: { role } }
+  )
+}
+
+export async function updateMemberAllCompanies(
+  orgId: string,
+  userId: string,
+  allCompanies: boolean
+): Promise<OrgMember> {
+  return apiFetch<OrgMember>(
+    `/api/organizations/${orgId}/members/${userId}`,
+    { method: "PATCH", body: { all_companies: allCompanies } }
+  )
+}
+
+export async function setMemberCompanies(
+  orgId: string,
+  userId: string,
+  companyIds: string[]
+): Promise<OrgMember> {
+  return apiFetch<OrgMember>(
+    `/api/organizations/${orgId}/members/${userId}/companies`,
+    { method: "PUT", body: { company_ids: companyIds } }
   )
 }
 
