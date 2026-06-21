@@ -129,7 +129,7 @@ def test_company_not_found(client, auth_headers):
 
 def test_unauthenticated_access(client):
     response = client.get("/api/companies")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_create_company_seeds_default_statement_structures(client, auth_headers):

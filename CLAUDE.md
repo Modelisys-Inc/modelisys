@@ -226,10 +226,10 @@ ongoing changes.
 
 Frontend role-awareness: the `usePermissions()` hook (`hooks/use-permissions.ts`)
 exposes `canEdit` (false for viewers); edit controls are hidden for viewers on
-the main data-entry surfaces (mapping, trial balance, custom link codes). The
-backend is the source of truth (viewer writes → 403); the hook is UX only. Some
-secondary surfaces (budgets/notes/projections editors) still show controls — a
-viewer clicking them gets a 403, harmless but a polish follow-up.
+mapping, trial balance, custom link codes, notes (note-modal), and the company
+settings page (name/fiscal/currency/cumulative-TB + division & sub-division
+CRUD + delete-company). The backend is the source of truth (viewer writes → 403);
+the hook is UX only.
 
 ### Trial balance storage
 

@@ -98,7 +98,7 @@ def test_me_authenticated(client, auth_headers):
 
 def test_me_unauthenticated(client):
     response = client.get("/api/auth/me")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_me_invalid_token(client):

@@ -236,4 +236,4 @@ def test_budgets_company_not_found(client, auth_headers):
 def test_budgets_unauthenticated(client):
     fake_id = str(uuid.uuid4())
     response = client.get(f"/api/companies/{fake_id}/budgets")
-    assert response.status_code == 403
+    assert response.status_code == 401
