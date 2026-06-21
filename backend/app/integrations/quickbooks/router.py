@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.integrations.quickbooks import oauth
 from app.integrations.quickbooks import service as qbo_service
 from app.integrations.quickbooks.client import QBOClientError
@@ -35,21 +35,15 @@ from app.schemas.quickbooks import (
 router = APIRouter(prefix="/api/quickbooks", tags=["quickbooks"])
 
 
-def _get_company_for_user(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if company is None:
-        raise HTTPException(status_code=404, detail="Company not found")
-    membership = (
-        db.query(UserOrganization)
-        .filter(
-            UserOrganization.user_id == user.id,
-            UserOrganization.organization_id == company.organization_id,
-        )
-        .first()
-    )
-    if membership is None:
-        raise HTTPException(status_code=403, detail="Not authorized for this company")
-    return company
+def _get_company_for_user(
+    db: Session, user: User, company_id: uuid.UUID, *, require_write: bool = False
+) -> Company:
+    """Authorize QBO access via the central RBAC gate (read by default).
+
+    QBO import is an edit operation, so commit/disconnect pass require_write=True
+    (blocks viewers / users without an edit grant).
+    """
+    return verify_company_access(db, user, company_id, require_write=require_write)
 
 
 def _require_active_connection(db: Session, company_id: uuid.UUID) -> QuickBooksConnection:
@@ -163,7 +157,7 @@ def disconnect_connection(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _get_company_for_user(db, current_user, company_id)
+    company = _get_company_for_user(db, current_user, company_id, require_write=True)
     conn = (
         db.query(QuickBooksConnection)
         .filter(QuickBooksConnection.company_id == company.id)
@@ -226,7 +220,7 @@ def commit_trial_balance_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _get_company_for_user(db, current_user, company_id)
+    company = _get_company_for_user(db, current_user, company_id, require_write=True)
     conn = _require_active_connection(db, company.id)
     months = _validate_months(body.months)
     try:

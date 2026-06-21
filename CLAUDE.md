@@ -188,6 +188,29 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
 - Cash flow is derived from income statement + balance sheet deltas
 - See `docs/plans/` for detailed design documents
 
+### Authorization (RBAC)
+
+Roles (see `app/dependencies.py`):
+- **superadmin** — `User.is_superadmin` (platform staff): full access to every org,
+  and the only role allowed to manage the global chart of accounts.
+- **admin** — `UserOrganization.role = admin`: full read+write on all companies in
+  their org; manages company entities (create/update/delete + divisions) and
+  (later) grants access to others.
+- **user** — `role = member`: read+write only on companies granted via
+  `user_company_access`, or all org companies if `UserOrganization.all_companies`.
+- **viewer** — `role = viewer`: read-only on granted companies (writes → 403).
+
+Enforcement is centralized:
+- `verify_company_access(db, user, company_id, require_write=False)` is the single
+  gate — returns 404 for no-access (never leaks existence), 403 for a viewer write.
+  Every company-scoped read endpoint calls it.
+- `enforce_company_write` is a router-level dependency attached in `main.py` to the
+  company-scoped data routers: it rejects any non-safe HTTP method (write) by
+  viewers / ungranted users, covering all current and future mutations. (QBO is
+  gated explicitly instead, because it has an unauthenticated OAuth callback.)
+- `require_org_admin` / `require_superadmin` gate org-admin and platform actions.
+- `list_companies` is role-scoped; `create_company` + division CRUD are admin-only.
+
 ### Trial balance storage
 
 - `trial_balance_entries` is **RANGE-partitioned by `fiscal_year`** in PostgreSQL

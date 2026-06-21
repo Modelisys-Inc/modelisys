@@ -1,4 +1,4 @@
-from app.models.user import User, UserOrganization
+from app.models.user import User, UserOrganization, UserCompanyAccess
 from app.models.organization import Organization
 from app.models.company import Company, Division, SubDivision
 from app.models.customer import Customer
@@ -21,6 +21,7 @@ from app.models.coa_version import CoaVersion
 __all__ = [
     "User",
     "UserOrganization",
+    "UserCompanyAccess",
     "Organization",
     "Company",
     "Division",
