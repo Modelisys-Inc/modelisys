@@ -124,7 +124,7 @@ def test_account_mappings_company_not_found(client, auth_headers):
 def test_account_mappings_unauthenticated(client):
     fake_id = str(uuid.uuid4())
     response = client.get(f"/api/companies/{fake_id}/account-mappings")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 # --- Products Tests ---
@@ -191,4 +191,4 @@ def test_products_company_not_found(client, auth_headers):
 def test_products_unauthenticated(client):
     fake_id = str(uuid.uuid4())
     response = client.get(f"/api/companies/{fake_id}/products")
-    assert response.status_code == 403
+    assert response.status_code == 401

@@ -5,13 +5,18 @@ from sqlalchemy import desc, func
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import (
+    get_current_user,
+    get_membership,
+    require_org_admin,
+    verify_company_access,
+)
 from app.models.coa_version import CoaVersion
 from app.models.company import Company, Division, SubDivision
 from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.note import Note
 from app.models.trial_balance import TrialBalanceEntry
-from app.models.user import User, UserOrganization
+from app.models.user import User, UserCompanyAccess, UserOrganization, UserRole
 from app.services.statement_structure_defaults import DEFAULT_CASH_FLOW
 from app.services.statement_template import build_all_structures
 from app.schemas.company import (
@@ -69,6 +74,19 @@ def list_companies(
 ):
     organization_id = _get_user_org_id(current_user, db, org_id)
     base_query = db.query(Company).filter(Company.organization_id == organization_id)
+
+    # Role-aware scoping: superadmin / org-admin / all_companies see every company
+    # in the org; members & viewers see only the companies granted to them.
+    if not current_user.is_superadmin:
+        membership = get_membership(db, current_user, organization_id)
+        is_org_admin = membership is not None and membership.role == UserRole.ADMIN
+        has_all = membership is not None and membership.all_companies
+        if not (is_org_admin or has_all):
+            granted = db.query(UserCompanyAccess.company_id).filter(
+                UserCompanyAccess.user_id == current_user.id
+            )
+            base_query = base_query.filter(Company.id.in_(granted))
+
     total = base_query.count()
     companies = (
         base_query
@@ -102,6 +120,7 @@ def create_company(
     db: Session = Depends(get_db),
 ):
     organization_id = _get_user_org_id(current_user, db, org_id)
+    require_org_admin(db, current_user, organization_id)
 
     # Stamp the company with the current global chart-of-accounts version, so the
     # cohort its statement-structure snapshot was seeded from is traceable.
@@ -145,8 +164,8 @@ def get_company(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    org_id = _get_user_org_id(current_user, db)
-    return _get_company_or_404(db, company_id, org_id)
+    company = verify_company_access(db, current_user, company_id)
+    return _get_company_or_404(db, company_id, company.organization_id)
 
 
 @router.get("/{company_id}/portal-summary", response_model=CompanyPortalSummaryResponse)
@@ -156,8 +175,8 @@ def get_company_portal_summary(
     db: Session = Depends(get_db),
 ):
     """Données agrégées pour le panneau « Mes sociétés » (BV, notes, fiche société)."""
-    org_id = _get_user_org_id(current_user, db)
-    company = _get_company_or_404(db, company_id, org_id)
+    company = verify_company_access(db, current_user, company_id)
+    company = _get_company_or_404(db, company_id, company.organization_id)
 
     tb_row = (
         db.query(TrialBalanceEntry)
@@ -204,7 +223,9 @@ def update_company(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    org_id = _get_user_org_id(current_user, db)
+    company = verify_company_access(db, current_user, company_id)
+    require_org_admin(db, current_user, company.organization_id)
+    org_id = company.organization_id
     company = _get_company_or_404(db, company_id, org_id)
 
     if request.name is not None:
@@ -226,8 +247,9 @@ def delete_company(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    org_id = _get_user_org_id(current_user, db)
-    company = _get_company_or_404(db, company_id, org_id)
+    company = verify_company_access(db, current_user, company_id)
+    require_org_admin(db, current_user, company.organization_id)
+    company = _get_company_or_404(db, company_id, company.organization_id)
     db.delete(company)
     db.commit()
 
@@ -242,6 +264,7 @@ def create_division(
     db: Session = Depends(get_db),
 ):
     org_id = _get_user_org_id(current_user, db)
+    require_org_admin(db, current_user, org_id)
     _get_company_or_404(db, company_id, org_id)
 
     division = Division(company_id=company_id, name=request.name)
@@ -269,6 +292,7 @@ def update_division(
     if not division:
         raise HTTPException(status_code=404, detail="Division not found")
     _get_company_or_404(db, division.company_id, org_id)
+    require_org_admin(db, current_user, org_id)
 
     division.name = request.name
     db.commit()
@@ -287,6 +311,7 @@ def delete_division(
     if not division:
         raise HTTPException(status_code=404, detail="Division not found")
     _get_company_or_404(db, division.company_id, org_id)
+    require_org_admin(db, current_user, org_id)
 
     db.delete(division)
     db.commit()
@@ -306,6 +331,7 @@ def create_sub_division(
     if not division:
         raise HTTPException(status_code=404, detail="Division not found")
     _get_company_or_404(db, division.company_id, org_id)
+    require_org_admin(db, current_user, org_id)
 
     sub = SubDivision(division_id=division_id, name=request.name)
     db.add(sub)
@@ -327,6 +353,7 @@ def update_sub_division(
         raise HTTPException(status_code=404, detail="Sub-division not found")
     division = db.query(Division).filter(Division.id == sub.division_id).first()
     _get_company_or_404(db, division.company_id, org_id)
+    require_org_admin(db, current_user, org_id)
 
     sub.name = request.name
     db.commit()
@@ -346,6 +373,7 @@ def delete_sub_division(
         raise HTTPException(status_code=404, detail="Sub-division not found")
     division = db.query(Division).filter(Division.id == sub.division_id).first()
     _get_company_or_404(db, division.company_id, org_id)
+    require_org_admin(db, current_user, org_id)
 
     db.delete(sub)
     db.commit()

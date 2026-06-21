@@ -5,6 +5,7 @@ import { X, Save, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Note, saveNote, updateNote, deleteNote, getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { formatCurrency } from "@/lib/financial-utils"
+import { usePermissions } from "@/hooks/use-permissions"
 import { cn } from "@/lib/utils"
 
 interface NoteModalProps {
@@ -54,6 +55,7 @@ export function NoteModal({
   referenceYear,
   onSave,
 }: NoteModalProps) {
+  const { canEdit } = usePermissions()
   const [content, setContent] = useState("")
   const [existingNote, setExistingNote] = useState<Note | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -236,7 +238,7 @@ export function NoteModal({
         {/* Footer */}
         <div className="border-t border-slate-200 px-6 py-4 flex items-center justify-between bg-slate-50">
           <div>
-            {existingNote && (
+            {existingNote && canEdit && (
               <Button
                 variant="ghost"
                 onClick={handleDelete}
@@ -250,16 +252,18 @@ export function NoteModal({
           </div>
           <div className="flex items-center gap-3">
             <Button variant="outline" onClick={onClose} className="border-slate-300 text-slate-700 hover:bg-slate-100">
-              Annuler
+              {canEdit ? "Annuler" : "Fermer"}
             </Button>
-            <Button
-              onClick={handleSave}
-              disabled={!content.trim() || isSaving}
-              className="bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Save className="w-4 h-4 mr-2" />
-              {isSaving ? "Enregistrement..." : existingNote ? "Mettre à jour" : "Enregistrer"}
-            </Button>
+            {canEdit && (
+              <Button
+                onClick={handleSave}
+                disabled={!content.trim() || isSaving}
+                className="bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {isSaving ? "Enregistrement..." : existingNote ? "Mettre à jour" : "Enregistrer"}
+              </Button>
+            )}
           </div>
         </div>
       </div>

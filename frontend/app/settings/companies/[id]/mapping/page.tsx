@@ -29,6 +29,7 @@ import {
   buildLinkCodeReferenceFromStructures,
   provenanceLabelFromLinkCodes,
 } from "@/lib/link-code-reference"
+import { usePermissions } from "@/hooks/use-permissions"
 import { cn } from "@/lib/utils"
 import {
   dashboardCardFrameStaticClass,
@@ -199,6 +200,7 @@ function toApiMappingEntry(m: AccountMapping) {
 export default function CompanyMappingPage() {
   const params = useParams()
   const router = useRouter()
+  const { canEdit } = usePermissions()
   const companyId = params.id as string
   const [company, setCompany] = useState<Company | null>(null)
   /** Divisions / S-divisions de la société (Information de base), même principe que le sélecteur Entité (états financiers). */
@@ -656,14 +658,16 @@ export default function CompanyMappingPage() {
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      onClick={() => setShowImportModal(true)}
-                      className="h-9 shrink-0 gap-2 rounded-xl bg-[#E0742D] px-4 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#c96526] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E0742D]/30 focus-visible:ring-offset-2"
-                    >
-                      <Upload className="h-4 w-4" />
-                      Importer Excel
-                    </Button>
+                    {canEdit && (
+                      <Button
+                        type="button"
+                        onClick={() => setShowImportModal(true)}
+                        className="h-9 shrink-0 gap-2 rounded-xl bg-[#E0742D] px-4 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#c96526] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E0742D]/30 focus-visible:ring-offset-2"
+                      >
+                        <Upload className="h-4 w-4" />
+                        Importer Excel
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -967,34 +971,38 @@ export default function CompanyMappingPage() {
                           </Select>
                         </td>
                         <td className="px-2 py-2 text-center">
-                          <div className="flex items-center justify-center gap-0.5">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className={cn(
-                                "h-8 w-8 p-0 text-slate-400 hover:text-[#E0742D]",
-                                editingLinkCodeAccountNumber === account.accountNumber &&
-                                  "text-[#E0742D] hover:text-[#c96526]",
-                              )}
-                              onClick={() => handleStartEditLinkCode(account.accountNumber)}
-                              title="Modifier le code de liaison"
-                              aria-label={`Modifier le code de liaison pour ${account.accountNumber}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0 text-slate-400 hover:text-red-600"
-                              onClick={() => void handleDeleteMappingRow(account)}
-                              title="Supprimer cette ligne"
-                              aria-label={`Supprimer le compte ${account.accountNumber}`}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
+                          {canEdit ? (
+                            <div className="flex items-center justify-center gap-0.5">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className={cn(
+                                  "h-8 w-8 p-0 text-slate-400 hover:text-[#E0742D]",
+                                  editingLinkCodeAccountNumber === account.accountNumber &&
+                                    "text-[#E0742D] hover:text-[#c96526]",
+                                )}
+                                onClick={() => handleStartEditLinkCode(account.accountNumber)}
+                                title="Modifier le code de liaison"
+                                aria-label={`Modifier le code de liaison pour ${account.accountNumber}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 text-slate-400 hover:text-red-600"
+                                onClick={() => void handleDeleteMappingRow(account)}
+                                title="Supprimer cette ligne"
+                                aria-label={`Supprimer le compte ${account.accountNumber}`}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-300">—</span>
+                          )}
                         </td>
                       </tr>
                     ))

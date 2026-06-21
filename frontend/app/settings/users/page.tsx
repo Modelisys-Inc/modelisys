@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { useUser } from "@/hooks/use-user"
 import { useOrgMembers } from "@/hooks/use-org-members"
+import { listCompanies, type Company, type OrgMember } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,12 +35,111 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
-import { Users, UserPlus, Shield, Eye, User, Trash2 } from "lucide-react"
+import { Users, UserPlus, Shield, Eye, User, Trash2, SlidersHorizontal } from "lucide-react"
 
 const ROLE_CONFIG: Record<string, { label: string; color: string; icon: typeof Shield }> = {
   admin: { label: "Admin", color: "bg-amber-100 text-amber-800 border-amber-200", icon: Shield },
   member: { label: "Membre", color: "bg-blue-100 text-blue-800 border-blue-200", icon: User },
   viewer: { label: "Lecteur", color: "bg-slate-100 text-slate-600 border-slate-200", icon: Eye },
+}
+
+function MemberAccessDialog({
+  member,
+  companies,
+  onSetAllCompanies,
+  onSetCompanies,
+}: {
+  member: OrgMember
+  companies: Company[]
+  onSetAllCompanies: (userId: string, all: boolean) => Promise<unknown>
+  onSetCompanies: (userId: string, companyIds: string[]) => Promise<unknown>
+}) {
+  const [open, setOpen] = useState(false)
+  const [all, setAll] = useState(member.all_companies)
+  const [selected, setSelected] = useState<string[]>(member.company_ids)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setAll(member.all_companies)
+      setSelected(member.company_ids)
+    }
+  }, [open, member.all_companies, member.company_ids])
+
+  const toggle = (id: string) =>
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await onSetAllCompanies(member.id, all)
+      if (!all) await onSetCompanies(member.id, selected)
+      setOpen(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1.5 text-xs text-slate-500 hover:text-emerald-700"
+          aria-label={`Gérer l'accès de ${member.full_name}`}
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          Accès
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Accès aux sociétés</DialogTitle>
+          <DialogDescription>
+            {member.full_name} — {member.role === "viewer" ? "lecture seule" : "édition"} des
+            sociétés sélectionnées.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+            <input
+              type="checkbox"
+              checked={all}
+              onChange={(e) => setAll(e.target.checked)}
+              aria-label="Toutes les sociétés"
+            />
+            Toutes les sociétés de l'organisation
+          </label>
+          {!all && (
+            <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-3" data-testid="company-grant-list">
+              {companies.length === 0 ? (
+                <p className="text-sm text-slate-400">Aucune société.</p>
+              ) : (
+                companies.map((c) => (
+                  <label key={c.id} className="flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(c.id)}
+                      onChange={() => toggle(c.id)}
+                      aria-label={c.name}
+                    />
+                    {c.name}
+                  </label>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+          <Button onClick={save} disabled={saving} className="bg-emerald-600 hover:bg-emerald-700">
+            {saving ? "Enregistrement..." : "Enregistrer"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 export default function UsersSettingsPage() {
@@ -49,7 +149,13 @@ export default function UsersSettingsPage() {
   const currentUserRole = userInfo?.organizations?.[0]?.role
   const isAdmin = currentUserRole === "admin"
 
-  const { members, loading, invite, changeRole, remove } = useOrgMembers(orgId)
+  const { members, loading, invite, changeRole, setAllCompanies, setCompanies, remove } =
+    useOrgMembers(orgId)
+
+  const [companies, setCompanies_] = useState<Company[]>([])
+  useEffect(() => {
+    if (isAdmin) listCompanies().then(setCompanies_).catch(() => setCompanies_([]))
+  }, [isAdmin])
 
   const [inviteOpen, setInviteOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState("")
@@ -234,6 +340,18 @@ export default function UsersSettingsPage() {
                       >
                         {roleConfig.label}
                       </Badge>
+                    )}
+                  </div>
+
+                  {/* Access management (member/viewer only) */}
+                  <div className="flex-shrink-0">
+                    {isAdmin && !isSelf && member.role !== "admin" && (
+                      <MemberAccessDialog
+                        member={member}
+                        companies={companies}
+                        onSetAllCompanies={setAllCompanies}
+                        onSetCompanies={setCompanies}
+                      />
                     )}
                   </div>
 

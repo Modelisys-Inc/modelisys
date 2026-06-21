@@ -5,6 +5,8 @@ import {
   listOrgMembers,
   inviteMember,
   updateMemberRole,
+  updateMemberAllCompanies,
+  setMemberCompanies,
   removeMember,
   type OrgMember,
 } from "@/lib/api"
@@ -16,6 +18,8 @@ interface UseOrgMembersReturn {
   reload: () => void
   invite: (email: string, role: string) => Promise<OrgMember>
   changeRole: (userId: string, role: string) => Promise<OrgMember>
+  setAllCompanies: (userId: string, allCompanies: boolean) => Promise<OrgMember>
+  setCompanies: (userId: string, companyIds: string[]) => Promise<OrgMember>
   remove: (userId: string) => Promise<void>
 }
 
@@ -73,6 +77,26 @@ export function useOrgMembers(orgId: string | null): UseOrgMembersReturn {
     [orgId]
   )
 
+  const setAllCompanies = useCallback(
+    async (userId: string, allCompanies: boolean) => {
+      if (!orgId) throw new Error("No organization selected")
+      const updated = await updateMemberAllCompanies(orgId, userId, allCompanies)
+      setMembers((prev) => prev.map((m) => (m.id === userId ? updated : m)))
+      return updated
+    },
+    [orgId]
+  )
+
+  const setCompanies = useCallback(
+    async (userId: string, companyIds: string[]) => {
+      if (!orgId) throw new Error("No organization selected")
+      const updated = await setMemberCompanies(orgId, userId, companyIds)
+      setMembers((prev) => prev.map((m) => (m.id === userId ? updated : m)))
+      return updated
+    },
+    [orgId]
+  )
+
   const remove = useCallback(
     async (userId: string) => {
       if (!orgId) throw new Error("No organization selected")
@@ -82,5 +106,5 @@ export function useOrgMembers(orgId: string | null): UseOrgMembersReturn {
     [orgId]
   )
 
-  return { members, loading, error, reload, invite, changeRole, remove }
+  return { members, loading, error, reload, invite, changeRole, setAllCompanies, setCompanies, remove }
 }

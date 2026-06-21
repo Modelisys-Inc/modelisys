@@ -188,6 +188,51 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
 - Cash flow is derived from income statement + balance sheet deltas
 - See `docs/plans/` for detailed design documents
 
+### Authorization (RBAC)
+
+Roles (see `app/dependencies.py`):
+- **superadmin** — `User.is_superadmin` (platform staff): full access to every org,
+  and the only role allowed to manage the global chart of accounts. Granted
+  out-of-band (not via the UI): `python -m app.scripts.set_superadmin <email>`
+  (add `--revoke` to remove).
+- **admin** — `UserOrganization.role = admin`: full read+write on all companies in
+  their org; manages company entities (create/update/delete + divisions) and
+  (later) grants access to others.
+- **user** — `role = member`: read+write only on companies granted via
+  `user_company_access`, or all org companies if `UserOrganization.all_companies`.
+- **viewer** — `role = viewer`: read-only on granted companies (writes → 403).
+
+Enforcement is centralized:
+- `verify_company_access(db, user, company_id, require_write=False)` is the single
+  gate — returns 404 for no-access (never leaks existence), 403 for a viewer write.
+  Every company-scoped read endpoint calls it.
+- `enforce_company_write` is a router-level dependency attached in `main.py` to the
+  company-scoped data routers: it rejects any non-safe HTTP method (write) by
+  viewers / ungranted users, covering all current and future mutations. (QBO is
+  gated explicitly instead, because it has an unauthenticated OAuth callback.)
+- `require_org_admin` / `require_superadmin` gate org-admin and platform actions.
+- `list_companies` is role-scoped; `create_company` + division CRUD are admin-only.
+
+Grant management (admin-only) lives on the org members API
+(`/api/organizations/{org_id}/members`): list/invite/update-role/remove plus
+`PATCH .../{user_id}` for the `all_companies` toggle and
+`PUT .../{user_id}/companies` to set per-company grants. Frontend:
+`/settings/users` (the "Accès" dialog per member).
+
+Superadmin global-code CRUD (the only writes to the shared chart): `POST/PATCH/DELETE
+/api/standard-link-codes` gated by `require_superadmin` (`app/services/coa_admin.py`)
+— create is additive + versioned, delete tombstones (never hard-deletes), edits are
+in-place metadata. `is_superadmin` is exposed on `/api/auth/me`. Frontend:
+`/settings/standard-codes` (superadmin-only). This retires the MO.xlsx seed for
+ongoing changes.
+
+Frontend role-awareness: the `usePermissions()` hook (`hooks/use-permissions.ts`)
+exposes `canEdit` (false for viewers); edit controls are hidden for viewers on
+mapping, trial balance, custom link codes, notes (note-modal), and the company
+settings page (name/fiscal/currency/cumulative-TB + division & sub-division
+CRUD + delete-company). The backend is the source of truth (viewer writes → 403);
+the hook is UX only.
+
 ### Trial balance storage
 
 - `trial_balance_entries` is **RANGE-partitioned by `fiscal_year`** in PostgreSQL
@@ -229,8 +274,9 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   global code (`link_to_existing_code`) or publishes a NEW global code additively
   as a fresh `CoaVersion` (`app/services/coa_promotion.py`); `POST .../{id}/reject`
   drops it from the queue. Promotion sets `promoted_to_standard_code`. Never
-  auto-shares. Frontend: `CoaPromotionQueue` at `/settings/coa-promotion`
-  (e2e `frontend/e2e/coa-promotion.spec.ts`).
+  auto-shares. **Superadmin-only** (it writes the shared global chart) — the queue
+  lists pending candidates across all orgs. Frontend: `CoaPromotionQueue` at
+  `/settings/coa-promotion` (superadmin-gated; e2e `frontend/e2e/coa-promotion.spec.ts`).
 - **Versioning (lightweight):** `coa_versions` (model `CoaVersion`) is an audit
   history — one row per seed/publish run; current version = `max(version)`.
   `Company.coa_version` stamps the chart cohort a company was created under.

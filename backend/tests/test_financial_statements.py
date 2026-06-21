@@ -770,7 +770,7 @@ def test_financial_statements_unauthenticated(client):
     response = client.get(
         f"/api/companies/{fake_id}/financial-statements/income-statement?fiscal_year=2024",
     )
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_balance_sheet_company_not_found(client, auth_headers):

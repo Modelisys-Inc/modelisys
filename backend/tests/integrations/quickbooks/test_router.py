@@ -43,7 +43,9 @@ def test_authorize_company_not_found(auth_client):
     assert r.status_code == 404
 
 
-def test_authorize_cross_org_returns_403(client, db, org_user_company, other_org_user):
+def test_authorize_cross_org_returns_404(client, db, org_user_company, other_org_user):
+    # Cross-org access now returns 404 (not 403) via the central RBAC gate, which
+    # deliberately does not leak the existence of companies in other orgs.
     _, _, company = org_user_company
 
     def _override():
@@ -52,7 +54,7 @@ def test_authorize_cross_org_returns_403(client, db, org_user_company, other_org
     app.dependency_overrides[get_current_user] = _override
     try:
         r = client.get(f"/api/quickbooks/authorize?company_id={company.id}")
-        assert r.status_code == 403
+        assert r.status_code == 404
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 
