@@ -89,6 +89,66 @@ export function nextAnnexIdentifier(
   return scheme === "number" ? String(next) : numberToAnnexLetters(next)
 }
 
+/**
+ * Réattribue les identifiants d'annexe selon **l'ordre d'apparition dans le
+ * rapport** (ordre du tableau structure), et non l'ordre où les cases ont été
+ * cochées. Première annexe → `A` / `1`, deuxième → `B` / `2`, etc.
+ *
+ * Détection d'un bloc d'annexe — une ligne sommaire (non `detailOnly`) dont
+ * l'annexe est activée (`isShowInDetail`), **quel que soit son `annexLetter`
+ * actuel** (qui peut être vide juste après l'activation de la case). Le bloc se
+ * prolonge sur les sous-lignes `detailOnly` contiguës qui suivent ; toutes les
+ * lignes du bloc reçoivent le même nouvel identifiant. Deux lignes sommaire non
+ * contiguës partageant aujourd'hui un identifiant deviennent **deux** annexes
+ * distinctes (un bloc contigu = une annexe). Ne mute pas l'entrée.
+ */
+export function renumberAnnexesByAppearance(
+  structure: Record<string, unknown>[],
+  scheme: AnnexScheme
+): Record<string, unknown>[] {
+  const next = cloneStructure(structure)
+  let counter = 0
+  let currentId: string | undefined
+
+  const idForCounter = (n: number): string =>
+    scheme === "number" ? String(n) : numberToAnnexLetters(n)
+
+  for (const row of next) {
+    if (isStructureRowEmptyLabel(row) || isStructureRowHidden(row)) {
+      // Espacement / ligne masquée : rompt la contiguïté du bloc en cours.
+      currentId = undefined
+      continue
+    }
+    if (isStructureRowDetailOnly(row)) {
+      // Sous-ligne détail : hérite de l'annexe du bloc en cours (si contiguë).
+      // Orpheline (aucun bloc parent contigu, ex. données héritées d'un ancien
+      // décochage sans nettoyage) : on efface la lettre périmée pour éviter qu'elle
+      // ne se rattache par erreur à une annexe renumérotée différente.
+      row.annexLetter = currentId ?? undefined
+      continue
+    }
+    // Ligne sommaire : démarre un nouveau bloc si la case « Annexe » est cochée.
+    // Critère strict `showInDetail === true` (et non le repli `isShowInDetail`) :
+    // on n'attribue pas d'identifiant aux lignes anciennes qui ne sont visibles au
+    // détail que par héritage d'un code de liaison sans case cochée.
+    // Gardé aussi par `isCodeMappingEnabled` : une ligne `showInDetail:true` mais
+    // sans mapping (ex. `defineMapping:false` issu de données importées) n'apparaît
+    // ni dans le Détail ni dans les sélecteurs de sous-lignes ; lui attribuer un
+    // identifiant créerait un « trou » de numérotation visible. Dans l'UI la case
+    // « Annexe » est désactivée tant que `isCodeMappingEnabled` est faux, donc ce
+    // garde n'exclut aucune annexe légitime cochée à la main.
+    if (row.showInDetail === true && isCodeMappingEnabled(row)) {
+      counter += 1
+      currentId = idForCounter(counter)
+      row.annexLetter = currentId
+    } else {
+      currentId = undefined
+    }
+  }
+
+  return next
+}
+
 export function cloneStructure(s: Record<string, unknown>[]): Record<string, unknown>[] {
   return JSON.parse(JSON.stringify(s)) as Record<string, unknown>[]
 }
@@ -123,7 +183,9 @@ export function newChargeRow(options?: { indent?: boolean; isBold?: boolean }): 
     hidden: false,
     separatorAbove: false,
     defineMapping: false,
-    showInDetail: true,
+    // Pas d'annexe par défaut : la ligne n'apparaît au Détail qu'après activation
+    // explicite de la case « Annexe » (aligné sur newBalanceSheetPostRow).
+    showInDetail: false,
     linkCode: "",
     annexLetter: "",
     id,
@@ -374,7 +436,6 @@ export function listAnnexLettersForDetailSubLines(structure: Record<string, unkn
     seen.add(a)
     out.push(a)
   }
-  out.sort((x, y) => compareAnnexLetters(x, y))
   return out
 }
 
@@ -395,7 +456,6 @@ export function listAnnexOptionsForDetailSubLineModal(
     const raw = String(row.label ?? "").trim()
     out.push({ letter: a, title: raw || `Annexe ${a}` })
   }
-  out.sort((x, y) => compareAnnexLetters(x.letter, y.letter))
   return out
 }
 
@@ -586,18 +646,14 @@ export function validateDuplicatePrimaryLinkCodes(structure: Record<string, unkn
 }
 
 /**
- * Champ « Lettre » : saisie uniquement si la case Annexe est activée (`showInDetail === true`),
- * et interdite pour les liaisons en addition ou soustraction. Les sous-lignes détail (`detailOnly`)
- * restent éditables pour la lettre (hors lecture seule parent).
+ * Champ « Lettre » : désormais toujours en lecture seule. L'identifiant d'annexe
+ * (lettre pour Résultats, nombre pour Bilan) est attribué automatiquement selon
+ * l'ordre d'apparition de l'annexe dans le rapport — voir
+ * {@link renumberAnnexesByAppearance}. Il n'est plus saisissable à la main, y
+ * compris pour les sous-lignes détail (`detailOnly`).
  */
-export function isAnnexLetterInputEditable(row: Record<string, unknown>): boolean {
-  if (isStructureRowEmptyLabel(row)) return false
-  if (isStructureRowHidden(row)) return false
-  if (!isCodeMappingEnabled(row)) return false
-  const m = normalizeLiaisonMode(row)
-  if (m === "sum" || m === "difference") return false
-  if (isStructureRowDetailOnly(row)) return true
-  return row.showInDetail === true
+export function isAnnexLetterInputEditable(_row: Record<string, unknown>): boolean {
+  return false
 }
 
 export function formatLiaisonCellHint(row: Record<string, unknown>): string {

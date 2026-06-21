@@ -1,10 +1,10 @@
 import { test, expect, Page } from "@playwright/test"
 
-// Verifies that checking the "Annexe" box on a structure row auto-assigns the
-// next annex identifier (next-after-highest): letters for the income statement,
-// numbers for the balance sheet. All backend calls are mocked; the structure
-// editor card is rendered by feeding it series + base rows (as in the
-// link-code spec).
+// Verifies appearance-order annex numbering: identifiers follow the order annexes
+// appear in the report (structure order), NOT the order their checkboxes were
+// ticked. Letters for the income statement, numbers for the balance sheet. The
+// "Lettre" field is read-only (assigned automatically). Stale/out-of-order
+// identifiers are normalized on load. All backend calls are mocked.
 
 const COMPANY_ID = "11111111-1111-1111-1111-111111111111"
 type StructRow = Record<string, unknown>
@@ -144,27 +144,26 @@ async function toggleAnnex(checkbox: import("@playwright/test").Locator) {
   await checkbox.dispatchEvent("click")
 }
 
-test("income statement: checking Annexe auto-assigns the next letter", async ({
+test("income statement: identifiers follow report order, not check order", async ({
   page,
 }) => {
-  // Highest existing annex is "C" → checking an un-annexed row yields "D".
+  // Row 0 is un-annexed; row 1 carries a stale high letter "Z". On load the
+  // renumber normalizes by appearance: the only annex (row 1) becomes "A".
   const structure: StructRow[] = [
     {
       label: "Revenus",
       linkCode: "4000",
       liaisonMode: "single",
       defineMapping: true,
-      showInDetail: true,
-      annexLetter: "C",
+      showInDetail: false,
     },
     {
       label: "Autres revenus",
       linkCode: "4100",
       liaisonMode: "single",
       defineMapping: true,
-      // Explicitly off so the Annexe checkbox starts unchecked (mappable rows
-      // default to shown-in-detail otherwise).
-      showInDetail: false,
+      showInDetail: true,
+      annexLetter: "Z",
     },
   ]
   await openSommaireEditor(page, "income-statement", structure, [
@@ -172,40 +171,44 @@ test("income statement: checking Annexe auto-assigns the next letter", async ({
     "Autres revenus",
   ])
 
-  // Two mappable rows → two Annexe checkboxes / annex inputs, in structure order.
   const checkboxes = page.getByRole("checkbox", {
     name: "Annexe : afficher au détail",
   })
   const annexInputs = page.getByPlaceholder("A")
   await expect(checkboxes).toHaveCount(2, { timeout: 15000 })
-  // Row 0 already carries the highest annex "C"; row 1 is un-annexed.
-  await expect(annexInputs.nth(0)).toHaveValue("C")
-  await expect(annexInputs.nth(1)).toHaveValue("")
 
-  await toggleAnnex(checkboxes.nth(1))
-  await expect(annexInputs.nth(1)).toHaveValue("D", { timeout: 10000 })
+  // Stale "Z" normalized to "A" on load; row 0 has no annex yet.
+  await expect(annexInputs.nth(0)).toHaveValue("")
+  await expect(annexInputs.nth(1)).toHaveValue("A")
+  // The "Lettre" field is read-only (assigned automatically).
+  await expect(annexInputs.nth(0)).toBeDisabled()
+  await expect(annexInputs.nth(1)).toBeDisabled()
+
+  // Enable the annex on row 0, which appears FIRST. It must become "A", bumping
+  // the previously-lettered row 1 to "B" — numbering follows position.
+  await toggleAnnex(checkboxes.nth(0))
+  await expect(annexInputs.nth(0)).toHaveValue("A", { timeout: 10000 })
+  await expect(annexInputs.nth(1)).toHaveValue("B", { timeout: 10000 })
 })
 
-test("balance sheet: checking Annexe auto-assigns the next number", async ({
+test("balance sheet: numbers follow report order, not check order", async ({
   page,
 }) => {
-  // Highest existing annex is "3" → checking an un-annexed row yields "4".
   const structure: StructRow[] = [
     {
       label: "Encaisse",
       linkCode: "1000",
       liaisonMode: "single",
       defineMapping: true,
-      showInDetail: true,
-      annexLetter: "3",
+      showInDetail: false,
     },
     {
       label: "Clients",
       linkCode: "1100",
       liaisonMode: "single",
       defineMapping: true,
-      // Explicitly off so the Annexe checkbox starts unchecked.
-      showInDetail: false,
+      showInDetail: true,
+      annexLetter: "5",
     },
   ]
   await openSommaireEditor(page, "balance-sheet", structure, [
@@ -218,10 +221,114 @@ test("balance sheet: checking Annexe auto-assigns the next number", async ({
   })
   const annexInputs = page.getByPlaceholder("A")
   await expect(checkboxes).toHaveCount(2, { timeout: 15000 })
-  // Row 0 already carries the highest annex "3"; row 1 is un-annexed.
-  await expect(annexInputs.nth(0)).toHaveValue("3")
-  await expect(annexInputs.nth(1)).toHaveValue("")
 
+  // Stale "5" normalized to "1" on load; row 0 un-annexed.
+  await expect(annexInputs.nth(0)).toHaveValue("")
+  await expect(annexInputs.nth(1)).toHaveValue("1")
+  await expect(annexInputs.nth(1)).toBeDisabled()
+
+  await toggleAnnex(checkboxes.nth(0))
+  await expect(annexInputs.nth(0)).toHaveValue("1", { timeout: 10000 })
+  await expect(annexInputs.nth(1)).toHaveValue("2", { timeout: 10000 })
+})
+
+test("disabling an annex closes the gap (renumber on uncheck)", async ({
+  page,
+}) => {
+  // Three annexes A, B, C (by appearance). Disabling the middle one (B) must
+  // renumber the trailing one so identifiers stay gap-free: A, B.
+  const structure: StructRow[] = [
+    {
+      label: "Revenus",
+      linkCode: "4000",
+      liaisonMode: "single",
+      defineMapping: true,
+      showInDetail: true,
+      annexLetter: "A",
+    },
+    {
+      label: "Autres revenus",
+      linkCode: "4100",
+      liaisonMode: "single",
+      defineMapping: true,
+      showInDetail: true,
+      annexLetter: "B",
+    },
+    {
+      label: "Produits financiers",
+      linkCode: "4200",
+      liaisonMode: "single",
+      defineMapping: true,
+      showInDetail: true,
+      annexLetter: "C",
+    },
+  ]
+  await setupAuth(page)
+  await page.route(
+    `**/api/companies/${COMPANY_ID}/statement-chart-configs**`,
+    (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ slots: [] }) }),
+  )
+  await page.route("**/api/companies/*/statement-structures/*", (route) => {
+    if (route.request().method() === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ structure }),
+      })
+    }
+    return route.continue()
+  })
+  await page.route(
+    `**/api/companies/${COMPANY_ID}/financial-statements/income-statement*`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          rows: [
+            { label: "Revenus", current: 1000, prior: 900 },
+            { label: "Autres revenus", current: 400, prior: 350 },
+            { label: "Produits financiers", current: 200, prior: 150 },
+          ],
+        }),
+      }),
+  )
+  await page.route(
+    `**/api/companies/${COMPANY_ID}/financial-statements/income-statement/series*`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          companyId: COMPANY_ID,
+          statementType: "income-statement",
+          fiscalYear: 2026,
+          periods: [{ fiscalYear: 2026, fiscalMonth: 5, label: "Mai 2026" }],
+          rows: [
+            { id: "s1", label: "Revenus", amounts: { "2026-5": 1000 }, detailRows: [] },
+            { id: "s2", label: "Autres revenus", amounts: { "2026-5": 400 }, detailRows: [] },
+            { id: "s3", label: "Produits financiers", amounts: { "2026-5": 200 }, detailRows: [] },
+          ],
+        }),
+      }),
+  )
+  await page.goto(`/financial-statements/income-statement?companyId=${COMPANY_ID}`)
+  await page.getByRole("button", { name: /^Sommaire$/ }).click({ timeout: 15000 })
+  await page.getByRole("button", { name: /^Paramètres$/ }).click({ timeout: 15000 })
+
+  const checkboxes = page.getByRole("checkbox", {
+    name: "Annexe : afficher au détail",
+  })
+  const annexInputs = page.getByPlaceholder("A")
+  await expect(checkboxes).toHaveCount(3, { timeout: 15000 })
+  await expect(annexInputs.nth(0)).toHaveValue("A")
+  await expect(annexInputs.nth(1)).toHaveValue("B")
+  await expect(annexInputs.nth(2)).toHaveValue("C")
+
+  // Uncheck the middle annex (B). Remaining annexes renumber A, B (no gap, no "C").
   await toggleAnnex(checkboxes.nth(1))
-  await expect(annexInputs.nth(1)).toHaveValue("4", { timeout: 10000 })
+  await expect(annexInputs.nth(0)).toHaveValue("A", { timeout: 10000 })
+  await expect(annexInputs.nth(1)).toHaveValue("", { timeout: 10000 })
+  await expect(annexInputs.nth(2)).toHaveValue("B", { timeout: 10000 })
 })

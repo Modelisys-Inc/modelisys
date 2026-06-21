@@ -1,11 +1,12 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.dependencies import get_current_user
+from app.models.coa_version import CoaVersion
 from app.models.company import Company, Division, SubDivision
 from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.note import Note
@@ -102,11 +103,16 @@ def create_company(
 ):
     organization_id = _get_user_org_id(current_user, db, org_id)
 
+    # Stamp the company with the current global chart-of-accounts version, so the
+    # cohort its statement-structure snapshot was seeded from is traceable.
+    current_coa_version = db.query(func.max(CoaVersion.version)).scalar()
+
     company = Company(
         organization_id=organization_id,
         name=request.name,
         fiscal_year_end=request.fiscal_year_end,
         currency=request.currency,
+        coa_version=current_coa_version,
     )
     db.add(company)
     db.flush()

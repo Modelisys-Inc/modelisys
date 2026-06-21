@@ -15,6 +15,7 @@ from app.integrations.quickbooks import oauth
 from app.integrations.quickbooks import service as qbo_service
 from app.integrations.quickbooks.client import QBOClientError
 from app.models.company import Company
+from app.models.company_link_code import CompanyLinkCode
 from app.models.quickbooks_connection import QuickBooksConnection
 from app.models.standard_link_code import StandardLinkCode
 from app.models.user import User, UserOrganization
@@ -263,13 +264,22 @@ def list_link_codes(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return all assignable (leaf) standard link codes for the QBO review picker.
+    """Return all assignable (leaf) link codes for the QBO review picker.
 
-    Previously sourced from per-company statement structures; now returns global
-    standardized codes so all companies share the same chart of accounts.
-    The company_id is kept in the path for auth scoping only.
+    Returns the global standardized codes (shared chart) unioned with this
+    company's tenant-local custom codes (company_link_codes), so a complex
+    client's private codes are also assignable during a QBO import.
     """
     _get_company_for_user(db, current_user, company_id)
+
+    _BALANCE_SHEET_FAMILIES = {"ACT", "ALT", "PCT", "PLT", "CAP"}
+
+    def _statement_type(family: str) -> str:
+        return (
+            "income_statement"
+            if family not in _BALANCE_SHEET_FAMILIES
+            else "balance_sheet"
+        )
 
     codes = (
         db.query(StandardLinkCode)
@@ -278,21 +288,38 @@ def list_link_codes(
         .all()
     )
 
-    _BALANCE_SHEET_FAMILIES = {"ACT", "ALT", "PCT", "PLT", "CAP"}
-
-    return [
+    options = [
         LinkCodeOption(
             code=c.code,
             label=c.label_sub_account or c.label_account or c.code,
-            statement_type=(
-                "income_statement"
-                if c.family not in _BALANCE_SHEET_FAMILIES
-                else "balance_sheet"
-            ),
+            statement_type=_statement_type(c.family),
             parent_id=c.parent_code,
             parent_label=c.label_account,
         )
         for c in codes
     ]
+
+    custom_codes = (
+        db.query(CompanyLinkCode)
+        .filter(
+            CompanyLinkCode.company_id == company_id,
+            CompanyLinkCode.is_leaf.is_(True),
+        )
+        .order_by(CompanyLinkCode.family, CompanyLinkCode.sort_order)
+        .all()
+    )
+
+    options.extend(
+        LinkCodeOption(
+            code=c.code,
+            label=c.label_sub_account or c.label_account or c.code,
+            statement_type=_statement_type(c.family),
+            parent_id=c.parent_code,
+            parent_label=c.label_account,
+        )
+        for c in custom_codes
+    )
+
+    return options
 
 

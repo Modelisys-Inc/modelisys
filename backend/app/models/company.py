@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, String, DateTime, ForeignKey, func
+from sqlalchemy import Boolean, Integer, String, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,6 +17,9 @@ class Company(Base):
     fiscal_year_end: Mapped[str] = mapped_column(String(5), nullable=False, default="12-31")  # MM-DD
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="CAD")
     is_cumulative_tb: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Chart-of-accounts version this company's statement structures were seeded
+    # from at creation (see CoaVersion). Null for companies created before versioning.
+    coa_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -30,6 +33,7 @@ class Company(Base):
     customers = relationship("Customer", back_populates="company", cascade="all, delete-orphan")
     suppliers = relationship("Supplier", back_populates="company", cascade="all, delete-orphan")
     statement_structures = relationship("CompanyStatementStructure", back_populates="company", cascade="all, delete-orphan")
+    link_codes = relationship("CompanyLinkCode", back_populates="company", cascade="all, delete-orphan")
     quickbooks_connection = relationship(
         "QuickBooksConnection",
         back_populates="company",

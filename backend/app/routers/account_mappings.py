@@ -7,8 +7,8 @@ from app.database import get_db
 from app.dependencies import get_current_user, verify_company_access
 from app.models.account_mapping import AccountMapping, Product
 from app.models.company import Company
-from app.models.standard_link_code import StandardLinkCode
 from app.models.user import User
+from app.services.link_code_resolver import invalid_leaf_codes
 from app.schemas.account_mapping import (
     AccountMappingListResponse,
     AccountMappingResponse,
@@ -81,23 +81,16 @@ def upsert_account_mappings(
 ):
     """Bulk upsert account mappings. Matches on account_number.
 
-    link_code, when provided, must be a leaf code in standard_link_codes.
+    link_code, when provided, must be a leaf code in the global standard chart
+    OR in this company's tenant-local overlay (company_link_codes).
     """
     verify_company_access(db, current_user, company_id)
 
-    # Validate that all provided link_codes are leaf codes in the standard chart
-    requested_codes = {e.link_code for e in entries if e.link_code}
+    # Validate that all provided link_codes are assignable leaf codes for this
+    # company (global standard chart ∪ this company's custom overlay codes).
+    requested_codes = [e.link_code for e in entries if e.link_code]
     if requested_codes:
-        valid_leaf_codes = {
-            row.code
-            for row in db.query(StandardLinkCode.code)
-            .filter(
-                StandardLinkCode.code.in_(requested_codes),
-                StandardLinkCode.is_leaf.is_(True),
-            )
-            .all()
-        }
-        invalid = sorted(requested_codes - valid_leaf_codes)
+        invalid = invalid_leaf_codes(db, company_id, requested_codes)
         if invalid:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

@@ -1941,6 +1941,114 @@ export async function listStandardLinkCodesFlat(leafOnly = false, family?: strin
   return apiFetch<StandardLinkCode[]>(`/api/standard-link-codes/flat${qs}`)
 }
 
+// ── Tenant-local custom link codes (per-company overlay) ──────────────────────
+
+export type CompanyLinkCode = StandardLinkCode & {
+  company_id: string
+  promoted_to_standard_code: string | null
+  is_custom: true
+}
+
+export type CompanyLinkCodeCreate = {
+  family: string
+  label_account?: string | null
+  label_sub_account?: string | null
+  code?: string | null
+  parent_code?: string | null
+  account_type?: string | null
+  account_sub_type?: string | null
+  variable_or_fixed?: string | null
+  ft_category?: string | null
+  ft_line_item?: string | null
+  projections?: string | null
+  statement_type?: string | null
+}
+
+/** List a company's tenant-local custom link codes. */
+export async function listCompanyLinkCodes(
+  companyId: string,
+  leafOnly = false,
+): Promise<CompanyLinkCode[]> {
+  const qs = leafOnly ? "?leaf_only=true" : ""
+  return apiFetch<CompanyLinkCode[]>(`/api/companies/${companyId}/custom-link-codes${qs}`)
+}
+
+/** Create a tenant-local custom link code (code auto-generated when omitted). */
+export async function createCompanyLinkCode(
+  companyId: string,
+  payload: CompanyLinkCodeCreate,
+): Promise<CompanyLinkCode> {
+  return apiFetch<CompanyLinkCode>(`/api/companies/${companyId}/custom-link-codes`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+/** Delete a tenant-local custom link code. */
+export async function deleteCompanyLinkCode(companyId: string, codeId: string): Promise<void> {
+  await apiFetch<void>(`/api/companies/${companyId}/custom-link-codes/${codeId}`, {
+    method: "DELETE",
+  })
+}
+
+// ── Curated promotion (custom code → global registry) ─────────────────────────
+
+export type GlobalMatchSuggestion = {
+  code: string
+  label: string
+  family: string
+}
+
+export type PromotionCandidate = {
+  id: string
+  company_id: string
+  company_name: string
+  code: string
+  family: string
+  label: string
+  account_type: string | null
+  ft_category: string | null
+  promotion_status: string
+  suggested_match: GlobalMatchSuggestion | null
+}
+
+export type PromoteRequest = {
+  link_to_existing_code?: string | null
+  code?: string | null
+  label_account?: string | null
+  label_sub_account?: string | null
+}
+
+export type PromoteResponse = {
+  company_link_code_id: string
+  promoted_to_standard_code: string
+  created_new_code: boolean
+}
+
+/** List pending custom codes awaiting curation across the user's org. */
+export async function listPromotionCandidates(): Promise<PromotionCandidate[]> {
+  const res = await apiFetch<{ candidates: PromotionCandidate[] }>("/api/coa/promotion-candidates")
+  return res.candidates
+}
+
+/** Promote a candidate: link to an existing global code, or publish a new one. */
+export async function promotePromotionCandidate(
+  candidateId: string,
+  payload: PromoteRequest,
+): Promise<PromoteResponse> {
+  return apiFetch<PromoteResponse>(`/api/coa/promotion-candidates/${candidateId}/promote`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+/** Reject a candidate as company-specific (removes it from the queue). */
+export async function rejectPromotionCandidate(candidateId: string): Promise<void> {
+  await apiFetch<void>(`/api/coa/promotion-candidates/${candidateId}/reject`, {
+    method: "POST",
+  })
+}
+
 export async function saveStatementChartSlot(
   companyId: string,
   statementType: ChartStatementType,
