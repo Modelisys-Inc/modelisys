@@ -623,7 +623,10 @@ test.describe("QuickBooks page", () => {
     await expect(page.getByRole("columnheader", { name: "Sous-division", exact: true })).toHaveCount(0)
   })
 
-  test("create new link code from review table", async ({ page }) => {
+  test("pick an existing link code in the review table", async ({ page }) => {
+    // Link codes are sourced from the shared chart (+ company overlay); the review
+    // picker lets you assign one to a row. (Inline code-creation was removed in
+    // favour of the dedicated Codes personnalisés panel.)
     await setupAuthAndCommonMocks(page)
     await page.route(
       `**/api/quickbooks/companies/${COMPANY_ID}/connection`,
@@ -665,102 +668,35 @@ test.describe("QuickBooks page", () => {
         }),
     )
 
-    // Initial link-codes list: empty. After POST: one entry.
-    // Use a boolean (not a call counter) so React StrictMode double-invocations
-    // don't prematurely populate the list before the code is actually created.
-    let codeCreated = false
+    // Available link codes for the picker (global + overlay), served by the QBO
+    // link-codes endpoint.
     await page.route(
       `**/api/quickbooks/companies/${COMPANY_ID}/link-codes`,
-      (route) => {
-        if (route.request().method() === "POST") {
-          codeCreated = true
-          return route.fulfill({
-            status: 201,
-            contentType: "application/json",
-            body: JSON.stringify({
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify([
+            {
               code: "10-100",
-              label: "Cash",
-              statement_type: "balance-sheet",
-              parent_id: "actifs-courants",
-              parent_label: "Actifs courants",
-            }),
-          })
-        }
-        return route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(
-            codeCreated
-              ? [
-                  {
-                    code: "10-100",
-                    label: "Cash",
-                    statement_type: "balance-sheet",
-                    parent_id: "actifs-courants",
-                    parent_label: "Actifs courants",
-                  },
-                ]
-              : [],
-          ),
-        })
-      },
-    )
-
-    // Statement structure for the dialog parent selector.
-    // Mock both statement types to prevent real backend calls.
-    await page.route(
-      `**/api/companies/${COMPANY_ID}/statement-structures/income-statement`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ structure: [] }),
-        }),
-    )
-    await page.route(
-      `**/api/companies/${COMPANY_ID}/statement-structures/balance-sheet`,
-      (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({
-            structure: [
-              {
-                id: "actifs-courants",
-                label: "Actifs courants",
-                isSection: true,
-                children: [],
-              },
-            ],
-          }),
+              label: "Encaisse",
+              statement_type: "balance_sheet",
+              parent_id: "ACT",
+              parent_label: "Actif à court terme",
+            },
+          ]),
         }),
     )
 
     await page.goto(URL)
     await page.getByRole("button", { name: /preview 1 month/i }).click()
-    // Wait for the review table to appear.
     await expect(page.getByText("Cash")).toBeVisible()
 
-    // Open the picker (the button has role="combobox" but accessible name comes from
-    // text content, which is not used by Playwright's getByRole name filter for
-    // composite widget roles; use a CSS attribute+text selector instead).
+    // Open the picker and select the existing code.
     await page.locator('button[role="combobox"]:has-text("Pick a link code")').click()
-    // Click the "Create new link code…" item.
-    await page.getByRole("option", { name: /create new link code/i }).click()
+    await page.getByRole("option", { name: /10-100/i }).click()
 
-    // The create dialog opens. Default statement type is "income-statement";
-    // switch to balance-sheet so the parent dropdown loads our mock structure.
-    await page.getByLabel(/^statement$/i).click()
-    await page.getByRole("option", { name: /balance sheet/i }).click()
-
-    // Wait for the parent section dropdown to become enabled (balance-sheet structure loaded).
-    await expect(page.getByLabel(/^parent section$/i)).toBeEnabled()
-
-    // Fill the link code and submit. Label defaults to "Cash" (the row's account_name).
-    await page.getByLabel(/^link code$/i).fill("10-100")
-    await page.getByRole("button", { name: /^create$/i }).click()
-
-    // The picker trigger should now show the new code.
+    // The picker trigger now shows the selected code.
     await expect(
       page.locator('button[role="combobox"]:has-text("10-100")'),
     ).toBeVisible()
