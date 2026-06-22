@@ -108,7 +108,7 @@ export function HeroSection() {
             }`}
           >
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-300/95 sm:text-xs">
-              Plateforme d&apos;intelligence financière
+              Système d&apos;exploitation financier
             </p>
 
             <h1 className="mt-8 max-w-[28rem] text-[1.65rem] font-semibold leading-[1.18] tracking-tight text-[#E6D6C3] sm:mt-10 sm:max-w-[32rem] sm:text-[2rem] sm:leading-[1.16] lg:max-w-[34rem] lg:text-[2.35rem] xl:text-[2.5rem] xl:leading-[1.14]">
