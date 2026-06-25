@@ -108,3 +108,21 @@ def registered_user(client):
 def auth_headers(registered_user):
     """Return authorization headers for a registered user."""
     return {"Authorization": f"Bearer {registered_user['access_token']}"}
+
+
+@pytest.fixture
+def su_headers(db):
+    """Superadmin auth headers — the only role allowed to manage the global chart."""
+    from app.models.user import User
+    from app.utils.security import create_access_token
+
+    u = User(
+        email="root-su@e.com",
+        hashed_password="x",
+        full_name="Root",
+        is_active=True,
+        is_superadmin=True,
+    )
+    db.add(u)
+    db.commit()
+    return {"Authorization": f"Bearer {create_access_token({'sub': str(u.id)})}"}

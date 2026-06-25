@@ -49,6 +49,7 @@ export default function CashFlowPage() {
   const [comparisonType, setComparisonType] = useState<ComparisonType>("lastMonth")
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null)
   const [structureVersion, setStructureVersion] = useState(0)
+  const [detailStructureVersion, setDetailStructureVersion] = useState(0)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const companyIdFromUrl = searchParams.get("companyId")
@@ -529,11 +530,13 @@ export default function CashFlowPage() {
               selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
               selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
               fiscalYear={selectedYear}
+              refMonth={selectedMonth}
+              refYear={selectedYear}
               rows={rows}
               loading={loading}
-              showCashFlowStructureSettings
-              structureVersion={structureVersion}
-              onCashFlowStructureSaved={() => setStructureVersion((v) => v + 1)}
+              showDetailStructureSettings
+              detailStructureVersion={detailStructureVersion}
+              onDetailStructureSaved={() => setDetailStructureVersion((v) => v + 1)}
             />
           )}
         </div>

@@ -39,6 +39,10 @@ interface IncomeStatementStructureStudioColsProps {
   mappingColumnsReadOnly?: boolean
   annexReadOnly?: boolean
   hideDefineColumn?: boolean
+  /** Paramètres Détail : masquer la colonne DT/CT. */
+  hideDtCtColumn?: boolean
+  /** Paramètres Détail : afficher le code de liaison en lecture seule (plan standard). */
+  readOnlyLinkCode?: boolean
 }
 
 export function IncomeStatementStructureStudioCols({
@@ -53,6 +57,8 @@ export function IncomeStatementStructureStudioCols({
   mappingColumnsReadOnly = false,
   annexReadOnly = false,
   hideDefineColumn = false,
+  hideDtCtColumn = false,
+  readOnlyLinkCode = false,
 }: IncomeStatementStructureStudioColsProps) {
   const readOnly = mappingColumnsReadOnly
   const annexFieldReadOnly = readOnly || annexReadOnly
@@ -64,7 +70,7 @@ export function IncomeStatementStructureStudioCols({
 
   return (
     <>
-      <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+      <td className="box-border min-w-0 px-2 py-2.5 align-middle text-center">
         {readOnly ? (
           <div className="flex justify-center">
             <span
@@ -119,7 +125,7 @@ export function IncomeStatementStructureStudioCols({
         )}
       </td>
       {!hideDefineColumn && (
-        <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+        <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
           {isStructureRowEmptyLabel(structRow) ? (
             <span className="text-sm text-slate-300">—</span>
           ) : readOnly ? (
@@ -189,25 +195,37 @@ export function IncomeStatementStructureStudioCols({
           )}
         </td>
       )}
-      <td className="box-border min-w-[8.5rem] max-w-[10rem] px-2 py-2.5 align-middle">
+      <td className="box-border min-w-0 px-2 py-2.5 align-middle">
         {showLinkAnnexCells ? (
-          <IncomeStatementLiaisonCell
-            structRow={structRow}
-            rowIndex={idx}
-            allLinkCodes={allLinkCodes}
-            linkCodeLabels={linkCodeLabels}
-            updateRow={updateRow}
-            readOnly={readOnly}
-            hideDefineColumn={hideDefineColumn}
-            singleLiaisonModeOnly={hideDefineColumn}
-          />
+          readOnlyLinkCode ? (
+            <span
+              className="block min-w-0 rounded-lg bg-slate-100/70 px-2 py-2 text-left font-mono text-[11px] leading-snug text-slate-700"
+              title="Code de liaison défini par le plan standard"
+            >
+              {(() => {
+                const code = String(structRow.linkCode ?? "").trim()
+                return code || "—"
+              })()}
+            </span>
+          ) : (
+            <IncomeStatementLiaisonCell
+              structRow={structRow}
+              rowIndex={idx}
+              allLinkCodes={allLinkCodes}
+              linkCodeLabels={linkCodeLabels}
+              updateRow={updateRow}
+              readOnly={readOnly}
+              hideDefineColumn={hideDefineColumn}
+              singleLiaisonModeOnly={hideDefineColumn}
+            />
+          )
         ) : (
           <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
             —
           </span>
         )}
       </td>
-      {hideDefineColumn && (
+      {hideDefineColumn && !hideDtCtColumn && (
         <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
           {isStructureRowEmptyLabel(structRow) ? (
             <span className="block text-center text-sm text-slate-300">—</span>
@@ -238,7 +256,7 @@ export function IncomeStatementStructureStudioCols({
         </td>
       )}
       {!hideDefineColumn && (
-        <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+        <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
           {isStructureRowEmptyLabel(structRow) ? (
             <span className="text-sm text-slate-300">—</span>
           ) : readOnly ? (
@@ -297,7 +315,7 @@ export function IncomeStatementStructureStudioCols({
           )}
         </td>
       )}
-      <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
+      <td className="box-border min-w-0 px-2 py-2.5 align-middle text-center">
         {isStructureRowHidden(structRow) && normalizeAnnexLetter(String(structRow.annexLetter ?? "")) ? (
           <span
             className="block truncate rounded-lg bg-slate-100/80 px-1.5 py-2 text-center text-xs font-bold uppercase tracking-widest text-slate-500"

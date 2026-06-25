@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ApiError, getStatementStructure, upsertStatementStructure } from "@/lib/api"
+import { ApiError, getStatementStructure, upsertStatementStructure, type StandardLinkCode } from "@/lib/api"
 import type { StatementType } from "@/lib/api"
 import {
   cloneStructure,
@@ -21,11 +21,15 @@ import {
   normalizeLiaisonMode,
   renumberAnnexesByAppearance,
   stripObsoleteIncomeStatementStructureRows,
+  syncIncomeStatementDetailSubLinesFromStandard,
   validateDuplicatePrimaryLinkCodes,
 } from "@/lib/income-statement-structure-utils"
 import type { AnnexScheme } from "@/lib/income-statement-structure-utils"
 
-export type StatementStructureEditKind = Extract<StatementType, "income-statement" | "balance-sheet" | "cash-flow">
+export type StatementStructureEditKind = Extract<
+  StatementType,
+  "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail"
+>
 
 export function useStatementStructureEdit(
   companyId: string | null | undefined,
@@ -53,6 +57,13 @@ export function useStatementStructureEdit(
     () =>
       structure.map((r, i) => (!isStructureRowDetailOnly(r) ? i : -1)).filter((i) => i >= 0),
     [structure]
+  )
+
+  const finalizeStructure = useCallback(
+    (rows: Record<string, unknown>[]) => {
+      return renumberAnnexesByAppearance(rows, annexScheme)
+    },
+    [annexScheme]
   )
 
   const load = useCallback(async () => {
@@ -83,14 +94,17 @@ export function useStatementStructureEdit(
     if (active && companyId) void load()
   }, [active, companyId, load])
 
-  const updateRow = useCallback((index: number, patch: Record<string, unknown>) => {
-    setStructure((prev) => {
-      const next = cloneStructure(prev)
-      if (!next[index]) return prev
-      next[index] = { ...next[index], ...patch }
-      return next
-    })
-  }, [])
+  const updateRow = useCallback(
+    (index: number, patch: Record<string, unknown>) => {
+      setStructure((prev) => {
+        const next = cloneStructure(prev)
+        if (!next[index]) return prev
+        next[index] = { ...next[index], ...patch }
+        return finalizeStructure(next)
+      })
+    },
+    [finalizeStructure]
+  )
 
   /**
    * Bascule la case « Annexe » d'une ligne, puis renumérote toutes les annexes
@@ -231,28 +245,42 @@ export function useStatementStructureEdit(
     [structure]
   )
 
-  const removeStructureRowAt = useCallback((index: number) => {
-    setStructure((prev) => {
-      if (index < 0 || index >= prev.length) return prev
-      const row = prev[index]
-      if (!row) return prev
-      const next = cloneStructure(prev)
-      next.splice(index, 1)
-      return next
-    })
-  }, [])
+  const removeStructureRowAt = useCallback(
+    (index: number) => {
+      setStructure((prev) => {
+        if (index < 0 || index >= prev.length) return prev
+        const row = prev[index]
+        if (!row) return prev
+        const next = cloneStructure(prev)
+        next.splice(index, 1)
+        return finalizeStructure(next)
+      })
+    },
+    [finalizeStructure]
+  )
 
-  const moveStructureRow = useCallback((index: number, direction: -1 | 1) => {
+  const moveStructureRow = useCallback(
+    (index: number, direction: -1 | 1) => {
+      setStructure((prev) => {
+        const target = index + direction
+        if (index < 0 || index >= prev.length || target < 0 || target >= prev.length) return prev
+        const next = cloneStructure(prev)
+        const [row] = next.splice(index, 1)
+        if (!row) return prev
+        next.splice(target, 0, row)
+        return finalizeStructure(next)
+      })
+    },
+    [finalizeStructure]
+  )
+
+  const applyDetailSubLinesFromStandard = useCallback((standardCodes: StandardLinkCode[]) => {
+    if (statementType !== "income-statement" && statementType !== "balance-sheet") return
     setStructure((prev) => {
-      const target = index + direction
-      if (index < 0 || index >= prev.length || target < 0 || target >= prev.length) return prev
-      const next = cloneStructure(prev)
-      const [row] = next.splice(index, 1)
-      if (!row) return prev
-      next.splice(target, 0, row)
-      return next
+      const synced = syncIncomeStatementDetailSubLinesFromStandard(prev, standardCodes)
+      return JSON.stringify(synced) === JSON.stringify(prev) ? prev : synced
     })
-  }, [])
+  }, [statementType])
 
   const save = useCallback(async () => {
     if (!companyId) return false
@@ -373,6 +401,7 @@ export function useStatementStructureEdit(
     removeStructureRowAt,
     moveStructureRow,
     addDetailSubLine,
+    applyDetailSubLinesFromStandard,
     save,
     discard,
     reload: load,
@@ -398,4 +427,11 @@ export function useCashFlowStructureEdit(
   active: boolean
 ) {
   return useStatementStructureEdit(companyId, active, "cash-flow")
+}
+
+export function useCashFlowDetailStructureEdit(
+  companyId: string | null | undefined,
+  active: boolean
+) {
+  return useStatementStructureEdit(companyId, active, "cash-flow-detail")
 }

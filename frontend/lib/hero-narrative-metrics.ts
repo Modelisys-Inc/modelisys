@@ -60,6 +60,53 @@ export const NARRATIVE_COMPARISON = [
   { label: "Valeur d'entreprise", today: NARRATIVE_BASELINE.valeur, target: NARRATIVE_TARGET.valeur },
 ] as const
 
+export type HeroPhaseInsight =
+  | { kind: "snapshot"; label: string; value: string }
+  | { kind: "comparison"; label: string; today: string; target: string }
+  | { kind: "variance"; label: string; value: string; tone: "positive" | "negative" | "neutral" }
+
+/** Indicateurs sous la barre de progression — un jeu par phase du hero. */
+export const HERO_PHASE_INSIGHTS = {
+  Diagnostic: [
+    { kind: "snapshot", label: "Revenus", value: NARRATIVE_BASELINE.revenus },
+    { kind: "snapshot", label: "BAIIA", value: NARRATIVE_BASELINE.baiia },
+    { kind: "snapshot", label: "Valeur", value: NARRATIVE_BASELINE.valeur },
+    { kind: "snapshot", label: "Liquidité", value: "1,1" },
+  ],
+  Planification: NARRATIVE_COMPARISON.map(({ label, today, target }) => ({
+    kind: "comparison" as const,
+    label,
+    today,
+    target,
+  })),
+  Pilotage: [
+    { kind: "variance", label: "Revenus", value: "+200 k$", tone: "positive" },
+    { kind: "variance", label: "Marge brute", value: "−2 pts", tone: "negative" },
+    { kind: "variance", label: "BAIIA", value: "−30 k$", tone: "negative" },
+    { kind: "variance", label: "Capex", value: "+55 k$", tone: "negative" },
+  ],
+} as const satisfies Record<string, readonly HeroPhaseInsight[]>
+
+/** Bande défilante « Insights » — petits repères chiffrés par phase. */
+export const HERO_INSIGHT_MARQUEE_ITEMS = [
+  `Diagnostic — Revenus ${NARRATIVE_BASELINE.revenus} · BAIIA ${NARRATIVE_BASELINE.baiia} · Valeur ${NARRATIVE_BASELINE.valeur}`,
+  `Diagnostic — Marge brute ${NARRATIVE_BASELINE.margeBrute} · Liquidité 1,1`,
+  "Diagnostic — Concentration client 45 % chez 3 clients",
+  `Diagnostic — Multiple ${NARRATIVE_BASELINE.multiple} · BAIIA norm. ${NARRATIVE_BASELINE.baiiaNormalise}`,
+  `Diagnostic — Fonds de roulement ${NARRATIVE_BASELINE.fondsRoulement}`,
+  `Planification — Revenus ${NARRATIVE_BASELINE.revenus} → ${NARRATIVE_TARGET.revenus} · horizon 3 ans`,
+  `Planification — Valeur ${NARRATIVE_BASELINE.valeur} → ${NARRATIVE_TARGET.valeur}`,
+  `Planification — BAIIA ${NARRATIVE_BASELINE.baiia} → ${NARRATIVE_TARGET.baiia} · marge ${NARRATIVE_TARGET.margeBaiia}`,
+  `Planification — Capex An 2 : ${NARRATIVE_PROJECTION.an2.capex}`,
+  `Planification — Cash flow An 3 : ${NARRATIVE_PROJECTION.an3.cashFlow}`,
+  `Planification — Besoin de financement : ${NARRATIVE_PROJECTION.an2.capex}`,
+  "Pilotage — Revenus T2 : +200 k$ vs prévu",
+  "Pilotage — Marge brute : −2 pts vs prévu",
+  "Pilotage — BAIIA : −30 k$ vs prévu",
+  "Pilotage — Capex : +55 k$ vs prévu",
+  "Pilotage — Cash flow : −18 k$ vs prévu",
+] as const
+
 export const NARRATIVE_DIVISIONS = [
   { name: "Services", revenue: "7,0 M$", grossMargin: "34 %", baiia: "1,1 M$" },
   { name: "Manufacturier", revenue: "5,0 M$", grossMargin: "28 %", baiia: "0,7 M$" },

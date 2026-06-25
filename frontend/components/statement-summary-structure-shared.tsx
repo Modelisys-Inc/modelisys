@@ -37,7 +37,11 @@ export type StatementSummaryStructureEditApi = {
   moveStructureRow?: (index: number, direction: -1 | 1) => void
 }
 
-export function StatementSummaryStructureColgroup() {
+export function StatementSummaryStructureColgroup({
+  hideAnnexColumns = false,
+}: {
+  hideAnnexColumns?: boolean
+}) {
   return (
     <colgroup>
       <col className="min-w-0" />
@@ -45,14 +49,24 @@ export function StatementSummaryStructureColgroup() {
       <col style={{ width: "7rem" }} />
       <col style={{ width: "7rem" }} />
       <col style={{ width: "7rem" }} />
-      <col style={{ width: "7rem" }} />
-      <col style={{ width: "7rem" }} />
+      {!hideAnnexColumns ? (
+        <>
+          <col style={{ width: "7rem" }} />
+          <col style={{ width: "7rem" }} />
+        </>
+      ) : null}
       <col style={{ width: "9.5rem" }} />
     </colgroup>
   )
 }
 
-export function StatementSummaryStructureThead({ posteHeader = "Poste" }: { posteHeader?: string }) {
+export function StatementSummaryStructureThead({
+  posteHeader = "Poste",
+  hideAnnexColumns = false,
+}: {
+  posteHeader?: string
+  hideAnnexColumns?: boolean
+}) {
   return (
     <>
       <th
@@ -129,36 +143,40 @@ export function StatementSummaryStructureThead({ posteHeader = "Poste" }: { post
           </TooltipContent>
         </Tooltip>
       </th>
-      <th className="box-border w-[7rem] px-2 py-4 text-center">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex cursor-help flex-col items-center gap-1.5">
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
-                <Eye className="h-4 w-4 text-sky-600" />
-              </span>
-              <span className="text-[11px] font-semibold leading-tight text-slate-800">Annexe</span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-[220px] text-balance">
-            Affiche cette ligne au détail (avec liaison et lettre). Nécessite « Code » et une ligne visible.
-          </TooltipContent>
-        </Tooltip>
-      </th>
-      <th className="box-border w-[7rem] px-2 py-4 text-center">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex cursor-help flex-col items-center gap-1.5">
-              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
-                <BookMarked className="h-4 w-4 text-slate-600" />
-              </span>
-              <span className="text-[11px] font-semibold leading-tight text-slate-800">Lettre</span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top" className="max-w-[220px] text-balance">
-            Identifiant d’annexe attribué automatiquement selon l’ordre d’apparition dans le rapport.
-          </TooltipContent>
-        </Tooltip>
-      </th>
+      {!hideAnnexColumns ? (
+        <>
+          <th className="box-border w-[7rem] px-2 py-4 text-center">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+                    <Eye className="h-4 w-4 text-sky-600" />
+                  </span>
+                  <span className="text-[11px] font-semibold leading-tight text-slate-800">Annexe</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[220px] text-balance">
+                Affiche cette ligne au détail (avec liaison et lettre). Nécessite « Code » et une ligne visible.
+              </TooltipContent>
+            </Tooltip>
+          </th>
+          <th className="box-border w-[7rem] px-2 py-4 text-center">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                    <BookMarked className="h-4 w-4 text-slate-600" />
+                  </span>
+                  <span className="text-[11px] font-semibold leading-tight text-slate-800">Lettre</span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[220px] text-balance">
+                Identifiant d’annexe attribué automatiquement selon l’ordre d’apparition dans le rapport.
+              </TooltipContent>
+            </Tooltip>
+          </th>
+        </>
+      ) : null}
       <th className="px-6 py-4 text-center text-sm font-semibold text-slate-900 min-w-[9.5rem]">
         Actions
       </th>
@@ -173,8 +191,15 @@ type StructureRowCellsProps = {
   allLiaisonCodes: string[]
   /** Code de liaison → libellé du poste, pour afficher « code — nom » dans les sélecteurs. */
   linkCodeLabels?: Map<string, string>
+  /** Codes parents du plan standard (Compte de résultat ou Bilan) pour le mode « Code unique ». */
+  singleModeLinkCodes?: string[]
+  singleModeLinkCodeLabels?: Map<string, string>
   showSeparatorAbove: boolean
   onEditPresentation?: (globalIdx: number) => void
+  /** Bilan : numéros d'annexe attribués automatiquement (1, 2, 3…) — champ en lecture seule. */
+  annexIdentifierAutoAssigned?: boolean
+  /** Masque les colonnes Annexe et Lettre (ex. Trésorerie Détail). */
+  hideAnnexColumns?: boolean
 }
 
 export function StatementSummaryStructureRowCells({
@@ -183,8 +208,12 @@ export function StatementSummaryStructureRowCells({
   structEdit,
   allLiaisonCodes,
   linkCodeLabels,
+  singleModeLinkCodes,
+  singleModeLinkCodeLabels,
   showSeparatorAbove,
   onEditPresentation,
+  annexIdentifierAutoAssigned = false,
+  hideAnnexColumns = false,
 }: StructureRowCellsProps) {
   return (
     <>
@@ -313,6 +342,8 @@ export function StatementSummaryStructureRowCells({
             rowIndex={globalIdx}
             allLinkCodes={allLiaisonCodes}
             linkCodeLabels={linkCodeLabels}
+            singleModeLinkCodes={singleModeLinkCodes}
+            singleModeLinkCodeLabels={singleModeLinkCodeLabels}
             updateRow={structEdit.updateRow}
           />
         ) : (
@@ -321,69 +352,73 @@ export function StatementSummaryStructureRowCells({
           </span>
         )}
       </td>
-      <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
-        {isStructureRowEmptyLabel(structRow) ? (
-          <span className="text-sm text-slate-300">—</span>
-        ) : (
-          <div className="flex justify-center">
-            <label
-              className={cn(
-                "flex items-center justify-center rounded-xl p-1.5 transition-colors",
-                isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)
-                  ? "cursor-not-allowed opacity-40"
-                  : "cursor-pointer",
-                !isStructureRowHidden(structRow) &&
-                  isCodeMappingEnabled(structRow) &&
-                  isShowInDetail(structRow) &&
-                  "bg-sky-50/90 ring-2 ring-sky-400/40",
-                !isStructureRowHidden(structRow) &&
-                  isCodeMappingEnabled(structRow) &&
-                  !isShowInDetail(structRow) &&
-                  "bg-slate-100/60 hover:bg-slate-200/60"
-              )}
-            >
-              <Checkbox
-                checked={isShowInDetail(structRow)}
-                disabled={isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)}
-                onCheckedChange={(v) => {
-                  if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
-                  structEdit.setShowInDetail(globalIdx, v === true)
-                }}
-                aria-label="Annexe : afficher au détail"
-                className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"
-              />
-            </label>
-          </div>
-        )}
-      </td>
-      <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
-        {isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
-          <Input
-            value={String(structRow.annexLetter ?? "")}
-            disabled={!isAnnexLetterInputEditable(structRow)}
-            onChange={(e) =>
-              structEdit.updateRow(globalIdx, {
-                annexLetter: normalizeAnnexLetter(e.target.value) || undefined,
-              })
-            }
-            placeholder="A"
-            title={
-              !isAnnexLetterInputEditable(structRow)
-                ? "Identifiant attribué automatiquement selon l’ordre d’apparition de l’annexe dans le rapport."
-                : undefined
-            }
-            className={cn(
-              "h-9 w-full min-w-0 rounded-xl border-slate-200/90 px-2 text-center text-xs font-bold uppercase tracking-widest shadow-sm focus-visible:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-500/25",
-              isAnnexLetterInputEditable(structRow) ? "bg-white" : "cursor-not-allowed bg-slate-100/80 text-slate-400"
+      {!hideAnnexColumns ? (
+        <>
+          <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+            {isStructureRowEmptyLabel(structRow) ? (
+              <span className="text-sm text-slate-300">—</span>
+            ) : (
+              <div className="flex justify-center">
+                <label
+                  className={cn(
+                    "flex items-center justify-center rounded-xl p-1.5 transition-colors",
+                    isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)
+                      ? "cursor-not-allowed opacity-40"
+                      : "cursor-pointer",
+                    !isStructureRowHidden(structRow) &&
+                      isCodeMappingEnabled(structRow) &&
+                      isShowInDetail(structRow) &&
+                      "bg-sky-50/90 ring-2 ring-sky-400/40",
+                    !isStructureRowHidden(structRow) &&
+                      isCodeMappingEnabled(structRow) &&
+                      !isShowInDetail(structRow) &&
+                      "bg-slate-100/60 hover:bg-slate-200/60"
+                  )}
+                >
+                  <Checkbox
+                    checked={isShowInDetail(structRow)}
+                    disabled={isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)}
+                    onCheckedChange={(v) => {
+                      if (isStructureRowHidden(structRow) || !isCodeMappingEnabled(structRow)) return
+                      structEdit.setShowInDetail(globalIdx, v === true)
+                    }}
+                    aria-label="Annexe : afficher au détail"
+                    className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"
+                  />
+                </label>
+              </div>
             )}
-            maxLength={8}
-          />
-        ) : (
-          <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
-            —
-          </span>
-        )}
-      </td>
+          </td>
+          <td className="box-border w-[7rem] min-w-0 px-2 py-2.5 align-middle">
+            {isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
+              <Input
+                value={String(structRow.annexLetter ?? "")}
+                disabled={!isAnnexLetterInputEditable(structRow)}
+                onChange={(e) =>
+                  structEdit.updateRow(globalIdx, {
+                    annexLetter: normalizeAnnexLetter(e.target.value) || undefined,
+                  })
+                }
+                placeholder="A"
+                title={
+                  !isAnnexLetterInputEditable(structRow)
+                    ? "Identifiant attribué automatiquement selon l’ordre d’apparition de l’annexe dans le rapport."
+                    : undefined
+                }
+                className={cn(
+                  "h-9 w-full min-w-0 rounded-xl border-slate-200/90 px-2 text-center text-xs font-bold uppercase tracking-widest shadow-sm focus-visible:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-500/25",
+                  isAnnexLetterInputEditable(structRow) ? "bg-white" : "cursor-not-allowed bg-slate-100/80 text-slate-400"
+                )}
+                maxLength={8}
+              />
+            ) : (
+              <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
+                —
+              </span>
+            )}
+          </td>
+        </>
+      ) : null}
       <td className="px-2 py-2 text-center align-middle">
         <div className="flex items-center justify-center gap-0.5">
           {structEdit.moveStructureRow ? (

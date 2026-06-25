@@ -86,7 +86,7 @@ def test_upsert_updates_existing(client, auth_headers):
     assert len(response.json()["structure"]) == 1
     assert response.json()["structure"][0]["label"] == "revenus modifiés"
 
-    # Verify IS was updated (BS + CF defaults still present → 3 total)
+    # Verify IS was updated (BS + CF defaults still present → 4 total)
     list_response = client.get(
         f"/api/companies/{company_id}/statement-structures", headers=auth_headers
     )
@@ -94,6 +94,7 @@ def test_upsert_updates_existing(client, auth_headers):
     assert "income-statement" in types
     assert "balance-sheet" in types
     assert "cash-flow" in types
+    assert "cash-flow-detail" in types
 
 
 def test_get_statement_structure(client, auth_headers):
@@ -139,9 +140,9 @@ def test_list_both_structures(client, auth_headers):
     )
     assert response.status_code == 200
     structures = response.json()["structures"]
-    assert len(structures) == 3
+    assert len(structures) == 4
     types = {s["statement_type"] for s in structures}
-    assert types == {"income-statement", "balance-sheet", "cash-flow"}
+    assert types == {"income-statement", "balance-sheet", "cash-flow", "cash-flow-detail"}
 
 
 def test_company_not_found(client, auth_headers):

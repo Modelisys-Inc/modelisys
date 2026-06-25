@@ -18,6 +18,7 @@ from app.models.company import Company
 from app.models.company_link_code import CompanyLinkCode
 from app.models.quickbooks_connection import QuickBooksConnection
 from app.models.standard_link_code import StandardLinkCode
+from app.services.standard_link_code_utils import NET_INCOME_BALANCE_LINK_CODE
 from app.models.user import User, UserOrganization
 from app.schemas.quickbooks import (
     AuthorizeUrlResponse,
@@ -277,7 +278,10 @@ def list_link_codes(
 
     codes = (
         db.query(StandardLinkCode)
-        .filter(StandardLinkCode.is_leaf.is_(True))
+        .filter(
+            StandardLinkCode.is_leaf.is_(True),
+            StandardLinkCode.code != NET_INCOME_BALANCE_LINK_CODE,
+        )
         .order_by(StandardLinkCode.sort_order)
         .all()
     )

@@ -674,6 +674,12 @@ export default function ProFormaPage() {
               subDivisionId={subDivisionId}
               companies={companies}
               title="Estimation des Capex annuels"
+              fiscalYear={
+                projectionHorizon === "annual" && projectionStartYear
+                  ? projectionStartYear - 1
+                  : projectionStartYear ?? undefined
+              }
+              forecastBaseYear={projectionStartYear ?? undefined}
               projectionYears={projectionYears}
               projectionMode={projectionMode}
               projectionId={currentProjectionId}
@@ -758,6 +764,21 @@ export default function ProFormaPage() {
                 subDivisionId={subDivisionId}
                 companies={companies}
                 title="Bilan pro forma"
+                fiscalYear={
+                  projectionHorizon === "annual" && projectionStartYear
+                    ? projectionStartYear - 1
+                    : projectionStartYear ?? undefined
+                }
+                refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
+                refYear={
+                  projectionHorizon === "annual" && projectionStartYear
+                    ? projectionStartYear - 1
+                    : projectionStartYear ?? new Date().getFullYear()
+                }
+                projectionYears={projectionYears}
+                forecastBaseYear={projectionStartYear ?? undefined}
+                forecastUseSeriesActuals
+                disableRowInteractions
               />
             ) : (
               <BalanceSheetDetail
@@ -769,6 +790,21 @@ export default function ProFormaPage() {
                 subDivisionId={subDivisionId}
                 companies={companies}
                 title="Bilan pro forma"
+                fiscalYear={
+                  projectionHorizon === "annual" && projectionStartYear
+                    ? projectionStartYear - 1
+                    : projectionStartYear ?? undefined
+                }
+                refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
+                refYear={
+                  projectionHorizon === "annual" && projectionStartYear
+                    ? projectionStartYear - 1
+                    : projectionStartYear ?? new Date().getFullYear()
+                }
+                projectionYears={projectionYears}
+                forecastBaseYear={projectionStartYear ?? undefined}
+                forecastUseSeriesActuals
+                disableRowInteractions
               />
             )
           ) : selectedModule === "cash-flow" ? (
@@ -782,6 +818,20 @@ export default function ProFormaPage() {
                 subDivisionId={subDivisionId}
                 companies={companies}
                 title="Flux de trésorerie pro forma"
+                fiscalYear={
+                  projectionHorizon === "annual" && projectionStartYear
+                    ? projectionStartYear - 1
+                    : projectionStartYear ?? undefined
+                }
+                refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
+                refYear={
+                  projectionHorizon === "annual" && projectionStartYear
+                    ? projectionStartYear - 1
+                    : projectionStartYear ?? new Date().getFullYear()
+                }
+                projectionYears={projectionYears}
+                forecastBaseYear={projectionStartYear ?? undefined}
+                forecastUseSeriesActuals
               />
             ) : (
               <CashFlowDetail
@@ -793,6 +843,20 @@ export default function ProFormaPage() {
                 subDivisionId={subDivisionId}
                 companies={companies}
                 title="Flux de trésorerie pro forma"
+                fiscalYear={
+                  projectionHorizon === "annual" && projectionStartYear
+                    ? projectionStartYear - 1
+                    : projectionStartYear ?? undefined
+                }
+                refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
+                refYear={
+                  projectionHorizon === "annual" && projectionStartYear
+                    ? projectionStartYear - 1
+                    : projectionStartYear ?? new Date().getFullYear()
+                }
+                projectionYears={projectionYears}
+                forecastBaseYear={projectionStartYear ?? undefined}
+                forecastUseSeriesActuals
               />
             )
           ) : (

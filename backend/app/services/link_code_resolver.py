@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.models.company_link_code import CompanyLinkCode
 from app.models.standard_link_code import StandardLinkCode
+from app.services.standard_link_code_utils import is_mappable_standard_link_code
 
 
 def valid_leaf_codes(
@@ -25,7 +26,10 @@ def valid_leaf_codes(
     """Return the subset of ``requested`` codes that are assignable for this company.
 
     A code is assignable if it is a leaf in the global registry OR a leaf in the
-    company's own overlay. Empty/None entries are ignored.
+    company's own overlay. Global leaves additionally must be *mappable* — the
+    computed net-income code (CAP-C.1) and the Trésorerie/cash-flow families are
+    excluded from GL mapping (see ``is_mappable_standard_link_code``). Empty/None
+    entries are ignored.
     """
     requested_set = {c for c in requested if c}
     if not requested_set:
@@ -33,12 +37,17 @@ def valid_leaf_codes(
 
     global_codes = {
         row.code
-        for row in db.query(StandardLinkCode.code)
+        for row in db.query(
+            StandardLinkCode.code,
+            StandardLinkCode.is_leaf,
+            StandardLinkCode.family,
+        )
         .filter(
             StandardLinkCode.code.in_(requested_set),
             StandardLinkCode.is_leaf.is_(True),
         )
         .all()
+        if is_mappable_standard_link_code(row.code, row.is_leaf, row.family)
     }
 
     overlay_codes = {

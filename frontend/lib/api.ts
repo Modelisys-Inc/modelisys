@@ -554,7 +554,7 @@ export async function listStatementStructures(
   return data.structures;
 }
 
-export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "capex" | "baiia";
+export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "capex" | "baiia";
 
 export async function getStatementStructure(
   companyId: string,
@@ -1939,6 +1939,7 @@ export type StandardLinkCode = {
   account_sub_type: string | null
   variable_or_fixed: string | null
   ft_category: string | null
+  attached_link_codes: string[]
   ft_line_item: string | null
   projections: string | null
   is_leaf: boolean
@@ -2085,8 +2086,14 @@ export type StandardLinkCodeCreate = {
   label_account?: string | null
   label_sub_account?: string | null
   account_type?: string | null
-  ft_category?: string | null
+  account_sub_type?: string | null
   variable_or_fixed?: string | null
+  ft_category?: string | null
+  attached_link_codes?: string[]
+  ft_line_item?: string | null
+  projections?: string | null
+  is_leaf?: boolean
+  sort_order?: number | null
 }
 
 /** Create a global standard code (superadmin only). */
@@ -2105,6 +2112,18 @@ export async function updateStandardLinkCode(
   return apiFetch<StandardLinkCode>(`/api/standard-link-codes/${encodeURIComponent(code)}`, {
     method: "PATCH",
     body: payload,
+  })
+}
+
+export async function deleteStandardLinkCode(code: string): Promise<void> {
+  await apiFetch<void>(`/api/standard-link-codes/${encodeURIComponent(code)}`, {
+    method: "DELETE",
+  })
+}
+
+export async function syncStandardLinkCodesToCompanies(): Promise<{ companies_updated: number }> {
+  return apiFetch<{ companies_updated: number }>("/api/standard-link-codes/sync-companies", {
+    method: "POST",
   })
 }
 
@@ -2158,6 +2177,33 @@ export async function setClientFeatureFlags(
   return apiFetch<AdminOrg>(`/api/admin/organizations/${orgId}/feature-flags`, {
     method: "PATCH",
     body: { flags },
+  })
+}
+
+export type StandardCodesStatus = {
+  total: number
+  leaf_count: number
+  active_count: number
+  current_version: number | null
+}
+
+/** Current state of the global standardized chart (superadmin only). */
+export async function getStandardCodesStatus(): Promise<StandardCodesStatus> {
+  return apiFetch<StandardCodesStatus>("/api/admin/standard-link-codes/status")
+}
+
+export type SeedStandardCodesResult = {
+  version: number
+  upserted: number
+  tombstoned: number
+  total: number
+  leaf_count: number
+}
+
+/** One-click import of the global standardized chart from MO.xlsx (superadmin only). */
+export async function seedStandardLinkCodes(): Promise<SeedStandardCodesResult> {
+  return apiFetch<SeedStandardCodesResult>("/api/admin/standard-link-codes/seed", {
+    method: "POST",
   })
 }
 

@@ -219,7 +219,7 @@ test("balance sheet: numbers follow report order, not check order", async ({
   const checkboxes = page.getByRole("checkbox", {
     name: "Annexe : afficher au détail",
   })
-  const annexInputs = page.getByPlaceholder("A")
+  const annexInputs = page.getByPlaceholder("1")
   await expect(checkboxes).toHaveCount(2, { timeout: 15000 })
 
   // Stale "5" normalized to "1" on load; row 0 un-annexed.

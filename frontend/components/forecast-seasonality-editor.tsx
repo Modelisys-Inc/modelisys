@@ -37,7 +37,7 @@ import { AlertTriangle, Info } from "lucide-react"
 import { useMemo, type ReactNode } from "react"
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 
-export type ForecastSeasonalityEditorVariant = "revenu" | "depense"
+export type ForecastSeasonalityEditorVariant = "revenu" | "depense" | "capex" | "decaissement"
 
 const VARIANT_COPY: Record<
   ForecastSeasonalityEditorVariant,
@@ -64,6 +64,22 @@ const VARIANT_COPY: Record<
     replicateTitle: "Appliquer la même saisonnalité aux années suivantes",
     replicateDescription: (following, year) =>
       `Pour ${following}, la même répartition mensuelle (%) que ${year} sera enregistrée sur chaque année projetée suivante.`,
+  },
+  capex: {
+    distributionTitle: "Saisonnalité",
+    chartAria: "Courbe de saisonnalité du capex par mois",
+    tooltipPercentLabel: "du capex annuel",
+    replicateTitle: "Appliquer la même saisonnalité aux années suivantes",
+    replicateDescription: (following, year) =>
+      `Pour ${following}, la même répartition mensuelle (%) que ${year} sera enregistrée sur chaque année projetée suivante.`,
+  },
+  decaissement: {
+    distributionTitle: "Calendrier de décaissement",
+    chartAria: "Calendrier de décaissement par mois",
+    tooltipPercentLabel: "du décaissement annuel",
+    replicateTitle: "Appliquer le même calendrier aux années suivantes",
+    replicateDescription: (following, year) =>
+      `Pour ${following}, chaque année qui comporte déjà une hypothèse pour ce poste reprendra le même calendrier mensuel (%) que ${year}.`,
   },
 }
 

@@ -1,5 +1,15 @@
 /** Structure du compte de résultats (API) — lignes flexibles */
 
+import type { StandardLinkCode } from "@/lib/api"
+import {
+  CAPEX_PROJECTION_LINK_CODE_ROOTS,
+  capexProjectionParentRoot,
+  compareCapexProjectionLinkCodes,
+  getLeafDescendantsOfStandardLinkCode,
+  isCapexProjectionLinkCode,
+  standardLinkCodeDisplayLabel,
+} from "@/lib/standard-link-code-utils"
+
 export const CHARGES_SECTION_LABEL = "charges d'exploitation"
 export const TOTAL_CHARGES_LABEL = "total des charges"
 
@@ -217,6 +227,21 @@ export function isStructureRowEmptyLabel(row: Record<string, unknown>): boolean 
   return String(row.label ?? "").trim() === ""
 }
 
+/** Trait de séparation au-dessus d’un poste (structure ou API). */
+export function isTruthySeparatorAbove(raw: unknown): boolean {
+  return raw === true || raw === "true" || raw === 1
+}
+
+/** Indentation sommaire : valeur explicite (structure / API) sinon règle legacy. */
+export function indentForSummaryRow(
+  row: Pick<{ isBold?: boolean; isSection?: boolean; isResult?: boolean }, "isBold" | "isSection" | "isResult"> & {
+    indent?: boolean
+  }
+): boolean {
+  if (typeof row.indent === "boolean") return row.indent
+  return !row.isBold && !row.isSection && !row.isResult
+}
+
 /** Ligne d’espacement vide entre les postes (Sommaire). */
 export function newEmptySpacerSummaryRow(): Record<string, unknown> {
   const id =
@@ -287,6 +312,94 @@ export function findStructureRowForStatementLine(
   return structure.find(
     (s) => normLabel(String((s as Record<string, unknown>).label ?? "")) === lbl
   ) as Record<string, unknown> | undefined
+}
+
+/** Associe une entrée de structure (Paramètres) à une ligne renvoyée par l’API états / séries. */
+export function findStatementApiRowForStructureRow<
+  T extends { id?: string; label?: string; linkCode?: string },
+>(
+  structureRow: Record<string, unknown>,
+  apiRows: T[],
+  usedIndices: Set<number> = new Set(),
+): T | undefined {
+  const linkCode = String(structureRow.linkCode ?? "").trim()
+  const structId = String(structureRow.id ?? "").trim()
+  for (let i = 0; i < apiRows.length; i++) {
+    if (usedIndices.has(i)) continue
+    const row = apiRows[i]
+    const idNorm = String(row.id ?? "").trim()
+    const rowLink = String(row.linkCode ?? "").trim()
+    if (linkCode && (idNorm === linkCode || rowLink === linkCode)) {
+      usedIndices.add(i)
+      return row
+    }
+    if (structId && idNorm === structId) {
+      usedIndices.add(i)
+      return row
+    }
+  }
+  const lbl = normLabel(String(structureRow.label ?? ""))
+  if (lbl) {
+    for (let i = 0; i < apiRows.length; i++) {
+      if (usedIndices.has(i)) continue
+      if (normLabel(String(apiRows[i].label ?? "")) === lbl) {
+        usedIndices.add(i)
+        return apiRows[i]
+      }
+    }
+  }
+  return undefined
+}
+
+/** Lignes de structure à afficher au Sommaire (ou présentation détail sans annexes). */
+export function listStructureRowsForSummaryDisplay(
+  structure: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return structure.filter(
+    (sr) =>
+      !isStructureRowEmptyLabel(sr) &&
+      !isStructureRowHidden(sr) &&
+      !isStructureRowDetailOnly(sr),
+  )
+}
+
+/**
+ * Lignes structure hors Paramètres : ordre conservé, espaces vides inclus,
+ * lignes masquées et `detailOnly` exclues.
+ */
+export function listStructureRowsForPresentationDisplay(
+  structure: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return structure.filter(
+    (sr) => !isStructureRowHidden(sr) && !isStructureRowDetailOnly(sr),
+  )
+}
+
+/** Lignes de structure à afficher au Détail (ordre Paramètres conservé). */
+export function listStructureRowsForDetailDisplay(
+  structure: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return structure.filter(
+    (sr) =>
+      !isStructureRowEmptyLabel(sr) &&
+      !isStructureRowHidden(sr) &&
+      isShowInDetail(sr) &&
+      isCodeMappingEnabled(sr),
+  )
+}
+
+/** Ligne structure Bilan éligible au Détail Capex (ALT-B, ALT-C, ALT-D). */
+export function structureRowBelongsToCapexDetail(row: Record<string, unknown>): boolean {
+  if (isStructureRowEmptyLabel(row) || isStructureRowHidden(row)) return false
+  if (!isShowInDetail(row) || !isCodeMappingEnabled(row)) return false
+  return collectLinkCodesFromStructureRow(row).some(isCapexProjectionLinkCode)
+}
+
+/** Lignes structure Bilan pour « Estimation des Capex annuels » (même périmètre que Bilan Détail, filtré). */
+export function listStructureRowsForCapexDetailDisplay(
+  structure: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return listStructureRowsForDetailDisplay(structure).filter(structureRowBelongsToCapexDetail)
 }
 
 /**
@@ -459,6 +572,102 @@ export function listAnnexOptionsForDetailSubLineModal(
   return out
 }
 
+/** Code parent (Sommaire) rattaché à une annexe via la première ligne non `detailOnly`. */
+export function getSummaryAnnexParentLinkCode(
+  structure: Record<string, unknown>[],
+  letter: string,
+): string {
+  const target = normalizeAnnexLetter(letter)
+  for (const row of structure) {
+    if (isStructureRowDetailOnly(row)) continue
+    if (isStructureRowEmptyLabel(row)) continue
+    if (!isShowInDetail(row)) continue
+    if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== target) continue
+    return String(row.linkCode ?? "").trim()
+  }
+  return ""
+}
+
+/**
+ * Aligne les sous-lignes Détail (`detailOnly`) sur les feuilles du plan standard
+ * sous le code parent de chaque annexe (Sommaire) — Compte de résultat ou Bilan.
+ */
+export function syncIncomeStatementDetailSubLinesFromStandard(
+  structure: Record<string, unknown>[],
+  standardCodes: StandardLinkCode[],
+): Record<string, unknown>[] {
+  if (standardCodes.length === 0) return structure
+
+  let next = cloneStructure(structure)
+  const letters = listAnnexLettersForDetailSubLines(next)
+
+  for (const letter of letters) {
+    const parentCode = getSummaryAnnexParentLinkCode(next, letter)
+    if (!parentCode) continue
+
+    const expectedLeaves = getLeafDescendantsOfStandardLinkCode(parentCode, standardCodes)
+    const expectedCodes = new Set(expectedLeaves.map((c) => c.code))
+
+    const existingByCode = new Map<string, Record<string, unknown>>()
+    for (const row of next) {
+      if (!isStructureRowDetailOnly(row)) continue
+      if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== letter) continue
+      const code = String(row.linkCode ?? "").trim()
+      if (code && expectedCodes.has(code)) existingByCode.set(code, row)
+    }
+
+    next = next.filter(
+      (row) =>
+        !(
+          isStructureRowDetailOnly(row) &&
+          normalizeAnnexLetter(String(row.annexLetter ?? "")) === letter
+        ),
+    )
+
+    let endIdx = findStructureInsertIndexAfterAnnexContiguousBlock(next, letter)
+    if (endIdx < 0) continue
+    while (
+      endIdx + 1 < next.length &&
+      normalizeAnnexLetter(String(next[endIdx + 1]?.annexLetter ?? "")) === letter
+    ) {
+      endIdx++
+    }
+
+    const orderedRows: Record<string, unknown>[] = []
+    for (const leaf of expectedLeaves) {
+      const label = standardLinkCodeDisplayLabel(leaf)
+      const existing = existingByCode.get(leaf.code)
+      if (existing) {
+        orderedRows.push({
+          ...existing,
+          label,
+          linkCode: leaf.code,
+          defineMapping: true,
+          showInDetail: true,
+          detailOnly: true,
+          annexLetter: letter,
+          indent: true,
+          liaisonMode: "single",
+        })
+      } else {
+        orderedRows.push(
+          newDetailSubLineRow(letter, {
+            label,
+            linkCode: leaf.code,
+          }),
+        )
+      }
+    }
+
+    next.splice(endIdx + 1, 0, ...orderedRows)
+  }
+
+  return next
+}
+
+/** Alias explicite pour le Bilan (même logique que le compte de résultat). */
+export const syncDetailSubLinesFromStandard = syncIncomeStatementDetailSubLinesFromStandard
+
 /** Modes de la colonne Liaison (Sommaire / structure). */
 export type LiaisonMode = "na" | "single" | "sum" | "difference"
 
@@ -607,6 +816,186 @@ export function structureAnnexIsDepensesNature(
   return false
 }
 
+export function seriesRowUsesCapexProjectionLinkCode(
+  sr: { id: string; label: string },
+  structure: Record<string, unknown>[],
+): boolean {
+  if (isCapexProjectionLinkCode(sr.id)) return true
+  const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
+  if (!structRow) return false
+  return collectLinkCodesFromStructureRow(structRow).some(isCapexProjectionLinkCode)
+}
+
+/** Lignes série « Estimation des Capex annuels » : immobilisations ALT-B, location ALT-C, incorporels ALT-D. */
+export function filterSeriesRowsForCapexProjection<
+  T extends { id: string; label: string; isSection?: boolean },
+>(rows: T[], structure: Record<string, unknown>[]): T[] {
+  const filtered = rows.filter((sr) => {
+    if (sr.label === "") return false
+    if (sr.isSection && !isCapexProjectionLinkCode(sr.id)) return false
+    if (structure.length === 0) return isCapexProjectionLinkCode(sr.id)
+    return seriesRowUsesCapexProjectionLinkCode(sr, structure)
+  })
+  return filtered.sort((a, b) => compareCapexProjectionLinkCodes(a.id, b.id))
+}
+
+export interface CapexProjectionSeriesGroup<
+  T extends { id: string; label: string },
+> {
+  parentCode: (typeof CAPEX_PROJECTION_LINK_CODE_ROOTS)[number]
+  parentLabel: string
+  parentRow: T | null
+  childRows: T[]
+}
+
+/** Ligne de structure bilan éligible à « Estimation des Capex annuels ». */
+function structureRowQualifiesForCapexProjection(row: Record<string, unknown>): boolean {
+  if (isStructureRowEmptyLabel(row) || isStructureRowHidden(row)) return false
+  if (!isShowInDetail(row) || !isCodeMappingEnabled(row)) return false
+  return collectLinkCodesFromStructureRow(row).some(isCapexProjectionLinkCode)
+}
+
+function collectCapexStructureRowsByParent(
+  structure: Record<string, unknown>[],
+  parentCode: (typeof CAPEX_PROJECTION_LINK_CODE_ROOTS)[number],
+): {
+  parentStruct: Record<string, unknown> | null
+  childStructs: Record<string, unknown>[]
+} {
+  const qualifying = structure.filter(structureRowQualifiesForCapexProjection)
+  const parentStruct =
+    qualifying.find((row) => String(row.linkCode ?? "").trim() === parentCode) ?? null
+  const childStructs = qualifying
+    .filter((row) => {
+      const lc = String(row.linkCode ?? "").trim()
+      return lc.startsWith(`${parentCode}.`) && lc !== parentCode
+    })
+    .sort((a, b) =>
+      compareCapexProjectionLinkCodes(String(a.linkCode ?? ""), String(b.linkCode ?? "")),
+    )
+  return { parentStruct, childStructs }
+}
+
+function seriesRowForLinkCode<T extends { id: string; label: string }>(
+  linkCode: string,
+  seriesById: Map<string, T>,
+): T | undefined {
+  return seriesById.get(linkCode) ?? seriesById.get(linkCode.trim())
+}
+
+/** Regroupe les lignes Capex par parent ALT-B / ALT-C / ALT-D (structure bilan, puis série). */
+export function groupCapexProjectionSeriesRows<
+  T extends { id: string; label: string },
+>(rows: T[], structure: Record<string, unknown>[]): CapexProjectionSeriesGroup<T>[] {
+  const filtered = filterSeriesRowsForCapexProjection(rows, structure)
+  const seriesById = new Map<string, T>()
+  for (const row of filtered) {
+    seriesById.set(row.id, row)
+    const lc = String((row as { linkCode?: string }).linkCode ?? "").trim()
+    if (lc) seriesById.set(lc, row)
+  }
+
+  const resolveSeriesRow = (linkCode: string, structRow: Record<string, unknown>): T => {
+    const existing = seriesRowForLinkCode(linkCode, seriesById)
+    if (existing) return existing
+    return {
+      id: linkCode,
+      label: String(structRow.label ?? linkCode).trim() || linkCode,
+    } as T
+  }
+
+  const groupFromSeriesOnly = (
+    parentCode: (typeof CAPEX_PROJECTION_LINK_CODE_ROOTS)[number],
+  ): CapexProjectionSeriesGroup<T> | null => {
+    const inGroup = filtered.filter((row) => capexProjectionParentRoot(row.id) === parentCode)
+    if (inGroup.length === 0) return null
+
+    const parentRow = seriesRowForLinkCode(parentCode, seriesById) ?? null
+    const childRows = inGroup
+      .filter((row) => row.id !== parentCode)
+      .sort((a, b) => compareCapexProjectionLinkCodes(a.id, b.id))
+
+    const structParent = structure.find(
+      (row) => String(row.linkCode ?? "").trim() === parentCode,
+    )
+    const parentLabel =
+      parentRow?.label ?? (String(structParent?.label ?? "").trim() || parentCode)
+
+    return { parentCode, parentLabel, parentRow, childRows }
+  }
+
+  return CAPEX_PROJECTION_LINK_CODE_ROOTS.map((parentCode) => {
+    if (structure.length === 0) {
+      return groupFromSeriesOnly(parentCode)
+    }
+
+    const { parentStruct, childStructs } = collectCapexStructureRowsByParent(structure, parentCode)
+    if (!parentStruct && childStructs.length === 0) {
+      return groupFromSeriesOnly(parentCode)
+    }
+
+    const parentRow = parentStruct ? resolveSeriesRow(parentCode, parentStruct) : null
+    const childRows = childStructs.map((structRow) =>
+      resolveSeriesRow(String(structRow.linkCode ?? "").trim(), structRow),
+    )
+    const parentLabel =
+      parentRow?.label ?? (String(parentStruct?.label ?? "").trim() || parentCode)
+
+    return { parentCode, parentLabel, parentRow, childRows }
+  }).filter((group): group is CapexProjectionSeriesGroup<T> => group !== null)
+}
+
+/** Racines de codes calculés ailleurs en projection (non saisis dans « Estimation des dépenses annuelles »). */
+export const PROJECTION_COMPUTED_EXPENSE_LINK_CODE_ROOTS = [
+  "IMP",
+  "CMV.11",
+  "EXP.20",
+  "EXP.21",
+  "ADM.20",
+  "ADM.21",
+  "FIN.2",
+  "FIN.3",
+  "FIN.4",
+] as const
+
+export function isExcludedProjectionComputedExpenseLinkCode(code: string): boolean {
+  const normalized = code.trim()
+  if (!normalized) return false
+  return PROJECTION_COMPUTED_EXPENSE_LINK_CODE_ROOTS.some(
+    (root) => normalized === root || normalized.startsWith(`${root}.`),
+  )
+}
+
+/** Tous les codes de liaison référencés par une ligne de structure (unique, somme, soustraction). */
+export function collectLinkCodesFromStructureRow(row: Record<string, unknown>): string[] {
+  const codes: string[] = []
+  const add = (s: string) => {
+    const t = s.trim()
+    if (t) codes.push(t)
+  }
+  add(String(row.linkCode ?? ""))
+  for (const c of normalizeCodeList(row.liaisonSumCodes)) add(c)
+  for (const c of normalizeCodeList(row.liaisonNumeratorCodes)) add(c)
+  for (const c of normalizeCodeList(row.liaisonDenominatorCodes)) add(c)
+  return codes
+}
+
+export function structureRowUsesExcludedProjectionExpenseLinkCode(
+  row: Record<string, unknown>,
+): boolean {
+  return collectLinkCodesFromStructureRow(row).some(isExcludedProjectionComputedExpenseLinkCode)
+}
+
+export function seriesRowUsesExcludedProjectionExpenseLinkCode(
+  sr: { id: string; label: string },
+  structure: Record<string, unknown>[],
+): boolean {
+  if (isExcludedProjectionComputedExpenseLinkCode(sr.id)) return true
+  const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
+  if (!structRow) return false
+  return structureRowUsesExcludedProjectionExpenseLinkCode(structRow)
+}
+
 /**
  * Ligne série « Estimation des dépenses annuelles » : même périmètre que le Détail (annexe + codes actifs),
  * restreint aux postes / annexes dont la nature au sommaire est « Dépenses ».
@@ -617,6 +1006,7 @@ export function seriesRowBelongsToDepensesAnnexDetail(
 ): boolean {
   const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
   if (!structRow) return false
+  if (seriesRowUsesExcludedProjectionExpenseLinkCode(sr, structure)) return false
   if (!isCodeMappingEnabled(structRow) || !isShowInDetail(structRow)) return false
 
   if (normalizePosteNature(structRow.posteNature) === "depenses") return true
@@ -700,12 +1090,8 @@ export function isSummaryAnnexRowLockedInDetailEdit(row: Record<string, unknown>
  * Paramètres Détail : DT/CT obligatoire pour les postes affichés dans la grille,
  * sauf les titres d’annexe (ligne sommaire avec lettre, verrouillée au Détail).
  */
-export function isDetailParamsDtCtRequired(row: Record<string, unknown>): boolean {
-  if (isStructureRowEmptyLabel(row)) return false
-  if (isStructureRowHidden(row)) return false
-  if (!isStructureRowInDetailAnnexEditor(row)) return false
-  if (isSummaryAnnexRowLockedInDetailEdit(row)) return false
-  return true
+export function isDetailParamsDtCtRequired(_row: Record<string, unknown>): boolean {
+  return false
 }
 
 /** Valeur stockée côté structure pour la colonne DT/CT (Paramètres Détail). */

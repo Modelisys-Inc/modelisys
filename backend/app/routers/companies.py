@@ -16,9 +16,10 @@ from app.models.company import Company, Division, SubDivision
 from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.note import Note
 from app.models.trial_balance import TrialBalanceEntry
+import copy
+
 from app.models.user import User, UserCompanyAccess, UserOrganization, UserRole
-from app.services.statement_structure_defaults import DEFAULT_CASH_FLOW
-from app.services.statement_template import build_all_structures
+from app.services.statement_structure_defaults import DEFAULT_STRUCTURES
 from app.schemas.company import (
     CompanyCreate,
     CompanyListResponse,
@@ -136,13 +137,12 @@ def create_company(
     db.add(company)
     db.flush()
 
-    # Seed statement structures from the global standard codes chart
-    structures = build_all_structures(db)
-    for stmt_type, structure in structures.items():
+    # Seed canonical default structures (same in Paramètres and computed views).
+    for stmt_type, structure in DEFAULT_STRUCTURES.items():
         db.add(CompanyStatementStructure(
             company_id=company.id,
             statement_type=stmt_type,
-            structure=structure,
+            structure=copy.deepcopy(structure),
         ))
 
     for div_data in request.divisions:

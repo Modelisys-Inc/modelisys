@@ -48,7 +48,7 @@ const steps: {
     title: "Mise en production et support",
     approachPhase: "Go-live & formation",
     description:
-      "Go-live encadré, formation des utilisateurs, documentation et support technique pour une adoption progressive. L'accompagnement stratégique — diagnostic, valorisation, projections, analyse des écarts — s'active en option selon le plan choisi.",
+      "Go-live encadré, formation des utilisateurs, documentation et support technique pour une adoption progressive. Toutes les fonctionnalités de la plateforme sont incluses — seul l'accompagnement stratégique sur les trois phases demeure optionnel, selon le plan tarifaire choisi.",
   },
 ]
 

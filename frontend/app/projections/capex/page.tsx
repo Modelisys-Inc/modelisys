@@ -57,16 +57,16 @@ export default function CapexProjectionsPage() {
           </div>
         </div>
 
-        <div className="rounded-xl overflow-hidden shadow-sm border border-slate-200">
-          <CapexForecastDetail
+        <CapexForecastDetail
             companyId={selectedCompanyId}
             divisionId={selectedDivisionId}
             subDivisionId={selectedSubDivisionId}
             companies={companies}
             title="Estimation des Capex annuels"
+            period="annual"
+            view="years"
             projectionYears={projectionYears}
           />
-        </div>
       </main>
     </div>
   )

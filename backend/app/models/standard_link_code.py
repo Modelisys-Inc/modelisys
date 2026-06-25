@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, DateTime, Index, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -32,6 +32,12 @@ class StandardLinkCode(Base):
     account_sub_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     variable_or_fixed: Mapped[str | None] = mapped_column(String(20), nullable=True)
     ft_category: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    attached_link_codes: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB(astext_type=Text()), "postgresql"),
+        nullable=False,
+        default=list,
+        server_default="[]",
+    )
     ft_line_item: Mapped[str | None] = mapped_column(String(300), nullable=True)
     projections: Mapped[str | None] = mapped_column(String(200), nullable=True)
     is_leaf: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

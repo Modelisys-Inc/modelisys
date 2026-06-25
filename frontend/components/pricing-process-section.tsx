@@ -320,8 +320,7 @@ export function PricingProcessSection() {
   return (
     <section
       ref={sectionRef}
-      id="pricing-process"
-      className="scroll-mt-24 relative z-10 border-t border-slate-200/90 bg-gradient-to-b from-white via-slate-50/95 to-slate-100/50 py-20 sm:py-28 overflow-hidden"
+      className="scroll-mt-24 relative z-10 border-t border-slate-200/90 bg-gradient-to-b from-white via-slate-50/95 to-slate-100/50 pt-28 sm:pt-32 md:pt-36 pb-20 sm:pb-28 overflow-hidden"
     >
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
         <div
@@ -673,7 +672,7 @@ export function PricingProcessSection() {
                 </p>
               </div>
               <Link
-                href="#demo"
+                href="/#demo"
                 className="inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-lg border border-[#2A2F3A] bg-[#2A2F3A] px-6 py-3 text-sm font-semibold text-[#E6D6C3] shadow-[0_1px_0_0_rgba(255,255,255,0.06)_inset] transition hover:bg-[#353b48] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50 lg:self-center"
               >
                 Nous contacter

@@ -245,9 +245,8 @@ export function CaseStudiesSection() {
 
   return (
     <section
-      id="etudes-de-cas"
       ref={sectionRef}
-      className="scroll-mt-24 relative z-10 border-t border-slate-200/80 bg-gradient-to-b from-slate-50 via-slate-50/95 to-slate-100/70 pt-16 sm:pt-24 pb-12 sm:pb-16 overflow-hidden"
+      className="scroll-mt-24 relative z-10 border-t border-slate-200/80 bg-gradient-to-b from-slate-50 via-slate-50/95 to-slate-100/70 pt-28 sm:pt-32 md:pt-36 pb-12 sm:pb-16 overflow-hidden"
     >
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_85%_45%_at_50%_-15%,rgba(224,116,45,0.055),transparent_55%)]" />
@@ -423,7 +422,7 @@ export function CaseStudiesSection() {
                           <ArrowRight className="h-4 w-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
                         </button>
                         <a
-                          href="#demo"
+                          href="/#demo"
                           className="inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-400 transition hover:text-[#E0742D]"
                         >
                           Réserver une démo

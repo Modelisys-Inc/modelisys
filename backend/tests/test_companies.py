@@ -133,7 +133,9 @@ def test_unauthenticated_access(client):
 
 
 def test_create_company_seeds_default_statement_structures(client, auth_headers):
-    """Creating a company should auto-create default IS and BS statement structures."""
+    """Creating a company should auto-create canonical default IS/BS/CF structures."""
+    from app.services.statement_structure_defaults import DEFAULT_STRUCTURES
+
     create = client.post("/api/companies", json={"name": "Seeded Co"}, headers=auth_headers)
     assert create.status_code == 201
     company_id = create.json()["id"]
@@ -145,10 +147,27 @@ def test_create_company_seeds_default_statement_structures(client, auth_headers)
     assert response.status_code == 200
     structures = response.json()["structures"]
     types = {s["statement_type"] for s in structures}
-    assert "income-statement" in types
-    assert "balance-sheet" in types
+    assert types == set(DEFAULT_STRUCTURES.keys())
 
     is_struct = next(s for s in structures if s["statement_type"] == "income-statement")
-    assert len(is_struct["structure"]) > 0
-    bs_struct = next(s for s in structures if s["statement_type"] == "balance-sheet")
-    assert len(bs_struct["structure"]) > 0
+    assert is_struct["structure"][0]["label"] == DEFAULT_STRUCTURES["income-statement"][0]["label"]
+
+    cf_struct = next(s for s in structures if s["statement_type"] == "cash-flow")
+    assert cf_struct["structure"] == DEFAULT_STRUCTURES["cash-flow"]
+
+    cf_detail = next(s for s in structures if s["statement_type"] == "cash-flow-detail")
+    assert cf_detail["structure"] == DEFAULT_STRUCTURES["cash-flow-detail"]
+
+    # Computed cash-flow matches the same default labels (hors Paramètres).
+    r = client.get(
+        f"/api/companies/{company_id}/financial-statements/cash-flow",
+        params={"fiscal_year": 2026, "month": 12},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    computed_labels = [row["label"] for row in r.json()["rows"]]
+    expected_labels = [
+        row.get("label", "")
+        for row in DEFAULT_STRUCTURES["cash-flow"]
+    ]
+    assert computed_labels == expected_labels

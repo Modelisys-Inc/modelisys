@@ -15,12 +15,16 @@ from app.dependencies import require_superadmin
 from app.models.company import Company
 from app.models.organization import Organization
 from app.models.user import User, UserOrganization, UserRole
+from app.models.coa_version import CoaVersion
+from app.models.standard_link_code import StandardLinkCode
 from app.schemas.admin import (
     AdminOrgListResponse,
     AdminOrgResponse,
     CreateClientRequest,
     FeatureFlagDef,
     FeatureFlagsUpdate,
+    SeedStandardCodesResponse,
+    StandardCodesStatusResponse,
 )
 from app.services import feature_flags as ff
 from app.utils.security import hash_password
@@ -126,6 +130,78 @@ def create_client(
     db.commit()
     db.refresh(org)
     return _org_to_response(db, org)
+
+
+def _standard_codes_counts(db: Session) -> tuple[int, int]:
+    """Return (total, leaf_count) of standard link codes currently in the DB."""
+    total = db.query(func.count(StandardLinkCode.id)).scalar() or 0
+    leaf = (
+        db.query(func.count(StandardLinkCode.id))
+        .filter(StandardLinkCode.is_leaf.is_(True))
+        .scalar()
+        or 0
+    )
+    return total, leaf
+
+
+@router.get("/standard-link-codes/status", response_model=StandardCodesStatusResponse)
+def standard_codes_status(
+    _: User = Depends(require_superadmin), db: Session = Depends(get_db)
+):
+    """Current state of the global standardized chart (for the seed button UI)."""
+    total, leaf = _standard_codes_counts(db)
+    active = (
+        db.query(func.count(StandardLinkCode.id))
+        .filter(StandardLinkCode.is_active.is_(True))
+        .scalar()
+        or 0
+    )
+    version = db.query(func.max(CoaVersion.version)).scalar()
+    return StandardCodesStatusResponse(
+        total=total,
+        leaf_count=leaf,
+        active_count=active,
+        current_version=version,
+    )
+
+
+@router.post("/standard-link-codes/seed", response_model=SeedStandardCodesResponse)
+def seed_standard_codes(
+    _: User = Depends(require_superadmin), db: Session = Depends(get_db)
+):
+    """One-click import of the global standardized chart from data/MO.xlsx.
+
+    Additive + versioned (same logic as the ``seed_standard_link_codes`` CLI):
+    upserts every code, reactivates any that reappear, and tombstones codes
+    absent from the file. Populates the chart that the QBO import picker and
+    manual mapping read from. Superadmin-only.
+    """
+    from app.scripts.seed_standard_link_codes import (
+        _find_excel,
+        apply_records,
+        parse_excel,
+    )
+
+    try:
+        excel_path = _find_excel()
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Fichier de comptes standards introuvable: {exc}",
+        ) from exc
+
+    records = parse_excel(excel_path)
+    summary = apply_records(db, records, source=excel_path.name)
+    db.commit()
+
+    total, leaf = _standard_codes_counts(db)
+    return SeedStandardCodesResponse(
+        version=summary["version"],
+        upserted=summary["upserted"],
+        tombstoned=summary["tombstoned"],
+        total=total,
+        leaf_count=leaf,
+    )
 
 
 @router.patch("/organizations/{org_id}/feature-flags", response_model=AdminOrgResponse)

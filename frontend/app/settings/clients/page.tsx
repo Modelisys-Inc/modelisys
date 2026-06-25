@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Loader2, Plus, ShieldAlert, Building2 } from "lucide-react"
+import { Loader2, Plus, ShieldAlert, Building2, ListTree, Download } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,8 +12,11 @@ import {
   listClients,
   listFeatureFlagRegistry,
   setClientFeatureFlags,
+  getStandardCodesStatus,
+  seedStandardLinkCodes,
   type AdminOrg,
   type FeatureFlagDef,
+  type StandardCodesStatus,
 } from "@/lib/api"
 
 export default function ClientsAdminPage() {
@@ -27,13 +30,17 @@ export default function ClientsAdminPage() {
   const [email, setEmail] = useState("")
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [codesStatus, setCodesStatus] = useState<StandardCodesStatus | null>(null)
+  const [seeding, setSeeding] = useState(false)
+  const [seedMsg, setSeedMsg] = useState<string | null>(null)
 
   const reload = useCallback(() => {
     setLoading(true)
-    Promise.all([listClients(), listFeatureFlagRegistry()])
-      .then(([cs, reg]) => {
+    Promise.all([listClients(), listFeatureFlagRegistry(), getStandardCodesStatus()])
+      .then(([cs, reg, status]) => {
         setClients(cs)
         setRegistry(reg)
+        setCodesStatus(status)
       })
       .catch(() => setError("Impossible de charger les clients"))
       .finally(() => setLoading(false))
@@ -62,6 +69,28 @@ export default function ClientsAdminPage() {
       setCreating(false)
     }
   }, [name, email])
+
+  const handleSeed = useCallback(async () => {
+    setSeeding(true)
+    setError(null)
+    setSeedMsg(null)
+    try {
+      const res = await seedStandardLinkCodes()
+      setCodesStatus({
+        total: res.total,
+        leaf_count: res.leaf_count,
+        active_count: res.total - res.tombstoned,
+        current_version: res.version,
+      })
+      setSeedMsg(
+        `Comptes standards importés : ${res.total} comptes (${res.leaf_count} assignables) · version ${res.version}.`,
+      )
+    } catch {
+      setError("Échec de l'import des comptes standards.")
+    } finally {
+      setSeeding(false)
+    }
+  }, [])
 
   const toggleFlag = useCallback(async (org: AdminOrg, key: string, value: boolean) => {
     const next = { ...org.feature_flags, [key]: value }
@@ -132,6 +161,42 @@ export default function ClientsAdminPage() {
             L&apos;administrateur définira son mot de passe via « mot de passe oublié ».
           </p>
           {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+        </div>
+
+        {/* Standard chart of accounts (global) */}
+        <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="standard-codes-card">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <ListTree className="h-4 w-4" /> Comptes standards (codes de liaison)
+          </h2>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="min-w-0 text-sm text-slate-600">
+              {codesStatus && codesStatus.total > 0 ? (
+                <>
+                  {codesStatus.total} comptes ({codesStatus.leaf_count} assignables)
+                  {codesStatus.current_version != null && ` · version ${codesStatus.current_version}`}
+                </>
+              ) : (
+                "Aucun compte standard. Importez-les pour activer le mappage et l'import QuickBooks."
+              )}
+            </p>
+            <Button
+              onClick={() => void handleSeed()}
+              disabled={seeding}
+              variant="outline"
+              className="shrink-0 gap-1.5"
+              data-testid="seed-standard-codes"
+            >
+              {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {codesStatus && codesStatus.total > 0
+                ? "Réimporter les comptes standards"
+                : "Importer les comptes standards"}
+            </Button>
+          </div>
+          {seedMsg && <p className="mt-2 text-xs text-emerald-600">{seedMsg}</p>}
+          <p className="mt-2 text-xs text-slate-400">
+            Charte globale partagée par tous les clients (depuis MO.xlsx). À lancer une fois pour
+            peupler les codes de liaison assignables.
+          </p>
         </div>
 
         {/* Clients list */}

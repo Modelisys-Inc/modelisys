@@ -19,6 +19,12 @@ from app.models.company import Company, Division, SubDivision
 from app.models.financial_statement_mapping import CompanyStatementStructure
 from app.models.trial_balance import ChartOfAccount, TrialBalanceEntry
 from app.services.statement_structure_defaults import DEFAULT_STRUCTURES
+from app.services.statement_template import get_default_structure
+from app.services.standard_link_code_utils import (
+    build_cash_flow_link_code_attachments,
+    build_cash_flow_virtual_family_link_codes,
+    is_computed_net_income_link_code,
+)
 
 
 def _parse_fiscal_year_end(fiscal_year_end: str) -> tuple[int, int]:
@@ -367,6 +373,36 @@ def _build_mapping_index(
     return index
 
 
+def _augment_mapping_index_for_cash_flow_virtual_families(
+    mapping_index: dict[str, list[str]],
+    db: Session,
+) -> None:
+    """Expose Trésorerie link codes (and legacy TEX/TIN/TFI aggregates) in the mapping index."""
+    by_code = build_cash_flow_link_code_attachments(db)
+    for cf_code, source_codes in by_code.items():
+        accounts: list[str] = []
+        seen: set[str] = set()
+        for link_code in source_codes:
+            for account_number in mapping_index.get(link_code, []):
+                if account_number in seen:
+                    continue
+                seen.add(account_number)
+                accounts.append(account_number)
+        mapping_index[cf_code] = accounts
+
+    by_family = build_cash_flow_virtual_family_link_codes(db)
+    for virtual_family, link_codes in by_family.items():
+        accounts: list[str] = []
+        seen: set[str] = set()
+        for link_code in link_codes:
+            for account_number in mapping_index.get(link_code, []):
+                if account_number in seen:
+                    continue
+                seen.add(account_number)
+                accounts.append(account_number)
+        mapping_index[virtual_family] = accounts
+
+
 def _mapping_csv_matches_entity(
     field: str | None,
     entity_name: str | None,
@@ -489,6 +525,15 @@ def _sum_for_link_codes_single_month_aggregate(
             dt_ct_by_link_code,
         )
     return total
+
+
+def _liaison_sum_statement_type(row: dict, statement_type: str) -> str:
+    """CAP-C.1 (bénéfice net) on the balance sheet sums IS link codes with IS rules."""
+    if statement_type == "balance-sheet" and is_computed_net_income_link_code(
+        str(row.get("linkCode") or "")
+    ):
+        return "income-statement"
+    return statement_type
 
 
 def _normalize_liaison_mode(row: dict) -> str:
@@ -1364,18 +1409,19 @@ def _process_structure_rows(
                     )
         elif mode == "sum":
             codes = _normalize_code_list(row.get("liaisonSumCodes"))
+            sum_statement_type = _liaison_sum_statement_type(row, statement_type)
             if codes:
                 current = _sum_for_link_codes_aggregate(
                     codes, mapping_index, current_amount_index,
                     current_months, division_filter, sub_division_filter,
                     division_uuid, sub_division_uuid,
                     mappings_by_account, customer_filter, supplier_filter,
-                    groupe_index, statement_type, dt_ct_by_link_code,
+                    groupe_index, sum_statement_type, dt_ct_by_link_code,
                 )
                 if use_budget_as_prior and budget_amount_index is not None:
                     prior = _sum_budget_for_link_codes_aggregate(
                         codes, mapping_index, budget_amount_index, current_months,
-                        groupe_index, statement_type,
+                        groupe_index, sum_statement_type,
                     )
                 else:
                     prior = _sum_for_link_codes_aggregate(
@@ -1383,7 +1429,7 @@ def _process_structure_rows(
                         prior_months, division_filter, sub_division_filter,
                         division_uuid, sub_division_uuid,
                         mappings_by_account, customer_filter, supplier_filter,
-                        groupe_index, statement_type, dt_ct_by_link_code,
+                        groupe_index, sum_statement_type, dt_ct_by_link_code,
                     )
         elif mode == "difference":
             nums = _normalize_code_list(row.get("liaisonNumeratorCodes"))
@@ -1630,7 +1676,7 @@ def compute_financial_statement(
         .first()
     )
     if not structure:
-        structure_rows = DEFAULT_STRUCTURES.get(statement_type, [])
+        structure_rows = get_default_structure(db, statement_type)
     else:
         structure_rows = list(structure.structure or [])
     if not structure_rows:
@@ -1650,6 +1696,8 @@ def compute_financial_statement(
         .all()
     )
     mapping_index = _build_mapping_index(mappings)
+    if statement_type == "cash-flow":
+        _augment_mapping_index_for_cash_flow_virtual_families(mapping_index, db)
     mappings_by_account = {m.account_number: m for m in mappings}
 
     # 3. Resolve division/sub-division UUIDs to names for filtering
@@ -2020,6 +2068,7 @@ def _process_structure_rows_series(
                     ), 2)
         elif mode == "sum":
             codes = _normalize_code_list(row.get("liaisonSumCodes"))
+            sum_statement_type = _liaison_sum_statement_type(row, statement_type)
             if codes:
                 for p in periods:
                     fy = p["fiscalYear"]
@@ -2037,7 +2086,7 @@ def _process_structure_rows_series(
                                     codes, mapping_index, amt_index, m,
                                     division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
                                     customer_filter, supplier_filter,
-                                    groupe_index, statement_type, dt_ct_by_link_code,
+                                    groupe_index, sum_statement_type, dt_ct_by_link_code,
                                 )
                             amounts[key] = round(total, 2)
                         else:
@@ -2045,14 +2094,14 @@ def _process_structure_rows_series(
                                 codes, mapping_index, amt_index, fm,
                                 division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
                                 customer_filter, supplier_filter,
-                                groupe_index, statement_type, dt_ct_by_link_code,
+                                groupe_index, sum_statement_type, dt_ct_by_link_code,
                             ), 2)
                     else:
                         amounts[key] = round(_sum_for_link_codes_single_month_aggregate(
                             codes, mapping_index, amt_index, fm,
                             division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
                             customer_filter, supplier_filter,
-                            groupe_index, statement_type, dt_ct_by_link_code,
+                            groupe_index, sum_statement_type, dt_ct_by_link_code,
                         ), 2)
         elif mode == "difference":
             nums = _normalize_code_list(row.get("liaisonNumeratorCodes"))
@@ -2285,7 +2334,11 @@ def compute_financial_statement_series(
         )
         .first()
     )
-    structure_rows = list(structure.structure or []) if structure else DEFAULT_STRUCTURES.get(statement_type, [])
+    structure_rows = (
+        list(structure.structure or [])
+        if structure
+        else get_default_structure(db, statement_type)
+    )
     if not structure_rows:
         return {
             "companyId": str(company.id),
@@ -2302,6 +2355,8 @@ def compute_financial_statement_series(
         .all()
     )
     mapping_index = _build_mapping_index(mappings)
+    if statement_type == "cash-flow":
+        _augment_mapping_index_for_cash_flow_virtual_families(mapping_index, db)
     mappings_by_account = {m.account_number: m for m in mappings}
 
     # 3. Resolve division/sub-division filters

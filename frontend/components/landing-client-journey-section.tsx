@@ -9,15 +9,16 @@ import {
   parseApprochePhaseFromHash,
   type ApprochePhaseId,
 } from "@/lib/approche-navigation"
+import { APPROCHE_PHASE_MARKETING_CONTENT } from "@/lib/approche-phase-marketing-content"
 import { NARRATIVE_BASELINE, NARRATIVE_PROJECTION, NARRATIVE_TARGET } from "@/lib/hero-narrative-metrics"
 
 const PHASE_ORDER = APPROCHE_PHASE_IDS
 type PhaseId = ApprochePhaseId
 
 const phaseLabels: Record<PhaseId, string> = {
-  diagnostic: "Phase 1 — Diagnostic",
-  planification: "Phase 2 — Planification",
-  pilotage: "Phase 3 — Pilotage",
+  diagnostic: APPROCHE_PHASE_MARKETING_CONTENT.diagnostic.phaseTitle,
+  planification: APPROCHE_PHASE_MARKETING_CONTENT.planification.phaseTitle,
+  pilotage: APPROCHE_PHASE_MARKETING_CONTENT.pilotage.phaseTitle,
 }
 
 const phaseShortLabels: Record<PhaseId, string> = {
@@ -27,7 +28,7 @@ const phaseShortLabels: Record<PhaseId, string> = {
 }
 
 type PhaseContent = {
-  description: string
+  description?: string
   listLabel: string
   items: readonly string[]
   example: { label: string; text: string }
@@ -36,49 +37,21 @@ type PhaseContent = {
 
 const phaseContent: Record<PhaseId, PhaseContent> = {
   diagnostic: {
-    description:
-      "Avant de piloter, il faut mesurer. Modelisys structure une première lecture complète de votre entreprise pour ancrer toute la suite dans des chiffres défendables.",
-    listLabel: "Étapes",
-    items: [
-      "Analyse financière",
-      "Évaluation initiale",
-      "Diagnostic des risques",
-      "KPI actuels",
-      "Identification des leviers de valeur",
-    ],
+    ...APPROCHE_PHASE_MARKETING_CONTENT.diagnostic,
     example: {
       label: "Exemple",
       text: `L'analyse financière révèle des revenus de ${NARRATIVE_BASELINE.revenus} et un BAIIA de ${NARRATIVE_BASELINE.baiia} (marge BAIIA de ${NARRATIVE_BASELINE.margeBaiia}), avec une marge brute stable à ${NARRATIVE_BASELINE.margeBrute}, mais une concentration de 45 % des revenus chez trois clients. L'évaluation initiale situe la valeur de l'entreprise à environ ${NARRATIVE_BASELINE.valeur}, fondée sur un multiple de ${NARRATIVE_BASELINE.multiple} le BAIIA normalisé de ${NARRATIVE_BASELINE.baiiaNormalise}. Le diagnostic des risques met en évidence une dépendance client élevée et un fonds de roulement sous tension. Les KPI actuels montrent un ratio de liquidité de 1,1 et un délai de recouvrement de 68 jours. Parmi les leviers de valeur identifiés : diversifier la clientèle, réduire le BFR de 15 % et améliorer la marge opérationnelle de 2 points. Ce diagnostic devient le point de référence pour toutes les phases suivantes.`,
     },
   },
   planification: {
-    description:
-      "Fixez une ambition chiffrée, puis modélisez-la. Modelisys clarifie la vision du dirigeant, transforme l'objectif en scénarios comparables et projette revenus, dépenses, trésorerie et valeur sur l'horizon choisi.",
-    listLabel: "Vision et scénarios",
-    items: [
-      "Objectif de valeur et horizon",
-      "Acquisition, cession ou développement organique",
-      "Revenus, dépenses fixes et variables",
-      "Fonds de roulement et flux de trésorerie",
-      "Besoins de financement",
-      "Trajectoire de valeur sur 3 ans",
-    ],
+    ...APPROCHE_PHASE_MARKETING_CONTENT.planification,
     example: {
       label: "Exemple",
       text: `Le dirigeant confirme qu'il ne souhaite pas vendre à court terme. La vision retenue : porter les revenus de ${NARRATIVE_BASELINE.revenus} à ${NARRATIVE_TARGET.revenus}, le BAIIA de ${NARRATIVE_BASELINE.baiia} à ${NARRATIVE_TARGET.baiia} (marge BAIIA de ${NARRATIVE_BASELINE.margeBaiia} à ${NARRATIVE_TARGET.margeBaiia}) et atteindre une valeur cible de ${NARRATIVE_TARGET.valeur} dans 3 ans par l'entremise d'une acquisition dans 24 mois et la fermeture d'une division non rentable. Modelisys modélise cette ambition : revenus de ${NARRATIVE_PROJECTION.an1.revenus} à ${NARRATIVE_PROJECTION.an3.revenus} sur trois ans, BAIIA de ${NARRATIVE_PROJECTION.an1.baiia} à ${NARRATIVE_PROJECTION.an3.baiia}, valeur de ${NARRATIVE_PROJECTION.an1.valeur} à ${NARRATIVE_PROJECTION.an3.valeur}. Le suivi serré des flux de trésorerie révèle un besoin de financement de ${NARRATIVE_PROJECTION.an2.capex} au moment de l'acquisition, avant que la fermeture de la division et l'intégration de la cible ne rééquilibrent la trésorerie.`,
     },
   },
   pilotage: {
-    description:
-      "Chaque mois ou trimestre, confrontez le réel au passé et au scénario prévu. Modelisys traduit les écarts en impact sur la trésorerie et la valeur, documente leurs causes et permet de recalibrer le plan sans repartir de zéro.",
-    listLabel: "Suivi et ajustements",
-    items: [
-      "Réel vs passé vs prévu",
-      "Analyse et notes sur les écarts",
-      "Impact sur trésorerie et valeur",
-      "Nouvelles hypothèses et scénarios",
-      "Recalibrage continu du plan",
-    ],
+    ...APPROCHE_PHASE_MARKETING_CONTENT.pilotage,
     example: {
       label: "Exemple",
       text: `Le scénario modélisé en planification devient la référence de suivi. Chaque mois, Modelisys confronte le réel au passé, au prévu et à l'objectif — revenus (${NARRATIVE_BASELINE.revenus} → ${NARRATIVE_TARGET.revenus}), marge, BAIIA, capex et trésorerie. À mi-parcours vers l'acquisition, les ventes dépassent le modèle grâce à l'embauche d'un vendeur, mais les dépenses variables grimpent plus vite que prévu : prix des matériaux en hausse et salaire non budgétisé. Modelisys documente l'écart sur la trajectoire vers les ${NARRATIVE_TARGET.valeur} et en traduit l'impact sur la trésorerie. Le dirigeant ajuste ses hypothèses — dépenses variables resserrées, embauche reportée, besoin de financement réévalué à 780 k$ — et l'outil recalcule aussitôt la performance (BAIIA cible ${NARRATIVE_TARGET.baiia}, marge ${NARRATIVE_TARGET.margeBaiia}) et la trajectoire vers les ${NARRATIVE_TARGET.valeur}. Le plan reste vivant, pas figé.`,
@@ -309,9 +282,11 @@ export function LandingClientJourneySection() {
             <h3 className="mt-5 max-w-xl text-2xl font-semibold leading-snug tracking-tight text-[#E6D6C3] sm:text-[1.65rem]">
               {phaseLabels[activePhase]}
             </h3>
-            <p className="mt-4 max-w-xl text-sm leading-[1.7] text-[#C9B8A5]/80 sm:text-[15px]">
-              {active.description}
-            </p>
+            {active.description ? (
+              <p className="mt-4 max-w-xl text-sm leading-[1.7] text-[#C9B8A5]/80 sm:text-[15px]">
+                {active.description}
+              </p>
+            ) : null}
 
             <PhaseItemsList label={active.listLabel} items={active.items} example={active.example} />
 

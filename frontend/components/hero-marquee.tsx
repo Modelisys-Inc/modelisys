@@ -1,18 +1,9 @@
 "use client"
 
 import { TrendingUp } from "lucide-react"
-import { NARRATIVE_BASELINE, NARRATIVE_PROJECTION, NARRATIVE_TARGET } from "@/lib/hero-narrative-metrics"
+import { HERO_INSIGHT_MARQUEE_ITEMS } from "@/lib/hero-narrative-metrics"
 
-const items = [
-  `Diagnostic — Revenus ${NARRATIVE_BASELINE.revenus} · BAIIA ${NARRATIVE_BASELINE.baiia} · valeur ${NARRATIVE_BASELINE.valeur}`,
-  "Diagnostic — Concentration client 45 % · liquidité 1,1",
-  `Planification — Vision ${NARRATIVE_TARGET.valeur} · revenus ${NARRATIVE_BASELINE.revenus} → ${NARRATIVE_TARGET.revenus}`,
-  `Planification — Besoin de financement : ${NARRATIVE_PROJECTION.an2.capex} à l'acquisition`,
-  "Pilotage — Réel vs passé vs prévu · notes d'explication des écarts",
-  "Pilotage — Scénario recalibré sans repartir de zéro",
-  `Pilotage — Trajectoire maintenue vers ${NARRATIVE_TARGET.valeur}`,
-  "Pilotage — Écart capex documenté · impact sur trésorerie",
-]
+const items = HERO_INSIGHT_MARQUEE_ITEMS
 
 export function HeroMarquee() {
   return (
@@ -65,7 +56,7 @@ export function HeroMarquee() {
           display: flex;
           width: max-content;
           will-change: transform;
-          animation: marqueeLeft 30s linear infinite;
+          animation: marqueeLeft 90s linear infinite;
         }
 
         .marquee-row {

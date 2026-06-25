@@ -1,6 +1,7 @@
 import type { MouseEvent } from "react"
 
 export const APPROCHE_SECTION_ID = "approche-modelisys" as const
+/** Cible de scroll : carte « Trajectoire de performance » dans le hero. */
 export const APPROCHE_SCROLL_TARGET_ID = "approche-modelisys-start" as const
 
 const DEFAULT_LANDING_NAV_OFFSET_PX = 96

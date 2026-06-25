@@ -3,12 +3,14 @@ import { test, expect, Page } from "@playwright/test"
 // Superadmin client management: non-superadmins are blocked; superadmins can
 // create clients and toggle feature flags. Backend mocked.
 
-async function baseAuth(page: Page, isSuperadmin: boolean) {
+async function baseAuth(page: Page, isSuperadmin: boolean, baseURL?: string) {
   await page.addInitScript(() => {
     localStorage.setItem("access_token", "fake-access-token")
     localStorage.setItem("refresh_token", "fake-refresh-token")
   })
-  await page.context().addCookies([{ name: "has_session", value: "1", url: "http://localhost:3000" }])
+  await page.context().addCookies([
+    { name: "has_session", value: "1", url: baseURL ?? "http://localhost:3000" },
+  ])
   await page.route("**/api/auth/me", (route) =>
     route.fulfill({
       status: 200,
@@ -29,14 +31,14 @@ const REGISTRY = [
   { key: "projections", label: "Projections", default: true },
 ]
 
-test("non-superadmin is blocked from client management", async ({ page }) => {
-  await baseAuth(page, false)
+test("non-superadmin is blocked from client management", async ({ page, baseURL }) => {
+  await baseAuth(page, false, baseURL)
   await page.goto("/settings/clients")
   await expect(page.getByText("Accès réservé")).toBeVisible()
 })
 
-test("superadmin creates a client and toggles a feature flag", async ({ page }) => {
-  await baseAuth(page, true)
+test("superadmin creates a client and toggles a feature flag", async ({ page, baseURL }) => {
+  await baseAuth(page, true, baseURL)
 
   const orgs: Record<string, unknown>[] = [
     { id: "c1", name: "Existing Co", slug: "existing-co", member_count: 2, company_count: 1, feature_flags: { quickbooks: true, projections: true }, created_at: "2026-01-01T00:00:00Z" },
@@ -44,6 +46,9 @@ test("superadmin creates a client and toggles a feature flag", async ({ page }) 
 
   await page.route("**/api/admin/feature-flags", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(REGISTRY) }),
+  )
+  await page.route("**/api/admin/standard-link-codes/status", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ total: 226, leaf_count: 202, active_count: 226, current_version: 1 }) }),
   )
   await page.route("**/api/admin/organizations", (route) => {
     if (route.request().method() === "POST") {
@@ -77,4 +82,39 @@ test("superadmin creates a client and toggles a feature flag", async ({ page }) 
   // Toggle the QuickBooks flag off for the existing client.
   await page.getByLabel("Intégration QuickBooks pour Existing Co").click()
   await expect.poll(() => patched).toEqual({ flags: { quickbooks: false, projections: true } })
+})
+
+test("superadmin imports the standard chart of accounts in one click", async ({ page, baseURL }) => {
+  await baseAuth(page, true, baseURL)
+
+  await page.route("**/api/admin/feature-flags", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(REGISTRY) }),
+  )
+  await page.route("**/api/admin/organizations", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ organizations: [] }) }),
+  )
+  // Empty chart on first load.
+  await page.route("**/api/admin/standard-link-codes/status", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ total: 0, leaf_count: 0, active_count: 0, current_version: null }) }),
+  )
+  let seeded = false
+  await page.route("**/api/admin/standard-link-codes/seed", (route) => {
+    seeded = true
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ version: 1, upserted: 226, tombstoned: 0, total: 226, leaf_count: 202 }) })
+  })
+
+  await page.goto("/settings/clients")
+
+  const card = page.getByTestId("standard-codes-card")
+  await expect(card.getByText("Aucun compte standard.")).toBeVisible()
+
+  await page.getByTestId("seed-standard-codes").click()
+
+  await expect.poll(() => seeded).toBe(true)
+  // Confirmation message + the status line now reflects a populated chart, and
+  // the button flips to "Réimporter".
+  await expect(
+    card.getByText("Comptes standards importés : 226 comptes (202 assignables) · version 1."),
+  ).toBeVisible()
+  await expect(card.getByRole("button", { name: "Réimporter les comptes standards" })).toBeVisible()
 })

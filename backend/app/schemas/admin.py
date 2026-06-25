@@ -31,3 +31,18 @@ class CreateClientRequest(BaseModel):
 
 class FeatureFlagsUpdate(BaseModel):
     flags: dict[str, bool]
+
+
+class StandardCodesStatusResponse(BaseModel):
+    total: int
+    leaf_count: int
+    active_count: int
+    current_version: int | None
+
+
+class SeedStandardCodesResponse(BaseModel):
+    version: int
+    upserted: int
+    tombstoned: int
+    total: int
+    leaf_count: int

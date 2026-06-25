@@ -23,6 +23,7 @@ import {
   yearTrendFromReference,
 } from "@/lib/series-reference-columns"
 import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
+import { useIncomeStatementParentLinkCodes } from "@/hooks/use-income-statement-parent-link-codes"
 import {
   TOTAL_CHARGES_LABEL,
   collectDistinctLinkCodesFromStructure,
@@ -40,8 +41,6 @@ import {
   normLabel,
   normalizeAnnexLetter,
   normalizeLiaisonMode,
-  normalizePosteNature,
-  isPosteNatureChoiceApplicable,
 } from "@/lib/income-statement-structure-utils"
 import { IncomeStatementLiaisonCell } from "@/components/income-statement-liaison-cell"
 import { Badge } from "@/components/ui/badge"
@@ -83,7 +82,6 @@ import {
   Plus,
   Settings,
   Sparkles,
-  Tags,
   Trash2,
 } from "lucide-react"
 import {
@@ -305,6 +303,8 @@ export function IncomeStatementSummary({
     companyId ?? null,
     structureEditMode && canInlineStructureEdit
   )
+  const { codes: incomeParentLinkCodes, labels: incomeParentLinkLabels } =
+    useIncomeStatementParentLinkCodes(structureEditMode && canInlineStructureEdit)
 
   const refMonth = referenceMonth ?? new Date().getMonth() + 1
   const refYear = fiscalYear ?? new Date().getFullYear()
@@ -1063,7 +1063,7 @@ export function IncomeStatementSummary({
 
   /** Doit correspondre au nombre de `<th>` du thead — sinon une ligne `colSpan` invalide casse `table-fixed`. */
   const summaryTableColumnCount = useMemo(() => {
-    if (showStructureCols) return 9
+    if (showStructureCols) return 8
     if (view === "current") return 2
     if (view === "comparison" || view === "ddm" || view === "ytd") {
       if (isComparisonMode) return 1 + entitiesToCompare.length
@@ -1427,7 +1427,6 @@ export function IncomeStatementSummary({
             {showStructureCols && (
               <colgroup>
                 <col className="min-w-0" />
-                <col style={{ width: "9.5rem" }} />
                 <col style={{ width: "7rem" }} />
                 <col style={{ width: "7rem" }} />
                 <col style={{ width: "7rem" }} />
@@ -1469,24 +1468,6 @@ export function IncomeStatementSummary({
                 </th>
                 {showStructureCols && (
                   <>
-                    <th className="box-border w-[9.5rem] min-w-[9rem] px-2 py-4 text-center">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex cursor-help flex-col items-center gap-1.5">
-                            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
-                              <Tags className="h-4 w-4 text-emerald-700" />
-                            </span>
-                            <span className="max-w-[9rem] text-[11px] font-semibold leading-tight text-slate-800">
-                              Revenus / Dépenses
-                            </span>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-[280px] text-balance">
-                          Modifiable uniquement lorsque « Annexe » est activé : indique si le poste relève des revenus ou
-                          des dépenses.
-                        </TooltipContent>
-                      </Tooltip>
-                    </th>
                     <th className="box-border w-[7rem] px-2 py-4 text-center">
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1768,10 +1749,13 @@ export function IncomeStatementSummary({
               const rawSeparator =
                 showStructureCols && structRow ? structRow.separatorAbove : row.separatorAbove
               const showSeparatorAbove = isTruthySeparatorAbove(rawSeparator)
-              const posteNatureSelectEnabled =
+              const liaisonMode = structRow ? normalizeLiaisonMode(structRow) : "na"
+              const isLabelLockedBySingleLinkCode =
                 !!structRow &&
-                !isStructureRowEmptyLabel(structRow) &&
-                isPosteNatureChoiceApplicable(structRow)
+                isCodeMappingEnabled(structRow) &&
+                !!String(structRow.linkCode ?? "").trim() &&
+                liaisonMode !== "sum" &&
+                liaisonMode !== "difference"
 
               return (
                 <Fragment key={idx}>
@@ -1819,10 +1803,19 @@ export function IncomeStatementSummary({
                       ) : (
                         <Input
                           value={String(structRow.label ?? "")}
+                          disabled={isLabelLockedBySingleLinkCode}
+                          readOnly={isLabelLockedBySingleLinkCode}
                           onChange={(e) => structEdit.updateRow(globalIdx, { label: e.target.value })}
+                          title={
+                            isLabelLockedBySingleLinkCode
+                              ? "Libellé défini par le code de liaison sélectionné."
+                              : undefined
+                          }
                           className={cn(
                             "h-9 w-full max-w-full rounded-xl border-slate-200/90 bg-white text-sm shadow-sm transition-shadow focus-visible:border-[#E0742D]/50 focus-visible:ring-2 focus-visible:ring-[#E0742D]/20",
-                            isBoldRow ? "font-semibold" : "font-normal"
+                            isBoldRow ? "font-semibold" : "font-normal",
+                            isLabelLockedBySingleLinkCode &&
+                              "cursor-not-allowed bg-slate-50 text-slate-700 opacity-100"
                           )}
                         />
                       )
@@ -1832,48 +1825,6 @@ export function IncomeStatementSummary({
                   </td>
                   {showStructureCols && structRow && (
                     <>
-                      <td className="box-border w-[9.5rem] min-w-[9rem] px-2 py-2 align-middle">
-                        {isStructureRowEmptyLabel(structRow) ? (
-                          <span className="flex justify-center text-sm text-slate-300">—</span>
-                        ) : (
-                          <Select
-                            disabled={!posteNatureSelectEnabled}
-                            value={normalizePosteNature(structRow.posteNature) ?? "unset"}
-                            onValueChange={(v) =>
-                              structEdit.updateRow(globalIdx, {
-                                posteNature: v === "unset" ? undefined : v,
-                              })
-                            }
-                          >
-                            <SelectTrigger
-                              aria-label="Nature du poste : revenus ou dépenses"
-                              title={
-                                posteNatureSelectEnabled
-                                  ? undefined
-                                  : "Activez la case « Annexe » pour choisir Revenus ou Dépenses."
-                              }
-                              className={cn(
-                                "h-9 w-full rounded-xl border-slate-200/90 bg-white text-xs shadow-sm focus:ring-[#E0742D]/20",
-                                !posteNatureSelectEnabled &&
-                                  "cursor-not-allowed bg-slate-50 text-slate-500 opacity-70"
-                              )}
-                            >
-                              <SelectValue placeholder="Choisir…" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="unset" className="text-xs text-slate-500">
-                                Non défini
-                              </SelectItem>
-                              <SelectItem value="revenus" className="text-xs">
-                                Revenus
-                              </SelectItem>
-                              <SelectItem value="depenses" className="text-xs">
-                                Dépenses
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </td>
                       <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
                         {isStructureRowEmptyLabel(structRow) ? (
                           <span className="text-sm text-slate-300">—</span>
@@ -2003,6 +1954,8 @@ export function IncomeStatementSummary({
                             rowIndex={globalIdx}
                             allLinkCodes={allLiaisonCodes}
                             linkCodeLabels={linkCodeLabels}
+                            singleModeLinkCodes={incomeParentLinkCodes}
+                            singleModeLinkCodeLabels={incomeParentLinkLabels}
                             updateRow={structEdit.updateRow}
                           />
                         ) : (

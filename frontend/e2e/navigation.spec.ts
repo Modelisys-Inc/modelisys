@@ -62,4 +62,36 @@ test.describe("Navigation & Routing", () => {
     await page.goto("/year-end-cpa");
     await expect(page).toHaveURL(/\/login/);
   });
+
+  test("études de cas page is public and loads", async ({ page }) => {
+    test.setTimeout(90_000)
+    const res = await page.goto("/etudes-de-cas", {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    })
+    expect(res?.status()).toBe(200);
+    await expect(page).toHaveURL(/\/etudes-de-cas$/);
+    await expect(page).toHaveTitle(/Études de cas/i);
+    await expect(
+      page.getByRole("heading", {
+        name: /L'approche Modelisys, dans des contextes réels/i,
+      }),
+    ).toBeVisible();
+  });
+
+  test("tarification page is public and loads", async ({ page }) => {
+    test.setTimeout(90_000)
+    const res = await page.goto("/tarification", {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    })
+    expect(res?.status()).toBe(200);
+    await expect(page).toHaveURL(/\/tarification$/);
+    await expect(page).toHaveTitle(/Tarification/i);
+    await expect(
+      page.getByRole("heading", {
+        name: /Trois volets, une proposition claire/i,
+      }),
+    ).toBeVisible();
+  });
 });

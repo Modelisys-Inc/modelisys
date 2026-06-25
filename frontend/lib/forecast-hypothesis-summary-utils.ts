@@ -15,7 +15,13 @@ import {
 
 export type HypothesisYearSummaryInput = {
   annual: number
+  /** Montant annuel pour la courbe décaissement (défaut = annual). */
+  cashFlowAnnual?: number
   seasonalityMonthPercents: number[]
+  /** Si true, le décaissement suit directement la saisonnalité (sans délais de paiement). */
+  cashFlowBySeasonalityDirect?: boolean
+  /** Saisonnalité du décaissement (défaut = seasonalityMonthPercents). */
+  cashFlowSeasonalityMonthPercents?: number[]
   /** Revenus : mauvaise créance. Dépenses : 0 (décaissement à 100 %). */
   badDebtPercent: number
   buckets: ForecastCollectionBucket[]
@@ -109,33 +115,72 @@ export function computeHypothesisSummarySingleYear(
     Math.round(yp.annual),
     effectiveSummarySeasonality(yp.seasonalityMonthPercents, yp.preRevenueNeed)
   )
-  const bd = clampRoundBadDebt(yp.badDebtPercent)
-  const adv = normalizeAdvancedBuckets(yp.buckets, bd)
-  const cashFlow = Array.from({ length: 12 }, () => 0)
-  for (let m = 0; m < 12; m++) {
-    for (const b of adv) {
-      const pct = Math.max(0, Math.round(b.percent))
-      const off = collectionDelayToMonthOffset(b.delayDays)
-      const tgt = m + off
-      if (tgt <= 11) cashFlow[tgt]! += ((R[m] ?? 0) * pct) / 100
-    }
-  }
-  for (let i = 0; i < 12; i++) cashFlow[i] = Math.round(cashFlow[i] ?? 0)
+  const cashAnnual = yp.cashFlowAnnual ?? yp.annual
+  const cashFlowSeasonality = normalizeSummarySeasonality(
+    yp.cashFlowSeasonalityMonthPercents ?? yp.seasonalityMonthPercents,
+  )
 
-  const U = R.map((r) => (r * (100 - bd)) / 100)
-  const balanceMonths: number[] = []
-  for (let j = 0; j < 12; j++) {
-    let sum = 0
-    for (let m = 0; m <= j; m++) {
-      let settled = 0
+  let cashFlow: number[]
+  if (yp.cashFlowBySeasonalityDirect) {
+    cashFlow = distributeAnnualBySeasonality(Math.round(cashAnnual), cashFlowSeasonality)
+  } else {
+    const Rcash =
+      cashAnnual === yp.annual
+        ? R
+        : distributeAnnualBySeasonality(
+            Math.round(cashAnnual),
+            effectiveSummarySeasonality(yp.seasonalityMonthPercents, yp.preRevenueNeed),
+          )
+    const bd = clampRoundBadDebt(yp.badDebtPercent)
+    const adv = normalizeAdvancedBuckets(yp.buckets, bd)
+    cashFlow = Array.from({ length: 12 }, () => 0)
+    for (let m = 0; m < 12; m++) {
       for (const b of adv) {
         const pct = Math.max(0, Math.round(b.percent))
-        if (m + disbursementCashOutMonthOffset(b.delayDays, yp.preRevenueNeed) <= j)
-          settled += ((R[m] ?? 0) * pct) / 100
+        const off = collectionDelayToMonthOffset(b.delayDays)
+        const tgt = m + off
+        if (tgt <= 11) cashFlow[tgt]! += ((Rcash[m] ?? 0) * pct) / 100
       }
-      sum += (U[m] ?? 0) - settled
     }
-    balanceMonths.push(Math.round(sum))
+    for (let i = 0; i < 12; i++) cashFlow[i] = Math.round(cashFlow[i] ?? 0)
+  }
+
+  const bd = clampRoundBadDebt(yp.badDebtPercent)
+  const balanceMonths: number[] = []
+
+  if (yp.cashFlowBySeasonalityDirect) {
+    for (let j = 0; j < 12; j++) {
+      let capexCum = 0
+      let cashCum = 0
+      for (let m = 0; m <= j; m++) {
+        capexCum += R[m] ?? 0
+        cashCum += cashFlow[m] ?? 0
+      }
+      balanceMonths.push(Math.round(capexCum - cashCum))
+    }
+  } else {
+    const adv = normalizeAdvancedBuckets(yp.buckets, bd)
+    const Rcash =
+      cashAnnual === yp.annual
+        ? R
+        : distributeAnnualBySeasonality(
+            Math.round(cashAnnual),
+            effectiveSummarySeasonality(yp.seasonalityMonthPercents, yp.preRevenueNeed),
+          )
+    const U = R.map((r) => (r * (100 - bd)) / 100)
+    for (let j = 0; j < 12; j++) {
+      let sum = 0
+      for (let m = 0; m <= j; m++) {
+        let settled = 0
+        for (const b of adv) {
+          const pct = Math.max(0, Math.round(b.percent))
+          if (m + disbursementCashOutMonthOffset(b.delayDays, yp.preRevenueNeed) <= j)
+            settled += ((Rcash[m] ?? 0) * pct) / 100
+        }
+        sum += (U[m] ?? 0) - settled
+      }
+      balanceMonths.push(Math.round(sum))
+    }
   }
   return FORECAST_SEASONALITY_AXIS_LABELS.map((axisLabel, i) => ({
     axisLabel,
@@ -160,6 +205,7 @@ export function computeHypothesisSummaryMoneyPoints(
   }
 
   const RByYear: number[][] = []
+  const RcashByYear: number[][] = []
   const advByYear: ForecastCollectionBucket[][] = []
   const bdByYear: number[] = []
   const preRevenueByYear: (ForecastPreRevenueNeed | undefined)[] = []
@@ -175,6 +221,15 @@ export function computeHypothesisSummaryMoneyPoints(
         effectiveSummarySeasonality(yp.seasonalityMonthPercents, yp.preRevenueNeed)
       )
     )
+    const cashAnnual = yp.cashFlowAnnual ?? yp.annual
+    RcashByYear.push(
+      cashAnnual === yp.annual
+        ? RByYear[RByYear.length - 1]!
+        : distributeAnnualBySeasonality(
+            Math.round(cashAnnual),
+            effectiveSummarySeasonality(yp.seasonalityMonthPercents, yp.preRevenueNeed)
+          )
+    )
     advByYear.push(normalizeAdvancedBuckets(yp.buckets, bd))
   }
 
@@ -183,7 +238,7 @@ export function computeHypothesisSummaryMoneyPoints(
 
   const cashFlowDisplay = Array.from({ length: 12 }, () => 0)
   for (let idx = 0; idx < RByYear.length; idx++) {
-    const R = RByYear[idx]!
+    const R = RcashByYear[idx]!
     const adv = advByYear[idx]!
     const preRev = preRevenueByYear[idx]
     for (let m = 0; m < 12; m++) {
@@ -207,6 +262,7 @@ export function computeHypothesisSummaryMoneyPoints(
     let bal = 0
     for (let idx = 0; idx < RByYear.length; idx++) {
       const R = RByYear[idx]!
+      const Rcash = RcashByYear[idx]!
       const adv = advByYear[idx]!
       const bd = bdByYear[idx]!
       const preRev = preRevenueByYear[idx]
@@ -218,7 +274,7 @@ export function computeHypothesisSummaryMoneyPoints(
         for (const b of adv) {
           const pct = Math.max(0, Math.round(b.percent))
           const T_col = T_rec_proj + disbursementCashOutMonthOffset(b.delayDays, preRev)
-          if (T_col <= T_end_proj) settled += ((R[m] ?? 0) * pct) / 100
+          if (T_col <= T_end_proj) settled += ((Rcash[m] ?? 0) * pct) / 100
         }
         bal += (U[m] ?? 0) - settled
       }
