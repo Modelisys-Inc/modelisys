@@ -544,7 +544,7 @@ def test_cash_flow_annex_row_includes_gl_detail_rows(client, auth_headers):
     assert row["detailRows"][0]["current"] == 1250.0
 
 
-def test_cash_flow_custom_tex_code_aggregates_attached_codes(client, auth_headers):
+def test_cash_flow_custom_tex_code_aggregates_attached_codes(client, auth_headers, su_headers):
     """A TEX family code sums accounts mapped to its attached Bilan/CDR codes."""
     company_id = _create_company(client, auth_headers, name="CF TEX Co")
 
@@ -556,7 +556,7 @@ def test_cash_flow_custom_tex_code_aggregates_attached_codes(client, auth_header
             "label_sub_account": "Feuille exploitation",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert leaf.status_code == 201
 
@@ -568,7 +568,7 @@ def test_cash_flow_custom_tex_code_aggregates_attached_codes(client, auth_header
             "label_sub_account": "Exploitation agrégée",
             "attached_link_codes": ["CF-REV-1"],
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert tex_code.status_code == 201
 
@@ -833,7 +833,7 @@ def test_financial_statements_unauthenticated(client):
     response = client.get(
         f"/api/companies/{fake_id}/financial-statements/income-statement?fiscal_year=2024",
     )
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_balance_sheet_company_not_found(client, auth_headers):

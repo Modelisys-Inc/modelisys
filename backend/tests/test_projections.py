@@ -426,7 +426,7 @@ def test_projections_company_not_found(client, auth_headers):
 def test_projections_unauthenticated(client):
     fake_id = str(uuid.uuid4())
     response = client.get(f"/api/companies/{fake_id}/projections")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_compute_projection_returns_summary(client, auth_headers):

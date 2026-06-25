@@ -104,7 +104,9 @@ pnpm test:e2e:ui   # interactive UI mode
 
 - **"use client"** directive on all interactive components
 - **Custom hooks** for API data fetching (e.g., `useFinancialStatement`, `useCompanies`)
-- **`apiFetch()` in lib/api.ts** handles auth token injection and automatic refresh on 401
+- **`apiFetch()` in lib/api.ts** handles auth token injection and automatic refresh on 401.
+  It JSON-stringifies the `body` for you — pass a **raw object** (`body: payload`),
+  NOT `body: JSON.stringify(payload)` (that double-encodes → 422).
 - **Path alias:** `@/*` maps to project root
 - **Styling:** Tailwind utility classes; slate neutrals, emerald accents
 - **Components follow naming pattern:** `{Entity}{View}.tsx` (e.g., `BalanceSheetSummary`)
@@ -188,6 +190,115 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
 - Cash flow is derived from income statement + balance sheet deltas
 - See `docs/plans/` for detailed design documents
 
+### Authorization (RBAC)
+
+Roles (see `app/dependencies.py`):
+- **superadmin** — `User.is_superadmin` (platform staff): full access to every org,
+  and the only role allowed to manage the global chart of accounts. Granted
+  out-of-band (not via the UI): `python -m app.scripts.set_superadmin <email>`
+  (add `--revoke` to remove).
+- **admin** — `UserOrganization.role = admin`: full read+write on all companies in
+  their org; manages company entities (create/update/delete + divisions) and
+  (later) grants access to others.
+- **user** — `role = member`: read+write only on companies granted via
+  `user_company_access`, or all org companies if `UserOrganization.all_companies`.
+- **viewer** — `role = viewer`: read-only on granted companies (writes → 403).
+
+Enforcement is centralized:
+- `verify_company_access(db, user, company_id, require_write=False)` is the single
+  gate — returns 404 for no-access (never leaks existence), 403 for a viewer write.
+  Every company-scoped read endpoint calls it.
+- `enforce_company_write` is a router-level dependency attached in `main.py` to the
+  company-scoped data routers: it rejects any non-safe HTTP method (write) by
+  viewers / ungranted users, covering all current and future mutations. (QBO is
+  gated explicitly instead, because it has an unauthenticated OAuth callback.)
+- `require_org_admin` / `require_superadmin` gate org-admin and platform actions.
+- `list_companies` is role-scoped; `create_company` + division CRUD are admin-only.
+
+Client (organization) management + feature flags are **superadmin-only**
+(`app/routers/admin.py`, prefix `/api/admin`): list clients, create a client
+(org + first admin user by email — they set their password via "forgot password"),
+and toggle per-client feature flags. Flags are a fixed registry
+(`app/services/feature_flags.py`); `Organization.feature_flags` stores overrides,
+and the effective flags (defaults merged with overrides) are returned on each org
+in `/api/auth/me`. Frontend: `/settings/clients` (superadmin-only). Read flags in
+the UI via `usePermissions`/auth-context org `feature_flags` to gate features.
+
+Grant management (admin-only) lives on the org members API
+(`/api/organizations/{org_id}/members`): list/invite/update-role/remove plus
+`PATCH .../{user_id}` for the `all_companies` toggle and
+`PUT .../{user_id}/companies` to set per-company grants. Frontend:
+`/settings/users` (the "Accès" dialog per member).
+
+Superadmin global-code CRUD (the only writes to the shared chart): `POST/PATCH/DELETE
+/api/standard-link-codes` gated by `require_superadmin` (`app/services/coa_admin.py`)
+— create is additive + versioned, delete tombstones (never hard-deletes), edits are
+in-place metadata. `is_superadmin` is exposed on `/api/auth/me`. Frontend:
+`/settings/standard-codes` (superadmin-only). This retires the MO.xlsx seed for
+ongoing changes.
+
+Frontend role-awareness: the `usePermissions()` hook (`hooks/use-permissions.ts`)
+exposes `canEdit` (false for viewers); edit controls are hidden for viewers on
+mapping, trial balance, custom link codes, notes (note-modal), and the company
+settings page (name/fiscal/currency/cumulative-TB + division & sub-division
+CRUD + delete-company). The backend is the source of truth (viewer writes → 403);
+the hook is UX only.
+
+### Trial balance storage
+
+- `trial_balance_entries` is **RANGE-partitioned by `fiscal_year`** in PostgreSQL
+  (migration 015): composite PK `(id, fiscal_year)`, a `DEFAULT` partition so
+  inserts for any year never fail, plus explicit yearly partitions (2015–2035).
+  Add future-year partitions with
+  `CREATE TABLE trial_balance_entries_y<YYYY> PARTITION OF trial_balance_entries FOR VALUES FROM (<YYYY>) TO (<YYYY+1>)`.
+  On SQLite (tests) it's a plain composite-PK table.
+- **Rollup:** `account_annual_balances` (model `AccountAnnualBalance`) caches the
+  annual total per GL account. `app/services/tb_rollup.refresh_annual_balances`
+  rebuilds a (company, fiscal_year) slice from the entries; it's called after
+  every TB write (trial-balance upsert/upload/delete + QBO commit). Read via
+  `GET /api/companies/{id}/trial-balance/annual-summary?fiscal_year=`. Derived
+  cache — never the source of truth; the compute service still reads raw entries.
+
+### Link codes (chart of accounts)
+
+- **Global registry:** `standard_link_codes` (model `StandardLinkCode`) is the
+  shared, org-agnostic standardized chart, seeded from `data/MO.xlsx` via
+  `python -m app.scripts.seed_standard_link_codes` (idempotent upsert by `code`).
+  Read-only API at `/api/standard-link-codes`. Hierarchy via `parent_code`/`is_leaf`;
+  only leaf codes are assignable.
+- **Tenant-local overlay:** `company_link_codes` (model `CompanyLinkCode`) holds
+  per-company custom codes for accounting-complex clients. They stay private to
+  the company (never auto-shared). Codes are auto-generated in a reserved
+  namespace (`{FAMILY}-Z{n}`) and validated never to collide with a global code.
+  CRUD at `/api/companies/{id}/custom-link-codes`; creation also appends an
+  assignable leaf to the company's `CompanyStatementStructure` so it renders.
+  Frontend: `CompanyCustomLinkCodes` panel on the "Code de liaison" page.
+- **Resolution is unified:** `app/services/link_code_resolver.py` is the single
+  source of truth — a code is assignable if it's a global leaf OR a leaf in the
+  company's overlay. Both validation gates (manual `account-mappings` upsert and
+  QBO `commit_trial_balance`) and both pickers use it.
+- **Curated promotion (Phase 4):** each `CompanyLinkCode` has a `promotion_status`
+  ("pending" | "promoted" | "rejected"). A curator works a queue at
+  `/api/coa/promotion-candidates` (org-scoped): each candidate shows a
+  duplicate-suggestion by **rollup signature** (family + ft_category + account_type,
+  not label). `POST .../{id}/promote` either links the candidate to an existing
+  global code (`link_to_existing_code`) or publishes a NEW global code additively
+  as a fresh `CoaVersion` (`app/services/coa_promotion.py`); `POST .../{id}/reject`
+  drops it from the queue. Promotion sets `promoted_to_standard_code`. Never
+  auto-shares. **Superadmin-only** (it writes the shared global chart) — the queue
+  lists pending candidates across all orgs. Frontend: `CoaPromotionQueue` at
+  `/settings/coa-promotion` (superadmin-gated; e2e `frontend/e2e/coa-promotion.spec.ts`).
+- **Versioning (lightweight):** `coa_versions` (model `CoaVersion`) is an audit
+  history — one row per seed/publish run; current version = `max(version)`.
+  `Company.coa_version` stamps the chart cohort a company was created under.
+  `StandardLinkCode` has `is_active` + `deprecated_at` + `coa_version`: the seed
+  (`apply_records` in `seed_standard_link_codes.py`) is now additive — it bumps
+  the version, upserts/reactivates present codes, and **tombstones** codes absent
+  from the new MO.xlsx (never hard-deletes), so historical references stay
+  resolvable. NOTE: existing companies are already insulated from chart changes
+  because their `CompanyStatementStructure` is a per-company snapshot taken at
+  creation (compute reads that snapshot, never live `standard_link_codes`).
+
 ## QuickBooks Online integration
 
 Per-company connector in `backend/app/integrations/quickbooks/`:
@@ -205,12 +316,11 @@ Per-company connector in `backend/app/integrations/quickbooks/`:
   (YTD: fiscal-year-start through end-of-target-month). On commit, the
   company is forced to `is_cumulative_tb=True` so the FS service interprets
   the stored YTD entries correctly.
-- **Strict link-code picker:** the QBO review screen reads valid link codes
-  from `CompanyStatementStructure` (per company, per statement type). Users
-  must pick an existing code or create a new one inline (`POST
-  /api/quickbooks/companies/{id}/link-codes` appends a leaf to the structure).
-  `commit_trial_balance` rejects any non-skipped row whose `link_code` is not
-  in the structure (422).
+- **Strict link-code picker:** the QBO review screen reads valid link codes from
+  the **global** `standard_link_codes` registry (leaf codes only) unioned with the
+  company's tenant-local overlay (see "Link codes" above). `commit_trial_balance`
+  rejects any non-skipped row whose `link_code` is not assignable for that company
+  (422), via `link_code_resolver`.
 - **Class/Location tagging:** preview/commit also pull a GeneralLedger report to
   discover which QBO Classes (→ `AccountMapping.divisions`) and Locations/Lieux
   (→ `AccountMapping.sub_divisions`) each account appears under. The preview

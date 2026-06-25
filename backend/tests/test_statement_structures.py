@@ -156,7 +156,7 @@ def test_company_not_found(client, auth_headers):
 def test_unauthenticated(client):
     fake_id = str(uuid.uuid4())
     response = client.get(f"/api/companies/{fake_id}/statement-structures")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_structure_with_detail_rows(client, auth_headers):
@@ -344,7 +344,7 @@ def test_csv_import_unauthenticated(client):
         f"/api/companies/{fake_id}/statement-structures/import-csv",
         files={"file": ("test.csv", io.BytesIO(b"data"), "text/csv")},
     )
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_csv_import_with_link_codes(client, auth_headers):

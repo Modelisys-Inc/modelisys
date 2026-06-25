@@ -11,6 +11,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.organization import Organization
 from app.models.user import User, UserOrganization, UserRole
+from app.services import feature_flags
 from app.schemas.auth import (
     ForgotPasswordRequest,
     LoginRequest,
@@ -243,6 +244,7 @@ def me(current_user: User = Depends(get_current_user), db: Session = Depends(get
                     name=org.name,
                     slug=org.slug,
                     role=m.role.value,
+                    feature_flags=feature_flags.effective_flags(org.feature_flags),
                 )
             )
 

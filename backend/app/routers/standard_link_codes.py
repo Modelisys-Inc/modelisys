@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
-from app.models.account_mapping import AccountMapping
+from app.dependencies import require_superadmin
+from app.models.coa_version import CoaVersion
 from app.models.standard_link_code import StandardLinkCode
 from app.models.user import User
 from app.schemas.standard_link_code import (
@@ -15,11 +15,12 @@ from app.schemas.standard_link_code import (
     StandardLinkCodeSyncResponse,
     StandardLinkCodeUpdate,
 )
+from app.scripts.seed_standard_link_codes import next_coa_version
+from app.services import coa_admin
 from app.services.standard_link_code_utils import (
     NET_INCOME_BALANCE_LINK_CODE,
     is_bilan_cdr_family,
     is_cash_flow_family,
-    is_income_statement_family,
 )
 from app.services.statement_template import (
     propagate_standard_link_code_label_to_structures,
@@ -175,6 +176,9 @@ def get_standard_link_code(code: str, db: Session = Depends(get_db)):
     return StandardLinkCodeResponse.model_validate(record)
 
 
+# --- Superadmin global-code administration -----------------------------------
+
+
 def _validate_parent_code(db: Session, parent_code: str | None) -> None:
     if parent_code is None:
         return
@@ -273,10 +277,15 @@ def _validate_leaf_status(db: Session, code: str, is_leaf: bool) -> None:
 @router.post("", response_model=StandardLinkCodeResponse, status_code=status.HTTP_201_CREATED)
 def create_standard_link_code(
     payload: StandardLinkCodeCreate,
+    _: User = Depends(require_superadmin),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
-    """Create a new standard link code in the global chart."""
+    """Publish a new standard link code in the global chart (superadmin only).
+
+    Additive + versioned: each publish bumps the COA version. Full domain
+    validation (Trésorerie/cash-flow families, attached codes, leaf status,
+    sort order) is enforced here.
+    """
     code = payload.code.strip()
     if not code:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Code is required")
@@ -320,6 +329,18 @@ def create_standard_link_code(
         if parent_code is not None:
             _shift_sort_orders_from(db, family, sort_order)
 
+    # Additive + versioned publish: bump the COA version and stamp the new code
+    # (mirrors coa_admin.create_standard_code / the seed contract).
+    version = next_coa_version(db)
+    db.add(
+        CoaVersion(
+            version=version,
+            source="admin",
+            note=f"Admin created {code}",
+            code_count=1,
+        )
+    )
+
     record = StandardLinkCode(
         code=code,
         family=family,
@@ -334,6 +355,8 @@ def create_standard_link_code(
         ft_line_item=payload.ft_line_item,
         projections=payload.projections,
         is_leaf=is_leaf,
+        is_active=True,
+        coa_version=version,
         sort_order=sort_order,
     )
     db.add(record)
@@ -346,10 +369,14 @@ def create_standard_link_code(
 def update_standard_link_code(
     code: str,
     payload: StandardLinkCodeUpdate,
+    _: User = Depends(require_superadmin),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
-    """Update an existing standard link code."""
+    """Edit a global code in place (superadmin only).
+
+    Metadata edits don't rewrite history (existing companies use their own
+    snapshot); full domain validation is enforced.
+    """
     record = db.query(StandardLinkCode).filter(StandardLinkCode.code == code).first()
     if not record:
         raise HTTPException(status_code=404, detail=f"Code '{code}' not found")
@@ -424,58 +451,36 @@ def update_standard_link_code(
     return StandardLinkCodeResponse.model_validate(record)
 
 
-@router.delete("/{code}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_standard_link_code(
+@router.delete("/{code}", response_model=StandardLinkCodeResponse)
+def deprecate_standard_link_code(
     code: str,
+    reactivate: bool = False,
+    _: User = Depends(require_superadmin),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
-    """Delete a standard link code from the global chart."""
-    record = db.query(StandardLinkCode).filter(StandardLinkCode.code == code).first()
-    if not record:
-        raise HTTPException(status_code=404, detail=f"Code '{code}' not found")
-
-    child_count = (
-        db.query(StandardLinkCode.id)
-        .filter(StandardLinkCode.parent_code == code)
-        .count()
-    )
-    if child_count > 0:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "message": "Impossible de supprimer un code qui possède des sous-codes",
-                "child_count": child_count,
-            },
-        )
-
-    mapping_count = (
-        db.query(AccountMapping.id)
-        .filter(AccountMapping.link_code == code)
-        .count()
-    )
-    if mapping_count > 0:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "message": "Ce code est utilisé dans des mappings comptables",
-                "mapping_count": mapping_count,
-            },
-        )
-
-    db.delete(record)
+    """Deprecate (tombstone) a global code, or reactivate with ?reactivate=true.
+    Never hard-deletes, so historical references stay resolvable."""
+    try:
+        if reactivate:
+            record = coa_admin.reactivate_standard_code(db, code)
+        else:
+            record = coa_admin.deprecate_standard_code(db, code)
+    except coa_admin.CoaAdminError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     db.commit()
+    db.refresh(record)
+    return StandardLinkCodeResponse.model_validate(record)
 
 
 @router.post("/sync-companies", response_model=StandardLinkCodeSyncResponse)
 def sync_standard_codes_to_companies(
+    _: User = Depends(require_superadmin),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     """Apply the current global standard link codes chart to all companies.
 
     Updates each company's income-statement and balance-sheet structures so
-    every client uses the same link-code base.
+    every client uses the same link-code base. Superadmin-only.
     """
     companies_updated = sync_all_companies_from_standard(db)
     return StandardLinkCodeSyncResponse(companies_updated=companies_updated)

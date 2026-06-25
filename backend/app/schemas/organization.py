@@ -9,6 +9,8 @@ class MemberResponse(BaseModel):
     email: str
     full_name: str
     role: str  # "admin" | "member" | "viewer"
+    all_companies: bool = False
+    company_ids: list[uuid.UUID] = []  # explicit per-company grants (member/viewer)
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -24,4 +26,9 @@ class MemberInvite(BaseModel):
 
 
 class MemberRoleUpdate(BaseModel):
-    role: str
+    role: str | None = None
+    all_companies: bool | None = None
+
+
+class MemberCompaniesUpdate(BaseModel):
+    company_ids: list[uuid.UUID]

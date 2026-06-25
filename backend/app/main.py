@@ -2,7 +2,9 @@ import time
 from contextlib import asynccontextmanager
 
 import sentry_sdk
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
+
+from app.dependencies import enforce_company_write
 from fastapi.exceptions import ResponseValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -32,10 +34,13 @@ setup_logging()
 logger = get_logger(__name__)
 from app.routers import (
     account_mappings,
+    admin,
     auth,
     budgets,
     business_risks,
+    coa_promotion,
     companies,
+    company_link_codes,
     customers,
     exchange_rates,
     financial_statements,
@@ -170,21 +175,30 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(companies.router)
-app.include_router(trial_balance.router)
-app.include_router(account_mappings.router)
-app.include_router(statement_structures.router)
-app.include_router(statement_chart_configs.router)
-app.include_router(financial_statements.router)
-app.include_router(exchange_rates.router)
-app.include_router(budgets.router)
-app.include_router(notes.router)
-app.include_router(projections.router)
+# Company-scoped data routers: a router-level guard rejects writes (non-safe HTTP
+# methods) by viewers / users without an edit grant. Reads stay scoped by each
+# endpoint's own verify_company_access call.
+_write_guard = [Depends(enforce_company_write)]
+app.include_router(trial_balance.router, dependencies=_write_guard)
+app.include_router(account_mappings.router, dependencies=_write_guard)
+app.include_router(company_link_codes.router, dependencies=_write_guard)
+app.include_router(coa_promotion.router)
+app.include_router(statement_structures.router, dependencies=_write_guard)
+app.include_router(statement_chart_configs.router, dependencies=_write_guard)
+app.include_router(financial_statements.router, dependencies=_write_guard)
+app.include_router(exchange_rates.router, dependencies=_write_guard)
+app.include_router(budgets.router, dependencies=_write_guard)
+app.include_router(notes.router, dependencies=_write_guard)
+app.include_router(projections.router, dependencies=_write_guard)
 app.include_router(organizations.router)
-app.include_router(business_risks.router)
-app.include_router(forecast_configs.router)
-app.include_router(customers.router)
-app.include_router(suppliers.router)
+app.include_router(business_risks.router, dependencies=_write_guard)
+app.include_router(forecast_configs.router, dependencies=_write_guard)
+app.include_router(customers.router, dependencies=_write_guard)
+app.include_router(suppliers.router, dependencies=_write_guard)
 app.include_router(standard_link_codes.router)
+app.include_router(admin.router)
+# QBO router has an unauthenticated OAuth callback, so it can't take the
+# auth-forcing write guard; its write endpoints enforce access explicitly.
 app.include_router(quickbooks_router.router)
 
 

@@ -235,7 +235,7 @@ def test_forecast_configs_company_not_found(client, auth_headers):
 def test_forecast_configs_unauthenticated(client):
     fake_id = str(uuid.uuid4())
     response = client.get(f"/api/companies/{fake_id}/forecast-configs")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_ebitda_notes_company_not_found(client, auth_headers):
@@ -250,7 +250,7 @@ def test_ebitda_notes_company_not_found(client, auth_headers):
 def test_ebitda_notes_unauthenticated(client):
     fake_id = str(uuid.uuid4())
     response = client.get(f"/api/companies/{fake_id}/ebitda-notes")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_upsert_forecast_config_with_projection_id(client, auth_headers):

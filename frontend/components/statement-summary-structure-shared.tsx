@@ -30,7 +30,7 @@ import {
 
 export type StatementSummaryStructureEditApi = {
   updateRow: (index: number, patch: Record<string, unknown>) => void
-  /** Bascule « Annexe » et attribue automatiquement le prochain identifiant d'annexe. */
+  /** Bascule « Annexe » puis renumérote les identifiants selon l'ordre du rapport. */
   setShowInDetail: (index: number, checked: boolean) => void
   canRemoveRowAt: (index: number) => boolean
   removeStructureRowAt: (index: number) => void
@@ -123,7 +123,7 @@ export function StatementSummaryStructureThead({
             </span>
           </TooltipTrigger>
           <TooltipContent side="top" className="max-w-[220px] text-balance">
-            Active la modification du code de liaison et de la lettre d’annexe. Indisponible si la ligne est masquée.
+            Active la modification du code de liaison. L’identifiant d’annexe est attribué automatiquement. Indisponible si la ligne est masquée.
           </TooltipContent>
         </Tooltip>
       </th>
@@ -171,7 +171,7 @@ export function StatementSummaryStructureThead({
                 </span>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-[220px] text-balance">
-                Lettre d’annexe (ex. A, B) pour le détail et les exports.
+                Identifiant d’annexe attribué automatiquement selon l’ordre d’apparition dans le rapport.
               </TooltipContent>
             </Tooltip>
           </th>
@@ -393,19 +393,17 @@ export function StatementSummaryStructureRowCells({
             {isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
               <Input
                 value={String(structRow.annexLetter ?? "")}
-                disabled={!isAnnexLetterInputEditable(structRow) || annexIdentifierAutoAssigned}
+                disabled={!isAnnexLetterInputEditable(structRow)}
                 onChange={(e) =>
                   structEdit.updateRow(globalIdx, {
                     annexLetter: normalizeAnnexLetter(e.target.value) || undefined,
                   })
                 }
-                placeholder={annexIdentifierAutoAssigned ? "1" : "A"}
+                placeholder="A"
                 title={
-                  annexIdentifierAutoAssigned
-                    ? "Numéro d'annexe attribué automatiquement selon l'ordre des postes cochés « Annexe »."
-                    : !isAnnexLetterInputEditable(structRow)
-                      ? "Activez « Annexe » pour saisir une lettre (inutile pour addition / soustraction)."
-                      : undefined
+                  !isAnnexLetterInputEditable(structRow)
+                    ? "Identifiant attribué automatiquement selon l’ordre d’apparition de l’annexe dans le rapport."
+                    : undefined
                 }
                 className={cn(
                   "h-9 w-full min-w-0 rounded-xl border-slate-200/90 px-2 text-center text-xs font-bold uppercase tracking-widest shadow-sm focus-visible:border-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-500/25",

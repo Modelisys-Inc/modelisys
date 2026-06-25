@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useQuickBooksConnection } from "@/hooks/use-quickbooks-connection"
+import { usePermissions } from "@/hooks/use-permissions"
 import {
   ApiError,
   previewQboTrialBalance,
@@ -25,6 +26,7 @@ export default function QuickBooksPage() {
   const search = useSearchParams()
   const { status, loading, connect, disconnect, refresh } =
     useQuickBooksConnection(companyId)
+  const { canEdit } = usePermissions()
 
   const now = new Date()
   const defaultMonth = now.getMonth() === 0 ? 12 : now.getMonth()
@@ -59,6 +61,25 @@ export default function QuickBooksPage() {
 
   if (loading) {
     return <div className="container mx-auto max-w-5xl py-8">Loading…</div>
+  }
+
+  if (!canEdit) {
+    return (
+      <div className="container mx-auto max-w-5xl space-y-6 py-8">
+        <Link
+          href={`/settings/companies/${companyId}`}
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to company
+        </Link>
+        <h1 className="text-2xl font-semibold">QuickBooks Online</h1>
+        <p className="text-sm text-muted-foreground">
+          L&apos;import QuickBooks est une opération de modification — réservée aux
+          rôles avec accès en écriture.
+        </p>
+      </div>
+    )
   }
 
   return (

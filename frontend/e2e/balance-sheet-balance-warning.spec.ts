@@ -150,3 +150,31 @@ test("Bilan Sommaire shows no warning when balanced", async ({ page }) => {
   })
   await expect(page.getByText(/n.?est pas équilibré/i)).toHaveCount(0)
 })
+
+// The page forces a multi-period (12 mois) view when a company is selected, so
+// openBilanSommaire lands in a trend view where the per-column "Équilibre"
+// indicators render beneath the totals.
+
+test("Bilan Sommaire shows a per-column équilibré marker when balanced", async ({
+  page,
+}) => {
+  await openBilanSommaire(page, 1000, 1000)
+  // The per-column indicator row appears under the totals.
+  await expect(page.getByText("Équilibre", { exact: true })).toBeVisible({
+    timeout: 30000,
+  })
+  // At least one column shows the balanced check; none show an imbalance.
+  await expect(page.getByTitle("Équilibré").first()).toBeVisible()
+  await expect(page.getByTitle(/Déséquilibre/)).toHaveCount(0)
+})
+
+test("Bilan Sommaire flags the unbalanced column with its écart", async ({
+  page,
+}) => {
+  await openBilanSommaire(page, 1000, 980)
+  await expect(page.getByText("Équilibre", { exact: true })).toBeVisible({
+    timeout: 30000,
+  })
+  // The unbalanced period column is flagged (écart shown in the cell title).
+  await expect(page.getByTitle(/Déséquilibre/).first()).toBeVisible()
+})

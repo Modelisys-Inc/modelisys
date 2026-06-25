@@ -63,7 +63,13 @@ class ChartOfAccount(Base):
 
 
 class TrialBalanceEntry(Base):
-    """Monthly amount for a GL account. Core financial data."""
+    """Monthly amount for a GL account. Core financial data.
+
+    Range-partitioned by ``fiscal_year`` in PostgreSQL (see migration 015), so
+    ``fiscal_year`` is part of the primary key (Postgres requires the partition
+    key in the PK and every unique constraint). On SQLite (tests) this is just a
+    composite-PK table.
+    """
     __tablename__ = "trial_balance_entries"
     __table_args__ = (
         Index("ix_trial_balance_entries_company_fiscal_year", "company_id", "fiscal_year"),
@@ -72,12 +78,38 @@ class TrialBalanceEntry(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    fiscal_year: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
     company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
     account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("chart_of_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
-    fiscal_year: Mapped[int] = mapped_column(Integer, nullable=False)
     month: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-12
     amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False, default=0)
 
     # Relationships
     company = relationship("Company", back_populates="trial_balance_entries")
     account = relationship("ChartOfAccount", back_populates="trial_balance_entries")
+
+
+class AccountAnnualBalance(Base):
+    """Pre-aggregated annual total per GL account (rollup of trial_balance_entries).
+
+    One row per (company, account, fiscal_year) holding the sum of the monthly
+    amounts, so annual dashboards avoid scanning 12 monthly rows per account.
+    Maintained by ``app/services/tb_rollup.py`` after every TB write; it is a
+    derived cache and never the source of truth.
+    """
+    __tablename__ = "account_annual_balances"
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id", "account_id", "fiscal_year",
+            name="uq_account_annual_balances_company_account_year",
+        ),
+        Index("ix_account_annual_balances_company_fiscal_year", "company_id", "fiscal_year"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    company_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("chart_of_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    fiscal_year: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False, default=0)
+    month_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

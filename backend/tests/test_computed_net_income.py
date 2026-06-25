@@ -86,7 +86,7 @@ def test_build_cash_flow_link_code_attachments():
     assert "CAP-C.2" in by_family["TEX"]
 
 
-def test_income_statement_parent_cannot_have_ft_category(client, auth_headers):
+def test_income_statement_parent_cannot_have_ft_category(client, su_headers):
     create = client.post(
         "/api/standard-link-codes",
         json={
@@ -96,12 +96,12 @@ def test_income_statement_parent_cannot_have_ft_category(client, auth_headers):
             "is_leaf": False,
             "ft_category": "Exploitation",
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert create.status_code == 422
 
 
-def test_income_statement_leaf_cannot_have_ft_category(client, auth_headers):
+def test_income_statement_leaf_cannot_have_ft_category(client, su_headers):
     parent = client.post(
         "/api/standard-link-codes",
         json={
@@ -110,7 +110,7 @@ def test_income_statement_leaf_cannot_have_ft_category(client, auth_headers):
             "label_sub_account": "Parent",
             "is_leaf": False,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert parent.status_code == 201
 
@@ -124,12 +124,12 @@ def test_income_statement_leaf_cannot_have_ft_category(client, auth_headers):
             "is_leaf": True,
             "ft_category": "Investissement",
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert create.status_code == 422
 
 
-def test_cash_flow_code_requires_attached_link_codes(client, auth_headers):
+def test_cash_flow_code_requires_attached_link_codes(client, su_headers):
     create = client.post(
         "/api/standard-link-codes",
         json={
@@ -137,12 +137,12 @@ def test_cash_flow_code_requires_attached_link_codes(client, auth_headers):
             "family": "TEX",
             "label_sub_account": "Sans sources",
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert create.status_code == 422
 
 
-def test_cash_flow_code_with_attachments(client, auth_headers):
+def test_cash_flow_code_with_attachments(client, su_headers):
     leaf = client.post(
         "/api/standard-link-codes",
         json={
@@ -151,7 +151,7 @@ def test_cash_flow_code_with_attachments(client, auth_headers):
             "label_sub_account": "Revenu CF",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert leaf.status_code == 201
 
@@ -163,7 +163,7 @@ def test_cash_flow_code_with_attachments(client, auth_headers):
             "label_sub_account": "Exploitation custom",
             "attached_link_codes": ["REV-CF-1"],
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert create.status_code == 201
     body = create.json()
@@ -172,7 +172,7 @@ def test_cash_flow_code_with_attachments(client, auth_headers):
     assert body["is_leaf"] is False
 
 
-def test_build_balance_sheet_marks_cap_c1_as_sum(client, auth_headers, db):
+def test_build_balance_sheet_marks_cap_c1_as_sum(client, su_headers, db):
     parent = client.post(
         "/api/standard-link-codes",
         json={
@@ -181,7 +181,7 @@ def test_build_balance_sheet_marks_cap_c1_as_sum(client, auth_headers, db):
             "label_sub_account": "Groupe CAP-C",
             "is_leaf": False,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert parent.status_code == 201
 
@@ -194,7 +194,7 @@ def test_build_balance_sheet_marks_cap_c1_as_sum(client, auth_headers, db):
             "label_sub_account": "Bénéfice net",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert net_income.status_code == 201
 
@@ -206,7 +206,7 @@ def test_build_balance_sheet_marks_cap_c1_as_sum(client, auth_headers, db):
             "label_sub_account": "Revenu test",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert rev.status_code == 201
 
@@ -218,7 +218,7 @@ def test_build_balance_sheet_marks_cap_c1_as_sum(client, auth_headers, db):
     assert "REV-NI" in row["liaisonSumCodes"]
 
 
-def test_mapping_rejects_cap_c1(client, auth_headers):
+def test_mapping_rejects_cap_c1(client, auth_headers, su_headers):
     company = client.post(
         "/api/companies",
         json={"name": "NI Mapping Co"},
@@ -235,7 +235,7 @@ def test_mapping_rejects_cap_c1(client, auth_headers):
             "label_sub_account": "Bénéfice net",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert create.status_code == 201
 
@@ -247,7 +247,7 @@ def test_mapping_rejects_cap_c1(client, auth_headers):
     assert response.status_code == 422
 
 
-def test_income_statement_leaf_codes_for_net_income(db, auth_headers, client):
+def test_income_statement_leaf_codes_for_net_income(db, su_headers, client):
     client.post(
         "/api/standard-link-codes",
         json={
@@ -256,7 +256,7 @@ def test_income_statement_leaf_codes_for_net_income(db, auth_headers, client):
             "label_sub_account": "Charge test",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     codes = income_statement_leaf_codes_for_net_income(db)
     assert "EXP-NI" in codes

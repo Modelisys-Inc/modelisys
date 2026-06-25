@@ -382,7 +382,7 @@ def test_trial_balance_company_not_found(client, auth_headers):
 def test_trial_balance_unauthenticated(client):
     fake_id = str(uuid.uuid4())
     response = client.get(f"/api/companies/{fake_id}/trial-balance?fiscal_year=2024")
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 def test_upsert_trial_balance_company_not_found(client, auth_headers):
@@ -408,7 +408,7 @@ def test_upsert_trial_balance_unauthenticated(client):
         f"/api/companies/{fake_id}/trial-balance?fiscal_year=2024",
         json=[],
     )
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 # --- Response shape ---

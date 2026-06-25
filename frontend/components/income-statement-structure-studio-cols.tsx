@@ -32,7 +32,7 @@ interface IncomeStatementStructureStudioColsProps {
   /** Code de liaison → libellé du poste, pour afficher « code — nom » dans les sélecteurs. */
   linkCodeLabels?: Map<string, string>
   updateRow: (index: number, patch: Record<string, unknown>) => void
-  /** Bascule « Annexe » et attribue automatiquement le prochain identifiant d'annexe. */
+  /** Bascule « Annexe » puis renumérote les identifiants selon l'ordre du rapport. */
   setShowInDetail: (index: number, checked: boolean) => void
   showRemoveButton: boolean
   onRemoveRow?: (index: number) => void
@@ -328,7 +328,9 @@ export function IncomeStatementStructureStudioCols({
             <span
               className="block truncate rounded-lg bg-slate-100/70 px-1.5 py-2 text-center text-xs font-bold uppercase tracking-widest text-slate-600"
               title={
-                readOnly ? "Modifiable dans la vue Sommaire" : "Annexe choisie lors de l’ajout de la ligne"
+                readOnly
+                  ? "Modifiable dans la vue Sommaire"
+                  : "Identifiant attribué automatiquement selon l’ordre d’apparition de l’annexe dans le rapport."
               }
             >
               {normalizeAnnexLetter(String(structRow.annexLetter ?? "")) || "—"}
@@ -346,7 +348,7 @@ export function IncomeStatementStructureStudioCols({
               placeholder="A"
               title={
                 !isAnnexLetterInputEditable(structRow)
-                  ? "Activez « Annexe » pour saisir une lettre (inutile pour addition / soustraction)."
+                  ? "Identifiant attribué automatiquement selon l’ordre d’apparition de l’annexe dans le rapport."
                   : undefined
               }
               className={cn(

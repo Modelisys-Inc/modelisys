@@ -10,11 +10,12 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, verify_company_access
 from app.integrations.quickbooks import oauth
 from app.integrations.quickbooks import service as qbo_service
 from app.integrations.quickbooks.client import QBOClientError
 from app.models.company import Company
+from app.models.company_link_code import CompanyLinkCode
 from app.models.quickbooks_connection import QuickBooksConnection
 from app.models.standard_link_code import StandardLinkCode
 from app.services.standard_link_code_utils import NET_INCOME_BALANCE_LINK_CODE
@@ -35,21 +36,15 @@ from app.schemas.quickbooks import (
 router = APIRouter(prefix="/api/quickbooks", tags=["quickbooks"])
 
 
-def _get_company_for_user(db: Session, user: User, company_id: uuid.UUID) -> Company:
-    company = db.query(Company).filter(Company.id == company_id).first()
-    if company is None:
-        raise HTTPException(status_code=404, detail="Company not found")
-    membership = (
-        db.query(UserOrganization)
-        .filter(
-            UserOrganization.user_id == user.id,
-            UserOrganization.organization_id == company.organization_id,
-        )
-        .first()
-    )
-    if membership is None:
-        raise HTTPException(status_code=403, detail="Not authorized for this company")
-    return company
+def _get_company_for_user(
+    db: Session, user: User, company_id: uuid.UUID, *, require_write: bool = False
+) -> Company:
+    """Authorize QBO access via the central RBAC gate (read by default).
+
+    QBO import is an edit operation, so commit/disconnect pass require_write=True
+    (blocks viewers / users without an edit grant).
+    """
+    return verify_company_access(db, user, company_id, require_write=require_write)
 
 
 def _require_active_connection(db: Session, company_id: uuid.UUID) -> QuickBooksConnection:
@@ -163,7 +158,7 @@ def disconnect_connection(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _get_company_for_user(db, current_user, company_id)
+    company = _get_company_for_user(db, current_user, company_id, require_write=True)
     conn = (
         db.query(QuickBooksConnection)
         .filter(QuickBooksConnection.company_id == company.id)
@@ -226,7 +221,7 @@ def commit_trial_balance_endpoint(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    company = _get_company_for_user(db, current_user, company_id)
+    company = _get_company_for_user(db, current_user, company_id, require_write=True)
     conn = _require_active_connection(db, company.id)
     months = _validate_months(body.months)
     try:
@@ -264,13 +259,22 @@ def list_link_codes(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return all assignable (leaf) standard link codes for the QBO review picker.
+    """Return all assignable (leaf) link codes for the QBO review picker.
 
-    Previously sourced from per-company statement structures; now returns global
-    standardized codes so all companies share the same chart of accounts.
-    The company_id is kept in the path for auth scoping only.
+    Returns the global standardized codes (shared chart) unioned with this
+    company's tenant-local custom codes (company_link_codes), so a complex
+    client's private codes are also assignable during a QBO import.
     """
     _get_company_for_user(db, current_user, company_id)
+
+    _BALANCE_SHEET_FAMILIES = {"ACT", "ALT", "PCT", "PLT", "CAP"}
+
+    def _statement_type(family: str) -> str:
+        return (
+            "income_statement"
+            if family not in _BALANCE_SHEET_FAMILIES
+            else "balance_sheet"
+        )
 
     codes = (
         db.query(StandardLinkCode)
@@ -282,21 +286,38 @@ def list_link_codes(
         .all()
     )
 
-    _BALANCE_SHEET_FAMILIES = {"ACT", "ALT", "PCT", "PLT", "CAP"}
-
-    return [
+    options = [
         LinkCodeOption(
             code=c.code,
             label=c.label_sub_account or c.label_account or c.code,
-            statement_type=(
-                "income_statement"
-                if c.family not in _BALANCE_SHEET_FAMILIES
-                else "balance_sheet"
-            ),
+            statement_type=_statement_type(c.family),
             parent_id=c.parent_code,
             parent_label=c.label_account,
         )
         for c in codes
     ]
+
+    custom_codes = (
+        db.query(CompanyLinkCode)
+        .filter(
+            CompanyLinkCode.company_id == company_id,
+            CompanyLinkCode.is_leaf.is_(True),
+        )
+        .order_by(CompanyLinkCode.family, CompanyLinkCode.sort_order)
+        .all()
+    )
+
+    options.extend(
+        LinkCodeOption(
+            code=c.code,
+            label=c.label_sub_account or c.label_account or c.code,
+            statement_type=_statement_type(c.family),
+            parent_id=c.parent_code,
+            parent_label=c.label_account,
+        )
+        for c in custom_codes
+    )
+
+    return options
 
 

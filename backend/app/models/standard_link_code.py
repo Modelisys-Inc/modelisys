@@ -42,6 +42,12 @@ class StandardLinkCode(Base):
     projections: Mapped[str | None] = mapped_column(String(200), nullable=True)
     is_leaf: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Versioning / tombstone (see CoaVersion). A code disappearing from a newer
+    # MO.xlsx is deprecated (is_active=False) rather than deleted, so historical
+    # references stay resolvable. coa_version = version this code was last published in.
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    deprecated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    coa_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

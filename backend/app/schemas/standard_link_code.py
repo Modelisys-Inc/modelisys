@@ -30,6 +30,7 @@ class StandardLinkCodeResponse(BaseModel):
     projections: str | None
     is_leaf: bool
     sort_order: int
+    is_active: bool = True
     created_at: datetime
     updated_at: datetime
 

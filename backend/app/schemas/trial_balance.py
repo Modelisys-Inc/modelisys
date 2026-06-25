@@ -32,6 +32,22 @@ class TrialBalanceUploadResponse(BaseModel):
     message: str
 
 
+class AccountAnnualBalanceResponse(BaseModel):
+    account_id: uuid.UUID
+    account_number: str
+    account_name: str
+    fiscal_year: int
+    amount: float
+    month_count: int
+
+
+class TrialBalanceAnnualSummaryResponse(BaseModel):
+    company_id: uuid.UUID
+    fiscal_year: int
+    accounts: list[AccountAnnualBalanceResponse]
+    total: float
+
+
 class TrialBalanceUnknownAccountPreview(BaseModel):
     account_number: str
     description: str

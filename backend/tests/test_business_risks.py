@@ -215,4 +215,4 @@ def test_business_risks_company_not_found(client, auth_headers):
 def test_business_risks_unauthenticated(client):
     fake_id = str(uuid.uuid4())
     response = client.get(f"/api/companies/{fake_id}/business-risks")
-    assert response.status_code == 403
+    assert response.status_code == 401

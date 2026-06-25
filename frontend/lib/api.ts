@@ -179,6 +179,7 @@ export interface UserInfo {
     email: string
     full_name: string
     is_active: boolean
+    is_superadmin?: boolean
     created_at: string
   }
   organizations: Array<{
@@ -186,6 +187,7 @@ export interface UserInfo {
     name: string
     slug: string
     role: string
+    feature_flags?: Record<string, boolean>
   }>
 }
 
@@ -1562,6 +1564,8 @@ export interface OrgMember {
   email: string
   full_name: string
   role: string
+  all_companies: boolean
+  company_ids: string[]
   created_at: string
 }
 
@@ -1590,6 +1594,28 @@ export async function updateMemberRole(
   return apiFetch<OrgMember>(
     `/api/organizations/${orgId}/members/${userId}`,
     { method: "PATCH", body: { role } }
+  )
+}
+
+export async function updateMemberAllCompanies(
+  orgId: string,
+  userId: string,
+  allCompanies: boolean
+): Promise<OrgMember> {
+  return apiFetch<OrgMember>(
+    `/api/organizations/${orgId}/members/${userId}`,
+    { method: "PATCH", body: { all_companies: allCompanies } }
+  )
+}
+
+export async function setMemberCompanies(
+  orgId: string,
+  userId: string,
+  companyIds: string[]
+): Promise<OrgMember> {
+  return apiFetch<OrgMember>(
+    `/api/organizations/${orgId}/members/${userId}/companies`,
+    { method: "PUT", body: { company_ids: companyIds } }
   )
 }
 
@@ -1918,6 +1944,7 @@ export type StandardLinkCode = {
   projections: string | null
   is_leaf: boolean
   sort_order: number
+  is_active?: boolean
   label: string
 }
 
@@ -1942,7 +1969,117 @@ export async function listStandardLinkCodesFlat(leafOnly = false, family?: strin
   return apiFetch<StandardLinkCode[]>(`/api/standard-link-codes/flat${qs}`)
 }
 
-export type StandardLinkCodeCreatePayload = {
+// ── Tenant-local custom link codes (per-company overlay) ──────────────────────
+
+export type CompanyLinkCode = StandardLinkCode & {
+  company_id: string
+  promoted_to_standard_code: string | null
+  is_custom: true
+}
+
+export type CompanyLinkCodeCreate = {
+  family: string
+  label_account?: string | null
+  label_sub_account?: string | null
+  code?: string | null
+  parent_code?: string | null
+  account_type?: string | null
+  account_sub_type?: string | null
+  variable_or_fixed?: string | null
+  ft_category?: string | null
+  ft_line_item?: string | null
+  projections?: string | null
+  statement_type?: string | null
+}
+
+/** List a company's tenant-local custom link codes. */
+export async function listCompanyLinkCodes(
+  companyId: string,
+  leafOnly = false,
+): Promise<CompanyLinkCode[]> {
+  const qs = leafOnly ? "?leaf_only=true" : ""
+  return apiFetch<CompanyLinkCode[]>(`/api/companies/${companyId}/custom-link-codes${qs}`)
+}
+
+/** Create a tenant-local custom link code (code auto-generated when omitted). */
+export async function createCompanyLinkCode(
+  companyId: string,
+  payload: CompanyLinkCodeCreate,
+): Promise<CompanyLinkCode> {
+  return apiFetch<CompanyLinkCode>(`/api/companies/${companyId}/custom-link-codes`, {
+    method: "POST",
+    body: payload,
+  })
+}
+
+/** Delete a tenant-local custom link code. */
+export async function deleteCompanyLinkCode(companyId: string, codeId: string): Promise<void> {
+  await apiFetch<void>(`/api/companies/${companyId}/custom-link-codes/${codeId}`, {
+    method: "DELETE",
+  })
+}
+
+// ── Curated promotion (custom code → global registry) ─────────────────────────
+
+export type GlobalMatchSuggestion = {
+  code: string
+  label: string
+  family: string
+}
+
+export type PromotionCandidate = {
+  id: string
+  company_id: string
+  company_name: string
+  code: string
+  family: string
+  label: string
+  account_type: string | null
+  ft_category: string | null
+  promotion_status: string
+  suggested_match: GlobalMatchSuggestion | null
+}
+
+export type PromoteRequest = {
+  link_to_existing_code?: string | null
+  code?: string | null
+  label_account?: string | null
+  label_sub_account?: string | null
+}
+
+export type PromoteResponse = {
+  company_link_code_id: string
+  promoted_to_standard_code: string
+  created_new_code: boolean
+}
+
+/** List pending custom codes awaiting curation across the user's org. */
+export async function listPromotionCandidates(): Promise<PromotionCandidate[]> {
+  const res = await apiFetch<{ candidates: PromotionCandidate[] }>("/api/coa/promotion-candidates")
+  return res.candidates
+}
+
+/** Promote a candidate: link to an existing global code, or publish a new one. */
+export async function promotePromotionCandidate(
+  candidateId: string,
+  payload: PromoteRequest,
+): Promise<PromoteResponse> {
+  return apiFetch<PromoteResponse>(`/api/coa/promotion-candidates/${candidateId}/promote`, {
+    method: "POST",
+    body: payload,
+  })
+}
+
+/** Reject a candidate as company-specific (removes it from the queue). */
+export async function rejectPromotionCandidate(candidateId: string): Promise<void> {
+  await apiFetch<void>(`/api/coa/promotion-candidates/${candidateId}/reject`, {
+    method: "POST",
+  })
+}
+
+// --- Superadmin: global chart-of-accounts administration ---
+
+export type StandardLinkCodeCreate = {
   code: string
   family: string
   parent_code?: string | null
@@ -1959,33 +2096,18 @@ export type StandardLinkCodeCreatePayload = {
   sort_order?: number | null
 }
 
-export type StandardLinkCodeUpdatePayload = {
-  parent_code?: string | null
-  label_account?: string | null
-  label_sub_account?: string | null
-  account_type?: string | null
-  account_sub_type?: string | null
-  variable_or_fixed?: string | null
-  ft_category?: string | null
-  attached_link_codes?: string[]
-  ft_line_item?: string | null
-  projections?: string | null
-  is_leaf?: boolean
-  sort_order?: number | null
-}
-
-export async function createStandardLinkCode(
-  payload: StandardLinkCodeCreatePayload,
-): Promise<StandardLinkCode> {
+/** Create a global standard code (superadmin only). */
+export async function createStandardLinkCode(payload: StandardLinkCodeCreate): Promise<StandardLinkCode> {
   return apiFetch<StandardLinkCode>("/api/standard-link-codes", {
     method: "POST",
     body: payload,
   })
 }
 
+/** Edit a global code's metadata (superadmin only). */
 export async function updateStandardLinkCode(
   code: string,
-  payload: StandardLinkCodeUpdatePayload,
+  payload: Partial<StandardLinkCodeCreate>,
 ): Promise<StandardLinkCode> {
   return apiFetch<StandardLinkCode>(`/api/standard-link-codes/${encodeURIComponent(code)}`, {
     method: "PATCH",
@@ -2001,6 +2123,86 @@ export async function deleteStandardLinkCode(code: string): Promise<void> {
 
 export async function syncStandardLinkCodesToCompanies(): Promise<{ companies_updated: number }> {
   return apiFetch<{ companies_updated: number }>("/api/standard-link-codes/sync-companies", {
+    method: "POST",
+  })
+}
+
+/** Deprecate (tombstone) or reactivate a global code (superadmin only). */
+export async function setStandardLinkCodeActive(code: string, active: boolean): Promise<StandardLinkCode> {
+  const qs = active ? "?reactivate=true" : ""
+  return apiFetch<StandardLinkCode>(
+    `/api/standard-link-codes/${encodeURIComponent(code)}${qs}`,
+    { method: "DELETE" },
+  )
+}
+
+// --- Superadmin: client (organization) management + feature flags ---
+
+export type FeatureFlagDef = { key: string; label: string; default: boolean }
+
+export type AdminOrg = {
+  id: string
+  name: string
+  slug: string
+  member_count: number
+  company_count: number
+  feature_flags: Record<string, boolean>
+  created_at: string
+}
+
+/** List all clients (organizations) with counts + effective feature flags. */
+export async function listClients(): Promise<AdminOrg[]> {
+  const res = await apiFetch<{ organizations: AdminOrg[] }>("/api/admin/organizations")
+  return res.organizations
+}
+
+/** Create a client + first admin user (superadmin only). */
+export async function createClient(payload: { name: string; admin_email: string }): Promise<AdminOrg> {
+  return apiFetch<AdminOrg>("/api/admin/organizations", {
+    method: "POST",
+    body: payload,
+  })
+}
+
+/** The fixed registry of known feature flags. */
+export async function listFeatureFlagRegistry(): Promise<FeatureFlagDef[]> {
+  return apiFetch<FeatureFlagDef[]>("/api/admin/feature-flags")
+}
+
+/** Replace a client's feature-flag overrides (superadmin only). */
+export async function setClientFeatureFlags(
+  orgId: string,
+  flags: Record<string, boolean>,
+): Promise<AdminOrg> {
+  return apiFetch<AdminOrg>(`/api/admin/organizations/${orgId}/feature-flags`, {
+    method: "PATCH",
+    body: { flags },
+  })
+}
+
+export type StandardCodesStatus = {
+  total: number
+  leaf_count: number
+  active_count: number
+  current_version: number | null
+}
+
+/** Current state of the global standardized chart (superadmin only). */
+export async function getStandardCodesStatus(): Promise<StandardCodesStatus> {
+  return apiFetch<StandardCodesStatus>("/api/admin/standard-link-codes/status")
+}
+
+export type SeedStandardCodesResult = {
+  version: number
+  upserted: number
+  tombstoned: number
+  total: number
+  leaf_count: number
+}
+
+/** One-click import of the global standardized chart from MO.xlsx (superadmin only). */
+export async function seedStandardLinkCodes(): Promise<SeedStandardCodesResult> {
+  return apiFetch<SeedStandardCodesResult>("/api/admin/standard-link-codes/seed", {
     method: "POST",
   })
 }

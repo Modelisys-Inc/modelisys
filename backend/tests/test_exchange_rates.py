@@ -193,4 +193,4 @@ def test_exchange_rates_company_not_found(client, auth_headers):
 def test_exchange_rates_unauthenticated(client):
     fake_id = str(uuid.uuid4())
     response = client.get(f"/api/companies/{fake_id}/exchange-rates")
-    assert response.status_code == 403
+    assert response.status_code == 401

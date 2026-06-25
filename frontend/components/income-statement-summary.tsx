@@ -1513,7 +1513,7 @@ export function IncomeStatementSummary({
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[220px] text-balance">
-                          Active la modification du code de liaison et de la lettre d’annexe. Indisponible si la ligne est
+                          Active la modification du code de liaison. L’identifiant d’annexe est attribué automatiquement. Indisponible si la ligne est
                           masquée.
                         </TooltipContent>
                       </Tooltip>
@@ -1560,7 +1560,7 @@ export function IncomeStatementSummary({
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-[220px] text-balance">
-                          Lettre d’annexe (ex. A, B) pour le détail et les exports.
+                          Identifiant d’annexe attribué automatiquement selon l’ordre d’apparition dans le rapport.
                         </TooltipContent>
                       </Tooltip>
                     </th>
@@ -2014,7 +2014,7 @@ export function IncomeStatementSummary({
                             placeholder="A"
                             title={
                               !isAnnexLetterInputEditable(structRow)
-                                ? "Activez « Annexe » pour saisir une lettre (inutile pour addition / soustraction)."
+                                ? "Identifiant attribué automatiquement selon l’ordre d’apparition de l’annexe dans le rapport."
                                 : undefined
                             }
                             className={cn(

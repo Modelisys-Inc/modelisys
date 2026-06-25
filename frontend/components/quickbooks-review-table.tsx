@@ -524,12 +524,11 @@ export function QuickBooksReviewTable({
       <CardContent>
         {linkCodesLoaded && linkCodes.length === 0 && (
           <div className="mb-3 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-900">
-            <p className="font-medium">
-              Your statement structure has no link codes yet.
-            </p>
+            <p className="font-medium">No assignable link codes found.</p>
             <p className="text-xs">
-              Use the picker&apos;s <span className="font-medium">+ Create new link code…</span>{" "}
-              action on each row, or set up your statement structure first.
+              Add company-specific codes from the{" "}
+              <span className="font-medium">Codes personnalisés</span> panel on the
+              Code de liaison page, or ask an administrator to update the shared chart.
             </p>
           </div>
         )}

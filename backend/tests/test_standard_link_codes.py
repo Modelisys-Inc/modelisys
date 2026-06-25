@@ -1,3 +1,24 @@
+import pytest
+
+from app.models.user import User
+from app.utils.security import create_access_token
+
+
+@pytest.fixture
+def su_headers(db):
+    """Superadmin auth — the only role allowed to manage the global chart."""
+    u = User(
+        email="root-codes@e.com",
+        hashed_password="x",
+        full_name="Root",
+        is_active=True,
+        is_superadmin=True,
+    )
+    db.add(u)
+    db.commit()
+    return {"Authorization": f"Bearer {create_access_token({'sub': str(u.id)})}"}
+
+
 def test_list_standard_link_codes_grouped(client):
     response = client.get("/api/standard-link-codes")
     assert response.status_code == 200
@@ -19,7 +40,17 @@ def test_create_standard_link_code_requires_auth(client):
     assert response.status_code in (401, 403)
 
 
-def test_create_standard_link_code(client, auth_headers):
+def test_create_standard_link_code_rejects_non_superadmin(client, auth_headers):
+    """A regular org user cannot publish global codes (superadmin-only)."""
+    response = client.post(
+        "/api/standard-link-codes",
+        json={"code": "NEW-X", "family": "REV", "is_leaf": True},
+        headers=auth_headers,
+    )
+    assert response.status_code == 403
+
+
+def test_create_standard_link_code(client, su_headers):
     response = client.post(
         "/api/standard-link-codes",
         json={
@@ -30,7 +61,7 @@ def test_create_standard_link_code(client, auth_headers):
             "variable_or_fixed": "Variable",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert response.status_code == 201
     data = response.json()
@@ -40,20 +71,20 @@ def test_create_standard_link_code(client, auth_headers):
     assert data["is_leaf"] is True
 
 
-def test_create_duplicate_code_returns_409(client, auth_headers):
+def test_create_duplicate_code_returns_409(client, su_headers):
     payload = {
         "code": "DUP-001",
         "family": "EXP",
         "label_sub_account": "Test",
         "is_leaf": True,
     }
-    first = client.post("/api/standard-link-codes", json=payload, headers=auth_headers)
+    first = client.post("/api/standard-link-codes", json=payload, headers=su_headers)
     assert first.status_code == 201
-    second = client.post("/api/standard-link-codes", json=payload, headers=auth_headers)
+    second = client.post("/api/standard-link-codes", json=payload, headers=su_headers)
     assert second.status_code == 409
 
 
-def test_create_with_invalid_parent_returns_422(client, auth_headers):
+def test_create_with_invalid_parent_returns_422(client, su_headers):
     response = client.post(
         "/api/standard-link-codes",
         json={
@@ -62,7 +93,7 @@ def test_create_with_invalid_parent_returns_422(client, auth_headers):
             "parent_code": "NONEXISTENT-PARENT",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert response.status_code == 422
 
@@ -75,14 +106,14 @@ def test_update_standard_link_code_requires_auth(client):
     assert response.status_code in (401, 403)
 
 
-def test_update_standard_link_code(client, auth_headers):
+def test_update_standard_link_code(client, su_headers):
     response = client.patch(
         "/api/standard-link-codes/44-330",
         json={
             "label_sub_account": "Libellé mis à jour",
             "variable_or_fixed": "Fixe",
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert response.status_code == 200
     data = response.json()
@@ -91,31 +122,8 @@ def test_update_standard_link_code(client, auth_headers):
     assert data["variable_or_fixed"] == "Fixe"
 
 
-def test_update_parent_ft_category(client, auth_headers):
-    create = client.post(
-        "/api/standard-link-codes",
-        json={
-            "code": "CF-PARENT",
-            "family": "TST",
-            "label_sub_account": "Parent trésorerie",
-            "is_leaf": False,
-            "ft_category": "Investissement",
-        },
-        headers=auth_headers,
-    )
-    assert create.status_code == 201
-    assert create.json()["ft_category"] == "Investissement"
-
-    patch = client.patch(
-        "/api/standard-link-codes/CF-PARENT",
-        json={"ft_category": "Financement"},
-        headers=auth_headers,
-    )
-    assert patch.status_code == 200
-    assert patch.json()["ft_category"] == "Financement"
-
-
-def test_leaf_outside_cap_c_cannot_have_ft_category(client, auth_headers):
+def test_leaf_outside_cap_c_cannot_have_ft_category(client, su_headers):
+    # ft_category on Bilan/CDR codes is deprecated — any value is rejected.
     response = client.post(
         "/api/standard-link-codes",
         json={
@@ -125,41 +133,12 @@ def test_leaf_outside_cap_c_cannot_have_ft_category(client, auth_headers):
             "is_leaf": True,
             "ft_category": "Exploitation",
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert response.status_code == 422
 
 
-def test_cap_c_leaf_can_have_ft_category(client, auth_headers):
-    parent = client.post(
-        "/api/standard-link-codes",
-        json={
-            "code": "CAP-C",
-            "family": "CAP",
-            "label_sub_account": "Groupe CAP-C",
-            "is_leaf": False,
-        },
-        headers=auth_headers,
-    )
-    assert parent.status_code == 201
-
-    response = client.post(
-        "/api/standard-link-codes",
-        json={
-            "code": "CAP-C.1",
-            "family": "CAP",
-            "parent_code": "CAP-C",
-            "label_sub_account": "Feuille CAP-C",
-            "is_leaf": True,
-            "ft_category": "Exploitation",
-        },
-        headers=auth_headers,
-    )
-    assert response.status_code == 201
-    assert response.json()["ft_category"] == "Exploitation"
-
-
-def test_invalid_ft_category_returns_422(client, auth_headers):
+def test_invalid_ft_category_returns_422(client, su_headers):
     create = client.post(
         "/api/standard-link-codes",
         json={
@@ -168,23 +147,23 @@ def test_invalid_ft_category_returns_422(client, auth_headers):
             "label_sub_account": "Parent",
             "is_leaf": False,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert create.status_code == 201
 
     response = client.patch(
         "/api/standard-link-codes/CF-PARENT-2",
         json={"ft_category": "InvalidSection"},
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert response.status_code == 422
 
 
-def test_update_nonexistent_code_returns_404(client, auth_headers):
+def test_update_nonexistent_code_returns_404(client, su_headers):
     response = client.patch(
         "/api/standard-link-codes/DOES-NOT-EXIST",
         json={"label_sub_account": "X"},
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert response.status_code == 404
 
@@ -194,27 +173,39 @@ def test_delete_standard_link_code_requires_auth(client):
     assert response.status_code in (401, 403)
 
 
-def test_delete_standard_link_code(client, auth_headers):
+def test_delete_standard_link_code_tombstones(client, su_headers):
     create = client.post(
         "/api/standard-link-codes",
         json={
             "code": "DEL-001",
             "family": "TST",
-            "label_sub_account": "À supprimer",
+            "label_sub_account": "À tombstoner",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert create.status_code == 201
 
-    response = client.delete("/api/standard-link-codes/DEL-001", headers=auth_headers)
-    assert response.status_code == 204
+    # Delete tombstones (is_active=False) rather than hard-deleting, so the code
+    # stays resolvable for historical references.
+    response = client.delete("/api/standard-link-codes/DEL-001", headers=su_headers)
+    assert response.status_code == 200
+    assert response.json()["is_active"] is False
 
     get_response = client.get("/api/standard-link-codes/DEL-001")
-    assert get_response.status_code == 404
+    assert get_response.status_code == 200
+    assert get_response.json()["is_active"] is False
+
+    # Reactivate with ?reactivate=true.
+    react = client.delete(
+        "/api/standard-link-codes/DEL-001?reactivate=true", headers=su_headers
+    )
+    assert react.status_code == 200
+    assert react.json()["is_active"] is True
 
 
-def test_delete_code_with_children_returns_422(client, auth_headers):
+def test_tombstone_parent_with_children_succeeds(client, su_headers):
+    # Tombstoning never hard-deletes, so it does not need the old child guard.
     parent = client.post(
         "/api/standard-link-codes",
         json={
@@ -223,7 +214,7 @@ def test_delete_code_with_children_returns_422(client, auth_headers):
             "label_sub_account": "Parent",
             "is_leaf": False,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert parent.status_code == 201
 
@@ -236,15 +227,18 @@ def test_delete_code_with_children_returns_422(client, auth_headers):
             "label_sub_account": "Enfant",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert child.status_code == 201
 
-    response = client.delete("/api/standard-link-codes/DEL-PARENT", headers=auth_headers)
-    assert response.status_code == 422
+    response = client.delete("/api/standard-link-codes/DEL-PARENT", headers=su_headers)
+    assert response.status_code == 200
+    assert response.json()["is_active"] is False
+    # The child remains resolvable.
+    assert client.get("/api/standard-link-codes/DEL-CHILD").status_code == 200
 
 
-def test_sync_standard_codes_to_companies(client, auth_headers):
+def test_sync_standard_codes_to_companies(client, auth_headers, su_headers):
     company = client.post(
         "/api/companies",
         json={"name": "Sync Test Co"},
@@ -261,10 +255,10 @@ def test_sync_standard_codes_to_companies(client, auth_headers):
             "label_sub_account": "Code sync",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
 
-    response = client.post("/api/standard-link-codes/sync-companies", headers=auth_headers)
+    response = client.post("/api/standard-link-codes/sync-companies", headers=su_headers)
     assert response.status_code == 200
     assert response.json()["companies_updated"] >= 1
 
@@ -284,50 +278,12 @@ def test_sync_standard_codes_to_companies(client, auth_headers):
     assert "SYNC-001" in link_codes
 
 
-def test_sync_maps_ft_category_parent_to_cash_flow_section(client, auth_headers):
-    company = client.post(
-        "/api/companies",
-        json={"name": "Cash Flow Sync Co"},
-        headers=auth_headers,
-    )
-    assert company.status_code == 201
-    company_id = company.json()["id"]
-
-    create = client.post(
-        "/api/standard-link-codes",
-        json={
-            "code": "CF-SYNC-PARENT",
-            "family": "REV",
-            "label_sub_account": "Parent exploitation",
-            "is_leaf": False,
-            "ft_category": "Exploitation",
-        },
-        headers=auth_headers,
-    )
-    assert create.status_code == 201
-
+def test_sync_requires_superadmin(client, auth_headers):
     response = client.post("/api/standard-link-codes/sync-companies", headers=auth_headers)
-    assert response.status_code == 200
-
-    structures = client.get(
-        f"/api/companies/{company_id}/statement-structures",
-        headers=auth_headers,
-    )
-    assert structures.status_code == 200
-    cf_struct = next(
-        s for s in structures.json()["structures"] if s["statement_type"] == "cash-flow"
-    )
-    labels = [row.get("label") for row in cf_struct["structure"]]
-    link_codes = [
-        row.get("linkCode") or row.get("link_code")
-        for row in cf_struct["structure"]
-        if row.get("linkCode") or row.get("link_code")
-    ]
-    assert any("exploitation" in str(l).lower() for l in labels)
-    assert "CF-SYNC-PARENT" in link_codes
+    assert response.status_code == 403
 
 
-def test_update_label_propagates_to_company_structures(client, auth_headers):
+def test_update_label_propagates_to_company_structures(client, auth_headers, su_headers):
     company = client.post(
         "/api/companies",
         json={"name": "Label Propagation Co"},
@@ -344,7 +300,7 @@ def test_update_label_propagates_to_company_structures(client, auth_headers):
             "label_sub_account": "Chiffre d'affaires",
             "is_leaf": False,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert create_rev.status_code == 201
 
@@ -367,7 +323,7 @@ def test_update_label_propagates_to_company_structures(client, auth_headers):
     patch = client.patch(
         "/api/standard-link-codes/REV",
         json={"label_sub_account": "Revenus"},
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert patch.status_code == 200
     assert patch.json()["label_sub_account"] == "Revenus"
@@ -390,7 +346,7 @@ def test_update_label_propagates_to_company_structures(client, auth_headers):
     assert section_row["label"] == "Section sans code"
 
 
-def test_create_child_code_placed_after_parent(client, auth_headers):
+def test_create_child_code_placed_after_parent(client, su_headers):
     parent = client.post(
         "/api/standard-link-codes",
         json={
@@ -399,7 +355,7 @@ def test_create_child_code_placed_after_parent(client, auth_headers):
             "label_sub_account": "Parent test",
             "is_leaf": False,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert parent.status_code == 201
     parent_order = parent.json()["sort_order"]
@@ -412,7 +368,7 @@ def test_create_child_code_placed_after_parent(client, auth_headers):
             "label_sub_account": "Fin de famille",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert tail.status_code == 201
 
@@ -425,7 +381,7 @@ def test_create_child_code_placed_after_parent(client, auth_headers):
             "label_sub_account": "Enfant",
             "is_leaf": True,
         },
-        headers=auth_headers,
+        headers=su_headers,
     )
     assert child.status_code == 201
     child_order = child.json()["sort_order"]

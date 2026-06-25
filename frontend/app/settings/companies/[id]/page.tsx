@@ -10,6 +10,7 @@ import { Building2, Calendar, DollarSign, Plus, Edit2, Trash2, X, Check, Loader2
 import Link from "next/link"
 import { Switch } from "@/components/ui/switch"
 import { useParams, useRouter, usePathname } from "next/navigation"
+import { usePermissions } from "@/hooks/use-permissions"
 import {
   getCompany,
   updateCompany,
@@ -90,6 +91,7 @@ export default function CompanySettingsPage() {
   const params = useParams()
   const router = useRouter()
   const pathname = usePathname()
+  const { canEdit } = usePermissions()
   const companyId = params.id as string
   const [company, setCompany] = useState<Company | null>(null)
   const [loading, setLoading] = useState(true)
@@ -545,14 +547,16 @@ export default function CompanySettingsPage() {
                         ) : (
                           <div className="flex items-center justify-between">
                             <p className="text-sm font-medium text-slate-900">{company.name}</p>
-                            <Button
-                              onClick={handleStartEditCompanyName}
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0"
-                            >
-                              <Edit2 className="w-3.5 h-3.5 text-slate-500" />
-                            </Button>
+                            {canEdit && (
+                              <Button
+                                onClick={handleStartEditCompanyName}
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 w-6 p-0"
+                              >
+                                <Edit2 className="w-3.5 h-3.5 text-slate-500" />
+                              </Button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -598,14 +602,16 @@ export default function CompanySettingsPage() {
                         ) : (
                           <div className="flex items-center justify-between">
                             <p className="text-sm font-medium text-slate-900">{fiscalYearEndLabel}</p>
-                            <Button
-                              onClick={handleStartEditFiscalYearEnd}
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0"
-                            >
-                              <Edit2 className="w-3.5 h-3.5 text-slate-500" />
-                            </Button>
+                            {canEdit && (
+                              <Button
+                                onClick={handleStartEditFiscalYearEnd}
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 w-6 p-0"
+                              >
+                                <Edit2 className="w-3.5 h-3.5 text-slate-500" />
+                              </Button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -651,14 +657,16 @@ export default function CompanySettingsPage() {
                         ) : (
                           <div className="flex items-center justify-between">
                             <p className="text-sm font-medium text-slate-900">{company.currency || "CAD"}</p>
-                            <Button
-                              onClick={handleStartEditCurrency}
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 w-6 p-0"
-                            >
-                              <Edit2 className="w-3.5 h-3.5 text-slate-500" />
-                            </Button>
+                            {canEdit && (
+                              <Button
+                                onClick={handleStartEditCurrency}
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 w-6 p-0"
+                              >
+                                <Edit2 className="w-3.5 h-3.5 text-slate-500" />
+                              </Button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -678,7 +686,7 @@ export default function CompanySettingsPage() {
                           <Switch
                             checked={company.isCumulativeTb}
                             onCheckedChange={handleCumulativeTbChange}
-                            disabled={savingCumulativeTb}
+                            disabled={savingCumulativeTb || !canEdit}
                             aria-label="Balance de vérification cumulative"
                           />
                         </div>
@@ -691,6 +699,7 @@ export default function CompanySettingsPage() {
                   </div>
                 </div>
 
+                {canEdit && (
                 <div className="mt-6 pt-6 border-t border-slate-200">
                   <Button
                     onClick={handleDeleteCompany}
@@ -701,6 +710,7 @@ export default function CompanySettingsPage() {
                     Supprimer la société
                   </Button>
                 </div>
+                )}
               </CardContent>
             </Card>
 
@@ -718,7 +728,7 @@ export default function CompanySettingsPage() {
                       <p className="text-sm text-slate-500">Divisions et sous-divisions</p>
                     </div>
                   </div>
-                  {!addingDivisionTo && (
+                  {canEdit && !addingDivisionTo && (
                     <Button
                       onClick={() => setAddingDivisionTo(true)}
                       size="sm"
@@ -812,31 +822,35 @@ export default function CompanySettingsPage() {
                             ) : (
                               <>
                                 <span className="flex-1 text-slate-900 font-semibold">{division.name}</span>
-                                <Button
-                                  onClick={() => setAddingSubDivisionTo(division.id)}
-                                  size="sm"
-                                  variant="ghost"
-                                  className="text-slate-600 hover:text-slate-900 h-7 px-2"
-                                >
-                                  <Plus className="w-3 h-3 mr-1" />
-                                  Sous-div.
-                                </Button>
-                                <Button
-                                  onClick={() => handleStartEditDivision(division)}
-                                  size="sm"
-                                  variant="ghost"
-                                  className="text-slate-600 hover:text-slate-900 h-7 w-7 p-0"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </Button>
-                                <Button
-                                  onClick={() => handleDeleteDivision(division.id)}
-                                  size="sm"
-                                  variant="ghost"
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </Button>
+                                {canEdit && (
+                                  <>
+                                    <Button
+                                      onClick={() => setAddingSubDivisionTo(division.id)}
+                                      size="sm"
+                                      variant="ghost"
+                                      className="text-slate-600 hover:text-slate-900 h-7 px-2"
+                                    >
+                                      <Plus className="w-3 h-3 mr-1" />
+                                      Sous-div.
+                                    </Button>
+                                    <Button
+                                      onClick={() => handleStartEditDivision(division)}
+                                      size="sm"
+                                      variant="ghost"
+                                      className="text-slate-600 hover:text-slate-900 h-7 w-7 p-0"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </Button>
+                                    <Button
+                                      onClick={() => handleDeleteDivision(division.id)}
+                                      size="sm"
+                                      variant="ghost"
+                                      className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7 w-7 p-0"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </>
+                                )}
                               </>
                             )}
                           </div>
@@ -926,22 +940,26 @@ export default function CompanySettingsPage() {
                                     ) : (
                                       <>
                                         <span className="flex-1 text-slate-700 text-sm">{subDivision.name}</span>
-                                        <Button
-                                          onClick={() => handleStartEditSubDivision(subDivision)}
-                                          size="sm"
-                                          variant="ghost"
-                                          className="text-slate-600 hover:text-slate-900 h-6 w-6 p-0"
-                                        >
-                                          <Edit2 className="w-3 h-3" />
-                                        </Button>
-                                        <Button
-                                          onClick={() => handleDeleteSubDivision(division.id, subDivision.id)}
-                                          size="sm"
-                                          variant="ghost"
-                                          className="text-red-600 hover:text-red-700 hover:bg-red-50 h-6 w-6 p-0"
-                                        >
-                                          <Trash2 className="w-3 h-3" />
-                                        </Button>
+                                        {canEdit && (
+                                          <>
+                                            <Button
+                                              onClick={() => handleStartEditSubDivision(subDivision)}
+                                              size="sm"
+                                              variant="ghost"
+                                              className="text-slate-600 hover:text-slate-900 h-6 w-6 p-0"
+                                            >
+                                              <Edit2 className="w-3 h-3" />
+                                            </Button>
+                                            <Button
+                                              onClick={() => handleDeleteSubDivision(division.id, subDivision.id)}
+                                              size="sm"
+                                              variant="ghost"
+                                              className="text-red-600 hover:text-red-700 hover:bg-red-50 h-6 w-6 p-0"
+                                            >
+                                              <Trash2 className="w-3 h-3" />
+                                            </Button>
+                                          </>
+                                        )}
                                       </>
                                     )}
                                   </div>
