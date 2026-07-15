@@ -5,10 +5,18 @@ import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import { ChevronRight, ChevronDown, StickyNote, Plus, X } from "lucide-react"
 import { useState, useEffect, useRef, useCallback } from "react"
-import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
+import { listForecastConfigs, upsertForecastConfig, listAccountMappings, getTrialBalance } from "@/lib/api"
 import type { DebtForecastLoan } from "@/lib/debt-forecast-types"
 import { DEBT_REPAYMENT_MODE_LABELS } from "@/lib/debt-forecast-types"
 import { calculateLoanYearAmortization } from "@/lib/debt-amortization-utils"
+import {
+  buildDebtLoansFromPltMappings,
+  formatDebtOpeningReferenceLabel,
+  mergeDebtForecastLoans,
+  pltMappingDebtSkipLabel,
+  resolveDebtOpeningReferencePeriod,
+  type PltMappingDebtSkip,
+} from "@/lib/debt-mapping-utils"
 import { NoteModal } from "@/components/note-modal"
 import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { Button } from "@/components/ui/button"
@@ -26,6 +34,10 @@ interface DebtForecastDetailProps {
   title?: string
   projectionYears?: 3 | 4 | 5
   projectionId?: string | null
+  forecastBaseYear?: number
+  fiscalYear?: number
+  referenceMonth?: number
+  projectionHorizon?: "annual" | "monthly"
 }
 
 type Loan = DebtForecastLoan
@@ -51,6 +63,10 @@ export function DebtForecastDetail({
   title = "Estimation des Dettes annuelles",
   projectionYears = 5,
   projectionId,
+  forecastBaseYear,
+  fiscalYear,
+  referenceMonth,
+  projectionHorizon = "annual",
 }: DebtForecastDetailProps) {
   useNotesCache(companyId ?? null)
   const [noteModalOpen, setNoteModalOpen] = useState(false)
@@ -66,10 +82,21 @@ export function DebtForecastDetail({
   
   // State for loans
   const [loans, setLoans] = useState<Loan[]>([])
+  const [mappingSkipped, setMappingSkipped] = useState<PltMappingDebtSkip[]>([])
+  const [openingReferenceLabel, setOpeningReferenceLabel] = useState<string>("")
   const [editingLoan, setEditingLoan] = useState<string | null>(null)
   const [editingField, setEditingField] = useState<{ loanId: string; field: string } | null>(null)
 
   const isForecast = isForecastSection(title)
+
+  const effectiveForecastBaseYear =
+    forecastBaseYear ?? (fiscalYear != null ? fiscalYear + 1 : new Date().getFullYear() + 1)
+
+  const openingReferencePeriod = resolveDebtOpeningReferencePeriod({
+    projectionHorizon,
+    forecastBaseYear: effectiveForecastBaseYear,
+    referenceMonth,
+  })
 
   // Debounced save to API
   const saveConfigRef = useRef<NodeJS.Timeout>()
@@ -90,38 +117,70 @@ export function DebtForecastDetail({
     }, 500)
   }, [companyId, isForecast, projectionId])
 
-  // Load loans from API on mount
+  // Load loans from API + synchroniser les passifs PLT (mapping + balance de référence)
   useEffect(() => {
     if (!companyId || !isForecast) return
 
+    let cancelled = false
+
     const loadConfig = async () => {
       try {
-        const configs = await listForecastConfigs(companyId, { config_type: "debt-forecast", projection_id: projectionId ?? undefined })
+        const refLabel = formatDebtOpeningReferenceLabel(openingReferencePeriod)
+        const [configs, mappings, trialBalance] = await Promise.all([
+          listForecastConfigs(companyId, {
+            config_type: "debt-forecast",
+            projection_id: projectionId ?? undefined,
+          }),
+          listAccountMappings(companyId),
+          getTrialBalance(companyId, openingReferencePeriod.fiscalYear),
+        ])
+
+        let existing: Loan[] = []
         if (configs.length > 0) {
           const data = configs[0].data as Record<string, unknown>
           if (data.loans && Array.isArray(data.loans)) {
-            // Ensure all loans have startMonth (default to 0 for existing loans)
-            const loansWithStartMonth = (data.loans as Loan[]).map((loan: Loan) => ({
+            existing = (data.loans as Loan[]).map((loan: Loan) => ({
               ...loan,
-              startMonth: loan.startMonth !== undefined ? loan.startMonth : 0
+              startMonth: loan.startMonth !== undefined ? loan.startMonth : 0,
             }))
-            setLoans(loansWithStartMonth)
-          } else {
-            // No loans configured - start with empty state
-            setLoans([])
           }
-        } else {
-          // No config found - start with empty state
-          setLoans([])
+        }
+
+        const { loans: mappingLoans, skipped } = buildDebtLoansFromPltMappings({
+          mappings,
+          trialBalance,
+          referencePeriod: openingReferencePeriod,
+        })
+        const merged = mergeDebtForecastLoans(existing, mappingLoans)
+
+        if (!cancelled) {
+          setOpeningReferenceLabel(refLabel)
+          setMappingSkipped(skipped)
+          setLoans(merged)
         }
       } catch (err) {
         console.error("Error loading debt forecast config:", err)
-        // Error loading - start with empty state
-        setLoans([])
+        if (!cancelled) {
+          setLoans([])
+          setMappingSkipped([])
+        }
       }
     }
-    loadConfig()
-  }, [companyId, isForecast, projectionId])
+    void loadConfig()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    companyId,
+    isForecast,
+    projectionId,
+    openingReferencePeriod.fiscalYear,
+    openingReferencePeriod.month,
+    effectiveForecastBaseYear,
+    projectionHorizon,
+    referenceMonth,
+  ])
 
   // Save loans whenever they change
   useEffect(() => {
@@ -144,20 +203,19 @@ export function DebtForecastDetail({
 
   // Generate month options for start month selector (72 months = 6 years)
   const getStartMonthOptions = (): Array<{ value: number; label: string }> => {
-    const currentYear = new Date().getFullYear()
+    const baseYear = effectiveForecastBaseYear
     const months = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"]
     const options: Array<{ value: number; label: string }> = []
-    
-    // Generate 72 months (6 years) starting from January of next year (2026)
+
     for (let i = 0; i < 72; i++) {
-      const year = currentYear + 1 + Math.floor(i / 12)
+      const year = baseYear + Math.floor(i / 12)
       const month = i % 12
       options.push({
         value: i,
-        label: `${months[month]} ${year}`
+        label: `${months[month]} ${year}`,
       })
     }
-    
+
     return options
   }
 
@@ -193,14 +251,13 @@ export function DebtForecastDetail({
   }
 
   const getYearLabels = (): string[] => {
-    const currentYear = new Date().getFullYear()
     const labels: string[] = []
     if (isForecast) {
-      // Start from next year instead of current year, generate projectionYears years
-      for (let i = 1; i <= projectionYears; i++) {
-        labels.push(`${currentYear + i}`)
+      for (let i = 0; i < projectionYears; i++) {
+        labels.push(String(effectiveForecastBaseYear + i))
       }
     } else {
+      const currentYear = new Date().getFullYear()
       for (let i = 5; i >= 0; i--) {
         labels.push(`${currentYear - i}`)
       }
@@ -280,6 +337,33 @@ export function DebtForecastDetail({
 
       {/* Add Loan Button */}
       {isForecast && (
+        <div className="border-b border-slate-200 bg-slate-50/80 px-8 py-3">
+          <p className="text-xs text-slate-600">
+            Soldes d&apos;ouverture issus du mapping comptable (codes PLT-B, PLT-G, PLT-C, PLT-D) à la
+            date de référence{" "}
+            <span className="font-semibold text-slate-800">{openingReferenceLabel || "—"}</span>
+            {loans.some((l) => l.sourceType === "mapping") ? (
+              <>
+                {" "}
+                — {loans.filter((l) => l.sourceType === "mapping").length} emprunt
+                {loans.filter((l) => l.sourceType === "mapping").length > 1 ? "s" : ""} importé
+                {loans.filter((l) => l.sourceType === "mapping").length > 1 ? "s" : ""}
+              </>
+            ) : null}
+          </p>
+          {mappingSkipped.length > 0 ? (
+            <ul className="mt-2 space-y-1 text-xs text-amber-800">
+              {mappingSkipped.map((skip) => (
+                <li key={`${skip.accountNumber}-${skip.reason}`}>
+                  {skip.accountNumber} ({skip.linkCode}) : {pltMappingDebtSkipLabel(skip.reason)}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      )}
+
+      {isForecast && (
         <div className="bg-slate-50 border-b border-slate-200 px-8 py-3">
           <Button
             variant="outline"
@@ -303,7 +387,7 @@ export function DebtForecastDetail({
                 <>
                   <th className="px-4 py-4 text-center font-semibold text-slate-900 text-sm whitespace-nowrap">Mois de début</th>
                   <th className="px-4 py-4 text-center font-semibold text-slate-900 text-sm whitespace-nowrap">Taux d'intérêt</th>
-                  <th className="px-4 py-4 text-center font-semibold text-slate-900 text-sm whitespace-nowrap">Paiements restants</th>
+                  <th className="px-4 py-4 text-center font-semibold text-slate-900 text-sm whitespace-nowrap">Durée restante</th>
                   <th className="px-4 py-4 text-center font-semibold text-slate-900 text-sm whitespace-nowrap">Montant initial</th>
                 </>
               )}
@@ -378,6 +462,11 @@ export function DebtForecastDetail({
                           {loan.sourceType === "capex" ? (
                             <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-800">
                               Capex
+                            </span>
+                          ) : null}
+                          {loan.sourceType === "mapping" ? (
+                            <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
+                              Mapping
                             </span>
                           ) : null}
                           {loan.repaymentMode ? (
@@ -464,7 +553,10 @@ export function DebtForecastDetail({
                               onClick={() => setEditingField({ loanId: loan.id, field: "remainingPayments" })}
                               className="px-3 py-1 rounded-md text-xs font-medium transition-colors hover:bg-slate-100 cursor-pointer"
                             >
-                              {loan.remainingPayments}
+                              <span className="block">{loan.remainingPayments} mois</span>
+                              <span className="block text-[10px] font-normal text-slate-500">
+                                ({(loan.remainingPayments / 12).toLocaleString("fr-CA", { maximumFractionDigits: 1 })} ans)
+                              </span>
                             </button>
                           )}
                         </td>

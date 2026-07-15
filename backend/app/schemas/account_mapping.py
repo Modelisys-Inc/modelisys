@@ -16,6 +16,9 @@ class AccountMappingUpsert(BaseModel):
     amortization: bool = False
     variable_costs: bool = False
     fixed_costs: bool = False
+    variable_cost_revenue_link_code: str | None = None
+    liability_remaining_years: float | None = None
+    liability_interest_rate: float | None = None
     product: str | None = None
     customer: str | None = None
     supplier: str | None = None
@@ -36,6 +39,9 @@ class AccountMappingResponse(BaseModel):
     amortization: bool = False
     variable_costs: bool = False
     fixed_costs: bool = False
+    variable_cost_revenue_link_code: str | None = None
+    liability_remaining_years: float | None = None
+    liability_interest_rate: float | None = None
     product: str | None = None
     customer: str | None = None
     supplier: str | None = None

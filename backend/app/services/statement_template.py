@@ -87,7 +87,7 @@ def sort_codes_hierarchically(codes: list) -> list:
 from app.services.standard_link_code_utils import (
     NET_INCOME_BALANCE_LINK_CODE,
     build_net_income_balance_structure_row,
-    income_statement_leaf_codes_for_net_income,
+    income_statement_net_income_code_split,
 )
 
 
@@ -124,9 +124,9 @@ def _rows_for_family(codes: list, *, db: "Session | None" = None) -> list[dict]:
     family = codes[0].family if codes else ""
     top_level = [c for c in codes if c.parent_code is None]
 
-    net_income_sum_codes: list[str] | None = None
+    net_income_split: tuple[list[str], list[str]] | None = None
     if db is not None:
-        net_income_sum_codes = income_statement_leaf_codes_for_net_income(db)
+        net_income_split = income_statement_net_income_code_split(db)
 
     def _emit(code, depth: int = 0):
         indent = depth > 0
@@ -141,9 +141,10 @@ def _rows_for_family(codes: list, *, db: "Session | None" = None) -> list[dict]:
             for child in children:
                 _emit(child, depth + 1)
         else:
-            if code.code == NET_INCOME_BALANCE_LINK_CODE and net_income_sum_codes is not None:
+            if code.code == NET_INCOME_BALANCE_LINK_CODE and net_income_split is not None:
+                rev_codes, exp_codes = net_income_split
                 rows.append(
-                    build_net_income_balance_structure_row(code, net_income_sum_codes)
+                    build_net_income_balance_structure_row(code, rev_codes, exp_codes)
                 )
             else:
                 rows.append({

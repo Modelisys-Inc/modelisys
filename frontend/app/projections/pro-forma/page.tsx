@@ -696,6 +696,14 @@ export default function ProFormaPage() {
               title="Estimation des Dettes annuelles"
               projectionYears={projectionYears}
               projectionId={currentProjectionId}
+              forecastBaseYear={projectionStartYear ?? undefined}
+              fiscalYear={
+                projectionHorizon === "annual" && projectionStartYear
+                  ? projectionStartYear - 1
+                  : projectionStartYear ?? undefined
+              }
+              referenceMonth={projectionStartMonth ?? undefined}
+              projectionHorizon={projectionHorizon}
             />
           ) : selectedModule === "fdr" ? (
             <FDRForecastDetail

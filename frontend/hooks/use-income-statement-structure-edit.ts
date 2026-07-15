@@ -8,10 +8,13 @@ import {
   findChargeLineRange,
   findStructureInsertIndexAfterAnnexContiguousBlock,
   isCodeMappingEnabled,
+  isComputedNetIncomeStructureRow,
   isDetailParamsDtCtRequired,
   isStructureRowDetailOnly,
   isStructureRowEmptyLabel,
   isStructureRowHidden,
+  autoHideIncomeStatementSummaryRowPatch,
+  normalizeAnnexLetter,
   newBalanceSheetPostRow,
   newChargeRow,
   newDetailSubLineRow,
@@ -25,6 +28,10 @@ import {
   validateDuplicatePrimaryLinkCodes,
 } from "@/lib/income-statement-structure-utils"
 import type { AnnexScheme } from "@/lib/income-statement-structure-utils"
+import {
+  ensureBalanceSheetValidationStructure,
+  isBalanceSheetValidationStructureRow,
+} from "@/lib/balance-sheet-validation"
 
 export type StatementStructureEditKind = Extract<
   StatementType,
@@ -52,11 +59,19 @@ export function useStatementStructureEdit(
     [statementType]
   )
 
-  /** Indices globaux pour la grille Paramètres Sommaire (sans lignes `detailOnly`). */
+  /** Indices globaux pour la grille Paramètres Sommaire (sans `detailOnly`, Validation, ni CAP-C.1). */
   const summaryStructureDisplayIndices = useMemo(
     () =>
-      structure.map((r, i) => (!isStructureRowDetailOnly(r) ? i : -1)).filter((i) => i >= 0),
-    [structure]
+      structure
+        .map((r, i) =>
+          !isStructureRowDetailOnly(r) &&
+          !isComputedNetIncomeStructureRow(r) &&
+          !(statementType === "balance-sheet" && isBalanceSheetValidationStructureRow(r))
+            ? i
+            : -1,
+        )
+        .filter((i) => i >= 0),
+    [structure, statementType]
   )
 
   const finalizeStructure = useCallback(
@@ -76,7 +91,9 @@ export function useStatementStructureEdit(
       const cleaned =
         statementType === "income-statement"
           ? stripObsoleteIncomeStatementStructureRows(raw)
-          : raw
+          : statementType === "balance-sheet"
+            ? ensureBalanceSheetValidationStructure(raw)
+            : raw
       // Normaliser les identifiants d'annexe selon l'ordre d'apparition dès le
       // chargement : les structures anciennes (identifiants désordonnés) sont
       // corrigées en mémoire et le champ « Lettre » (lecture seule) est exact.
@@ -282,6 +299,42 @@ export function useStatementStructureEdit(
     })
   }, [statementType])
 
+  const hideSummaryRowAt = useCallback(
+    (index: number) => {
+      setStructure((prev) => {
+        if (!prev[index]) return prev
+        const next = cloneStructure(prev)
+        const row = next[index]!
+        const letter = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+        const hidePatch = {
+          hidden: true,
+          defineMapping: false,
+          showInDetail: false,
+          linkCode: undefined,
+          annexLetter: undefined,
+          posteNature: undefined,
+          liaisonMode: undefined,
+          liaisonSumCodes: undefined,
+          liaisonNumeratorCodes: undefined,
+          liaisonDenominatorCodes: undefined,
+          separatorAbove: undefined,
+        }
+        next[index] = { ...row, ...hidePatch }
+        if (letter) {
+          for (let i = 0; i < next.length; i++) {
+            if (i === index) continue
+            const sub = next[i]
+            if (!sub || !isStructureRowDetailOnly(sub)) continue
+            if (normalizeAnnexLetter(String(sub.annexLetter ?? "")) !== letter) continue
+            next[i] = { ...sub, ...autoHideIncomeStatementSummaryRowPatch() }
+          }
+        }
+        return finalizeStructure(next)
+      })
+    },
+    [finalizeStructure]
+  )
+
   const save = useCallback(async () => {
     if (!companyId) return false
     setSaving(true)
@@ -289,15 +342,20 @@ export function useStatementStructureEdit(
     try {
       const normalized = structure.map((r) => {
         if (isStructureRowHidden(r)) {
+          const hasLink = String(r.linkCode ?? "").trim() !== ""
           return {
             ...r,
             defineMapping: false,
             showInDetail: false,
-            linkCode: undefined,
-            liaisonMode: undefined,
-            liaisonSumCodes: undefined,
-            liaisonNumeratorCodes: undefined,
-            liaisonDenominatorCodes: undefined,
+            ...(hasLink
+              ? {}
+              : {
+                  linkCode: undefined,
+                  liaisonMode: undefined,
+                  liaisonSumCodes: undefined,
+                  liaisonNumeratorCodes: undefined,
+                  liaisonDenominatorCodes: undefined,
+                }),
           }
         }
         return r
@@ -305,7 +363,9 @@ export function useStatementStructureEdit(
       const cleaned =
         statementType === "income-statement"
           ? stripObsoleteIncomeStatementStructureRows(normalized)
-          : normalized
+          : statementType === "balance-sheet"
+            ? ensureBalanceSheetValidationStructure(normalized)
+            : normalized
       // Renuméroter les annexes selon l'ordre d'apparition avant validation /
       // sauvegarde : chaque annexe possède donc déjà un identifiant.
       const toSave = renumberAnnexesByAppearance(cleaned, annexScheme)
@@ -392,6 +452,7 @@ export function useStatementStructureEdit(
     chargeRange,
     summaryStructureDisplayIndices,
     updateRow,
+    hideSummaryRowAt,
     setShowInDetail,
     insertPostAbove,
     insertPostBelow,

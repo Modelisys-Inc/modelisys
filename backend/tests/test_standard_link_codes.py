@@ -168,6 +168,140 @@ def test_update_nonexistent_code_returns_404(client, su_headers):
     assert response.status_code == 404
 
 
+def test_rename_standard_link_code(client, auth_headers, su_headers):
+    create = client.post(
+        "/api/standard-link-codes",
+        json={
+            "code": "REN-001",
+            "family": "TST",
+            "parent_code": None,
+            "label_sub_account": "À renommer",
+            "is_leaf": True,
+        },
+        headers=su_headers,
+    )
+    assert create.status_code == 201
+
+    child = client.post(
+        "/api/standard-link-codes",
+        json={
+            "code": "REN-CHILD",
+            "family": "TST",
+            "parent_code": "REN-001",
+            "label_sub_account": "Enfant",
+            "is_leaf": True,
+        },
+        headers=su_headers,
+    )
+    assert child.status_code == 201
+
+    company = client.post(
+        "/api/companies",
+        json={"name": "Rename Link Code Co"},
+        headers=auth_headers,
+    )
+    assert company.status_code == 201
+    company_id = company.json()["id"]
+
+    put = client.put(
+        f"/api/companies/{company_id}/statement-structures/income-statement",
+        json={
+            "structure": [
+                {
+                    "label": "Test",
+                    "linkCode": "REN-001",
+                    "liaisonMode": "single",
+                    "liaisonSumCodes": ["REN-001"],
+                }
+            ]
+        },
+        headers=auth_headers,
+    )
+    assert put.status_code == 200
+
+    mapping = client.put(
+        f"/api/companies/{company_id}/account-mappings",
+        json=[
+            {
+                "account_number": "9999",
+                "description": "Test",
+                "link_code": "REN-001",
+            }
+        ],
+        headers=auth_headers,
+    )
+    assert mapping.status_code == 200
+
+    response = client.patch(
+        "/api/standard-link-codes/REN-001",
+        json={"new_code": "REN-002"},
+        headers=su_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["code"] == "REN-002"
+
+    assert client.get("/api/standard-link-codes/REN-001").status_code == 404
+    assert client.get("/api/standard-link-codes/REN-002").status_code == 200
+
+    child_get = client.get("/api/standard-link-codes/REN-CHILD", headers=su_headers)
+    assert child_get.status_code == 200
+    assert child_get.json()["parent_code"] == "REN-002"
+
+    mappings = client.get(
+        f"/api/companies/{company_id}/account-mappings",
+        headers=auth_headers,
+    )
+    assert mappings.status_code == 200
+    row = next(m for m in mappings.json()["mappings"] if m["account_number"] == "9999")
+    assert row["link_code"] == "REN-002"
+
+    structures = client.get(
+        f"/api/companies/{company_id}/statement-structures",
+        headers=auth_headers,
+    )
+    assert structures.status_code == 200
+    is_struct = next(
+        s for s in structures.json()["structures"] if s["statement_type"] == "income-statement"
+    )
+    struct_row = is_struct["structure"][0]
+    assert struct_row["linkCode"] == "REN-002"
+    assert struct_row["liaisonSumCodes"] == ["REN-002"]
+
+    create_new = client.post(
+        "/api/standard-link-codes",
+        json={
+            "code": "REN-001",
+            "family": "TST",
+            "label_sub_account": "Nouveau sur ancien identifiant",
+            "is_leaf": True,
+        },
+        headers=su_headers,
+    )
+    assert create_new.status_code == 201
+
+
+def test_rename_standard_link_code_conflict(client, su_headers):
+    for code in ("REN-A", "REN-B"):
+        res = client.post(
+            "/api/standard-link-codes",
+            json={
+                "code": code,
+                "family": "TST",
+                "label_sub_account": code,
+                "is_leaf": True,
+            },
+            headers=su_headers,
+        )
+        assert res.status_code == 201
+
+    response = client.patch(
+        "/api/standard-link-codes/REN-A",
+        json={"new_code": "REN-B"},
+        headers=su_headers,
+    )
+    assert response.status_code == 422
+
+
 def test_delete_standard_link_code_requires_auth(client):
     response = client.delete("/api/standard-link-codes/44-330")
     assert response.status_code in (401, 403)
@@ -195,6 +329,16 @@ def test_delete_standard_link_code_tombstones(client, su_headers):
     get_response = client.get("/api/standard-link-codes/DEL-001")
     assert get_response.status_code == 200
     assert get_response.json()["is_active"] is False
+
+    # Inactive codes are hidden from the public chart lists.
+    flat = client.get("/api/standard-link-codes/flat")
+    assert flat.status_code == 200
+    assert "DEL-001" not in [c["code"] for c in flat.json()]
+
+    grouped = client.get("/api/standard-link-codes")
+    assert grouped.status_code == 200
+    grouped_codes = [c["code"] for g in grouped.json() for c in g["codes"]]
+    assert "DEL-001" not in grouped_codes
 
     # Reactivate with ?reactivate=true.
     react = client.delete(

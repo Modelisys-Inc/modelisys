@@ -18,6 +18,8 @@ class FinancialStatementDetailRow(BaseModel):
 class FinancialStatementRow(BaseModel):
     id: str
     label: str
+    # Code de liaison (ex. CAP-C.1), distinct de l’identifiant technique id
+    linkCode: str | None = None
     current: float = 0.0
     prior: float = 0.0
     variation: float = 0.0

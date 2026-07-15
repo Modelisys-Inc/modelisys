@@ -96,6 +96,13 @@ const MOCK_CODES = [
   },
 ]
 
+async function expandAllSections(page: Page) {
+  const openButton = page.getByRole("button", { name: "Tout ouvrir" })
+  if (await openButton.isVisible()) {
+    await openButton.click()
+  }
+}
+
 async function setupAuth(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem("access_token", "fake-access-token")
@@ -114,6 +121,7 @@ async function setupAuth(page: Page) {
           email: "u@e.com",
           full_name: "Test",
           is_active: true,
+          is_superadmin: true,
           created_at: "2026-01-01T00:00:00Z",
         },
         organizations: [{ id: "o1", name: "Org", slug: "org", role: "admin" }],
@@ -179,6 +187,13 @@ test.describe("Link codes page", () => {
     let codes = [...MOCK_CODES]
 
     await setupAuth(page)
+
+    await page.route(`**/api/companies/${COMPANY_ID}/custom-link-codes**`, (route) => {
+      if (route.request().method() === "GET") {
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([]) })
+      }
+      return route.continue()
+    })
 
     await page.route("**/api/standard-link-codes**", async (route) => {
       const req = route.request()
@@ -307,6 +322,7 @@ test.describe("Link codes page", () => {
 
   test("can create a child code under its parent", async ({ page }) => {
     await page.goto(URL)
+    await expandAllSections(page)
     await page.getByRole("button", { name: "Nouveau code de liaison" }).click()
     await page.getByLabel("Code *").fill("REV-A.2")
     await page.getByLabel("Libellé *").fill("Nouveau poste")
@@ -329,6 +345,7 @@ test.describe("Link codes page", () => {
 
   test("can edit an existing link code", async ({ page }) => {
     await page.goto(URL)
+    await expandAllSections(page)
     await expect(page.getByText("REV-A.1")).toBeVisible()
     await page.locator("tr", { hasText: "REV-A.1" }).getByRole("button", { name: "Modifier" }).click()
     await expect(page.getByText("Modifier le code")).toBeVisible()
@@ -340,6 +357,7 @@ test.describe("Link codes page", () => {
 
   test("can delete a link code with warning confirmation", async ({ page }) => {
     await page.goto(URL)
+    await expandAllSections(page)
     await page.locator("tr", { hasText: "REV-Z" }).getByRole("button", { name: "Modifier" }).click()
     await page.getByRole("button", { name: "Supprimer" }).click()
     await expect(page.getByRole("alertdialog")).toBeVisible()
@@ -350,6 +368,7 @@ test.describe("Link codes page", () => {
 
   test("cannot delete a parent code with children", async ({ page }) => {
     await page.goto(URL)
+    await expandAllSections(page)
     await page.locator("tr", { hasText: "REV-A" }).filter({ hasNotText: "REV-A." }).getByRole("button", { name: "Modifier" }).click()
     await expect(page.getByText("Ce code possède")).toBeVisible()
     await expect(page.getByRole("button", { name: "Supprimer" })).toBeDisabled()
@@ -357,6 +376,7 @@ test.describe("Link codes page", () => {
 
   test("does not show treasury section on bilan or income statement codes", async ({ page }) => {
     await page.goto(URL)
+    await expandAllSections(page)
     await page.locator("tr", { hasText: "REV-A.1" }).getByRole("button", { name: "Modifier" }).click()
     await expect(page.getByLabel("Section Trésorerie")).toHaveCount(0)
     await page.getByRole("button", { name: "Annuler" }).click()
@@ -367,6 +387,7 @@ test.describe("Link codes page", () => {
 
   test("can create a TEX code with attached bilan/cdr codes", async ({ page }) => {
     await page.goto(URL)
+    await expandAllSections(page)
     await page.getByRole("button", { name: "Nouveau code de liaison" }).click()
     await page.getByLabel("Famille *").click()
     await page.getByRole("option", { name: /TEX — Trésorerie/ }).click()
@@ -374,14 +395,28 @@ test.describe("Link codes page", () => {
     await page.getByLabel("Libellé *").fill("Poste exploitation test")
     await page.getByRole("checkbox", { name: /REV-A\.1/ }).click()
     await page.getByRole("button", { name: "Créer le code" }).click()
+    await expandAllSections(page)
     await expect(page.locator("tbody").getByText("TEX-TEST", { exact: true })).toBeVisible()
     await expect(page.locator("tbody").getByText("REV-A.1")).toBeVisible()
   })
 
   test("shows computed badge for CAP-C.1 net income", async ({ page }) => {
     await page.goto(URL)
+    await expandAllSections(page)
     await expect(page.locator("tr", { hasText: "CAP-C.1" }).getByText("Calculé")).toBeVisible()
     await page.locator("tr", { hasText: "CAP-C.1" }).getByRole("button", { name: "Modifier" }).click()
     await expect(page.getByRole("dialog").getByText(/Ce code est calculé automatiquement/)).toBeVisible()
+  })
+
+  test("shows DT/CT column with CPA defaults per family", async ({ page }) => {
+    await page.goto(URL)
+    await expandAllSections(page)
+    await expect(page.getByRole("columnheader", { name: "DT/CT" })).toBeVisible()
+
+    const revRow = page.locator("tr", { hasText: "REV-A.1" })
+    await expect(revRow.locator("span", { hasText: "CT" })).toBeVisible()
+
+    const capRow = page.locator("tr", { hasText: "CAP-C" }).filter({ hasNotText: "CAP-C." })
+    await expect(capRow.locator("span", { hasText: "CT" })).toBeVisible()
   })
 })

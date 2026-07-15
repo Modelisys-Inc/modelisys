@@ -12,6 +12,7 @@ interface AuthContextType {
   isAuthenticated: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => void
+  refreshUser: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -84,6 +85,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push("/login")
   }, [router])
 
+  const refreshUser = useCallback(async () => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null
+    if (!token) return
+    try {
+      const data: MeResponse = await getMe()
+      if (!mountedRef.current) return
+      setUser(data.user)
+      setOrganizations(data.organizations)
+    } catch {
+      if (!mountedRef.current) return
+      apiLogout()
+      setUser(null)
+      setOrganizations([])
+    }
+  }, [])
+
   return (
     <AuthContext.Provider
       value={{
@@ -93,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         login,
         logout,
+        refreshUser,
       }}
     >
       {children}

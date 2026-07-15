@@ -4,8 +4,9 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
-import type { FinancialStatementRow } from "@/lib/api"
-import { getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
+import type { FinancialStatementRow, StandardLinkCode } from "@/lib/api"
+import { getFinancialStatementSeries, getStatementStructure, listStandardLinkCodesFlat, type FinancialStatementSeriesParams } from "@/lib/api"
+import type { SeriesRow } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { useBalanceSheetStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { useBalanceSheetParentLinkCodes } from "@/hooks/use-balance-sheet-parent-link-codes"
@@ -17,7 +18,26 @@ import {
   getRowAmounts,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
-import { monthTrendFromReference, yearTrendFromReference } from "@/lib/series-reference-columns"
+import { monthTrendFromReference, quarterTrendFromReference, yearTrendFromReference } from "@/lib/series-reference-columns"
+import {
+  filterBalanceSheetSummaryRowsForHorizon,
+} from "@/lib/balance-sheet-horizon-filter"
+import {
+  balanceSheetValidationEcart,
+  buildBalanceSheetValidationAmountLookup,
+  defaultBalanceSheetValidationFormula,
+  ensureBalanceSheetValidationStructure,
+  evaluateValidationFormulaCurrent,
+  evaluateValidationFormulaPrior,
+  evaluateValidationFormulaTrend,
+  findBalanceSheetTotalAssetsRow,
+  findBalanceSheetTotalLiabilitiesEquityRow,
+  findBalanceSheetValidationStructureRow,
+  isBalanceSheetAssetsSectionLabel,
+  isBalanceSheetBalanced,
+  isBalanceSheetValidationStructureRow,
+} from "@/lib/balance-sheet-validation"
+import type { IncomeStatementHorizonView } from "@/lib/income-statement-horizon-visibility"
 import {
   calendarQuarterFromMonth,
   formatCalendarMonthYear,
@@ -29,6 +49,8 @@ import {
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import {
   collectDistinctLinkCodesFromStructure,
+  findStatementApiRowForStructureRow,
+  listStructureRowsForPresentationDisplay,
   mapLinkCodesToOwnerLabel,
   isCodeMappingEnabled,
   isStructureRowDetailOnly,
@@ -36,6 +58,20 @@ import {
   normalizeLiaisonMode,
   normLabel,
 } from "@/lib/income-statement-structure-utils"
+import {
+  collectAnnexChildExpandRows,
+  collectAnnexChildExpandRowsFromSeries,
+  filterExpandChildrenForHorizon,
+  findSummaryStructureRow,
+  mapGlAccountsToExpandChildren,
+  resolveSummaryExpandMode,
+  summaryExpandModeAllowsExpand,
+  summaryRowUsesAnnexExpand,
+  structureRowHasFormulaLiaison,
+  type SummaryExpandChild,
+} from "@/lib/balance-sheet-summary-expand"
+import { BalanceSheetLineAnalysisTriggerButton } from "@/components/balance-sheet-line-analysis"
+import { BalanceSheetValidationFormulaEditor } from "@/components/balance-sheet-validation-formula-editor"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -71,6 +107,8 @@ import {
   ArrowRight,
   BarChart3,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   IndentIncrease,
   LayoutList,
   Loader2,
@@ -78,7 +116,6 @@ import {
   Plus,
   Settings,
   Sparkles,
-  Table2,
   X,
 } from "lucide-react"
 import { Bar, CartesianGrid, ComposedChart, Line, ReferenceLine, XAxis, YAxis } from "recharts"
@@ -136,11 +173,13 @@ interface SummaryRow {
   indent?: boolean
   rowId?: string
   annexLetter?: string
+  showInDetail?: boolean
   balanceAccounts?: Array<{
     accountNumber: string
     accountName: string
     amount: number
     priorAmount?: number
+    trendValues?: number[]
   }>
   /** Ligne de séparation au-dessus (structure / API). */
   separatorAbove?: boolean
@@ -354,33 +393,173 @@ export function BalanceSheetSummary({
     return "Courant"
   }
 
+  const [statementStructure, setStatementStructure] = useState<Record<string, unknown>[] | null>(null)
+
+  useEffect(() => {
+    if (!companyId) {
+      setStatementStructure(null)
+      return
+    }
+    let cancelled = false
+    const load = async () => {
+      try {
+        const data = await getStatementStructure(companyId, "balance-sheet")
+        if (!cancelled) setStatementStructure((data.structure ?? []) as Record<string, unknown>[])
+      } catch (e) {
+        console.error("Error loading balance sheet structure:", e)
+        if (!cancelled) setStatementStructure([])
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, structureVersion])
+
   // Map backend FinancialStatementRow[] to internal SummaryRow[]
-  const mapBackendRows = (apiRows: FinancialStatementRow[]): SummaryRow[] => {
-    return apiRows.map((row) => ({
-      label: row.label,
-      current: row.current,
-      prior: row.prior,
-      isBold: row.isBold,
-      isSection: row.isSection,
-      isResult: row.isResult,
+  const mapStructureRowToSummaryRow = (
+    sr: Record<string, unknown>,
+    row: FinancialStatementRow | undefined
+  ): SummaryRow => {
+    const structIsBold = sr.isBold === true
+    const structIndent = typeof sr.indent === "boolean" ? sr.indent : undefined
+    return {
+      label: String(sr.label ?? ""),
+      current: row?.current ?? 0,
+      prior: row?.prior ?? 0,
+      isBold: row?.isBold ?? structIsBold,
+      isSection: row?.isSection ?? sr.isSection === true,
+      isResult: row?.isResult ?? sr.isResult === true,
       indent: indentForSummaryRow({
-        isBold: !!row.isBold,
-        isSection: !!row.isSection,
-        isResult: !!row.isResult,
-        indent: (row as { indent?: boolean }).indent,
+        isBold: !!(row?.isBold ?? structIsBold),
+        isSection: !!(row?.isSection ?? sr.isSection),
+        isResult: !!(row?.isResult ?? sr.isResult),
+        indent: structIndent ?? (row as { indent?: boolean } | undefined)?.indent,
       }),
-      rowId: row.id,
-      annexLetter: row.annexLetter,
+      rowId: row?.id ?? String(sr.id ?? sr.linkCode ?? ""),
+      annexLetter: row?.annexLetter ?? String(sr.annexLetter ?? ""),
+      showInDetail:
+        typeof sr.showInDetail === "boolean"
+          ? sr.showInDetail
+          : typeof row?.showInDetail === "boolean"
+            ? row.showInDetail
+            : undefined,
       balanceAccounts:
-        row.detailRows?.map((dr) => ({
+        row?.detailRows?.map((dr) => ({
           accountNumber: dr.id,
           accountName: dr.label,
           amount: dr.current ?? 0,
           priorAmount: dr.prior ?? 0,
         })) ?? [],
-      separatorAbove: isTruthySeparatorAbove((row as { separatorAbove?: unknown }).separatorAbove),
-      hasLiaisonCode: row.hasLiaisonCode,
-    }))
+      separatorAbove: isTruthySeparatorAbove(sr.separatorAbove ?? row?.separatorAbove),
+      hasLiaisonCode: row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr),
+    }
+  }
+
+  const mapBackendRowsFromStructure = (
+    apiRows: FinancialStatementRow[],
+    structure: Record<string, unknown>[]
+  ): SummaryRow[] => {
+    const used = new Set<number>()
+    const usedNested = new Set<string>()
+    return listStructureRowsForPresentationDisplay(structure).map((sr) => {
+      const row = findStatementApiRowForStructureRow(sr, apiRows, used, usedNested)
+      return mapStructureRowToSummaryRow(sr, row)
+    })
+  }
+
+  const mapBackendRowsFallback = (apiRows: FinancialStatementRow[]): SummaryRow[] => {
+    return apiRows
+      .filter((row) => !row.detailOnly)
+      .map((row) => mapStructureRowToSummaryRow({ label: row.label }, row))
+  }
+
+  const mapSeriesStructureRowToSummaryRow = (
+    sr: Record<string, unknown>,
+    row: SeriesRow | undefined,
+    trendValues: number[]
+  ): SummaryRow => {
+    const structIsBold = sr.isBold === true
+    const structIndent = typeof sr.indent === "boolean" ? sr.indent : undefined
+    const lastAmount = trendValues[0] || 0
+    const priorAmount = trendValues.length >= 2 ? trendValues[1] || 0 : 0
+    return {
+      label: String(sr.label ?? ""),
+      current: lastAmount,
+      prior: priorAmount,
+      isBold: row?.isBold ?? structIsBold,
+      isSection: row?.isSection ?? sr.isSection === true,
+      isResult: row?.isResult ?? sr.isResult === true,
+      rowId: row?.id ?? String(sr.id ?? sr.linkCode ?? ""),
+      annexLetter: row?.annexLetter ?? String(sr.annexLetter ?? ""),
+      showInDetail:
+        typeof sr.showInDetail === "boolean"
+          ? sr.showInDetail
+          : typeof row?.showInDetail === "boolean"
+            ? row.showInDetail
+            : undefined,
+      balanceAccounts:
+        row?.detailRows?.map((dr) => {
+          const detailSeriesRow: SeriesRow = {
+            id: dr.id,
+            label: dr.label,
+            isBold: false,
+            isSection: false,
+            isResult: false,
+            amounts: dr.amounts,
+            detailRows: [],
+          }
+          const detailValues =
+            view === "quarters"
+              ? quarterTrendFromReference(detailSeriesRow, periods, refMonth, refYear, 5)
+              : view === "years"
+                ? yearTrendFromReference(detailSeriesRow, periods, refYear, 6)
+                : monthTrendFromReference(detailSeriesRow, periods, refMonth, refYear, 12)
+          return {
+            accountNumber: dr.id,
+            accountName: dr.label,
+            amount: detailValues[0] || 0,
+            priorAmount: detailValues.length >= 2 ? detailValues[1] || 0 : 0,
+            trendValues: detailValues,
+          }
+        }) ?? [],
+      indent: indentForSummaryRow({
+        isBold: !!(row?.isBold ?? structIsBold),
+        isSection: !!(row?.isSection ?? sr.isSection),
+        isResult: !!(row?.isResult ?? sr.isResult),
+        indent: structIndent ?? row?.indent,
+      }),
+      separatorAbove: isTruthySeparatorAbove(sr.separatorAbove ?? row?.separatorAbove),
+      hasLiaisonCode: row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr),
+      trendValues: row?.isSection ? undefined : trendValues,
+    }
+  }
+
+  const mapSeriesRowsFromStructure = (
+    rows: SeriesRow[],
+    structure: Record<string, unknown>[]
+  ): SummaryRow[] => {
+    const used = new Set<number>()
+    const usedNested = new Set<string>()
+    const buildYearTrendValues = (row: SeriesRow) => {
+      if (isForecastSection && forecastUseSeriesActuals) {
+        const actual = yearTrendFromReference(row, periods, refYear, 1)[0] || 0
+        return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+      }
+      return yearTrendFromReference(row, periods, refYear, 6)
+    }
+    return listStructureRowsForPresentationDisplay(structure).map((sr) => {
+      const row = findStatementApiRowForStructureRow(sr, rows, used, usedNested)
+      const trend =
+        row && view === "quarters"
+          ? quarterTrendFromReference(row, periods, refMonth, refYear, 5)
+          : row && view === "years"
+            ? buildYearTrendValues(row)
+            : row
+              ? monthTrendFromReference(row, periods, refMonth, refYear, 12)
+              : []
+      return mapSeriesStructureRowToSummaryRow(sr, row, trend)
+    })
   }
 
   // Helper function to capitalize first letter
@@ -428,92 +607,6 @@ export function BalanceSheetSummary({
     scrollToAnalysisCard()
   }, [lineAnalysis, scrollToAnalysisCard])
 
-  // Build multi-period rows from series API data
-  const getMultiPeriodData = (): SummaryRow[] => {
-    if (!seriesRows.length || !periods.length) return []
-
-    const buildYearTrendValues = (row: (typeof seriesRows)[number], rawAmounts: Record<string, number>) => {
-      if (isForecastSection && forecastUseSeriesActuals) {
-        const actual = yearTrendFromReference(row, periods, refYear, 1)[0] || 0
-        return [actual, ...Array.from({ length: projectionYears }, () => 0)]
-      }
-      return reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods, "last").amounts)
-    }
-
-    return seriesRows.map(row => {
-      const rawAmounts = getRowAmounts(row, periods)
-
-      let values: number[]
-      if (view === "quarters") {
-        values = reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods, "last").amounts)
-      } else if (view === "years") {
-        values = buildYearTrendValues(row, rawAmounts)
-      } else {
-        values = reverseSeriesOrderForDisplay(rawAmounts)
-      }
-
-      return {
-        label: row.label,
-        current: values[0] || 0,
-        prior: values.length >= 2 ? values[1] || 0 : 0,
-        isBold: row.isBold,
-        isSection: row.isSection,
-        isResult: row.isResult,
-        rowId: row.id,
-        annexLetter: row.annexLetter,
-        balanceAccounts:
-          row.detailRows?.map((dr) => {
-            const rawDetailAmounts = getRowAmounts(
-              {
-                id: dr.id,
-                label: dr.label,
-                isBold: false,
-                isSection: false,
-                isResult: false,
-                amounts: dr.amounts,
-                detailRows: [],
-              },
-              periods
-            )
-            const detailValues =
-              view === "quarters"
-                ? reverseSeriesOrderForDisplay(aggregateToQuarters(rawDetailAmounts, periods, "last").amounts)
-                : view === "years"
-                  ? buildYearTrendValues(
-                      {
-                        id: dr.id,
-                        label: dr.label,
-                        isBold: false,
-                        isSection: false,
-                        isResult: false,
-                        amounts: dr.amounts,
-                        detailRows: [],
-                      },
-                      rawDetailAmounts
-                    )
-                  : reverseSeriesOrderForDisplay(rawDetailAmounts)
-            return {
-              accountNumber: dr.id,
-              accountName: dr.label,
-              amount: detailValues[0] || 0,
-              priorAmount: detailValues.length >= 2 ? detailValues[1] || 0 : 0,
-            }
-          }) ?? [],
-        indent: indentForSummaryRow({
-          isBold: !!row.isBold,
-          isSection: !!row.isSection,
-          isResult: !!row.isResult,
-          indent: (row as { indent?: boolean }).indent,
-        }),
-        separatorAbove: isTruthySeparatorAbove((row as { separatorAbove?: unknown }).separatorAbove),
-        hasLiaisonCode: row.hasLiaisonCode,
-        trendValues: row.isSection ? undefined : values,
-      }
-    })
-  }
-
-  const data = isMultiPeriod ? getMultiPeriodData() : (backendRows.length > 0 ? mapBackendRows(backendRows) : [])
-
   // Determine what we're comparing
   const isCompanyComparison = columnMode === "comparison" && !companyId
   const isDivisionComparison = columnMode === "comparison" && companyId && !divisionId
@@ -522,12 +615,104 @@ export function BalanceSheetSummary({
 
   const canInlineStructureEdit =
     showBalanceSheetStructureSettings && !!companyId && !isComparisonMode
-  const structEdit = useBalanceSheetStructureEdit(
-    companyId ?? null,
-    structureEditMode && canInlineStructureEdit
-  )
+  const structEdit = useBalanceSheetStructureEdit(companyId ?? null, canInlineStructureEdit)
+  const [standardCodesForFilter, setStandardCodesForFilter] = useState<StandardLinkCode[]>([])
+  useEffect(() => {
+    if (!companyId) {
+      setStandardCodesForFilter([])
+      return
+    }
+    let cancelled = false
+    listStandardLinkCodesFlat(false)
+      .then((codes) => {
+        if (!cancelled) setStandardCodesForFilter(codes)
+      })
+      .catch(() => {
+        if (!cancelled) setStandardCodesForFilter([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, structureVersion])
   const { codes: balanceParentLinkCodes, labels: balanceParentLinkLabels } =
     useBalanceSheetParentLinkCodes(structureEditMode && canInlineStructureEdit)
+
+  useEffect(() => {
+    if (!structureEditMode || !canInlineStructureEdit) return
+    if (structEdit.loading) return
+    const ensured = ensureBalanceSheetValidationStructure(structEdit.structure)
+    if (ensured !== structEdit.structure) {
+      structEdit.setStructure(ensured)
+    }
+  }, [
+    structureEditMode,
+    canInlineStructureEdit,
+    structEdit.loading,
+    structEdit.structure,
+    structEdit.setStructure,
+  ])
+
+  const fullStructure = useMemo(
+    () => statementStructure ?? structEdit.structure,
+    [statementStructure, structEdit.structure]
+  )
+
+  const presentationStructure = useMemo(
+    () => fullStructure.filter((r) => !isBalanceSheetValidationStructureRow(r)),
+    [fullStructure]
+  )
+
+  const data = useMemo(() => {
+    if (presentationStructure.length > 0) {
+      if (isMultiPeriod && seriesRows.length && periods.length) {
+        return mapSeriesRowsFromStructure(seriesRows, presentationStructure)
+      }
+      if (backendRows.length > 0) {
+        return mapBackendRowsFromStructure(backendRows, presentationStructure)
+      }
+      return []
+    }
+    if (isMultiPeriod && seriesRows.length && periods.length) {
+      return seriesRows
+        .filter((row) => !row.detailOnly)
+        .map((row) => {
+          const trend =
+            view === "quarters"
+              ? quarterTrendFromReference(row, periods, refMonth, refYear, 5)
+              : view === "years"
+                ? yearTrendFromReference(row, periods, refYear, 6)
+                : monthTrendFromReference(row, periods, refMonth, refYear, 12)
+          return mapSeriesStructureRowToSummaryRow({ label: row.label }, row, trend)
+        })
+    }
+    if (backendRows.length > 0) return mapBackendRowsFallback(backendRows)
+    return []
+  }, [
+    presentationStructure,
+    isMultiPeriod,
+    seriesRows,
+    periods,
+    backendRows,
+    view,
+    refMonth,
+    refYear,
+    isForecastSection,
+    forecastUseSeriesActuals,
+    projectionYears,
+  ])
+
+  const horizonView = view as IncomeStatementHorizonView
+  const showStructureColsEarly =
+    structureEditMode && canInlineStructureEdit && !structEdit.loading
+  const visibleData = useMemo(() => {
+    if (showStructureColsEarly || !presentationStructure.length) return data
+    return filterBalanceSheetSummaryRowsForHorizon(
+      data,
+      presentationStructure,
+      horizonView,
+      standardCodesForFilter
+    )
+  }, [showStructureColsEarly, presentationStructure, data, horizonView, standardCodesForFilter])
 
   const spacerTargetPosts = useMemo(() => {
     const s = structEdit.structure
@@ -636,29 +821,24 @@ export function BalanceSheetSummary({
           )
 
           if (!cancelled && response.rows) {
-            const mapped: SummaryRow[] = response.rows.map((row) => {
-              const amounts = Object.entries(row.amounts)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([, v]) => v)
-              const lastAmount = amounts[amounts.length - 1] || 0
-              const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
-              return {
-                label: row.label,
-                current: lastAmount,
-                prior: priorAmount,
-                isBold: row.isBold,
-                isSection: row.isSection,
-                isResult: row.isResult,
-                indent: indentForSummaryRow({
-                  isBold: !!row.isBold,
-                  isSection: !!row.isSection,
-                  isResult: !!row.isResult,
-                  indent: (row as { indent?: boolean }).indent,
-                }),
-                separatorAbove: isTruthySeparatorAbove((row as { separatorAbove?: unknown }).separatorAbove),
-              }
-            })
-            results[entity.id] = mapped
+            if (presentationStructure.length > 0) {
+              results[entity.id] = mapSeriesRowsFromStructure(response.rows, presentationStructure)
+            } else {
+              results[entity.id] = response.rows
+                .filter((row) => !row.detailOnly)
+                .map((row) => {
+                  const amounts = Object.entries(row.amounts)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([, v]) => v)
+                  const lastAmount = amounts[amounts.length - 1] || 0
+                  const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
+                  return mapSeriesStructureRowToSummaryRow(
+                    { label: row.label },
+                    row,
+                    [lastAmount, priorAmount]
+                  )
+                })
+            }
           }
         } catch (err) {
           console.error(`Error fetching data for entity ${entity.name}:`, err)
@@ -683,43 +863,46 @@ export function BalanceSheetSummary({
     isSubDivisionComparison,
     currentYear,
     structureVersion,
+    presentationStructure,
   ])
 
   // Find total assets value for percentage calculations
-  const totalAssetsRow = data.find((row) => row.label.toLowerCase() === "total des actifs")
+  const totalAssetsRow = findBalanceSheetTotalAssetsRow(data)
   const totalAssetsCurrent = totalAssetsRow?.current || 1
 
-  // Équilibre du bilan : Total des actifs doit égaler Total passifs et capitaux propres.
-  // On compare la période courante ; tolérance de 1 $ pour les arrondis. Si l'une des
-  // lignes de total est absente (structure personnalisée), aucun avertissement.
-  const liabilitiesEquityRow = data.find(
-    (row) => row.label.toLowerCase() === "total passifs et capitaux propres"
+  // Validation : formule Paramètres (structure) ou défaut Total actif − Total passifs+CP.
+  const liabilitiesEquityRow = findBalanceSheetTotalLiabilitiesEquityRow(data)
+  const validationStructureMeta = useMemo(() => {
+    const ensured = ensureBalanceSheetValidationStructure(fullStructure)
+    return findBalanceSheetValidationStructureRow(ensured)
+  }, [fullStructure])
+  const validationFormula =
+    validationStructureMeta?.row.formula ??
+    defaultBalanceSheetValidationFormula(fullStructure)
+  const validationLookup = useMemo(
+    () => buildBalanceSheetValidationAmountLookup(fullStructure, data),
+    [fullStructure, data],
   )
   const balanceEcart =
-    totalAssetsRow && liabilitiesEquityRow
-      ? totalAssetsRow.current - liabilitiesEquityRow.current
-      : null
-  // Vues multi-périodes (12 mois / trimestres / années) : une colonne par période.
-  const isBalanceTrendView = view === "12months" || view === "quarters" || view === "years"
-  // Bannière : déséquilibre de la période de référence (toutes vues). Dans les
-  // vues multi-périodes, les indicateurs par colonne s'ajoutent (détail par période).
+    evaluateValidationFormulaCurrent(validationFormula, validationLookup) ??
+    balanceSheetValidationEcart(totalAssetsRow?.current, liabilitiesEquityRow?.current)
+  const balancePriorEcart =
+    evaluateValidationFormulaPrior(validationFormula, validationLookup) ??
+    balanceSheetValidationEcart(totalAssetsRow?.prior, liabilitiesEquityRow?.prior)
   const showBalanceMismatch =
-    showBalanceWarning && balanceEcart !== null && Math.abs(balanceEcart) >= 1
+    showBalanceWarning && balanceEcart !== null && !isBalanceSheetBalanced(balanceEcart)
 
-  // Équilibre par colonne (vues multi-périodes) : écart Total des actifs −
-  // Total passifs et capitaux propres pour chaque période. Calculé sur les
-  // `trendValues` bruts (indépendant du mode d'affichage des colonnes).
-  const balanceTrendEcarts: number[] =
-    totalAssetsRow?.trendValues && liabilitiesEquityRow?.trendValues
-      ? (() => {
-          const a = totalAssetsRow.trendValues as number[]
-          const l = liabilitiesEquityRow.trendValues as number[]
-          const n = Math.min(a.length, l.length)
-          return Array.from({ length: n }, (_, i) => (a[i] ?? 0) - (l[i] ?? 0))
-        })()
-      : []
-  const showBalanceTrendIndicators =
-    showBalanceWarning && isBalanceTrendView && balanceTrendEcarts.length > 0
+  const balanceTrendEcarts: number[] = (() => {
+    const fromFormula = evaluateValidationFormulaTrend(validationFormula, validationLookup)
+    if (fromFormula.length > 0) return fromFormula
+    if (totalAssetsRow?.trendValues && liabilitiesEquityRow?.trendValues) {
+      const a = totalAssetsRow.trendValues as number[]
+      const l = liabilitiesEquityRow.trendValues as number[]
+      const n = Math.min(a.length, l.length)
+      return Array.from({ length: n }, (_, i) => (a[i] ?? 0) - (l[i] ?? 0))
+    }
+    return []
+  })()
 
   const totalAssetsPrior = totalAssetsRow?.prior || 1
   const totalAssetsTrendValues = totalAssetsRow?.trendValues ?? []
@@ -1655,9 +1838,13 @@ export function BalanceSheetSummary({
   const trendLen = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
   const showStructureCols =
     structureEditMode && canInlineStructureEdit && !structEdit.loading
+  const showValidationRow =
+    showBalanceWarning &&
+    !showStructureCols &&
+    balanceEcart !== null
   const tableRowCount = showStructureCols
     ? structEdit.summaryStructureDisplayIndices.length
-    : data.length
+    : visibleData.length
 
   let summaryTableColumnCount = 2
   if (showStructureCols) summaryTableColumnCount = 8
@@ -1737,7 +1924,7 @@ export function BalanceSheetSummary({
     )
   }
 
-  if (data.length === 0) {
+  if (visibleData.length === 0) {
     return (
       <div className={cn("w-full", dashboardCardFrameStaticClass)}>
         <div className={dashboardCardRingClass} aria-hidden />
@@ -1752,11 +1939,38 @@ export function BalanceSheetSummary({
 
   const isStructureStudio = structureEditMode && canInlineStructureEdit
 
+  const renderValidationEcartCell = (ecart: number | null | undefined, key?: string | number) => {
+    if (ecart === null || ecart === undefined) {
+      return (
+        <td key={key} className="px-6 py-2.5 text-right text-sm text-slate-400">
+          —
+        </td>
+      )
+    }
+    const balanced = isBalanceSheetBalanced(ecart)
+    return (
+      <td
+        key={key}
+        className={cn(
+          "px-6 py-2.5 text-right text-sm font-semibold tabular-nums",
+          balanced ? "text-emerald-700" : "text-amber-700",
+        )}
+        title={
+          balanced
+            ? "Bilan équilibré"
+            : `Le bilan ne balance pas (écart ${formatCurrency(ecart)})`
+        }
+      >
+        {formatCurrency(ecart)}
+      </td>
+    )
+  }
+
   return (
     <div className={cn("w-full", dashboardCardFrameStaticClass)}>
       <div className={dashboardCardRingClass} aria-hidden />
       <div className="relative w-full min-w-0">
-      {showBalanceMismatch && totalAssetsRow && liabilitiesEquityRow && (
+      {showBalanceMismatch && balanceEcart !== null && (
         <div
           role="alert"
           className="flex items-start gap-2.5 border-b border-amber-200 bg-amber-50 px-6 py-3 text-sm text-amber-900 sm:px-7"
@@ -1764,9 +1978,9 @@ export function BalanceSheetSummary({
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
           <p className="leading-snug">
             <span className="font-semibold">Le bilan n’est pas équilibré.</span>{" "}
-            Total des actifs {formatCurrency(totalAssetsRow.current)} ≠ Total passifs et
-            capitaux propres {formatCurrency(liabilitiesEquityRow.current)} (écart{" "}
-            {formatCurrency(Math.abs(balanceEcart as number))}).
+            La ligne Validation affiche un écart de {formatCurrency(Math.abs(balanceEcart))} (formule
+            Paramètres : Total actif − Total passifs et capitaux propres, ou votre formule
+            personnalisée).
           </p>
         </div>
       )}
@@ -1959,31 +2173,43 @@ export function BalanceSheetSummary({
           {structEdit.error}
         </div>
       )}
+      {showStructureCols && !structEdit.loading && (() => {
+          const meta = findBalanceSheetValidationStructureRow(structEdit.structure)
+          if (!meta) return null
+          return (
+            <BalanceSheetValidationFormulaEditor
+              structure={structEdit.structure}
+              validationIndex={meta.index}
+              onChangeFormula={(formula) =>
+                structEdit.updateRow(meta.index, { formula, isValidation: true, isResult: true })
+              }
+            />
+          )
+        })()}
 
-      {/* Table */}
+      {/* Table — en-tête et colonne Poste figés au défilement */}
       <div
         className={cn(
-          "min-w-0 overflow-x-auto",
+          "min-w-0 max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
           isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
         )}
       >
         <table
           className={cn(
-            "w-full min-w-full",
+            "w-full min-w-full border-separate border-spacing-0",
             showStructureCols && "table-fixed",
-            isStructureStudio ? "border-separate border-spacing-0" : "border-collapse"
           )}
         >
           {showStructureCols && <StatementSummaryStructureColgroup />}
-          <thead>
-            <tr
-              className={cn(
-                "border-b",
-                showStructureCols
-                  ? "border-slate-200 bg-gradient-to-r from-slate-50 via-slate-100/40 to-slate-50"
-                  : "border-b-2 border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80"
-              )}
-            >
+          <thead
+            className={cn(
+              "[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-slate-100",
+              "[&_th]:border-b [&_th]:border-slate-200",
+              !showStructureCols && "[&_th]:border-b-2",
+              "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
+            )}
+          >
+            <tr>
               {showStructureCols && <StatementSummaryStructureThead />}
               {!showStructureCols && (
                 <>
@@ -2085,7 +2311,14 @@ export function BalanceSheetSummary({
               )}
             </tr>
           </thead>
-          <tbody>
+          <tbody
+            className={cn(
+              // border-separate: bordures + fonds sur les td (le bg des tr est ignoré)
+              "[&_td]:border-b [&_td]:border-slate-200",
+              "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+              "[&_td:first-child]:bg-white",
+            )}
+          >
             {showStructureCols && tableRowCount === 0 && (
               <tr>
                 <td
@@ -2098,8 +2331,17 @@ export function BalanceSheetSummary({
             )}
             {Array.from({ length: tableRowCount }, (_, idx) => {
               const globalIdx = showStructureCols ? structEdit.summaryStructureDisplayIndices[idx]! : -1
-              const structRow = showStructureCols ? structEdit.structure[globalIdx]! : null
-              const row = showStructureCols ? summaryRowForStructureIndex(structRow!) : data[idx]!
+              const structRowFromStudio = showStructureCols ? structEdit.structure[globalIdx]! : null
+              const row = showStructureCols
+                ? summaryRowForStructureIndex(structRowFromStudio!)
+                : visibleData[idx]!
+              const structRow =
+                structRowFromStudio ??
+                findSummaryStructureRow(row.rowId, row.label, presentationStructure) ??
+                (structEdit.structure.length > 0
+                  ? findSummaryStructureRow(row.rowId, row.label, structEdit.structure)
+                  : undefined) ??
+                null
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const isBoldRow = !!row.isBold
@@ -2134,12 +2376,78 @@ export function BalanceSheetSummary({
                 !!String(structRow.linkCode ?? "").trim() &&
                 liaisonMode !== "sum" &&
                 liaisonMode !== "difference"
-              const canExpand =
-                !showStructureCols &&
-                !!row.rowId &&
-                !String(row.annexLetter ?? "").trim() &&
-                !!row.balanceAccounts &&
-                row.balanceAccounts.length > 0
+              const usesAnnexExpand = summaryRowUsesAnnexExpand(structRow, {
+                showInDetail: row.showInDetail,
+                annexLetter: row.annexLetter,
+              })
+              const structureForExpand =
+                presentationStructure.length > 0 ? presentationStructure : structEdit.structure
+              const parentStructForExpand: Record<string, unknown> | null =
+                structRow ??
+                (usesAnnexExpand
+                  ? {
+                      label: row.label,
+                      linkCode: row.rowId,
+                      id: row.rowId,
+                      annexLetter: row.annexLetter,
+                      showInDetail: true,
+                    }
+                  : null)
+              const annexExpandChildren: SummaryExpandChild[] = filterExpandChildrenForHorizon(
+                (() => {
+                  if (!usesAnnexExpand || !parentStructForExpand) return []
+                  if (isMultiPeriod && seriesRows.length > 0) {
+                    return collectAnnexChildExpandRowsFromSeries({
+                      parentStructRow: parentStructForExpand,
+                      structure: structureForExpand,
+                      seriesRows,
+                      standardCodes: standardCodesForFilter,
+                      buildTrendValues: (seriesRow) => {
+                        if (view === "quarters") {
+                          return quarterTrendFromReference(seriesRow, periods, refMonth, refYear, 5)
+                        }
+                        if (view === "years") {
+                          if (isForecastSection && forecastUseSeriesActuals) {
+                            const actual = yearTrendFromReference(seriesRow, periods, refYear, 1)[0] || 0
+                            return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+                          }
+                          return yearTrendFromReference(seriesRow, periods, refYear, 6)
+                        }
+                        return monthTrendFromReference(seriesRow, periods, refMonth, refYear, 12)
+                      },
+                    })
+                  }
+                  return collectAnnexChildExpandRows({
+                    parentStructRow: parentStructForExpand,
+                    structure: structureForExpand,
+                    apiRows: backendRows,
+                    standardCodes: standardCodesForFilter,
+                  })
+                })(),
+                horizonView,
+              )
+              const glExpandChildren = filterExpandChildrenForHorizon(
+                mapGlAccountsToExpandChildren(row.balanceAccounts),
+                horizonView,
+              )
+              const expandMode = resolveSummaryExpandMode({
+                showStructureCols,
+                isSpacer,
+                rowId: row.rowId,
+                usesAnnex: usesAnnexExpand,
+                glCount: glExpandChildren.length,
+                annexChildCount: annexExpandChildren.length,
+                isResult: !!row.isResult,
+                isSection: !!row.isSection,
+                hasFormulaLiaison: structureRowHasFormulaLiaison(structRow),
+              })
+              const canExpand = summaryExpandModeAllowsExpand(expandMode)
+              const expandChildren =
+                expandMode === "annex"
+                  ? annexExpandChildren
+                  : expandMode === "gl"
+                    ? glExpandChildren
+                    : []
               const isExpanded = row.rowId ? expandedRows.has(row.rowId) : false
               const hasNote = row.rowId
                 ? getNoteByRowId(row.rowId, "balance-sheet", period, view, companyId, divisionId, subDivisionId) !== null
@@ -2147,6 +2455,77 @@ export function BalanceSheetSummary({
 
               return (
                 <Fragment key={idx}>
+                  {showValidationRow && isBalanceSheetAssetsSectionLabel(row.label) && (
+                    <tr
+                      data-testid="balance-sheet-validation-row"
+                      className="[&_td]:border-slate-300 [&>td]:bg-slate-50 [&>td:first-child]:bg-slate-50"
+                    >
+                      <td className="whitespace-nowrap px-6 py-2.5 text-sm font-semibold text-slate-800">
+                        Validation
+                      </td>
+                      {view === "current" && renderValidationEcartCell(balanceEcart)}
+                      {view === "comparison" && !isComparisonMode && (
+                        <>
+                          {renderValidationEcartCell(balanceEcart)}
+                          {renderValidationEcartCell(balancePriorEcart)}
+                          {columnMode === "variationPercent" || columnMode === "variationAmount" ? (
+                            <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+                          ) : null}
+                          {columnMode === "percentage" ? (
+                            <>
+                              <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+                              <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+                            </>
+                          ) : null}
+                        </>
+                      )}
+                      {view === "comparison" && isComparisonMode && (
+                        <>
+                          {entitiesToCompare.map((entity) => {
+                            const entityRows = entityDataMap[entity.id] || []
+                            const assets = findBalanceSheetTotalAssetsRow(entityRows)
+                            const le = findBalanceSheetTotalLiabilitiesEquityRow(entityRows)
+                            const ecart = balanceSheetValidationEcart(assets?.current, le?.current)
+                            return renderValidationEcartCell(ecart, entity.id)
+                          })}
+                        </>
+                      )}
+                      {(view === "ddm" || view === "ytd") && (
+                        <>
+                          {renderValidationEcartCell(balanceEcart)}
+                          {renderValidationEcartCell(balancePriorEcart)}
+                          {columnMode === "variationPercent" || columnMode === "variationAmount" ? (
+                            <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+                          ) : null}
+                          {columnMode === "percentage" ? (
+                            <>
+                              <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+                              <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+                            </>
+                          ) : null}
+                        </>
+                      )}
+                      {(view === "12months" || view === "quarters" || view === "years") && (
+                        <>
+                          {(balanceTrendEcarts.length > 0
+                            ? balanceTrendEcarts
+                            : Array.from({
+                                length:
+                                  view === "12months"
+                                    ? 12
+                                    : view === "quarters"
+                                      ? 5
+                                      : isForecastSection
+                                        ? forecastYearColumnCount
+                                        : 6,
+                              }).map(() => null)
+                          ).map((ecart, colIdx) =>
+                            renderValidationEcartCell(ecart, colIdx),
+                          )}
+                        </>
+                      )}
+                    </tr>
+                  )}
                   {showSeparatorAbove && (
                     <tr aria-hidden>
                       <td
@@ -2155,17 +2534,34 @@ export function BalanceSheetSummary({
                       />
                     </tr>
                   )}
-                  <tr
+                    <tr
                     ref={!showStructureCols && row.rowId ? (el) => { analysisRowRefs.current[row.rowId!] = el } : undefined}
+                    data-testid={
+                      canExpand
+                        ? expandMode === "annex"
+                          ? "balance-sheet-summary-expand-annex"
+                          : "balance-sheet-summary-expand-gl"
+                        : undefined
+                    }
+                    data-row-id={row.rowId}
                     className={cn(
-                      "border-b",
-                      row.label === "" ? "h-2 border-b border-b-slate-200" : "",
-                      "border-b border-b-slate-200",
-                      showStructureCols && row.label !== "" && "hover:bg-slate-100/70",
-                      showStructureCols && idx % 2 === 1 && row.label !== "" && "bg-slate-50/50",
-                      !showStructureCols && row.label !== "" && "hover:bg-slate-50/90",
-                      canExpand && "cursor-pointer"
+                      row.label === "" ? "h-2" : "",
+                      // Fond au hover sur toutes les cellules (y compris espaces vides + colonne sticky)
+                      "hover:[&>td]:bg-slate-50/90 hover:[&>td:first-child]:bg-slate-50/90",
+                      showStructureCols &&
+                        row.label !== "" &&
+                        "hover:[&>td]:bg-slate-100/70 hover:[&>td:first-child]:bg-slate-100/70",
+                      showStructureCols &&
+                        idx % 2 === 1 &&
+                        row.label !== "" &&
+                        "[&>td]:bg-slate-50/50 [&>td:first-child]:bg-slate-50",
+                      !showStructureCols && canExpand && "cursor-pointer"
                     )}
+                    onClick={
+                      !showStructureCols && canExpand && row.rowId
+                        ? () => toggleRow(row.rowId!)
+                        : undefined
+                    }
                   >
                   <td
                     className={cn(
@@ -2174,23 +2570,8 @@ export function BalanceSheetSummary({
                       "whitespace-nowrap",
                       isBoldRow ? "font-bold text-slate-900" : "text-slate-700",
                       row.indent ? "pl-12" : "",
-                      showStructureCols && structRow && row.label !== "" && "py-3.5",
-                      !showStructureCols && canExpand && row.rowId && "cursor-pointer"
+                      showStructureCols && structRow && row.label !== "" && "py-3.5"
                     )}
-                    onClick={!showStructureCols && canExpand && row.rowId ? () => toggleRow(row.rowId) : undefined}
-                    onKeyDown={
-                      !showStructureCols && canExpand && row.rowId
-                        ? (e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault()
-                              toggleRow(row.rowId!)
-                            }
-                          }
-                        : undefined
-                    }
-                    role={!showStructureCols && canExpand && row.rowId ? "button" : undefined}
-                    tabIndex={!showStructureCols && canExpand && row.rowId ? 0 : undefined}
-                    aria-expanded={!showStructureCols && canExpand && row.rowId ? isExpanded : undefined}
                   >
                     {showStructureCols && structRow ? (
                       String(structRow.label ?? "").trim() === "" ? (
@@ -2217,18 +2598,24 @@ export function BalanceSheetSummary({
                         />
                       )
                     ) : (
-                      <div className="flex w-full items-center gap-2">
-                        <span
-                          className={cn(
-                            "block min-w-0 flex-1",
-                            canExpand && row.rowId && "cursor-pointer rounded-sm outline-offset-2 hover:bg-slate-100/90"
-                          )}
-                        >
-                          {displayLabel}
-                        </span>
+                      <div className="flex items-center gap-2">
+                        {canExpand && (
+                          <span className="flex-shrink-0">
+                            {isExpanded ? (
+                              <ChevronDown className="h-4 w-4 text-slate-500" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4 text-slate-500" />
+                            )}
+                          </span>
+                        )}
+                        {!canExpand && row.indent && <span className="w-4" />}
+                        <span className="flex-1 whitespace-nowrap">{displayLabel}</span>
                         {row.rowId && hasLiaisonCode && !disableRowInteractions ? (
-                          <button
-                            type="button"
+                          <BalanceSheetLineAnalysisTriggerButton
+                            isActive={
+                              lineAnalysis?.rowId === row.rowId || lineAnalysis?.parentRowId === row.rowId
+                            }
+                            hasNote={!!hasNote}
                             onClick={(e) => {
                               e.stopPropagation()
                               openOrToggleLineAnalysis({
@@ -2240,30 +2627,7 @@ export function BalanceSheetSummary({
                                 trendValues: row.trendValues,
                               })
                             }}
-                            className={cn(
-                              "relative rounded-md p-1.5 text-[#E0742D] transition-colors ring-1 ring-[#E0742D]/25 hover:bg-orange-50 hover:ring-[#E0742D]/50",
-                              (lineAnalysis?.rowId === row.rowId || lineAnalysis?.parentRowId === row.rowId) &&
-                                "bg-[#E0742D]/10 ring-[#E0742D]/45"
-                            )}
-                            aria-pressed={
-                              lineAnalysis?.rowId === row.rowId || lineAnalysis?.parentRowId === row.rowId
-                            }
-                            title={
-                              lineAnalysis?.rowId === row.rowId || lineAnalysis?.parentRowId === row.rowId
-                                ? "Fermer le panneau (analyse & note)"
-                                : hasNote
-                                  ? "Analyse, ventilation et note enregistrée"
-                                  : "Ouvrir l’analyse et les notes"
-                            }
-                          >
-                            <Table2 className="h-4 w-4 shrink-0" aria-hidden />
-                            {hasNote && (
-                              <span
-                                className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-sky-500 ring-2 ring-white"
-                                aria-hidden
-                              />
-                            )}
-                          </button>
+                          />
                         ) : null}
                       </div>
                     )}
@@ -2526,110 +2890,85 @@ export function BalanceSheetSummary({
                     </>
                   )}
                 </tr>
-                {showBalanceTrendIndicators &&
-                  !showStructureCols &&
-                  row.label.toLowerCase() === "total passifs et capitaux propres" && (
-                    <tr className="border-b border-b-slate-200 bg-slate-50/40">
-                      <td className="whitespace-nowrap px-6 py-1.5 text-xs font-medium uppercase tracking-wide text-slate-400">
-                        Équilibre
-                      </td>
-                      {(row.trendValues ?? []).map((_, colIdx) => {
-                        const ecart = balanceTrendEcarts[colIdx]
-                        if (ecart === undefined) return <td key={colIdx} className="px-6 py-1.5" />
-                        const balanced = Math.abs(ecart) < 1
-                        return (
-                          <td key={colIdx} className="px-6 py-1.5 text-right align-middle">
-                            {balanced ? (
-                              <span
-                                className="inline-flex items-center justify-end text-emerald-600"
-                                title="Équilibré"
-                              >
-                                <CheckCircle2 className="h-4 w-4" aria-hidden />
-                                <span className="sr-only">Équilibré</span>
-                              </span>
-                            ) : (
-                              <span
-                                className="inline-flex items-center justify-end gap-1 text-amber-600"
-                                title={`Déséquilibre : écart ${formatCurrency(ecart)}`}
-                              >
-                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                                <span className="text-[11px] font-semibold tabular-nums">
-                                  {formatCurrency(ecart)}
-                                </span>
-                              </span>
-                            )}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  )}
-                {canExpand && isExpanded && row.balanceAccounts?.map((account, accIdx) => {
+                {canExpand && isExpanded && expandChildren.length > 0 &&
+                  expandChildren.map((child, accIdx) => {
                   const accountVariation =
-                    account.priorAmount !== undefined && account.amount && account.priorAmount
-                      ? calculateVariation(account.amount, account.priorAmount)
+                    child.priorAmount !== undefined && child.amount && child.priorAmount
+                      ? calculateVariation(child.amount, child.priorAmount)
                       : null
                   const accountVariationAmount =
-                    account.priorAmount !== undefined && account.amount && account.priorAmount
-                      ? account.amount - account.priorAmount
+                    child.priorAmount !== undefined && child.amount && child.priorAmount
+                      ? child.amount - child.priorAmount
                       : 0
+                  const showCodeAndLabelSeparately =
+                    expandMode === "annex" ||
+                    !accountLabelAlreadyIncludesNumber(child.code, child.label)
 
                   return (
-                    <tr key={`${idx}-account-${accIdx}`} className="bg-slate-50 border-b border-slate-200">
+                    <tr
+                      key={`${idx}-expand-${accIdx}`}
+                      data-testid={
+                        expandMode === "annex"
+                          ? "balance-sheet-summary-annex-child"
+                          : "balance-sheet-summary-gl-child"
+                      }
+                      className="[&>td]:bg-slate-50 [&>td:first-child]:bg-slate-50"
+                    >
                       <td className="px-6 py-2 text-slate-500 pl-20 whitespace-nowrap">
-                        {accountLabelAlreadyIncludesNumber(account.accountNumber, account.accountName) ? (
-                          <span className="text-sm whitespace-nowrap">
-                            {account.accountName.trim() || account.accountNumber}
-                          </span>
-                        ) : (
+                        {showCodeAndLabelSeparately ? (
                           <div className="flex items-center gap-3">
-                            <span className="text-xs font-semibold text-slate-500">{account.accountNumber}</span>
-                            <span className="text-sm whitespace-nowrap">{account.accountName}</span>
+                            <span className="text-xs font-semibold text-slate-500">{child.code}</span>
+                            <span className="text-sm whitespace-nowrap">{child.label}</span>
                           </div>
+                        ) : (
+                          <span className="text-sm whitespace-nowrap">
+                            {child.label.trim() || child.code}
+                          </span>
                         )}
                       </td>
                       {view === "current" && (
-                        <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
-                          {account.amount !== 0 ? formatCurrency(account.amount) : "-"}
+                        <td className="px-6 py-2 text-right text-sm font-normal text-slate-700">
+                          {child.amount !== 0 ? formatCurrency(child.amount) : "-"}
                         </td>
                       )}
                       {view === "comparison" && !isComparisonMode && (
                         <>
-                          <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
-                            {account.amount !== 0 ? formatCurrency(account.amount) : "-"}
+                          <td className="px-6 py-2 text-right text-sm font-normal text-slate-700">
+                            {child.amount !== 0 ? formatCurrency(child.amount) : "-"}
                           </td>
-                          <td className="px-6 py-2 text-right font-semibold text-sm text-slate-500">
-                            {account.priorAmount !== undefined && account.priorAmount !== 0
-                              ? formatCurrency(account.priorAmount)
+                          <td className="px-6 py-2 text-right text-sm font-normal text-slate-500">
+                            {child.priorAmount !== undefined && child.priorAmount !== 0
+                              ? formatCurrency(child.priorAmount)
                               : "-"}
                           </td>
                           {columnMode === "variationPercent" ? (
                             <td
-                              className={`px-6 py-2 text-right font-semibold text-sm ${
+                              className={`px-6 py-2 text-right text-sm font-normal ${
                                 accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"
                               }`}
                             >
-                              {accountVariation !== null && account.amount !== 0
+                              {accountVariation !== null && child.amount !== 0
                                 ? `${accountVariation >= 0 ? "+" : ""}${accountVariation.toFixed(1)}%`
                                 : "-"}
                             </td>
                           ) : columnMode === "variationAmount" ? (
                             <td
-                              className={`px-6 py-2 text-right font-semibold text-sm ${
+                              className={`px-6 py-2 text-right text-sm font-normal ${
                                 accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"
                               }`}
                             >
-                              {account.amount !== 0
+                              {child.amount !== 0
                                 ? `${accountVariationAmount >= 0 ? "+" : ""}${formatCurrency(accountVariationAmount)}`
                                 : "-"}
                             </td>
                           ) : columnMode === "percentage" ? (
                             <>
-                              <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
-                                {account.amount !== 0 ? `${getTotalAssetsPercentage(account.amount, false).toFixed(1)}%` : "-"}
+                              <td className="px-6 py-2 text-right text-sm font-normal text-slate-700">
+                                {child.amount !== 0 ? `${getTotalAssetsPercentage(child.amount, false).toFixed(1)}%` : "-"}
                               </td>
-                              <td className="px-6 py-2 text-right font-semibold text-sm text-slate-500">
-                                {account.priorAmount !== undefined && account.priorAmount !== 0
-                                  ? `${getTotalAssetsPercentage(account.priorAmount, true).toFixed(1)}%`
+                              <td className="px-6 py-2 text-right text-sm font-normal text-slate-500">
+                                {child.priorAmount !== undefined && child.priorAmount !== 0
+                                  ? `${getTotalAssetsPercentage(child.priorAmount, true).toFixed(1)}%`
                                   : "-"}
                               </td>
                             </>
@@ -2638,24 +2977,33 @@ export function BalanceSheetSummary({
                       )}
                       {view === "comparison" && isComparisonMode && (
                         entitiesToCompare.map((entity) => (
-                          <td key={entity.id} className="px-6 py-2 text-right font-semibold text-sm text-slate-400">
+                          <td key={entity.id} className="px-6 py-2 text-right text-sm font-normal text-slate-400">
                             -
                           </td>
                         ))
                       )}
                       {(view === "12months" || view === "quarters" || view === "years") && (
-                        Array.from({
-                          length:
-                            view === "12months" ? 12 : view === "quarters" ? 5 : isForecastSection ? forecastYearColumnCount : 6,
-                        }).map((_, cellIdx) => (
+                        (child.trendValues && child.trendValues.length > 0
+                          ? child.trendValues
+                          : Array.from({
+                              length:
+                                view === "12months"
+                                  ? 12
+                                  : view === "quarters"
+                                    ? 5
+                                    : isForecastSection
+                                      ? forecastYearColumnCount
+                                      : 6,
+                            }).map(() => 0)
+                        ).map((value, cellIdx) => (
                           <td
                             key={cellIdx}
                             className={cn(
-                              "px-6 py-2 text-right font-semibold text-sm text-slate-400",
+                              "px-6 py-2 text-right text-sm font-normal text-slate-700",
                               isForecastSection && view === "years" && cellIdx === 0 ? "bg-slate-50" : ""
                             )}
                           >
-                            -
+                            {value !== 0 ? formatCurrency(value) : "-"}
                           </td>
                         ))
                       )}

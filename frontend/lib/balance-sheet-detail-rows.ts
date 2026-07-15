@@ -3,9 +3,11 @@ import {
   findStatementApiRowForStructureRow,
   isStructureRowDetailOnly,
   normalizeAnnexLetter,
+  normalizeCodeList,
+  normalizeLiaisonMode,
 } from "@/lib/income-statement-structure-utils"
 import { aggregateToYears } from "@/lib/series-utils"
-import type { SeriesPeriod } from "@/lib/api"
+import type { SeriesPeriod, StandardLinkCode } from "@/lib/api"
 
 export interface BalanceSheetDetailBalanceAccount {
   accountNumber: string
@@ -13,6 +15,7 @@ export interface BalanceSheetDetailBalanceAccount {
   amount: number
   priorAmount?: number
   proportion?: number
+  trendValues?: number[]
 }
 
 export interface BalanceSheetDetailRow {
@@ -32,6 +35,79 @@ export interface BalanceSheetDetailRow {
   statementLabel?: string
   annexLetter?: string
   hasLiaisonCode?: boolean
+}
+
+export interface BalanceSheetDetailGlBreakdownRowShape {
+  isAnnexTitle?: boolean
+  isAnnexPlaceholder?: boolean
+  isAnnexSubtotal?: boolean
+  isSection?: boolean
+  balanceAccounts?: unknown[]
+}
+
+/**
+ * Vrai si les detailRows API ressemblent à des comptes GL (pas à des sous-lignes de structure).
+ */
+export function balanceSheetDetailRowsLookLikeGlAccounts(
+  detailRows: { id?: string }[] | undefined,
+  standardCodes: StandardLinkCode[],
+): boolean {
+  if (!detailRows?.length) return false
+  const linkCodes = new Set(standardCodes.map((c) => c.code.trim()).filter(Boolean))
+  return detailRows.every((dr) => {
+    const id = String(dr.id ?? "").trim()
+    if (!id) return false
+    return !linkCodes.has(id)
+  })
+}
+
+/**
+ * Détail GL (expansion) : tout poste mappé hors chrome d’annexe / section.
+ * Les enfants de structure imbriqués dans detailRows ne sont jamais traités comme des GL.
+ */
+export function balanceSheetDetailRowAllowsGlBreakdown(
+  structRow: Record<string, unknown> | undefined,
+  _standardCodes: StandardLinkCode[],
+  row: BalanceSheetDetailGlBreakdownRowShape,
+): boolean {
+  if (row.isAnnexTitle || row.isAnnexPlaceholder || row.isAnnexSubtotal || row.isSection) {
+    return false
+  }
+  if (!structRow) return false
+
+  const mode = normalizeLiaisonMode(structRow)
+  if (mode === "na") return false
+
+  if (mode === "sum") {
+    return (
+      normalizeCodeList(structRow.liaisonSumCodes).length > 0 ||
+      !!String(structRow.linkCode ?? "").trim()
+    )
+  }
+  if (mode === "difference") {
+    return (
+      normalizeCodeList(structRow.liaisonNumeratorCodes).length > 0 ||
+      normalizeCodeList(structRow.liaisonDenominatorCodes).length > 0
+    )
+  }
+  return !!String(structRow.linkCode ?? "").trim()
+}
+
+/** Expansion GL dès qu’au moins un vrai compte GL compose le poste. */
+export function balanceSheetDetailCanExpandGlAccounts(
+  structRow: Record<string, unknown> | undefined,
+  standardCodes: StandardLinkCode[],
+  row: BalanceSheetDetailGlBreakdownRowShape & {
+    balanceAccounts?: BalanceSheetDetailBalanceAccount[]
+  },
+): boolean {
+  if (!balanceSheetDetailRowAllowsGlBreakdown(structRow, standardCodes, row)) return false
+  const accounts = row.balanceAccounts ?? []
+  if (accounts.length < 1) return false
+  return balanceSheetDetailRowsLookLikeGlAccounts(
+    accounts.map((a) => ({ id: a.accountNumber })),
+    standardCodes,
+  )
 }
 
 export function zeroAmountsForAnnexTitleRow<T extends BalanceSheetDetailRow>(row: T): T {
@@ -161,8 +237,9 @@ export function mapStructureRowsToBalanceSheetDetailRows(
   },
 ): BalanceSheetDetailRow[] {
   const used = new Set<number>()
+  const usedNested = new Set<string>()
   return detailStructureRows.map((sr) => {
-    const row = findStatementApiRowForStructureRow(sr, seriesRows, used)
+    const row = findStatementApiRowForStructureRow(sr, seriesRows, used, usedNested)
     const sub = isStructureRowDetailOnly(sr)
     const annexLetter = String(row?.annexLetter ?? sr.annexLetter ?? "")
     const isAnnexTitle = !sub && normalizeAnnexLetter(annexLetter) !== ""

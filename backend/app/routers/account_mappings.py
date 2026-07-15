@@ -124,6 +124,9 @@ def upsert_account_mappings(
             mapping.amortization = entry.amortization
             mapping.variable_costs = entry.variable_costs
             mapping.fixed_costs = entry.fixed_costs
+            mapping.variable_cost_revenue_link_code = entry.variable_cost_revenue_link_code
+            mapping.liability_remaining_years = entry.liability_remaining_years
+            mapping.liability_interest_rate = entry.liability_interest_rate
             mapping.product = entry.product
             mapping.customer = entry.customer
             mapping.supplier = entry.supplier
@@ -143,6 +146,9 @@ def upsert_account_mappings(
                 amortization=entry.amortization,
                 variable_costs=entry.variable_costs,
                 fixed_costs=entry.fixed_costs,
+                variable_cost_revenue_link_code=entry.variable_cost_revenue_link_code,
+                liability_remaining_years=entry.liability_remaining_years,
+                liability_interest_rate=entry.liability_interest_rate,
                 product=entry.product,
                 customer=entry.customer,
                 supplier=entry.supplier,

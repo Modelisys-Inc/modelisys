@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { Loader2, Link2, ChevronDown, ChevronRight, Plus, RefreshCw } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { StandardLinkCodeFormDialog } from "@/components/standard-link-code-form-dialog"
 import { CompanyCustomLinkCodes } from "@/components/company-custom-link-codes"
+import { StandardLinkCodeFormDialog } from "@/components/standard-link-code-form-dialog"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -20,6 +20,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { useStandardLinkCodes } from "@/hooks/use-standard-link-codes"
+import { usePermissions } from "@/hooks/use-permissions"
+import { useAuth } from "@/contexts/auth-context"
 import { syncStandardLinkCodesToCompanies } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
@@ -31,7 +33,7 @@ import {
   dashboardCardBodyMutedClass,
 } from "@/lib/dashboard-card-style"
 import type { StandardLinkCode } from "@/lib/api"
-import { sortStandardLinkCodesHierarchically, attachedLinkCodesDisplay, cashFlowAttachableLinkCodeOptions, isCashFlowFamily, isComputedNetIncomeLinkCode, isMappableStandardLinkCode, filterMappableLeafLinkCodes } from "@/lib/standard-link-code-utils"
+import { sortStandardLinkCodesHierarchically, attachedLinkCodesDisplay, cashFlowAttachableLinkCodeOptions, isCashFlowFamily, isComputedNetIncomeLinkCode, isMappableStandardLinkCode, filterMappableLeafLinkCodes, resolveLinkCodeDtCt } from "@/lib/standard-link-code-utils"
 
 const FAMILY_LABELS: Record<string, string> = {
   ACT: "Actif à court terme",
@@ -71,14 +73,38 @@ const SECTION_TYPE_LABELS: Record<string, string> = {
   TFI: "Trésorerie",
 }
 
+function LinkCodeDtCtBadge({ code }: { code: StandardLinkCode }) {
+  const dtCt = resolveLinkCodeDtCt(code)
+  if (!dtCt) {
+    return <span className="text-sm text-slate-400">—</span>
+  }
+  return (
+    <span
+      className={cn(
+        "inline-flex min-w-[2.25rem] justify-center rounded px-2 py-0.5 font-mono text-xs font-semibold tracking-wide",
+        dtCt === "DT"
+          ? "bg-sky-50 text-sky-800 ring-1 ring-sky-200/80"
+          : "bg-violet-50 text-violet-800 ring-1 ring-violet-200/80",
+      )}
+      title={dtCt === "DT" ? "Nature débitrice (solde normal au débit)" : "Nature créditrice (solde normal au crédit)"}
+    >
+      {dtCt}
+    </span>
+  )
+}
+
 function CodeRow({
   code,
   onEdit,
+  onAddCustomChild,
+  showEdit = true,
   showAttachedColumn = false,
   attachableLabels,
 }: {
   code: StandardLinkCode
   onEdit: (code: StandardLinkCode) => void
+  onAddCustomChild?: (code: StandardLinkCode) => void
+  showEdit?: boolean
   showAttachedColumn?: boolean
   attachableLabels?: Map<string, string>
 }) {
@@ -100,21 +126,39 @@ function CodeRow({
       <td className="px-6 py-3 text-sm text-slate-500">
         {code.parent_code ?? "—"}
       </td>
+      <td className="px-6 py-3 text-center">
+        <LinkCodeDtCtBadge code={code} />
+      </td>
       {showAttachedColumn ? (
         <td className="px-6 py-3 text-sm text-slate-600">
           {attachedLinkCodesDisplay(code.attached_link_codes, attachableLabels ?? new Map())}
         </td>
       ) : null}
       <td className="px-4 py-3 text-right">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 border-slate-200 px-3 text-xs font-medium text-slate-600 hover:border-[#E0742D]/40 hover:bg-[#E0742D]/5 hover:text-[#E0742D]"
-          onClick={() => onEdit(code)}
-        >
-          Modifier
-        </Button>
+        <div className="flex justify-end gap-2">
+          {onAddCustomChild && !code.is_leaf ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 border-[#E0742D]/40 px-3 text-xs font-medium text-[#E0742D] hover:bg-[#E0742D]/5"
+              onClick={() => onAddCustomChild(code)}
+            >
+              Ajouter un code
+            </Button>
+          ) : null}
+          {showEdit ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 border-slate-200 px-3 text-xs font-medium text-slate-600 hover:border-[#E0742D]/40 hover:bg-[#E0742D]/5 hover:text-[#E0742D]"
+              onClick={() => onEdit(code)}
+            >
+              Modifier
+            </Button>
+          ) : null}
+        </div>
       </td>
     </tr>
   )
@@ -125,22 +169,30 @@ function FamilySection({
   accountType,
   codes,
   onEdit,
+  onAddCustomChild,
+  showEdit = true,
   attachableLabels,
+  expanded,
+  onToggle,
 }: {
   family: string
   accountType: string | null
   codes: StandardLinkCode[]
   onEdit: (code: StandardLinkCode) => void
+  onAddCustomChild?: (code: StandardLinkCode) => void
+  showEdit?: boolean
   attachableLabels: Map<string, string>
+  expanded: boolean
+  onToggle: () => void
 }) {
-  const [expanded, setExpanded] = useState(true)
   const isCashFlow = isCashFlowFamily(family)
   const leafCount = codes.filter((c) => isMappableStandardLinkCode(c)).length
 
   return (
     <div className="border-b border-slate-200 last:border-b-0">
       <button
-        onClick={() => setExpanded((v) => !v)}
+        type="button"
+        onClick={onToggle}
         className="flex w-full items-center justify-between px-6 py-4 text-left hover:bg-slate-50 transition-colors"
       >
         <div className="flex items-center gap-3">
@@ -177,6 +229,12 @@ function FamilySection({
                 <th className="px-6 py-2 text-left text-xs font-semibold text-slate-500">Code</th>
                 <th className="px-6 py-2 text-left text-xs font-semibold text-slate-500">Libellé</th>
                 <th className="px-6 py-2 text-left text-xs font-semibold text-slate-500">Parent</th>
+                <th
+                  className="px-6 py-2 text-center text-xs font-semibold text-slate-500"
+                  title="Nature normale du solde selon les pratiques comptables (débit ou crédit)"
+                >
+                  DT/CT
+                </th>
                 {isCashFlow ? (
                   <th className="px-6 py-2 text-left text-xs font-semibold text-slate-500">Codes associés</th>
                 ) : null}
@@ -189,6 +247,8 @@ function FamilySection({
                   key={c.id}
                   code={c}
                   onEdit={onEdit}
+                  onAddCustomChild={onAddCustomChild}
+                  showEdit={showEdit}
                   showAttachedColumn={isCashFlow}
                   attachableLabels={attachableLabels}
                 />
@@ -204,15 +264,29 @@ function FamilySection({
 export default function CompanyLinkCodesPage() {
   const params = useParams()
   const companyId = params.id as string
+  const { refreshUser } = useAuth()
+  const { canEdit, isSuperadmin } = usePermissions()
+  const canManageGlobalChart = isSuperadmin
   const { groups, loading, error, refetch } = useStandardLinkCodes(false)
   const [search, setSearch] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create")
   const [editingCode, setEditingCode] = useState<StandardLinkCode | null>(null)
   const [createParentCode, setCreateParentCode] = useState<string | null>(null)
+  const [customDraft, setCustomDraft] = useState<{ family: string; parentCode: string | null } | null>(
+    null,
+  )
+  const customCodesRef = useRef<HTMLDivElement>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
+  const [expandedFamilies, setExpandedFamilies] = useState<Set<string>>(() => new Set())
+
+  useEffect(() => {
+    void refreshUser()
+  }, [refreshUser])
+
+  const consumeCustomDraft = useCallback(() => setCustomDraft(null), [])
 
   const openCreateDialog = () => {
     setDialogMode("create")
@@ -225,6 +299,11 @@ export default function CompanyLinkCodesPage() {
     setDialogMode("edit")
     setEditingCode(code)
     setDialogOpen(true)
+  }
+
+  const openCustomCreateUnder = (code: StandardLinkCode) => {
+    setCustomDraft({ family: code.family, parentCode: code.code })
+    customCodesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
 
   const handleSyncToCompanies = async () => {
@@ -264,6 +343,27 @@ export default function CompanyLinkCodesPage() {
   const totalCodes = allCodes.length
   const totalLeaf = filterMappableLeafLinkCodes(allCodes).length
 
+  const visibleFamilies = filteredGroups.map((g) => g.family)
+  const allSectionsExpanded =
+    visibleFamilies.length > 0 && visibleFamilies.every((family) => expandedFamilies.has(family))
+
+  useEffect(() => {
+    if (!search.trim()) return
+    setExpandedFamilies(new Set(visibleFamilies))
+  }, [search, visibleFamilies.join(",")])
+
+  const expandAllSections = () => setExpandedFamilies(new Set(visibleFamilies))
+  const collapseAllSections = () => setExpandedFamilies(new Set())
+
+  const toggleFamilySection = (family: string) => {
+    setExpandedFamilies((prev) => {
+      const next = new Set(prev)
+      if (next.has(family)) next.delete(family)
+      else next.add(family)
+      return next
+    })
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
@@ -272,7 +372,7 @@ export default function CompanyLinkCodesPage() {
         <div className="absolute inset-0">
           <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
             <div className="bg-[#2A2F3A]" />
-            <div className="bg-[#1F2430]" />
+            <div className="bg-[#2A2F3A]" />
           </div>
           <div className="absolute inset-y-0 left-1/2 hidden w-px bg-white/5 lg:block" />
           <div className="pointer-events-none absolute inset-0">
@@ -293,18 +393,8 @@ export default function CompanyLinkCodesPage() {
                 Charte de comptes standardisée — {totalCodes} codes au total, {totalLeaf} assignables (feuilles)
               </p>
               <p className="mb-6 max-w-4xl text-base leading-relaxed text-[#C9B8A5]/90">
-                Ces codes sont communs à toutes les sociétés. Lors du mapping comptable, seuls les codes
-                de type <strong className="text-[#E6D6C3]">Feuille</strong> peuvent être assignés aux comptes du grand livre.
-                Les codes Parents servent uniquement à l'organisation visuelle des états financiers.
-                Pour les codes <strong className="text-[#E6D6C3]">feuilles</strong> du compte de
-                résultat (REV.1, REV.2, …), vous pouvez associer une section Trésorerie
-                (Exploitation → TEX, Investissement → TIN, Financement → TFI). Les codes parents
-                du compte de résultat (REV, REV-A, …) n&apos;ont pas cette option. Les codes
-                parents du bilan peuvent toujours être associés. Les codes feuilles du groupe{" "}
-                <strong className="text-[#E6D6C3]">CAP-C</strong> (CAP-C.1, CAP-C.2, …) le peuvent
-                aussi. Le code <strong className="text-[#E6D6C3]">CAP-C.1 (Bénéfice net)</strong> est
-                calculé automatiquement à partir des familles REV, CMV, EXP, ADM, VNT, FIN, AUT et IMP —
-                il ne se mappe pas à un compte du grand livre.
+                Consultez et gérez la charte de codes standardisés utilisée pour le mapping comptable
+                et la construction des états financiers.
               </p>
               <div className="mb-2 flex flex-wrap items-end gap-6 sm:gap-8">
                 <Link href={`/settings/companies/${companyId}`} className="relative border-b border-slate-600/30 pb-4">
@@ -334,33 +424,67 @@ export default function CompanyLinkCodesPage() {
 
       <div className="relative -mt-32 mb-12">
         <div className="mx-auto max-w-[1920px] space-y-6 px-6">
-          <CompanyCustomLinkCodes companyId={companyId} />
           <div className={cn("w-full overflow-hidden", dashboardCardFrameStaticClass)}>
             <div className={dashboardCardRingClass} aria-hidden />
             <div className="relative w-full min-w-0">
               <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="flex min-w-0 flex-1 items-start gap-4">
-                    <div className={dashboardCardHeaderIconBoxClass}>
-                      <Link2 className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 flex-1 items-start gap-4">
+                      <div className={dashboardCardHeaderIconBoxClass}>
+                        <Link2 className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h2 className={cn("text-xl leading-tight mb-1", dashboardCardTitleClass)}>
+                          Charte de comptes standardisée
+                        </h2>
+                        <p className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
+                          Charte partagée par toutes les sociétés · base par défaut pour le mapping et les états financiers
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <h2 className={cn("text-xl leading-tight mb-1", dashboardCardTitleClass)}>
-                        Charte de comptes standardisée
-                      </h2>
-                      <p className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
-                        Charte partagée par toutes les sociétés · base par défaut pour le mapping et les états financiers
-                      </p>
+                    <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-3">
+                      <input
+                        type="search"
+                        placeholder="Rechercher un code ou libellé…"
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="w-64 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#E0742D]/40"
+                      />
+                      {canManageGlobalChart && canEdit ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => openCreateDialog()}
+                        className="whitespace-nowrap border-[#E0742D]/50 bg-white text-[#E0742D] hover:border-[#E0742D] hover:bg-[#E0742D]/5"
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Nouveau code de liaison
+                      </Button>
+                    ) : null}
                     </div>
                   </div>
-                  <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-3">
-                    <input
-                      type="search"
-                      placeholder="Rechercher un code ou libellé…"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      className="w-64 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#E0742D]/40"
-                    />
+                  <div className="flex flex-wrap items-center gap-3 border-t border-slate-200/80 pt-4">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={allSectionsExpanded ? collapseAllSections : expandAllSections}
+                      disabled={filteredGroups.length === 0}
+                      className="whitespace-nowrap border-slate-200 text-slate-700 hover:bg-slate-50"
+                    >
+                      {allSectionsExpanded ? (
+                        <>
+                          <ChevronRight className="mr-2 h-4 w-4" />
+                          Tout fermer
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="mr-2 h-4 w-4" />
+                          Tout ouvrir
+                        </>
+                      )}
+                    </Button>
+                    {canManageGlobalChart ? (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
@@ -406,15 +530,7 @@ export default function CompanyLinkCodesPage() {
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => openCreateDialog()}
-                      className="whitespace-nowrap border-[#E0742D]/50 bg-white text-[#E0742D] hover:border-[#E0742D] hover:bg-[#E0742D]/5"
-                    >
-                      <Plus className="mr-2 h-4 w-4" />
-                      Nouveau code de liaison
-                    </Button>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -427,6 +543,13 @@ export default function CompanyLinkCodesPage() {
               {syncError ? (
                 <div className="border-b border-red-100 bg-red-50 px-6 py-3 text-sm text-red-700">
                   {syncError}
+                </div>
+              ) : null}
+              {!canManageGlobalChart && canEdit ? (
+                <div className="border-b border-slate-200 bg-slate-50/80 px-6 py-3 text-sm text-slate-600">
+                  La charte globale est en lecture seule. Pour ajouter un code propre à cette société, utilisez la
+                  section <strong>Codes personnalisés</strong> ci-dessous ou le bouton{" "}
+                  <strong>Ajouter un code</strong> sur un poste parent.
                 </div>
               ) : null}
 
@@ -453,16 +576,32 @@ export default function CompanyLinkCodesPage() {
                       accountType={g.account_type}
                       codes={g.codes}
                       onEdit={openEditDialog}
+                      onAddCustomChild={!canManageGlobalChart && canEdit ? openCustomCreateUnder : undefined}
+                      showEdit={canManageGlobalChart}
                       attachableLabels={attachableLabels}
+                      expanded={expandedFamilies.has(g.family)}
+                      onToggle={() => toggleFamilySection(g.family)}
                     />
                   ))}
                 </div>
               )}
             </div>
           </div>
+
+          {canEdit && !canManageGlobalChart ? (
+            <div ref={customCodesRef}>
+              <CompanyCustomLinkCodes
+                companyId={companyId}
+                standardCodes={allCodes}
+                draft={customDraft}
+                onDraftConsumed={consumeCustomDraft}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 
+      {canManageGlobalChart ? (
       <StandardLinkCodeFormDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -472,6 +611,7 @@ export default function CompanyLinkCodesPage() {
         defaultParentCode={createParentCode}
         onSaved={refetch}
       />
+      ) : null}
     </div>
   )
 }

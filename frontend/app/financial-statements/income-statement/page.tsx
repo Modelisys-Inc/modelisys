@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { IncomeStatementSummary } from "@/components/income-statement-summary"
 import { IncomeStatementDetail } from "@/components/income-statement-detail"
 import { StatementChart } from "@/components/statement-chart"
@@ -53,6 +53,9 @@ export default function IncomeStatementPage() {
    * Déclaré ici avec les autres useState pour éviter « Cannot access before initialization ».
    */
   const [structureVersion, setStructureVersion] = useState(0)
+  /** Première visite Sommaire / Détail : horizon Mois actuel vs Mois dernier + Variation $. */
+  const summaryViewInitializedRef = useRef(false)
+  const detailViewInitializedRef = useRef(false)
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const companyIdFromUrl = searchParams.get("companyId")
@@ -120,6 +123,29 @@ export default function IncomeStatementPage() {
       setColumnMode("variations")
     }
   }, [section, view])
+
+  const applySummaryDetailViewDefaults = useCallback(() => {
+    setPeriod("monthly")
+    setView("comparison")
+    setComparisonType("lastMonth")
+    setColumnMode("variationAmount")
+    setSelectedBudgetId(null)
+  }, [])
+
+  const selectSection = useCallback(
+    (next: Section) => {
+      if (next === "summary" && !summaryViewInitializedRef.current) {
+        applySummaryDetailViewDefaults()
+        summaryViewInitializedRef.current = true
+      }
+      if (next === "detail" && !detailViewInitializedRef.current) {
+        applySummaryDetailViewDefaults()
+        detailViewInitializedRef.current = true
+      }
+      setSection(next)
+    },
+    [applySummaryDetailViewDefaults]
+  )
 
   // --- Fetch financial statement data from the API ---
   const [rows, setRows] = useState<FinancialStatementRow[]>([])
@@ -307,7 +333,7 @@ export default function IncomeStatementPage() {
                 <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
                   <Button
                     variant="ghost"
-                    onClick={() => setSection("dashboard")}
+                    onClick={() => selectSection("dashboard")}
                     className={`h-8 text-xs px-3 transition-all ${
                       section === "dashboard"
                         ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
@@ -318,7 +344,7 @@ export default function IncomeStatementPage() {
                   </Button>
                   <Button
                     variant="ghost"
-                    onClick={() => setSection("summary")}
+                    onClick={() => selectSection("summary")}
                     className={`h-8 text-xs px-3 transition-all ${
                       section === "summary"
                         ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
@@ -329,7 +355,7 @@ export default function IncomeStatementPage() {
                   </Button>
                   <Button
                     variant="ghost"
-                    onClick={() => setSection("detail")}
+                    onClick={() => selectSection("detail")}
                     className={`h-8 text-xs px-3 transition-all ${
                       section === "detail"
                         ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"

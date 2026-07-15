@@ -1,9 +1,8 @@
 import { test, expect, Page } from "@playwright/test"
 
 // Verifies the Bilan Sommaire shows a "not balanced" warning when
-// Total des actifs ≠ Total passifs et capitaux propres, and hides it when they
-// match. All backend calls are mocked; the card renders from series rows (the
-// page defaults to a multi-period view).
+// Total des actifs ≠ Total passifs et capitaux propres, and the Validation
+// row (Total actif − Total passifs et capitaux propres) above Actifs.
 
 const COMPANY_ID = "11111111-1111-1111-1111-111111111111"
 
@@ -77,8 +76,7 @@ async function setupAuth(page: Page) {
   )
 }
 
-/** Mock the balance-sheet data so its Sommaire card renders with the two total
- * rows carrying the given current values, then open the Sommaire section. */
+/** Mock the balance-sheet data so its Sommaire card renders with Actifs + totals. */
 async function openBilanSommaire(page: Page, assets: number, liabEquity: number) {
   await setupAuth(page)
 
@@ -90,6 +88,7 @@ async function openBilanSommaire(page: Page, assets: number, liabEquity: number)
         contentType: "application/json",
         body: JSON.stringify({
           rows: [
+            { label: "Actifs", current: 0, prior: 0, isSection: true },
             { label: "Total des actifs", current: assets, prior: assets },
             {
               label: "Total passifs et capitaux propres",
@@ -113,6 +112,13 @@ async function openBilanSommaire(page: Page, assets: number, liabEquity: number)
           periods: [{ fiscalYear: 2026, fiscalMonth: 5, label: "Mai 2026" }],
           rows: [
             {
+              id: "act",
+              label: "Actifs",
+              amounts: { "2026-5": 0 },
+              detailRows: [],
+              isSection: true,
+            },
+            {
               id: "a",
               label: "Total des actifs",
               amounts: { "2026-5": assets },
@@ -133,6 +139,14 @@ async function openBilanSommaire(page: Page, assets: number, liabEquity: number)
   await page.getByRole("button", { name: /^Sommaire$/ }).click({ timeout: 15000 })
 }
 
+async function switchToMensuelHorizon(page: Page) {
+  await page.getByRole("combobox").first().click()
+  await page.getByRole("option", { name: "Mensuel" }).click()
+  await expect(page.getByText("Total des actifs").first()).toBeVisible({
+    timeout: 30000,
+  })
+}
+
 test("Bilan Sommaire warns when assets ≠ liabilities + equity", async ({
   page,
 }) => {
@@ -144,37 +158,38 @@ test("Bilan Sommaire warns when assets ≠ liabilities + equity", async ({
 
 test("Bilan Sommaire shows no warning when balanced", async ({ page }) => {
   await openBilanSommaire(page, 1000, 1000)
-  // The Sommaire card must be present before asserting the banner's absence.
   await expect(page.getByText("Total des actifs").first()).toBeVisible({
     timeout: 30000,
   })
   await expect(page.getByText(/n.?est pas équilibré/i)).toHaveCount(0)
 })
 
-// The page forces a multi-period (12 mois) view when a company is selected, so
-// openBilanSommaire lands in a trend view where the per-column "Équilibre"
-// indicators render beneath the totals.
-
-test("Bilan Sommaire shows a per-column équilibré marker when balanced", async ({
+test("Bilan Sommaire shows Validation row above Actifs with $0 when balanced", async ({
   page,
 }) => {
   await openBilanSommaire(page, 1000, 1000)
-  // The per-column indicator row appears under the totals.
-  await expect(page.getByText("Équilibre", { exact: true })).toBeVisible({
-    timeout: 30000,
-  })
-  // At least one column shows the balanced check; none show an imbalance.
-  await expect(page.getByTitle("Équilibré").first()).toBeVisible()
-  await expect(page.getByTitle(/Déséquilibre/)).toHaveCount(0)
+  const validation = page.getByTestId("balance-sheet-validation-row")
+  await expect(validation).toBeVisible({ timeout: 30000 })
+  await expect(validation.getByText("Validation", { exact: true })).toBeVisible()
+  await expect(page.getByText("Actifs").first()).toBeVisible()
+  await expect(validation.getByTitle("Bilan équilibré").first()).toBeVisible()
 })
 
-test("Bilan Sommaire flags the unbalanced column with its écart", async ({
+test("Bilan Sommaire Validation shows écart when unbalanced", async ({
   page,
 }) => {
   await openBilanSommaire(page, 1000, 980)
-  await expect(page.getByText("Équilibre", { exact: true })).toBeVisible({
-    timeout: 30000,
-  })
-  // The unbalanced period column is flagged (écart shown in the cell title).
-  await expect(page.getByTitle(/Déséquilibre/).first()).toBeVisible()
+  const validation = page.getByTestId("balance-sheet-validation-row")
+  await expect(validation).toBeVisible({ timeout: 30000 })
+  await expect(validation.getByTitle(/ne balance pas/i).first()).toBeVisible()
+})
+
+test("Bilan Sommaire Validation appears per column in Mensuel view", async ({
+  page,
+}) => {
+  await openBilanSommaire(page, 1000, 1000)
+  await switchToMensuelHorizon(page)
+  const validation = page.getByTestId("balance-sheet-validation-row")
+  await expect(validation).toBeVisible({ timeout: 30000 })
+  await expect(validation.getByTitle("Bilan équilibré").first()).toBeVisible()
 })
