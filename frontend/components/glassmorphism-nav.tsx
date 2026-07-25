@@ -33,7 +33,6 @@ const fonctionnalitesSubLinks = featureCategoryNavLinks.map((link) => ({
 
 const mainNavLinks = [
   { name: "Études de cas", href: "/etudes-de-cas" },
-  { name: "Mise en place", href: "/#platform-setup" },
   { name: "Tarification", href: "/tarification" },
   { name: "À propos", href: "/a-propos" },
 ] as const
