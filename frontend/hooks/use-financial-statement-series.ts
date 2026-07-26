@@ -10,7 +10,7 @@ import {
 
 interface UseFinancialStatementSeriesParams {
   companyId: string | null
-  statementType: "income-statement" | "balance-sheet" | "cash-flow"
+  statementType: "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail"
   fiscalYear: number
   month?: number
   months?: number

@@ -136,7 +136,6 @@ test("Sommaire : CAP-C.1 sous expansion CAP-C, pas de ligne Bénéfice net plate
             {
               label: "Bénéfices non répartis",
               linkCode: "CAP-C",
-              isSection: true,
               showInDetail: true,
               annexLetter: "C",
               defineMapping: true,
@@ -210,7 +209,6 @@ test("Sommaire : CAP-C.1 sous expansion CAP-C, pas de ligne Bénéfice net plate
               linkCode: "CAP-C",
               current: 1500,
               prior: 1000,
-              isSection: true,
               hasLiaisonCode: true,
               showInDetail: true,
               annexLetter: "C",
@@ -275,4 +273,115 @@ test("Sommaire : CAP-C.1 sous expansion CAP-C, pas de ligne Bénéfice net plate
   })
   await expect(annexChild).toBeVisible({ timeout: 15_000 })
   await expect(annexChild.getByText("Bénéfice net")).toBeVisible()
+})
+
+test("Sommaire GL : expansion CAP-C inclut Bénéfice net (CAP-C.1) pour égaler le total", async ({
+  page,
+}) => {
+  await setupAuth(page)
+
+  await page.route(
+    `**/api/companies/${COMPANY_ID}/statement-structures/balance-sheet`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          structure: [
+            { label: "Capitaux propres", isSection: true, isBold: true },
+            {
+              label: "Bénéfices non répartis",
+              linkCode: "CAP-C",
+              defineMapping: true,
+              liaisonMode: "single",
+              showInDetail: false,
+            },
+            {
+              label: "Bénéfice net",
+              linkCode: "CAP-C.1",
+              detailOnly: true,
+              isComputedNetIncome: true,
+              defineMapping: false,
+            },
+          ],
+        }),
+      }),
+  )
+
+  await page.route(
+    `**/api/companies/${COMPANY_ID}/financial-statements/balance-sheet**`,
+    (route) => {
+      if (route.request().url().includes("/series")) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            companyId: COMPANY_ID,
+            statementType: "balance-sheet",
+            fiscalYear: 2026,
+            periods: [],
+            rows: [],
+          }),
+        })
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          companyId: COMPANY_ID,
+          statementType: "balance-sheet",
+          fiscalYear: 2026,
+          month: 7,
+          rows: [
+            {
+              id: "CAP-C",
+              label: "Bénéfices non répartis",
+              linkCode: "CAP-C",
+              current: 1500,
+              prior: 1000,
+              hasLiaisonCode: true,
+              showInDetail: false,
+              detailRows: [
+                { id: "3100", label: "BNR début", current: 300, prior: 200 },
+              ],
+            },
+            {
+              id: "CAP-C.1",
+              label: "Bénéfice net",
+              linkCode: "CAP-C.1",
+              current: 1200,
+              prior: 800,
+              detailOnly: true,
+              hasLiaisonCode: false,
+            },
+          ],
+        }),
+      })
+    },
+  )
+
+  await page.goto(
+    `/financial-statements/balance-sheet?companyId=${COMPANY_ID}&refMonth=7&refYear=2026`,
+  )
+
+  const sommaire = page.getByRole("button", { name: /Sommaire/i }).or(
+    page.getByRole("tab", { name: /Sommaire/i }),
+  )
+  if (await sommaire.first().isVisible().catch(() => false)) {
+    await sommaire.first().click()
+  }
+
+  await expect(page.getByText("Bénéfices non répartis").first()).toBeVisible({
+    timeout: 30_000,
+  })
+
+  const capRow = page.locator("tr", { hasText: "Bénéfices non répartis" }).first()
+  await capRow.click()
+
+  const glNi = page.getByTestId("balance-sheet-summary-gl-child").filter({
+    hasText: "CAP-C.1",
+  })
+  await expect(glNi).toBeVisible({ timeout: 15_000 })
+  await expect(glNi.getByText("Bénéfice net")).toBeVisible()
+  await expect(page.getByTestId("balance-sheet-summary-gl-child").filter({ hasText: "3100" })).toBeVisible()
 })

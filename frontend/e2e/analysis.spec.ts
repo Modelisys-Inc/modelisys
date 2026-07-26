@@ -62,9 +62,8 @@ test.describe("Analysis Pages", () => {
 
   test("analysis pages have entity selector", async ({ page }) => {
     await page.goto("/analysis/working-capital");
-    // Should have entity selector - use first() to avoid strict mode
     await expect(
-      page.locator("text=Entité").or(page.locator('[data-testid="entity-selector"]')).first()
+      page.locator("text=Entités").or(page.locator("text=Entité")).or(page.locator('[data-testid="entity-selector"]')).first()
     ).toBeVisible({ timeout: 10000 });
   });
 
@@ -74,5 +73,14 @@ test.describe("Analysis Pages", () => {
     await expect(
       page.locator("text=Horizon").or(page.locator("text=Période")).first()
     ).toBeVisible({ timeout: 10000 });
+  });
+
+  test("capex page has dashboard and summary sections", async ({ page }) => {
+    await page.goto("/analysis/capex");
+    await expect(page.getByRole("button", { name: "Tableau de bord" })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("button", { name: "Sommaire" })).toBeVisible();
+    await page.getByRole("button", { name: "Sommaire" }).click();
+    await expect(page.getByTestId("capex-summary-table-scroll")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: "Paramètres" })).toBeVisible();
   });
 });

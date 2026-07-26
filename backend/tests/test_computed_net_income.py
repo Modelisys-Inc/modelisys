@@ -719,3 +719,162 @@ def test_balance_sheet_equity_total_formula_includes_cap_c1(
     expected_total = round(cap_a["current"] + cap_c["current"], 2)
     assert total_eq["current"] == expected_total
     assert total_pl["current"] == expected_total
+
+
+def test_cash_flow_detail_tex_a1_follows_horizon_not_always_ytd(
+    client, auth_headers, su_headers,
+):
+    """TEX-A.1: mois courant = NI du mois; YTD = même montant que CAP-C.1 bilan."""
+    for payload in (
+        {
+            "code": "CAP-C",
+            "family": "CAP",
+            "label_sub_account": "Groupe CAP-C",
+            "is_leaf": False,
+        },
+        {
+            "code": NET_INCOME_BALANCE_LINK_CODE,
+            "family": "CAP",
+            "parent_code": "CAP-C",
+            "label_sub_account": "Bénéfice net calculé",
+            "is_leaf": True,
+        },
+        {
+            "code": "REV-TEX",
+            "family": "REV",
+            "label_sub_account": "Revenus TEX",
+            "is_leaf": True,
+        },
+        {
+            "code": "EXP-TEX",
+            "family": "EXP",
+            "label_sub_account": "Charges TEX",
+            "is_leaf": True,
+        },
+        {
+            "code": "TEX-A.1",
+            "family": "TEX",
+            "label_sub_account": "Bénéfice net FT",
+            "attached_link_codes": [NET_INCOME_BALANCE_LINK_CODE],
+        },
+    ):
+        r = client.post("/api/standard-link-codes", json=payload, headers=su_headers)
+        assert r.status_code == 201, r.text
+
+    company = client.post(
+        "/api/companies",
+        json={"name": "TEX-A.1 horizon Co"},
+        headers=auth_headers,
+    )
+    assert company.status_code == 201
+    company_id = company.json()["id"]
+
+    map_r = client.put(
+        f"/api/companies/{company_id}/account-mappings",
+        json=[
+            {"account_number": "4000", "description": "Sales", "link_code": "REV-TEX"},
+            {"account_number": "6000", "description": "OpEx", "link_code": "EXP-TEX"},
+        ],
+        headers=auth_headers,
+    )
+    assert map_r.status_code == 200
+
+    tb = client.put(
+        f"/api/companies/{company_id}/trial-balance?fiscal_year=2024",
+        json=[
+            {
+                "account_number": "4000",
+                "description": "Sales",
+                "monthly_amounts": {"Janvier": 10000.0, "Février": 5000.0},
+            },
+            {
+                "account_number": "6000",
+                "description": "OpEx",
+                "monthly_amounts": {"Janvier": 2000.0, "Février": 1000.0},
+            },
+        ],
+        headers=auth_headers,
+    )
+    assert tb.status_code == 200
+
+    assert client.put(
+        f"/api/companies/{company_id}/statement-structures/balance-sheet",
+        json={
+            "structure": [
+                {"label": "Capitaux propres", "isSection": True},
+                {"label": "Groupe CAP-C", "linkCode": "CAP-C", "isSection": True},
+            ]
+        },
+        headers=auth_headers,
+    ).status_code == 200
+
+    assert client.put(
+        f"/api/companies/{company_id}/statement-structures/income-statement",
+        json={
+            "structure": [
+                {"label": "Revenus", "linkCode": "REV-TEX", "defineMapping": True},
+                {"label": "Charges", "linkCode": "EXP-TEX", "defineMapping": True},
+            ]
+        },
+        headers=auth_headers,
+    ).status_code == 200
+
+    assert client.put(
+        f"/api/companies/{company_id}/statement-structures/cash-flow-detail",
+        json={
+            "structure": [
+                {
+                    "label": "Bénéfice net",
+                    "linkCode": "TEX-A.1",
+                    "liaisonMode": "single",
+                    "defineMapping": True,
+                },
+            ]
+        },
+        headers=auth_headers,
+    ).status_code == 200
+
+    # Mois courant (février) = activité de février seulement : −5000 − 1000 = −6000
+    cf_monthly = client.get(
+        f"/api/companies/{company_id}/financial-statements/cash-flow-detail",
+        params={"fiscal_year": 2024, "month": 2, "period": "monthly"},
+        headers=auth_headers,
+    )
+    assert cf_monthly.status_code == 200
+    tex_m = next(r for r in cf_monthly.json()["rows"] if r.get("linkCode") == "TEX-A.1")
+    assert tex_m["current"] == -6000.0
+
+    # YTD février = même formule que CAP-C.1 bilan : −15000 − 3000 = −18000
+    balance = client.get(
+        f"/api/companies/{company_id}/financial-statements/balance-sheet"
+        "?fiscal_year=2024&month=2&period=monthly",
+        headers=auth_headers,
+    )
+    assert balance.status_code == 200
+    ni = next(
+        r
+        for r in balance.json()["rows"]
+        if r.get("linkCode") == NET_INCOME_BALANCE_LINK_CODE
+    )
+    assert ni["current"] == -18000.0
+
+    cf_ytd = client.get(
+        f"/api/companies/{company_id}/financial-statements/cash-flow-detail",
+        params={"fiscal_year": 2024, "month": 2, "period": "ytd"},
+        headers=auth_headers,
+    )
+    assert cf_ytd.status_code == 200
+    tex_ytd = next(r for r in cf_ytd.json()["rows"] if r.get("linkCode") == "TEX-A.1")
+    assert tex_ytd["current"] == ni["current"]
+    assert tex_ytd["current"] == -18000.0
+
+    # Series: chaque colonne = NI du mois (pas YTD), ex. février = −6000
+    cf_series = client.get(
+        f"/api/companies/{company_id}/financial-statements/cash-flow-detail/series",
+        params={"fiscal_year": 2024, "month": 2, "months": 12},
+        headers=auth_headers,
+    )
+    assert cf_series.status_code == 200
+    tex_s = next(r for r in cf_series.json()["rows"] if r.get("linkCode") == "TEX-A.1")
+    assert tex_s["amounts"]["2024-1"] == -12000.0  # −10000 − 2000
+    assert tex_s["amounts"]["2024-2"] == -6000.0   # −5000 − 1000

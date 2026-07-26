@@ -27,6 +27,7 @@ VALID_STATEMENT_TYPES = {
     "balance-sheet",
     "cash-flow",
     "cash-flow-detail",
+    "working-capital",
     "capex",
     "baiia",
 }

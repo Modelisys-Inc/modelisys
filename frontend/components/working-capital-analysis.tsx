@@ -1,10 +1,40 @@
 "use client"
 
-import { useMemo } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
+import { StatementStructureStudio } from "@/components/statement-structure-studio"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, aggregateToYears, findRow } from "@/lib/series-utils"
+import { getRowAmounts, aggregateToYears, findRow, reverseSeriesOrderForDisplay } from "@/lib/series-utils"
+import { getStatementStructure } from "@/lib/api"
+import {
+  resolveWorkingCapitalStructureAmount,
+  resolveWorkingCapitalOperandAmount,
+  collectWorkingCapitalIncludedOperands,
+  workingCapitalOperandDisplayLabel,
+  workingCapitalStructureViewRows,
+  normalizeWorkingCapitalDisplayFormat,
+  resolveWorkingCapitalDisplayFormat,
+  alignSeriesPeriodIndex,
+  seriesTrailingTwelveMonthSum,
+  WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS,
+  type WorkingCapitalDisplayFormat,
+  type WorkingCapitalIncludedOperand,
+} from "@/lib/working-capital-structure-utils"
+import { ChevronDown, ChevronRight, LayoutList, Settings, Sparkles } from "lucide-react"
+import { cn } from "@/lib/utils"
+import {
+  dashboardCardAccentClass,
+  dashboardCardBodyMutedClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardHeaderIconBoxClass,
+  dashboardCardRingClass,
+  dashboardCardStructureSettingsButtonClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 
 interface WorkingCapitalAnalysisProps {
   period: "monthly" | "quarterly" | "annual"
@@ -13,6 +43,12 @@ interface WorkingCapitalAnalysisProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
+  fiscalYear?: number
+  /** Mois calendaire (1–12) de la date de référence — borne la série (pas de mois futurs). */
+  referenceMonth?: number
+  structureVersion?: number
+  showStructureSettings?: boolean
+  onStructureSaved?: () => void
 }
 
 interface AnalysisData {
@@ -32,6 +68,39 @@ interface AnalysisData {
   }>
 }
 
+type MetricFormat = "currency" | "percent" | "ratio" | "days"
+
+function displayFormatToMetricFormat(format: WorkingCapitalDisplayFormat): MetricFormat {
+  if (format === "number") return "ratio"
+  return format
+}
+
+interface DisplayMetric {
+  key: string
+  label: string
+  format: MetricFormat
+  isBold?: boolean
+  /** False si aucune liaison configurée dans Paramètres — montants masqués hors édition. */
+  showAmounts: boolean
+  valueAt: (isPrior: boolean, trendIndex?: number) => number
+}
+
+function normalizeMetricLabel(label: string): string {
+  return label
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function formatMetricValue(value: number, format: MetricFormat): string {
+  if (format === "percent") return `${value.toFixed(1)}%`
+  if (format === "ratio") return value.toFixed(2)
+  if (format === "days") return `${value.toFixed(2)} jours`
+  return formatCurrency(value)
+}
+
 export function WorkingCapitalAnalysis({
   period,
   view,
@@ -39,15 +108,26 @@ export function WorkingCapitalAnalysis({
   divisionId,
   subDivisionId,
   companies = [],
+  fiscalYear,
+  referenceMonth,
+  structureVersion = 0,
+  showStructureSettings = true,
+  onStructureSaved,
 }: WorkingCapitalAnalysisProps) {
-  // Fetch balance-sheet and income-statement series data
-  const currentYear = new Date().getFullYear()
+  const resolvedYear = fiscalYear ?? new Date().getFullYear()
+  const resolvedMonth = referenceMonth ?? new Date().getMonth() + 1
   const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
+  /** CDR : fenêtre affichée + 11 mois pour calculer le TTM à chaque date de référence. */
+  const isMonthsNeeded = monthsNeeded + WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS
+  const [structureEditMode, setStructureEditMode] = useState(false)
+  const [structure, setStructure] = useState<Record<string, unknown>[]>([])
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
   const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
     statementType: "balance-sheet",
-    fiscalYear: currentYear,
+    fiscalYear: resolvedYear,
+    month: resolvedMonth,
     months: monthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
@@ -57,38 +137,68 @@ export function WorkingCapitalAnalysis({
   const { rows: isRows, periods: isPeriods, loading: isLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
     statementType: "income-statement",
-    fiscalYear: currentYear,
-    months: monthsNeeded,
+    fiscalYear: resolvedYear,
+    month: resolvedMonth,
+    months: isMonthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: !!companyId,
   })
 
   const loading = bsLoading || isLoading
+  const canInlineStructureEdit = showStructureSettings && !!companyId
+  const isStructureStudio = structureEditMode && canInlineStructureEdit
 
-  // Compute the analysis data from real API rows
+  useEffect(() => {
+    if (!companyId) {
+      setStructure([])
+      return
+    }
+    let cancelled = false
+    getStatementStructure(companyId, "working-capital")
+      .then((res) => {
+        if (!cancelled) setStructure(Array.isArray(res.structure) ? res.structure : [])
+      })
+      .catch(() => {
+        if (!cancelled) setStructure([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, structureVersion])
+
   const data: AnalysisData = useMemo(() => {
     const empty: AnalysisData = {
-      currentAssets: 0, priorAssets: 0,
-      currentLiabilities: 0, priorLiabilities: 0,
-      currentRevenue: 0, priorRevenue: 0,
-      currentCash: 0, priorCash: 0,
+      currentAssets: 0,
+      priorAssets: 0,
+      currentLiabilities: 0,
+      priorLiabilities: 0,
+      currentRevenue: 0,
+      priorRevenue: 0,
+      currentCash: 0,
+      priorCash: 0,
       trendValues: undefined,
     }
 
     if (bsRows.length === 0 && isRows.length === 0) return empty
 
-    // Find relevant rows
     const totalCurrentAssetsRow = findRow(bsRows, "total actifs courants")
     const totalCurrentLiabilitiesRow = findRow(bsRows, "total passifs courants")
     const totalRevenueRow = findRow(isRows, "total revenus") || findRow(isRows, "revenus")
     const cashRow = findRow(bsRows, "encaisse") || findRow(bsRows, "trésorerie") || findRow(bsRows, "cash")
 
-    // Extract raw amounts arrays
     const assetsAmounts = totalCurrentAssetsRow ? getRowAmounts(totalCurrentAssetsRow, bsPeriods) : []
-    const liabilitiesAmounts = totalCurrentLiabilitiesRow ? getRowAmounts(totalCurrentLiabilitiesRow, bsPeriods) : []
-    const revenueAmounts = totalRevenueRow ? getRowAmounts(totalRevenueRow, isPeriods) : []
+    const liabilitiesAmounts = totalCurrentLiabilitiesRow
+      ? getRowAmounts(totalCurrentLiabilitiesRow, bsPeriods)
+      : []
+    const revenueMonthly = totalRevenueRow ? getRowAmounts(totalRevenueRow, isPeriods) : []
     const cashAmounts = cashRow ? getRowAmounts(cashRow, bsPeriods) : []
+
+    /** Revenus = 12 derniers mois à chaque date de référence bilan. */
+    const revenueTtmForBsPeriods = bsPeriods.map((_, bsIdx) => {
+      const isIdx = alignSeriesPeriodIndex(isPeriods, bsPeriods, bsIdx)
+      return seriesTrailingTwelveMonthSum(revenueMonthly, isIdx)
+    })
 
     const isMultiPeriod = view === "12months" || view === "24months" || view === "years"
 
@@ -99,22 +209,24 @@ export function WorkingCapitalAnalysis({
       let finalCash: number[]
 
       if (view === "years") {
-        const aggAssets = aggregateToYears(assetsAmounts, bsPeriods)
-        const aggLiabilities = aggregateToYears(liabilitiesAmounts, bsPeriods)
-        const aggRevenue = aggregateToYears(revenueAmounts, isPeriods)
-        const aggCash = aggregateToYears(cashAmounts, bsPeriods)
-        finalAssets = aggAssets.amounts
-        finalLiabilities = aggLiabilities.amounts
-        finalRevenue = aggRevenue.amounts
-        finalCash = aggCash.amounts
+        finalAssets = aggregateToYears(assetsAmounts, bsPeriods).amounts
+        finalLiabilities = aggregateToYears(liabilitiesAmounts, bsPeriods).amounts
+        // TTM à la fin de chaque exercice (pas la somme des TTM mensuels).
+        finalRevenue = aggregateToYears(revenueTtmForBsPeriods, bsPeriods, "last").amounts
+        finalCash = aggregateToYears(cashAmounts, bsPeriods).amounts
       } else {
         finalAssets = assetsAmounts
         finalLiabilities = liabilitiesAmounts
-        finalRevenue = revenueAmounts
+        finalRevenue = revenueTtmForBsPeriods
         finalCash = cashAmounts
       }
 
-      const len = finalAssets.length
+      const len = Math.max(
+        finalAssets.length,
+        finalLiabilities.length,
+        finalRevenue.length,
+        finalCash.length,
+      )
       const trendValues = Array.from({ length: len }, (_, i) => ({
         assets: finalAssets[i] || 0,
         liabilities: finalLiabilities[i] || 0,
@@ -122,65 +234,58 @@ export function WorkingCapitalAnalysis({
         cash: finalCash[i] || 0,
       }))
 
+      const last = len - 1
+      const prior = Math.max(0, last - 1)
       return {
-        currentAssets: len > 0 ? finalAssets[len - 1] : 0,
-        priorAssets: len > 1 ? finalAssets[len - 2] : 0,
-        currentLiabilities: len > 0 ? finalLiabilities[len - 1] : 0,
-        priorLiabilities: len > 1 ? finalLiabilities[len - 2] : 0,
-        currentRevenue: len > 0 ? finalRevenue[len - 1] : 0,
-        priorRevenue: len > 1 ? finalRevenue[len - 2] : 0,
-        currentCash: len > 0 ? finalCash[len - 1] : 0,
-        priorCash: len > 1 ? finalCash[len - 2] : 0,
+        currentAssets: finalAssets[last] || 0,
+        priorAssets: finalAssets[prior] || 0,
+        currentLiabilities: finalLiabilities[last] || 0,
+        priorLiabilities: finalLiabilities[prior] || 0,
+        currentRevenue: finalRevenue[last] || 0,
+        priorRevenue: finalRevenue[prior] || 0,
+        currentCash: finalCash[last] || 0,
+        priorCash: finalCash[prior] || 0,
         trendValues,
       }
     }
 
-    // Current view - take last and second-to-last values
     const aLen = assetsAmounts.length
     const lLen = liabilitiesAmounts.length
-    const rLen = revenueAmounts.length
+    const rLen = revenueTtmForBsPeriods.length
     const cLen = cashAmounts.length
-
     return {
-      currentAssets: aLen > 0 ? assetsAmounts[aLen - 1] : 0,
-      priorAssets: aLen > 1 ? assetsAmounts[aLen - 2] : 0,
-      currentLiabilities: lLen > 0 ? liabilitiesAmounts[lLen - 1] : 0,
-      priorLiabilities: lLen > 1 ? liabilitiesAmounts[lLen - 2] : 0,
-      currentRevenue: rLen > 0 ? revenueAmounts[rLen - 1] : 0,
-      priorRevenue: rLen > 1 ? revenueAmounts[rLen - 2] : 0,
-      currentCash: cLen > 0 ? cashAmounts[cLen - 1] : 0,
-      priorCash: cLen > 1 ? cashAmounts[cLen - 2] : 0,
+      currentAssets: aLen > 0 ? assetsAmounts[aLen - 1]! : 0,
+      priorAssets: aLen > 1 ? assetsAmounts[aLen - 2]! : 0,
+      currentLiabilities: lLen > 0 ? liabilitiesAmounts[lLen - 1]! : 0,
+      priorLiabilities: lLen > 1 ? liabilitiesAmounts[lLen - 2]! : 0,
+      currentRevenue: rLen > 0 ? revenueTtmForBsPeriods[rLen - 1]! : 0,
+      priorRevenue: rLen > 1 ? revenueTtmForBsPeriods[rLen - 2]! : 0,
+      currentCash: cLen > 0 ? cashAmounts[cLen - 1]! : 0,
+      priorCash: cLen > 1 ? cashAmounts[cLen - 2]! : 0,
       trendValues: undefined,
     }
   }, [bsRows, isRows, bsPeriods, isPeriods, view])
 
-  // Calculate Working Capital (current assets - current liabilities)
   const calculateWorkingCapital = (isPrior: boolean, trendIndex?: number): number => {
     if (trendIndex !== undefined && data.trendValues) {
       const assets = data.trendValues[trendIndex]?.assets || 0
       const liabilities = data.trendValues[trendIndex]?.liabilities || 0
       return assets - liabilities
     }
-    const assets = isPrior ? data.priorAssets : data.currentAssets
-    const liabilities = isPrior ? data.priorLiabilities : data.currentLiabilities
-    return assets - liabilities
+    return (isPrior ? data.priorAssets : data.currentAssets) -
+      (isPrior ? data.priorLiabilities : data.currentLiabilities)
   }
 
-  // Calculate Working Capital Ex Cash (current assets - cash - current liabilities)
   const calculateWorkingCapitalExCash = (isPrior: boolean, trendIndex?: number): number => {
     if (trendIndex !== undefined && data.trendValues) {
-      const assets = data.trendValues[trendIndex]?.assets || 0
-      const cash = data.trendValues[trendIndex]?.cash || 0
-      const liabilities = data.trendValues[trendIndex]?.liabilities || 0
-      return assets - cash - liabilities
+      const t = data.trendValues[trendIndex]
+      return (t?.assets || 0) - (t?.cash || 0) - (t?.liabilities || 0)
     }
-    const assets = isPrior ? data.priorAssets : data.currentAssets
-    const cash = isPrior ? data.priorCash : data.currentCash
-    const liabilities = isPrior ? data.priorLiabilities : data.currentLiabilities
-    return assets - cash - liabilities
+    return (isPrior ? data.priorAssets : data.currentAssets) -
+      (isPrior ? data.priorCash : data.currentCash) -
+      (isPrior ? data.priorLiabilities : data.currentLiabilities)
   }
 
-  // Calculate Revenue
   const getRevenue = (isPrior: boolean, trendIndex?: number): number => {
     if (trendIndex !== undefined && data.trendValues) {
       return data.trendValues[trendIndex]?.revenue || 0
@@ -188,22 +293,17 @@ export function WorkingCapitalAnalysis({
     return isPrior ? data.priorRevenue : data.currentRevenue
   }
 
-  // Calculate percentage of revenue
   const getRevenuePercentage = (value: number, isPrior: boolean, trendIndex?: number): number => {
     const revenue = getRevenue(isPrior, trendIndex)
     if (revenue === 0) return 0
     return (value / revenue) * 100
   }
 
-  // Calculate Current Assets
   const getCurrentAssets = (isPrior: boolean, trendIndex?: number): number => {
-    if (trendIndex !== undefined && data.trendValues) {
-      return data.trendValues[trendIndex]?.assets || 0
-    }
+    if (trendIndex !== undefined && data.trendValues) return data.trendValues[trendIndex]?.assets || 0
     return isPrior ? data.priorAssets : data.currentAssets
   }
 
-  // Calculate Current Liabilities
   const getCurrentLiabilities = (isPrior: boolean, trendIndex?: number): number => {
     if (trendIndex !== undefined && data.trendValues) {
       return data.trendValues[trendIndex]?.liabilities || 0
@@ -211,55 +311,227 @@ export function WorkingCapitalAnalysis({
     return isPrior ? data.priorLiabilities : data.currentLiabilities
   }
 
-  // Calculate FDR Ratio (Current Assets / Current Liabilities)
   const calculateFDRRatio = (isPrior: boolean, trendIndex?: number): number => {
-    const assets = getCurrentAssets(isPrior, trendIndex)
     const liabilities = getCurrentLiabilities(isPrior, trendIndex)
     if (liabilities === 0) return 0
-    return assets / liabilities
+    return getCurrentAssets(isPrior, trendIndex) / liabilities
   }
 
-  // Calculate FdRHC Ratio ((Current Assets - Cash) / Current Liabilities)
   const calculateFdRHCRatio = (isPrior: boolean, trendIndex?: number): number => {
     const assets = getCurrentAssets(isPrior, trendIndex)
-    let cash = 0
-    if (trendIndex !== undefined && data.trendValues) {
-      cash = data.trendValues[trendIndex]?.cash || 0
-    } else {
-      cash = isPrior ? data.priorCash : data.currentCash
-    }
+    const cash =
+      trendIndex !== undefined && data.trendValues
+        ? data.trendValues[trendIndex]?.cash || 0
+        : isPrior
+          ? data.priorCash
+          : data.currentCash
     const liabilities = getCurrentLiabilities(isPrior, trendIndex)
     if (liabilities === 0) return 0
     return (assets - cash) / liabilities
   }
 
-  // Get period labels from API data or fallback to generated labels
-  const getPeriodColumnLabels = (count: number): string[] => {
-    // Use real labels from balance-sheet periods when available
-    if (bsPeriods.length > 0) {
-      if (view === "years") {
-        const dummyAmounts = bsPeriods.map(() => 0)
-        const agg = aggregateToYears(dummyAmounts, bsPeriods)
-        return agg.labels
+  /** Index sur la série bilan (date de référence) ; le TTM Résultat s’aligne dessus. */
+  const periodIndexFor = (isPrior: boolean, trendIndex?: number): number => {
+    if (trendIndex !== undefined) {
+      if (view === "years" && bsPeriods.length > 0) {
+        const years = [...new Set(bsPeriods.map((p) => p.fiscalYear))].sort((a, b) => a - b)
+        const fy = years[Math.max(0, Math.min(trendIndex, years.length - 1))]
+        let lastIdx = 0
+        for (let i = 0; i < bsPeriods.length; i++) {
+          if (bsPeriods[i]!.fiscalYear === fy) lastIdx = i
+        }
+        return lastIdx
       }
-      return bsPeriods.map((p) => p.label)
+      return Math.max(0, Math.min(trendIndex, Math.max(0, bsPeriods.length - 1)))
     }
-    // Fallback to generated labels
+    const len = Math.max(bsPeriods.length, 1)
+    return isPrior ? Math.max(0, len - 2) : len - 1
+  }
+
+  const heuristicMetric = (label: string): Omit<DisplayMetric, "showAmounts"> | null => {
+    const key = normalizeMetricLabel(label)
+    if (key === "fdr") {
+      return { key: "fdr", label, format: "currency", valueAt: calculateWorkingCapital }
+    }
+    if (key === "fdrhc") {
+      return {
+        key: "fdrhc",
+        label,
+        format: "currency",
+        valueAt: calculateWorkingCapitalExCash,
+      }
+    }
+    if (key === "fdr / revenus") {
+      return {
+        key: "fdr-rev",
+        label,
+        format: "percent",
+        valueAt: (isPrior, trendIndex) =>
+          getRevenuePercentage(calculateWorkingCapital(isPrior, trendIndex), isPrior, trendIndex),
+      }
+    }
+    if (key === "fdrhc / revenus") {
+      return {
+        key: "fdrhc-rev",
+        label,
+        format: "percent",
+        valueAt: (isPrior, trendIndex) =>
+          getRevenuePercentage(
+            calculateWorkingCapitalExCash(isPrior, trendIndex),
+            isPrior,
+            trendIndex,
+          ),
+      }
+    }
+    if (key === "ratio de fdr") {
+      return { key: "ratio-fdr", label, format: "ratio", valueAt: calculateFDRRatio }
+    }
+    if (key === "ratio de fdrhc") {
+      return { key: "ratio-fdrhc", label, format: "ratio", valueAt: calculateFdRHCRatio }
+    }
+    return null
+  }
+
+  const tableRows: Array<
+    | { kind: "separator"; key: string }
+    | { kind: "spacer"; key: string }
+    | {
+        kind: "metric"
+        key: string
+        metric: DisplayMetric
+        structureRow: Record<string, unknown>
+        operands: WorkingCapitalIncludedOperand[]
+      }
+  > = useMemo(() => {
+    const buildMetricFromRow = (
+      row: Record<string, unknown>,
+      idx: number,
+    ): DisplayMetric => {
+      const label = String(row.label || `Métrique ${idx + 1}`)
+      const isBold = row.isBold === true
+      const explicitFormat = normalizeWorkingCapitalDisplayFormat(row.displayFormat)
+      const structured = resolveWorkingCapitalStructureAmount(
+        row,
+        bsRows,
+        isRows,
+        bsPeriods,
+        isPeriods,
+        0,
+        structure,
+      )
+      // Montants visibles uniquement si une liaison (code / formule) est configurée.
+      if (structured !== null) {
+        const displayFormat = explicitFormat ?? resolveWorkingCapitalDisplayFormat(row)
+        const metricFormat = displayFormatToMetricFormat(displayFormat)
+        return {
+          key: `struct-${idx}`,
+          label,
+          isBold,
+          showAmounts: true,
+          format: metricFormat,
+          valueAt: (isPrior: boolean, trendIndex?: number) => {
+            const raw =
+              resolveWorkingCapitalStructureAmount(
+                row,
+                bsRows,
+                isRows,
+                bsPeriods,
+                isPeriods,
+                periodIndexFor(isPrior, trendIndex),
+                structure,
+              ) ?? 0
+            return displayFormat === "percent" ? raw * 100 : raw
+          },
+        }
+      }
+      const heuristic = heuristicMetric(label)
+      return {
+        key: heuristic?.key ?? `row-${idx}`,
+        label,
+        isBold,
+        showAmounts: false,
+        format: displayFormatToMetricFormat(explicitFormat ?? "currency"),
+        valueAt: () => 0,
+      }
+    }
+
+    const viewRows = workingCapitalStructureViewRows(structure)
+    if (viewRows.length > 0) {
+      return viewRows.map((item) => {
+        if (item.kind === "separator" || item.kind === "spacer") return item
+        return {
+          kind: "metric" as const,
+          key: item.key,
+          metric: buildMetricFromRow(item.row, item.index),
+          structureRow: item.row,
+          operands: collectWorkingCapitalIncludedOperands(item.row),
+        }
+      })
+    }
+
+    const fallback = [
+      { label: "FDR" },
+      { label: "FdRHC" },
+      { label: "FDR / Revenus" },
+      { label: "FdRHC / Revenus" },
+      { label: "Ratio de FDR" },
+      { label: "Ratio de FdRHC" },
+    ]
+    return fallback.map((row, idx) => ({
+      kind: "metric" as const,
+      key: `fallback-${idx}`,
+      metric: buildMetricFromRow(row, idx),
+      structureRow: row,
+      operands: collectWorkingCapitalIncludedOperands(row),
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structure, bsRows, isRows, bsPeriods, isPeriods, data, view])
+
+  const toggleRow = (rowKey: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(rowKey)) next.delete(rowKey)
+      else next.add(rowKey)
+      return next
+    })
+  }
+
+  const getPeriodColumnLabels = (): string[] => {
+    if (bsPeriods.length > 0) {
+      if (view === "current") {
+        // Courant = date de référence, Passé = période précédente (libellés réels, décroissant).
+        const last = bsPeriods[bsPeriods.length - 1]?.label ?? "Courant"
+        const prior =
+          bsPeriods.length > 1
+            ? (bsPeriods[bsPeriods.length - 2]?.label ?? "Passé")
+            : "Passé"
+        return [last, prior]
+      }
+      const chronological =
+        view === "years"
+          ? aggregateToYears(
+              bsPeriods.map(() => 0),
+              bsPeriods,
+            ).labels
+          : bsPeriods.map((p) => p.label)
+      return reverseSeriesOrderForDisplay(chronological)
+    }
+    if (view === "current") return ["Courant", "Passé"]
     if (view === "years") {
       const cy = new Date().getFullYear()
-      return Array.from({ length: 6 }, (_, i) => `${cy - 5 + i}`)
+      return Array.from({ length: 6 }, (_, i) => `${cy - i}`)
     }
+    const count = view === "24months" ? 24 : 12
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
     const labels: string[] = []
     const currentDate = new Date()
-    for (let i = count - 1; i >= 0; i--) {
+    for (let i = 0; i < count; i++) {
       const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
       labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
     }
     return labels
   }
 
-  // Helper function to get horizon text
   const getHorizonText = (): string => {
     if (view === "current" && period === "monthly") return "Courant"
     if (view === "current" && period === "quarterly") return "Trimestriel"
@@ -270,710 +542,409 @@ export function WorkingCapitalAnalysis({
     return "Courant"
   }
 
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
-      {/* Header */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">Analyse du fonds de roulement</h3>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                <span className="font-medium">{getHorizonText()}</span>
-                <span className="text-slate-500">•</span>
-                {subDivisionId && divisionId && companyId ? (
+  const trendCount =
+    data.trendValues?.length ||
+    (view === "24months" ? 24 : view === "years" ? 6 : view === "12months" ? 12 : 0)
+
+  const tableColumnCount =
+    2 + (view === "current" ? 2 : Math.max(trendCount, getPeriodColumnLabels().length, 1))
+
+  /** Style montants : Détail CDR (slate-500) ; postes gras → libellé + montants en gras. */
+  const metricColumnClass =
+    "box-border w-[18rem] min-w-[18rem] max-w-[18rem] sm:w-[20rem] sm:min-w-[20rem] sm:max-w-[20rem]"
+  const amountCellClass = (isBold?: boolean) =>
+    cn(
+      "whitespace-nowrap px-6 py-3 text-right text-sm",
+      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
+    )
+  const amountTrendCellClass = (isBold?: boolean) =>
+    cn(
+      "min-w-[5.5rem] whitespace-nowrap px-4 py-3 text-right text-sm",
+      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
+    )
+  const amountAverageCellClass = (isBold?: boolean) =>
+    cn(
+      "min-w-[7.5rem] whitespace-nowrap bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3 text-right text-sm",
+      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
+    )
+  const metricLabelCellClass = (isBold?: boolean, isChild?: boolean) =>
+    cn(
+      metricColumnClass,
+      "sticky left-0 z-10",
+      isChild
+        ? "bg-slate-50 py-2.5 pl-14 pr-6 text-sm text-slate-600"
+        : cn("bg-white px-6 py-3 text-slate-900", isBold && "font-bold"),
+    )
+
+  const renderMetricRow = (
+    rowKey: string,
+    metric: DisplayMetric,
+    operands: WorkingCapitalIncludedOperand[],
+  ) => {
+    const chronologicalValues =
+      view === "current"
+        ? [metric.valueAt(false), metric.valueAt(true)]
+        : Array.from({ length: trendCount }, (_, idx) => metric.valueAt(false, idx))
+    // Multi-période : référence (plus récente) à gauche, puis décroissant.
+    const values =
+      view === "current"
+        ? chronologicalValues
+        : reverseSeriesOrderForDisplay(chronologicalValues)
+    const average =
+      chronologicalValues.length > 0
+        ? chronologicalValues.reduce((sum, v) => sum + v, 0) / chronologicalValues.length
+        : 0
+
+    const formatCell = (value: number) =>
+      metric.showAmounts ? formatMetricValue(value, metric.format) : ""
+
+    const canExpand = operands.length > 0
+    const isExpanded = expandedRows.has(rowKey)
+
+    const operandChronologicalValues = (code: string): number[] => {
+      if (view === "current") {
+        return [
+          resolveWorkingCapitalOperandAmount(
+            code,
+            bsRows,
+            isRows,
+            bsPeriods,
+            isPeriods,
+            periodIndexFor(false),
+            structure,
+          ),
+          resolveWorkingCapitalOperandAmount(
+            code,
+            bsRows,
+            isRows,
+            bsPeriods,
+            isPeriods,
+            periodIndexFor(true),
+            structure,
+          ),
+        ]
+      }
+      return Array.from({ length: trendCount }, (_, idx) =>
+        resolveWorkingCapitalOperandAmount(
+          code,
+          bsRows,
+          isRows,
+          bsPeriods,
+          isPeriods,
+          periodIndexFor(false, idx),
+          structure,
+        ),
+      )
+    }
+
+    return (
+      <Fragment key={rowKey}>
+        <tr
+          className={cn(
+            "group transition-colors hover:bg-[#E0742D]/[0.04]",
+            canExpand && "cursor-pointer",
+          )}
+          onClick={canExpand ? () => toggleRow(rowKey) : undefined}
+          data-testid={canExpand ? `wc-metric-expand-${rowKey}` : undefined}
+          aria-expanded={canExpand ? isExpanded : undefined}
+        >
+          <td className={cn(metricLabelCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+            <div className="flex items-center gap-2">
+              {canExpand ? (
+                <span className="flex-shrink-0" aria-hidden>
+                  {isExpanded ? (
+                    <ChevronDown className="h-4 w-4 text-slate-500" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-slate-500" />
+                  )}
+                </span>
+              ) : (
+                <span className="inline-block w-4 flex-shrink-0" aria-hidden />
+              )}
+              <span className="min-w-0 truncate">{metric.label}</span>
+            </div>
+          </td>
+          <td className={cn(amountAverageCellClass(metric.isBold), "group-hover:from-[#FDF6F1] group-hover:to-[#FDF6F1]")}>
+            {formatCell(average)}
+          </td>
+          {view === "current" ? (
+            <>
+              <td className={cn(amountCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+                {formatCell(values[0] ?? 0)}
+              </td>
+              <td className={cn(amountCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+                {formatCell(values[1] ?? 0)}
+              </td>
+            </>
+          ) : (
+            values.map((v, idx) => (
+              <td
+                key={idx}
+                className={cn(amountTrendCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}
+              >
+                {formatCell(v)}
+              </td>
+            ))
+          )}
+        </tr>
+        {isExpanded &&
+          operands.map((op) => {
+            const chronological = operandChronologicalValues(op.code)
+            const displayValues =
+              view === "current"
+                ? chronological
+                : reverseSeriesOrderForDisplay(chronological)
+            const opAverage =
+              chronological.length > 0
+                ? chronological.reduce((sum, v) => sum + v, 0) / chronological.length
+                : 0
+            const label = workingCapitalOperandDisplayLabel(
+              op.code,
+              bsRows,
+              isRows,
+              structure,
+            )
+            return (
+              <tr
+                key={`${rowKey}-${op.role}-${op.code}`}
+                className="bg-slate-50/80"
+                data-testid={`wc-operand-${op.code}`}
+              >
+                <td className={metricLabelCellClass(false, true)}>
+                  <span className="inline-flex min-w-0 items-baseline gap-1.5">
+                    {op.sign ? (
+                      <span className="font-medium text-slate-400 tabular-nums">{op.sign}</span>
+                    ) : null}
+                    <span className="font-mono text-xs text-slate-500">{op.code}</span>
+                    <span className="text-slate-400">—</span>
+                    <span className="min-w-0 truncate">{label}</span>
+                  </span>
+                </td>
+                <td className={amountAverageCellClass(false)}>
+                  {formatCurrency(opAverage)}
+                </td>
+                {view === "current" ? (
                   <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-500">•</span>
-                    <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                    <span className="text-slate-500">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
+                    <td className={amountCellClass(false)}>
+                      {formatCurrency(displayValues[0] ?? 0)}
+                    </td>
+                    <td className={amountCellClass(false)}>
+                      {formatCurrency(displayValues[1] ?? 0)}
+                    </td>
                   </>
-                ) : divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-500">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                  </>
-                ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
                 ) : (
-                  <span className="truncate">Toutes les sociétés</span>
+                  displayValues.map((v, idx) => (
+                    <td key={idx} className={amountTrendCellClass(false)}>
+                      {formatCurrency(v)}
+                    </td>
+                  ))
+                )}
+              </tr>
+            )
+          })}
+      </Fragment>
+    )
+  }
+
+  return (
+    <div className={cn("mb-6", dashboardCardFrameStaticClass)}>
+      <div className={dashboardCardRingClass} aria-hidden />
+      <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 flex-1 items-start gap-4">
+            <div className={dashboardCardHeaderIconBoxClass}>
+              <LayoutList className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <h3 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>
+                  Analyse du fonds de roulement
+                </h3>
+                {isStructureStudio && (
+                  <Badge
+                    variant="secondary"
+                    className="border border-slate-200 bg-slate-100 font-medium text-[#2A2F3A] shadow-none"
+                  >
+                    <Sparkles className="h-3 w-3 text-[#E0742D]" />
+                    Édition structure
+                  </Badge>
                 )}
               </div>
+              {isStructureStudio ? (
+                <p className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
+                  Ajustez les libellés. <span className="font-medium text-[#2A2F3A]">Code</span> active
+                  la colonne liaison ;{" "}
+                  <span className="font-medium text-[#2A2F3A]">Liaison</span> définit un code unique ou
+                  une formule ; <span className="font-medium text-[#2A2F3A]">Format</span> choisit $,
+                  Nombre, % ou Jours pour l’affichage hors Paramètres. Enregistrez pour appliquer.
+                </p>
+              ) : (
+                <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+                  <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
+                  <span className="text-slate-400">•</span>
+                  {companyId ? (
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                      {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+                    </span>
+                  ) : (
+                    <span className="truncate">Toutes les sociétés</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
+          {canInlineStructureEdit && !structureEditMode && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={dashboardCardStructureSettingsButtonClass}
+              onClick={() => setStructureEditMode(true)}
+            >
+              <Settings className={cn("h-4 w-4", dashboardCardAccentClass)} />
+              Paramètres
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Loading state */}
-      {loading && (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
-        </div>
-      )}
+      {isStructureStudio ? (
+        <StatementStructureStudio
+          embedded
+          companyId={companyId!}
+          statementType="working-capital"
+          hideAnnexColumns
+          onSaved={() => {
+            onStructureSaved?.()
+            setStructureEditMode(false)
+          }}
+          onClose={() => setStructureEditMode(false)}
+        />
+      ) : (
+        <>
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
+            </div>
+          )}
 
-      {/* No company selected */}
-      {!companyId && !loading && (
-        <div className="flex items-center justify-center py-12 text-slate-500 text-sm">
-          Sélectionnez une société
-        </div>
-      )}
+          {!companyId && !loading && (
+            <div className="flex items-center justify-center py-12 text-sm text-slate-500">
+              Sélectionnez une société
+            </div>
+          )}
 
-      {/* No data available */}
-      {companyId && !loading && data.currentAssets === 0 && data.priorAssets === 0 && data.currentLiabilities === 0 && !data.trendValues && (
-        <div className="flex items-center justify-center py-12 text-slate-500 text-sm">
-          Aucune donnée
-        </div>
-      )}
-
-      {/* Table */}
-      {!loading && (companyId ? (data.currentAssets !== 0 || data.priorAssets !== 0 || data.currentLiabilities !== 0 || !!data.trendValues) : false) && (
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-gradient-to-b from-slate-50 to-slate-100/50 border-b-2 border-slate-200">
-              <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Métrique</th>
-              <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Moyenne</th>
-              {view === "current" && (
-                <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Passé</th>
-                </>
-              )}
-              {view === "12months" && (
-                <>
-                  {getPeriodColumnLabels(12).map((label, idx) => (
-                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
-                      {label}
-                    </th>
-                  ))}
-                </>
-              )}
-              {view === "24months" && (
-                <>
-                  {getPeriodColumnLabels(24).map((label, idx) => (
-                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
-                      {label}
-                    </th>
-                  ))}
-                </>
-              )}
-              {view === "years" && (
-                <>
-                  {getPeriodColumnLabels(0).map((label, idx) => (
-                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
-                      {label}
-                    </th>
-                  ))}
-                </>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {/* FDR */}
-            <tr className="border-b border-slate-100 hover:bg-emerald-50/30 transition-colors">
-              <td className="px-6 py-3.5 text-slate-900">FDR</td>
-              
-              {/* Colonne Moyenne */}
-              {view === "current" && (() => {
-                const fdrCurrent = calculateWorkingCapital(false)
-                const fdrPrior = calculateWorkingCapital(true)
-                const average = (fdrCurrent + fdrPrior) / 2
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {formatCurrency(average)}
-                  </td>
-                )
-              })()}
-              {view === "12months" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => calculateWorkingCapital(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {formatCurrency(average)}
-                  </td>
-                )
-              })()}
-              {view === "24months" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => calculateWorkingCapital(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {formatCurrency(average)}
-                  </td>
-                )
-              })()}
-              {view === "years" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => calculateWorkingCapital(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {formatCurrency(average)}
-                  </td>
-                )
-              })()}
-              
-              {/* Colonnes de données */}
-              {view === "current" && (
-                <>
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                    {formatCurrency(calculateWorkingCapital(false))}
-                  </td>
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-600">
-                    {formatCurrency(calculateWorkingCapital(true))}
-                  </td>
-                </>
-              )}
-              
-              {view === "12months" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
-                    const fdr = calculateWorkingCapital(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {formatCurrency(fdr)}
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "24months" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
-                    const fdr = calculateWorkingCapital(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {formatCurrency(fdr)}
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "years" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
-                    const fdr = calculateWorkingCapital(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {formatCurrency(fdr)}
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-            </tr>
-            
-            {/* FdRHC */}
-            <tr className="border-b border-slate-100 hover:bg-blue-50/30 transition-colors">
-              <td className="px-6 py-3.5 text-slate-900">FdRHC</td>
-              
-              {/* Colonne Moyenne */}
-              {view === "current" && (() => {
-                const fdrhcCurrent = calculateWorkingCapitalExCash(false)
-                const fdrhcPrior = calculateWorkingCapitalExCash(true)
-                const average = (fdrhcCurrent + fdrhcPrior) / 2
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {formatCurrency(average)}
-                  </td>
-                )
-              })()}
-              {view === "12months" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => calculateWorkingCapitalExCash(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {formatCurrency(average)}
-                  </td>
-                )
-              })()}
-              {view === "24months" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => calculateWorkingCapitalExCash(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {formatCurrency(average)}
-                  </td>
-                )
-              })()}
-              {view === "years" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => calculateWorkingCapitalExCash(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {formatCurrency(average)}
-                  </td>
-                )
-              })()}
-              
-              {/* Colonnes de données */}
-              {view === "current" && (
-                <>
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                    {formatCurrency(calculateWorkingCapitalExCash(false))}
-                  </td>
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-600">
-                    {formatCurrency(calculateWorkingCapitalExCash(true))}
-                  </td>
-                </>
-              )}
-              
-              {view === "12months" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
-                    const fdrhc = calculateWorkingCapitalExCash(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {formatCurrency(fdrhc)}
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "24months" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
-                    const fdrhc = calculateWorkingCapitalExCash(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {formatCurrency(fdrhc)}
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "years" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
-                    const fdrhc = calculateWorkingCapitalExCash(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {formatCurrency(fdrhc)}
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-            </tr>
-            
-            {/* FDR / Revenus */}
-            <tr className="border-b border-slate-100 hover:bg-purple-50/30 transition-colors">
-              <td className="px-6 py-3.5 text-slate-900">FDR / Revenus</td>
-              
-              {/* Colonne Moyenne */}
-              {view === "current" && (() => {
-                const fdr = calculateWorkingCapital(false)
-                const percentage = getRevenuePercentage(fdr, false)
-                const fdrPrior = calculateWorkingCapital(true)
-                const percentagePrior = getRevenuePercentage(fdrPrior, true)
-                const average = (percentage + percentagePrior) / 2
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)}%
-                  </td>
-                )
-              })()}
-              {view === "12months" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
-                  const fdr = calculateWorkingCapital(false, idx)
-                  return getRevenuePercentage(fdr, false, idx)
-                })
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)}%
-                  </td>
-                )
-              })()}
-              {view === "24months" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
-                  const fdr = calculateWorkingCapital(false, idx)
-                  return getRevenuePercentage(fdr, false, idx)
-                })
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)}%
-                  </td>
-                )
-              })()}
-              {view === "years" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
-                  const fdr = calculateWorkingCapital(false, idx)
-                  return getRevenuePercentage(fdr, false, idx)
-                })
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)}%
-                  </td>
-                )
-              })()}
-              
-              {/* Colonnes de données */}
-              {view === "current" && (() => {
-                const fdr = calculateWorkingCapital(false)
-                const percentage = getRevenuePercentage(fdr, false)
-                const fdrPrior = calculateWorkingCapital(true)
-                const percentagePrior = getRevenuePercentage(fdrPrior, true)
-                return (
-                  <>
-                    <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                      {percentage.toFixed(1)}%
-                    </td>
-                    <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                      {percentagePrior.toFixed(1)}%
-                    </td>
-                  </>
-                )
-              })()}
-              
-              {view === "12months" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
-                    const fdr = calculateWorkingCapital(false, idx)
-                    const percentage = getRevenuePercentage(fdr, false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {percentage.toFixed(1)}%
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "24months" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
-                    const fdr = calculateWorkingCapital(false, idx)
-                    const percentage = getRevenuePercentage(fdr, false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {percentage.toFixed(1)}%
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "years" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
-                    const fdr = calculateWorkingCapital(false, idx)
-                    const percentage = getRevenuePercentage(fdr, false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {percentage.toFixed(1)}%
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-            </tr>
-            
-            {/* FdRHC / Revenus */}
-            <tr className="border-b border-slate-100 hover:bg-amber-50/30 transition-colors">
-              <td className="px-6 py-3.5 text-slate-900">FdRHC / Revenus</td>
-              
-              {/* Colonne Moyenne */}
-              {view === "current" && (() => {
-                const fdrhc = calculateWorkingCapitalExCash(false)
-                const percentage = getRevenuePercentage(fdrhc, false)
-                const fdrhcPrior = calculateWorkingCapitalExCash(true)
-                const percentagePrior = getRevenuePercentage(fdrhcPrior, true)
-                const average = (percentage + percentagePrior) / 2
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)}%
-                  </td>
-                )
-              })()}
-              {view === "12months" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
-                  const fdrhc = calculateWorkingCapitalExCash(false, idx)
-                  return getRevenuePercentage(fdrhc, false, idx)
-                })
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)}%
-                  </td>
-                )
-              })()}
-              {view === "24months" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
-                  const fdrhc = calculateWorkingCapitalExCash(false, idx)
-                  return getRevenuePercentage(fdrhc, false, idx)
-                })
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)}%
-                  </td>
-                )
-              })()}
-              {view === "years" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
-                  const fdrhc = calculateWorkingCapitalExCash(false, idx)
-                  return getRevenuePercentage(fdrhc, false, idx)
-                })
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(1)}%
-                  </td>
-                )
-              })()}
-              
-              {/* Colonnes de données */}
-              {view === "current" && (() => {
-                const fdrhc = calculateWorkingCapitalExCash(false)
-                const percentage = getRevenuePercentage(fdrhc, false)
-                const fdrhcPrior = calculateWorkingCapitalExCash(true)
-                const percentagePrior = getRevenuePercentage(fdrhcPrior, true)
-                return (
-                  <>
-                    <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                      {percentage.toFixed(1)}%
-                    </td>
-                    <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                      {percentagePrior.toFixed(1)}%
-                    </td>
-                  </>
-                )
-              })()}
-              
-              {view === "12months" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
-                    const fdrhc = calculateWorkingCapitalExCash(false, idx)
-                    const percentage = getRevenuePercentage(fdrhc, false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {percentage.toFixed(1)}%
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "24months" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
-                    const fdrhc = calculateWorkingCapitalExCash(false, idx)
-                    const percentage = getRevenuePercentage(fdrhc, false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {percentage.toFixed(1)}%
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "years" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
-                    const fdrhc = calculateWorkingCapitalExCash(false, idx)
-                    const percentage = getRevenuePercentage(fdrhc, false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {percentage.toFixed(1)}%
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-            </tr>
-            
-            {/* Ratio de FDR */}
-            <tr className="border-b border-slate-100 hover:bg-indigo-50/30 transition-colors">
-              <td className="px-6 py-3.5 text-slate-900">Ratio de FDR</td>
-              
-              {/* Colonne Moyenne */}
-              {view === "current" && (() => {
-                const ratioCurrent = calculateFDRRatio(false)
-                const ratioPrior = calculateFDRRatio(true)
-                const average = (ratioCurrent + ratioPrior) / 2
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(2)}
-                  </td>
-                )
-              })()}
-              {view === "12months" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => calculateFDRRatio(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(2)}
-                  </td>
-                )
-              })()}
-              {view === "24months" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => calculateFDRRatio(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(2)}
-                  </td>
-                )
-              })()}
-              {view === "years" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => calculateFDRRatio(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(2)}
-                  </td>
-                )
-              })()}
-              
-              {/* Colonnes de données */}
-              {view === "current" && (
-                <>
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                    {calculateFDRRatio(false).toFixed(2)}
-                  </td>
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                    {calculateFDRRatio(true).toFixed(2)}
-                  </td>
-                </>
-              )}
-              
-              {view === "12months" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
-                    const ratio = calculateFDRRatio(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {ratio.toFixed(2)}
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "24months" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
-                    const ratio = calculateFDRRatio(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {ratio.toFixed(2)}
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "years" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
-                    const ratio = calculateFDRRatio(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {ratio.toFixed(2)}
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-            </tr>
-            
-            {/* Ratio de FdRHC */}
-            <tr className="border-b border-slate-100 hover:bg-teal-50/30 transition-colors">
-              <td className="px-6 py-3.5 text-slate-900">Ratio de FdRHC</td>
-              
-              {/* Colonne Moyenne */}
-              {view === "current" && (() => {
-                const ratioCurrent = calculateFdRHCRatio(false)
-                const ratioPrior = calculateFdRHCRatio(true)
-                const average = (ratioCurrent + ratioPrior) / 2
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(2)}
-                  </td>
-                )
-              })()}
-              {view === "12months" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => calculateFdRHCRatio(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(2)}
-                  </td>
-                )
-              })()}
-              {view === "24months" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => calculateFdRHCRatio(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(2)}
-                  </td>
-                )
-              })()}
-              {view === "years" && (() => {
-                const values = Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => calculateFdRHCRatio(false, idx))
-                const average = values.reduce((sum, val) => sum + val, 0) / values.length
-                return (
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-                    {average.toFixed(2)}
-                  </td>
-                )
-              })()}
-              
-              {/* Colonnes de données */}
-              {view === "current" && (
-                <>
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                    {calculateFdRHCRatio(false).toFixed(2)}
-                  </td>
-                  <td className="px-6 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                    {calculateFdRHCRatio(true).toFixed(2)}
-                  </td>
-                </>
-              )}
-              
-              {view === "12months" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 12 }).map((_, idx) => {
-                    const ratio = calculateFdRHCRatio(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {ratio.toFixed(2)}
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "24months" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 24 }).map((_, idx) => {
-                    const ratio = calculateFdRHCRatio(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {ratio.toFixed(2)}
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-              {view === "years" && (
-                <>
-                  {Array.from({ length: data.trendValues?.length || 6 }).map((_, idx) => {
-                    const ratio = calculateFdRHCRatio(false, idx)
-                    return (
-                      <td key={idx} className="px-4 py-3.5 text-right text-sm font-semibold font-bold text-slate-900">
-                        {ratio.toFixed(2)}
-                      </td>
-                    )
-                  })}
-                </>
-              )}
-            </tr>
-          </tbody>
-        </table>
-      </div>
+          {!loading && companyId && (
+              <div
+                className="min-w-0 max-h-[min(72vh,56rem)] overflow-auto overscroll-contain bg-white"
+                data-testid="wc-summary-table-scroll"
+              >
+                <table className="w-full min-w-max border-separate border-spacing-0">
+                  <thead
+                    className={cn(
+                      "[&_th]:sticky [&_th]:top-0 [&_th]:z-20",
+                      "[&_th]:border-b-2 [&_th]:border-slate-200",
+                      "[&_th]:bg-gradient-to-b [&_th]:from-slate-50 [&_th]:to-slate-100/80",
+                      "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
+                    )}
+                  >
+                    <tr>
+                      <th
+                        className={cn(
+                          metricColumnClass,
+                          "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
+                        )}
+                      >
+                        Métrique
+                      </th>
+                      <th
+                        className={cn(
+                          "min-w-[7.5rem] whitespace-nowrap px-6 py-4 text-right text-sm font-semibold text-[#2A2F3A]",
+                          "bg-gradient-to-b from-slate-50 to-slate-100/50",
+                        )}
+                      >
+                        Moyenne
+                      </th>
+                      {getPeriodColumnLabels().map((label, idx) => (
+                        <th
+                          key={idx}
+                          className={cn(
+                            "whitespace-nowrap text-right text-sm font-semibold text-[#2A2F3A]",
+                            view === "current"
+                              ? "min-w-[7.5rem] px-6 py-4"
+                              : "min-w-[5.5rem] px-4 py-4",
+                          )}
+                        >
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody
+                    className={cn(
+                      // Même motif que CDR / Bilan : bordures sur les td (border-separate).
+                      "[&_td]:border-b [&_td]:border-slate-200",
+                      "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+                    )}
+                  >
+                    {tableRows.map((item) => {
+                      if (item.kind === "separator") {
+                        return (
+                          <tr key={item.key} aria-hidden data-testid="wc-structure-separator">
+                            <td colSpan={tableColumnCount} className="border-0 p-0">
+                              <div className="my-1 border-t-2 border-slate-700" />
+                            </td>
+                          </tr>
+                        )
+                      }
+                      if (item.kind === "spacer") {
+                        const periodColCount =
+                          view === "current"
+                            ? 2
+                            : Math.max(trendCount, getPeriodColumnLabels().length, 1)
+                        return (
+                          <tr key={item.key} data-testid="wc-structure-spacer" className="h-2">
+                            <td
+                              className={cn(
+                                metricColumnClass,
+                                "sticky left-0 z-10 bg-white px-6 py-4 text-transparent select-none",
+                              )}
+                            >
+                              {"\u00a0"}
+                            </td>
+                            <td
+                              className={cn(
+                                amountAverageCellClass(false),
+                                "py-4 text-transparent select-none",
+                              )}
+                              data-testid="wc-spacer-average-cell"
+                            >
+                              {"\u00a0"}
+                            </td>
+                            {Array.from({ length: periodColCount }, (_, idx) => (
+                              <td
+                                key={idx}
+                                className={cn(
+                                  view === "current"
+                                    ? amountCellClass(false)
+                                    : amountTrendCellClass(false),
+                                  "py-4 text-transparent select-none",
+                                )}
+                              >
+                                {"\u00a0"}
+                              </td>
+                            ))}
+                          </tr>
+                        )
+                      }
+                      return renderMetricRow(item.key, item.metric, item.operands)
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+        </>
       )}
     </div>
   )
 }
-

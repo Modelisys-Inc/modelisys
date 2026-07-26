@@ -870,7 +870,7 @@ export function syncIncomeStatementDetailSubLinesFromStandard(
 export const syncDetailSubLinesFromStandard = syncIncomeStatementDetailSubLinesFromStandard
 
 /** Modes de la colonne Liaison (Sommaire / structure). */
-export type LiaisonMode = "na" | "single" | "sum" | "difference"
+export type LiaisonMode = "na" | "single" | "sum" | "difference" | "product" | "quotient"
 
 export function normalizeCodeList(val: unknown): string[] {
   if (val == null) return []
@@ -894,6 +894,8 @@ export function normalizeLiaisonMode(row: Record<string, unknown>): LiaisonMode 
     if (m === "single" || m === "unique" || m === "code") return "single"
     if (m === "sum" || m === "addition" || m === "add") return "sum"
     if (m === "difference" || m === "subtraction" || m === "subtract") return "difference"
+    if (m === "product" || m === "multiplication" || m === "multiply" || m === "×") return "product"
+    if (m === "quotient" || m === "division" || m === "divide" || m === "÷") return "quotient"
   }
   if (String(row.linkCode ?? "").trim()) return "single"
   if (normalizeCodeList(row.liaisonSumCodes).length) return "sum"
@@ -901,6 +903,14 @@ export function normalizeLiaisonMode(row: Record<string, unknown>): LiaisonMode 
   const d = normalizeCodeList(row.liaisonDenominatorCodes)
   if (n.length || d.length) return "difference"
   return "na"
+}
+
+/** Facteur optionnel sur une division : (N ÷ D) × facteur (ex. 365 pour un délai en jours). */
+export function normalizeLiaisonFactor(raw: unknown): number {
+  if (raw == null || raw === "") return 1
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim().replace(",", "."))
+  if (!Number.isFinite(n)) return 1
+  return n
 }
 
 /** Tous les codes de liaison utilisés dans la structure (pour listes à cocher). */
@@ -1258,8 +1268,17 @@ export function formatLiaisonCellHint(row: Record<string, unknown>): string {
     const n = normalizeCodeList(row.liaisonSumCodes).length
     return n ? `Σ ${n} code${n > 1 ? "s" : ""}` : "Σ …"
   }
+  if (mode === "product") {
+    const n = normalizeCodeList(row.liaisonSumCodes).length
+    return n ? `Π ${n} code${n > 1 ? "s" : ""}` : "Π …"
+  }
   const nn = normalizeCodeList(row.liaisonNumeratorCodes).length
   const nd = normalizeCodeList(row.liaisonDenominatorCodes).length
+  if (mode === "quotient") {
+    const f = normalizeLiaisonFactor(row.liaisonFactor)
+    const base = nn || nd ? `N${nn} ÷ D${nd}` : "N ÷ D …"
+    return f !== 1 ? `${base} ×${f}` : base
+  }
   if (nn || nd) return `N${nn} − D${nd}`
   return "N − D …"
 }

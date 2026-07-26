@@ -878,6 +878,70 @@ def test_cash_flow_custom_tex_code_aggregates_attached_codes(client, auth_header
     assert row["current"] == 150.0
 
 
+def test_cash_flow_detail_custom_tex_code_aggregates_attached_codes(client, auth_headers, su_headers):
+    """Detail structure link codes sum accounts via attached Bilan/CDR codes (same as summary)."""
+    company_id = _create_company(client, auth_headers, name="CF Detail TEX Co")
+
+    leaf = client.post(
+        "/api/standard-link-codes",
+        json={
+            "code": "CFD-REV-1",
+            "family": "REV",
+            "label_sub_account": "Feuille exploitation détail",
+            "is_leaf": True,
+        },
+        headers=su_headers,
+    )
+    assert leaf.status_code == 201
+
+    tex_code = client.post(
+        "/api/standard-link-codes",
+        json={
+            "code": "TEX-CFD-1",
+            "family": "TEX",
+            "label_sub_account": "Exploitation détail agrégée",
+            "attached_link_codes": ["CFD-REV-1"],
+        },
+        headers=su_headers,
+    )
+    assert tex_code.status_code == 201
+
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4200", "description": "Revenue A", "link_code": "CFD-REV-1"},
+        {"account_number": "4201", "description": "Revenue B", "link_code": "CFD-REV-1"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "4200",
+            "description": "Revenue A",
+            "monthly_amounts": {"Janvier": 80.0},
+        },
+        {
+            "account_number": "4201",
+            "description": "Revenue B",
+            "monthly_amounts": {"Janvier": 40.0},
+        },
+    ], fiscal_year=2026)
+    _upsert_structure(client, auth_headers, company_id, "cash-flow-detail", [
+        {
+            "label": "Exploitation détail agrégée",
+            "linkCode": "TEX-CFD-1",
+            "liaisonMode": "single",
+            "defineMapping": True,
+        },
+    ])
+
+    r = client.get(
+        f"/api/companies/{company_id}/financial-statements/cash-flow-detail",
+        params={"fiscal_year": 2026, "month": 1},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert r.json()["statementType"] == "cash-flow-detail"
+    row = r.json()["rows"][0]
+    assert row["current"] == 120.0
+
+
 def test_cash_flow_series_annex_row_includes_gl_detail_rows(client, auth_headers):
     """Cash-flow series keeps GL detail rows for annex-enabled rows."""
     company_id = _create_company(client, auth_headers, name="CF Series Detail Co")

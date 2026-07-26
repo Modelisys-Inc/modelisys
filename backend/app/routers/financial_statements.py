@@ -101,15 +101,40 @@ def get_cash_flow(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Cash flow is derived from the income statement and balance sheet deltas.
+    """Cash-flow summary computed from the company `cash-flow` structure.
 
-    For now, we treat it as a separate statement structure type that can be
-    configured per company, similar to income-statement and balance-sheet.
+    Link codes (TEX/TIN/TFI) expand via attached Bilan/CDR codes on the
+    Code de liaison page, then sum matching trial-balance accounts.
     """
     company = verify_company_access(db, current_user, company_id)
     fy, fm = _convert_calendar_to_fiscal(company, fiscal_year, month)
     return compute_financial_statement(
         db, company, "cash-flow", fy, fm,
+        period, comparison_type, budget_id, division_id, sub_division_id,
+        customer, supplier,
+    )
+
+
+@router.get("/cash-flow-detail", response_model=FinancialStatementResponse)
+def get_cash_flow_detail(
+    company_id: uuid.UUID,
+    fiscal_year: int = Query(...),
+    month: int = Query(default=12, ge=1, le=12),
+    period: str = Query(default="monthly"),
+    comparison_type: str = Query(default="prior_year"),
+    budget_id: uuid.UUID | None = Query(default=None),
+    division_id: uuid.UUID | None = Query(default=None),
+    sub_division_id: uuid.UUID | None = Query(default=None),
+    customer: str | None = Query(default=None),
+    supplier: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Cash-flow detail: same liaison/TB aggregation as summary, using `cash-flow-detail`."""
+    company = verify_company_access(db, current_user, company_id)
+    fy, fm = _convert_calendar_to_fiscal(company, fiscal_year, month)
+    return compute_financial_statement(
+        db, company, "cash-flow-detail", fy, fm,
         period, comparison_type, budget_id, division_id, sub_division_id,
         customer, supplier,
     )

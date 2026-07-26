@@ -1,6 +1,28 @@
 import { test, expect, Page } from "@playwright/test"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 
 const COMPANY_ID = "11111111-1111-1111-1111-111111111111"
+
+/** Summary cash-flow FS (excludes cash-flow-detail). */
+function isCashFlowSummaryUrl(url: URL | string): boolean {
+  const path = typeof url === "string" ? url : url.href
+  return path.includes(`/companies/${COMPANY_ID}/financial-statements/cash-flow`) && !path.includes("cash-flow-detail")
+}
+
+function isCashFlowDetailUrl(url: URL | string): boolean {
+  const path = typeof url === "string" ? url : url.href
+  return path.includes(`/companies/${COMPANY_ID}/financial-statements/cash-flow-detail`)
+}
+
+function isCashFlowSummaryStructureUrl(url: URL | string): boolean {
+  const path = typeof url === "string" ? url : url.href
+  return path.includes(`/companies/${COMPANY_ID}/statement-structures/cash-flow`) && !path.includes("cash-flow-detail")
+}
+
+function isCashFlowDetailStructureUrl(url: URL | string): boolean {
+  const path = typeof url === "string" ? url : url.href
+  return path.includes(`/companies/${COMPANY_ID}/statement-structures/cash-flow-detail`)
+}
 
 const CASH_FLOW_DEFAULT = [
   { label: "flux de trésorerie liés à l'exploitation", isBold: true, isSection: true },
@@ -66,6 +88,27 @@ const CASH_FLOW_LINK_CODES = [
   },
 ]
 
+function emptyCashFlowResponse(statementType: "cash-flow" | "cash-flow-detail" = "cash-flow") {
+  return {
+    companyId: COMPANY_ID,
+    statementType,
+    fiscalYear: 2026,
+    month: 12,
+    period: "monthly",
+    rows: [] as unknown[],
+  }
+}
+
+function emptySeriesResponse(statementType: "cash-flow" | "cash-flow-detail" = "cash-flow") {
+  return {
+    companyId: COMPANY_ID,
+    statementType,
+    fiscalYear: 2026,
+    periods: [] as unknown[],
+    rows: [] as unknown[],
+  }
+}
+
 async function setupAuth(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem("access_token", "fake-access-token")
@@ -96,21 +139,55 @@ async function setupAuth(page: Page) {
   await page.route(`**/api/companies/${COMPANY_ID}/budgets**`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ budgets: [] }) }),
   )
-  // Chart config slots — needed by the dashboard section that mounts first.
   await page.route(`**/api/companies/${COMPANY_ID}/statement-chart-configs*`, (route) => {
     if (route.request().method() === "GET") {
       return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ slots: [] }) })
     }
     return route.continue()
   })
-  // Series endpoint — needed when Sommaire is in a multi-period view (12months).
-  await page.route(`**/api/companies/${COMPANY_ID}/financial-statements/cash-flow/series*`, (route) =>
-    route.fulfill({
+  await page.route(isCashFlowSummaryUrl, (route) => {
+    if (route.request().url().includes("/series")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(emptySeriesResponse("cash-flow")),
+      })
+    }
+    return route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ companyId: COMPANY_ID, statementType: "cash-flow", fiscalYear: 2026, periods: [], rows: [] }),
-    }),
-  )
+      body: JSON.stringify(emptyCashFlowResponse("cash-flow")),
+    })
+  })
+  await page.route(isCashFlowDetailUrl, (route) => {
+    if (route.request().url().includes("/series")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(emptySeriesResponse("cash-flow-detail")),
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(emptyCashFlowResponse("cash-flow-detail")),
+    })
+  })
+  await page.route(isCashFlowDetailStructureUrl, (route) => {
+    if (route.request().method() === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: null,
+          company_id: COMPANY_ID,
+          statement_type: "cash-flow-detail",
+          structure: CASH_FLOW_DEFAULT,
+        }),
+      })
+    }
+    return route.continue()
+  })
   await page.route("**/api/standard-link-codes/flat**", (route) =>
     route.fulfill({
       status: 200,
@@ -121,38 +198,37 @@ async function setupAuth(page: Page) {
 }
 
 test.describe("Trésorerie structure editor", () => {
+  test.setTimeout(60_000)
+
   test("Sommaire exposes Paramètres, opens the studio, and saves", async ({ page }) => {
     await setupAuth(page)
 
     let putCalled = false
     let savedPayload: unknown = null
     const cashFlowUrls: string[] = []
-    await page.route(`**/api/companies/${COMPANY_ID}/financial-statements/cash-flow*`, (route) => {
+    await page.route(isCashFlowSummaryUrl, (route) => {
       cashFlowUrls.push(route.request().url())
       if (route.request().url().includes("/series")) {
         return route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({ companyId: COMPANY_ID, statementType: "cash-flow", fiscalYear: 2026, periods: [], rows: [] }),
+          body: JSON.stringify(emptySeriesResponse("cash-flow")),
         })
       }
       return route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          companyId: COMPANY_ID,
-          statementType: "cash-flow",
-          fiscalYear: 2026,
-          month: 12,
-          period: "monthly",
-          rows: [],
-        }),
+        body: JSON.stringify(emptyCashFlowResponse("cash-flow")),
       })
     })
-    await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/cash-flow*`, (route) => {
+    await page.route(isCashFlowSummaryStructureUrl, (route) => {
       const method = route.request().method()
       if (method === "GET") {
-        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: null, company_id: COMPANY_ID, statement_type: "cash-flow", structure: CASH_FLOW_DEFAULT }) })
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ id: null, company_id: COMPANY_ID, statement_type: "cash-flow", structure: CASH_FLOW_DEFAULT }),
+        })
       }
       if (method === "PUT") {
         putCalled = true
@@ -164,19 +240,13 @@ test.describe("Trésorerie structure editor", () => {
 
     await page.goto(`/financial-statements/cash-flow?companyId=${COMPANY_ID}`)
 
-    // Go to Sommaire and open the editor.
     await page.getByRole("button", { name: /^Sommaire$/ }).click({ timeout: 15000 })
     await page.getByRole("button", { name: /^Paramètres$/ }).click({ timeout: 15000 })
 
-    // The studio shows the default rows as editable inputs.
-    // Verify the studio toolbar is rendered (confirms edit mode is active).
     await expect(page.getByRole("button", { name: /Ajouter un poste/i })).toBeVisible({ timeout: 10000 })
-    // Verify the default rows actually rendered as editable inputs (would fail
-    // if the studio opened but rendered zero rows / ignored the GET payload).
     await expect(page.locator('input[value*="investissement" i]').first()).toBeVisible({ timeout: 5000 })
     await page.locator('input[value*="investissement" i]').first().fill("flux investissement")
 
-    // Save.
     await page.getByRole("button", { name: /^Enregistrer$/ }).click()
     await expect.poll(() => putCalled, { timeout: 10000 }).toBe(true)
     expect(JSON.stringify(savedPayload)).toContain("flux investissement")
@@ -185,35 +255,13 @@ test.describe("Trésorerie structure editor", () => {
       { timeout: 10000 },
     ).toBe(true)
 
-    // Editor closes (Paramètres trigger returns).
     await expect(page.getByRole("button", { name: /^Paramètres$/ })).toBeVisible({ timeout: 10000 })
   })
 
   test("Sommaire Paramètres — espace, séparation et modification de poste", async ({ page }) => {
     await setupAuth(page)
 
-    await page.route(`**/api/companies/${COMPANY_ID}/financial-statements/cash-flow*`, (route) => {
-      if (route.request().url().includes("/series")) {
-        return route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ companyId: COMPANY_ID, statementType: "cash-flow", fiscalYear: 2026, periods: [], rows: [] }),
-        })
-      }
-      return route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          companyId: COMPANY_ID,
-          statementType: "cash-flow",
-          fiscalYear: 2026,
-          month: 12,
-          period: "monthly",
-          rows: [],
-        }),
-      })
-    })
-    await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/cash-flow*`, (route) => {
+    await page.route(isCashFlowSummaryStructureUrl, (route) => {
       const method = route.request().method()
       if (method === "GET") {
         return route.fulfill({
@@ -232,18 +280,15 @@ test.describe("Trésorerie structure editor", () => {
     await page.getByRole("button", { name: /^Sommaire$/ }).click({ timeout: 15000 })
     await page.getByRole("button", { name: /^Paramètres$/ }).click({ timeout: 15000 })
 
-    // Ajouter un espace via la modale (comme Bilan Sommaire).
     await page.getByRole("button", { name: /Ajouter un espace/i }).click()
     await expect(page.getByRole("dialog")).toBeVisible()
     await page.getByRole("button", { name: /Insérer l'espace/i }).click()
     await expect(page.getByText(/Ligne vide — renommez ou supprimez/i)).toBeVisible()
 
-    // Cocher « Séparation » sur le premier poste → trait visuel au-dessus.
     const sepCheckbox = page.getByRole("checkbox", { name: /Séparation : trait au-dessus/i }).first()
     await sepCheckbox.click()
     await expect(page.locator("tr[aria-hidden] td.border-t-slate-600").first()).toBeVisible()
 
-    // Modifier la présentation d’un poste (crayon).
     await page.getByRole("button", { name: /Modifier le poste \(niveau, gras\)/i }).first().click()
     await expect(page.getByRole("dialog")).toContainText(/Modifier le poste/i)
     await page.getByRole("radio", { name: /Poste principal/i }).click()
@@ -254,28 +299,7 @@ test.describe("Trésorerie structure editor", () => {
   test("Sommaire liaison code unique offers Trésorerie family codes only", async ({ page }) => {
     await setupAuth(page)
 
-    await page.route(`**/api/companies/${COMPANY_ID}/financial-statements/cash-flow*`, (route) => {
-      if (route.request().url().includes("/series")) {
-        return route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ companyId: COMPANY_ID, statementType: "cash-flow", fiscalYear: 2026, periods: [], rows: [] }),
-        })
-      }
-      return route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          companyId: COMPANY_ID,
-          statementType: "cash-flow",
-          fiscalYear: 2026,
-          month: 12,
-          period: "monthly",
-          rows: [],
-        }),
-      })
-    })
-    await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/cash-flow*`, (route) => {
+    await page.route(isCashFlowSummaryStructureUrl, (route) => {
       const method = route.request().method()
       if (method === "GET") {
         return route.fulfill({
@@ -306,28 +330,7 @@ test.describe("Trésorerie structure editor", () => {
     await setupAuth(page)
 
     let putCalled = false
-    await page.route(`**/api/companies/${COMPANY_ID}/financial-statements/cash-flow*`, (route) => {
-      if (route.request().url().includes("/series")) {
-        return route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ companyId: COMPANY_ID, statementType: "cash-flow", fiscalYear: 2026, periods: [], rows: [] }),
-        })
-      }
-      return route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          companyId: COMPANY_ID,
-          statementType: "cash-flow",
-          fiscalYear: 2026,
-          month: 12,
-          period: "monthly",
-          rows: [],
-        }),
-      })
-    })
-    await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/cash-flow-detail*`, (route) => {
+    await page.route(isCashFlowDetailStructureUrl, (route) => {
       const method = route.request().method()
       if (method === "GET") {
         return route.fulfill({
@@ -371,38 +374,34 @@ test.describe("Trésorerie structure editor", () => {
       { id: "s2", label: "flux investissement détail", linkCode: "TIN-INV", defineMapping: true },
     ]
 
-    await page.route(`**/api/companies/${COMPANY_ID}/financial-statements/cash-flow*`, (route) => {
+    await page.route(isCashFlowDetailUrl, (route) => {
       if (route.request().url().includes("/series")) {
         return route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify({ companyId: COMPANY_ID, statementType: "cash-flow", fiscalYear: 2026, periods: [], rows: [] }),
+          body: JSON.stringify(emptySeriesResponse("cash-flow-detail")),
         })
       }
       return route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          companyId: COMPANY_ID,
-          statementType: "cash-flow",
-          fiscalYear: 2026,
-          month: 12,
-          period: "monthly",
+          ...emptyCashFlowResponse("cash-flow-detail"),
           rows: [
             {
-              id: "TIN-INV",
+              id: "s2",
               linkCode: "TIN-INV",
               label: "ancien libellé investissement",
               current: 1000,
               prior: 900,
-              isBold: true,
+              isBold: false,
               hasLiaisonCode: true,
             },
           ],
         }),
       })
     })
-    await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/cash-flow-detail*`, (route) => {
+    await page.route(isCashFlowDetailStructureUrl, (route) => {
       if (route.request().method() === "GET") {
         return route.fulfill({
           status: 200,
@@ -420,13 +419,262 @@ test.describe("Trésorerie structure editor", () => {
 
     await page.goto(`/financial-statements/cash-flow?companyId=${COMPANY_ID}`)
     await page.getByRole("button", { name: /^Détail$/ }).click({ timeout: 15000 })
+    // Dashboard force "Mensuel" (12 mois) ; basculer sur Mois actuel pour le mode comparaison.
+    await page.getByRole("combobox").filter({ hasText: /Mensuel|Mois actuel/i }).first().click()
+    await page.getByRole("option", { name: HORIZON_LABEL.moisActuel }).click()
 
     const table = page.locator("table").filter({ has: page.getByRole("columnheader", { name: "Poste" }) })
-    await expect(table.getByText("Trésorerie - Exploitation", { exact: true })).toBeVisible({ timeout: 10000 })
+    await expect(table.getByText("Trésorerie - Exploitation", { exact: true })).toBeVisible({ timeout: 15000 })
     await expect(table.getByText("flux investissement détail", { exact: true })).toBeVisible()
     await expect(table.getByText("ancien libellé investissement")).toHaveCount(0)
+    await expect(table.getByText(/1[\s\u00a0\u202f]?000/)).toBeVisible()
 
     const spacerRow = table.locator("tbody tr.h-2")
     await expect(spacerRow).toHaveCount(1)
+  })
+
+  test("Détail affiche la somme des codes de liaison attachés (comme Bilan/CDR)", async ({ page }) => {
+    await setupAuth(page)
+
+    const detailStructure = [
+      {
+        id: "tex-row",
+        label: "flux exploitation détail",
+        linkCode: "TEX-CF-1",
+        liaisonMode: "single",
+        defineMapping: true,
+      },
+    ]
+
+    await page.route(isCashFlowDetailUrl, (route) => {
+      if (route.request().url().includes("/series")) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(emptySeriesResponse("cash-flow-detail")),
+        })
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...emptyCashFlowResponse("cash-flow-detail"),
+          rows: [
+            {
+              id: "tex-row",
+              linkCode: "TEX-CF-1",
+              label: "flux exploitation détail",
+              current: 150,
+              prior: 100,
+              isBold: false,
+              hasLiaisonCode: true,
+              detailRows: [
+                { id: "4100", label: "Revenue A", current: 100, prior: 60 },
+                { id: "4101", label: "Revenue B", current: 50, prior: 40 },
+              ],
+            },
+          ],
+        }),
+      })
+    })
+    await page.route(isCashFlowDetailStructureUrl, (route) => {
+      if (route.request().method() === "GET") {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: null,
+            company_id: COMPANY_ID,
+            statement_type: "cash-flow-detail",
+            structure: detailStructure,
+          }),
+        })
+      }
+      return route.continue()
+    })
+
+    await page.goto(`/financial-statements/cash-flow?companyId=${COMPANY_ID}`)
+    await page.getByRole("button", { name: /^Détail$/ }).click({ timeout: 15000 })
+    await page.getByRole("combobox").filter({ hasText: /Mensuel|Mois actuel/i }).first().click()
+    await page.getByRole("option", { name: HORIZON_LABEL.moisActuel }).click()
+
+    const table = page.locator("table").filter({ has: page.getByRole("columnheader", { name: "Poste" }) })
+    await expect(table.getByText("flux exploitation détail", { exact: true })).toBeVisible({ timeout: 15000 })
+    await expect(table.getByText(/150/)).toBeVisible()
+    // GL accounts are collapsed by default (postes Paramètres only).
+    await expect(table.getByText("Revenue A")).toHaveCount(0)
+    await expect(table.getByText("Revenue B")).toHaveCount(0)
+
+    await table.getByTestId("cash-flow-detail-expandable-row").click()
+    await expect(table.getByTestId("cash-flow-detail-gl-account")).toHaveCount(2)
+    await expect(table.getByText("Revenue A")).toBeVisible()
+    await expect(table.getByText("Revenue B")).toBeVisible()
+
+    await table.getByTestId("cash-flow-detail-expandable-row").click()
+    await expect(table.getByText("Revenue A")).toHaveCount(0)
+  })
+
+  test("Détail — ligne formule Paramètres n’est pas ouvrable", async ({ page }) => {
+    await setupAuth(page)
+
+    const detailStructure = [
+      {
+        id: "formula-row",
+        label: "variation nette formule",
+        formula: ["+tex-row", "-tin-row"],
+        isResult: true,
+        isBold: true,
+      },
+      {
+        id: "tex-row",
+        label: "flux exploitation détail",
+        linkCode: "TEX-CF-1",
+        liaisonMode: "single",
+        defineMapping: true,
+      },
+    ]
+
+    await page.route(isCashFlowDetailUrl, (route) => {
+      if (route.request().url().includes("/series")) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(emptySeriesResponse("cash-flow-detail")),
+        })
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...emptyCashFlowResponse("cash-flow-detail"),
+          rows: [
+            {
+              id: "formula-row",
+              label: "variation nette formule",
+              current: 50,
+              prior: 40,
+              isBold: true,
+              isResult: true,
+              hasLiaisonCode: false,
+              detailRows: [
+                { id: "4100", label: "Should not show", current: 50, prior: 40 },
+              ],
+            },
+            {
+              id: "tex-row",
+              linkCode: "TEX-CF-1",
+              label: "flux exploitation détail",
+              current: 150,
+              prior: 100,
+              isBold: false,
+              hasLiaisonCode: true,
+              detailRows: [
+                { id: "4100", label: "Revenue A", current: 100, prior: 60 },
+              ],
+            },
+          ],
+        }),
+      })
+    })
+    await page.route(isCashFlowDetailStructureUrl, (route) => {
+      if (route.request().method() === "GET") {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: null,
+            company_id: COMPANY_ID,
+            statement_type: "cash-flow-detail",
+            structure: detailStructure,
+          }),
+        })
+      }
+      return route.continue()
+    })
+
+    await page.goto(`/financial-statements/cash-flow?companyId=${COMPANY_ID}`)
+    await page.getByRole("button", { name: /^Détail$/ }).click({ timeout: 15000 })
+    await page.getByRole("combobox").filter({ hasText: /Mensuel|Mois actuel/i }).first().click()
+    await page.getByRole("option", { name: HORIZON_LABEL.moisActuel }).click()
+
+    const table = page.locator("table").filter({ has: page.getByRole("columnheader", { name: "Poste" }) })
+    await expect(table.getByText("variation nette formule", { exact: true })).toBeVisible({ timeout: 15000 })
+    await expect(table.getByText("Should not show")).toHaveCount(0)
+
+    // La ligne formule n’a pas de chevron / testid expandable.
+    const formulaRow = table.locator("tr", { hasText: "variation nette formule" }).first()
+    await expect(formulaRow.getByTestId("cash-flow-detail-expandable-row")).toHaveCount(0)
+    await expect(table.getByTestId("cash-flow-detail-expandable-row")).toHaveCount(1)
+  })
+
+  test("Détail TEX-A.1 mois courant affiche le bénéfice net du mois (non cumulé)", async ({ page }) => {
+    // Mois courant → NI du mois seulement (ex. −6000), pas le YTD CAP-C.1 (−18000).
+    const monthlyNetIncome = -6000
+    await setupAuth(page)
+
+    const detailStructure = [
+      {
+        id: "tex-a1",
+        label: "bénéfice net",
+        linkCode: "TEX-A.1",
+        liaisonMode: "single",
+        defineMapping: true,
+      },
+    ]
+
+    await page.route(isCashFlowDetailUrl, (route) => {
+      if (route.request().url().includes("/series")) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(emptySeriesResponse("cash-flow-detail")),
+        })
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...emptyCashFlowResponse("cash-flow-detail"),
+          rows: [
+            {
+              id: "tex-a1",
+              linkCode: "TEX-A.1",
+              label: "bénéfice net",
+              current: monthlyNetIncome,
+              prior: 0,
+              isBold: false,
+              hasLiaisonCode: true,
+            },
+          ],
+        }),
+      })
+    })
+    await page.route(isCashFlowDetailStructureUrl, (route) => {
+      if (route.request().method() === "GET") {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: null,
+            company_id: COMPANY_ID,
+            statement_type: "cash-flow-detail",
+            structure: detailStructure,
+          }),
+        })
+      }
+      return route.continue()
+    })
+
+    await page.goto(`/financial-statements/cash-flow?companyId=${COMPANY_ID}`)
+    await page.getByRole("button", { name: /^Détail$/ }).click({ timeout: 15000 })
+    await page.getByRole("combobox").filter({ hasText: /Mensuel|Mois actuel/i }).first().click()
+    await page.getByRole("option", { name: HORIZON_LABEL.moisActuel }).click()
+
+    const table = page.locator("table").filter({ has: page.getByRole("columnheader", { name: "Poste" }) })
+    const row = table.locator("tr", { hasText: "bénéfice net" }).first()
+    await expect(row).toBeVisible({ timeout: 15000 })
+    await expect(row).toContainText("6")
+    await expect(row).toContainText("000")
+    await expect(row).not.toContainText("18")
   })
 })

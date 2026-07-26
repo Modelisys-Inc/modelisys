@@ -1,51 +1,133 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { StatementStructureStudio } from "@/components/statement-structure-studio"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, aggregateToYears, findRow } from "@/lib/series-utils"
-import type { SeriesRow } from "@/lib/api"
+import { getRowAmounts, aggregateToYears, findRow, reverseSeriesOrderForDisplay } from "@/lib/series-utils"
+import { getStatementStructure } from "@/lib/api"
+import {
+  resolveWorkingCapitalStructureAmount,
+  resolveWorkingCapitalOperandAmount,
+  collectWorkingCapitalIncludedOperands,
+  workingCapitalOperandDisplayLabel,
+  workingCapitalStructureViewRows,
+  normalizeWorkingCapitalDisplayFormat,
+  resolveWorkingCapitalDisplayFormat,
+  alignSeriesPeriodIndex,
+  seriesTrailingTwelveMonthSum,
+  WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS,
+  type WorkingCapitalDisplayFormat,
+  type WorkingCapitalIncludedOperand,
+} from "@/lib/working-capital-structure-utils"
+import { ChevronDown, ChevronRight, LayoutList, Settings, Sparkles } from "lucide-react"
+import { cn } from "@/lib/utils"
+import {
+  dashboardCardAccentClass,
+  dashboardCardBodyMutedClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardHeaderIconBoxClass,
+  dashboardCardRingClass,
+  dashboardCardStructureSettingsButtonClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 
 interface CapexAnalysisProps {
   period: "monthly" | "quarterly" | "annual"
   view: "current" | "12months" | "24months" | "years"
-  displayMode?: "cost" | "book_value" | "capex"
   companyId?: string | null
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
+  fiscalYear?: number
+  /** Mois calendaire (1–12) de la date de référence — borne la série (pas de mois futurs). */
+  referenceMonth?: number
+  structureVersion?: number
+  showStructureSettings?: boolean
+  onStructureSaved?: () => void
 }
 
-/** Try multiple label variants to find a row. */
-function findRowMulti(rows: SeriesRow[], ...labels: string[]): SeriesRow | undefined {
-  for (const label of labels) {
-    const found = findRow(rows, label)
-    if (found) return found
-  }
-  return undefined
+interface AnalysisData {
+  currentFixedAssets: number
+  priorFixedAssets: number
+  currentDepreciation: number
+  priorDepreciation: number
+  currentRevenue: number
+  priorRevenue: number
+  currentEbitda: number
+  priorEbitda: number
+  trendValues?: Array<{
+    fixedAssets: number
+    depreciation: number
+    revenue: number
+    ebitda: number
+  }>
+}
+
+type MetricFormat = "currency" | "percent" | "ratio" | "days"
+
+function displayFormatToMetricFormat(format: WorkingCapitalDisplayFormat): MetricFormat {
+  if (format === "number") return "ratio"
+  return format
+}
+
+interface DisplayMetric {
+  key: string
+  label: string
+  format: MetricFormat
+  isBold?: boolean
+  /** False si aucune liaison configurée dans Paramètres — montants masqués hors édition. */
+  showAmounts: boolean
+  valueAt: (isPrior: boolean, trendIndex?: number) => number
+}
+
+function normalizeMetricLabel(label: string): string {
+  return label
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function formatMetricValue(value: number, format: MetricFormat): string {
+  if (format === "percent") return `${value.toFixed(1)}%`
+  if (format === "ratio") return value.toFixed(2)
+  if (format === "days") return `${value.toFixed(2)} jours`
+  return formatCurrency(value)
 }
 
 export function CapexAnalysis({
   period,
   view,
-  displayMode = "cost",
   companyId,
   divisionId,
   subDivisionId,
   companies = [],
+  fiscalYear,
+  referenceMonth,
+  structureVersion = 0,
+  showStructureSettings = true,
+  onStructureSaved,
 }: CapexAnalysisProps) {
-  const [selectedAssetCategory, setSelectedAssetCategory] = useState<string>("total")
-
-  // ---- Fetch real data ----
-  const currentYear = new Date().getFullYear()
+  const resolvedYear = fiscalYear ?? new Date().getFullYear()
+  const resolvedMonth = referenceMonth ?? new Date().getMonth() + 1
   const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
+  /** CDR : fenêtre affichée + 11 mois pour calculer le TTM à chaque date de référence. */
+  const isMonthsNeeded = monthsNeeded + WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS
+  const [structureEditMode, setStructureEditMode] = useState(false)
+  const [structure, setStructure] = useState<Record<string, unknown>[]>([])
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
   const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
     statementType: "balance-sheet",
-    fiscalYear: currentYear,
+    fiscalYear: resolvedYear,
+    month: resolvedMonth,
     months: monthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
@@ -55,242 +137,414 @@ export function CapexAnalysis({
   const { rows: isRows, periods: isPeriods, loading: isLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
     statementType: "income-statement",
-    fiscalYear: currentYear,
-    months: monthsNeeded,
+    fiscalYear: resolvedYear,
+    month: resolvedMonth,
+    months: isMonthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: !!companyId,
   })
 
   const loading = bsLoading || isLoading
+  const canInlineStructureEdit = showStructureSettings && !!companyId
+  const isStructureStudio = structureEditMode && canInlineStructureEdit
 
-  // ---- Locate key rows ----
-  const fixedAssetsRow = useMemo(
-    () => findRowMulti(bsRows, "immobilisations corporelles", "fixed assets", "actifs corporels"),
-    [bsRows]
-  )
-  const intangibleAssetsRow = useMemo(
-    () => findRowMulti(bsRows, "immobilisations incorporelles", "intangible assets", "actifs incorporels"),
-    [bsRows]
-  )
-  const revenueRow = useMemo(
-    () => findRowMulti(isRows, "revenus", "revenue", "ventes", "chiffre d'affaires"),
-    [isRows]
-  )
-  const ebitdaRow = useMemo(
-    () => findRowMulti(isRows, "baiia", "ebitda", "bénéfice avant"),
-    [isRows]
-  )
-  const depreciationRow = useMemo(
-    () => findRowMulti(isRows, "amortissement", "depreciation", "dotation aux amortissements"),
-    [isRows]
-  )
-
-  // ---- Build amounts arrays ----
-  // Use balance-sheet periods as the primary timeline
-  const periods = bsPeriods
-
-  const fixedAssetsAmountsRaw = useMemo(
-    () => (fixedAssetsRow ? getRowAmounts(fixedAssetsRow, periods) : []),
-    [fixedAssetsRow, periods]
-  )
-  const intangibleAssetsAmountsRaw = useMemo(
-    () => (intangibleAssetsRow ? getRowAmounts(intangibleAssetsRow, periods) : []),
-    [intangibleAssetsRow, periods]
-  )
-  const revenueAmountsRaw = useMemo(
-    () => (revenueRow ? getRowAmounts(revenueRow, isPeriods) : []),
-    [revenueRow, isPeriods]
-  )
-  const ebitdaAmountsRaw = useMemo(
-    () => (ebitdaRow ? getRowAmounts(ebitdaRow, isPeriods) : []),
-    [ebitdaRow, isPeriods]
-  )
-  const depreciationAmountsRaw = useMemo(
-    () => (depreciationRow ? getRowAmounts(depreciationRow, isPeriods) : []),
-    [depreciationRow, isPeriods]
-  )
-
-  // Aggregate to years if needed
-  const fixedAssetsAmounts = useMemo(
-    () => (view === "years" ? aggregateToYears(fixedAssetsAmountsRaw, periods).amounts : fixedAssetsAmountsRaw),
-    [view, fixedAssetsAmountsRaw, periods]
-  )
-  const intangibleAssetsAmounts = useMemo(
-    () => (view === "years" ? aggregateToYears(intangibleAssetsAmountsRaw, periods).amounts : intangibleAssetsAmountsRaw),
-    [view, intangibleAssetsAmountsRaw, periods]
-  )
-  const revenueAmounts = useMemo(
-    () => (view === "years" ? aggregateToYears(revenueAmountsRaw, isPeriods).amounts : revenueAmountsRaw),
-    [view, revenueAmountsRaw, isPeriods]
-  )
-  const ebitdaAmounts = useMemo(
-    () => (view === "years" ? aggregateToYears(ebitdaAmountsRaw, isPeriods).amounts : ebitdaAmountsRaw),
-    [view, ebitdaAmountsRaw, isPeriods]
-  )
-  const depreciationAmounts = useMemo(
-    () => (view === "years" ? aggregateToYears(depreciationAmountsRaw, isPeriods).amounts : depreciationAmountsRaw),
-    [view, depreciationAmountsRaw, isPeriods]
-  )
-
-  // ---- Compute sub-row category proportions ----
-  // Build dynamic proportions from the detail sub-rows of fixed and intangible asset rows
-  const categoryMultipliers = useMemo(() => {
-    const multipliers: Record<string, number> = {}
-    const totalFixed = Math.abs(fixedAssetsAmounts.length > 0 ? fixedAssetsAmounts[fixedAssetsAmounts.length - 1] : 0)
-    const totalIntangible = Math.abs(intangibleAssetsAmounts.length > 0 ? intangibleAssetsAmounts[intangibleAssetsAmounts.length - 1] : 0)
-    const totalAll = totalFixed + totalIntangible
-
-    if (totalAll === 0) return multipliers
-
-    // Fixed assets sub-rows
-    if (fixedAssetsRow && fixedAssetsRow.detailRows.length > 0) {
-      fixedAssetsRow.detailRows.forEach((dr) => {
-        const key = `${fixedAssetsRow.id}_${dr.id}`
-        const lastPeriod = periods.length > 0 ? periods[periods.length - 1] : null
-        const amount = lastPeriod ? Math.abs(dr.amounts[`${lastPeriod.fiscalYear}-${lastPeriod.fiscalMonth}`] || 0) : 0
-        multipliers[key] = totalAll > 0 ? amount / totalAll : 0
+  useEffect(() => {
+    if (!companyId) {
+      setStructure([])
+      return
+    }
+    let cancelled = false
+    getStatementStructure(companyId, "capex")
+      .then((res) => {
+        if (!cancelled) setStructure(Array.isArray(res.structure) ? res.structure : [])
       })
-    }
-    multipliers["fixed_assets"] = totalAll > 0 ? totalFixed / totalAll : 0
-
-    // Intangible assets sub-rows
-    if (intangibleAssetsRow && intangibleAssetsRow.detailRows.length > 0) {
-      intangibleAssetsRow.detailRows.forEach((dr) => {
-        const key = `${intangibleAssetsRow.id}_${dr.id}`
-        const lastPeriod = periods.length > 0 ? periods[periods.length - 1] : null
-        const amount = lastPeriod ? Math.abs(dr.amounts[`${lastPeriod.fiscalYear}-${lastPeriod.fiscalMonth}`] || 0) : 0
-        multipliers[key] = totalAll > 0 ? amount / totalAll : 0
+      .catch(() => {
+        if (!cancelled) setStructure([])
       })
+    return () => {
+      cancelled = true
     }
-    multipliers["intangible_assets"] = totalAll > 0 ? totalIntangible / totalAll : 0
+  }, [companyId, structureVersion])
 
-    // Legacy keys (used in dropdown) - fallback proportions when sub-rows not available
-    if (!multipliers["land_buildings"]) multipliers["land_buildings"] = multipliers["fixed_assets"] * 0.47 || 0
-    if (!multipliers["equipment"]) multipliers["equipment"] = multipliers["fixed_assets"] * 0.36 || 0
-    if (!multipliers["vehicles"]) multipliers["vehicles"] = multipliers["fixed_assets"] * 0.10 || 0
-    if (!multipliers["other_fixed"]) multipliers["other_fixed"] = multipliers["fixed_assets"] * 0.06 || 0
-    if (!multipliers["patents"]) multipliers["patents"] = multipliers["intangible_assets"] * 0.50 || 0
-    if (!multipliers["software"]) multipliers["software"] = multipliers["intangible_assets"] * 0.33 || 0
-    if (!multipliers["goodwill"]) multipliers["goodwill"] = multipliers["intangible_assets"] * 0.17 || 0
-
-    return multipliers
-  }, [fixedAssetsRow, intangibleAssetsRow, fixedAssetsAmounts, intangibleAssetsAmounts, periods])
-
-  // ---- Data accessors ----
-  const numPeriods = fixedAssetsAmounts.length
-
-  // Get total assets for a given period index
-  const getTotalAssets = (idx: number): number => {
-    const fa = idx < fixedAssetsAmounts.length ? Math.abs(fixedAssetsAmounts[idx]) : 0
-    const ia = idx < intangibleAssetsAmounts.length ? Math.abs(intangibleAssetsAmounts[idx]) : 0
-    return fa + ia
-  }
-
-  // Get value for a specific asset category
-  const getValueForAsset = (accountId: string | "total", idx: number): number => {
-    const totalAssets = getTotalAssets(idx)
-    if (accountId === "total") return totalAssets
-    const multiplier = categoryMultipliers[accountId] || 1
-    return totalAssets * multiplier
-  }
-
-  // Calculate Capex (variation in fixed assets between consecutive periods)
-  const calculateCapex = (idx: number): number => {
-    if (displayMode === "capex") {
-      return getValueForAsset(selectedAssetCategory, idx)
+  const data: AnalysisData = useMemo(() => {
+    const empty: AnalysisData = {
+      currentFixedAssets: 0,
+      priorFixedAssets: 0,
+      currentDepreciation: 0,
+      priorDepreciation: 0,
+      currentRevenue: 0,
+      priorRevenue: 0,
+      currentEbitda: 0,
+      priorEbitda: 0,
+      trendValues: undefined,
     }
-    const current = getValueForAsset(selectedAssetCategory, idx)
-    const prior = idx > 0 ? getValueForAsset(selectedAssetCategory, idx - 1) : 0
+
+    if (bsRows.length === 0 && isRows.length === 0) return empty
+
+    const fixedAssetsRow =
+      findRow(bsRows, "immobilisations corporelles") ||
+      findRow(bsRows, "actifs corporels") ||
+      findRow(bsRows, "fixed assets")
+    const intangibleAssetsRow =
+      findRow(bsRows, "immobilisations incorporelles") ||
+      findRow(bsRows, "actifs incorporels") ||
+      findRow(bsRows, "intangible assets")
+    const totalRevenueRow = findRow(isRows, "total revenus") || findRow(isRows, "revenus")
+    const ebitdaRow = findRow(isRows, "baiia") || findRow(isRows, "ebitda")
+    const depreciationRow =
+      findRow(isRows, "amortissement") ||
+      findRow(isRows, "depreciation") ||
+      findRow(isRows, "dotation aux amortissements")
+
+    const fixedAmounts = fixedAssetsRow ? getRowAmounts(fixedAssetsRow, bsPeriods) : []
+    const intangibleAmounts = intangibleAssetsRow ? getRowAmounts(intangibleAssetsRow, bsPeriods) : []
+    const totalFixedAmounts = bsPeriods.map(
+      (_, idx) => Math.abs(fixedAmounts[idx] || 0) + Math.abs(intangibleAmounts[idx] || 0),
+    )
+    const depreciationMonthly = depreciationRow ? getRowAmounts(depreciationRow, isPeriods) : []
+    const revenueMonthly = totalRevenueRow ? getRowAmounts(totalRevenueRow, isPeriods) : []
+    const ebitdaMonthly = ebitdaRow ? getRowAmounts(ebitdaRow, isPeriods) : []
+
+    const depreciationForBsPeriods = bsPeriods.map((_, bsIdx) => {
+      const isIdx = alignSeriesPeriodIndex(isPeriods, bsPeriods, bsIdx)
+      return Math.abs(depreciationMonthly[isIdx] || 0)
+    })
+    const revenueTtmForBsPeriods = bsPeriods.map((_, bsIdx) => {
+      const isIdx = alignSeriesPeriodIndex(isPeriods, bsPeriods, bsIdx)
+      return seriesTrailingTwelveMonthSum(revenueMonthly, isIdx)
+    })
+    const ebitdaForBsPeriods = bsPeriods.map((_, bsIdx) => {
+      const isIdx = alignSeriesPeriodIndex(isPeriods, bsPeriods, bsIdx)
+      return Math.abs(ebitdaMonthly[isIdx] || 0)
+    })
+
+    const isMultiPeriod = view === "12months" || view === "24months" || view === "years"
+
+    if (isMultiPeriod) {
+      let finalFixed: number[]
+      let finalDepreciation: number[]
+      let finalRevenue: number[]
+      let finalEbitda: number[]
+
+      if (view === "years") {
+        finalFixed = aggregateToYears(totalFixedAmounts, bsPeriods).amounts
+        finalDepreciation = aggregateToYears(depreciationForBsPeriods, bsPeriods, "last").amounts
+        finalRevenue = aggregateToYears(revenueTtmForBsPeriods, bsPeriods, "last").amounts
+        finalEbitda = aggregateToYears(ebitdaForBsPeriods, bsPeriods, "last").amounts
+      } else {
+        finalFixed = totalFixedAmounts
+        finalDepreciation = depreciationForBsPeriods
+        finalRevenue = revenueTtmForBsPeriods
+        finalEbitda = ebitdaForBsPeriods
+      }
+
+      const len = Math.max(
+        finalFixed.length,
+        finalDepreciation.length,
+        finalRevenue.length,
+        finalEbitda.length,
+      )
+      const trendValues = Array.from({ length: len }, (_, i) => ({
+        fixedAssets: finalFixed[i] || 0,
+        depreciation: finalDepreciation[i] || 0,
+        revenue: finalRevenue[i] || 0,
+        ebitda: finalEbitda[i] || 0,
+      }))
+
+      const last = len - 1
+      const prior = Math.max(0, last - 1)
+      return {
+        currentFixedAssets: finalFixed[last] || 0,
+        priorFixedAssets: finalFixed[prior] || 0,
+        currentDepreciation: finalDepreciation[last] || 0,
+        priorDepreciation: finalDepreciation[prior] || 0,
+        currentRevenue: finalRevenue[last] || 0,
+        priorRevenue: finalRevenue[prior] || 0,
+        currentEbitda: finalEbitda[last] || 0,
+        priorEbitda: finalEbitda[prior] || 0,
+        trendValues,
+      }
+    }
+
+    const fLen = totalFixedAmounts.length
+    const dLen = depreciationForBsPeriods.length
+    const rLen = revenueTtmForBsPeriods.length
+    const eLen = ebitdaForBsPeriods.length
+    return {
+      currentFixedAssets: fLen > 0 ? totalFixedAmounts[fLen - 1]! : 0,
+      priorFixedAssets: fLen > 1 ? totalFixedAmounts[fLen - 2]! : 0,
+      currentDepreciation: dLen > 0 ? depreciationForBsPeriods[dLen - 1]! : 0,
+      priorDepreciation: dLen > 1 ? depreciationForBsPeriods[dLen - 2]! : 0,
+      currentRevenue: rLen > 0 ? revenueTtmForBsPeriods[rLen - 1]! : 0,
+      priorRevenue: rLen > 1 ? revenueTtmForBsPeriods[rLen - 2]! : 0,
+      currentEbitda: eLen > 0 ? ebitdaForBsPeriods[eLen - 1]! : 0,
+      priorEbitda: eLen > 1 ? ebitdaForBsPeriods[eLen - 2]! : 0,
+      trendValues: undefined,
+    }
+  }, [bsRows, isRows, bsPeriods, isPeriods, view])
+
+  const calculateCapexHeuristic = (isPrior: boolean, trendIndex?: number): number => {
+    const idx = periodIndexFor(isPrior, trendIndex)
+    const current = getFixedAssetsAtPeriodIndex(idx)
+    const prior = idx > 0 ? getFixedAssetsAtPeriodIndex(idx - 1) : 0
     return current - prior
   }
 
-  // Calculate Depreciation
-  const calculateDepreciation = (idx: number): number => {
-    // Use real depreciation data if available
-    if (depreciationAmounts.length > 0 && idx < depreciationAmounts.length) {
-      return Math.abs(depreciationAmounts[idx])
+  const getFixedAssetsAtPeriodIndex = (idx: number): number => {
+    if (data.trendValues && idx >= 0 && idx < data.trendValues.length) {
+      return data.trendValues[idx]?.fixedAssets || 0
     }
-    // Fallback: estimate 8% annual depreciation
-    const assetValue = getValueForAsset(selectedAssetCategory, idx)
-    const annualRate = 0.08
-    if (period === "monthly") return assetValue * (annualRate / 12)
-    if (period === "quarterly") return assetValue * (annualRate / 4)
-    return assetValue * annualRate
+    const fixedAssetsRow =
+      findRow(bsRows, "immobilisations corporelles") ||
+      findRow(bsRows, "actifs corporels") ||
+      findRow(bsRows, "fixed assets")
+    const intangibleAssetsRow =
+      findRow(bsRows, "immobilisations incorporelles") ||
+      findRow(bsRows, "actifs incorporels") ||
+      findRow(bsRows, "intangible assets")
+    const fixedAmounts = fixedAssetsRow ? getRowAmounts(fixedAssetsRow, bsPeriods) : []
+    const intangibleAmounts = intangibleAssetsRow ? getRowAmounts(intangibleAssetsRow, bsPeriods) : []
+    const fa = Math.abs(fixedAmounts[idx] || 0)
+    const ia = Math.abs(intangibleAmounts[idx] || 0)
+    return fa + ia
   }
 
-  // Get Revenue
-  const getRevenue = (idx: number): number => {
-    if (idx < revenueAmounts.length) return Math.abs(revenueAmounts[idx])
-    return 0
+  const getDepreciation = (isPrior: boolean, trendIndex?: number): number => {
+    if (trendIndex !== undefined && data.trendValues) {
+      return data.trendValues[trendIndex]?.depreciation || 0
+    }
+    return isPrior ? data.priorDepreciation : data.currentDepreciation
   }
 
-  // Get EBITDA
-  const getEBITDA = (idx: number): number => {
-    if (idx < ebitdaAmounts.length) return Math.abs(ebitdaAmounts[idx])
-    // Fallback: 20% of revenue
-    return getRevenue(idx) * 0.20
+  const getRevenue = (isPrior: boolean, trendIndex?: number): number => {
+    if (trendIndex !== undefined && data.trendValues) {
+      return data.trendValues[trendIndex]?.revenue || 0
+    }
+    return isPrior ? data.priorRevenue : data.currentRevenue
   }
 
-  // Revenue percentage
-  const getRevenuePercentage = (value: number, idx: number): number => {
-    const revenue = getRevenue(idx)
+  const getEbitda = (isPrior: boolean, trendIndex?: number): number => {
+    if (trendIndex !== undefined && data.trendValues) {
+      return data.trendValues[trendIndex]?.ebitda || 0
+    }
+    return isPrior ? data.priorEbitda : data.currentEbitda
+  }
+
+  const getRevenuePercentage = (value: number, isPrior: boolean, trendIndex?: number): number => {
+    const revenue = getRevenue(isPrior, trendIndex)
     if (revenue === 0) return 0
     return (value / revenue) * 100
   }
 
-  // Operating cash flow
-  const calculateOperatingCashFlow = (idx: number): number => {
-    return getEBITDA(idx) - calculateDepreciation(idx)
+  const calculateOperatingCashFlow = (isPrior: boolean, trendIndex?: number): number => {
+    return getEbitda(isPrior, trendIndex) - getDepreciation(isPrior, trendIndex)
   }
 
-  // ---- Period index helpers ----
-  // For "current" view: last index = current, second-to-last = prior
-  const currentIdx = numPeriods > 0 ? numPeriods - 1 : 0
-  const priorIdx = numPeriods > 1 ? numPeriods - 2 : 0
-
-  // How many columns to render based on view
-  const getColumnCount = (): number => {
-    if (view === "current") return 0 // uses "Courant" / "Passe" instead
-    return numPeriods
-  }
-
-  // ---- Period labels ----
-  const getMonthLabels = (): string[] => {
-    if (periods.length === 0) {
-      // Fallback for no data
-      const months = ["Jan", "Fev", "Mar", "Avr", "Mai", "Jun", "Jul", "Aou", "Sep", "Oct", "Nov", "Dec"]
-      const labels: string[] = []
-      const count = view === "24months" ? 24 : 12
-      const currentDate = new Date()
-      for (let i = count - 1; i >= 0; i--) {
-        const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
-        labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
+  /** Index sur la série bilan (date de référence) ; le TTM Résultat s’aligne dessus. */
+  const periodIndexFor = (isPrior: boolean, trendIndex?: number): number => {
+    if (trendIndex !== undefined) {
+      if (view === "years" && bsPeriods.length > 0) {
+        const years = [...new Set(bsPeriods.map((p) => p.fiscalYear))].sort((a, b) => a - b)
+        const fy = years[Math.max(0, Math.min(trendIndex, years.length - 1))]
+        let lastIdx = 0
+        for (let i = 0; i < bsPeriods.length; i++) {
+          if (bsPeriods[i]!.fiscalYear === fy) lastIdx = i
+        }
+        return lastIdx
       }
-      return labels
+      return Math.max(0, Math.min(trendIndex, Math.max(0, bsPeriods.length - 1)))
     }
-    // If years view, aggregate labels
+    const len = Math.max(bsPeriods.length, 1)
+    return isPrior ? Math.max(0, len - 2) : len - 1
+  }
+
+  const heuristicMetric = (label: string): Omit<DisplayMetric, "showAmounts"> | null => {
+    const key = normalizeMetricLabel(label)
+    if (key === "capex") {
+      return { key: "capex", label, format: "currency", valueAt: calculateCapexHeuristic }
+    }
+    if (key === "amortissement") {
+      return { key: "depreciation", label, format: "currency", valueAt: getDepreciation }
+    }
+    if (key === "capex / revenus") {
+      return {
+        key: "capex-rev",
+        label,
+        format: "percent",
+        valueAt: (isPrior, trendIndex) =>
+          getRevenuePercentage(calculateCapexHeuristic(isPrior, trendIndex), isPrior, trendIndex),
+      }
+    }
+    if (key === "capex / baiia") {
+      return {
+        key: "capex-ebitda",
+        label,
+        format: "percent",
+        valueAt: (isPrior, trendIndex) => {
+          const capex = calculateCapexHeuristic(isPrior, trendIndex)
+          const ebitda = getEbitda(isPrior, trendIndex)
+          return ebitda !== 0 ? (capex / ebitda) * 100 : 0
+        },
+      }
+    }
+    if (
+      key === "capex / flux de tresorerie lies aux operations" ||
+      key.includes("flux de tresorerie")
+    ) {
+      return {
+        key: "capex-ocf",
+        label,
+        format: "percent",
+        valueAt: (isPrior, trendIndex) => {
+          const capex = calculateCapexHeuristic(isPrior, trendIndex)
+          const ocf = calculateOperatingCashFlow(isPrior, trendIndex)
+          return ocf !== 0 ? (capex / ocf) * 100 : 0
+        },
+      }
+    }
+    return null
+  }
+
+  const tableRows: Array<
+    | { kind: "separator"; key: string }
+    | { kind: "spacer"; key: string }
+    | {
+        kind: "metric"
+        key: string
+        metric: DisplayMetric
+        structureRow: Record<string, unknown>
+        operands: WorkingCapitalIncludedOperand[]
+      }
+  > = useMemo(() => {
+    const buildMetricFromRow = (
+      row: Record<string, unknown>,
+      idx: number,
+    ): DisplayMetric => {
+      const label = String(row.label || `Métrique ${idx + 1}`)
+      const isBold = row.isBold === true
+      const explicitFormat = normalizeWorkingCapitalDisplayFormat(row.displayFormat)
+      const structured = resolveWorkingCapitalStructureAmount(
+        row,
+        bsRows,
+        isRows,
+        bsPeriods,
+        isPeriods,
+        0,
+        structure,
+      )
+      // Montants visibles uniquement si une liaison (code / formule) est configurée.
+      if (structured !== null) {
+        const displayFormat = explicitFormat ?? resolveWorkingCapitalDisplayFormat(row)
+        const metricFormat = displayFormatToMetricFormat(displayFormat)
+        return {
+          key: `struct-${idx}`,
+          label,
+          isBold,
+          showAmounts: true,
+          format: metricFormat,
+          valueAt: (isPrior: boolean, trendIndex?: number) => {
+            const raw =
+              resolveWorkingCapitalStructureAmount(
+                row,
+                bsRows,
+                isRows,
+                bsPeriods,
+                isPeriods,
+                periodIndexFor(isPrior, trendIndex),
+                structure,
+              ) ?? 0
+            return displayFormat === "percent" ? raw * 100 : raw
+          },
+        }
+      }
+      const heuristic = heuristicMetric(label)
+      return {
+        key: heuristic?.key ?? `row-${idx}`,
+        label,
+        isBold,
+        showAmounts: false,
+        format: displayFormatToMetricFormat(explicitFormat ?? "currency"),
+        valueAt: () => 0,
+      }
+    }
+
+    const viewRows = workingCapitalStructureViewRows(structure)
+    if (viewRows.length > 0) {
+      return viewRows.map((item) => {
+        if (item.kind === "separator" || item.kind === "spacer") return item
+        return {
+          kind: "metric" as const,
+          key: item.key,
+          metric: buildMetricFromRow(item.row, item.index),
+          structureRow: item.row,
+          operands: collectWorkingCapitalIncludedOperands(item.row),
+        }
+      })
+    }
+
+    const fallback = [
+      { label: "Capex" },
+      { label: "Amortissement" },
+      { label: "Capex / Revenus" },
+      { label: "Capex / BAIIA" },
+      { label: "Capex / Flux de trésorerie liés aux opérations" },
+    ]
+    return fallback.map((row, idx) => ({
+      kind: "metric" as const,
+      key: `fallback-${idx}`,
+      metric: buildMetricFromRow(row, idx),
+      structureRow: row,
+      operands: collectWorkingCapitalIncludedOperands(row),
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structure, bsRows, isRows, bsPeriods, isPeriods, data, view])
+
+  const toggleRow = (rowKey: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(rowKey)) next.delete(rowKey)
+      else next.add(rowKey)
+      return next
+    })
+  }
+
+  const getPeriodColumnLabels = (): string[] => {
+    if (bsPeriods.length > 0) {
+      if (view === "current") {
+        // Courant = date de référence, Passé = période précédente (libellés réels, décroissant).
+        const last = bsPeriods[bsPeriods.length - 1]?.label ?? "Courant"
+        const prior =
+          bsPeriods.length > 1
+            ? (bsPeriods[bsPeriods.length - 2]?.label ?? "Passé")
+            : "Passé"
+        return [last, prior]
+      }
+      const chronological =
+        view === "years"
+          ? aggregateToYears(
+              bsPeriods.map(() => 0),
+              bsPeriods,
+            ).labels
+          : bsPeriods.map((p) => p.label)
+      return reverseSeriesOrderForDisplay(chronological)
+    }
+    if (view === "current") return ["Courant", "Passé"]
     if (view === "years") {
-      const dummyAmounts = fixedAssetsAmountsRaw.length > 0 ? fixedAssetsAmountsRaw : periods.map(() => 0)
-      return aggregateToYears(dummyAmounts, periods).labels
+      const cy = new Date().getFullYear()
+      return Array.from({ length: 6 }, (_, i) => `${cy - i}`)
     }
-    return periods.map((p) => p.label)
+    const count = view === "24months" ? 24 : 12
+    const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
+    const labels: string[] = []
+    const currentDate = new Date()
+    for (let i = 0; i < count; i++) {
+      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1)
+      labels.push(`${months[date.getMonth()]} ${date.getFullYear()}`)
+    }
+    return labels
   }
 
-  const columnLabels = getMonthLabels()
-  const columnCount = view === "current" ? 0 : columnLabels.length
-
-  // ---- Helpers for average computation across visible columns ----
-  const computeAverage = (fn: (idx: number) => number): number => {
-    if (view === "current") {
-      return (fn(currentIdx) + fn(priorIdx)) / 2
-    }
-    if (numPeriods === 0) return 0
-    const values = Array.from({ length: numPeriods }, (_, idx) => fn(idx))
-    return values.reduce((sum, val) => sum + val, 0) / values.length
-  }
-
-  // Helper function to get horizon text
   const getHorizonText = (): string => {
     if (view === "current" && period === "monthly") return "Courant"
     if (view === "current" && period === "quarterly") return "Trimestriel"
@@ -301,214 +555,409 @@ export function CapexAnalysis({
     return "Courant"
   }
 
-  // ---- Render helpers ----
-  const renderAvgCell = (fn: (idx: number) => number, isPercent = false) => {
-    const avg = computeAverage(fn)
-    return (
-      <td className="px-6 py-3.5 text-right font-semibold font-bold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
-        {isPercent ? `${avg.toFixed(1)}%` : formatCurrency(avg)}
-      </td>
+  const trendCount =
+    data.trendValues?.length ||
+    (view === "24months" ? 24 : view === "years" ? 6 : view === "12months" ? 12 : 0)
+
+  const tableColumnCount =
+    2 + (view === "current" ? 2 : Math.max(trendCount, getPeriodColumnLabels().length, 1))
+
+  /** Style montants : Détail CDR (slate-500) ; postes gras → libellé + montants en gras. */
+  const metricColumnClass =
+    "box-border w-[18rem] min-w-[18rem] max-w-[18rem] sm:w-[20rem] sm:min-w-[20rem] sm:max-w-[20rem]"
+  const amountCellClass = (isBold?: boolean) =>
+    cn(
+      "whitespace-nowrap px-6 py-3 text-right text-sm",
+      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
     )
-  }
-
-  const renderCurrentPriorCells = (fn: (idx: number) => number, isPercent = false) => (
-    <>
-      <td className="px-6 py-3.5 text-right text-slate-500">
-        {isPercent ? `${fn(currentIdx).toFixed(1)}%` : formatCurrency(fn(currentIdx))}
-      </td>
-      <td className="px-6 py-3.5 text-right text-slate-500">
-        {isPercent ? `${fn(priorIdx).toFixed(1)}%` : formatCurrency(fn(priorIdx))}
-      </td>
-    </>
-  )
-
-  const renderTrendCells = (fn: (idx: number) => number, isPercent = false) => (
-    <>
-      {Array.from({ length: numPeriods }).map((_, idx) => (
-        <td key={idx} className="px-4 py-3.5 text-right text-sm text-slate-500">
-          {isPercent ? `${fn(idx).toFixed(1)}%` : formatCurrency(fn(idx))}
-        </td>
-      ))}
-    </>
-  )
-
-  // ---- Loading / empty states ----
-  if (!companyId) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 p-12 text-center text-slate-500">
-        Selectionnez une societe
-      </div>
+  const amountTrendCellClass = (isBold?: boolean) =>
+    cn(
+      "min-w-[5.5rem] whitespace-nowrap px-4 py-3 text-right text-sm",
+      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
     )
-  }
-
-  if (loading) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 p-12 text-center text-slate-500 animate-pulse">
-        Chargement des donnees...
-      </div>
+  const amountAverageCellClass = (isBold?: boolean) =>
+    cn(
+      "min-w-[7.5rem] whitespace-nowrap bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3 text-right text-sm",
+      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
     )
-  }
+  const metricLabelCellClass = (isBold?: boolean, isChild?: boolean) =>
+    cn(
+      metricColumnClass,
+      "sticky left-0 z-10",
+      isChild
+        ? "bg-slate-50 py-2.5 pl-14 pr-6 text-sm text-slate-600"
+        : cn("bg-white px-6 py-3 text-slate-900", isBold && "font-bold"),
+    )
 
-  if (numPeriods === 0 && bsRows.length === 0) {
+  const renderMetricRow = (
+    rowKey: string,
+    metric: DisplayMetric,
+    operands: WorkingCapitalIncludedOperand[],
+  ) => {
+    const chronologicalValues =
+      view === "current"
+        ? [metric.valueAt(false), metric.valueAt(true)]
+        : Array.from({ length: trendCount }, (_, idx) => metric.valueAt(false, idx))
+    // Multi-période : référence (plus récente) à gauche, puis décroissant.
+    const values =
+      view === "current"
+        ? chronologicalValues
+        : reverseSeriesOrderForDisplay(chronologicalValues)
+    const average =
+      chronologicalValues.length > 0
+        ? chronologicalValues.reduce((sum, v) => sum + v, 0) / chronologicalValues.length
+        : 0
+
+    const formatCell = (value: number) =>
+      metric.showAmounts ? formatMetricValue(value, metric.format) : ""
+
+    const canExpand = operands.length > 0
+    const isExpanded = expandedRows.has(rowKey)
+
+    const operandChronologicalValues = (code: string): number[] => {
+      if (view === "current") {
+        return [
+          resolveWorkingCapitalOperandAmount(
+            code,
+            bsRows,
+            isRows,
+            bsPeriods,
+            isPeriods,
+            periodIndexFor(false),
+            structure,
+          ),
+          resolveWorkingCapitalOperandAmount(
+            code,
+            bsRows,
+            isRows,
+            bsPeriods,
+            isPeriods,
+            periodIndexFor(true),
+            structure,
+          ),
+        ]
+      }
+      return Array.from({ length: trendCount }, (_, idx) =>
+        resolveWorkingCapitalOperandAmount(
+          code,
+          bsRows,
+          isRows,
+          bsPeriods,
+          isPeriods,
+          periodIndexFor(false, idx),
+          structure,
+        ),
+      )
+    }
+
     return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 p-12 text-center text-slate-500">
-        Aucune donnee disponible
-      </div>
+      <Fragment key={rowKey}>
+        <tr
+          className={cn(
+            "group transition-colors hover:bg-[#E0742D]/[0.04]",
+            canExpand && "cursor-pointer",
+          )}
+          onClick={canExpand ? () => toggleRow(rowKey) : undefined}
+          data-testid={canExpand ? `capex-metric-expand-${rowKey}` : undefined}
+          aria-expanded={canExpand ? isExpanded : undefined}
+        >
+          <td className={cn(metricLabelCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+            <div className="flex items-center gap-2">
+              {canExpand ? (
+                <span className="flex-shrink-0" aria-hidden>
+                  {isExpanded ? (
+                    <ChevronDown className="h-4 w-4 text-slate-500" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-slate-500" />
+                  )}
+                </span>
+              ) : (
+                <span className="inline-block w-4 flex-shrink-0" aria-hidden />
+              )}
+              <span className="min-w-0 truncate">{metric.label}</span>
+            </div>
+          </td>
+          <td className={cn(amountAverageCellClass(metric.isBold), "group-hover:from-[#FDF6F1] group-hover:to-[#FDF6F1]")}>
+            {formatCell(average)}
+          </td>
+          {view === "current" ? (
+            <>
+              <td className={cn(amountCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+                {formatCell(values[0] ?? 0)}
+              </td>
+              <td className={cn(amountCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+                {formatCell(values[1] ?? 0)}
+              </td>
+            </>
+          ) : (
+            values.map((v, idx) => (
+              <td
+                key={idx}
+                className={cn(amountTrendCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}
+              >
+                {formatCell(v)}
+              </td>
+            ))
+          )}
+        </tr>
+        {isExpanded &&
+          operands.map((op) => {
+            const chronological = operandChronologicalValues(op.code)
+            const displayValues =
+              view === "current"
+                ? chronological
+                : reverseSeriesOrderForDisplay(chronological)
+            const opAverage =
+              chronological.length > 0
+                ? chronological.reduce((sum, v) => sum + v, 0) / chronological.length
+                : 0
+            const label = workingCapitalOperandDisplayLabel(
+              op.code,
+              bsRows,
+              isRows,
+              structure,
+            )
+            return (
+              <tr
+                key={`${rowKey}-${op.role}-${op.code}`}
+                className="bg-slate-50/80"
+                data-testid={`capex-operand-${op.code}`}
+              >
+                <td className={metricLabelCellClass(false, true)}>
+                  <span className="inline-flex min-w-0 items-baseline gap-1.5">
+                    {op.sign ? (
+                      <span className="font-medium text-slate-400 tabular-nums">{op.sign}</span>
+                    ) : null}
+                    <span className="font-mono text-xs text-slate-500">{op.code}</span>
+                    <span className="text-slate-400">—</span>
+                    <span className="min-w-0 truncate">{label}</span>
+                  </span>
+                </td>
+                <td className={amountAverageCellClass(false)}>
+                  {formatCurrency(opAverage)}
+                </td>
+                {view === "current" ? (
+                  <>
+                    <td className={amountCellClass(false)}>
+                      {formatCurrency(displayValues[0] ?? 0)}
+                    </td>
+                    <td className={amountCellClass(false)}>
+                      {formatCurrency(displayValues[1] ?? 0)}
+                    </td>
+                  </>
+                ) : (
+                  displayValues.map((v, idx) => (
+                    <td key={idx} className={amountTrendCellClass(false)}>
+                      {formatCurrency(v)}
+                    </td>
+                  ))
+                )}
+              </tr>
+            )
+          })}
+      </Fragment>
     )
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
-      {/* Header */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between mb-1">
-                <h3 className="text-xl font-semibold text-slate-900 tracking-tight">Analyse des Capex</h3>
-                <Select value={selectedAssetCategory} onValueChange={setSelectedAssetCategory}>
-                  <SelectTrigger className="h-7 px-2 text-xs bg-white border-slate-300 shadow-sm hover:shadow-md transition-shadow">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="total">Total</SelectItem>
-                    <SelectItem value="land_buildings">Terrains et constructions</SelectItem>
-                    <SelectItem value="equipment">Materiel et equipement</SelectItem>
-                    <SelectItem value="vehicles">Vehicules</SelectItem>
-                    <SelectItem value="other_fixed">Autres immobilisations corporelles</SelectItem>
-                    <SelectItem value="fixed_assets">Total Immobilisations corporelles</SelectItem>
-                    <SelectItem value="patents">Brevets et licences</SelectItem>
-                    <SelectItem value="software">Logiciels et developpement</SelectItem>
-                    <SelectItem value="goodwill">Fonds commercial</SelectItem>
-                    <SelectItem value="intangible_assets">Total Immobilisations incorporelles</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                <span className="font-medium">{getHorizonText()}</span>
-                <span className="text-slate-400">&bull;</span>
-                {subDivisionId && divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Societe"}</span>
-                    <span className="text-slate-400">&bull;</span>
-                    <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                    <span className="text-slate-400">&bull;</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
-                  </>
-                ) : divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Societe"}</span>
-                    <span className="text-slate-400">&bull;</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                  </>
-                ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.name || "Societe selectionnee"}</span>
-                ) : (
-                  <span className="truncate">Toutes les societes</span>
+    <div className={cn("mb-6", dashboardCardFrameStaticClass)}>
+      <div className={dashboardCardRingClass} aria-hidden />
+      <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex min-w-0 flex-1 items-start gap-4">
+            <div className={dashboardCardHeaderIconBoxClass}>
+              <LayoutList className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <h3 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>
+                  Analyse des Capex
+                </h3>
+                {isStructureStudio && (
+                  <Badge
+                    variant="secondary"
+                    className="border border-slate-200 bg-slate-100 font-medium text-[#2A2F3A] shadow-none"
+                  >
+                    <Sparkles className="h-3 w-3 text-[#E0742D]" />
+                    Édition structure
+                  </Badge>
                 )}
               </div>
+              {isStructureStudio ? (
+                <p className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
+                  Ajustez les libellés. <span className="font-medium text-[#2A2F3A]">Code</span> active
+                  la colonne liaison ;{" "}
+                  <span className="font-medium text-[#2A2F3A]">Liaison</span> définit un code unique ou
+                  une formule ; <span className="font-medium text-[#2A2F3A]">Format</span> choisit $,
+                  Nombre, % ou Jours pour l’affichage hors Paramètres. Enregistrez pour appliquer.
+                </p>
+              ) : (
+                <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+                  <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
+                  <span className="text-slate-400">•</span>
+                  {companyId ? (
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                      {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+                    </span>
+                  ) : (
+                    <span className="truncate">Toutes les sociétés</span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
+          {canInlineStructureEdit && !structureEditMode && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={dashboardCardStructureSettingsButtonClass}
+              onClick={() => setStructureEditMode(true)}
+            >
+              <Settings className={cn("h-4 w-4", dashboardCardAccentClass)} />
+              Paramètres
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-gradient-to-b from-slate-50 to-slate-100/50 border-b-2 border-slate-200">
-              <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Metrique</th>
-              <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Moyenne</th>
-              {view === "current" && (
-                <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Passe</th>
-                </>
-              )}
-              {view !== "current" && columnLabels.map((label, idx) => (
-                <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
-                  {label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {/* Capex */}
-            <tr className="border-b border-slate-100 hover:bg-emerald-50/30 transition-colors">
-              <td className="px-6 py-3.5 text-slate-900">Capex</td>
-              {renderAvgCell(calculateCapex)}
-              {view === "current" && renderCurrentPriorCells(calculateCapex)}
-              {view !== "current" && renderTrendCells(calculateCapex)}
-            </tr>
+      {isStructureStudio ? (
+        <StatementStructureStudio
+          embedded
+          companyId={companyId!}
+          statementType="capex"
+          hideAnnexColumns
+          onSaved={() => {
+            onStructureSaved?.()
+            setStructureEditMode(false)
+          }}
+          onClose={() => setStructureEditMode(false)}
+        />
+      ) : (
+        <>
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
+            </div>
+          )}
 
-            {/* Amortissement */}
-            <tr className="border-b border-slate-100 hover:bg-blue-50/30 transition-colors">
-              <td className="px-6 py-3.5 text-slate-900">Amortissement</td>
-              {renderAvgCell(calculateDepreciation)}
-              {view === "current" && renderCurrentPriorCells(calculateDepreciation)}
-              {view !== "current" && renderTrendCells(calculateDepreciation)}
-            </tr>
+          {!companyId && !loading && (
+            <div className="flex items-center justify-center py-12 text-sm text-slate-500">
+              Sélectionnez une société
+            </div>
+          )}
 
-            {/* Capex en % des revenus */}
-            <tr className="border-b border-slate-100 hover:bg-purple-50/30 transition-colors">
-              <td className="px-6 py-3.5 text-slate-900">Capex / Revenus</td>
-              {renderAvgCell((idx) => {
-                const capex = calculateCapex(idx)
-                return getRevenuePercentage(capex, idx)
-              }, true)}
-              {view === "current" && renderCurrentPriorCells((idx) => {
-                const capex = calculateCapex(idx)
-                return getRevenuePercentage(capex, idx)
-              }, true)}
-              {view !== "current" && renderTrendCells((idx) => {
-                const capex = calculateCapex(idx)
-                return getRevenuePercentage(capex, idx)
-              }, true)}
-            </tr>
-
-            {/* Capex / BAIIA */}
-            <tr className="border-b border-slate-100 hover:bg-amber-50/30 transition-colors">
-              <td className="px-6 py-3.5 text-slate-900">Capex / BAIIA</td>
-              {renderAvgCell((idx) => {
-                const capex = calculateCapex(idx)
-                const ebitda = getEBITDA(idx)
-                return ebitda !== 0 ? (capex / ebitda) * 100 : 0
-              }, true)}
-              {view === "current" && renderCurrentPriorCells((idx) => {
-                const capex = calculateCapex(idx)
-                const ebitda = getEBITDA(idx)
-                return ebitda !== 0 ? (capex / ebitda) * 100 : 0
-              }, true)}
-              {view !== "current" && renderTrendCells((idx) => {
-                const capex = calculateCapex(idx)
-                const ebitda = getEBITDA(idx)
-                return ebitda !== 0 ? (capex / ebitda) * 100 : 0
-              }, true)}
-            </tr>
-
-            {/* Capex / Flux de tresorerie relies aux operations */}
-            <tr className="border-b border-slate-100 hover:bg-indigo-50/30 transition-colors">
-              <td className="px-6 py-3.5 text-slate-900">Capex / Flux de tresorerie relies aux operations</td>
-              {renderAvgCell((idx) => {
-                const capex = calculateCapex(idx)
-                const ocf = calculateOperatingCashFlow(idx)
-                return ocf !== 0 ? (capex / ocf) * 100 : 0
-              }, true)}
-              {view === "current" && renderCurrentPriorCells((idx) => {
-                const capex = calculateCapex(idx)
-                const ocf = calculateOperatingCashFlow(idx)
-                return ocf !== 0 ? (capex / ocf) * 100 : 0
-              }, true)}
-              {view !== "current" && renderTrendCells((idx) => {
-                const capex = calculateCapex(idx)
-                const ocf = calculateOperatingCashFlow(idx)
-                return ocf !== 0 ? (capex / ocf) * 100 : 0
-              }, true)}
-            </tr>
-          </tbody>
-        </table>
-      </div>
+          {!loading && companyId && (
+              <div
+                className="min-w-0 max-h-[min(72vh,56rem)] overflow-auto overscroll-contain bg-white"
+                data-testid="capex-summary-table-scroll"
+              >
+                <table className="w-full min-w-max border-separate border-spacing-0">
+                  <thead
+                    className={cn(
+                      "[&_th]:sticky [&_th]:top-0 [&_th]:z-20",
+                      "[&_th]:border-b-2 [&_th]:border-slate-200",
+                      "[&_th]:bg-gradient-to-b [&_th]:from-slate-50 [&_th]:to-slate-100/80",
+                      "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
+                    )}
+                  >
+                    <tr>
+                      <th
+                        className={cn(
+                          metricColumnClass,
+                          "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
+                        )}
+                      >
+                        Métrique
+                      </th>
+                      <th
+                        className={cn(
+                          "min-w-[7.5rem] whitespace-nowrap px-6 py-4 text-right text-sm font-semibold text-[#2A2F3A]",
+                          "bg-gradient-to-b from-slate-50 to-slate-100/50",
+                        )}
+                      >
+                        Moyenne
+                      </th>
+                      {getPeriodColumnLabels().map((label, idx) => (
+                        <th
+                          key={idx}
+                          className={cn(
+                            "whitespace-nowrap text-right text-sm font-semibold text-[#2A2F3A]",
+                            view === "current"
+                              ? "min-w-[7.5rem] px-6 py-4"
+                              : "min-w-[5.5rem] px-4 py-4",
+                          )}
+                        >
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody
+                    className={cn(
+                      // Même motif que CDR / Bilan : bordures sur les td (border-separate).
+                      "[&_td]:border-b [&_td]:border-slate-200",
+                      "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+                    )}
+                  >
+                    {tableRows.map((item) => {
+                      if (item.kind === "separator") {
+                        return (
+                          <tr key={item.key} aria-hidden data-testid="capex-structure-separator">
+                            <td colSpan={tableColumnCount} className="border-0 p-0">
+                              <div className="my-1 border-t-2 border-slate-700" />
+                            </td>
+                          </tr>
+                        )
+                      }
+                      if (item.kind === "spacer") {
+                        const periodColCount =
+                          view === "current"
+                            ? 2
+                            : Math.max(trendCount, getPeriodColumnLabels().length, 1)
+                        return (
+                          <tr key={item.key} data-testid="capex-structure-spacer" className="h-2">
+                            <td
+                              className={cn(
+                                metricColumnClass,
+                                "sticky left-0 z-10 bg-white px-6 py-4 text-transparent select-none",
+                              )}
+                            >
+                              {"\u00a0"}
+                            </td>
+                            <td
+                              className={cn(
+                                amountAverageCellClass(false),
+                                "py-4 text-transparent select-none",
+                              )}
+                              data-testid="capex-spacer-average-cell"
+                            >
+                              {"\u00a0"}
+                            </td>
+                            {Array.from({ length: periodColCount }, (_, idx) => (
+                              <td
+                                key={idx}
+                                className={cn(
+                                  view === "current"
+                                    ? amountCellClass(false)
+                                    : amountTrendCellClass(false),
+                                  "py-4 text-transparent select-none",
+                                )}
+                              >
+                                {"\u00a0"}
+                              </td>
+                            ))}
+                          </tr>
+                        )
+                      }
+                      return renderMetricRow(item.key, item.metric, item.operands)
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+        </>
+      )}
     </div>
   )
 }

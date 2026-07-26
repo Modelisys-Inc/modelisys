@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   collectAnnexChildExpandRows,
+  collectGlExpandChildren,
   filterExpandChildrenForHorizon,
   mapGlAccountsToExpandChildren,
   resolveSummaryExpandMode,
@@ -130,6 +131,36 @@ describe("collectAnnexChildExpandRows", () => {
     })
     expect(children).toHaveLength(2)
     expect(children.every((c) => c.code.startsWith("ACT-A."))).toBe(true)
+  })
+})
+
+describe("collectGlExpandChildren", () => {
+  it("injecte CAP-C.1 sous CAP-C pour que la somme GL = total plié", () => {
+    const children = collectGlExpandChildren({
+      parentStructRow: { label: "Bénéfices non répartis", linkCode: "CAP-C" },
+      balanceAccounts: [
+        { accountNumber: "3100", accountName: "BNR début", amount: 300, priorAmount: 200 },
+      ],
+      apiRows: [
+        { id: "CAP-C", label: "Bénéfices non répartis", linkCode: "CAP-C", current: 1500, prior: 1000 },
+        { id: "CAP-C.1", label: "Bénéfice net", linkCode: "CAP-C.1", current: 1200, prior: 800 },
+      ],
+    })
+    expect(children.map((c) => c.code)).toEqual(["CAP-C.1", "3100"])
+    expect(children.reduce((s, c) => s + c.amount, 0)).toBe(1500)
+  })
+
+  it("n’injecte pas CAP-C.1 hors parent CAP-C", () => {
+    const children = collectGlExpandChildren({
+      parentStructRow: { label: "Encaisse", linkCode: "ACT-C.1" },
+      balanceAccounts: [
+        { accountNumber: "1000", accountName: "Banque", amount: 50, priorAmount: 40 },
+      ],
+      apiRows: [
+        { id: "CAP-C.1", label: "Bénéfice net", linkCode: "CAP-C.1", current: 1200, prior: 800 },
+      ],
+    })
+    expect(children.map((c) => c.code)).toEqual(["1000"])
   })
 })
 

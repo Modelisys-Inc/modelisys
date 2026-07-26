@@ -1,9 +1,20 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, type ReactNode } from "react"
 import { Company } from "@/components/entity-selector"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, getPeriodLabels, aggregateToYears, findRow } from "@/lib/series-utils"
+import { LayoutList } from "lucide-react"
+import { cn } from "@/lib/utils"
+import {
+  dashboardCardAccentClass,
+  dashboardCardBodyMutedClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardHeaderIconBoxClass,
+  dashboardCardRingClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 
 interface CashConversionAnalysisProps {
   period: "monthly" | "quarterly" | "annual"
@@ -12,6 +23,9 @@ interface CashConversionAnalysisProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
+  fiscalYear?: number
+  /** Mois calendaire (1–12) de la date de référence — borne la série (pas de mois futurs). */
+  referenceMonth?: number
 }
 
 /** Try multiple label variants to find a row. */
@@ -30,16 +44,20 @@ export function CashConversionAnalysis({
   divisionId,
   subDivisionId,
   companies = [],
+  fiscalYear,
+  referenceMonth,
 }: CashConversionAnalysisProps) {
   // Fetch balance-sheet and income-statement series data
-  const currentYear = new Date().getFullYear()
+  const resolvedYear = fiscalYear ?? new Date().getFullYear()
+  const resolvedMonth = referenceMonth ?? new Date().getMonth() + 1
   const isMultiPeriod = view === "12months" || view === "24months" || view === "years"
   const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
 
   const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
     statementType: "balance-sheet",
-    fiscalYear: currentYear,
+    fiscalYear: resolvedYear,
+    month: resolvedMonth,
     months: monthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
@@ -49,7 +67,8 @@ export function CashConversionAnalysis({
   const { rows: isRows, periods: isPeriods, loading: isLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
     statementType: "income-statement",
-    fiscalYear: currentYear,
+    fiscalYear: resolvedYear,
+    month: resolvedMonth,
     months: monthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
@@ -249,111 +268,100 @@ export function CashConversionAnalysis({
     return "Courant"
   }
 
-  // Loading state
-  if (loading) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
-        <div className="px-8 py-5 border-b border-slate-200">
-          <div className="flex items-center gap-3">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <h3 className="text-xl font-semibold text-slate-900 tracking-tight">Analyse de la conversion de l&apos;encaisse</h3>
+  const cardShell = (body: ReactNode, showMeta = false) => (
+    <div className={cn("mb-6", dashboardCardFrameStaticClass)}>
+      <div className={dashboardCardRingClass} aria-hidden />
+      <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+        <div className="flex min-w-0 items-start gap-4">
+          <div className={dashboardCardHeaderIconBoxClass}>
+            <LayoutList className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>
+              Analyse de la conversion de l&apos;encaisse
+            </h3>
+            {showMeta && (
+              <div className={cn("mt-1 flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+                <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
+                <span className="text-slate-400">•</span>
+                {subDivisionId && divisionId && companyId ? (
+                  <>
+                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                    <span className="text-slate-400">•</span>
+                    <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                      {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
+                    </span>
+                  </>
+                ) : divisionId && companyId ? (
+                  <>
+                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                      {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}
+                    </span>
+                  </>
+                ) : companyId ? (
+                  <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                    {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+                  </span>
+                ) : (
+                  <span className="truncate">Toutes les sociétés</span>
+                )}
+              </div>
+            )}
           </div>
         </div>
-        <div className="flex items-center justify-center h-48">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
-        </div>
       </div>
+      {body}
+    </div>
+  )
+
+  // Loading state
+  if (loading) {
+    return cardShell(
+      <div className="flex h-48 items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
+      </div>,
     )
   }
 
   // No company selected
   if (!companyId) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
-        <div className="px-8 py-5 border-b border-slate-200">
-          <div className="flex items-center gap-3">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <h3 className="text-xl font-semibold text-slate-900 tracking-tight">Analyse de la conversion de l&apos;encaisse</h3>
-          </div>
-        </div>
-        <div className="flex items-center justify-center h-48 text-slate-500">
-          Sélectionnez une société
-        </div>
-      </div>
+    return cardShell(
+      <div className="flex h-48 items-center justify-center text-slate-500">
+        Sélectionnez une société
+      </div>,
     )
   }
 
   // No data available
   if (bsRows.length === 0 && isRows.length === 0) {
-    return (
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
-        <div className="px-8 py-5 border-b border-slate-200">
-          <div className="flex items-center gap-3">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <h3 className="text-xl font-semibold text-slate-900 tracking-tight">Analyse de la conversion de l&apos;encaisse</h3>
-          </div>
-        </div>
-        <div className="flex items-center justify-center h-48 text-slate-500">
-          Aucune donnée disponible
-        </div>
-      </div>
+    return cardShell(
+      <div className="flex h-48 items-center justify-center text-slate-500">
+        Aucune donnée disponible
+      </div>,
     )
   }
 
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 overflow-hidden">
-      {/* Header */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">Analyse de la conversion de l'encaisse</h3>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                <span className="font-medium">{getHorizonText()}</span>
-                <span className="text-slate-500">•</span>
-                {subDivisionId && divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-500">•</span>
-                    <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                    <span className="text-slate-500">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
-                  </>
-                ) : divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-500">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
-                  </>
-                ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
-                ) : (
-                  <span className="truncate">Toutes les sociétés</span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full">
+  return cardShell(
+    <div className="overflow-x-auto">
+        <table className="w-full [&_th]:sticky [&_th]:top-0 [&_th]:z-10">
           <thead>
-            <tr className="bg-gradient-to-b from-slate-50 to-slate-100/50 border-b-2 border-slate-200">
-              <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Métrique</th>
-              <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Moyenne</th>
+            <tr className="border-b-2 border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/50">
+              <th className="w-2/5 px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]">Métrique</th>
+              <th className="px-6 py-4 text-right text-sm font-semibold text-[#2A2F3A]">Moyenne</th>
               {view === "current" && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Courant</th>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Passé</th>
+                  <th className="px-6 py-4 text-right text-sm font-semibold text-[#2A2F3A]">Courant</th>
+                  <th className="px-6 py-4 text-right text-sm font-semibold text-[#2A2F3A]">Passé</th>
                 </>
               )}
               {(view === "12months" || view === "24months" || view === "years") && (
                 <>
                   {periodLabels.map((label, idx) => (
-                    <th key={idx} className="px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
+                    <th key={idx} className="whitespace-nowrap px-4 py-4 text-right text-sm font-semibold text-[#2A2F3A]">
                       {label}
                     </th>
                   ))}
@@ -363,7 +371,7 @@ export function CashConversionAnalysis({
           </thead>
           <tbody>
             {/* DSO - Délai de couvrement des clients */}
-            <tr className="border-b border-slate-100 hover:bg-emerald-50/30 transition-colors">
+            <tr className="border-b border-slate-100 transition-colors hover:bg-[#E0742D]/[0.04]">
               <td className="px-6 py-3.5 text-slate-900">Délai de couvrement des clients</td>
               
               {/* Colonne Moyenne */}
@@ -372,7 +380,7 @@ export function CashConversionAnalysis({
                 const dsoPrior = calculateDSO(true)
                 const average = (dsoCurrent + dsoPrior) / 2
                 return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
+                  <td className="bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800">
                     {average.toFixed(1)} j
                   </td>
                 )
@@ -381,7 +389,7 @@ export function CashConversionAnalysis({
                 const values = Array.from({ length: trendCount }).map((_, idx) => calculateDSO(false, idx))
                 const average = values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0
                 return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
+                  <td className="bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800">
                     {average.toFixed(1)} j
                   </td>
                 )
@@ -414,7 +422,7 @@ export function CashConversionAnalysis({
             </tr>
             
             {/* DIO - Délai de rotation des stocks */}
-            <tr className="border-b border-slate-100 hover:bg-blue-50/30 transition-colors">
+            <tr className="border-b border-slate-100 transition-colors hover:bg-blue-50/30">
               <td className="px-6 py-3.5 text-slate-900">Délai de rotation des stocks</td>
               
               {/* Colonne Moyenne */}
@@ -423,7 +431,7 @@ export function CashConversionAnalysis({
                 const dioPrior = calculateDIO(true)
                 const average = (dioCurrent + dioPrior) / 2
                 return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
+                  <td className="bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800">
                     {average.toFixed(1)} j
                   </td>
                 )
@@ -432,7 +440,7 @@ export function CashConversionAnalysis({
                 const values = Array.from({ length: trendCount }).map((_, idx) => calculateDIO(false, idx))
                 const average = values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0
                 return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
+                  <td className="bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800">
                     {average.toFixed(1)} j
                   </td>
                 )
@@ -465,7 +473,7 @@ export function CashConversionAnalysis({
             </tr>
             
             {/* DPO - Délai de paiement des fournisseurs */}
-            <tr className="border-b border-slate-100 hover:bg-purple-50/30 transition-colors">
+            <tr className="border-b border-slate-100 transition-colors hover:bg-purple-50/30">
               <td className="px-6 py-3.5 text-slate-900">Délai de paiement des fournisseurs</td>
               
               {/* Colonne Moyenne */}
@@ -474,7 +482,7 @@ export function CashConversionAnalysis({
                 const dpoPrior = calculateDPO(true)
                 const average = (dpoCurrent + dpoPrior) / 2
                 return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
+                  <td className="bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800">
                     {average.toFixed(1)} j
                   </td>
                 )
@@ -483,7 +491,7 @@ export function CashConversionAnalysis({
                 const values = Array.from({ length: trendCount }).map((_, idx) => calculateDPO(false, idx))
                 const average = values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0
                 return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
+                  <td className="bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800">
                     {average.toFixed(1)} j
                   </td>
                 )
@@ -516,8 +524,8 @@ export function CashConversionAnalysis({
             </tr>
             
             {/* CCC - Cycle de conversion de l'encaisse */}
-            <tr className="border-b border-slate-100 hover:bg-amber-50/30 transition-colors">
-              <td className="px-6 py-3.5 text-slate-900">Cycle de conversion de l'encaisse</td>
+            <tr className="border-b border-slate-100 transition-colors hover:bg-amber-50/30">
+              <td className="px-6 py-3.5 text-slate-900">Cycle de conversion de l&apos;encaisse</td>
               
               {/* Colonne Moyenne */}
               {view === "current" && (() => {
@@ -525,7 +533,7 @@ export function CashConversionAnalysis({
                 const cccPrior = calculateCCC(true)
                 const average = (cccCurrent + cccPrior) / 2
                 return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
+                  <td className="bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800">
                     {average.toFixed(1)} j
                   </td>
                 )
@@ -534,7 +542,7 @@ export function CashConversionAnalysis({
                 const values = Array.from({ length: trendCount }).map((_, idx) => calculateCCC(false, idx))
                 const average = values.length > 0 ? values.reduce((sum, val) => sum + val, 0) / values.length : 0
                 return (
-                  <td className="px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800 bg-gradient-to-b from-slate-50 to-slate-100/50">
+                  <td className="bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3.5 text-right font-mono text-sm font-semibold text-slate-800">
                     {average.toFixed(1)} j
                   </td>
                 )
@@ -567,8 +575,8 @@ export function CashConversionAnalysis({
             </tr>
           </tbody>
         </table>
-      </div>
-    </div>
+      </div>,
+    true,
   )
 }
 

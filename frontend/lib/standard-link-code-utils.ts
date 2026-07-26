@@ -214,6 +214,18 @@ export function balanceSheetParentLinkCodeOptions(codes: StandardLinkCode[]): {
   }
 }
 
+/** Parents Bilan + ancrages Résultats pour l’analyse fonds de roulement. */
+export function workingCapitalLinkCodeOptions(codes: StandardLinkCode[]): {
+  codes: string[]
+  labels: Map<string, string>
+} {
+  const bs = balanceSheetParentLinkCodeOptions(codes)
+  const is = incomeStatementParentLinkCodeOptions(codes)
+  const labels = new Map<string, string>([...bs.labels, ...is.labels])
+  const merged = [...new Set([...bs.codes, ...is.codes])]
+  return { codes: merged, labels }
+}
+
 export function standardLinkCodeDisplayLabel(code: StandardLinkCode): string {
   return (code.label_sub_account || code.label_account || code.label || code.code).trim()
 }

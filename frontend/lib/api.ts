@@ -583,7 +583,7 @@ export async function listStatementStructures(
   return data.structures;
 }
 
-export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "capex" | "baiia";
+export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "working-capital" | "capex" | "baiia";
 
 export async function getStatementStructure(
   companyId: string,
@@ -733,6 +733,15 @@ export async function getCashFlow(
 ): Promise<FinancialStatementResponse> {
   return apiFetch<FinancialStatementResponse>(
     `/api/companies/${companyId}/financial-statements/cash-flow${buildFinancialStatementQuery(params)}`
+  )
+}
+
+export async function getCashFlowDetail(
+  companyId: string,
+  params: FinancialStatementParams
+): Promise<FinancialStatementResponse> {
+  return apiFetch<FinancialStatementResponse>(
+    `/api/companies/${companyId}/financial-statements/cash-flow-detail${buildFinancialStatementQuery(params)}`
   )
 }
 
@@ -1480,7 +1489,7 @@ export interface FinancialStatementSeriesParams {
 
 export async function getFinancialStatementSeries(
   companyId: string,
-  statementType: string,  // "income-statement" | "balance-sheet" | "cash-flow"
+  statementType: string,  // "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail"
   params: FinancialStatementSeriesParams
 ): Promise<FinancialStatementSeriesResponse> {
   const query = new URLSearchParams()

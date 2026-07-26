@@ -6,8 +6,10 @@
 
 import type { FinancialStatementRow, SeriesRow, StandardLinkCode } from "@/lib/api"
 import {
+  CAP_C_CASH_FLOW_ROOT,
   getDetailSubLineCodesFromStandardLinkCode,
   isComputedNetIncomeLinkCode,
+  NET_INCOME_BALANCE_LINK_CODE,
   standardLinkCodeDisplayLabel,
 } from "@/lib/standard-link-code-utils"
 import {
@@ -152,6 +154,99 @@ export function mapGlAccountsToExpandChildren(
     priorAmount: a.priorAmount,
     trendValues: a.trendValues,
   }))
+}
+
+/** True when this summary parent is the CAP-C rollup that already folds CAP-C.1. */
+export function isCapCSummaryParent(
+  parentStructRow: Record<string, unknown> | null | undefined,
+  parentRowId?: string,
+): boolean {
+  const candidates = [
+    parentStructRow?.linkCode,
+    parentStructRow?.id,
+    parentRowId,
+  ]
+  return candidates.some((c) => normId(c) === CAP_C_CASH_FLOW_ROOT)
+}
+
+/**
+ * GL expand under CAP-C: prepend computed net income (CAP-C.1) so children
+ * sum matches the folded parent total (backend folds CAP-C.1 into CAP-C).
+ */
+export function collectGlExpandChildren(params: {
+  parentStructRow: Record<string, unknown> | null | undefined
+  parentRowId?: string
+  balanceAccounts?: Array<{
+    accountNumber: string
+    accountName: string
+    amount: number
+    priorAmount?: number
+    trendValues?: number[]
+  }>
+  apiRows: Array<
+    Pick<FinancialStatementRow, "id" | "label" | "current" | "prior"> & {
+      linkCode?: string
+    }
+  >
+}): SummaryExpandChild[] {
+  const gl = mapGlAccountsToExpandChildren(params.balanceAccounts)
+  if (!isCapCSummaryParent(params.parentStructRow, params.parentRowId)) return gl
+  if (gl.some((c) => isComputedNetIncomeLinkCode(c.code))) return gl
+
+  const ni = findApiRowByCodeOrLabel(
+    params.apiRows,
+    NET_INCOME_BALANCE_LINK_CODE,
+    "Bénéfice net",
+  )
+  if (!ni) return gl
+
+  return [
+    {
+      code: NET_INCOME_BALANCE_LINK_CODE,
+      label: String(ni.label ?? "Bénéfice net").trim() || "Bénéfice net",
+      amount: ni.current ?? 0,
+      priorAmount: ni.prior ?? 0,
+    },
+    ...gl,
+  ]
+}
+
+/** Series variant of {@link collectGlExpandChildren}. */
+export function collectGlExpandChildrenFromSeries(params: {
+  parentStructRow: Record<string, unknown> | null | undefined
+  parentRowId?: string
+  balanceAccounts?: Array<{
+    accountNumber: string
+    accountName: string
+    amount: number
+    priorAmount?: number
+    trendValues?: number[]
+  }>
+  seriesRows: SeriesRow[]
+  buildTrendValues: (row: SeriesRow) => number[]
+}): SummaryExpandChild[] {
+  const gl = mapGlAccountsToExpandChildren(params.balanceAccounts)
+  if (!isCapCSummaryParent(params.parentStructRow, params.parentRowId)) return gl
+  if (gl.some((c) => isComputedNetIncomeLinkCode(c.code))) return gl
+
+  const ni = findApiRowByCodeOrLabel(
+    params.seriesRows,
+    NET_INCOME_BALANCE_LINK_CODE,
+    "Bénéfice net",
+  )
+  if (!ni) return gl
+
+  const trendValues = params.buildTrendValues(ni)
+  return [
+    {
+      code: NET_INCOME_BALANCE_LINK_CODE,
+      label: String(ni.label ?? "Bénéfice net").trim() || "Bénéfice net",
+      amount: trendValues[0] ?? 0,
+      priorAmount: trendValues.length >= 2 ? trendValues[1] ?? 0 : 0,
+      trendValues: trendValues.length > 0 ? trendValues : undefined,
+    },
+    ...gl,
+  ]
 }
 
 /**

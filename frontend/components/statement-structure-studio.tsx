@@ -14,6 +14,7 @@ import { useStatementSummaryStructureDialogs } from "@/hooks/use-statement-summa
 import { useIncomeStatementParentLinkCodes } from "@/hooks/use-income-statement-parent-link-codes"
 import { useBalanceSheetParentLinkCodes } from "@/hooks/use-balance-sheet-parent-link-codes"
 import { useCashFlowCategoryLinkCodes } from "@/hooks/use-cash-flow-category-link-codes"
+import { useWorkingCapitalLinkCodes } from "@/hooks/use-working-capital-link-codes"
 import {
   StatementSummaryStructureColgroup,
   StatementSummaryStructureThead,
@@ -28,9 +29,14 @@ import {
   mapLinkCodesToOwnerLabel,
   normalizeLiaisonMode,
 } from "@/lib/income-statement-structure-utils"
+import {
+  collectWorkingCapitalFormulaRefCodes,
+  workingCapitalRowRefCode,
+} from "@/lib/working-capital-structure-utils"
 
 const SUMMARY_STRUCTURE_COLUMN_COUNT = 8
 const SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX = 6
+const SUMMARY_STRUCTURE_COLUMN_COUNT_WC = 7
 
 interface StatementStructureStudioToolbarProps {
   companyId: string
@@ -155,41 +161,65 @@ export function StatementStructureStudio({
   const isIncomeStatement = statementType === "income-statement"
   const isBalanceSheet = statementType === "balance-sheet"
   const isCashFlow = statementType === "cash-flow" || statementType === "cash-flow-detail"
+  const isWorkingCapital = statementType === "working-capital"
+  const isCapex = statementType === "capex"
+  const isLinkCodeAnalysis = isWorkingCapital || isCapex
   const { codes: incomeParentLinkCodes, labels: incomeParentLinkLabels } =
     useIncomeStatementParentLinkCodes(isIncomeStatement)
   const { codes: balanceParentLinkCodes, labels: balanceParentLinkLabels } =
     useBalanceSheetParentLinkCodes(isBalanceSheet)
   const { codes: cashFlowCategoryLinkCodes, labels: cashFlowCategoryLinkLabels } =
     useCashFlowCategoryLinkCodes(isCashFlow)
+  const { codes: workingCapitalLinkCodes, labels: workingCapitalLinkLabels } =
+    useWorkingCapitalLinkCodes(isLinkCodeAnalysis)
   const singleModeLinkCodes = isIncomeStatement
     ? incomeParentLinkCodes
     : isBalanceSheet
       ? balanceParentLinkCodes
       : isCashFlow
         ? cashFlowCategoryLinkCodes
-        : undefined
+        : isLinkCodeAnalysis
+          ? workingCapitalLinkCodes
+          : undefined
   const singleModeLinkCodeLabels = isIncomeStatement
     ? incomeParentLinkLabels
     : isBalanceSheet
       ? balanceParentLinkLabels
       : isCashFlow
         ? cashFlowCategoryLinkLabels
-        : undefined
+        : isLinkCodeAnalysis
+          ? workingCapitalLinkLabels
+          : undefined
 
   const displayIndices = structEdit.summaryStructureDisplayIndices
-  const allLiaisonCodes = useMemo(
-    () => collectDistinctLinkCodesFromStructure(structEdit.structure),
-    [structEdit.structure]
-  )
-  const linkCodeLabels = useMemo(
-    () => mapLinkCodesToOwnerLabel(structEdit.structure),
-    [structEdit.structure]
-  )
+  const wcFormulaRefs = useMemo(() => {
+    if (!isLinkCodeAnalysis) return { codes: [] as string[], labels: new Map<string, string>() }
+    return collectWorkingCapitalFormulaRefCodes(structEdit.structure)
+  }, [isLinkCodeAnalysis, structEdit.structure])
+  const allLiaisonCodes = useMemo(() => {
+    const base = collectDistinctLinkCodesFromStructure(structEdit.structure)
+    if (!isLinkCodeAnalysis || wcFormulaRefs.codes.length === 0) return base
+    return [...new Set([...base, ...wcFormulaRefs.codes])].sort((a, b) =>
+      a.localeCompare(b, "fr", { numeric: true }),
+    )
+  }, [isLinkCodeAnalysis, structEdit.structure, wcFormulaRefs.codes])
+  const linkCodeLabels = useMemo(() => {
+    const map = mapLinkCodesToOwnerLabel(structEdit.structure)
+    if (isLinkCodeAnalysis) {
+      for (const [code, label] of wcFormulaRefs.labels) {
+        if (!map.has(code)) map.set(code, label)
+      }
+    }
+    return map
+  }, [isLinkCodeAnalysis, structEdit.structure, wcFormulaRefs.labels])
 
   const annexIdentifierAutoAssigned = isBalanceSheet
-  const structureColumnCount = hideAnnexColumns
-    ? SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX
-    : SUMMARY_STRUCTURE_COLUMN_COUNT
+  const showDisplayFormatColumn = isLinkCodeAnalysis
+  const structureColumnCount = showDisplayFormatColumn
+    ? SUMMARY_STRUCTURE_COLUMN_COUNT_WC
+    : hideAnnexColumns
+      ? SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX
+      : SUMMARY_STRUCTURE_COLUMN_COUNT
 
   return (
     <div
@@ -225,10 +255,17 @@ export function StatementStructureStudio({
 
       <div className="overflow-x-auto">
         <table className="w-full table-fixed border-collapse">
-          <StatementSummaryStructureColgroup hideAnnexColumns={hideAnnexColumns} />
+          <StatementSummaryStructureColgroup
+            hideAnnexColumns={hideAnnexColumns}
+            showDisplayFormatColumn={showDisplayFormatColumn}
+          />
           <thead className="bg-slate-50/70">
             <tr>
-              <StatementSummaryStructureThead posteHeader="Poste" hideAnnexColumns={hideAnnexColumns} />
+              <StatementSummaryStructureThead
+                posteHeader="Poste"
+                hideAnnexColumns={hideAnnexColumns}
+                showDisplayFormatColumn={showDisplayFormatColumn}
+              />
             </tr>
           </thead>
           <tbody>
@@ -251,9 +288,12 @@ export function StatementStructureStudio({
               const isLabelLockedBySingleLinkCode =
                 isCodeMappingEnabled(structRow) &&
                 !!String(structRow.linkCode ?? "").trim() &&
-                liaisonMode !== "sum" &&
-                liaisonMode !== "difference"
+                liaisonMode === "single"
               const showSeparatorAbove = isTruthySeparatorAbove(structRow.separatorAbove)
+              const rowLiaisonCodes =
+                isLinkCodeAnalysis
+                  ? allLiaisonCodes.filter((c) => c !== workingCapitalRowRefCode(structRow))
+                  : allLiaisonCodes
               return (
                 <Fragment key={rowKey}>
                   {showSeparatorAbove && (
@@ -300,7 +340,7 @@ export function StatementStructureStudio({
                       structRow={structRow}
                       globalIdx={globalIdx}
                       structEdit={structEdit}
-                      allLiaisonCodes={allLiaisonCodes}
+                      allLiaisonCodes={rowLiaisonCodes}
                       linkCodeLabels={linkCodeLabels}
                       singleModeLinkCodes={singleModeLinkCodes}
                       singleModeLinkCodeLabels={singleModeLinkCodeLabels}
@@ -308,6 +348,8 @@ export function StatementStructureStudio({
                       onEditPresentation={dialogs.beginEditPostPresentation}
                       annexIdentifierAutoAssigned={annexIdentifierAutoAssigned}
                       hideAnnexColumns={hideAnnexColumns}
+                      allowProductQuotient={isLinkCodeAnalysis}
+                      showDisplayFormatColumn={showDisplayFormatColumn}
                     />
                   </tr>
                 </Fragment>

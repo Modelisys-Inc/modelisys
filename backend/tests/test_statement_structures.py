@@ -36,6 +36,7 @@ def test_list_statement_structures_seeded_defaults(client, auth_headers):
     types = {s["statement_type"] for s in structures}
     assert "income-statement" in types
     assert "balance-sheet" in types
+    assert "working-capital" in types
 
 
 def test_upsert_income_statement_structure(client, auth_headers):
@@ -95,6 +96,79 @@ def test_upsert_updates_existing(client, auth_headers):
     assert "balance-sheet" in types
     assert "cash-flow" in types
     assert "cash-flow-detail" in types
+    assert "working-capital" in types
+
+
+def test_get_working_capital_structure_defaults(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    response = client.get(
+        f"/api/companies/{company_id}/statement-structures/working-capital",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["statement_type"] == "working-capital"
+    labels = [r.get("label") for r in data["structure"]]
+    assert "FDR" in labels
+    assert "FdRHC" in labels
+
+
+def test_upsert_working_capital_structure(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    payload = [
+        {
+            "label": "FDR",
+            "defineMapping": True,
+            "liaisonMode": "difference",
+            "liaisonNumeratorCodes": ["ACT"],
+            "liaisonDenominatorCodes": ["PCT"],
+        },
+        {"label": "FdRHC", "defineMapping": True, "liaisonMode": "na"},
+    ]
+    response = client.put(
+        f"/api/companies/{company_id}/statement-structures/working-capital",
+        json={"structure": payload},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["statement_type"] == "working-capital"
+    assert len(response.json()["structure"]) == 2
+    assert response.json()["structure"][0]["liaisonMode"] == "difference"
+
+
+def test_get_capex_structure_default(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    response = client.get(
+        f"/api/companies/{company_id}/statement-structures/capex",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["statement_type"] == "capex"
+    assert len(data["structure"]) >= 5
+    assert data["structure"][0]["label"] == "Capex"
+
+
+def test_upsert_capex_structure(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    payload = [
+        {
+            "label": "Capex",
+            "defineMapping": True,
+            "liaisonMode": "difference",
+            "liaisonNumeratorCodes": ["IMC"],
+            "liaisonDenominatorCodes": ["IMC-P"],
+        },
+        {"label": "Amortissement", "defineMapping": True, "liaisonMode": "single", "linkCode": "AMO"},
+    ]
+    response = client.put(
+        f"/api/companies/{company_id}/statement-structures/capex",
+        json={"structure": payload},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["statement_type"] == "capex"
+    assert len(response.json()["structure"]) == 2
 
 
 def test_get_statement_structure(client, auth_headers):

@@ -15,9 +15,17 @@ import {
   Link2,
   Pencil,
   PanelTop,
+  Percent,
   Trash2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   isAnnexLetterInputEditable,
   isCodeMappingEnabled,
@@ -27,6 +35,10 @@ import {
   normalizeAnnexLetter,
   normalizeLiaisonMode,
 } from "@/lib/income-statement-structure-utils"
+import {
+  resolveWorkingCapitalDisplayFormat,
+  type WorkingCapitalDisplayFormat,
+} from "@/lib/working-capital-structure-utils"
 
 export type StatementSummaryStructureEditApi = {
   updateRow: (index: number, patch: Record<string, unknown>) => void
@@ -39,8 +51,10 @@ export type StatementSummaryStructureEditApi = {
 
 export function StatementSummaryStructureColgroup({
   hideAnnexColumns = false,
+  showDisplayFormatColumn = false,
 }: {
   hideAnnexColumns?: boolean
+  showDisplayFormatColumn?: boolean
 }) {
   return (
     <colgroup>
@@ -49,6 +63,7 @@ export function StatementSummaryStructureColgroup({
       <col style={{ width: "7rem" }} />
       <col style={{ width: "7rem" }} />
       <col style={{ width: "7rem" }} />
+      {showDisplayFormatColumn ? <col style={{ width: "7.5rem" }} /> : null}
       {!hideAnnexColumns ? (
         <>
           <col style={{ width: "7rem" }} />
@@ -63,9 +78,11 @@ export function StatementSummaryStructureColgroup({
 export function StatementSummaryStructureThead({
   posteHeader = "Poste",
   hideAnnexColumns = false,
+  showDisplayFormatColumn = false,
 }: {
   posteHeader?: string
   hideAnnexColumns?: boolean
+  showDisplayFormatColumn?: boolean
 }) {
   return (
     <>
@@ -143,6 +160,24 @@ export function StatementSummaryStructureThead({
           </TooltipContent>
         </Tooltip>
       </th>
+      {showDisplayFormatColumn ? (
+        <th className="box-border w-[7.5rem] px-2 py-4 text-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                  <Percent className="h-4 w-4 text-slate-600" />
+                </span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800">Format</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[260px] text-balance">
+              Format d’affichage hors Paramètres : devise ($), nombre décimal, pourcentage (ratio × 100),
+              ou jours (ex. 100.25 jours).
+            </TooltipContent>
+          </Tooltip>
+        </th>
+      ) : null}
       {!hideAnnexColumns ? (
         <>
           <th className="box-border w-[7rem] px-2 py-4 text-center">
@@ -200,6 +235,10 @@ type StructureRowCellsProps = {
   annexIdentifierAutoAssigned?: boolean
   /** Masque les colonnes Annexe et Lettre (ex. Trésorerie Détail). */
   hideAnnexColumns?: boolean
+  /** Fonds de roulement : autorise multiplication et division. */
+  allowProductQuotient?: boolean
+  /** Fonds de roulement : colonne Format ($ / Nombre / %). */
+  showDisplayFormatColumn?: boolean
 }
 
 export function StatementSummaryStructureRowCells({
@@ -214,6 +253,8 @@ export function StatementSummaryStructureRowCells({
   onEditPresentation,
   annexIdentifierAutoAssigned = false,
   hideAnnexColumns = false,
+  allowProductQuotient = false,
+  showDisplayFormatColumn = false,
 }: StructureRowCellsProps) {
   return (
     <>
@@ -345,6 +386,7 @@ export function StatementSummaryStructureRowCells({
             singleModeLinkCodes={singleModeLinkCodes}
             singleModeLinkCodeLabels={singleModeLinkCodeLabels}
             updateRow={structEdit.updateRow}
+            allowProductQuotient={allowProductQuotient}
           />
         ) : (
           <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
@@ -352,6 +394,37 @@ export function StatementSummaryStructureRowCells({
           </span>
         )}
       </td>
+      {showDisplayFormatColumn ? (
+        <td className="box-border w-[7.5rem] px-2 py-2.5 align-middle">
+          {isStructureRowEmptyLabel(structRow) || isStructureRowHidden(structRow) ? (
+            <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
+              —
+            </span>
+          ) : (
+            <Select
+              value={resolveWorkingCapitalDisplayFormat(structRow)}
+              onValueChange={(v) =>
+                structEdit.updateRow(globalIdx, {
+                  displayFormat: v as WorkingCapitalDisplayFormat,
+                })
+              }
+            >
+              <SelectTrigger
+                className="h-9 w-full rounded-xl border-slate-200/90 text-xs shadow-sm focus:border-[#E0742D]/50 focus:ring-2 focus:ring-[#E0742D]/20"
+                aria-label="Format d'affichage"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="currency">$</SelectItem>
+                <SelectItem value="number">Nombre</SelectItem>
+                <SelectItem value="percent">%</SelectItem>
+                <SelectItem value="days">Jours</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </td>
+      ) : null}
       {!hideAnnexColumns ? (
         <>
           <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">

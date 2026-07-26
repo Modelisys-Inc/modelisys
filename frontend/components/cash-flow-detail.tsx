@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useEffect, Fragment } from "react"
+import { useState, useEffect, useMemo, Fragment } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import type { FinancialStatementDetailRow, FinancialStatementRow, SeriesDetailRow, SeriesRow } from "@/lib/api"
 import { getFinancialStatementSeries, getStatementStructure, type FinancialStatementSeriesParams } from "@/lib/api"
+import { useFinancialStatement } from "@/hooks/use-financial-statement"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import {
   aggregateToQuarters,
@@ -18,17 +19,19 @@ import { yearTrendFromReference } from "@/lib/series-reference-columns"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ListTree, Settings, Sparkles } from "lucide-react"
+import { ChevronDown, ChevronRight, ListTree, Settings, Sparkles } from "lucide-react"
 import { StatementStructureStudio } from "@/components/statement-structure-studio"
 import {
   detailLineLabelForDisplay,
   findStatementApiRowForStructureRow,
+  findStructureRowForStatementLine,
   indentForSummaryRow,
   isCodeMappingEnabled,
   isStructureRowEmptyLabel,
   isTruthySeparatorAbove,
   listStructureRowsForPresentationDisplay,
 } from "@/lib/income-statement-structure-utils"
+import { structureRowHasFormulaLiaison } from "@/lib/balance-sheet-summary-expand"
 import {
   dashboardCardBodyMutedClass,
   dashboardCardAccentClass,
@@ -68,6 +71,14 @@ interface CashFlowDetailProps {
   forecastUseSeriesActuals?: boolean
 }
 
+interface GlAccount {
+  accountNumber: string
+  accountName: string
+  amount: number
+  priorAmount?: number
+  trendValues?: number[]
+}
+
 interface DetailRow {
   label: string
   current: number
@@ -79,10 +90,11 @@ interface DetailRow {
   separatorAbove?: boolean
   annexLetter?: string
   rowId?: string
-  isDetailAccount?: boolean
   hasLiaisonCode?: boolean
   // For trend views (12months, quarters, years)
   trendValues?: number[]
+  /** Comptes GL sous-jacents — visibles uniquement à l'expansion. */
+  balanceAccounts?: GlAccount[]
 }
 
 export function CashFlowDetail({
@@ -95,6 +107,7 @@ export function CashFlowDetail({
   companies = [],
   title = "Détail",
   comparisonType = "lastMonth",
+  selectedBudgetId = null,
   selectedBudgetName = null,
   refMonth,
   refYear,
@@ -121,6 +134,16 @@ export function CashFlowDetail({
   const handleStructureSaved = onDetailStructureSaved ?? onCashFlowStructureSaved
   const [statementStructure, setStatementStructure] = useState<Record<string, unknown>[] | null>(null)
   const [structureLoading, setStructureLoading] = useState(false)
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+
+  const toggleRow = (rowId: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev)
+      if (next.has(rowId)) next.delete(rowId)
+      else next.add(rowId)
+      return next
+    })
+  }
 
   useEffect(() => {
     if (!companyId) {
@@ -145,27 +168,61 @@ export function CashFlowDetail({
     }
   }, [companyId, effectiveStructureVersion])
 
-  // Series data for multi-period views
+  // Point-in-time amounts from cash-flow-detail (same liaison rules as summary)
+  const apiPeriod = view === "ytd" ? "ytd" : view === "ddm" ? "annual" : period
+  const detailFetchParams = useMemo(
+    () => ({
+      fiscal_year: fiscalYear || effectiveRefYear,
+      month: effectiveRefMonth,
+      period: apiPeriod,
+      comparison_type: comparisonType,
+      budget_id: comparisonType === "budget" && selectedBudgetId ? selectedBudgetId : undefined,
+      division_id: divisionId || undefined,
+      sub_division_id: subDivisionId || undefined,
+      structure_rev: effectiveStructureVersion,
+    }),
+    [
+      fiscalYear,
+      effectiveRefYear,
+      effectiveRefMonth,
+      apiPeriod,
+      comparisonType,
+      selectedBudgetId,
+      divisionId,
+      subDivisionId,
+      effectiveStructureVersion,
+    ]
+  )
+  const { rows: detailComputedRows, loading: detailComputedLoading } = useFinancialStatement(
+    companyId || null,
+    "cash-flow-detail",
+    detailFetchParams
+  )
+  const amountRows = companyId ? detailComputedRows : backendRows
+  const amountsLoading = companyId ? detailComputedLoading : loading
+
+  // Series data for multi-period views (cash-flow-detail structure)
   const isMultiPeriod = view === "12months" || view === "quarters" || view === "years"
   const currentYear = fiscalYear || new Date().getFullYear()
   const monthsNeeded = view === "years" ? 60 : 12
 
   const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
-    statementType: "cash-flow",
+    statementType: "cash-flow-detail",
     fiscalYear: currentYear,
     month: effectiveRefMonth,
     months: monthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: isMultiPeriod && (!isForecastSection || forecastUseSeriesActuals),
+    structureVersion: effectiveStructureVersion,
   })
-
 
   const structureRowToDetailRow = (
     sr: Record<string, unknown>,
     row: FinancialStatementRow | undefined,
-    trendValues?: number[]
+    trendValues?: number[],
+    seriesDetailRows?: SeriesDetailRow[]
   ): DetailRow => {
     if (isStructureRowEmptyLabel(sr)) {
       return {
@@ -185,6 +242,17 @@ export function CashFlowDetail({
     const isSection = typeof sr.isSection === "boolean" ? sr.isSection : !!row?.isSection
     const isResult = typeof sr.isResult === "boolean" ? sr.isResult : !!row?.isResult
     const hasLiaisonCode = row?.hasLiaisonCode ?? isCodeMappingEnabled(sr)
+
+    let balanceAccounts: GlAccount[] | undefined
+    // Formules Paramètres (formula / addition / soustraction) : pas d’expansion GL.
+    if (!structureRowHasFormulaLiaison(sr)) {
+      if (seriesDetailRows?.length) {
+        balanceAccounts = seriesDetailRowsToGlAccounts(seriesDetailRows)
+      } else if (row?.detailRows?.length) {
+        balanceAccounts = pointInTimeDetailRowsToGlAccounts(row.detailRows)
+      }
+    }
+
     return {
       label,
       current: row?.current ?? (trendValues ? trendValues[0] || 0 : 0),
@@ -203,39 +271,22 @@ export function CashFlowDetail({
       rowId: row?.id ?? String(sr.id ?? sr.linkCode ?? ""),
       hasLiaisonCode,
       trendValues: isSection ? undefined : trendValues,
+      balanceAccounts,
     }
   }
 
-  const mapRowsFromDetailStructure = (
-    apiRows: FinancialStatementRow[],
-    trendByRowId?: Map<string, number[]>
-  ): DetailRow[] => {
-    if (!statementStructure?.length) return []
-    const displayRows = listStructureRowsForPresentationDisplay(statementStructure)
-    return displayRows.flatMap((sr) => {
-      const row = findStatementApiRowForStructureRow(apiRows, sr)
-      const trendValues = row?.id && trendByRowId ? trendByRowId.get(row.id) : undefined
-      const base = structureRowToDetailRow(sr, row, trendValues)
-      return [base, ...mapAccountDetailRows(row?.detailRows)]
-    })
-  }
-
-
-  const mapAccountDetailRows = (detailRows: FinancialStatementDetailRow[] | undefined): DetailRow[] =>
-    (detailRows ?? []).map((dr) => ({
-      label: dr.label,
-      current: dr.current ?? 0,
-      prior: dr.prior ?? 0,
-      indent: true,
-      isBold: false,
-      isSubtotal: false,
-      isSection: false,
-      rowId: dr.id,
-      isDetailAccount: true,
+  const pointInTimeDetailRowsToGlAccounts = (
+    detailRows: FinancialStatementDetailRow[]
+  ): GlAccount[] =>
+    detailRows.map((dr) => ({
+      accountNumber: dr.id,
+      accountName: dr.label,
+      amount: dr.current ?? 0,
+      priorAmount: dr.prior ?? 0,
     }))
 
-  const mapSeriesAccountDetailRows = (detailRows: SeriesDetailRow[] | undefined): DetailRow[] =>
-    (detailRows ?? []).map((dr) => {
+  const seriesDetailRowsToGlAccounts = (detailRows: SeriesDetailRow[]): GlAccount[] =>
+    detailRows.map((dr) => {
       const pseudoRow: SeriesRow = {
         id: dr.id,
         label: dr.label,
@@ -260,18 +311,30 @@ export function CashFlowDetail({
         values = reverseSeriesOrderForDisplay(rawAmounts)
       }
       return {
-        label: dr.label,
-        current: values[0] || 0,
-        prior: values.length >= 2 ? values[1] || 0 : 0,
-        indent: true,
-        isBold: false,
-        isSubtotal: false,
-        isSection: false,
-        rowId: dr.id,
-        isDetailAccount: true,
+        accountNumber: dr.id,
+        accountName: dr.label,
+        amount: values[0] || 0,
+        priorAmount: values.length >= 2 ? values[1] || 0 : 0,
         trendValues: values,
       }
     })
+
+  const mapRowsFromDetailStructure = (
+    apiRows: FinancialStatementRow[],
+    trendByRowId?: Map<string, number[]>,
+    seriesByRowId?: Map<string, SeriesRow>
+  ): DetailRow[] => {
+    if (!statementStructure?.length) return []
+    const displayRows = listStructureRowsForPresentationDisplay(statementStructure)
+    const usedIndices = new Set<number>()
+    const usedNestedIds = new Set<string>()
+    return displayRows.map((sr) => {
+      const row = findStatementApiRowForStructureRow(sr, apiRows, usedIndices, usedNestedIds)
+      const trendValues = row?.id && trendByRowId ? trendByRowId.get(row.id) : undefined
+      const seriesRow = row?.id && seriesByRowId ? seriesByRowId.get(row.id) : undefined
+      return structureRowToDetailRow(sr, row, trendValues, seriesRow?.detailRows)
+    })
+  }
 
   const buildSeriesTrendValues = (row: SeriesRow, rawAmounts: ReturnType<typeof getRowAmounts>): number[] => {
     if (view === "quarters") {
@@ -292,21 +355,22 @@ export function CashFlowDetail({
     if (statementStructure?.length) {
       return mapRowsFromDetailStructure(apiRows)
     }
-    return apiRows.flatMap((row) => {
-      const base: DetailRow = {
-        label: row.label,
-        current: row.current ?? 0,
-        prior: row.prior ?? 0,
-        indent: !row.isBold && !row.isSection && !row.isResult,
-        isBold: row.isBold,
-        isSubtotal: row.isResult,
-        isSection: row.isSection,
-        separatorAbove: isTruthySeparatorAbove(row.separatorAbove),
-        annexLetter: row.annexLetter,
-        rowId: row.id,
-      }
-      return [base, ...mapAccountDetailRows(row.detailRows)]
-    })
+    return apiRows.map((row) => ({
+      label: row.label,
+      current: row.current ?? 0,
+      prior: row.prior ?? 0,
+      indent: !row.isBold && !row.isSection && !row.isResult,
+      isBold: row.isBold,
+      isSubtotal: row.isResult,
+      isSection: row.isSection,
+      separatorAbove: isTruthySeparatorAbove(row.separatorAbove),
+      annexLetter: row.annexLetter,
+      rowId: row.id,
+      hasLiaisonCode: row.hasLiaisonCode,
+      balanceAccounts: row.detailRows?.length
+        ? pointInTimeDetailRowsToGlAccounts(row.detailRows)
+        : undefined,
+    }))
   }
 
   // Build multi-period rows from series API data
@@ -316,19 +380,27 @@ export function CashFlowDetail({
         return mapRowsFromDetailStructure([])
       }
       const trendByRowId = new Map<string, number[]>()
+      const seriesByRowId = new Map<string, SeriesRow>()
       for (const row of seriesRows) {
         const rawAmounts = getRowAmounts(row, periods)
-        if (row.id) trendByRowId.set(row.id, buildSeriesTrendValues(row, rawAmounts))
+        if (row.id) {
+          trendByRowId.set(row.id, buildSeriesTrendValues(row, rawAmounts))
+          seriesByRowId.set(row.id, row)
+        }
       }
-      return mapRowsFromDetailStructure(seriesRows as unknown as FinancialStatementRow[], trendByRowId)
+      return mapRowsFromDetailStructure(
+        seriesRows as unknown as FinancialStatementRow[],
+        trendByRowId,
+        seriesByRowId
+      )
     }
 
     if (!seriesRows.length || !periods.length) return []
 
-    return seriesRows.flatMap((row) => {
+    return seriesRows.map((row) => {
       const rawAmounts = getRowAmounts(row, periods)
       const values = buildSeriesTrendValues(row, rawAmounts)
-      const base: DetailRow = {
+      return {
         label: row.label,
         current: values[0] || 0,
         prior: values.length >= 2 ? values[1] || 0 : 0,
@@ -339,9 +411,12 @@ export function CashFlowDetail({
         separatorAbove: isTruthySeparatorAbove((row as { separatorAbove?: unknown }).separatorAbove),
         annexLetter: row.annexLetter,
         rowId: row.id,
+        hasLiaisonCode: row.hasLiaisonCode,
         trendValues: row.isSection ? undefined : values,
+        balanceAccounts: row.detailRows?.length
+          ? seriesDetailRowsToGlAccounts(row.detailRows)
+          : undefined,
       }
-      return [base, ...mapSeriesAccountDetailRows(row.detailRows)]
     })
   }
 
@@ -350,10 +425,10 @@ export function CashFlowDetail({
       return getMultiPeriodData()
     }
     if (statementStructure?.length) {
-      return mapRowsFromDetailStructure(backendRows)
+      return mapRowsFromDetailStructure(amountRows)
     }
-    if (backendRows.length > 0) {
-      return mapBackendRows(backendRows)
+    if (amountRows.length > 0) {
+      return mapBackendRows(amountRows)
     }
     return []
   }
@@ -439,7 +514,7 @@ export function CashFlowDetail({
 
           const response = await getFinancialStatementSeries(
             entityCompanyId,
-            "cash-flow",
+            "cash-flow-detail",
             params
           )
 
@@ -672,17 +747,20 @@ export function CashFlowDetail({
   else if (view === "quarters") detailTableColumnCount = 1 + getQuarterLabels().length
   else if (view === "years") detailTableColumnCount = 1 + getYearLabels().length
 
-  if (loading || structureLoading || (isMultiPeriod && seriesLoading) || entityDataLoading) {
+  if (amountsLoading || structureLoading || (isMultiPeriod && seriesLoading) || entityDataLoading) {
     return (
       <div className={cn("w-full", dashboardCardFrameStaticClass)}>
         <div className={dashboardCardRingClass} aria-hidden />
-        <div className="relative px-8 py-16 text-center">
-          <div className="animate-pulse space-y-4">
-            <div className="mx-auto h-4 w-1/3 rounded bg-slate-200" />
-            <div className="mx-auto h-4 w-2/3 rounded bg-slate-200" />
-            <div className="mx-auto h-4 w-1/2 rounded bg-slate-200" />
+        <div className="relative w-full min-w-0">
+          {renderCardHeader()}
+          <div className="relative px-8 py-16 text-center">
+            <div className="animate-pulse space-y-4">
+              <div className="mx-auto h-4 w-1/3 rounded bg-slate-200" />
+              <div className="mx-auto h-4 w-2/3 rounded bg-slate-200" />
+              <div className="mx-auto h-4 w-1/2 rounded bg-slate-200" />
+            </div>
+            <p className={cn("mt-4 text-sm", dashboardCardBodyMutedClass)}>Chargement des données...</p>
           </div>
-          <p className={cn("mt-4 text-sm", dashboardCardBodyMutedClass)}>Chargement des données...</p>
         </div>
       </div>
     )
@@ -834,6 +912,158 @@ export function CashFlowDetail({
                 isSpacer || !!row.isSection || row.hasLiaisonCode === false
               const showSeparatorAbove = isTruthySeparatorAbove(row.separatorAbove)
               const isBoldRow = !!row.isBold
+              const matchedStructureRow =
+                statementStructure && row.rowId
+                  ? findStructureRowForStatementLine(row.rowId, row.label, statementStructure)
+                  : undefined
+              const canExpand =
+                !!row.rowId &&
+                !!row.balanceAccounts &&
+                row.balanceAccounts.length > 0 &&
+                !structureRowHasFormulaLiaison(matchedStructureRow)
+              const isExpanded = row.rowId ? expandedRows.has(row.rowId) : false
+              const amountWeightClass =
+                isBoldRow && !isExpanded ? "font-semibold font-bold" : "text-slate-500"
+              const amountWeightClassPrior =
+                isBoldRow && !isExpanded
+                  ? "font-semibold font-bold text-slate-600"
+                  : "text-slate-500"
+
+              const renderGlAccountCells = (account: GlAccount) => {
+                const accountVariation =
+                  account.priorAmount !== undefined && account.amount && account.priorAmount
+                    ? calculateVariation(account.amount, account.priorAmount)
+                    : null
+                const accountVariationAmount =
+                  account.priorAmount !== undefined
+                    ? account.amount - (account.priorAmount ?? 0)
+                    : 0
+
+                return (
+                  <>
+                    {view === "current" && (
+                      <td className="px-6 py-2 text-right font-normal text-sm text-slate-700">
+                        {account.amount !== 0 ? formatCurrency(account.amount) : "-"}
+                      </td>
+                    )}
+                    {view === "comparison" && !isComparisonMode && (
+                      <>
+                        <td className="px-6 py-2 text-right font-normal text-sm text-slate-700">
+                          {account.amount !== 0 ? formatCurrency(account.amount) : "-"}
+                        </td>
+                        <td className="px-6 py-2 text-right font-normal text-sm text-slate-500">
+                          {account.priorAmount !== undefined && account.priorAmount !== 0
+                            ? formatCurrency(account.priorAmount)
+                            : "-"}
+                        </td>
+                        {columnMode === "variations" ? (
+                          <>
+                            <td
+                              className={`px-6 py-2 text-right font-normal text-sm ${
+                                accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"
+                              }`}
+                            >
+                              {accountVariation !== null && account.amount !== 0
+                                ? `${accountVariation >= 0 ? "+" : ""}${accountVariation.toFixed(1)}%`
+                                : "-"}
+                            </td>
+                            <td
+                              className={`px-6 py-2 text-right font-normal text-sm ${
+                                accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"
+                              }`}
+                            >
+                              {account.amount !== 0
+                                ? `${accountVariationAmount >= 0 ? "+" : ""}${formatCurrency(accountVariationAmount)}`
+                                : "-"}
+                            </td>
+                          </>
+                        ) : columnMode === "percentage" ? (
+                          <>
+                            <td className="px-6 py-2 text-right font-normal text-sm text-slate-700">
+                              {account.amount !== 0
+                                ? `${getTotalCashFlowPercentage(account.amount, false).toFixed(1)}%`
+                                : "-"}
+                            </td>
+                            <td className="px-6 py-2 text-right font-normal text-sm text-slate-500">
+                              {account.priorAmount !== undefined && account.priorAmount !== 0
+                                ? `${getTotalCashFlowPercentage(account.priorAmount, true).toFixed(1)}%`
+                                : "-"}
+                            </td>
+                          </>
+                        ) : null}
+                      </>
+                    )}
+                    {view === "comparison" && isComparisonMode &&
+                      entitiesToCompare.map((entity) => (
+                        <td key={entity.id} className="px-6 py-2 text-right font-normal text-sm text-slate-700">
+                          -
+                        </td>
+                      ))}
+                    {(view === "ddm" || view === "ytd") && (
+                      <>
+                        <td className="px-6 py-2 text-right font-normal text-sm text-slate-700">
+                          {account.amount !== 0 ? formatCurrency(account.amount) : "-"}
+                        </td>
+                        <td className="px-6 py-2 text-right font-normal text-sm text-slate-500">
+                          {account.priorAmount !== undefined && account.priorAmount !== 0
+                            ? formatCurrency(account.priorAmount)
+                            : "-"}
+                        </td>
+                        {columnMode === "variations" ? (
+                          <>
+                            <td
+                              className={`px-6 py-2 text-right font-normal text-sm ${
+                                accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"
+                              }`}
+                            >
+                              {accountVariation !== null && account.amount !== 0
+                                ? `${accountVariation >= 0 ? "+" : ""}${accountVariation.toFixed(1)}%`
+                                : "-"}
+                            </td>
+                            <td
+                              className={`px-6 py-2 text-right font-normal text-sm ${
+                                accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"
+                              }`}
+                            >
+                              {account.amount !== 0
+                                ? `${accountVariationAmount >= 0 ? "+" : ""}${formatCurrency(accountVariationAmount)}`
+                                : "-"}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-6 py-2 text-right font-normal text-sm text-slate-700">
+                              {account.amount !== 0
+                                ? `${getTotalCashFlowPercentage(account.amount, false).toFixed(1)}%`
+                                : "-"}
+                            </td>
+                            <td className="px-6 py-2 text-right font-normal text-sm text-slate-500">
+                              {account.priorAmount !== undefined && account.priorAmount !== 0
+                                ? `${getTotalCashFlowPercentage(account.priorAmount, true).toFixed(1)}%`
+                                : "-"}
+                            </td>
+                          </>
+                        )}
+                      </>
+                    )}
+                    {(view === "12months" || view === "quarters" || view === "years") && account.trendValues && (
+                      <>
+                        {account.trendValues.map((value, valueIdx) => (
+                          <td
+                            key={valueIdx}
+                            className={cn(
+                              "px-4 py-2 text-right font-normal text-sm text-slate-700",
+                              isForecastSection && view === "years" && valueIdx === 0 ? "bg-slate-50" : ""
+                            )}
+                          >
+                            {value !== 0 ? formatCurrency(value) : "-"}
+                          </td>
+                        ))}
+                      </>
+                    )}
+                  </>
+                )
+              }
 
               return (
                 <Fragment key={`${row.label}-${idx}`}>
@@ -849,8 +1079,11 @@ export function CashFlowDetail({
                     className={cn(
                       "border-b",
                       isSpacer ? "h-2 border-b border-b-slate-200" : "border-b border-b-slate-200",
-                      !isSpacer && "hover:bg-slate-50/90"
+                      !isSpacer && "hover:bg-slate-50/90",
+                      canExpand && "cursor-pointer"
                     )}
+                    onClick={() => canExpand && toggleRow(row.rowId!)}
+                    data-testid={canExpand ? "cash-flow-detail-expandable-row" : undefined}
                   >
                   <td
                     className={cn(
@@ -859,21 +1092,32 @@ export function CashFlowDetail({
                       row.indent ? "pl-12" : ""
                     )}
                   >
-                    {displayLabel}
+                    <div className="flex items-center gap-2">
+                      {canExpand ? (
+                        <span className="flex-shrink-0" aria-hidden>
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4 text-slate-500" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-slate-500" />
+                          )}
+                        </span>
+                      ) : null}
+                      <span className="flex-1 whitespace-nowrap">{displayLabel}</span>
+                    </div>
                   </td>
 
                   {view === "current" && (
-                    <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                    <td className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}>
                       {row.current !== 0 ? formatCurrency(row.current) : "-"}
                     </td>
                   )}
 
                   {view === "comparison" && !isComparisonMode && (
                     <>
-                      <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                      <td className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}>
                         {row.current !== 0 ? formatCurrency(row.current) : "-"}
                       </td>
-                      <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                      <td className={`px-6 py-3 text-right ${amountWeightClassPrior} ${shouldHideAmounts ? "text-white" : ""}`}>
                         {row.prior !== 0 ? formatCurrency(row.prior) : "-"}
                       </td>
                       {columnMode === "variations" ? (
@@ -899,10 +1143,10 @@ export function CashFlowDetail({
                         </>
                       ) : columnMode === "percentage" ? (
                         <>
-                          <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}>
                             {row.current !== 0 ? `${getTotalCashFlowPercentage(row.current, false).toFixed(1)}%` : "-"}
                           </td>
-                          <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${amountWeightClassPrior} ${shouldHideAmounts ? "text-white" : ""}`}>
                             {row.prior !== 0 ? `${getTotalCashFlowPercentage(row.prior, true).toFixed(1)}%` : "-"}
                           </td>
                         </>
@@ -917,7 +1161,7 @@ export function CashFlowDetail({
                         return (
                           <td
                             key={entity.id}
-                            className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
+                            className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}
                           >
                             {entityRow.current !== 0 ? formatCurrency(entityRow.current) : "-"}
                           </td>
@@ -927,10 +1171,10 @@ export function CashFlowDetail({
                   )}
                   {view === "ddm" && (
                     <>
-                      <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                      <td className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}>
                         {row.current !== 0 ? formatCurrency(row.current) : "-"}
                       </td>
-                      <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                      <td className={`px-6 py-3 text-right ${amountWeightClassPrior} ${shouldHideAmounts ? "text-white" : ""}`}>
                         {row.prior !== 0 ? formatCurrency(row.prior) : "-"}
                       </td>
                       {columnMode === "variations" ? (
@@ -956,10 +1200,10 @@ export function CashFlowDetail({
                         </>
                       ) : (
                         <>
-                          <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}>
                             {row.current !== 0 ? `${getTotalCashFlowPercentage(row.current, false).toFixed(1)}%` : "-"}
                           </td>
-                          <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${amountWeightClassPrior} ${shouldHideAmounts ? "text-white" : ""}`}>
                             {row.prior !== 0 ? `${getTotalCashFlowPercentage(row.prior, true).toFixed(1)}%` : "-"}
                           </td>
                         </>
@@ -969,10 +1213,10 @@ export function CashFlowDetail({
 
                   {view === "ytd" && (
                     <>
-                      <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                      <td className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}>
                         {row.current !== 0 ? formatCurrency(row.current) : "-"}
                       </td>
-                      <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                      <td className={`px-6 py-3 text-right ${amountWeightClassPrior} ${shouldHideAmounts ? "text-white" : ""}`}>
                         {row.prior !== 0 ? formatCurrency(row.prior) : "-"}
                       </td>
                       {columnMode === "variations" ? (
@@ -998,10 +1242,10 @@ export function CashFlowDetail({
                         </>
                       ) : (
                         <>
-                          <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}>
                             {row.current !== 0 ? `${getTotalCashFlowPercentage(row.current, false).toFixed(1)}%` : "-"}
                           </td>
-                          <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${amountWeightClassPrior} ${shouldHideAmounts ? "text-white" : ""}`}>
                             {row.prior !== 0 ? `${getTotalCashFlowPercentage(row.prior, true).toFixed(1)}%` : "-"}
                           </td>
                         </>
@@ -1015,7 +1259,7 @@ export function CashFlowDetail({
                       {row.trendValues.map((value, valueIdx) => (
                         <td
                           key={valueIdx}
-                          className={`px-4 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
+                          className={`px-4 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}
                         >
                           {value !== 0 ? formatCurrency(value) : "-"}
                         </td>
@@ -1027,7 +1271,7 @@ export function CashFlowDetail({
                       {row.trendValues.map((value, valueIdx) => (
                         <td
                           key={valueIdx}
-                          className={`px-4 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
+                          className={`px-4 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}
                         >
                           {value !== 0 ? formatCurrency(value) : "-"}
                         </td>
@@ -1037,11 +1281,11 @@ export function CashFlowDetail({
                   {view === "years" && row.trendValues && (
                     <>
                       {row.trendValues.map((value, valueIdx) => (
-                          <td
-                            key={valueIdx}
+                          <td 
+                            key={valueIdx} 
                             className={cn(
                               "px-4 py-3 text-right",
-                              isBoldRow ? "font-semibold font-bold" : "text-slate-500",
+                              amountWeightClass,
                               shouldHideAmounts ? "text-white" : "",
                               isForecastSection && valueIdx === 0 ? "bg-slate-50" : ""
                             )}
@@ -1057,12 +1301,12 @@ export function CashFlowDetail({
                       {Array.from({
                         length:
                           view === "12months" ? 12 : view === "quarters" ? 5 : isForecastSection ? forecastYearColumnCount : 6,
-                      }).map((_, idx) => (
+                      }).map((_, emptyIdx) => (
                           <td 
-                            key={idx} 
+                            key={emptyIdx} 
                             className={cn(
                               "px-4 py-3 text-right font-semibold text-white",
-                              isForecastSection && view === "years" && idx === 0 ? "bg-slate-50" : ""
+                              isForecastSection && view === "years" && emptyIdx === 0 ? "bg-slate-50" : ""
                             )}
                           >
                             -
@@ -1071,6 +1315,21 @@ export function CashFlowDetail({
                     </>
                   )}
                 </tr>
+                  {isExpanded && canExpand && row.balanceAccounts?.map((account, accIdx) => (
+                    <tr
+                      key={`${idx}-gl-${accIdx}`}
+                      className="[&>td]:bg-slate-50 [&>td:first-child]:bg-slate-50"
+                      data-testid="cash-flow-detail-gl-account"
+                    >
+                      <td className="px-6 py-2 text-slate-500 pl-20 whitespace-nowrap">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-semibold text-slate-500">{account.accountNumber}</span>
+                          <span className="text-sm whitespace-nowrap">{account.accountName}</span>
+                        </div>
+                      </td>
+                      {renderGlAccountCells(account)}
+                    </tr>
+                  ))}
                 </Fragment>
               )
             })}

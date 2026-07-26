@@ -12,6 +12,7 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Select,
@@ -23,6 +24,7 @@ import {
 import {
   formatLiaisonCellHint,
   normalizeLiaisonMode,
+  normalizeLiaisonFactor,
   normalizeCodeList,
 } from "@/lib/income-statement-structure-utils"
 import { cn } from "@/lib/utils"
@@ -167,6 +169,8 @@ export interface IncomeStatementLiaisonCellProps {
   hideDefineColumn?: boolean
   /** Paramètres Détail : liaison uniquement en « Code unique », pas addition / soustraction. */
   singleLiaisonModeOnly?: boolean
+  /** Fonds de roulement : autorise aussi multiplication et division. */
+  allowProductQuotient?: boolean
   /** Codes parents du plan standard (Compte de résultat ou Bilan) pour le mode « Code unique ». */
   singleModeLinkCodes?: string[]
   singleModeLinkCodeLabels?: Map<string, string>
@@ -197,6 +201,7 @@ export function IncomeStatementLiaisonCell({
   readOnly = false,
   hideDefineColumn,
   singleLiaisonModeOnly = false,
+  allowProductQuotient = false,
   singleModeLinkCodes,
   singleModeLinkCodeLabels,
 }: IncomeStatementLiaisonCellProps) {
@@ -214,6 +219,7 @@ export function IncomeStatementLiaisonCell({
     () => normalizeCodeList(structRow.liaisonDenominatorCodes),
     [structRow.liaisonDenominatorCodes]
   )
+  const liaisonFactor = normalizeLiaisonFactor(structRow.liaisonFactor)
 
   const codeOptions = useMemo(
     () => allLinkCodes.filter(Boolean),
@@ -229,8 +235,14 @@ export function IncomeStatementLiaisonCell({
     return base
   }, [singleModeLinkCodes, codeOptions, structRow.linkCode])
   const liaisonCodeOptions = useMemo(() => {
-    const base = (singleModeLinkCodes ?? codeOptions).filter(Boolean)
-    if (!singleModeLinkCodes) return base
+    const standard = (singleModeLinkCodes ?? []).filter(Boolean)
+    const fromStruct = codeOptions
+    // Inclure les codes de structure (ex. résultats de formules WC « FDR ») même quand
+    // singleModeLinkCodes (plan standard) est fourni.
+    const base =
+      singleModeLinkCodes !== undefined
+        ? [...new Set([...standard, ...fromStruct])]
+        : fromStruct
     const extras = new Set<string>()
     for (const code of [
       String(structRow.linkCode ?? ""),
@@ -241,7 +253,9 @@ export function IncomeStatementLiaisonCell({
       const trimmed = code.trim()
       if (trimmed && !base.includes(trimmed)) extras.add(trimmed)
     }
-    if (extras.size === 0) return base
+    if (extras.size === 0) {
+      return [...base].sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+    }
     return [...extras, ...base].sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
   }, [
     singleModeLinkCodes,
@@ -261,7 +275,15 @@ export function IncomeStatementLiaisonCell({
     }
     return merged
   }, [singleModeLinkCodeLabels, linkCodeLabels])
-  const liaisonLabels = singleModeLinkCodeLabels ? singleLabels : linkCodeLabels
+  const liaisonLabels = useMemo(() => {
+    const merged = new Map(singleModeLinkCodeLabels ? singleLabels : linkCodeLabels)
+    if (linkCodeLabels) {
+      for (const [code, label] of linkCodeLabels) {
+        if (!merged.has(code)) merged.set(code, label)
+      }
+    }
+    return merged
+  }, [singleModeLinkCodeLabels, singleLabels, linkCodeLabels])
 
   const applySingleLinkCode = (next: string) => {
     const patch: Record<string, unknown> = {
@@ -279,7 +301,7 @@ export function IncomeStatementLiaisonCell({
   /** Anciennes lignes « n/a » : affichage du sélecteur sur « Code unique » sans forcer l’enregistrement. */
   const selectValue = mode === "na" ? "single" : mode
 
-  const setMode = (next: "single" | "sum" | "difference") => {
+  const setMode = (next: "single" | "sum" | "difference" | "product" | "quotient") => {
     if (next === "single") {
       updateRow(
         rowIndex,
@@ -292,11 +314,11 @@ export function IncomeStatementLiaisonCell({
       )
       return
     }
-    if (next === "sum") {
+    if (next === "sum" || next === "product") {
       updateRow(
         rowIndex,
         patchWithDefine(hideDefineColumn, {
-          liaisonMode: "sum",
+          liaisonMode: next,
           linkCode: undefined,
           liaisonNumeratorCodes: undefined,
           liaisonDenominatorCodes: undefined,
@@ -309,7 +331,7 @@ export function IncomeStatementLiaisonCell({
     updateRow(
       rowIndex,
       patchWithDefine(hideDefineColumn, {
-        liaisonMode: "difference",
+        liaisonMode: next,
         linkCode: undefined,
         liaisonSumCodes: undefined,
         annexLetter: undefined,
@@ -329,11 +351,14 @@ export function IncomeStatementLiaisonCell({
     )
   }
 
-  if (singleLiaisonModeOnly && (mode === "sum" || mode === "difference")) {
+  if (
+    singleLiaisonModeOnly &&
+    (mode === "sum" || mode === "difference" || mode === "product" || mode === "quotient")
+  ) {
     return (
       <span
         className="block max-w-[7rem] truncate rounded-lg bg-amber-50/90 px-1.5 py-2 text-center font-mono text-[11px] text-amber-950"
-        title="Le mode addition ou soustraction des liaisons se configure dans la vue Sommaire."
+        title="Le mode addition, soustraction, multiplication ou division des liaisons se configure dans la vue Sommaire."
       >
         {hint}
       </span>
@@ -366,7 +391,9 @@ export function IncomeStatementLiaisonCell({
               <Label className="text-xs text-slate-600">Type de liaison</Label>
               <Select
                 value={selectValue}
-                onValueChange={(v) => setMode(v as "single" | "sum" | "difference")}
+                onValueChange={(v) =>
+                  setMode(v as "single" | "sum" | "difference" | "product" | "quotient")
+                }
               >
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue placeholder="Choix" />
@@ -375,6 +402,12 @@ export function IncomeStatementLiaisonCell({
                   <SelectItem value="single">Code unique</SelectItem>
                   <SelectItem value="sum">Addition (somme de codes)</SelectItem>
                   <SelectItem value="difference">Soustraction (num. − dénom.)</SelectItem>
+                  {allowProductQuotient && (
+                    <>
+                      <SelectItem value="product">Multiplication (produit de codes)</SelectItem>
+                      <SelectItem value="quotient">Division (num. ÷ dénom.)</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -395,9 +428,11 @@ export function IncomeStatementLiaisonCell({
             </div>
           )}
 
-          {mode === "sum" && (
+          {(mode === "sum" || mode === "product") && (
             <div className="space-y-2">
-              <Label className="text-xs text-slate-600">Codes à additionner</Label>
+              <Label className="text-xs text-slate-600">
+                {mode === "product" ? "Codes à multiplier" : "Codes à additionner"}
+              </Label>
               {liaisonCodeOptions.length === 0 ? (
                 <p className="text-[11px] leading-snug text-amber-700">
                   {useStandardSingleMode
@@ -409,20 +444,20 @@ export function IncomeStatementLiaisonCell({
                   {liaisonCodeOptions.map((code) => (
                     <li key={code} className="flex items-center gap-2">
                       <Checkbox
-                        id={`sum-${rowIndex}-${code}`}
+                        id={`${mode}-${rowIndex}-${code}`}
                         checked={sumCodes.includes(code)}
                         onCheckedChange={(v) =>
                           updateRow(
                             rowIndex,
                             patchWithDefine(hideDefineColumn, {
                               liaisonSumCodes: toggleCodeInList(sumCodes, code, v === true),
-                              liaisonMode: "sum",
+                              liaisonMode: mode,
                             })
                           )
                         }
                       />
                       <label
-                        htmlFor={`sum-${rowIndex}-${code}`}
+                        htmlFor={`${mode}-${rowIndex}-${code}`}
                         className="cursor-pointer text-xs"
                       >
                         <CodeWithLabel code={code} labels={liaisonLabels} />
@@ -434,10 +469,12 @@ export function IncomeStatementLiaisonCell({
             </div>
           )}
 
-          {!singleLiaisonModeOnly && mode === "difference" && (
+          {!singleLiaisonModeOnly && (mode === "difference" || mode === "quotient") && (
             <div className="space-y-3">
               <p className="text-[11px] leading-snug text-slate-600">
-                Montant = somme (numérateur) − somme (dénominateur).
+                {mode === "quotient"
+                  ? "Montant = (somme numérateur ÷ somme dénominateur) × facteur."
+                  : "Montant = somme (numérateur) − somme (dénominateur)."}
               </p>
               <div className="space-y-2">
                 <Label className="text-xs text-slate-600">Numérateur</Label>
@@ -455,7 +492,7 @@ export function IncomeStatementLiaisonCell({
                               rowIndex,
                               patchWithDefine(hideDefineColumn, {
                                 liaisonNumeratorCodes: toggleCodeInList(numCodes, code, v === true),
-                                liaisonMode: "difference",
+                                liaisonMode: mode,
                               })
                             )
                           }
@@ -485,7 +522,7 @@ export function IncomeStatementLiaisonCell({
                               rowIndex,
                               patchWithDefine(hideDefineColumn, {
                                 liaisonDenominatorCodes: toggleCodeInList(denCodes, code, v === true),
-                                liaisonMode: "difference",
+                                liaisonMode: mode,
                               })
                             )
                           }
@@ -501,6 +538,57 @@ export function IncomeStatementLiaisonCell({
                   </ul>
                 )}
               </div>
+              {mode === "quotient" && (
+                <div className="space-y-2 border-t border-slate-100 pt-3">
+                  <Label htmlFor={`factor-${rowIndex}`} className="text-xs text-slate-600">
+                    Facteur (ex. 365 pour un délai en jours)
+                  </Label>
+                  <Input
+                    id={`factor-${rowIndex}`}
+                    type="number"
+                    inputMode="decimal"
+                    step="any"
+                    className="h-9 text-xs"
+                    value={Number.isFinite(liaisonFactor) ? liaisonFactor : 1}
+                    onChange={(e) => {
+                      const raw = e.target.value
+                      const next = raw === "" ? 1 : Number(raw)
+                      updateRow(
+                        rowIndex,
+                        patchWithDefine(hideDefineColumn, {
+                          liaisonMode: "quotient",
+                          liaisonFactor: Number.isFinite(next) ? next : 1,
+                        })
+                      )
+                    }}
+                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    {[1, 12, 100, 365].map((preset) => (
+                      <Button
+                        key={preset}
+                        type="button"
+                        size="sm"
+                        variant={liaisonFactor === preset ? "default" : "outline"}
+                        className={cn(
+                          "h-7 rounded-lg px-2 text-[11px]",
+                          liaisonFactor === preset && "bg-[#2A2F3A] hover:bg-[#2A2F3A]/90"
+                        )}
+                        onClick={() =>
+                          updateRow(
+                            rowIndex,
+                            patchWithDefine(hideDefineColumn, {
+                              liaisonMode: "quotient",
+                              liaisonFactor: preset,
+                            })
+                          )
+                        }
+                      >
+                        ×{preset}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

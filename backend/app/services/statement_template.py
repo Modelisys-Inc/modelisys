@@ -393,7 +393,7 @@ def standard_link_code_display_label(code) -> str:
 
 
 def _normalize_liaison_mode(row: dict) -> str:
-    """na | single | sum | difference — aligned with financial_statements and frontend."""
+    """na | single | sum | difference | product | quotient — aligned with frontend."""
     raw = row.get("liaisonMode")
     if isinstance(raw, str) and raw.strip():
         m = raw.strip().lower()
@@ -405,6 +405,10 @@ def _normalize_liaison_mode(row: dict) -> str:
             return "sum"
         if m in ("difference", "subtraction", "subtract"):
             return "difference"
+        if m in ("product", "multiplication", "multiply", "×"):
+            return "product"
+        if m in ("quotient", "division", "divide", "÷"):
+            return "quotient"
     lc = str(row.get("linkCode") or row.get("link_code") or "").strip()
     if lc:
         return "single"

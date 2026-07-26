@@ -3,10 +3,20 @@
 import { useState } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
-import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts"
+import { ChartContainer, ChartTooltip } from "@/components/ui/chart"
+import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid } from "recharts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { BarChart3, ChevronDown, TrendingUp, TrendingDown } from "lucide-react"
+import { cn } from "@/lib/utils"
+import {
+  dashboardCardAccentClass,
+  dashboardCardBodyMutedClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardHeaderIconBoxClass,
+  dashboardCardRingClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 
 export interface CapexChartDataPoint {
   period: string
@@ -18,7 +28,6 @@ export interface CapexChartDataPoint {
 interface CapexChartProps {
   period: "monthly" | "quarterly" | "annual"
   view: "current" | "12months" | "24months" | "years"
-  displayMode?: "cost" | "book_value" | "capex"
   companyId?: string | null
   divisionId?: string | null
   subDivisionId?: string | null
@@ -32,7 +41,6 @@ type RatioType = "depreciation" | "revenue" | "ebitda" | "cashflow"
 export function CapexChart({
   period,
   view,
-  displayMode = "cost",
   companyId,
   divisionId,
   subDivisionId,
@@ -40,93 +48,55 @@ export function CapexChart({
   chartData,
   loading = false,
 }: CapexChartProps) {
-  const [selectedAssetCategory, setSelectedAssetCategory] = useState<string>("total")
   const [selectedRatio, setSelectedRatio] = useState<RatioType>("depreciation")
 
-  // Loading state
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      <div className={cn("mb-6 flex h-64 items-center justify-center", dashboardCardFrameStaticClass)}>
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
       </div>
     )
   }
 
-  // Empty state
   if (!chartData || chartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
-        <p className="text-slate-400">Aucune donnée disponible</p>
+      <div className={cn("mb-6 flex h-64 items-center justify-center", dashboardCardFrameStaticClass)}>
+        <p className={dashboardCardBodyMutedClass}>Aucune donnée disponible</p>
       </div>
     )
   }
 
   const chartDataPoints = chartData
-
-  // Calculate averages
   const avgCapex = chartDataPoints.reduce((sum, d) => sum + d.capex, 0) / chartDataPoints.length
   const avgDenominator = chartDataPoints.reduce((sum, d) => sum + d.denominator, 0) / chartDataPoints.length
   const avgRatio = chartDataPoints.reduce((sum, d) => sum + d.ratio, 0) / chartDataPoints.length
 
-  // Calculate total denominator for current period
-  const totalDenominator = chartDataPoints.length > 0 
-    ? chartDataPoints[chartDataPoints.length - 1].denominator 
-    : avgDenominator
-  
-  // Calculate variation for denominator
-  const denominatorVariation = chartDataPoints.length > 1
-    ? ((chartDataPoints[chartDataPoints.length - 1].denominator - chartDataPoints[chartDataPoints.length - 2].denominator) / chartDataPoints[chartDataPoints.length - 2].denominator) * 100
-    : 0
+  const totalDenominator =
+    chartDataPoints.length > 0 ? chartDataPoints[chartDataPoints.length - 1].denominator : avgDenominator
 
-  // Calculate variation for main value
-  const mainValueVariation = chartDataPoints.length > 1
-    ? ((chartDataPoints[chartDataPoints.length - 1].capex - chartDataPoints[chartDataPoints.length - 2].capex) / chartDataPoints[chartDataPoints.length - 2].capex) * 100
-    : 0
+  const denominatorVariation =
+    chartDataPoints.length > 1 && chartDataPoints[chartDataPoints.length - 2].denominator !== 0
+      ? ((chartDataPoints[chartDataPoints.length - 1].denominator -
+          chartDataPoints[chartDataPoints.length - 2].denominator) /
+          chartDataPoints[chartDataPoints.length - 2].denominator) *
+        100
+      : 0
 
-  // Get labels based on display mode
-  const getMainValueLabel = (): string => {
-    if (displayMode === "cost") {
-      return "Coût total"
-    } else if (displayMode === "book_value") {
-      return "Valeur comptable"
-    } else {
-      return "Capex moyen"
-    }
-  }
-
-  const getMainValueUnitLabel = (): string => {
-    if (displayMode === "cost") {
-      return "Coût"
-    } else if (displayMode === "book_value") {
-      return "Valeur comptable"
-    } else {
-      return "Capex"
-    }
-  }
-
-  // Get chart title based on display mode
   const getChartTitle = (): string => {
-    if (displayMode === "cost") {
-      return "Coût / Amortissement"
-    } else if (displayMode === "book_value") {
-      return "Valeur comptable"
-    } else {
-      switch (selectedRatio) {
-        case "depreciation":
-          return "Capex / Amortissement"
-        case "revenue":
-          return "Capex / Revenus"
-        case "ebitda":
-          return "Capex / BAIIA"
-        case "cashflow":
-          return "Capex / Flux de trésorerie"
-        default:
-          return "Capex / Amortissement"
-      }
+    switch (selectedRatio) {
+      case "depreciation":
+        return "Capex / Amortissement"
+      case "revenue":
+        return "Capex / Revenus"
+      case "ebitda":
+        return "Capex / BAIIA"
+      case "cashflow":
+        return "Capex / Flux de trésorerie"
+      default:
+        return "Capex / Amortissement"
     }
   }
 
-  // Get denominator label
   const getDenominatorLabel = (): string => {
     switch (selectedRatio) {
       case "depreciation":
@@ -142,14 +112,10 @@ export function CapexChart({
     }
   }
 
-  const denominatorLabel = displayMode === "cost" ? "Amortissement" : displayMode === "book_value" ? "" : getDenominatorLabel()
+  const denominatorLabel = getDenominatorLabel()
   const ratioLabel = getChartTitle()
 
-  // Helper function to get horizon text
   const getHorizonText = (): string => {
-    if (view === "current" && period === "monthly") return "Courant"
-    if (view === "current" && period === "quarterly") return "Trimestriel"
-    if (view === "current" && period === "annual") return "Annuel"
     if (view === "12months") return "12 mois"
     if (view === "24months") return "24 mois"
     if (view === "years") return "5 ans"
@@ -157,34 +123,25 @@ export function CapexChart({
   }
 
   const chartConfig = {
-    capex: {
-      label: displayMode === "cost" ? "Coût" : displayMode === "book_value" ? "Valeur comptable" : "Capex",
-      color: "#10b981",
-    },
-    denominator: {
-      label: denominatorLabel,
-      color: "#3b82f6",
-    },
-    ratio: {
-      label: ratioLabel,
-      color: "#f59e0b",
-    },
+    capex: { label: "Capex", color: "#10b981" },
+    denominator: { label: denominatorLabel, color: "#3b82f6" },
+    ratio: { label: ratioLabel, color: "#f59e0b" },
   }
 
   return (
-    <div className="bg-gradient-to-br from-white to-slate-50/50 rounded-2xl border border-slate-200/80 shadow-lg mb-6 overflow-hidden relative z-10">
-      {/* Header Section */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
+    <div className={cn("relative z-10 mb-6", dashboardCardFrameStaticClass)}>
+      <div className={dashboardCardRingClass} aria-hidden />
+      <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between mb-1">
-                {displayMode === "capex" ? (
+          <div className="flex min-w-0 flex-1 items-start gap-4">
+            <div className={dashboardCardHeaderIconBoxClass}>
+              <BarChart3 className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1">
               <Select value={selectedRatio} onValueChange={(value) => setSelectedRatio(value as RatioType)}>
-                    <SelectTrigger className="h-auto p-0 border-0 bg-transparent hover:bg-transparent focus:ring-0 focus:ring-offset-0 w-auto inline-flex items-center gap-2 [&>svg:last-child]:hidden">
-                      <h3 className="text-xl font-semibold text-slate-900 tracking-tight">{getChartTitle()}</h3>
-                      <ChevronDown className="w-4 h-4 text-slate-500" />
+                <SelectTrigger className="mb-1 inline-flex h-auto w-auto items-center gap-2 border-0 bg-transparent p-0 hover:bg-transparent focus:ring-0 focus:ring-offset-0 [&>svg:last-child]:hidden">
+                  <h3 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{ratioLabel}</h3>
+                  <ChevronDown className="h-4 w-4 text-slate-500" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="depreciation">Capex / Amortissement</SelectItem>
@@ -193,46 +150,38 @@ export function CapexChart({
                   <SelectItem value="cashflow">Capex / Flux de trésorerie</SelectItem>
                 </SelectContent>
               </Select>
-                ) : (
-                  <h3 className="text-xl font-semibold text-slate-900 tracking-tight">{getChartTitle()}</h3>
-                )}
-              <Select value={selectedAssetCategory} onValueChange={setSelectedAssetCategory}>
-                  <SelectTrigger className="h-7 px-2 text-xs bg-white border-slate-300 shadow-sm hover:shadow-md transition-shadow">
-                    <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="total">Total</SelectItem>
-                  <SelectItem value="land_buildings">Terrains et constructions</SelectItem>
-                  <SelectItem value="equipment">Matériel et équipement</SelectItem>
-                  <SelectItem value="vehicles">Véhicules</SelectItem>
-                  <SelectItem value="other_fixed">Autres immobilisations corporelles</SelectItem>
-                  <SelectItem value="fixed_assets">Total Immobilisations corporelles</SelectItem>
-                  <SelectItem value="patents">Brevets et licences</SelectItem>
-                  <SelectItem value="software">Logiciels et développement</SelectItem>
-                  <SelectItem value="goodwill">Fonds commercial</SelectItem>
-                  <SelectItem value="intangible_assets">Total Immobilisations incorporelles</SelectItem>
-                </SelectContent>
-              </Select>
-              </div>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                <span className="font-medium">{getHorizonText()}</span>
+              <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+                <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
                 <span className="text-slate-400">•</span>
                 {subDivisionId && divisionId && companyId ? (
                   <>
                     <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
                     <span className="text-slate-400">•</span>
-                    <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
+                    <span>
+                      {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name ||
+                        "Division"}
+                    </span>
                     <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                      {companies
+                        .find((c) => c.id === companyId)
+                        ?.divisions.find((d) => d.id === divisionId)
+                        ?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
+                    </span>
                   </>
                 ) : divisionId && companyId ? (
                   <>
                     <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
                     <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                      {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name ||
+                        "Division"}
+                    </span>
                   </>
                 ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
+                  <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                    {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+                  </span>
                 ) : (
                   <span className="truncate">Toutes les sociétés</span>
                 )}
@@ -242,236 +191,164 @@ export function CapexChart({
         </div>
       </div>
 
-      {/* Chart Section - Two Column Layout */}
-      <div className="px-8 py-6 bg-white">
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* Left Panel - Key Metrics */}
+      <div className="bg-white px-8 py-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
           <div className="lg:col-span-1">
-            {/* Main Value (Cost, Book Value, or Denominator) */}
             <div className="pb-3">
-              <div className="text-xs font-medium text-slate-500 mb-1">
-                {displayMode === "book_value" ? getMainValueLabel() : displayMode === "cost" ? getMainValueLabel() : `${denominatorLabel} total`}
-              </div>
-              <div className="text-xl font-semibold text-slate-900 mb-1.5">
-                {formatCurrency(displayMode === "book_value" || displayMode === "cost" ? chartDataPoints.length > 0 ? chartDataPoints[chartDataPoints.length - 1].capex : avgCapex : totalDenominator)}
+              <div className="mb-1 text-xs font-medium text-slate-500">{denominatorLabel} total</div>
+              <div className="mb-1.5 text-xl font-semibold text-slate-900">
+                {formatCurrency(totalDenominator)}
               </div>
               {chartDataPoints.length > 1 && (
                 <div className="flex items-center gap-1.5 text-xs">
-                  {((displayMode === "book_value" || displayMode === "cost") ? mainValueVariation : denominatorVariation) >= 0 ? (
-                    <TrendingUp className="w-3 h-3 text-emerald-600" />
+                  {denominatorVariation >= 0 ? (
+                    <TrendingUp className="h-3 w-3 text-emerald-600" />
                   ) : (
-                    <TrendingDown className="w-3 h-3 text-red-600" />
+                    <TrendingDown className="h-3 w-3 text-red-600" />
                   )}
-                  <span className={`font-medium ${((displayMode === "book_value" || displayMode === "cost") ? mainValueVariation : denominatorVariation) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {((displayMode === "book_value" || displayMode === "cost") ? mainValueVariation : denominatorVariation) >= 0 ? '+' : ''}{((displayMode === "book_value" || displayMode === "cost") ? mainValueVariation : denominatorVariation).toFixed(1)}%
+                  <span
+                    className={cn(
+                      "font-medium",
+                      denominatorVariation >= 0 ? "text-emerald-600" : "text-red-600",
+                    )}
+                  >
+                    {denominatorVariation >= 0 ? "+" : ""}
+                    {denominatorVariation.toFixed(1)}%
                   </span>
                   <span className="text-slate-500">vs période précédente</span>
                 </div>
               )}
             </div>
-            
-            {/* Separator */}
-            {displayMode !== "book_value" && <div className="border-b border-slate-200 my-3"></div>}
-            
-            {/* Second Metric */}
-            {displayMode === "cost" && (
-              <>
-                <div className="pb-3">
-                  <div className="text-xs font-medium text-slate-500 mb-1">Amortissement moyen</div>
-                  <div className="text-xl font-semibold text-slate-900 mb-1.5">
-                    {formatCurrency(avgDenominator)}
-                  </div>
-                  <div className="text-xs">
-                    <span className="text-slate-500">
-                      {avgRatio.toFixed(0)}% du coût
-                    </span>
-                  </div>
-                </div>
-                <div className="border-b border-slate-200 my-3"></div>
-              </>
-            )}
-            
-            {displayMode === "capex" && (
-              <>
-                <div className="pb-3">
-                  <div className="text-xs font-medium text-slate-500 mb-1">Capex moyen</div>
-                  <div className="text-xl font-semibold text-slate-900 mb-1.5">
-                    {formatCurrency(avgCapex)}
-                  </div>
-                  <div className="text-xs">
-                    <span className="text-slate-500">
-                      {avgRatio.toFixed(0)}% des {denominatorLabel.toLowerCase()}
-                    </span>
-                  </div>
-                </div>
-                <div className="border-b border-slate-200 my-3"></div>
-              </>
-            )}
-            
-            {/* Ratio Average (only for cost and capex modes) */}
-            {displayMode !== "book_value" && (
-              <div>
-                <div className="text-xs font-medium text-slate-500 mb-1">{ratioLabel}</div>
-                <div className="text-xl font-semibold text-slate-900 mb-1.5">
-                  {avgRatio.toFixed(1)}%
-                </div>
-                <div className="text-xs">
-                  <span className="text-slate-500">
-                    Moyenne
-                  </span>
-                </div>
+
+            <div className="my-3 border-b border-slate-200" />
+
+            <div className="pb-3">
+              <div className="mb-1 text-xs font-medium text-slate-500">Capex moyen</div>
+              <div className="mb-1.5 text-xl font-semibold text-slate-900">{formatCurrency(avgCapex)}</div>
+              <div className="text-xs text-slate-500">
+                {avgRatio.toFixed(0)}% des {denominatorLabel.toLowerCase()}
               </div>
-            )}
+            </div>
+
+            <div className="my-3 border-b border-slate-200" />
+
+            <div>
+              <div className="mb-1 text-xs font-medium text-slate-500">{ratioLabel}</div>
+              <div className="mb-1.5 text-xl font-semibold text-slate-900">{avgRatio.toFixed(1)}%</div>
+              <div className="text-xs text-slate-500">Moyenne</div>
+            </div>
           </div>
 
-          {/* Right Panel - Chart */}
           <div className="lg:col-span-4">
             <ChartContainer config={chartConfig} className="h-[400px] w-full">
-          <ComposedChart data={chartDataPoints} margin={{ top: 20, right: 50, left: 20, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.6} />
-            <XAxis
-              dataKey="period"
-              tick={{ fill: "#64748b", fontSize: 12 }}
-              tickLine={{ stroke: "#cbd5e1" }}
-              axisLine={{ stroke: "#cbd5e1" }}
-            />
-            <YAxis
-              yAxisId="left"
-              tick={{ fill: "#64748b", fontSize: 12 }}
-              tickLine={{ stroke: "#cbd5e1" }}
-              axisLine={{ stroke: "#cbd5e1" }}
-              tickFormatter={(value) => formatCurrency(value)}
-            />
-            {displayMode !== "book_value" && (
-              <YAxis
-                yAxisId="right"
-                orientation="right"
-                tick={{ fill: "#64748b", fontSize: 12 }}
-                tickLine={{ stroke: "#cbd5e1" }}
-                axisLine={{ stroke: "#cbd5e1" }}
-                tickFormatter={(value) => `${value.toFixed(1)}%`}
-              />
-            )}
-            <ChartTooltip
-              content={({ active, payload, label }) => {
-                if (!active || !payload?.length) return null
-                const data = payload[0]?.payload
-                return (
-                  <div className="rounded-xl border border-slate-200 bg-white/95 backdrop-blur-sm p-4 shadow-xl">
-                    <div className="font-bold text-sm text-slate-900 mb-3 pb-2 border-b border-slate-100">{label}</div>
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between gap-6 min-w-[200px]">
-                        <div className="flex items-center gap-2">
-                          <div className="w-3 h-3 rounded-sm bg-emerald-500"></div>
-                          <span className="text-xs font-medium text-slate-600">{getMainValueUnitLabel()}</span>
+              <ComposedChart data={chartDataPoints} margin={{ top: 20, right: 50, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" opacity={0.6} />
+                <XAxis
+                  dataKey="period"
+                  tick={{ fill: "#64748b", fontSize: 12 }}
+                  tickLine={{ stroke: "#cbd5e1" }}
+                  axisLine={{ stroke: "#cbd5e1" }}
+                />
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fill: "#64748b", fontSize: 12 }}
+                  tickLine={{ stroke: "#cbd5e1" }}
+                  axisLine={{ stroke: "#cbd5e1" }}
+                  tickFormatter={(value) => formatCurrency(value)}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fill: "#64748b", fontSize: 12 }}
+                  tickLine={{ stroke: "#cbd5e1" }}
+                  axisLine={{ stroke: "#cbd5e1" }}
+                  tickFormatter={(value) => `${value.toFixed(1)}%`}
+                />
+                <ChartTooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null
+                    const data = payload[0]?.payload
+                    return (
+                      <div className="rounded-xl border border-slate-200 bg-white/95 p-4 shadow-xl backdrop-blur-sm">
+                        <div className="mb-3 border-b border-slate-100 pb-2 text-sm font-bold text-slate-900">
+                          {label}
                         </div>
-                        <span className="font-mono font-bold text-sm text-emerald-600">{formatCurrency(data.capex)}</span>
-                      </div>
-                      {displayMode !== "book_value" && (
-                        <div className="flex items-center justify-between gap-6">
-                          <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-sm bg-blue-500"></div>
-                            <span className="text-xs font-medium text-slate-600">{denominatorLabel}</span>
+                        <div className="space-y-2.5">
+                          <div className="flex min-w-[200px] items-center justify-between gap-6">
+                            <div className="flex items-center gap-2">
+                              <div className="h-3 w-3 rounded-sm bg-emerald-500" />
+                              <span className="text-xs font-medium text-slate-600">Capex</span>
+                            </div>
+                            <span className="font-mono text-sm font-bold text-emerald-600">
+                              {formatCurrency(data.capex)}
+                            </span>
                           </div>
-                          <span className="font-mono font-bold text-sm text-blue-600">{formatCurrency(data.denominator)}</span>
-                        </div>
-                      )}
-                      {displayMode !== "book_value" && (
-                        <div className="flex items-center justify-between gap-6 pt-1 border-t border-slate-100">
-                          <div className="flex items-center gap-2">
-                            <div className="w-6 h-0.5 bg-amber-500"></div>
-                            <span className="text-xs font-medium text-slate-600">{ratioLabel}</span>
+                          <div className="flex items-center justify-between gap-6">
+                            <div className="flex items-center gap-2">
+                              <div className="h-3 w-3 rounded-sm bg-blue-500" />
+                              <span className="text-xs font-medium text-slate-600">{denominatorLabel}</span>
+                            </div>
+                            <span className="font-mono text-sm font-bold text-blue-600">
+                              {formatCurrency(data.denominator)}
+                            </span>
                           </div>
-                          <span className="font-mono font-bold text-sm text-amber-600">{data.ratio.toFixed(1)}%</span>
+                          <div className="flex items-center justify-between gap-6 border-t border-slate-100 pt-1">
+                            <div className="flex items-center gap-2">
+                              <div className="h-0.5 w-6 bg-amber-500" />
+                              <span className="text-xs font-medium text-slate-600">{ratioLabel}</span>
+                            </div>
+                            <span className="font-mono text-sm font-bold text-amber-600">
+                              {data.ratio.toFixed(1)}%
+                            </span>
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              }}
-            />
-            <ChartLegend
-              content={({ payload }) => {
-                return (
-                  <div className="w-full pt-6 pb-2">
-                    <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3 px-4">
-                      {/* Main Value */}
-                      <div className="flex items-center gap-2.5 min-w-fit">
-                        <div className="w-4 h-4 rounded-md shadow-sm bg-emerald-500 flex-shrink-0"></div>
-                        <span className="text-sm font-medium text-slate-700 whitespace-nowrap">{getMainValueUnitLabel()}</span>
                       </div>
-                      
-                      {/* Denominator (only for cost and capex modes) */}
-                      {displayMode !== "book_value" && (
-                        <div className="flex items-center gap-2.5 min-w-fit">
-                          <div className="w-4 h-4 rounded-md shadow-sm bg-blue-500 flex-shrink-0"></div>
-                          <span className="text-sm font-medium text-slate-700 whitespace-nowrap">{denominatorLabel}</span>
-                        </div>
-                      )}
-                      
-                      {/* Ratio (only for cost and capex modes) */}
-                      {displayMode !== "book_value" && (
-                        <div className="flex items-center gap-2.5 min-w-fit">
-                          <div className="w-8 h-1.5 bg-amber-500 rounded-full flex-shrink-0"></div>
-                          <span className="text-sm font-medium text-slate-700 whitespace-nowrap">{ratioLabel}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              }}
-              wrapperStyle={{ paddingTop: "25px", width: "100%", paddingLeft: "0", paddingRight: "0" }}
-            />
-            {/* Capex bar with gradient */}
-            <defs>
-              <linearGradient id="capexGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
-                <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
-              </linearGradient>
-              <linearGradient id="denominatorGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#3b82f6" stopOpacity={1} />
-                <stop offset="100%" stopColor="#2563eb" stopOpacity={0.9} />
-              </linearGradient>
-            </defs>
-            <Bar
-              yAxisId="left"
-              dataKey="capex"
-              fill="url(#capexGradient)"
-              name="Capex"
-              radius={[6, 6, 0, 0]}
-              stroke="#059669"
-              strokeWidth={0.5}
-            />
-            {displayMode !== "book_value" && (
-            <Bar
-              yAxisId="left"
-              dataKey="denominator"
-              fill="url(#denominatorGradient)"
-              name={denominatorLabel}
-              radius={[6, 6, 0, 0]}
-              stroke="#2563eb"
-              strokeWidth={0.5}
-            />
-            )}
-            {/* Ratio line with enhanced styling (only for cost and capex modes) */}
-            {displayMode !== "book_value" && (
-              <Line
-                yAxisId="right"
-                type="monotone"
-                dataKey="ratio"
-                stroke="#f59e0b"
-                strokeWidth={3.5}
-                dot={{ fill: "#f59e0b", r: 6, strokeWidth: 3, stroke: "#fff" }}
-                activeDot={{ r: 8, strokeWidth: 3, stroke: "#fff", fill: "#f59e0b" }}
-                name={ratioLabel}
-              />
-            )}
-          </ComposedChart>
-        </ChartContainer>
+                    )
+                  }}
+                />
+                <defs>
+                  <linearGradient id="capexGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
+                  </linearGradient>
+                  <linearGradient id="capexDenominatorGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#2563eb" stopOpacity={0.9} />
+                  </linearGradient>
+                </defs>
+                <Bar
+                  yAxisId="left"
+                  dataKey="capex"
+                  fill="url(#capexGradient)"
+                  name="Capex"
+                  radius={[6, 6, 0, 0]}
+                  stroke="#059669"
+                  strokeWidth={0.5}
+                />
+                <Bar
+                  yAxisId="left"
+                  dataKey="denominator"
+                  fill="url(#capexDenominatorGradient)"
+                  name={denominatorLabel}
+                  radius={[6, 6, 0, 0]}
+                  stroke="#2563eb"
+                  strokeWidth={0.5}
+                />
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="ratio"
+                  stroke="#f59e0b"
+                  strokeWidth={3.5}
+                  dot={{ fill: "#f59e0b", r: 6, strokeWidth: 3, stroke: "#fff" }}
+                  activeDot={{ r: 8, strokeWidth: 3, stroke: "#fff", fill: "#f59e0b" }}
+                  name={ratioLabel}
+                />
+              </ComposedChart>
+            </ChartContainer>
           </div>
         </div>
       </div>
     </div>
   )
 }
-

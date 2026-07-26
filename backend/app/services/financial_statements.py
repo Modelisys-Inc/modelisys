@@ -8,6 +8,7 @@ with current period, prior period, and variation columns.
 import re
 import uuid
 from collections import defaultdict
+from contextvars import ContextVar
 from decimal import Decimal
 
 from sqlalchemy import or_, and_
@@ -27,10 +28,21 @@ from app.services.standard_link_code_utils import (
     build_parent_rollup_index,
     dt_ct_for_link_code,
     ensure_net_income_in_balance_structure,
+    income_statement_net_income_code_split,
     is_computed_net_income_link_code,
     load_merged_link_code_chart,
     merge_parent_rollup_into_mapping_index,
 )
+
+# Summary (`cash-flow`) and Detail (`cash-flow-detail`) share the same
+# liaison resolution: TEX/TIN/TFI codes expand via attached Bilan/CDR codes.
+_CASH_FLOW_STATEMENT_TYPES = frozenset({"cash-flow", "cash-flow-detail"})
+
+# Per-request context so CF sums can add CAP-C.1 without threading kwargs everywhere.
+_cf_net_income_ctx: ContextVar[dict | None] = ContextVar("cf_net_income_ctx", default=None)
+
+def _is_cash_flow_statement_type(statement_type: str) -> bool:
+    return statement_type in _CASH_FLOW_STATEMENT_TYPES
 
 
 def _parse_fiscal_year_end(fiscal_year_end: str) -> tuple[int, int]:
@@ -732,8 +744,12 @@ def _build_mapping_index(
 def _augment_mapping_index_for_cash_flow_virtual_families(
     mapping_index: dict[str, list[str]],
     db: Session,
-) -> None:
-    """Expose Trésorerie link codes (and legacy TEX/TIN/TFI aggregates) in the mapping index."""
+) -> dict[str, list[str]]:
+    """Expose Trésorerie link codes (and legacy TEX/TIN/TFI aggregates) in the mapping index.
+
+    Returns the resolved attachment map (per-code + virtual family keys) so callers
+    can detect CAP-C.1 and reuse the bilan net-income formula.
+    """
     by_code = build_cash_flow_link_code_attachments(db)
     for cf_code, source_codes in by_code.items():
         accounts: list[str] = []
@@ -757,6 +773,128 @@ def _augment_mapping_index_for_cash_flow_virtual_families(
                 seen.add(account_number)
                 accounts.append(account_number)
         mapping_index[virtual_family] = accounts
+
+    # Merge family aggregates into the attachment lookup for CAP-C.1 detection.
+    attachments = dict(by_code)
+    for family, codes in by_family.items():
+        attachments[family] = list(codes)
+    return attachments
+
+
+def _cash_flow_attachments_include_computed_net_income(
+    attachments: dict[str, list[str]] | None,
+    link_code: str | None,
+) -> bool:
+    if not attachments or not link_code:
+        return False
+    sources = attachments.get(str(link_code).strip(), [])
+    return any(is_computed_net_income_link_code(c) for c in sources)
+
+
+def _compute_cap_c1_net_income_amount(
+    mapping_index: dict[str, list[str]],
+    amount_index: dict[str, dict[int, Decimal]],
+    fiscal_months: list[int],
+    division_filter: str | None = None,
+    sub_division_filter: str | None = None,
+    division_uuid: uuid.UUID | None = None,
+    sub_division_uuid: uuid.UUID | None = None,
+    mappings_by_account: dict[str, AccountMapping] | None = None,
+    customer_filter: str | None = None,
+    supplier_filter: str | None = None,
+    *,
+    revenue_codes: list[str],
+    expense_codes: list[str],
+) -> float:
+    """Same formula as bilan CAP-C.1: REV(CT×−1) − charges, over the given months."""
+    if not fiscal_months:
+        return 0.0
+    rev = _sum_for_link_codes_aggregate(
+        revenue_codes,
+        mapping_index,
+        amount_index,
+        fiscal_months,
+        division_filter,
+        sub_division_filter,
+        division_uuid,
+        sub_division_uuid,
+        mappings_by_account,
+        customer_filter,
+        supplier_filter,
+        None,
+        "income-statement",
+        None,
+    ) if revenue_codes else 0.0
+    exp = _sum_for_link_codes_aggregate(
+        expense_codes,
+        mapping_index,
+        amount_index,
+        fiscal_months,
+        division_filter,
+        sub_division_filter,
+        division_uuid,
+        sub_division_uuid,
+        mappings_by_account,
+        customer_filter,
+        supplier_filter,
+        None,
+        "income-statement",
+        None,
+    ) if expense_codes else 0.0
+    return float(rev) - float(exp)
+
+
+def _cash_flow_computed_net_income_addon(
+    link_code: str | None,
+    mapping_index: dict[str, list[str]],
+    amount_index: dict[str, dict[int, Decimal]],
+    fiscal_months: list[int],
+    division_filter: str | None,
+    sub_division_filter: str | None,
+    division_uuid: uuid.UUID | None,
+    sub_division_uuid: uuid.UUID | None,
+    mappings_by_account: dict[str, AccountMapping] | None,
+    customer_filter: str | None,
+    supplier_filter: str | None,
+    statement_type: str,
+    cash_flow_attachments: dict[str, list[str]] | None = None,
+    net_income_revenue_codes: list[str] | None = None,
+    net_income_expense_codes: list[str] | None = None,
+) -> float:
+    """Add CAP-C.1 amount for Trésorerie codes that attach the computed net income."""
+    if not _is_cash_flow_statement_type(statement_type):
+        return 0.0
+    ctx = _cf_net_income_ctx.get()
+    attachments = cash_flow_attachments if cash_flow_attachments is not None else (
+        (ctx or {}).get("attachments")
+    )
+    rev_codes = net_income_revenue_codes if net_income_revenue_codes is not None else (
+        (ctx or {}).get("revenue_codes")
+    )
+    exp_codes = net_income_expense_codes if net_income_expense_codes is not None else (
+        (ctx or {}).get("expense_codes")
+    )
+    if not _cash_flow_attachments_include_computed_net_income(attachments, link_code):
+        return 0.0
+    if not rev_codes and not exp_codes:
+        return 0.0
+    # Unlike bilan CAP-C.1 (always YTD through BS date), Trésorerie follows the
+    # selected horizon: monthly = that month only, quarterly / ytd / annual as given.
+    ni_months = list(fiscal_months) if fiscal_months else [1]
+    return _compute_cap_c1_net_income_amount(
+        mapping_index,
+        amount_index,
+        ni_months,
+        division_filter,
+        sub_division_filter,
+        division_uuid,
+        sub_division_uuid,
+        mappings_by_account,
+        customer_filter,
+        supplier_filter,
+        revenue_codes=list(rev_codes or []),
+        expense_codes=list(exp_codes or []),
+    )
 
 
 def _mapping_csv_matches_entity(
@@ -843,7 +981,24 @@ def _sum_for_link_code_single_month(
             acct_num, mappings_by_account, dt_ct_by_link_code, statement_type
         )
         total += raw * mult
-    return float(total)
+
+    total_f = float(total)
+    # CAP-C.1 contribution is YTD through this fiscal month (same as bilan series).
+    total_f += _cash_flow_computed_net_income_addon(
+        link_code,
+        mapping_index,
+        amount_index,
+        [fiscal_month],
+        division_filter,
+        sub_division_filter,
+        division_uuid,
+        sub_division_uuid,
+        mappings_by_account,
+        customer_filter,
+        supplier_filter,
+        statement_type,
+    )
+    return total_f
 
 
 def _sum_for_link_codes_single_month_aggregate(
@@ -894,7 +1049,7 @@ def _liaison_sum_statement_type(row: dict, statement_type: str) -> str:
 
 
 def _normalize_liaison_mode(row: dict) -> str:
-    """na | single | sum | difference — aligné sur le frontend."""
+    """na | single | sum | difference | product | quotient — aligné sur le frontend."""
     raw = row.get("liaisonMode")
     if isinstance(raw, str) and raw.strip():
         m = raw.strip().lower()
@@ -906,6 +1061,10 @@ def _normalize_liaison_mode(row: dict) -> str:
             return "sum"
         if m in ("difference", "subtraction", "subtract"):
             return "difference"
+        if m in ("product", "multiplication", "multiply", "×"):
+            return "product"
+        if m in ("quotient", "division", "divide", "÷"):
+            return "quotient"
     lc = str(row.get("linkCode") or "").strip()
     if lc:
         return "single"
@@ -1265,7 +1424,23 @@ def _sum_for_link_code(
         )
         for fm in fiscal_months:
             total += monthly.get(fm, Decimal("0")) * mult
-    return float(total)
+
+    total_f = float(total)
+    total_f += _cash_flow_computed_net_income_addon(
+        link_code,
+        mapping_index,
+        amount_index,
+        fiscal_months,
+        division_filter,
+        sub_division_filter,
+        division_uuid,
+        sub_division_uuid,
+        mappings_by_account,
+        customer_filter,
+        supplier_filter,
+        statement_type,
+    )
+    return total_f
 
 
 def _sum_budget_for_link_code(
@@ -2180,7 +2355,7 @@ def _process_structure_rows(
                 )
         elif (
             not detail_rows
-            and statement_type in ("balance-sheet", "cash-flow")
+            and (statement_type == "balance-sheet" or _is_cash_flow_statement_type(statement_type))
             and not formula
         ):
             gl_codes = _liaison_codes_for_gl_breakdown(row)
@@ -2321,163 +2496,176 @@ def compute_financial_statement(
         .all()
     )
     mapping_index = _build_mapping_index(mappings)
-    if statement_type == "cash-flow":
-        _augment_mapping_index_for_cash_flow_virtual_families(mapping_index, db)
+    cf_token = None
+    if _is_cash_flow_statement_type(statement_type):
+        cash_flow_attachments = _augment_mapping_index_for_cash_flow_virtual_families(
+            mapping_index, db
+        )
+        rev_codes, exp_codes = income_statement_net_income_code_split(db)
+        cf_token = _cf_net_income_ctx.set({
+            "attachments": cash_flow_attachments,
+            "revenue_codes": rev_codes,
+            "expense_codes": exp_codes,
+        })
     elif statement_type in ("income-statement", "balance-sheet"):
         chart = load_merged_link_code_chart(db, company.id)
         parent_rollup = build_parent_rollup_index(mappings, chart)
         mapping_index = merge_parent_rollup_into_mapping_index(mapping_index, parent_rollup)
     mappings_by_account = {m.account_number: m for m in mappings}
 
-    # 3. Resolve division/sub-division UUIDs to names for filtering
-    #    AccountMapping.divisions peut contenir des noms ou des UUID (écran mapping standard).
-    division_filter = None
-    sub_division_filter = None
-    division_uuid: uuid.UUID | None = None
-    sub_division_uuid: uuid.UUID | None = None
-    if division_id:
-        division = db.query(Division).filter(Division.id == division_id).first()
-        if division:
-            division_filter = division.name
-            division_uuid = division.id
-    if sub_division_id:
-        sub_division = db.query(SubDivision).filter(SubDivision.id == sub_division_id).first()
-        if sub_division:
-            sub_division_filter = sub_division.name
-            sub_division_uuid = sub_division.id
+    try:
+        # 3. Resolve division/sub-division UUIDs to names for filtering
+        #    AccountMapping.divisions peut contenir des noms ou des UUID (écran mapping standard).
+        division_filter = None
+        sub_division_filter = None
+        division_uuid: uuid.UUID | None = None
+        sub_division_uuid: uuid.UUID | None = None
+        if division_id:
+            division = db.query(Division).filter(Division.id == division_id).first()
+            if division:
+                division_filter = division.name
+                division_uuid = division.id
+        if sub_division_id:
+            sub_division = db.query(SubDivision).filter(SubDivision.id == sub_division_id).first()
+            if sub_division:
+                sub_division_filter = sub_division.name
+                sub_division_uuid = sub_division.id
 
-    # 4. Determine fiscal months to aggregate
-    if statement_type == "balance-sheet":
-        current_months = _balance_sheet_months_to_aggregate(month, company.is_cumulative_tb)
-    else:
-        current_months = _get_months_for_period(period, month, fy_end_month)
+        # 4. Determine fiscal months to aggregate
+        if statement_type == "balance-sheet":
+            current_months = _balance_sheet_months_to_aggregate(month, company.is_cumulative_tb)
+        else:
+            current_months = _get_months_for_period(period, month, fy_end_month)
 
-    # 5. Build current year amount index (handles calendar boundary + de-cumulation)
-    current_amount_index = _build_fiscal_year_data(
-        db, company.id, fiscal_year, fy_end_month, company.is_cumulative_tb,
-    )
-
-    # 6. Fetch prior period data
-    use_budget_as_prior = comparison_type == "budget" and budget_id is not None
-    prior_amount_index: dict[str, dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
-    budget_amount_index: dict[str, dict[int, Decimal]] | None = None
-    prior_months = current_months  # Default: same month range
-
-    if use_budget_as_prior:
-        # Fetch budget entries and build index keyed by account_number
-        budget_entries = (
-            db.query(BudgetEntry)
-            .options(joinedload(BudgetEntry.account))
-            .filter(BudgetEntry.budget_id == budget_id)
-            .all()
+        # 5. Build current year amount index (handles calendar boundary + de-cumulation)
+        current_amount_index = _build_fiscal_year_data(
+            db, company.id, fiscal_year, fy_end_month, company.is_cumulative_tb,
         )
-        budget_amount_index = defaultdict(lambda: defaultdict(Decimal))
-        for be in budget_entries:
-            acct_number = be.account.account_number
-            budget_amount_index[acct_number][be.month] += Decimal(str(be.amount))
-    elif comparison_type == "lastMonth":
-        # Compare to the previous period (month/quarter) — typically same FY
-        if period == "monthly":
-            if month > 1:
-                # Income statement: prior month = one fiscal month's activity.
-                # Balance sheet (cumulative TB): prior month-end = closing balance through FM (M-1)
-                # → sum de-cumulated months 1..(M-1), not only month (M-1) in isolation.
-                if statement_type == "balance-sheet":
-                    prior_months = _balance_sheet_months_to_aggregate(
-                        month - 1, company.is_cumulative_tb
-                    )
+
+        # 6. Fetch prior period data
+        use_budget_as_prior = comparison_type == "budget" and budget_id is not None
+        prior_amount_index: dict[str, dict[int, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+        budget_amount_index: dict[str, dict[int, Decimal]] | None = None
+        prior_months = current_months  # Default: same month range
+
+        if use_budget_as_prior:
+            # Fetch budget entries and build index keyed by account_number
+            budget_entries = (
+                db.query(BudgetEntry)
+                .options(joinedload(BudgetEntry.account))
+                .filter(BudgetEntry.budget_id == budget_id)
+                .all()
+            )
+            budget_amount_index = defaultdict(lambda: defaultdict(Decimal))
+            for be in budget_entries:
+                acct_number = be.account.account_number
+                budget_amount_index[acct_number][be.month] += Decimal(str(be.amount))
+        elif comparison_type == "lastMonth":
+            # Compare to the previous period (month/quarter) — typically same FY
+            if period == "monthly":
+                if month > 1:
+                    # Income statement: prior month = one fiscal month's activity.
+                    # Balance sheet (cumulative TB): prior month-end = closing balance through FM (M-1)
+                    # → sum de-cumulated months 1..(M-1), not only month (M-1) in isolation.
+                    if statement_type == "balance-sheet":
+                        prior_months = _balance_sheet_months_to_aggregate(
+                            month - 1, company.is_cumulative_tb
+                        )
+                    else:
+                        prior_months = [month - 1]
+                    prior_amount_index = current_amount_index
                 else:
-                    prior_months = [month - 1]
-                prior_amount_index = current_amount_index
+                    # FM 1 → compare to FM 12 of prior FY (year-end closing in prior FY)
+                    if statement_type == "balance-sheet":
+                        prior_months = _balance_sheet_months_to_aggregate(
+                            12, company.is_cumulative_tb
+                        )
+                    else:
+                        prior_months = [12]
+                    prior_amount_index = _build_fiscal_year_data(
+                        db, company.id, fiscal_year - 1, fy_end_month, company.is_cumulative_tb,
+                    )
+            elif period == "quarterly":
+                quarter = (month - 1) // 3
+                if quarter > 0:
+                    prior_quarter_end = (quarter - 1) * 3 + 3
+                    if statement_type == "balance-sheet":
+                        prior_months = _balance_sheet_months_to_aggregate(
+                            prior_quarter_end, company.is_cumulative_tb
+                        )
+                    else:
+                        start = (quarter - 1) * 3 + 1
+                        prior_months = list(range(start, start + 3))
+                    prior_amount_index = current_amount_index
+                else:
+                    # First quarter → compare to Q4 of prior FY (last month = FM 12)
+                    if statement_type == "balance-sheet":
+                        prior_months = _balance_sheet_months_to_aggregate(
+                            12, company.is_cumulative_tb
+                        )
+                    else:
+                        prior_months = [10, 11, 12]
+                    prior_amount_index = _build_fiscal_year_data(
+                        db, company.id, fiscal_year - 1, fy_end_month, company.is_cumulative_tb,
+                    )
             else:
-                # FM 1 → compare to FM 12 of prior FY (year-end closing in prior FY)
-                if statement_type == "balance-sheet":
-                    prior_months = _balance_sheet_months_to_aggregate(
-                        12, company.is_cumulative_tb
-                    )
-                else:
-                    prior_months = [12]
-                prior_amount_index = _build_fiscal_year_data(
-                    db, company.id, fiscal_year - 1, fy_end_month, company.is_cumulative_tb,
-                )
-        elif period == "quarterly":
-            quarter = (month - 1) // 3
-            if quarter > 0:
-                prior_quarter_end = (quarter - 1) * 3 + 3
-                if statement_type == "balance-sheet":
-                    prior_months = _balance_sheet_months_to_aggregate(
-                        prior_quarter_end, company.is_cumulative_tb
-                    )
-                else:
-                    start = (quarter - 1) * 3 + 1
-                    prior_months = list(range(start, start + 3))
-                prior_amount_index = current_amount_index
-            else:
-                # First quarter → compare to Q4 of prior FY (last month = FM 12)
-                if statement_type == "balance-sheet":
-                    prior_months = _balance_sheet_months_to_aggregate(
-                        12, company.is_cumulative_tb
-                    )
-                else:
-                    prior_months = [10, 11, 12]
+                # Annual or other → fall back to prior year
                 prior_amount_index = _build_fiscal_year_data(
                     db, company.id, fiscal_year - 1, fy_end_month, company.is_cumulative_tb,
                 )
         else:
-            # Annual or other → fall back to prior year
+            # "pastMonth" / "prior_year" → same month range, prior fiscal year
             prior_amount_index = _build_fiscal_year_data(
                 db, company.id, fiscal_year - 1, fy_end_month, company.is_cumulative_tb,
             )
-    else:
-        # "pastMonth" / "prior_year" → same month range, prior fiscal year
-        prior_amount_index = _build_fiscal_year_data(
-            db, company.id, fiscal_year - 1, fy_end_month, company.is_cumulative_tb,
+
+        groupe_index = None
+        dt_ct_by_link_code: dict[str, str] | None = None
+        structure_flat: list[dict] | None = None
+        if statement_type in ("income-statement", "balance-sheet"):
+            flat = _flatten_structure_preorder(structure_rows)
+            structure_flat = flat
+            if statement_type == "income-statement":
+                groupe_index = _build_groupe_index(mappings, flat)
+                dt_ct_by_link_code = _map_link_codes_to_dt_ct(flat)
+
+        # 7. Process the structure into computed rows
+        rows = _process_structure_rows(
+            structure_rows,
+            mapping_index,
+            current_amount_index,
+            prior_amount_index,
+            current_months,
+            prior_months,
+            division_filter,
+            sub_division_filter,
+            division_uuid,
+            sub_division_uuid,
+            mappings_by_account,
+            budget_amount_index,
+            use_budget_as_prior,
+            customer_filter=customer_filter,
+            supplier_filter=supplier_filter,
+            groupe_index=groupe_index,
+            statement_type=statement_type,
+            dt_ct_by_link_code=dt_ct_by_link_code,
+            structure_flat=structure_flat,
         )
+        if statement_type == "balance-sheet":
+            rows = _fold_computed_net_income_into_cap_c_parent(rows, structure_rows)
 
-    groupe_index = None
-    dt_ct_by_link_code: dict[str, str] | None = None
-    structure_flat: list[dict] | None = None
-    if statement_type in ("income-statement", "balance-sheet"):
-        flat = _flatten_structure_preorder(structure_rows)
-        structure_flat = flat
-        if statement_type == "income-statement":
-            groupe_index = _build_groupe_index(mappings, flat)
-            dt_ct_by_link_code = _map_link_codes_to_dt_ct(flat)
-
-    # 7. Process the structure into computed rows
-    rows = _process_structure_rows(
-        structure_rows,
-        mapping_index,
-        current_amount_index,
-        prior_amount_index,
-        current_months,
-        prior_months,
-        division_filter,
-        sub_division_filter,
-        division_uuid,
-        sub_division_uuid,
-        mappings_by_account,
-        budget_amount_index,
-        use_budget_as_prior,
-        customer_filter=customer_filter,
-        supplier_filter=supplier_filter,
-        groupe_index=groupe_index,
-        statement_type=statement_type,
-        dt_ct_by_link_code=dt_ct_by_link_code,
-        structure_flat=structure_flat,
-    )
-    if statement_type == "balance-sheet":
-        rows = _fold_computed_net_income_into_cap_c_parent(rows, structure_rows)
-
-    return {
-        "companyId": str(company.id),
-        "statementType": statement_type,
-        "fiscalYear": fiscal_year,
-        "month": month,
-        "period": period,
-        "comparisonType": comparison_type,
-        "rows": rows,
-    }
+        return {
+            "companyId": str(company.id),
+            "statementType": statement_type,
+            "fiscalYear": fiscal_year,
+            "month": month,
+            "period": period,
+            "comparisonType": comparison_type,
+            "rows": rows,
+        }
+    finally:
+        if cf_token is not None:
+            _cf_net_income_ctx.reset(cf_token)
 
 
 def compute_summary_metrics(
@@ -2885,7 +3073,7 @@ def _process_structure_rows_series(
                 )
         elif (
             not detail_rows
-            and statement_type in ("balance-sheet", "cash-flow")
+            and (statement_type == "balance-sheet" or _is_cash_flow_statement_type(statement_type))
             and not (formula and isinstance(formula, list))
         ):
             gl_codes = _liaison_codes_for_gl_breakdown(row)
@@ -3010,83 +3198,96 @@ def compute_financial_statement_series(
         .all()
     )
     mapping_index = _build_mapping_index(mappings)
-    if statement_type == "cash-flow":
-        _augment_mapping_index_for_cash_flow_virtual_families(mapping_index, db)
+    cf_token = None
+    if _is_cash_flow_statement_type(statement_type):
+        cash_flow_attachments = _augment_mapping_index_for_cash_flow_virtual_families(
+            mapping_index, db
+        )
+        rev_codes, exp_codes = income_statement_net_income_code_split(db)
+        cf_token = _cf_net_income_ctx.set({
+            "attachments": cash_flow_attachments,
+            "revenue_codes": rev_codes,
+            "expense_codes": exp_codes,
+        })
     elif statement_type in ("income-statement", "balance-sheet"):
         chart = load_merged_link_code_chart(db, company.id)
         parent_rollup = build_parent_rollup_index(mappings, chart)
         mapping_index = merge_parent_rollup_into_mapping_index(mapping_index, parent_rollup)
     mappings_by_account = {m.account_number: m for m in mappings}
 
-    # 3. Resolve division/sub-division filters
-    division_filter = None
-    sub_division_filter = None
-    division_uuid: uuid.UUID | None = None
-    sub_division_uuid: uuid.UUID | None = None
-    if division_id:
-        division = db.query(Division).filter(Division.id == division_id).first()
-        if division:
-            division_filter = division.name
-            division_uuid = division.id
-    if sub_division_id:
-        sub_division = db.query(SubDivision).filter(SubDivision.id == sub_division_id).first()
-        if sub_division:
-            sub_division_filter = sub_division.name
-            sub_division_uuid = sub_division.id
+    try:
+        # 3. Resolve division/sub-division filters
+        division_filter = None
+        sub_division_filter = None
+        division_uuid: uuid.UUID | None = None
+        sub_division_uuid: uuid.UUID | None = None
+        if division_id:
+            division = db.query(Division).filter(Division.id == division_id).first()
+            if division:
+                division_filter = division.name
+                division_uuid = division.id
+        if sub_division_id:
+            sub_division = db.query(SubDivision).filter(SubDivision.id == sub_division_id).first()
+            if sub_division:
+                sub_division_filter = sub_division.name
+                sub_division_uuid = sub_division.id
 
-    # 4. Build periods (anchored on reference fiscal year/month)
-    periods = _build_periods_from_reference(fiscal_year, month, months, fy_end_month)
+        # 4. Build periods (anchored on reference fiscal year/month)
+        periods = _build_periods_from_reference(fiscal_year, month, months, fy_end_month)
 
-    # 5. Determine which fiscal years we need data for
-    needed_fiscal_years = sorted({p["fiscalYear"] for p in periods})
+        # 5. Determine which fiscal years we need data for
+        needed_fiscal_years = sorted({p["fiscalYear"] for p in periods})
 
-    # 6. Build fiscal-month-keyed amount indices in one batched query
-    #    (handles calendar boundary + de-cumulation).
-    amount_indices = _build_fiscal_year_data_multi(
-        db, company.id, needed_fiscal_years, fy_end_month, company.is_cumulative_tb,
-    )
+        # 6. Build fiscal-month-keyed amount indices in one batched query
+        #    (handles calendar boundary + de-cumulation).
+        amount_indices = _build_fiscal_year_data_multi(
+            db, company.id, needed_fiscal_years, fy_end_month, company.is_cumulative_tb,
+        )
 
-    # Keep full periods for 12mo/5ans, but computation will output 0 for months with no TB.
+        # Keep full periods for 12mo/5ans, but computation will output 0 for months with no TB.
 
-    groupe_index = None
-    dt_ct_by_link_code: dict[str, str] | None = None
-    structure_flat: list[dict] | None = None
-    if statement_type in ("income-statement", "balance-sheet"):
-        flat = _flatten_structure_preorder(structure_rows)
-        structure_flat = flat
-        if statement_type == "income-statement":
-            groupe_index = _build_groupe_index(mappings, flat)
-            dt_ct_by_link_code = _map_link_codes_to_dt_ct(flat)
+        groupe_index = None
+        dt_ct_by_link_code: dict[str, str] | None = None
+        structure_flat: list[dict] | None = None
+        if statement_type in ("income-statement", "balance-sheet"):
+            flat = _flatten_structure_preorder(structure_rows)
+            structure_flat = flat
+            if statement_type == "income-statement":
+                groupe_index = _build_groupe_index(mappings, flat)
+                dt_ct_by_link_code = _map_link_codes_to_dt_ct(flat)
 
-    # 7. Process structure rows for series
-    rows = _process_structure_rows_series(
-        structure_rows,
-        mapping_index,
-        amount_indices,
-        periods,
-        statement_type,
-        division_filter,
-        sub_division_filter,
-        division_uuid,
-        sub_division_uuid,
-        mappings_by_account,
-        customer_filter=customer_filter,
-        supplier_filter=supplier_filter,
-        groupe_index=groupe_index,
-        dt_ct_by_link_code=dt_ct_by_link_code,
-        balance_sheet_cumulative_tb=company.is_cumulative_tb,
-        structure_flat=structure_flat,
-    )
-    if statement_type == "balance-sheet":
-        rows = _fold_computed_net_income_into_cap_c_parent(rows, structure_rows)
+        # 7. Process structure rows for series
+        rows = _process_structure_rows_series(
+            structure_rows,
+            mapping_index,
+            amount_indices,
+            periods,
+            statement_type,
+            division_filter,
+            sub_division_filter,
+            division_uuid,
+            sub_division_uuid,
+            mappings_by_account,
+            customer_filter=customer_filter,
+            supplier_filter=supplier_filter,
+            groupe_index=groupe_index,
+            dt_ct_by_link_code=dt_ct_by_link_code,
+            balance_sheet_cumulative_tb=company.is_cumulative_tb,
+            structure_flat=structure_flat,
+        )
+        if statement_type == "balance-sheet":
+            rows = _fold_computed_net_income_into_cap_c_parent(rows, structure_rows)
 
-    return {
-        "companyId": str(company.id),
-        "statementType": statement_type,
-        "fiscalYear": fiscal_year,
-        "periods": periods,
-        "rows": rows,
-    }
+        return {
+            "companyId": str(company.id),
+            "statementType": statement_type,
+            "fiscalYear": fiscal_year,
+            "periods": periods,
+            "rows": rows,
+        }
+    finally:
+        if cf_token is not None:
+            _cf_net_income_ctx.reset(cf_token)
 
 
 def compute_summary_series(

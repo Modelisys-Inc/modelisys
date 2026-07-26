@@ -61,9 +61,10 @@ import {
 import {
   collectAnnexChildExpandRows,
   collectAnnexChildExpandRowsFromSeries,
+  collectGlExpandChildren,
+  collectGlExpandChildrenFromSeries,
   filterExpandChildrenForHorizon,
   findSummaryStructureRow,
-  mapGlAccountsToExpandChildren,
   resolveSummaryExpandMode,
   summaryExpandModeAllowsExpand,
   summaryRowUsesAnnexExpand,
@@ -2427,7 +2428,32 @@ export function BalanceSheetSummary({
                 horizonView,
               )
               const glExpandChildren = filterExpandChildrenForHorizon(
-                mapGlAccountsToExpandChildren(row.balanceAccounts),
+                isMultiPeriod && seriesRows.length > 0
+                  ? collectGlExpandChildrenFromSeries({
+                      parentStructRow: parentStructForExpand ?? structRow,
+                      parentRowId: row.rowId,
+                      balanceAccounts: row.balanceAccounts,
+                      seriesRows,
+                      buildTrendValues: (seriesRow) => {
+                        if (view === "quarters") {
+                          return quarterTrendFromReference(seriesRow, periods, refMonth, refYear, 5)
+                        }
+                        if (view === "years") {
+                          if (isForecastSection && forecastUseSeriesActuals) {
+                            const actual = yearTrendFromReference(seriesRow, periods, refYear, 1)[0] || 0
+                            return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+                          }
+                          return yearTrendFromReference(seriesRow, periods, refYear, 6)
+                        }
+                        return monthTrendFromReference(seriesRow, periods, refMonth, refYear, 12)
+                      },
+                    })
+                  : collectGlExpandChildren({
+                      parentStructRow: parentStructForExpand ?? structRow,
+                      parentRowId: row.rowId,
+                      balanceAccounts: row.balanceAccounts,
+                      apiRows: backendRows,
+                    }),
                 horizonView,
               )
               const expandMode = resolveSummaryExpandMode({

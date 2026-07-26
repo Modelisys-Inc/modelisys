@@ -6,8 +6,17 @@ import { Company } from "@/components/entity-selector"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ChevronDown } from "lucide-react"
-import { TrendingUp, TrendingDown } from "lucide-react"
+import { ChevronDown, TrendingUp, TrendingDown, BarChart3 } from "lucide-react"
+import { cn } from "@/lib/utils"
+import {
+  dashboardCardAccentClass,
+  dashboardCardBodyMutedClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardHeaderIconBoxClass,
+  dashboardCardRingClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 
 export interface WorkingCapitalChartDataPoint {
   period: string
@@ -44,8 +53,8 @@ export function WorkingCapitalChart({
   // Loading state
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      <div className={cn("mb-6 flex h-64 items-center justify-center", dashboardCardFrameStaticClass)}>
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
       </div>
     )
   }
@@ -53,8 +62,8 @@ export function WorkingCapitalChart({
   // Empty state
   if (!chartData || chartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
-        <p className="text-slate-400">Aucune donnée disponible</p>
+      <div className={cn("mb-6 flex h-64 items-center justify-center", dashboardCardFrameStaticClass)}>
+        <p className={dashboardCardBodyMutedClass}>Aucune donnée disponible</p>
       </div>
     )
   }
@@ -140,25 +149,28 @@ export function WorkingCapitalChart({
     : 0
 
   return (
-    <div className="bg-gradient-to-br from-white to-slate-50/50 rounded-2xl border border-slate-200/80 shadow-lg mb-6 overflow-hidden relative z-10">
+    <div className={cn("relative z-10 mb-6", dashboardCardFrameStaticClass)}>
+      <div className={dashboardCardRingClass} aria-hidden />
       {/* Header Section */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
+      <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
+          <div className="flex min-w-0 flex-1 items-start gap-4">
+            <div className={dashboardCardHeaderIconBoxClass}>
+              <BarChart3 className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1">
               <Select value={selectedRatio} onValueChange={(value) => setSelectedRatio(value as RatioType)}>
-                <SelectTrigger className="h-auto p-0 border-0 bg-transparent hover:bg-transparent focus:ring-0 focus:ring-offset-0 w-auto inline-flex items-center gap-2 mb-1 [&>svg:last-child]:hidden">
-                  <h3 className="text-xl font-semibold text-slate-900 tracking-tight">{getBaseTitle()}</h3>
-                  <ChevronDown className="w-4 h-4 text-slate-500" />
+                <SelectTrigger className="mb-1 inline-flex h-auto w-auto items-center gap-2 border-0 bg-transparent p-0 hover:bg-transparent focus:ring-0 focus:ring-offset-0 [&>svg:last-child]:hidden">
+                  <h3 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{getBaseTitle()}</h3>
+                  <ChevronDown className="h-4 w-4 text-slate-500" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="revenue">FDR / Revenus</SelectItem>
                   <SelectItem value="revenue_ex_cash">FdRHC / Revenus</SelectItem>
                 </SelectContent>
               </Select>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                <span className="font-medium">{getHorizonText()}</span>
+              <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+                <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
                 <span className="text-slate-400">•</span>
                 {subDivisionId && divisionId && companyId ? (
                   <>
@@ -166,16 +178,16 @@ export function WorkingCapitalChart({
                     <span className="text-slate-400">•</span>
                     <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
                     <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
                   </>
                 ) : divisionId && companyId ? (
                   <>
                     <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
                     <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
                   </>
                 ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
+                  <span className={cn("font-semibold", dashboardCardAccentClass)}>{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
                 ) : (
                   <span className="truncate">Toutes les sociétés</span>
                 )}

@@ -1,51 +1,101 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { WorkingCapitalDetail } from "@/components/working-capital-detail"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { WorkingCapitalChart, type WorkingCapitalChartDataPoint } from "@/components/working-capital-chart"
 import { WorkingCapitalAnalysis } from "@/components/working-capital-analysis"
-import { CashConversionChart } from "@/components/cash-conversion-chart"
-import { CashConversionAnalysis } from "@/components/cash-conversion-analysis"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector, Company } from "@/components/entity-selector"
+import { EntitySelector } from "@/components/entity-selector"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
-import { TrendingUp, TrendingDown, DollarSign, BarChart3, Building2, Calculator, Calendar, Filter, Target, TrendingUp as TrendingUpIcon, Zap } from "lucide-react"
-import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
+import { Calendar } from "lucide-react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
+import { useFinancialStatementReferenceDate } from "@/hooks/use-financial-statement-reference-date"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, getPeriodLabels, aggregateToYears, findRow } from "@/lib/series-utils"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "current" | "12months" | "24months" | "years"
-type ColumnMode = "variations" | "percentage" | "comparison"
-type AnalysisType = "fonds-de-roulement" | "conversion-encaisse"
+type Section = "dashboard" | "summary"
+
+const analysisNav = [
+  { label: "Fonds de roulement", href: "/analysis/working-capital" },
+  { label: "Capex", href: "/analysis/capex" },
+  { label: "Marge par produits", href: "/analysis/product-margin" },
+  { label: "Ratios", href: "/analysis/ratios" },
+]
 
 export default function WorkingCapitalPage() {
   const { companies: companiesData } = useCompanies()
   const [period, setPeriod] = useState<Period>("monthly")
-  const [view, setView] = useState<View>("current")
-  const [columnMode, setColumnMode] = useState<ColumnMode>("variations")
-  const [analysisType, setAnalysisType] = useState<AnalysisType>("fonds-de-roulement")
+  const [view, setView] = useState<View>("12months")
+  const [section, setSection] = useState<Section>("dashboard")
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
+  const [structureVersion, setStructureVersion] = useState(0)
+  const summaryViewInitializedRef = useRef(false)
 
-  // Auto-select first company
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const companyIdFromUrl = searchParams.get("companyId")
+  const lockedCompanyId =
+    companyIdFromUrl && companiesData.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
+
+  const { selectedYear, selectedMonth } = useFinancialStatementReferenceDate({ skipUrlSync: true })
+
+  const companyQuery = useMemo(() => {
+    const p = new URLSearchParams()
+    if (companyIdFromUrl) p.set("companyId", companyIdFromUrl)
+    const rm = searchParams.get("refMonth")
+    const ry = searchParams.get("refYear")
+    if (rm) p.set("refMonth", rm)
+    if (ry) p.set("refYear", ry)
+    const s = p.toString()
+    return s ? `?${s}` : ""
+  }, [companyIdFromUrl, searchParams])
+
   useEffect(() => {
-    if (!selectedCompanyId && companiesData.length > 0) {
+    if (lockedCompanyId && selectedCompanyId !== lockedCompanyId) {
+      setSelectedCompanyId(lockedCompanyId)
+      setSelectedDivisionId(null)
+      setSelectedSubDivisionId(null)
+    }
+  }, [lockedCompanyId, selectedCompanyId])
+
+  useEffect(() => {
+    if (!selectedCompanyId && !lockedCompanyId && companiesData.length > 0) {
       setSelectedCompanyId(companiesData[0].id)
     }
-  }, [companiesData, selectedCompanyId])
+  }, [companiesData, selectedCompanyId, lockedCompanyId])
 
-  // Date reference state (month and year)
-  const currentDate = new Date()
-  const [selectedMonth, setSelectedMonth] = useState<number>(currentDate.getMonth() + 1) // 1-12
-  const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear())
+  useEffect(() => {
+    if (section !== "dashboard") return
+    const allowed = view === "12months" || view === "24months" || view === "years"
+    if (!allowed) setView("12months")
+  }, [section, view])
 
-  // Fetch balance-sheet series for chart data
+  const applySummaryViewDefaults = useCallback(() => {
+    setPeriod("monthly")
+    setView("current")
+  }, [])
+
+  const selectSection = useCallback(
+    (next: Section) => {
+      if (next === "summary" && !summaryViewInitializedRef.current) {
+        applySummaryViewDefaults()
+        summaryViewInitializedRef.current = true
+      }
+      if (next === "dashboard" && view === "current") {
+        setView("12months")
+      }
+      setSection(next)
+    },
+    [applySummaryViewDefaults, view],
+  )
+
   const isMultiPeriod = view === "12months" || view === "24months" || view === "years"
   const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
 
@@ -53,23 +103,29 @@ export default function WorkingCapitalPage() {
     companyId: selectedCompanyId || null,
     statementType: "balance-sheet",
     fiscalYear: selectedYear,
+    month: selectedMonth,
     months: monthsNeeded,
     divisionId: selectedDivisionId || null,
     subDivisionId: selectedSubDivisionId || null,
     enabled: !!selectedCompanyId,
   })
 
-  // Build chart data from series
   const buildChartData = (): WorkingCapitalChartDataPoint[] => {
     if (!isMultiPeriod || seriesRows.length === 0 || periods.length === 0) return []
 
-    // Find rows for current assets and current liabilities
-    const currentAssetsRow = findRow(seriesRows, "actif courant") || findRow(seriesRows, "actifs courant") || findRow(seriesRows, "current assets")
-    const currentLiabilitiesRow = findRow(seriesRows, "passif courant") || findRow(seriesRows, "passifs courant") || findRow(seriesRows, "current liabilities")
+    const currentAssetsRow =
+      findRow(seriesRows, "actif courant") ||
+      findRow(seriesRows, "actifs courant") ||
+      findRow(seriesRows, "current assets")
+    const currentLiabilitiesRow =
+      findRow(seriesRows, "passif courant") ||
+      findRow(seriesRows, "passifs courant") ||
+      findRow(seriesRows, "current liabilities")
 
     if (!currentAssetsRow && !currentLiabilitiesRow) {
-      // Try to find any total row as fallback
-      const totalRow = seriesRows.find((r) => r.isBold && !r.isSection && r.label.toLowerCase().includes("total"))
+      const totalRow = seriesRows.find(
+        (r) => r.isBold && !r.isSection && r.label.toLowerCase().includes("total"),
+      )
       if (!totalRow) return []
 
       const amounts = getRowAmounts(totalRow, periods)
@@ -88,13 +144,15 @@ export default function WorkingCapitalPage() {
       return labels.map((label, idx) => ({
         period: label,
         workingCapital: values[idx],
-        denominator: Math.abs(values[idx]) * 3, // estimate revenue as 3x
+        denominator: Math.abs(values[idx]) * 3,
         ratio: 33.3,
       }))
     }
 
     const caAmounts = currentAssetsRow ? getRowAmounts(currentAssetsRow, periods) : periods.map(() => 0)
-    const clAmounts = currentLiabilitiesRow ? getRowAmounts(currentLiabilitiesRow, periods) : periods.map(() => 0)
+    const clAmounts = currentLiabilitiesRow
+      ? getRowAmounts(currentLiabilitiesRow, periods)
+      : periods.map(() => 0)
 
     let labels: string[]
     let caValues: number[]
@@ -127,7 +185,6 @@ export default function WorkingCapitalPage() {
 
   const chartData = buildChartData()
 
-  // Fonction pour obtenir la valeur actuelle du sélecteur Horizon
   const getCurrentHorizon = (): string => {
     if (view === "current") return "courant"
     if (view === "12months") return "12mois"
@@ -136,7 +193,6 @@ export default function WorkingCapitalPage() {
     return "courant"
   }
 
-  // Fonction pour mettre à jour period et view selon la sélection Horizon
   const handleHorizonChange = (value: string) => {
     switch (value) {
       case "courant":
@@ -158,384 +214,172 @@ export default function WorkingCapitalPage() {
     }
   }
 
-  // Calculate summary metrics from real series data
-  const calculateMetrics = () => {
-    if (seriesRows.length > 0 && periods.length > 0) {
-      const caRow = findRow(seriesRows, "actifs courants") || findRow(seriesRows, "actif courant") || findRow(seriesRows, "current assets")
-      const clRow = findRow(seriesRows, "passifs courants") || findRow(seriesRows, "passif courant") || findRow(seriesRows, "current liabilities")
-
-      if (caRow || clRow) {
-        const caAmounts = caRow ? getRowAmounts(caRow, periods) : periods.map(() => 0)
-        const clAmounts = clRow ? getRowAmounts(clRow, periods) : periods.map(() => 0)
-        const lastIdx = periods.length - 1
-        const priorIdx = Math.max(0, lastIdx - 1)
-
-        const currentAssets = caAmounts[lastIdx]
-        const currentLiabilities = clAmounts[lastIdx]
-        const totalWorkingCapital = currentAssets - currentLiabilities
-        const priorWorkingCapital = caAmounts[priorIdx] - clAmounts[priorIdx]
-        const variation = calculateVariation(totalWorkingCapital, priorWorkingCapital)
-        const workingCapitalRatio = currentLiabilities !== 0 ? currentAssets / currentLiabilities : 0
-
-        // Compute average WC across all periods
-        const wcValues = caAmounts.map((ca, i) => ca - clAmounts[i])
-        const averageWorkingCapital = wcValues.reduce((a, b) => a + b, 0) / wcValues.length
-
-        return { totalWorkingCapital, priorWorkingCapital, variation, currentAssets, currentLiabilities, workingCapitalRatio, averageWorkingCapital }
-      }
-    }
-
-    return { totalWorkingCapital: 0, priorWorkingCapital: 0, variation: 0, currentAssets: 0, currentLiabilities: 0, workingCapitalRatio: 0, averageWorkingCapital: 0 }
-  }
-
-  const metrics = calculateMetrics()
-  
-  // Determine card title and content based on view
-  const getWorkingCapitalCardTitle = () => {
-    if (view === "current") {
-      return "Fonds de roulement"
-    } else {
-      return "Fonds de roulement actuel vs Moyen"
-    }
-  }
-
-  const pathname = usePathname()
-
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
       <DashboardHeader title="Modelisys" />
-      
-      {/* Dark Header Section */}
-      <div className="w-full bg-slate-900 pt-15 pb-32">
-        <div className="max-w-[1920px] mx-auto px-6">
+
+      <div className="relative w-full pt-15 pb-32 overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+            <div className="bg-[#2A2F3A]" />
+            <div className="bg-[#2A2F3A]" />
+          </div>
+          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
+          </div>
+        </div>
+
+        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
           <div className="flex items-start mb-4">
-            {/* Espace équivalent au bouton menu du header pour l'alignement */}
-            <div className="w-2 flex-shrink-0"></div>
+            <div className="w-2 flex-shrink-0" />
             <div className="flex-1">
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-4xl font-normal text-white tracking-tight">Analyse du fonds de roulement</h2>
-                {/* Date Reference Selector */}
-                <div className="flex items-center gap-3 bg-slate-800/70 border border-slate-700 rounded-lg px-4 py-2.5 shadow-lg">
-                  <Calendar className="w-4 h-4 text-emerald-400" />
-                  <span className="text-sm font-medium text-white whitespace-nowrap">Référence:</span>
-                  <Select 
-                    value={selectedMonth.toString()} 
-                    onValueChange={(value) => setSelectedMonth(parseInt(value))}
-                  >
-                    <SelectTrigger className="h-9 w-[140px] bg-white/10 border-slate-600 text-white text-sm font-medium hover:bg-white/20 focus:ring-2 focus:ring-emerald-400">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1">Janvier</SelectItem>
-                      <SelectItem value="2">Février</SelectItem>
-                      <SelectItem value="3">Mars</SelectItem>
-                      <SelectItem value="4">Avril</SelectItem>
-                      <SelectItem value="5">Mai</SelectItem>
-                      <SelectItem value="6">Juin</SelectItem>
-                      <SelectItem value="7">Juillet</SelectItem>
-                      <SelectItem value="8">Août</SelectItem>
-                      <SelectItem value="9">Septembre</SelectItem>
-                      <SelectItem value="10">Octobre</SelectItem>
-                      <SelectItem value="11">Novembre</SelectItem>
-                      <SelectItem value="12">Décembre</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select 
-                    value={selectedYear.toString()} 
-                    onValueChange={(value) => setSelectedYear(parseInt(value))}
-                  >
-                    <SelectTrigger className="h-9 w-[110px] bg-white/10 border-slate-600 text-white text-sm font-medium hover:bg-white/20 focus:ring-2 focus:ring-emerald-400">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Array.from({ length: 15 }, (_, i) => {
-                        const year = currentDate.getFullYear() - 5 + i
-                        return (
-                          <SelectItem key={year} value={year.toString()}>
-                            {year}
-                          </SelectItem>
-                        )
-                      })}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="mb-2">
+                <h2 className="text-4xl font-semibold tracking-tight text-[#E6D6C3]">
+                  Analyse du fonds de roulement
+                </h2>
               </div>
-              <p className="text-base text-slate-300 mb-6">
+              <p className="text-base text-[#C9B8A5]/90 mb-6">
                 Analysez votre fonds de roulement et votre besoin en fonds de roulement avec des indicateurs détaillés
               </p>
-              {/* Navigation Menu */}
               <div className="flex items-end gap-8 mb-2">
-                <Link
-                  href="/analysis/working-capital"
-                  className="relative pb-4 border-b border-slate-600/30"
-                >
-                  <span
-                    className={`text-sm font-normal transition-colors ${
-                      pathname === "/analysis/working-capital"
-                        ? "text-white"
-                        : "text-slate-300 hover:text-white"
-                    }`}
-                  >
-                    Fonds de roulement
-                  </span>
-                  {pathname === "/analysis/working-capital" && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
-                  )}
-                </Link>
-                <Link
-                  href="/analysis/capex"
-                  className="relative pb-4 border-b border-slate-600/30"
-                >
-                  <span
-                    className={`text-sm font-normal transition-colors ${
-                      pathname === "/analysis/capex"
-                        ? "text-white"
-                        : "text-slate-300 hover:text-white"
-                    }`}
-                  >
-                    Capex
-                  </span>
-                  {pathname === "/analysis/capex" && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
-                  )}
-                </Link>
-                <Link
-                  href="/analysis/product-margin"
-                  className="relative pb-4 border-b border-slate-600/30"
-                >
-                  <span
-                    className={`text-sm font-normal transition-colors ${
-                      pathname === "/analysis/product-margin"
-                        ? "text-white"
-                        : "text-slate-300 hover:text-white"
-                    }`}
-                  >
-                    Marge par produits
-                  </span>
-                  {pathname === "/analysis/product-margin" && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
-                  )}
-                </Link>
-                <Link
-                  href="/analysis/ratios"
-                  className="relative pb-4 border-b border-slate-600/30"
-                >
-                  <span
-                    className={`text-sm font-normal transition-colors ${
-                      pathname === "/analysis/ratios"
-                        ? "text-white"
-                        : "text-slate-300 hover:text-white"
-                    }`}
-                  >
-                    Ratios
-                  </span>
-                  {pathname === "/analysis/ratios" && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
-                  )}
-                </Link>
+                {analysisNav.map((item) => {
+                  const isActive = pathname === item.href
+                  return (
+                    <Link
+                      key={item.href}
+                      href={`${item.href}${companyQuery}`}
+                      className={`relative inline-block rounded-md px-3 py-1.5 -mx-1 pb-4 border-b border-slate-600/30 text-sm font-normal text-slate-200 transition-colors ${
+                        !isActive ? "hover:bg-white/5 hover:text-slate-100" : "hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      {item.label}
+                      {isActive && (
+                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10" />
+                      )}
+                    </Link>
+                  )
+                })}
               </div>
             </div>
           </div>
 
-          {/* Controls Section */}
-          <div className="mb-6 p-4">
-            <div className="flex flex-wrap items-center gap-4">
-              {/* Filter Icon */}
-              <div className="flex items-center gap-2 text-slate-300">
-                <Filter className="w-4 h-4" />
-              </div>
-
-              {/* Separator */}
-              <div className="h-6 w-px bg-slate-700" />
-
-              {/* Horizon Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Horizon:</span>
-                <Select value={getCurrentHorizon()} onValueChange={handleHorizonChange}>
-                  <SelectTrigger className="h-8 w-[140px] bg-slate-800/50 border-slate-700 text-slate-300 text-xs hover:bg-slate-700/50">
-                    <Calendar className="w-3.5 h-3.5 mr-1.5 text-slate-400" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="courant">Courant</SelectItem>
-                    <SelectItem value="12mois">12 mois</SelectItem>
-                    <SelectItem value="24mois">24 mois</SelectItem>
-                    <SelectItem value="annees">5 ans</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Separator */}
-              <div className="h-6 w-px bg-slate-700" />
-
-              {/* Analysis Type Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Type d'analyse:</span>
-                <div className="inline-flex rounded-lg border border-slate-700 bg-slate-800/50 p-1">
-                  <Button
-                    variant="ghost"
-                    onClick={() => setAnalysisType("fonds-de-roulement")}
-                    className={`h-8 text-xs px-3 transition-all ${
-                      analysisType === "fonds-de-roulement"
-                        ? "bg-emerald-500 text-white font-medium shadow-sm"
-                        : "text-slate-300 hover:text-white hover:bg-slate-700/50"
-                    }`}
-                  >
-                    Fonds de roulement
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    onClick={() => setAnalysisType("conversion-encaisse")}
-                    className={`h-8 text-xs px-3 transition-all ${
-                      analysisType === "conversion-encaisse"
-                        ? "bg-emerald-500 text-white font-medium shadow-sm"
-                        : "text-slate-300 hover:text-white hover:bg-slate-700/50"
-                    }`}
-                  >
-                    Conversion de l'encaisse
-                  </Button>
+          <div className="mb-6">
+            <div className="rounded-2xl border border-white/10 bg-[#2A2F3A]/45 px-3 py-3 backdrop-blur-sm sm:px-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
+                    <Button
+                      variant="ghost"
+                      onClick={() => selectSection("dashboard")}
+                      className={`h-8 text-xs px-3 transition-all ${
+                        section === "dashboard"
+                          ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                          : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                      }`}
+                    >
+                      Tableau de bord
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => selectSection("summary")}
+                      className={`h-8 text-xs px-3 transition-all ${
+                        section === "summary"
+                          ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                          : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                      }`}
+                    >
+                      Sommaire
+                    </Button>
+                  </div>
                 </div>
-              </div>
 
-              {/* Separator */}
-              <div className="h-6 w-px bg-slate-700" />
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-200 whitespace-nowrap">Horizon</span>
+                  <Select value={getCurrentHorizon()} onValueChange={handleHorizonChange}>
+                    <SelectTrigger className="h-8 w-[140px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5">
+                      <Calendar className="mr-2 h-3.5 w-3.5 text-[#C9B8A5]/70" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {section === "dashboard" ? (
+                        <>
+                          <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
+                          <SelectItem value="24mois">24 mois</SelectItem>
+                          <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
+                        </>
+                      ) : (
+                        <>
+                          <SelectItem value="courant">{HORIZON_LABEL.moisActuel}</SelectItem>
+                          <SelectItem value="12mois">{HORIZON_LABEL.mensuel}</SelectItem>
+                          <SelectItem value="24mois">24 mois</SelectItem>
+                          <SelectItem value="annees">{HORIZON_LABEL.annuel5Ans}</SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              {/* Entity Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Entité:</span>
-                <EntitySelector
-                  companies={companiesData}
-                  selectedCompanyId={selectedCompanyId}
-                  selectedDivisionId={selectedDivisionId}
-                  selectedSubDivisionId={selectedSubDivisionId}
-                  onCompanyChange={setSelectedCompanyId}
-                  onDivisionChange={setSelectedDivisionId}
-                  onSubDivisionChange={setSelectedSubDivisionId}
-                />
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-200 whitespace-nowrap">Entités</span>
+                  <EntitySelector
+                    companies={companiesData}
+                    selectedCompanyId={selectedCompanyId}
+                    selectedDivisionId={selectedDivisionId}
+                    selectedSubDivisionId={selectedSubDivisionId}
+                    onCompanyChange={(companyId) => {
+                      if (lockedCompanyId) return
+                      setSelectedCompanyId(companyId)
+                    }}
+                    onDivisionChange={setSelectedDivisionId}
+                    onSubDivisionChange={setSelectedSubDivisionId}
+                    disableCompanySelection={!!lockedCompanyId}
+                    darkControlBar
+                  />
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
-        {/* Conditional rendering based on analysisType */}
-        {analysisType === "fonds-de-roulement" ? (
-          <>
-            {/* Chart Section - Overlapping with dark section */}
-            <div className="relative -mt-32">
-              <WorkingCapitalChart
-                period={period}
-                view={view}
-                companyId={selectedCompanyId}
-                divisionId={selectedDivisionId}
-                subDivisionId={selectedSubDivisionId}
-                companies={companiesData}
-                chartData={chartData.length > 0 ? chartData : undefined}
-                loading={seriesLoading}
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Cash Conversion Chart Section - Overlapping with dark section */}
-            <div className="relative -mt-32">
-              <CashConversionChart
-                period={period}
-                view={view}
-                companyId={selectedCompanyId}
-                divisionId={selectedDivisionId}
-                subDivisionId={selectedSubDivisionId}
-                companies={companiesData}
-              />
-            </div>
-          </>
-        )}
-      </main>
-
-      {/* Dark Section between Chart and Analysis - Only for fonds-de-roulement */}
-      {analysisType === "fonds-de-roulement" && (
-        <div className="w-full bg-slate-900 pt-12 pb-32">
-          <div className="max-w-[1920px] mx-auto px-6">
-            <div className="flex items-start gap-3">
-              <div className="w-2 flex-shrink-0"></div>
-              <div className="flex-1">
-                <div>
-                  <h3 className="text-2xl font-normal text-white mb-3">Optimisation du fonds de roulement</h3>
-                  <p className="text-base text-slate-300 leading-relaxed max-w-4xl mb-6">
-                    Le fonds de roulement est un indicateur clé de la santé financière de votre entreprise. Analysez les variations de vos actifs et passifs courants pour identifier les opportunités d'optimisation et améliorer votre liquidité opérationnelle.
-                  </p>
-                </div>
-              </div>
-            </div>
+      {section === "dashboard" && (
+        <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
+          <div className="relative -mt-32">
+            <WorkingCapitalChart
+              period={period}
+              view={view}
+              companyId={selectedCompanyId}
+              divisionId={selectedDivisionId}
+              subDivisionId={selectedSubDivisionId}
+              companies={companiesData}
+              chartData={chartData.length > 0 ? chartData : undefined}
+              loading={seriesLoading}
+            />
           </div>
-        </div>
+        </main>
       )}
 
-      {/* Dark Section between Chart and Analysis - Only for conversion-encaisse */}
-      {analysisType === "conversion-encaisse" && (
-        <div className="w-full bg-slate-900 pt-12 pb-32">
-          <div className="max-w-[1920px] mx-auto px-6">
-            <div className="flex items-start gap-3">
-              <div className="w-2 flex-shrink-0"></div>
-              <div className="flex-1">
-                <div>
-                  <h3 className="text-2xl font-normal text-white mb-3">Optimisation du cycle de conversion de l'encaisse</h3>
-                  <p className="text-base text-slate-300 leading-relaxed max-w-4xl mb-6">
-                    Le cycle de conversion de l'encaisse (CCC) mesure le temps nécessaire pour convertir vos investissements en stocks et créances en liquidités. Un CCC optimisé améliore votre trésorerie et votre capacité à financer vos opérations.
-                  </p>
-                </div>
-              </div>
-            </div>
+      {section === "summary" && (
+        <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
+          <div className="relative -mt-32">
+            <WorkingCapitalAnalysis
+              period={period}
+              view={view}
+              companyId={selectedCompanyId}
+              divisionId={selectedDivisionId}
+              subDivisionId={selectedSubDivisionId}
+              companies={companiesData}
+              fiscalYear={selectedYear}
+              referenceMonth={selectedMonth}
+              structureVersion={structureVersion}
+              showStructureSettings
+              onStructureSaved={() => setStructureVersion((v) => v + 1)}
+            />
           </div>
-        </div>
+        </main>
       )}
-
-      <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
-        {analysisType === "fonds-de-roulement" ? (
-          <>
-            {/* Analysis Section - Overlapping with dark section */}
-            <div className="relative -mt-32">
-              <WorkingCapitalAnalysis
-                period={period}
-                view={view}
-                companyId={selectedCompanyId}
-                divisionId={selectedDivisionId}
-                subDivisionId={selectedSubDivisionId}
-                companies={companiesData}
-              />
-
-              {/* Detail Section */}
-              <div className="mt-16 rounded-xl overflow-hidden shadow-sm border border-slate-200">
-                <WorkingCapitalDetail
-                  period={period}
-                  view={view}
-                  columnMode={columnMode}
-                  companyId={selectedCompanyId}
-                  divisionId={selectedDivisionId}
-                  subDivisionId={selectedSubDivisionId}
-                  companies={companiesData}
-                />
-              </div>
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Cash Conversion Analysis Section - Overlapping with dark section */}
-            <div className="relative -mt-32">
-              <CashConversionAnalysis
-                period={period}
-                view={view}
-                companyId={selectedCompanyId}
-                divisionId={selectedDivisionId}
-                subDivisionId={selectedSubDivisionId}
-                companies={companiesData}
-              />
-            </div>
-          </>
-        )}
-      </main>
     </div>
   )
 }
-
