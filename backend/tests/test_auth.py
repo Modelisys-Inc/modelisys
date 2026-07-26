@@ -99,6 +99,26 @@ def test_me_authenticated(client, auth_headers):
 def test_me_unauthenticated(client):
     response = client.get("/api/auth/me")
     assert response.status_code == 401
+    assert response.headers.get("www-authenticate") == "Bearer"
+
+
+def test_missing_credentials_are_401_even_when_fastapi_raises_403(client, monkeypatch):
+    """FastAPI <0.130 raises 403 for a missing bearer token; we must still return 401.
+
+    Guards against the status code silently tracking the installed FastAPI
+    version (the pinned 0.115.0 raises 403, newer releases raise 401).
+    """
+    from fastapi import HTTPException
+    from fastapi.security import HTTPBearer
+
+    async def raise_403(self, request):
+        raise HTTPException(status_code=403, detail="Not authenticated")
+
+    monkeypatch.setattr(HTTPBearer, "__call__", raise_403)
+
+    response = client.get("/api/auth/me")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Not authenticated"
 
 
 def test_me_invalid_token(client):

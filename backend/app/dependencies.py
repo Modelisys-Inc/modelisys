@@ -9,7 +9,29 @@ from app.models.company import Company
 from app.models.user import User, UserCompanyAccess, UserOrganization, UserRole
 from app.utils.security import decode_token
 
-security = HTTPBearer()
+class BearerAuth(HTTPBearer):
+    """HTTPBearer that always answers missing/malformed credentials with 401.
+
+    FastAPI < 0.130 raises 403 when the Authorization header is absent or not a
+    bearer token; newer versions raise 401. Missing credentials is 401 by
+    definition (403 means authenticated-but-not-allowed), so normalize it here
+    instead of letting the pinned FastAPI version decide the status code.
+    """
+
+    async def __call__(self, request: Request) -> HTTPAuthorizationCredentials | None:
+        try:
+            return await super().__call__(request)
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_403_FORBIDDEN:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=exc.detail,
+                    headers={"WWW-Authenticate": "Bearer"},
+                ) from exc
+            raise
+
+
+security = BearerAuth()
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
