@@ -5,7 +5,9 @@ import {
   isAnnexLetterInputEditable,
   listAnnexLettersForDetailSubLines,
   listAnnexOptionsForDetailSubLineModal,
+  syncIncomeStatementDetailSubLinesFromStandard,
 } from "../income-statement-structure-utils"
+import type { StandardLinkCode } from "@/lib/api"
 
 type Row = Record<string, unknown>
 
@@ -169,5 +171,73 @@ describe("detail annex option ordering", () => {
       { letter: "B", title: "Autres revenus" },
       { letter: "A", title: "Produits financiers" },
     ])
+  })
+})
+
+describe("syncIncomeStatementDetailSubLinesFromStandard", () => {
+  const revChart: StandardLinkCode[] = [
+    {
+      code: "REV-A",
+      family: "REV",
+      parent_code: null,
+      is_leaf: false,
+      label_sub_account: "Produits électroniques",
+      label_account: null,
+      sort_order: 1,
+      is_active: true,
+      attached_link_codes: [],
+    },
+    {
+      code: "REV-A.1",
+      family: "REV",
+      parent_code: "REV-A",
+      is_leaf: true,
+      label_sub_account: "Capteurs",
+      label_account: null,
+      sort_order: 2,
+      is_active: true,
+      attached_link_codes: [],
+    },
+    {
+      code: "CMV",
+      family: "CMV",
+      parent_code: null,
+      is_leaf: false,
+      label_sub_account: "CMV",
+      label_account: null,
+      sort_order: 1,
+      is_active: true,
+      attached_link_codes: [],
+    },
+    {
+      code: "CMV.1",
+      family: "CMV",
+      parent_code: "CMV",
+      is_leaf: true,
+      label_sub_account: "Stocks au début",
+      label_account: null,
+      sort_order: 2,
+      is_active: true,
+      attached_link_codes: [],
+    },
+  ]
+
+  it("materializes REV detail sub-lines as grouping parents when summary uses REV", () => {
+    const structure: Row[] = [
+      {
+        label: "Revenus",
+        defineMapping: true,
+        showInDetail: true,
+        annexLetter: "A",
+        linkCode: "REV",
+        liaisonMode: "single",
+      },
+      { label: "" },
+    ]
+    const out = syncIncomeStatementDetailSubLinesFromStandard(structure, revChart)
+    const detailRows = out.filter((r) => r.detailOnly)
+    expect(detailRows.map((r) => r.linkCode)).toEqual(["REV-A"])
+    expect(detailRows[0]!.liaisonMode).toBe("sum")
+    expect(detailRows[0]!.liaisonSumCodes).toEqual(["REV-A.1"])
   })
 })

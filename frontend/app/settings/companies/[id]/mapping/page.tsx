@@ -1,10 +1,20 @@
 "use client"
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Loader2, FileSpreadsheet, Upload, X, Search, Trash2, Pencil } from "lucide-react"
+import { MappingColumnFilter } from "@/components/mapping-column-filter"
+import { AccountMappingSettingsPanel, type AccountMappingDraft } from "@/components/account-mapping-settings-panel"
+import { StandardLinkCodePicker } from "@/components/standard-link-code-picker"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Loader2, FileSpreadsheet, Upload, X, Settings, CheckCircle2, AlertTriangle } from "lucide-react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { Input } from "@/components/ui/input"
@@ -16,19 +26,29 @@ import {
   upsertAccountMappings,
   deleteAccountMapping,
   getStatementStructure,
+  listCompanyLinkCodes,
   type Company as ApiCompany,
   type AccountMappingData,
   type Division,
-  type SubDivision,
+  type StandardLinkCode,
 } from "@/lib/api"
 import {
-  dtCtDisplayForAccountLinkCode,
-  groupeDisplayForAccountMappingTable,
-} from "@/lib/income-statement-structure-utils"
-import {
-  buildLinkCodeReferenceFromStructures,
-  provenanceLabelFromLinkCodes,
-} from "@/lib/link-code-reference"
+  filterAssignableMappingLinkCodes,
+  isMappingCostTypeUnset,
+  isMappingLinkCodeIncomplete,
+  mappingCostTypeDisplayLabel,
+  mappingCostTypeLabel,
+  mappingDetailFromLinkCode,
+  mappingGroupeFromLinkCode,
+  mappingParentCodeFromLinkCode,
+  mappingPosteFromLinkCode,
+  sanitizeMappingCostTypeFields,
+  sanitizeMappingLiabilityTermFields,
+  showsMappingCostTypeOptions,
+  type StandardLinkCodeLookup,
+} from "@/lib/standard-link-code-utils"
+import { useStandardLinkCodesFlat } from "@/hooks/use-standard-link-codes"
+import { buildLinkCodeReferenceFromStructures } from "@/lib/link-code-reference"
 import { usePermissions } from "@/hooks/use-permissions"
 import { cn } from "@/lib/utils"
 import {
@@ -63,7 +83,10 @@ interface AccountMapping {
   amortization?: boolean
   variableCosts?: boolean
   fixedCosts?: boolean
-  /** Conservés côté API, non affichés dans le tableau. */
+  variableCostRevenueLinkCode?: string
+  liabilityRemainingYears?: number
+  liabilityInterestRate?: number
+  /** Conservé côté API, non affiché dans le tableau. */
   product?: string
   customer?: string
   supplier?: string
@@ -94,6 +117,11 @@ function mapApiMapping(m: AccountMappingData): AccountMapping {
     amortization: m.amortization,
     variableCosts: m.variable_costs,
     fixedCosts: m.fixed_costs,
+    variableCostRevenueLinkCode: m.variable_cost_revenue_link_code || undefined,
+    liabilityRemainingYears:
+      m.liability_remaining_years != null ? Number(m.liability_remaining_years) : undefined,
+    liabilityInterestRate:
+      m.liability_interest_rate != null ? Number(m.liability_interest_rate) : undefined,
     product: m.product || undefined,
     customer: m.customer || undefined,
     supplier: m.supplier || undefined,
@@ -124,57 +152,107 @@ function derivedEfFieldsFromLinkCode(
   }
 }
 
-function boolSearchText(v: boolean | undefined): string {
-  return v ? "oui coché" : "non décoché"
+function isAccountUnassigned(account: AccountMapping): boolean {
+  return !account.linkCode?.trim()
 }
 
-/** Valeur du Select division : nom en base, ou entrée « hors liste » pour anciennes données. */
-function divisionSelectValue(stored: string | undefined, divisions: Division[]): string {
-  const t = stored?.trim()
-  if (!t) return "none"
-  if (divisions.some((d) => d.name === t)) return t
-  return "__legacy__"
+function isAccountCostTypeUnset(account: AccountMapping, linkCodeByCode: StandardLinkCodeLookup): boolean {
+  if (!account.linkCode?.trim()) return false
+  if (isMappingLinkCodeIncomplete(account.linkCode, linkCodeByCode)) return false
+  return isMappingCostTypeUnset(account, linkCodeByCode)
 }
 
-function subDivisionSelectValue(stored: string | undefined, subOptions: SubDivision[]): string {
-  const t = stored?.trim()
-  if (!t) return "none"
-  if (subOptions.some((s) => s.name === t)) return t
-  return "__legacy__"
-}
+type BulkActionMode = "linkCode" | "costType"
 
-type MappingSearchScope =
-  | "all"
+type MappingDiagnosticFilter = "none" | "unassigned" | "invalid" | "costTypeUnset"
+
+type MappingColumnKey =
   | "accountNumber"
   | "description"
-  | "provenance"
-  | "dtCt"
+  | "parentCode"
   | "groupe"
   | "linkCode"
-  | "sommaireEf"
-  | "detailEf"
-  | "divisions"
-  | "subDivisions"
-  | "variableCosts"
-  | "fixedCosts"
-  | "interco"
+  | "costType"
+  | "poste"
+  | "detail"
 
-const MAPPING_SEARCH_SCOPE_OPTIONS: { value: MappingSearchScope; label: string }[] = [
-  { value: "all", label: "Toutes les colonnes" },
-  { value: "accountNumber", label: "Compte" },
-  { value: "description", label: "Description" },
-  { value: "dtCt", label: "DT/CT" },
-  { value: "groupe", label: "Groupe" },
-  { value: "linkCode", label: "Code" },
-  { value: "provenance", label: "Type" },
-  { value: "sommaireEf", label: "Poste" },
-  { value: "detailEf", label: "Détail" },
-  { value: "divisions", label: "Divisions" },
-  { value: "subDivisions", label: "S-division" },
-  { value: "variableCosts", label: "CV" },
-  { value: "fixedCosts", label: "CF" },
-  { value: "interco", label: "Interco" },
+const MAPPING_TABLE_COLUMNS: { key: MappingColumnKey; label: string }[] = [
+  { key: "accountNumber", label: "Compte" },
+  { key: "description", label: "Description" },
+  { key: "parentCode", label: "Parent" },
+  { key: "linkCode", label: "Code" },
+  { key: "groupe", label: "Groupe" },
+  { key: "costType", label: "Type" },
+  { key: "poste", label: "Poste" },
+  { key: "detail", label: "Détail" },
 ]
+
+function displayCellValue(value: string | undefined | null): string {
+  const trimmed = String(value ?? "").trim()
+  return trimmed || "—"
+}
+
+function MappingCostTypeSticker({
+  account,
+  linkCodeByCode,
+}: {
+  account: AccountMapping
+  linkCodeByCode: StandardLinkCodeLookup
+}) {
+  const kind = mappingCostTypeLabel(account, linkCodeByCode)
+  if (kind === "na") return <span className="text-slate-300">—</span>
+  if (kind === "variable") {
+    return (
+      <span className="inline-flex rounded-md bg-sky-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-sky-800 ring-1 ring-sky-200/80">
+        Variable
+      </span>
+    )
+  }
+  if (kind === "fixed") {
+    return (
+      <span className="inline-flex rounded-md bg-violet-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-violet-800 ring-1 ring-violet-200/80">
+        Fixe
+      </span>
+    )
+  }
+  return (
+    <span
+      className="inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-900 ring-1 ring-amber-200/80"
+      title="Indiquez Variable ou Fixe dans les paramètres du compte"
+    >
+      À définir
+    </span>
+  )
+}
+
+type MappingColumnContext = {
+  linkCodeByCode: StandardLinkCodeLookup
+}
+
+function getAccountColumnValue(
+  account: AccountMapping,
+  column: MappingColumnKey,
+  ctx: MappingColumnContext,
+): string {
+  switch (column) {
+    case "accountNumber":
+      return displayCellValue(account.accountNumber)
+    case "description":
+      return displayCellValue(account.description)
+    case "groupe":
+      return displayCellValue(mappingGroupeFromLinkCode(account.linkCode, ctx.linkCodeByCode))
+    case "parentCode":
+      return displayCellValue(mappingParentCodeFromLinkCode(account.linkCode, ctx.linkCodeByCode))
+    case "linkCode":
+      return displayCellValue(account.linkCode)
+    case "costType":
+      return mappingCostTypeDisplayLabel(account, ctx.linkCodeByCode)
+    case "poste":
+      return displayCellValue(mappingPosteFromLinkCode(account.linkCode, ctx.linkCodeByCode))
+    case "detail":
+      return displayCellValue(mappingDetailFromLinkCode(account.linkCode, ctx.linkCodeByCode))
+  }
+}
 
 function toApiMappingEntry(m: AccountMapping) {
   return {
@@ -190,6 +268,9 @@ function toApiMappingEntry(m: AccountMapping) {
     amortization: m.amortization || false,
     variable_costs: m.variableCosts || false,
     fixed_costs: m.fixedCosts || false,
+    variable_cost_revenue_link_code: m.variableCostRevenueLinkCode ?? null,
+    liability_remaining_years: m.liabilityRemainingYears ?? null,
+    liability_interest_rate: m.liabilityInterestRate ?? null,
     product: m.product ?? null,
     customer: m.customer ?? null,
     supplier: m.supplier || null,
@@ -202,12 +283,23 @@ export default function CompanyMappingPage() {
   const router = useRouter()
   const { canEdit } = usePermissions()
   const companyId = params.id as string
+  const { codes: standardLinkCodes, loading: linkCodesLoading } = useStandardLinkCodesFlat(false)
+  const [companyLinkCodes, setCompanyLinkCodes] = useState<StandardLinkCode[]>([])
+  const allLinkCodes = useMemo(
+    () => [...standardLinkCodes, ...companyLinkCodes],
+    [standardLinkCodes, companyLinkCodes],
+  )
+  const linkCodeByCode = useMemo<StandardLinkCodeLookup>(
+    () => new Map(allLinkCodes.map((c) => [c.code, c])),
+    [allLinkCodes],
+  )
+  const assignableLinkCodes = useMemo(
+    () => filterAssignableMappingLinkCodes(allLinkCodes),
+    [allLinkCodes],
+  )
   const [company, setCompany] = useState<Company | null>(null)
-  /** Divisions / S-divisions de la société (Information de base), même principe que le sélecteur Entité (états financiers). */
   const [companyDivisions, setCompanyDivisions] = useState<Division[]>([])
   const [accounts, setAccounts] = useState<AccountMapping[]>([])
-  const accountsRef = useRef(accounts)
-  accountsRef.current = accounts
   const [allCompanies, setAllCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
   const [incomeStatementStructure, setIncomeStatementStructure] = useState<
@@ -217,64 +309,64 @@ export default function CompanyMappingPage() {
   const [showImportModal, setShowImportModal] = useState(false)
   const [importModalStep, setImportModalStep] = useState<"file" | "confirm">("file")
   const [pendingImportEntries, setPendingImportEntries] = useState<
-    Array<{ account_number: string; description: string; link_code: string | null }>
+    Array<{ account_number: string; description: string }>
   >([])
   const [importFile, setImportFile] = useState<File | null>(null)
   const [importing, setImporting] = useState(false)
   const [dragging, setDragging] = useState(false)
-  const [mappingSearch, setMappingSearch] = useState("")
-  const [mappingSearchScope, setMappingSearchScope] = useState<MappingSearchScope>("all")
+  const [columnFilters, setColumnFilters] = useState<Partial<Record<MappingColumnKey, Set<string>>>>({})
+  const [diagnosticFilter, setDiagnosticFilter] = useState<MappingDiagnosticFilter>("none")
+  const [settingsAccountNumber, setSettingsAccountNumber] = useState<string | null>(null)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [selectedAccountNumbers, setSelectedAccountNumbers] = useState<string[]>([])
+  const [bulkActionMode, setBulkActionMode] = useState<BulkActionMode | null>(null)
+  const [bulkLinkCode, setBulkLinkCode] = useState<string | undefined>(undefined)
+  const [bulkCostType, setBulkCostType] = useState<"" | "variable" | "fixed">("")
+  const [bulkSaving, setBulkSaving] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  /** Ligne dont le code de liaison est en cours d’édition (après clic sur le crayon). */
-  const [editingLinkCodeAccountNumber, setEditingLinkCodeAccountNumber] = useState<string | null>(null)
-  const linkCodeEditInputRef = useRef<HTMLInputElement>(null)
 
   const parseMappingExcel = async (file: File) => {
     const buf = await file.arrayBuffer()
     const wb = XLSX.read(buf, { type: "array" })
     const sheetName = wb.SheetNames[0]
-    if (!sheetName) return []
+    if (!sheetName) return { entries: [], invalidFormat: true }
     const ws = wb.Sheets[sheetName]
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: "" })
 
     const normalize = (v: unknown) => String(v ?? "").trim()
-    const normalizeKey = (k: string) =>
+    const normalizeHeaderKey = (k: string) =>
       k
         .toLowerCase()
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\./g, "")
         .replace(/\s+/g, " ")
         .trim()
 
-    return rows
-      .map((r) => {
-        const normalized: Record<string, unknown> = {}
-        for (const [k, v] of Object.entries(r)) normalized[normalizeKey(k)] = v
+    const valueForHeader = (row: Record<string, unknown>, headerKey: string) => {
+      for (const [k, v] of Object.entries(row)) {
+        if (normalizeHeaderKey(k) === headerKey) return normalize(v)
+      }
+      return ""
+    }
 
-        const accountNumber =
-          normalize(normalized["# de compte"]) ||
-          normalize(normalized["# de compte "]) ||
-          normalize(normalized["no de compte"]) ||
-          normalize(normalized["numero de compte"]) ||
-          normalize(normalized["account"]) ||
-          normalize(normalized["account number"])
+    if (rows.length > 0) {
+      const headerKeys = Object.keys(rows[0]).map(normalizeHeaderKey)
+      const hasGl = headerKeys.includes("no gl")
+      const hasDescription = headerKeys.includes("description")
+      if (!hasGl || !hasDescription) {
+        return { entries: [], invalidFormat: true }
+      }
+    }
 
-        const description =
-          normalize(normalized["description"]) ||
-          normalize(normalized["desc"]) ||
-          normalize(normalized["nom"]) ||
-          normalize(normalized["account name"])
-
-        const linkCode =
-          normalize(normalized["code de liaison"]) ||
-          normalize(normalized["code liaison"]) ||
-          normalize(normalized["liaison"]) ||
-          normalize(normalized["link code"]) ||
-          normalize(normalized["link_code"])
-
-        return { accountNumber, description, linkCode }
-      })
+    const entries = rows
+      .map((r) => ({
+        accountNumber: valueForHeader(r, "no gl"),
+        description: valueForHeader(r, "description"),
+      }))
       .filter((r) => r.accountNumber.length > 0)
+
+    return { entries, invalidFormat: false }
   }
 
   // Load all data from API
@@ -288,14 +380,16 @@ export default function CompanyMappingPage() {
           return Promise.all([
             listAccountMappings(companyId).catch(() => []),
             listCompanies().catch(() => []),
+            listCompanyLinkCodes(companyId, true).catch(() => []),
           ])
         })
-        .then(([mappingsData, companiesData]) => {
+        .then(([mappingsData, companiesData, companyCodesData]) => {
           setAccounts(mappingsData.map(mapApiMapping))
+          setCompanyLinkCodes(companyCodesData)
           setAllCompanies(
             companiesData
               .filter((c: ApiCompany) => c.id !== companyId)
-              .map(mapApiCompany)
+              .map(mapApiCompany),
           )
         })
         .catch((e) => {
@@ -329,117 +423,125 @@ export default function CompanyMappingPage() {
     [incomeStatementStructure, balanceSheetStructure]
   )
 
-  const {
-    incomeStatementCodes,
-    balanceSheetCodes,
-    summaryEfByLinkCode,
-    detailEfByLinkCode,
-    groupeByLinkCode,
-    dtCtByLinkCode,
-  } = linkCodeReference
+  const { summaryEfByLinkCode, detailEfByLinkCode } = linkCodeReference
 
-  const mappingIncompleteGroupeCount = useMemo(() => {
-    return accounts.filter(
+  const columnContext = useMemo<MappingColumnContext>(
+    () => ({
+      linkCodeByCode,
+    }),
+    [linkCodeByCode],
+  )
+
+  const uniqueValuesByColumn = useMemo(() => {
+    const result = {} as Record<MappingColumnKey, string[]>
+    for (const col of MAPPING_TABLE_COLUMNS) {
+      const values = new Set<string>()
+      for (const account of accounts) {
+        values.add(getAccountColumnValue(account, col.key, columnContext))
+      }
+      result[col.key] = Array.from(values).sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    }
+    return result
+  }, [accounts, columnContext])
+
+  const hasActiveColumnFilters = useMemo(
+    () =>
+      MAPPING_TABLE_COLUMNS.some((col) => {
+        const selected = columnFilters[col.key]
+        const all = uniqueValuesByColumn[col.key]
+        return selected !== undefined && selected.size < all.length
+      }),
+    [columnFilters, uniqueValuesByColumn],
+  )
+
+  const setColumnFilter = useCallback((key: MappingColumnKey, next: Set<string> | undefined) => {
+    setColumnFilters((prev) => {
+      if (next === undefined) {
+        const { [key]: _removed, ...rest } = prev
+        return rest
+      }
+      return { ...prev, [key]: next }
+    })
+  }, [])
+
+  const mappingDiagnostic = useMemo(() => {
+    const total = accounts.length
+    const unassigned = accounts.filter(isAccountUnassigned)
+    const invalid = accounts.filter(
+      (a) => a.linkCode?.trim() && isMappingLinkCodeIncomplete(a.linkCode, linkCodeByCode),
+    )
+    const costTypeEligible = accounts.filter(
       (a) =>
-        groupeDisplayForAccountMappingTable(a.linkCode, groupeByLinkCode) === "Mapping incomplet",
-    ).length
-  }, [accounts, groupeByLinkCode])
+        a.linkCode?.trim() &&
+        !isMappingLinkCodeIncomplete(a.linkCode, linkCodeByCode) &&
+        showsMappingCostTypeOptions(a.linkCode, linkCodeByCode),
+    )
+    const costTypeUnset = costTypeEligible.filter((a) => isMappingCostTypeUnset(a, linkCodeByCode))
+    const assignedCount = total - unassigned.length
+    const validCount = total - unassigned.length - invalid.length
+    const costTypeAssignedCount = costTypeEligible.length - costTypeUnset.length
+    const assignmentPercent = total === 0 ? 100 : Math.round((assignedCount / total) * 100)
+    const validityPercent = total === 0 ? 100 : Math.round((validCount / total) * 100)
+    const costTypePercent =
+      costTypeEligible.length === 0
+        ? 100
+        : Math.round((costTypeAssignedCount / costTypeEligible.length) * 100)
+    return {
+      total,
+      unassignedCount: unassigned.length,
+      invalidCount: invalid.length,
+      costTypeEligibleCount: costTypeEligible.length,
+      costTypeUnsetCount: costTypeUnset.length,
+      assignedCount,
+      validCount,
+      costTypeAssignedCount,
+      assignmentPercent,
+      validityPercent,
+      costTypePercent,
+      isFullyAssigned: total > 0 && unassigned.length === 0,
+      isFullyValid: total > 0 && unassigned.length === 0 && invalid.length === 0,
+      isFullyCostTyped: costTypeEligible.length === 0 || costTypeUnset.length === 0,
+    }
+  }, [accounts, linkCodeByCode])
+
+  const mappingIncompleteGroupeCount = mappingDiagnostic.invalidCount
 
   const filteredAccounts = useMemo(() => {
-    const q = mappingSearch.trim().toLowerCase()
-    if (!q) return accounts
-    const scope = mappingSearchScope
-
-    return accounts.filter((account) => {
-      const provenance = provenanceLabelFromLinkCodes(account.linkCode, incomeStatementCodes, balanceSheetCodes)
-      const sum = efLabelFromLinkCode(account.linkCode, summaryEfByLinkCode)
-      const det = efLabelFromLinkCode(account.linkCode, detailEfByLinkCode)
-      const groupeLabel = groupeDisplayForAccountMappingTable(account.linkCode, groupeByLinkCode)
-      const dtCtLabel = dtCtDisplayForAccountLinkCode(account.linkCode, dtCtByLinkCode)
-      const intercoLabel = account.interco
-        ? allCompanies.find((c) => c.id === account.interco)?.name ?? account.interco
-        : ""
-
-      if (scope === "all") {
-        const blob = [
-          account.accountNumber,
-          account.description,
-          groupeLabel,
-          account.linkCode,
-          provenance,
-          sum,
-          det,
-          account.divisions,
-          account.subDivisions,
-          boolSearchText(account.variableCosts),
-          boolSearchText(account.fixedCosts),
-          intercoLabel,
-        ]
-          .map((x) => String(x ?? "").toLowerCase())
-          .join(" ")
-        return blob.includes(q)
-      }
-
-      const fieldText = ((): string => {
-        switch (scope) {
-          case "accountNumber":
-            return String(account.accountNumber ?? "")
-          case "description":
-            return String(account.description ?? "")
-          case "provenance":
-            return provenance
-          case "dtCt":
-            return dtCtLabel
-          case "groupe":
-            return groupeLabel
-          case "linkCode":
-            return String(account.linkCode ?? "")
-          case "sommaireEf":
-            return sum
-          case "detailEf":
-            return det
-          case "divisions":
-            return String(account.divisions ?? "")
-          case "subDivisions":
-            return String(account.subDivisions ?? "")
-          case "interests":
-            return boolSearchText(account.interests)
-          case "amortization":
-            return boolSearchText(account.amortization)
-          case "variableCosts":
-            return boolSearchText(account.variableCosts)
-          case "fixedCosts":
-            return boolSearchText(account.fixedCosts)
-          case "interco":
-            return intercoLabel
-          default:
-            return ""
-        }
-      })()
-
-      return String(fieldText ?? "").toLowerCase().includes(q)
+    const activeColumns = MAPPING_TABLE_COLUMNS.filter((col) => {
+      const selected = columnFilters[col.key]
+      const all = uniqueValuesByColumn[col.key]
+      return selected !== undefined && selected.size < all.length
     })
-  }, [
-    accounts,
-    mappingSearch,
-    mappingSearchScope,
-    incomeStatementCodes,
-    balanceSheetCodes,
-    groupeByLinkCode,
-    dtCtByLinkCode,
-    summaryEfByLinkCode,
-    detailEfByLinkCode,
-    allCompanies,
-  ])
+    if (activeColumns.length === 0) return accounts
 
-  const mappingSearchPlaceholder = useMemo(() => {
-    if (mappingSearchScope === "all") {
-      return "Rechercher dans tout le tableau…"
+    return accounts.filter((account) =>
+      activeColumns.every((col) => {
+        const selected = columnFilters[col.key]
+        if (!selected) return true
+        const value = getAccountColumnValue(account, col.key, columnContext)
+        return selected.has(value)
+      }),
+    )
+  }, [accounts, columnFilters, uniqueValuesByColumn, columnContext])
+
+  const tableAccounts = useMemo(() => {
+    if (diagnosticFilter === "unassigned") {
+      return filteredAccounts.filter(isAccountUnassigned)
     }
-    const col =
-      MAPPING_SEARCH_SCOPE_OPTIONS.find((o) => o.value === mappingSearchScope)?.label ?? ""
-    return `Rechercher dans : ${col}…`
-  }, [mappingSearchScope])
+    if (diagnosticFilter === "invalid") {
+      return filteredAccounts.filter(
+        (a) => a.linkCode?.trim() && isMappingLinkCodeIncomplete(a.linkCode, linkCodeByCode),
+      )
+    }
+    if (diagnosticFilter === "costTypeUnset") {
+      return filteredAccounts.filter((a) => isAccountCostTypeUnset(a, linkCodeByCode))
+    }
+    return filteredAccounts
+  }, [diagnosticFilter, filteredAccounts, linkCodeByCode])
+
+  const toggleDiagnosticFilter = useCallback((filter: Exclude<MappingDiagnosticFilter, "none">) => {
+    setDiagnosticFilter((current) => (current === filter ? "none" : filter))
+  }, [])
 
   useEffect(() => {
     if (showImportModal) {
@@ -448,111 +550,235 @@ export default function CompanyMappingPage() {
     }
   }, [showImportModal])
 
-  // Save account mappings to API
-  const saveAccounts = useCallback(async (updatedAccounts: AccountMapping[]) => {
-    try {
-      await upsertAccountMappings(companyId, updatedAccounts.map(toApiMappingEntry))
-    } catch (e) {
-      console.error("Error saving account mappings:", e)
+  const tableColSpan = MAPPING_TABLE_COLUMNS.length + (canEdit ? 2 : 0)
+
+  const selectedAccountSet = useMemo(
+    () => new Set(selectedAccountNumbers),
+    [selectedAccountNumbers],
+  )
+
+  const visibleAccountNumbers = useMemo(
+    () => tableAccounts.map((a) => a.accountNumber),
+    [tableAccounts],
+  )
+
+  const allVisibleSelected =
+    visibleAccountNumbers.length > 0 &&
+    visibleAccountNumbers.every((n) => selectedAccountSet.has(n))
+
+  const someVisibleSelected = visibleAccountNumbers.some((n) => selectedAccountSet.has(n))
+
+  const toggleRowSelection = useCallback((accountNumber: string, checked: boolean) => {
+    setSelectedAccountNumbers((prev) => {
+      if (checked) {
+        if (prev.includes(accountNumber)) return prev
+        return [...prev, accountNumber]
+      }
+      return prev.filter((n) => n !== accountNumber)
+    })
+  }, [])
+
+  const toggleSelectAllVisible = useCallback(() => {
+    setSelectedAccountNumbers((prev) => {
+      const prevSet = new Set(prev)
+      if (allVisibleSelected) {
+        for (const n of visibleAccountNumbers) prevSet.delete(n)
+      } else {
+        for (const n of visibleAccountNumbers) prevSet.add(n)
+      }
+      return Array.from(prevSet)
+    })
+  }, [allVisibleSelected, visibleAccountNumbers])
+
+  const clearRowSelection = useCallback(() => {
+    setSelectedAccountNumbers([])
+    setBulkActionMode(null)
+    setBulkLinkCode(undefined)
+    setBulkCostType("")
+  }, [])
+
+  const selectBulkActionMode = useCallback((mode: BulkActionMode) => {
+    setBulkActionMode(mode)
+    if (mode === "linkCode") {
+      setBulkCostType("")
+    } else {
+      setBulkLinkCode(undefined)
     }
-  }, [companyId])
+  }, [])
 
-  // Handle interco change for an account
-  const handleIntercoChange = (accountNumber: string, interco: string) => {
-    const updatedAccounts = accounts.map(acc =>
-      acc.accountNumber === accountNumber
-        ? { ...acc, interco: interco === "none" ? undefined : interco }
-        : acc
-    )
-    setAccounts(updatedAccounts)
-    saveAccounts(updatedAccounts)
-  }
+  const bulkEligibleCostTypeCount = useMemo(() => {
+    return accounts.filter(
+      (a) =>
+        selectedAccountSet.has(a.accountNumber) &&
+        showsMappingCostTypeOptions(a.linkCode, linkCodeByCode),
+    ).length
+  }, [accounts, selectedAccountSet, linkCodeByCode])
 
-  const handleDivisionChange = (accountNumber: string, value: string) => {
-    const divisionName = value === "none" ? undefined : value
-    const updatedAccounts = accounts.map((acc) =>
-      acc.accountNumber === accountNumber
-        ? { ...acc, divisions: divisionName, subDivisions: undefined }
-        : acc,
-    )
-    setAccounts(updatedAccounts)
-    saveAccounts(updatedAccounts)
-  }
+  const settingsAccount = useMemo(
+    () => (settingsAccountNumber ? accounts.find((a) => a.accountNumber === settingsAccountNumber) ?? null : null),
+    [accounts, settingsAccountNumber],
+  )
 
-  const handleSubDivisionChange = (accountNumber: string, value: string) => {
-    const subName = value === "none" ? undefined : value
-    const updatedAccounts = accounts.map((acc) =>
-      acc.accountNumber === accountNumber ? { ...acc, subDivisions: subName } : acc,
-    )
-    setAccounts(updatedAccounts)
-    saveAccounts(updatedAccounts)
-  }
+  const openAccountSettings = useCallback((accountNumber: string) => {
+    setSettingsAccountNumber((current) => (current === accountNumber ? null : accountNumber))
+  }, [])
 
-  const handleLinkCodeChange = useCallback(
-    (accountNumber: string, raw: string) => {
-      const trimmed = raw.trim()
-      const linkCode = trimmed || undefined
-      setAccounts((prev) => {
-        const i = prev.findIndex((a) => a.accountNumber === accountNumber)
-        if (i < 0) return prev
-        const derived = derivedEfFieldsFromLinkCode(linkCode, summaryEfByLinkCode, detailEfByLinkCode)
-        const next = [...prev]
-        next[i] = { ...next[i], linkCode, ...derived }
-        return next
-      })
+  const closeAccountSettings = useCallback(() => {
+    setSettingsAccountNumber(null)
+  }, [])
+
+  const buildAccountWithDerivedEf = useCallback(
+    (account: AccountMapping): AccountMapping => {
+      const derived = derivedEfFieldsFromLinkCode(
+        account.linkCode,
+        summaryEfByLinkCode,
+        detailEfByLinkCode,
+      )
+      return { ...account, ...derived }
     },
     [summaryEfByLinkCode, detailEfByLinkCode],
   )
 
-  const persistLinkCodeRow = useCallback(
-    (accountNumber: string) => {
-      const acc = accountsRef.current.find((a) => a.accountNumber === accountNumber)
-      if (acc) {
-        void upsertAccountMappings(companyId, [toApiMappingEntry(acc)])
-      }
-    },
-    [companyId],
-  )
-
-  const handleStartEditLinkCode = useCallback(
-    (accountNumber: string) => {
-      if (editingLinkCodeAccountNumber && editingLinkCodeAccountNumber !== accountNumber) {
-        persistLinkCodeRow(editingLinkCodeAccountNumber)
-      }
-      setEditingLinkCodeAccountNumber(accountNumber)
-    },
-    [editingLinkCodeAccountNumber, persistLinkCodeRow],
-  )
-
-  useEffect(() => {
-    if (!editingLinkCodeAccountNumber) return
-    const id = requestAnimationFrame(() => {
-      linkCodeEditInputRef.current?.focus()
-      linkCodeEditInputRef.current?.select()
-    })
-    return () => cancelAnimationFrame(id)
-  }, [editingLinkCodeAccountNumber])
-
-  const handleDeleteMappingRow = useCallback(
-    async (account: AccountMapping) => {
-      if (
-        !window.confirm(
-          `Supprimer le compte ${account.accountNumber} du mapping ? Cette action est irréversible.`,
-        )
-      ) {
-        return
-      }
+  const handleSaveAccountSettings = useCallback(
+    async (draft: AccountMappingDraft) => {
+      const sanitized = sanitizeMappingLiabilityTermFields(
+        sanitizeMappingCostTypeFields(draft, linkCodeByCode),
+      )
+      const merged = buildAccountWithDerivedEf(sanitized as AccountMapping)
+      setSettingsSaving(true)
       try {
-        await deleteAccountMapping(companyId, account.mappingId)
-        setAccounts((prev) => prev.filter((a) => a.accountNumber !== account.accountNumber))
-        setEditingLinkCodeAccountNumber((cur) => (cur === account.accountNumber ? null : cur))
+        const savedList = await upsertAccountMappings(companyId, [toApiMappingEntry(merged)])
+        const savedRow = savedList.find((m) => m.account_number === merged.accountNumber)
+        const updated = savedRow ? mapApiMapping(savedRow) : merged
+        setAccounts((prev) =>
+          prev.map((a) => (a.accountNumber === updated.accountNumber ? updated : a)),
+        )
+        closeAccountSettings()
       } catch (e) {
         console.error(e)
-        alert("Impossible de supprimer cette ligne.")
+        alert("Impossible d'enregistrer les paramètres de ce compte.")
+      } finally {
+        setSettingsSaving(false)
       }
     },
-    [companyId],
+    [buildAccountWithDerivedEf, closeAccountSettings, companyId, linkCodeByCode],
   )
+
+  const handleBulkAssignLinkCode = useCallback(async () => {
+    const linkCode = bulkLinkCode?.trim()
+    if (!linkCode || selectedAccountNumbers.length === 0) return
+
+    const selectedSet = new Set(selectedAccountNumbers)
+    const entries = accounts
+      .filter((a) => selectedSet.has(a.accountNumber))
+      .map((a) => {
+        const withCode = sanitizeMappingLiabilityTermFields(
+          sanitizeMappingCostTypeFields({ ...a, linkCode }, linkCodeByCode),
+        )
+        return toApiMappingEntry(buildAccountWithDerivedEf(withCode as AccountMapping))
+      })
+
+    setBulkSaving(true)
+    try {
+      const savedList = await upsertAccountMappings(companyId, entries)
+      const savedByAccount = new Map(savedList.map((m) => [m.account_number, mapApiMapping(m)]))
+      setAccounts((prev) => prev.map((a) => savedByAccount.get(a.accountNumber) ?? a))
+      clearRowSelection()
+      closeAccountSettings()
+    } catch (e) {
+      console.error(e)
+      alert("Impossible d'affecter le code de liaison aux comptes sélectionnés.")
+    } finally {
+      setBulkSaving(false)
+    }
+  }, [
+    accounts,
+    bulkLinkCode,
+    buildAccountWithDerivedEf,
+    clearRowSelection,
+    closeAccountSettings,
+    companyId,
+    linkCodeByCode,
+    selectedAccountNumbers,
+  ])
+
+  const handleBulkAssignCostType = useCallback(async () => {
+    if (bulkCostType !== "variable" && bulkCostType !== "fixed") return
+    if (selectedAccountNumbers.length === 0) return
+
+    const selectedSet = new Set(selectedAccountNumbers)
+    const entries = accounts
+      .filter((a) => selectedSet.has(a.accountNumber))
+      .filter((a) => showsMappingCostTypeOptions(a.linkCode, linkCodeByCode))
+      .map((a) => {
+        const patch =
+          bulkCostType === "variable"
+            ? { variableCosts: true, fixedCosts: false }
+            : { variableCosts: false, fixedCosts: true }
+        const withType = sanitizeMappingLiabilityTermFields(
+          sanitizeMappingCostTypeFields({ ...a, ...patch }, linkCodeByCode),
+        )
+        return toApiMappingEntry(buildAccountWithDerivedEf(withType as AccountMapping))
+      })
+
+    if (entries.length === 0) {
+      alert(
+        "Aucun des comptes sélectionnés n'est éligible au type Variable / Fixe (hors REV, IMP ; FIN.1 seul parmi FIN).",
+      )
+      return
+    }
+
+    const skipped = selectedAccountNumbers.length - entries.length
+    setBulkSaving(true)
+    try {
+      const savedList = await upsertAccountMappings(companyId, entries)
+      const savedByAccount = new Map(savedList.map((m) => [m.account_number, mapApiMapping(m)]))
+      setAccounts((prev) => prev.map((a) => savedByAccount.get(a.accountNumber) ?? a))
+      if (skipped > 0) {
+        alert(
+          `Type appliqué à ${entries.length} compte${entries.length > 1 ? "s" : ""}. ${skipped} compte${skipped > 1 ? "s" : ""} ignoré${skipped > 1 ? "s" : ""} (non éligible).`,
+        )
+      }
+      clearRowSelection()
+      closeAccountSettings()
+    } catch (e) {
+      console.error(e)
+      alert("Impossible d'affecter le type Variable / Fixe aux comptes sélectionnés.")
+    } finally {
+      setBulkSaving(false)
+    }
+  }, [
+    accounts,
+    bulkCostType,
+    buildAccountWithDerivedEf,
+    clearRowSelection,
+    closeAccountSettings,
+    companyId,
+    linkCodeByCode,
+    selectedAccountNumbers,
+  ])
+
+  const handleDeleteAccountSettings = useCallback(async () => {
+    if (!settingsAccount) return
+    if (
+      !window.confirm(
+        `Supprimer le compte ${settingsAccount.accountNumber} du mapping ? Cette action est irréversible.`,
+      )
+    ) {
+      return
+    }
+    setSettingsSaving(true)
+    try {
+      await deleteAccountMapping(companyId, settingsAccount.mappingId)
+      setAccounts((prev) => prev.filter((a) => a.accountNumber !== settingsAccount.accountNumber))
+      closeAccountSettings()
+    } catch (e) {
+      console.error(e)
+      alert("Impossible de supprimer ce compte.")
+    } finally {
+      setSettingsSaving(false)
+    }
+  }, [closeAccountSettings, companyId, settingsAccount])
 
   if (loading) {
     return (
@@ -653,7 +879,7 @@ export default function CompanyMappingPage() {
                     <div className="min-w-0 flex-1">
                       <h2 className={cn("text-xl leading-tight mb-1", dashboardCardTitleClass)}>Mapping comptable</h2>
                       <p className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
-                        Importez un fichier Excel (# de compte, Description, code de liaison) ou complétez le tableau.
+                        Importez un fichier Excel (No. GL, Description) ou complétez le tableau.
                       </p>
                     </div>
                   </div>
@@ -672,339 +898,525 @@ export default function CompanyMappingPage() {
                 </div>
               </div>
 
-            <div className="border-b border-slate-200 bg-white/90 px-4 py-3 sm:px-6">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:gap-4">
-                <div className="relative min-w-0 flex-1 lg:max-w-xl">
-                  <Search
-                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-                    aria-hidden
-                  />
-                  <Input
-                    type="search"
-                    value={mappingSearch}
-                    onChange={(e) => setMappingSearch(e.target.value)}
-                    placeholder={mappingSearchPlaceholder}
-                    className="h-10 rounded-lg border-slate-200 bg-white pl-9 pr-3 text-sm shadow-sm placeholder:text-slate-400 focus-visible:ring-[#E0742D]/30"
-                    aria-label={
-                      mappingSearchScope === "all"
-                        ? "Rechercher dans tout le mapping comptable"
-                        : `Rechercher dans la colonne ${
-                            MAPPING_SEARCH_SCOPE_OPTIONS.find((o) => o.value === mappingSearchScope)?.label ?? ""
-                          }`
-                    }
-                  />
-                </div>
-                <div className="flex w-full shrink-0 sm:w-auto sm:min-w-[14rem]">
-                  <Select
-                    value={mappingSearchScope}
-                    onValueChange={(v) => setMappingSearchScope(v as MappingSearchScope)}
-                  >
-                    <SelectTrigger
-                      className="h-10 w-full rounded-lg border-slate-200 bg-white text-sm shadow-sm sm:min-w-[14rem]"
-                      aria-label="Filtrer la recherche par colonne"
-                    >
-                      <SelectValue placeholder="Toutes les colonnes" />
-                    </SelectTrigger>
-                    <SelectContent align="end" className="max-h-[min(24rem,70vh)]">
-                      {MAPPING_SEARCH_SCOPE_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            {accounts.length > 0 ? (
+              <div
+                className={cn(
+                  "border-b px-4 py-4 sm:px-6",
+                  mappingDiagnostic.isFullyValid && mappingDiagnostic.isFullyCostTyped
+                    ? "border-emerald-200/90 bg-emerald-50/70"
+                    : "border-amber-200/90 bg-amber-50/70",
+                )}
+              >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 flex-1 space-y-3">
+                    <div className="flex items-center gap-2">
+                      {mappingDiagnostic.isFullyValid && mappingDiagnostic.isFullyCostTyped ? (
+                        <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" aria-hidden />
+                      ) : (
+                        <AlertTriangle className="h-5 w-5 shrink-0 text-amber-800" aria-hidden />
+                      )}
+                      <p className="text-sm font-semibold text-slate-900">Diagnostic du mapping</p>
+                    </div>
+                    <p className="text-sm text-slate-700">
+                      {mappingDiagnostic.isFullyValid && mappingDiagnostic.isFullyCostTyped ? (
+                        <>
+                          Tous les comptes ({mappingDiagnostic.total}) ont un code de liaison valide et un type
+                          Variable ou Fixe lorsque requis.
+                        </>
+                      ) : mappingDiagnostic.isFullyValid && mappingDiagnostic.costTypeUnsetCount > 0 ? (
+                        <>
+                          Tous les codes de liaison sont valides, mais{" "}
+                          <span className="font-semibold text-amber-950">
+                            {mappingDiagnostic.costTypeUnsetCount}
+                          </span>{" "}
+                          compte{mappingDiagnostic.costTypeUnsetCount > 1 ? "s éligibles" : " éligible"}
+                          {mappingDiagnostic.costTypeUnsetCount > 1 ? " n’ont" : " n’a"} pas de type Variable ou Fixe.
+                        </>
+                      ) : mappingDiagnostic.unassignedCount > 0 ? (
+                        <>
+                          <span className="font-semibold text-amber-950">
+                            {mappingDiagnostic.unassignedCount}
+                          </span>{" "}
+                          compte{mappingDiagnostic.unassignedCount > 1 ? "s" : ""} sur{" "}
+                          {mappingDiagnostic.total} sans code de liaison.
+                        </>
+                      ) : (
+                        <>
+                          Tous les comptes ont un code, mais{" "}
+                          <span className="font-semibold text-amber-950">
+                            {mappingDiagnostic.invalidCount}
+                          </span>{" "}
+                          code{mappingDiagnostic.invalidCount > 1 ? "s" : ""}{" "}
+                          {mappingDiagnostic.invalidCount > 1 ? "invalides ou incomplets" : "invalide ou incomplet"}.
+                        </>
+                      )}
+                    </p>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3 text-xs text-slate-600">
+                        <span>Affectation aux codes de liaison</span>
+                        <span className="font-mono font-medium text-slate-800">
+                          {mappingDiagnostic.assignedCount}/{mappingDiagnostic.total} ({mappingDiagnostic.assignmentPercent}
+                          %)
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-white/80">
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all",
+                            mappingDiagnostic.isFullyAssigned ? "bg-emerald-500" : "bg-amber-500",
+                          )}
+                          style={{ width: `${mappingDiagnostic.assignmentPercent}%` }}
+                        />
+                      </div>
+                      {mappingDiagnostic.invalidCount > 0 ? (
+                        <>
+                          <div className="flex items-center justify-between gap-3 text-xs text-slate-600">
+                            <span>Codes valides (Bilan / Résultats)</span>
+                            <span className="font-mono font-medium text-slate-800">
+                              {mappingDiagnostic.validCount}/{mappingDiagnostic.total} ({mappingDiagnostic.validityPercent}
+                              %)
+                            </span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-white/80">
+                            <div
+                              className="h-full rounded-full bg-amber-500 transition-all"
+                              style={{ width: `${mappingDiagnostic.validityPercent}%` }}
+                            />
+                          </div>
+                        </>
+                      ) : null}
+                      {mappingDiagnostic.costTypeEligibleCount > 0 ? (
+                        <>
+                          <div className="flex items-center justify-between gap-3 text-xs text-slate-600">
+                            <span>Type Variable / Fixe (hors REV, IMP ; FIN.1 uniquement parmi FIN)</span>
+                            <span className="font-mono font-medium text-slate-800">
+                              {mappingDiagnostic.costTypeAssignedCount}/
+                              {mappingDiagnostic.costTypeEligibleCount} ({mappingDiagnostic.costTypePercent}
+                              %)
+                            </span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-white/80">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-all",
+                                mappingDiagnostic.isFullyCostTyped ? "bg-emerald-500" : "bg-amber-500",
+                              )}
+                              style={{ width: `${mappingDiagnostic.costTypePercent}%` }}
+                            />
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  </div>
+                  {(mappingDiagnostic.unassignedCount > 0 ||
+                    mappingDiagnostic.invalidCount > 0 ||
+                    mappingDiagnostic.costTypeUnsetCount > 0) && (
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      {mappingDiagnostic.unassignedCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={cn(
+                            "h-8 border-amber-300/90 bg-white text-xs font-medium text-amber-950 hover:bg-amber-50",
+                            diagnosticFilter === "unassigned" && "border-amber-500 bg-amber-100",
+                          )}
+                          onClick={() => toggleDiagnosticFilter("unassigned")}
+                        >
+                          {diagnosticFilter === "unassigned" ? "Tout afficher" : "Sans code de liaison"}
+                        </Button>
+                      ) : null}
+                      {mappingDiagnostic.invalidCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={cn(
+                            "h-8 border-amber-300/90 bg-white text-xs font-medium text-amber-950 hover:bg-amber-50",
+                            diagnosticFilter === "invalid" && "border-amber-500 bg-amber-100",
+                          )}
+                          onClick={() => toggleDiagnosticFilter("invalid")}
+                        >
+                          {diagnosticFilter === "invalid" ? "Tout afficher" : "Codes invalides"}
+                        </Button>
+                      ) : null}
+                      {mappingDiagnostic.costTypeUnsetCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={cn(
+                            "h-8 border-amber-300/90 bg-white text-xs font-medium text-amber-950 hover:bg-amber-50",
+                            diagnosticFilter === "costTypeUnset" && "border-amber-500 bg-amber-100",
+                          )}
+                          onClick={() => toggleDiagnosticFilter("costTypeUnset")}
+                        >
+                          {diagnosticFilter === "costTypeUnset"
+                            ? "Tout afficher"
+                            : "Sans type Variable / Fixe"}
+                        </Button>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               </div>
-              {accounts.length > 0 && mappingIncompleteGroupeCount > 0 && (
-                <p className="mt-3 rounded-lg border border-amber-200/90 bg-amber-50/90 px-3 py-2 text-sm text-amber-950">
+            ) : null}
+
+            {accounts.length > 0 && mappingIncompleteGroupeCount > 0 && diagnosticFilter !== "invalid" && (
+                <p className="rounded-lg border border-amber-200/90 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 sm:px-6">
                   <span className="font-semibold">Mapping comptable non terminé.</span>{" "}
                   {mappingIncompleteGroupeCount === 1
-                    ? "Un compte a un code de liaison sans groupe identifiable"
-                    : `${mappingIncompleteGroupeCount} comptes ont un code de liaison sans groupe identifiable`}
+                    ? "Un compte a un code de liaison inconnu ou sans état financier identifiable"
+                    : `${mappingIncompleteGroupeCount} comptes ont un code de liaison inconnu ou sans état financier identifiable`}
                   {" "}
-                  (colonne Groupe). Vérifiez que ces codes de liaison existent dans les structures compte de résultat
-                  et bilan de la société.
+                  (colonne Groupe : Bilan ou Résultats). Vérifiez que ces codes existent dans la charte
+                  standard.
                 </p>
               )}
-              {mappingSearch.trim() && accounts.length > 0 && (
-                <p className="mt-2 text-xs text-slate-500">
-                  {mappingSearchScope !== "all" && (
-                    <span className="font-medium text-slate-600">
-                      {
-                        MAPPING_SEARCH_SCOPE_OPTIONS.find((o) => o.value === mappingSearchScope)
-                          ?.label
-                      }
-                      {" · "}
-                    </span>
-                  )}
+            {accounts.length > 0 &&
+              mappingDiagnostic.costTypeUnsetCount > 0 &&
+              diagnosticFilter !== "costTypeUnset" && (
+                <p className="rounded-lg border border-amber-200/90 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 sm:px-6">
+                  <span className="font-semibold">Types de coûts incomplets.</span>{" "}
+                  {mappingDiagnostic.costTypeUnsetCount === 1
+                    ? "Un compte éligible (hors REV/IMP, ou FIN.1) n’a pas de type Variable ou Fixe."
+                    : `${mappingDiagnostic.costTypeUnsetCount} comptes éligibles n’ont pas de type Variable ou Fixe.`}{" "}
+                  Ouvrez les paramètres du compte (icône engrenage) pour cocher CV ou CF.
+                </p>
+              )}
+              {diagnosticFilter !== "none" && accounts.length > 0 && (
+                <p className="border-b border-slate-200 bg-white/90 px-4 py-2 text-xs text-slate-600 sm:px-6">
+                  Filtre diagnostic actif :{" "}
+                  {diagnosticFilter === "unassigned"
+                    ? "comptes sans code de liaison"
+                    : diagnosticFilter === "invalid"
+                      ? "comptes avec code invalide ou incomplet"
+                      : "comptes sans type Variable / Fixe"}
+                  .{" "}
+                  <button
+                    type="button"
+                    className="font-medium text-[#E0742D] underline-offset-2 hover:underline"
+                    onClick={() => setDiagnosticFilter("none")}
+                  >
+                    Réinitialiser
+                  </button>
+                </p>
+              )}
+              {hasActiveColumnFilters && accounts.length > 0 && (
+                <p className="border-b border-slate-200 bg-white/90 px-4 py-2 text-xs text-slate-500 sm:px-6">
                   {filteredAccounts.length === 0
-                    ? "Aucun résultat."
+                    ? "Aucun compte ne correspond aux filtres sélectionnés."
                     : filteredAccounts.length === accounts.length
-                      ? `Tous les comptes (${accounts.length}) correspondent.`
+                      ? `Tous les comptes (${accounts.length}) correspondent aux filtres.`
                       : `Affichage de ${filteredAccounts.length} compte${filteredAccounts.length > 1 ? "s" : ""} sur ${accounts.length}.`}
                 </p>
               )}
-            </div>
+
+            {canEdit && selectedAccountNumbers.length > 0 && (
+              <div className="border-b border-blue-200/80 bg-blue-50/70 px-4 py-4 sm:px-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900">Affectation groupée</p>
+                    <p className="mt-1 text-sm text-slate-700">
+                      {selectedAccountNumbers.length} compte
+                      {selectedAccountNumbers.length > 1 ? "s" : ""} sélectionné
+                      {selectedAccountNumbers.length > 1 ? "s" : ""}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 shrink-0 text-slate-600 hover:text-slate-900"
+                    disabled={bulkSaving}
+                    onClick={clearRowSelection}
+                  >
+                    Désélectionner
+                  </Button>
+                </div>
+
+                <div className="mt-4 rounded-xl border border-blue-200/70 bg-white/90 p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    1. Choisir l&apos;action
+                  </p>
+                  <div
+                    className="mt-2 grid gap-2 sm:grid-cols-2"
+                    role="group"
+                    aria-label="Type d'affectation groupée"
+                  >
+                    <button
+                      type="button"
+                      disabled={bulkSaving}
+                      onClick={() => selectBulkActionMode("linkCode")}
+                      className={cn(
+                        "rounded-lg border px-4 py-3 text-left transition-colors",
+                        bulkActionMode === "linkCode"
+                          ? "border-[#E0742D] bg-[#E0742D]/5 ring-2 ring-[#E0742D]/25"
+                          : "border-slate-200 bg-slate-50/80 hover:border-slate-300 hover:bg-white",
+                      )}
+                    >
+                      <span className="block text-sm font-semibold text-slate-900">Code de liaison</span>
+                      <span className="mt-0.5 block text-xs text-slate-600">
+                        Affecter le même code à tous les comptes sélectionnés
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={bulkSaving || bulkEligibleCostTypeCount === 0}
+                      title={
+                        bulkEligibleCostTypeCount === 0
+                          ? "Aucun compte sélectionné n'est éligible au type Variable / Fixe"
+                          : undefined
+                      }
+                      onClick={() => selectBulkActionMode("costType")}
+                      className={cn(
+                        "rounded-lg border px-4 py-3 text-left transition-colors",
+                        bulkEligibleCostTypeCount === 0 && "cursor-not-allowed opacity-50",
+                        bulkActionMode === "costType"
+                          ? "border-[#E0742D] bg-[#E0742D]/5 ring-2 ring-[#E0742D]/25"
+                          : "border-slate-200 bg-slate-50/80 hover:border-slate-300 hover:bg-white",
+                      )}
+                    >
+                      <span className="block text-sm font-semibold text-slate-900">Type Variable / Fixe</span>
+                      <span className="mt-0.5 block text-xs text-slate-600">
+                        {bulkEligibleCostTypeCount > 0
+                          ? `${bulkEligibleCostTypeCount} compte${bulkEligibleCostTypeCount > 1 ? "s" : ""} éligible${bulkEligibleCostTypeCount > 1 ? "s" : ""}`
+                          : "Aucun compte éligible dans la sélection"}
+                      </span>
+                    </button>
+                  </div>
+
+                  {bulkActionMode === "linkCode" ? (
+                    <div className="mt-4 border-t border-slate-100 pt-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        2. Sélectionner le code
+                      </p>
+                      <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end">
+                        <div className="min-w-0 flex-1">
+                          <StandardLinkCodePicker
+                            id="bulk-link-code"
+                            codes={assignableLinkCodes}
+                            value={bulkLinkCode}
+                            loading={linkCodesLoading}
+                            onChange={setBulkLinkCode}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-9 shrink-0 bg-[#E0742D] px-5 text-white hover:bg-[#c96526]"
+                          disabled={!bulkLinkCode?.trim() || bulkSaving}
+                          onClick={() => void handleBulkAssignLinkCode()}
+                        >
+                          {bulkSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          Appliquer
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {bulkActionMode === "costType" ? (
+                    <div className="mt-4 border-t border-slate-100 pt-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        2. Choisir le type
+                      </p>
+                      <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-end">
+                        <div className="min-w-0 flex-1">
+                          <Select
+                            value={bulkCostType || undefined}
+                            onValueChange={(v) => setBulkCostType(v as "variable" | "fixed")}
+                          >
+                            <SelectTrigger id="bulk-cost-type" className="h-9 w-full">
+                              <SelectValue placeholder="Variable ou Fixe…" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="variable">Variable (CV)</SelectItem>
+                              <SelectItem value="fixed">Fixe (CF)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-9 shrink-0 bg-[#E0742D] px-5 text-white hover:bg-[#c96526]"
+                          disabled={bulkSaving || bulkCostType === ""}
+                          onClick={() => void handleBulkAssignCostType()}
+                        >
+                          {bulkSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          Appliquer
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {!bulkActionMode ? (
+                    <p className="mt-4 border-t border-slate-100 pt-4 text-xs text-slate-500">
+                      Choisissez une action ci-dessus pour afficher les options d&apos;affectation.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            )}
 
             {/* Table */}
             <div className="overflow-x-auto bg-white/80">
               <table className="w-full">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Compte</th>
-                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Description</th>
-                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">DT/CT</th>
-                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Groupe</th>
-                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Code</th>
-                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Type</th>
-                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Poste</th>
-                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Détail</th>
-                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">Divisions</th>
-                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm">S-division</th>
-                    <th className="px-6 py-4 text-center font-semibold text-slate-900 text-sm">CV</th>
-                    <th className="px-6 py-4 text-center font-semibold text-slate-900 text-sm">CF</th>
-                    <th className="px-3 py-4 text-center font-semibold text-slate-900 text-sm w-[7rem] max-w-[7rem]">
-                      Interco
-                    </th>
-                    <th className="px-6 py-4 text-center font-semibold text-slate-900 text-sm min-w-[5.5rem]">
-                      Actions
-                    </th>
+                    {canEdit ? (
+                      <th className="w-12 px-3 py-4 text-center">
+                        <Checkbox
+                          checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                          disabled={tableAccounts.length === 0}
+                          aria-label="Sélectionner tous les comptes affichés"
+                          onCheckedChange={() => toggleSelectAllVisible()}
+                        />
+                      </th>
+                    ) : null}
+                    {MAPPING_TABLE_COLUMNS.map((col) => (
+                      <th
+                        key={col.key}
+                        className="px-6 py-4 text-left font-semibold text-slate-900 text-sm"
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>{col.label}</span>
+                          {accounts.length > 0 ? (
+                            <MappingColumnFilter
+                              label={col.label}
+                              values={uniqueValuesByColumn[col.key]}
+                              selected={columnFilters[col.key]}
+                              onSelectedChange={(next) => setColumnFilter(col.key, next)}
+                            />
+                          ) : null}
+                        </div>
+                      </th>
+                    ))}
+                    {canEdit ? (
+                      <th className="px-4 py-4 text-center font-semibold text-slate-900 text-sm w-[4.5rem]">
+                        Actions
+                      </th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
                   {accounts.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="px-8 py-12 text-center text-sm text-slate-500">
+                      <td colSpan={tableColSpan} className="px-8 py-12 text-center text-sm text-slate-500">
                         <p>Aucun compte configuré. Importez votre balance de vérification pour commencer.</p>
                       </td>
                     </tr>
                   ) : filteredAccounts.length === 0 ? (
                     <tr>
-                      <td colSpan={14} className="px-8 py-12 text-center text-sm text-slate-500">
-                        <p>Aucun compte ne correspond à votre recherche.</p>
+                      <td colSpan={tableColSpan} className="px-8 py-12 text-center text-sm text-slate-500">
+                        <p>Aucun compte ne correspond aux filtres sélectionnés.</p>
+                      </td>
+                    </tr>
+                  ) : tableAccounts.length === 0 ? (
+                    <tr>
+                      <td colSpan={tableColSpan} className="px-8 py-12 text-center text-sm text-slate-500">
+                        <p>Aucun compte ne correspond au filtre diagnostic.</p>
                       </td>
                     </tr>
                   ) : (
-                    filteredAccounts.map((account) => (
-                      <tr key={account.accountNumber} className="border-b border-slate-100 hover:bg-slate-50">
-                        <td className="px-6 py-4 text-sm text-slate-600 font-mono">{account.accountNumber}</td>
-                        <td className="px-6 py-4 text-sm text-slate-900">{account.description}</td>
-                        <td className="px-6 py-4 text-sm font-mono text-slate-600">
-                          {dtCtDisplayForAccountLinkCode(account.linkCode, dtCtByLinkCode)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-600">
-                          {(() => {
-                            const g = groupeDisplayForAccountMappingTable(
-                              account.linkCode,
-                              groupeByLinkCode,
-                            )
-                            if (g === "Mapping incomplet") {
-                              return (
-                                <span
-                                  className="font-medium text-amber-800"
-                                  title="Aucun groupe n’est déductible pour ce code : le mapping comptable n’est pas terminé."
-                                >
-                                  Mapping incomplet
-                                </span>
-                              )
-                            }
-                            return <span className="font-mono">{g}</span>
-                          })()}
-                        </td>
-                        <td className="px-6 py-2 align-middle">
-                          {editingLinkCodeAccountNumber === account.accountNumber ? (
-                            <Input
-                              ref={linkCodeEditInputRef}
-                              className="h-8 min-w-[7rem] font-mono text-sm"
-                              value={account.linkCode ?? ""}
-                              onChange={(e) => handleLinkCodeChange(account.accountNumber, e.target.value)}
-                              onBlur={() => {
-                                persistLinkCodeRow(account.accountNumber)
-                                setEditingLinkCodeAccountNumber((cur) =>
-                                  cur === account.accountNumber ? null : cur,
-                                )
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.currentTarget.blur()
-                                }
-                              }}
-                              placeholder="Code"
-                              aria-label={`Code pour ${account.accountNumber}`}
-                            />
-                          ) : (
-                            <span className="block truncate font-mono text-sm text-slate-700">
-                              {account.linkCode?.trim() ? account.linkCode : "—"}
-                            </span>
+                    tableAccounts.map((account) => (
+                      <Fragment key={account.accountNumber}>
+                        <tr
+                          className={cn(
+                            "border-b border-slate-100 hover:bg-slate-50",
+                            isAccountUnassigned(account) && "bg-amber-50/50",
+                            isAccountCostTypeUnset(account, linkCodeByCode) && "bg-orange-50/35",
+                            selectedAccountSet.has(account.accountNumber) && "bg-blue-50/40",
+                            settingsAccountNumber === account.accountNumber &&
+                              "bg-blue-50/40 shadow-[inset_0_0_0_1px_rgb(59,130,246,0.35)]",
                           )}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-600">
-                          {provenanceLabelFromLinkCodes(account.linkCode, incomeStatementCodes, balanceSheetCodes)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-600">
-                          {efLabelFromLinkCode(account.linkCode, summaryEfByLinkCode)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-slate-600">
-                          {efLabelFromLinkCode(account.linkCode, detailEfByLinkCode)}
-                        </td>
-                        <td className="px-6 py-2 align-middle">
-                          <Select
-                            value={divisionSelectValue(account.divisions, companyDivisions)}
-                            onValueChange={(v) => {
-                              if (v === "__legacy__") return
-                              handleDivisionChange(account.accountNumber, v)
-                            }}
-                          >
-                            <SelectTrigger
-                              className="h-8 w-[min(12rem,100%)] max-w-[12rem] text-xs"
-                              aria-label={`Division pour ${account.accountNumber}`}
-                            >
-                              <SelectValue placeholder="—" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">Aucune</SelectItem>
-                              {companyDivisions.map((div) => (
-                                <SelectItem key={div.id} value={div.name}>
-                                  {div.name}
-                                </SelectItem>
-                              ))}
-                              {account.divisions?.trim() &&
-                                !companyDivisions.some((d) => d.name === account.divisions?.trim()) && (
-                                  <SelectItem value="__legacy__">
-                                    {account.divisions} (hors liste)
-                                  </SelectItem>
-                                )}
-                            </SelectContent>
-                          </Select>
-                        </td>
-                        <td className="px-6 py-2 align-middle">
-                          {(() => {
-                            const selectedDivision = companyDivisions.find(
-                              (d) => d.name === account.divisions?.trim(),
-                            )
-                            const subOptions = selectedDivision?.sub_divisions ?? []
-                            const hasLegacySub =
-                              !!account.subDivisions?.trim() &&
-                              !subOptions.some((s) => s.name === account.subDivisions?.trim())
-                            const subDisabled = !account.divisions?.trim()
-                            return (
-                              <Select
-                                value={subDivisionSelectValue(account.subDivisions, subOptions)}
-                                onValueChange={(v) => {
-                                  if (v === "__legacy__") return
-                                  handleSubDivisionChange(account.accountNumber, v)
-                                }}
-                                disabled={subDisabled}
-                              >
-                                <SelectTrigger
-                                  className="h-8 w-[min(12rem,100%)] max-w-[12rem] text-xs disabled:opacity-50"
-                                  aria-label={`S-division pour ${account.accountNumber}`}
-                                >
-                                  <SelectValue placeholder="—" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="none">Aucune</SelectItem>
-                                  {subOptions.map((sub) => (
-                                    <SelectItem key={sub.id} value={sub.name}>
-                                      {sub.name}
-                                    </SelectItem>
-                                  ))}
-                                  {hasLegacySub && (
-                                    <SelectItem value="__legacy__">
-                                      {account.subDivisions} (hors liste)
-                                    </SelectItem>
-                                  )}
-                                </SelectContent>
-                              </Select>
-                            )
-                          })()}
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <input
-                            type="checkbox"
-                            className="w-4 h-4 text-emerald-500 rounded border-slate-300"
-                            checked={account.variableCosts || false}
-                            onChange={(e) => {
-                              const i = accounts.findIndex((a) => a.accountNumber === account.accountNumber)
-                              if (i < 0) return
-                              const updatedAccounts = [...accounts]
-                              updatedAccounts[i] = { ...updatedAccounts[i], variableCosts: e.target.checked }
-                              setAccounts(updatedAccounts)
-                              saveAccounts(updatedAccounts)
-                            }}
-                          />
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <input
-                            type="checkbox"
-                            className="w-4 h-4 text-emerald-500 rounded border-slate-300"
-                            checked={account.fixedCosts || false}
-                            onChange={(e) => {
-                              const i = accounts.findIndex((a) => a.accountNumber === account.accountNumber)
-                              if (i < 0) return
-                              const updatedAccounts = [...accounts]
-                              updatedAccounts[i] = { ...updatedAccounts[i], fixedCosts: e.target.checked }
-                              setAccounts(updatedAccounts)
-                              saveAccounts(updatedAccounts)
-                            }}
-                          />
-                        </td>
-                        <td className="px-3 py-4 text-center align-middle w-[7rem] max-w-[7rem]">
-                          <Select
-                            value={account.interco || "none"}
-                            onValueChange={(value) => handleIntercoChange(account.accountNumber, value)}
-                          >
-                            <SelectTrigger
-                              className="h-8 w-full max-w-[6.5rem] text-xs"
-                              disabled={allCompanies.length === 0}
-                            >
-                              <SelectValue placeholder={allCompanies.length === 0 ? "Aucune société" : "Aucune"} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">Aucune</SelectItem>
-                              {allCompanies.map((comp) => (
-                                <SelectItem key={comp.id} value={comp.id}>
-                                  {comp.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </td>
-                        <td className="px-2 py-2 text-center">
+                        >
                           {canEdit ? (
-                            <div className="flex items-center justify-center gap-0.5">
+                            <td className="px-3 py-4 text-center">
+                              <Checkbox
+                                checked={selectedAccountSet.has(account.accountNumber)}
+                                aria-label={`Sélectionner le compte ${account.accountNumber}`}
+                                onCheckedChange={(checked) =>
+                                  toggleRowSelection(account.accountNumber, checked === true)
+                                }
+                              />
+                            </td>
+                          ) : null}
+                          <td className="px-6 py-4 text-sm text-slate-600 font-mono">{account.accountNumber}</td>
+                          <td className="px-6 py-4 text-sm text-slate-900">{account.description}</td>
+                          <td className="px-6 py-4 text-sm font-mono text-slate-700">
+                            {mappingParentCodeFromLinkCode(account.linkCode, linkCodeByCode)}
+                          </td>
+                          <td className="px-6 py-4 text-sm font-mono text-slate-700">
+                            {account.linkCode?.trim() ? account.linkCode : "—"}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">
+                            {(() => {
+                              const g = mappingGroupeFromLinkCode(account.linkCode, linkCodeByCode)
+                              if (isMappingLinkCodeIncomplete(account.linkCode, linkCodeByCode)) {
+                                return (
+                                  <span
+                                    className="font-medium text-amber-800"
+                                    title="Code absent de la charte ou sans famille bilan / résultats."
+                                  >
+                                    Mapping incomplet
+                                  </span>
+                                )
+                              }
+                              return <span>{g}</span>
+                            })()}
+                          </td>
+                          <td className="px-6 py-4 text-sm">
+                            <MappingCostTypeSticker account={account} linkCodeByCode={linkCodeByCode} />
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">
+                            {mappingPosteFromLinkCode(account.linkCode, linkCodeByCode)}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600">
+                            {mappingDetailFromLinkCode(account.linkCode, linkCodeByCode)}
+                          </td>
+                          {canEdit ? (
+                            <td className="px-2 py-2 text-center">
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
                                 className={cn(
                                   "h-8 w-8 p-0 text-slate-400 hover:text-[#E0742D]",
-                                  editingLinkCodeAccountNumber === account.accountNumber &&
+                                  settingsAccountNumber === account.accountNumber &&
                                     "text-[#E0742D] hover:text-[#c96526]",
                                 )}
-                                onClick={() => handleStartEditLinkCode(account.accountNumber)}
-                                title="Modifier le code de liaison"
-                                aria-label={`Modifier le code de liaison pour ${account.accountNumber}`}
+                                onClick={() => openAccountSettings(account.accountNumber)}
+                                title="Paramètres du compte"
+                                aria-label={`Paramètres du compte ${account.accountNumber}`}
+                                aria-expanded={settingsAccountNumber === account.accountNumber}
                               >
-                                <Pencil className="h-4 w-4" />
+                                <Settings className="h-4 w-4" />
                               </Button>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 w-8 p-0 text-slate-400 hover:text-red-600"
-                                onClick={() => void handleDeleteMappingRow(account)}
-                                title="Supprimer cette ligne"
-                                aria-label={`Supprimer le compte ${account.accountNumber}`}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-slate-300">—</span>
-                          )}
-                        </td>
-                      </tr>
+                            </td>
+                          ) : null}
+                        </tr>
+                        {settingsAccountNumber === account.accountNumber && settingsAccount ? (
+                          <tr className="border-b-2 border-blue-200/90 bg-slate-50/95">
+                            <td colSpan={tableColSpan} className="min-w-0 p-0 align-top">
+                              <div className="min-w-0 max-w-full overflow-x-auto px-3 py-3 sm:px-5 sm:py-4">
+                                <AccountMappingSettingsPanel
+                                  account={settingsAccount}
+                                  linkCodeByCode={linkCodeByCode}
+                                  companyDivisions={companyDivisions}
+                                  intercoCompanies={allCompanies}
+                                  linkCodes={assignableLinkCodes}
+                                  linkCodesLoading={linkCodesLoading}
+                                  canEdit={canEdit}
+                                  saving={settingsSaving}
+                                  onClose={closeAccountSettings}
+                                  onSave={handleSaveAccountSettings}
+                                  onDelete={handleDeleteAccountSettings}
+                                />
+                              </div>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
                     ))
                   )}
                 </tbody>
@@ -1103,7 +1515,7 @@ export default function CompanyMappingPage() {
                       )}
                     </div>
                     <p className="text-xs text-slate-500 mt-2">
-                      Colonnes attendues : # de compte, Description, code de liaison
+                      Colonnes attendues : No. GL, Description
                     </p>
                   </div>
                 </div>
@@ -1124,7 +1536,13 @@ export default function CompanyMappingPage() {
                       if (!importFile) return
                       setImporting(true)
                       try {
-                        const parsed = await parseMappingExcel(importFile)
+                        const { entries: parsed, invalidFormat } = await parseMappingExcel(importFile)
+                        if (invalidFormat) {
+                          alert(
+                            "Format invalide. Le fichier doit contenir exactement les colonnes « No. GL » et « Description ».",
+                          )
+                          return
+                        }
                         if (parsed.length === 0) {
                           alert("Aucune ligne valide trouvée dans le fichier.")
                           return
@@ -1132,7 +1550,6 @@ export default function CompanyMappingPage() {
                         const entries = parsed.map((r) => ({
                           account_number: r.accountNumber,
                           description: r.description,
-                          link_code: r.linkCode || null,
                         }))
                         setPendingImportEntries(entries)
                         setImportModalStep("confirm")
@@ -1158,10 +1575,10 @@ export default function CompanyMappingPage() {
                     Le fichier contient{" "}
                     <span className="font-semibold text-[#2A2F3A]">{pendingImportEntries.length}</span> ligne
                     {pendingImportEntries.length > 1 ? "s" : ""} avec un{" "}
-                    <span className="font-semibold"># de compte</span> valide.
+                    <span className="font-semibold">No. GL</span> valide.
                   </p>
                   <p className="text-sm text-slate-600">
-                    Comptes distincts (# de compte) :{" "}
+                    Comptes distincts (No. GL) :{" "}
                     <span className="font-semibold text-[#2A2F3A]">
                       {new Set(pendingImportEntries.map((e) => e.account_number)).size}
                     </span>
@@ -1195,7 +1612,7 @@ export default function CompanyMappingPage() {
                         setImportModalStep("file")
                         if (fileInputRef.current) fileInputRef.current.value = ""
                         alert(
-                          `Import terminé : ${n} ligne(s) traitée(s), ${distinct} # de compte distinct(s).`
+                          `Import terminé : ${n} ligne(s) traitée(s), ${distinct} No. GL distinct(s).`
                         )
                       } catch (e) {
                         console.error("Error importing mapping excel:", e)

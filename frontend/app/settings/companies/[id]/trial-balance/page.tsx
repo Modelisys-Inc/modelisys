@@ -14,14 +14,16 @@ import {
   getTrialBalanceFiscalYears,
   previewTrialBalanceUpload,
   uploadTrialBalance,
-  deleteTrialBalanceMonth,
+  deleteTrialBalancePeriods,
   upsertAccountMappings,
   listCompanies,
   ApiError,
   type Company as ApiCompany,
+  type DeleteTrialBalanceParams,
   type TrialBalanceData,
   type TrialBalanceUploadPreview,
 } from "@/lib/api"
+import { Checkbox } from "@/components/ui/checkbox"
 import { usePermissions } from "@/hooks/use-permissions"
 import { cn } from "@/lib/utils"
 import {
@@ -105,8 +107,9 @@ export default function TrialBalancePage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [selectedMonth, setSelectedMonth] = useState<string>("")
   const [selectedYear, setSelectedYear] = useState<string>(new Date().getFullYear().toString())
-  const [deleteMonth, setDeleteMonth] = useState<string>("")
+  const [deleteScope, setDeleteScope] = useState<"year" | "all">("year")
   const [deleteYear, setDeleteYear] = useState<string>(new Date().getFullYear().toString())
+  const [deleteSelectedMonths, setDeleteSelectedMonths] = useState<number[]>([])
   const [fiscalYearsWithData, setFiscalYearsWithData] = useState<number[]>([])
   const [fiscalYearsLoading, setFiscalYearsLoading] = useState(false)
   const [deleteAvailableMonths, setDeleteAvailableMonths] = useState<number[]>([])
@@ -115,9 +118,9 @@ export default function TrialBalancePage() {
   const [importing, setImporting] = useState(false)
   const [deletingPeriod, setDeletingPeriod] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<{
-    fiscalYear: number
-    monthNum: number
-    monthKey: string
+    scope: "year" | "all"
+    deleteParams: DeleteTrialBalanceParams
+    periods: Array<{ fiscalYear: number; monthNum: number; monthKey: string }>
     label: string
   } | null>(null)
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false)
@@ -129,6 +132,8 @@ export default function TrialBalancePage() {
   const [newAccountDrafts, setNewAccountDrafts] = useState<Record<string, NewAccountDraft>>({})
   const [ignoredUnknownAccounts, setIgnoredUnknownAccounts] = useState<Set<string>>(new Set())
   const [importOrgCompanies, setImportOrgCompanies] = useState<ApiCompany[]>([])
+  const [importMode, setImportMode] = useState<"single" | "multi">("single")
+  const [monthCount, setMonthCount] = useState<string>("12")
 
   // Load company + balance (# et descriptions alignés sur le mapping côté API)
   useEffect(() => {
@@ -186,10 +191,17 @@ export default function TrialBalancePage() {
       })
   }, [monthsWithData, trialFiscalYear])
 
-  /** Noms de mois (FR) pour lesquels des données existent pour la suppression — hook avant tout return. */
+  /** Mois disponibles pour la suppression (numéros 1–12) — hook avant tout return. */
   const deleteMonthOptions = useMemo(() => {
-    return [...deleteAvailableMonths].sort((a, b) => a - b).map((n) => months[n - 1])
+    return [...deleteAvailableMonths].sort((a, b) => a - b)
   }, [deleteAvailableMonths])
+
+  const isDeleteColumnHighlighted = (monthKey: string, fiscalYear: number) => {
+    if (!pendingDelete) return false
+    return pendingDelete.periods.some(
+      (p) => p.fiscalYear === fiscalYear && p.monthKey === monthKey
+    )
+  }
 
   useEffect(() => {
     if (!showImportModal || importStep !== "validate") return
@@ -200,7 +212,12 @@ export default function TrialBalancePage() {
 
   const canFinalizeImport = useMemo(() => {
     if (!preview) return false
-    if (!preview.balance_is_valid) return false
+    if (preview.import_mode === "multi") {
+      const allBalanced = preview.month_previews?.every((m) => m.balance_is_valid) ?? false
+      if (!allBalanced) return false
+    } else if (!preview.balance_is_valid) {
+      return false
+    }
     for (const u of preview.unknown_accounts.filter((x) => !ignoredUnknownAccounts.has(x.account_number))) {
       const d = newAccountDrafts[u.account_number]
       if (!d) return false
@@ -208,6 +225,26 @@ export default function TrialBalancePage() {
     }
     return true
   }, [preview, newAccountDrafts, ignoredUnknownAccounts])
+
+  const importPeriodLabels = useMemo(() => {
+    if (importMode !== "multi" || !selectedMonth) return []
+    const count = Math.max(1, Math.min(120, parseInt(monthCount, 10) || 0))
+    const startMonthIndex = months.indexOf(selectedMonth) + 1
+    const startYear = parseInt(selectedYear, 10)
+    if (!startMonthIndex || !Number.isFinite(startYear)) return []
+    const labels: string[] = []
+    let year = startYear
+    let month = startMonthIndex
+    for (let i = 0; i < count; i++) {
+      labels.push(`${months[month - 1]} ${year}`)
+      month += 1
+      if (month > 12) {
+        month = 1
+        year += 1
+      }
+    }
+    return labels
+  }, [importMode, monthCount, selectedMonth, selectedYear])
 
   if (loading) {
     return (
@@ -248,6 +285,8 @@ export default function TrialBalancePage() {
     setNewAccountDrafts({})
     setImportFile(null)
     setSelectedMonth("")
+    setImportMode("single")
+    setMonthCount("12")
     setPreviewLoading(false)
     if (fileInputRef.current) fileInputRef.current.value = ""
   }
@@ -263,14 +302,30 @@ export default function TrialBalancePage() {
 
   const handlePreviewStep = async () => {
     if (!importFile || !selectedMonth) {
-      alert("Veuillez sélectionner un fichier et un mois.")
+      alert("Veuillez sélectionner un fichier et un mois de départ.")
       return
+    }
+    if (importMode === "multi") {
+      const count = parseInt(monthCount, 10)
+      if (!Number.isFinite(count) || count < 1 || count > 120) {
+        alert("Le nombre de mois doit être entre 1 et 120.")
+        return
+      }
     }
     setPreviewLoading(true)
     try {
       const monthIndex = months.indexOf(selectedMonth) + 1
       const fy = parseInt(selectedYear, 10)
-      const data = await previewTrialBalanceUpload(companyId, importFile, fy, monthIndex)
+      const uploadOptions =
+        importMode === "multi"
+          ? {
+              importMode: "multi" as const,
+              startYear: fy,
+              startMonth: monthIndex,
+              monthCount: parseInt(monthCount, 10),
+            }
+          : { importMode: "single" as const, fiscalYear: fy, month: monthIndex }
+      const data = await previewTrialBalanceUpload(companyId, importFile, uploadOptions)
       setPreview(data)
       setIgnoredUnknownAccounts(new Set())
       const init: Record<string, NewAccountDraft> = {}
@@ -324,20 +379,35 @@ export default function TrialBalancePage() {
         )
       }
       const monthIndex = months.indexOf(selectedMonth) + 1
+      const fy = parseInt(selectedYear, 10)
+      const uploadOptions =
+        preview.import_mode === "multi"
+          ? {
+              importMode: "multi" as const,
+              startYear: preview.start_year ?? fy,
+              startMonth: preview.start_month ?? monthIndex,
+              monthCount: preview.month_count ?? parseInt(monthCount, 10),
+            }
+          : { importMode: "single" as const, fiscalYear: fy, month: monthIndex }
       const result = await uploadTrialBalance(
         companyId,
         importFile,
-        parseInt(selectedYear),
-        monthIndex,
-        Array.from(ignoredUnknownAccounts)
+        uploadOptions,
+        Array.from(ignoredUnknownAccounts),
       )
-      const tbData = await getTrialBalance(companyId, parseInt(selectedYear))
+      const reloadYear =
+        preview.import_mode === "multi" ? preview.start_year ?? fy : fy
+      const tbData = await getTrialBalance(companyId, reloadYear)
       setAccounts(mapTrialBalanceAccounts(tbData))
       setMonthsWithData(tbData.months_with_data ?? [])
       setTrialFiscalYear(tbData.fiscal_year)
       getTrialBalanceFiscalYears(companyId).then(setFiscalYearsWithData).catch(() => {})
       resetImportModal()
-      alert(`Import réussi ! ${result.accounts_imported} compte(s) importé(s) pour ${selectedMonth} ${selectedYear}.`)
+      if (preview.import_mode === "multi" && result.months_imported) {
+        alert(result.message || `Import réussi ! ${result.accounts_imported} compte(s) sur ${result.months_imported} mois.`)
+      } else {
+        alert(`Import réussi ! ${result.accounts_imported} compte(s) importé(s) pour ${selectedMonth} ${selectedYear}.`)
+      }
     } catch (error) {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) return
       console.error("Error importing file:", error)
@@ -369,7 +439,8 @@ export default function TrialBalancePage() {
 
   const openDeleteModal = () => {
     setShowDeleteModal(true)
-    setDeleteMonth("")
+    setDeleteScope("year")
+    setDeleteSelectedMonths([])
     setDeleteModalLoading(true)
     void (async () => {
       try {
@@ -396,7 +467,7 @@ export default function TrialBalancePage() {
 
   const handleDeleteYearChange = (y: string) => {
     setDeleteYear(y)
-    setDeleteMonth("")
+    setDeleteSelectedMonths([])
     const fy = parseInt(y, 10)
     if (Number.isNaN(fy)) return
     setDeleteModalLoading(true)
@@ -406,56 +477,100 @@ export default function TrialBalancePage() {
       .finally(() => setDeleteModalLoading(false))
   }
 
-  const handleConfirmDeletePeriod = async () => {
-    if (!deleteMonth) {
-      alert("Veuillez sélectionner un mois.")
-      return
-    }
-    const monthNum = months.indexOf(deleteMonth) + 1
-    const fy = parseInt(deleteYear, 10)
-    if (Number.isNaN(fy)) {
-      alert("Année invalide.")
-      return
-    }
-    if (!deleteAvailableMonths.includes(monthNum)) {
-      alert("Ce mois ne contient pas de données importées pour cette année.")
-      return
-    }
-    // Step 1: highlight the column in red (and switch the view to that fiscal year if needed),
-    // then open a final confirmation modal.
-    setDeletingPeriod(true)
-    try {
-      if (trialFiscalYear !== fy) {
-        const tb = await getTrialBalance(companyId, fy)
-        setAccounts(mapTrialBalanceAccounts(tb))
-        setMonthsWithData(tb.months_with_data ?? [])
-        setTrialFiscalYear(tb.fiscal_year)
+  const toggleDeleteMonth = (monthNum: number, checked: boolean) => {
+    setDeleteSelectedMonths((prev) => {
+      if (checked) {
+        return prev.includes(monthNum) ? prev : [...prev, monthNum].sort((a, b) => a - b)
       }
-      const monthKey = months[monthNum - 1]
-      setPendingDelete({
-        fiscalYear: fy,
-        monthNum,
-        monthKey,
-        label: `${monthKey} ${fy}`,
-      })
-      setShowDeleteModal(false)
-      setShowDeleteConfirmModal(true)
-    } catch (error) {
-      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      return prev.filter((m) => m !== monthNum)
+    })
+  }
+
+  const selectAllDeleteMonths = () => {
+    setDeleteSelectedMonths([...deleteMonthOptions])
+  }
+
+  const clearDeleteMonthSelection = () => {
+    setDeleteSelectedMonths([])
+  }
+
+  const formatDeletePeriodLabels = (monthNums: number[], fy: number) => {
+    return monthNums.map((n) => `${months[n - 1]} ${fy}`).join(", ")
+  }
+
+  const handleConfirmDeletePeriod = async () => {
+    if (deleteScope === "year") {
+      if (deleteSelectedMonths.length === 0) {
+        alert("Veuillez sélectionner au moins un mois.")
         return
       }
-      console.error("Error preparing delete preview:", error)
-      alert("Impossible de préparer la suppression.")
-    } finally {
-      setDeletingPeriod(false)
+      const fy = parseInt(deleteYear, 10)
+      if (Number.isNaN(fy)) {
+        alert("Année invalide.")
+        return
+      }
+      const invalid = deleteSelectedMonths.some((m) => !deleteAvailableMonths.includes(m))
+      if (invalid) {
+        alert("Un ou plusieurs mois sélectionnés ne contiennent pas de données importées.")
+        return
+      }
+      setDeletingPeriod(true)
+      try {
+        if (trialFiscalYear !== fy) {
+          const tb = await getTrialBalance(companyId, fy)
+          setAccounts(mapTrialBalanceAccounts(tb))
+          setMonthsWithData(tb.months_with_data ?? [])
+          setTrialFiscalYear(tb.fiscal_year)
+        }
+        const periods = deleteSelectedMonths.map((monthNum) => ({
+          fiscalYear: fy,
+          monthNum,
+          monthKey: months[monthNum - 1],
+        }))
+        const label =
+          deleteSelectedMonths.length === deleteAvailableMonths.length
+            ? `tous les mois de ${fy}`
+            : formatDeletePeriodLabels(deleteSelectedMonths, fy)
+        const deleteParams: DeleteTrialBalanceParams =
+          deleteSelectedMonths.length === deleteAvailableMonths.length
+            ? { fiscalYear: fy, allMonths: true }
+            : deleteSelectedMonths.length === 1
+              ? { fiscalYear: fy, month: deleteSelectedMonths[0]! }
+              : { fiscalYear: fy, months: deleteSelectedMonths }
+        setPendingDelete({ scope: "year", deleteParams, periods, label })
+        setShowDeleteModal(false)
+        setShowDeleteConfirmModal(true)
+      } catch (error) {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          return
+        }
+        console.error("Error preparing delete preview:", error)
+        alert("Impossible de préparer la suppression.")
+      } finally {
+        setDeletingPeriod(false)
+      }
+      return
     }
+
+    if (fiscalYearsWithData.length === 0) {
+      alert("Aucune donnée importée à supprimer.")
+      return
+    }
+    setPendingDelete({
+      scope: "all",
+      deleteParams: { deleteAll: true },
+      periods: [],
+      label: "toutes les périodes importées",
+    })
+    setShowDeleteModal(false)
+    setShowDeleteConfirmModal(true)
   }
 
   const handleFinalizeDelete = async () => {
     if (!pendingDelete) return
     setDeletingPeriod(true)
     try {
-      const tbData = await deleteTrialBalanceMonth(companyId, pendingDelete.fiscalYear, pendingDelete.monthNum)
+      const tbData = await deleteTrialBalancePeriods(companyId, pendingDelete.deleteParams)
       setAccounts(mapTrialBalanceAccounts(tbData))
       setMonthsWithData(tbData.months_with_data ?? [])
       setTrialFiscalYear(tbData.fiscal_year)
@@ -463,13 +578,13 @@ export default function TrialBalancePage() {
       setFiscalYearsWithData(years)
       setShowDeleteConfirmModal(false)
       setPendingDelete(null)
-      setDeleteMonth("")
+      setDeleteSelectedMonths([])
       setDeleteAvailableMonths([])
     } catch (error) {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
         return
       }
-      console.error("Error deleting trial balance month:", error)
+      console.error("Error deleting trial balance:", error)
       alert("Impossible de supprimer les données.")
     } finally {
       setDeletingPeriod(false)
@@ -624,7 +739,7 @@ export default function TrialBalancePage() {
                         key={`${monthKey}-${trialFiscalYear}`}
                         className={cn(
                           "px-6 py-4 text-right font-semibold text-slate-900 text-sm min-w-[140px]",
-                          pendingDelete && pendingDelete.fiscalYear === trialFiscalYear && pendingDelete.monthKey === monthKey
+                          pendingDelete && isDeleteColumnHighlighted(monthKey, trialFiscalYear)
                             ? "bg-red-50 text-red-700"
                             : undefined
                         )}
@@ -661,7 +776,7 @@ export default function TrialBalancePage() {
                             key={label}
                             className={cn(
                               "px-6 py-4 text-sm text-slate-600 text-right font-mono",
-                              pendingDelete && pendingDelete.fiscalYear === trialFiscalYear && pendingDelete.monthKey === monthKey
+                              pendingDelete && isDeleteColumnHighlighted(monthKey, trialFiscalYear)
                                 ? "bg-red-50"
                                 : undefined
                             )}
@@ -824,13 +939,61 @@ export default function TrialBalancePage() {
                       )}
                     </div>
                     <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-xs leading-relaxed text-slate-600">
-                      <span className="font-medium text-slate-700">Colonnes attendues :</span> # de compte, Description,
-                      Montant. La somme des montants doit être égale à <span className="font-mono">0,00 $</span>.
+                      {importMode === "single" ? (
+                        <>
+                          <span className="font-medium text-slate-700">Colonnes attendues :</span> # de compte,
+                          Description, Montant. La somme des montants doit être égale à{" "}
+                          <span className="font-mono">0,00 $</span>.
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-medium text-slate-700">Colonnes attendues :</span> # de compte,
+                          Description, puis une colonne par mois (ex. Jan 2024, Fév 2024…). Chaque colonne
+                          mensuelle doit totaliser <span className="font-mono">0,00 $</span>.
+                        </>
+                      )}
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-3">
+                    <label className="block text-sm font-medium text-slate-800">Type d&apos;import</label>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => setImportMode("single")}
+                        className={cn(
+                          "rounded-xl border px-4 py-3 text-left text-sm transition-colors",
+                          importMode === "single"
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                        )}
+                      >
+                        <span className="font-semibold">Un mois</span>
+                        <span className={cn("mt-1 block text-xs", importMode === "single" ? "text-slate-300" : "text-slate-500")}>
+                          Colonne unique « Montant »
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setImportMode("multi")}
+                        className={cn(
+                          "rounded-xl border px-4 py-3 text-left text-sm transition-colors",
+                          importMode === "multi"
+                            ? "border-slate-900 bg-slate-900 text-white"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50",
+                        )}
+                      >
+                        <span className="font-semibold">Plusieurs mois</span>
+                        <span className={cn("mt-1 block text-xs", importMode === "multi" ? "text-slate-300" : "text-slate-500")}>
+                          Une colonne par mois consécutif
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className={cn("grid grid-cols-1 gap-4", importMode === "multi" ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-800">Mois</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-800">
+                        {importMode === "multi" ? "Mois de départ" : "Mois"}
+                      </label>
                       <Select value={selectedMonth} onValueChange={setSelectedMonth}>
                         <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white text-slate-900 shadow-sm hover:bg-slate-50/80 focus:ring-2 focus:ring-slate-900/10">
                           <SelectValue placeholder="Sélectionner un mois" />
@@ -845,7 +1008,9 @@ export default function TrialBalancePage() {
                       </Select>
                     </div>
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-800">Année</label>
+                      <label className="mb-2 block text-sm font-medium text-slate-800">
+                        {importMode === "multi" ? "Année de départ" : "Année"}
+                      </label>
                       <Select value={selectedYear} onValueChange={setSelectedYear}>
                         <SelectTrigger className="h-11 rounded-xl border-slate-200 bg-white text-slate-900 shadow-sm hover:bg-slate-50/80 focus:ring-2 focus:ring-slate-900/10">
                           <SelectValue />
@@ -859,7 +1024,32 @@ export default function TrialBalancePage() {
                         </SelectContent>
                       </Select>
                     </div>
+                    {importMode === "multi" ? (
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-800">Nombre de mois</label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={120}
+                          value={monthCount}
+                          onChange={(e) => setMonthCount(e.target.value)}
+                          className="h-11 rounded-xl border-slate-200 bg-white"
+                          placeholder="ex. 36"
+                        />
+                      </div>
+                    ) : null}
                   </div>
+                  {importMode === "multi" && importPeriodLabels.length > 0 ? (
+                    <div className="rounded-xl border border-slate-100 bg-white px-3 py-2.5 text-xs text-slate-600">
+                      <p className="font-medium text-slate-700">Colonnes attendues (aperçu)</p>
+                      <p className="mt-1 leading-relaxed">
+                        {importPeriodLabels.slice(0, 4).join(" · ")}
+                        {importPeriodLabels.length > 4
+                          ? ` · … · ${importPeriodLabels[importPeriodLabels.length - 1]}`
+                          : ""}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 justify-end gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-4">
                   <Button
@@ -887,33 +1077,71 @@ export default function TrialBalancePage() {
                     <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
                       <p className="text-sm text-slate-600">
                         <span className="font-medium text-slate-900">
-                          {selectedMonth} {selectedYear}
+                          {preview.import_mode === "multi"
+                            ? `${importPeriodLabels[0] ?? selectedMonth + " " + selectedYear} → ${
+                                importPeriodLabels[importPeriodLabels.length - 1] ?? ""
+                              }`
+                            : `${selectedMonth} ${selectedYear}`}
                         </span>
                         <span className="text-slate-400"> · </span>
                         {preview.row_count} ligne(s) lue(s)
+                        {preview.import_mode === "multi" && preview.month_count
+                          ? ` · ${preview.month_count} mois`
+                          : ""}
                       </p>
                     </div>
-                    <div
-                      className={cn(
-                        "rounded-2xl border px-4 py-4 text-sm shadow-sm",
-                        preview.balance_is_valid
-                          ? "border-emerald-200/80 bg-emerald-50/90 text-emerald-950"
-                          : "border-red-200/80 bg-red-50/90 text-red-950",
-                      )}
-                    >
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600/90">
-                        Somme des montants (fichier)
-                      </p>
-                      <p className="mt-2 font-mono text-lg font-semibold tabular-nums">
-                        {formatAmount(preview.amount_sum)} $
-                      </p>
-                      {!preview.balance_is_valid && (
-                        <p className="mt-3 border-t border-red-200/60 pt-3 text-xs leading-relaxed">
-                          La balance n&apos;est pas équilibrée (la somme doit être 0,00 $). Corrigez le fichier avant
-                          import.
+                    {preview.import_mode === "multi" && preview.month_previews?.length ? (
+                      <div className="overflow-x-auto rounded-2xl border border-slate-100 bg-white shadow-sm">
+                        <table className="min-w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-slate-100 bg-slate-50/80 text-left text-xs uppercase tracking-wide text-slate-500">
+                              <th className="px-4 py-3">Mois</th>
+                              <th className="px-4 py-3 text-right">Somme</th>
+                              <th className="px-4 py-3">Équilibre</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {preview.month_previews.map((monthPreview) => (
+                              <tr key={`${monthPreview.year}-${monthPreview.month}`} className="border-b border-slate-50">
+                                <td className="px-4 py-2.5 font-medium text-slate-800">{monthPreview.label}</td>
+                                <td className="px-4 py-2.5 text-right font-mono tabular-nums">
+                                  {formatAmount(monthPreview.amount_sum)} $
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  {monthPreview.balance_is_valid ? (
+                                    <span className="text-emerald-700">OK</span>
+                                  ) : (
+                                    <span className="text-red-700">Non équilibré</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div
+                        className={cn(
+                          "rounded-2xl border px-4 py-4 text-sm shadow-sm",
+                          preview.balance_is_valid
+                            ? "border-emerald-200/80 bg-emerald-50/90 text-emerald-950"
+                            : "border-red-200/80 bg-red-50/90 text-red-950",
+                        )}
+                      >
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-600/90">
+                          Somme des montants (fichier)
                         </p>
-                      )}
-                    </div>
+                        <p className="mt-2 font-mono text-lg font-semibold tabular-nums">
+                          {formatAmount(preview.amount_sum)} $
+                        </p>
+                        {!preview.balance_is_valid && (
+                          <p className="mt-3 border-t border-red-200/60 pt-3 text-xs leading-relaxed">
+                            La balance n&apos;est pas équilibrée (la somme doit être 0,00 $). Corrigez le fichier avant
+                            import.
+                          </p>
+                        )}
+                      </div>
+                    )}
 
                     {preview.unknown_accounts.length > 0 && (
                       <div className="space-y-2">
@@ -1122,15 +1350,15 @@ export default function TrialBalancePage() {
 
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-md rounded-xl bg-white shadow-lg">
+          <div className="mx-4 w-full max-w-lg rounded-xl bg-white shadow-lg">
             <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-              <h3 className="text-lg font-semibold text-slate-900">Supprimer une période</h3>
+              <h3 className="text-lg font-semibold text-slate-900">Supprimer des périodes</h3>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => {
                   setShowDeleteModal(false)
-                  setDeleteMonth("")
+                  setDeleteSelectedMonths([])
                   setDeleteAvailableMonths([])
                 }}
                 className="h-8 w-8 p-0"
@@ -1145,7 +1373,7 @@ export default function TrialBalancePage() {
                 </div>
               )}
               <p className="text-sm leading-relaxed text-slate-600">
-                Toutes les données importées pour le mois et l&apos;année choisis seront supprimées. Cette action est
+                Les données importées pour les périodes sélectionnées seront supprimées. Cette action est
                 irréversible.
               </p>
               {fiscalYearsWithData.length === 0 ? (
@@ -1154,40 +1382,109 @@ export default function TrialBalancePage() {
                 </p>
               ) : (
                 <>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Année</label>
-                    <Select value={deleteYear} onValueChange={handleDeleteYearChange}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {fiscalYearsWithData.map((year) => (
-                          <SelectItem key={year} value={String(year)}>
-                            {year}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                  <div className="flex gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setDeleteScope("year")}
+                      className={cn(
+                        "flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                        deleteScope === "year"
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-600 hover:text-slate-900"
+                      )}
+                    >
+                      Une année
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeleteScope("all")}
+                      className={cn(
+                        "flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                        deleteScope === "all"
+                          ? "bg-white text-slate-900 shadow-sm"
+                          : "text-slate-600 hover:text-slate-900"
+                      )}
+                    >
+                      Toutes les périodes
+                    </button>
                   </div>
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">Mois</label>
-                    {deleteMonthOptions.length === 0 ? (
-                      <p className="text-sm text-slate-500">Aucun mois importé pour cette année.</p>
-                    ) : (
-                      <Select value={deleteMonth || undefined} onValueChange={setDeleteMonth}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Sélectionner un mois" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {deleteMonthOptions.map((m) => (
-                            <SelectItem key={m} value={m}>
-                              {m}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
+
+                  {deleteScope === "year" ? (
+                    <>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Année</label>
+                        <Select value={deleteYear} onValueChange={handleDeleteYearChange}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {fiscalYearsWithData.map((year) => (
+                              <SelectItem key={year} value={String(year)}>
+                                {year}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <label className="text-sm font-medium text-slate-700">Mois</label>
+                          {deleteMonthOptions.length > 0 && (
+                            <div className="flex gap-3 text-xs">
+                              <button
+                                type="button"
+                                onClick={selectAllDeleteMonths}
+                                className="font-medium text-emerald-700 hover:underline"
+                              >
+                                Tout sélectionner
+                              </button>
+                              <button
+                                type="button"
+                                onClick={clearDeleteMonthSelection}
+                                className="font-medium text-slate-600 hover:underline"
+                              >
+                                Tout désélectionner
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        {deleteMonthOptions.length === 0 ? (
+                          <p className="text-sm text-slate-500">Aucun mois importé pour cette année.</p>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {deleteMonthOptions.map((monthNum) => {
+                              const monthLabel = months[monthNum - 1]
+                              const checked = deleteSelectedMonths.includes(monthNum)
+                              return (
+                                <label
+                                  key={monthNum}
+                                  className={cn(
+                                    "flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors",
+                                    checked
+                                      ? "border-red-200 bg-red-50 text-red-900"
+                                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                                  )}
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(value) =>
+                                      toggleDeleteMonth(monthNum, value === true)
+                                    }
+                                  />
+                                  <span>{monthLabel}</span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                      Toutes les balances importées pour cette société seront supprimées, pour toutes les
+                      années.
+                    </p>
+                  )}
                 </>
               )}
             </div>
@@ -1196,7 +1493,7 @@ export default function TrialBalancePage() {
                 variant="outline"
                 onClick={() => {
                   setShowDeleteModal(false)
-                  setDeleteMonth("")
+                  setDeleteSelectedMonths([])
                   setDeleteAvailableMonths([])
                 }}
               >
@@ -1207,10 +1504,10 @@ export default function TrialBalancePage() {
                 onClick={() => void handleConfirmDeletePeriod()}
                 disabled={
                   fiscalYearsWithData.length === 0 ||
-                  deleteMonthOptions.length === 0 ||
-                  !deleteMonth ||
                   deletingPeriod ||
-                  deleteModalLoading
+                  deleteModalLoading ||
+                  (deleteScope === "year" &&
+                    (deleteMonthOptions.length === 0 || deleteSelectedMonths.length === 0))
                 }
                 className="bg-red-600 text-white hover:bg-red-700"
               >
@@ -1241,12 +1538,19 @@ export default function TrialBalancePage() {
             </div>
             <div className="space-y-3 px-6 py-6">
               <p className="text-sm text-slate-700">
-                Vous êtes sur le point de supprimer définitivement la colonne{" "}
+                Vous êtes sur le point de supprimer définitivement{" "}
                 <span className="font-semibold text-red-700">{pendingDelete.label}</span>.
               </p>
-              <p className="text-sm text-slate-600">
-                La colonne correspondante est maintenant surlignée en rouge dans le tableau pour validation visuelle.
-              </p>
+              {pendingDelete.scope === "year" && pendingDelete.periods.length > 0 ? (
+                <p className="text-sm text-slate-600">
+                  Les colonnes correspondantes sont surlignées en rouge dans le tableau pour validation
+                  visuelle.
+                </p>
+              ) : (
+                <p className="text-sm text-slate-600">
+                  Cette opération efface toutes les balances importées pour la société.
+                </p>
+              )}
             </div>
             <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
               <Button

@@ -28,8 +28,12 @@ import {
   mapLinkCodesToOwnerLabel,
   detailLineLabelForDisplay,
   findStatementApiRowForStructureRow,
+  findStructureRowForStatementLine,
+  getStructureRowGlobalIndex,
   listAnnexOptionsForDetailSubLineModal,
   listStructureRowsForDetailDisplay,
+  isCodeMappingEnabled,
+  isShowInDetail,
   isStructureRowDetailOnly,
   isStructureRowInDetailAnnexEditor,
   isSummaryAnnexRowLockedInDetailEdit,
@@ -37,6 +41,8 @@ import {
   normalizeAnnexLetter,
   syncDetailSubLinesFromStandard,
 } from "@/lib/income-statement-structure-utils"
+import { filterBalanceSheetDetailRowsForHorizon } from "@/lib/balance-sheet-horizon-filter"
+import type { IncomeStatementHorizonView } from "@/lib/income-statement-horizon-visibility"
 import {
   aggregateToQuarters,
   aggregateToYears,
@@ -61,6 +67,9 @@ import {
 import {
   insertAnnexDetailPlaceholderRows,
   zeroAmountsForAnnexTitleRow,
+  balanceSheetDetailRowAllowsGlBreakdown,
+  balanceSheetDetailCanExpandGlAccounts,
+  balanceSheetDetailRowsLookLikeGlAccounts,
 } from "@/lib/balance-sheet-detail-rows"
 import {
   dashboardCardAccentClass,
@@ -81,6 +90,7 @@ interface BalanceSheetDetailProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
+  /** Titre de la carte (défaut : Détail) — aligné sur l’état des résultats */
   title?: string
   comparisonType?: "lastMonth" | "pastMonth" | "budget"
   selectedBudgetId?: string | null
@@ -91,8 +101,6 @@ interface BalanceSheetDetailProps {
   refYear: number
   rows?: FinancialStatementRow[]
   loading?: boolean
-  /** Titre de la carte (défaut : Détail) — aligné sur l’état des résultats */
-  title?: string
   showBalanceSheetStructureSettings?: boolean
   structureVersion?: number
   onBalanceSheetStructureSaved?: () => void
@@ -335,6 +343,7 @@ export function BalanceSheetDetail({
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: isMultiPeriod && (!isForecastSection || forecastUseSeriesActuals),
+    structureVersion,
   })
 
   const toggleRow = (rowId: string) => {
@@ -353,51 +362,119 @@ export function BalanceSheetDetail({
     setLineAnalysis((prev) => (prev?.rowId === snapshot.rowId ? null : snapshot))
   }, [])
 
+  const mapStructureRowToDetailRow = (
+    sr: Record<string, unknown>,
+    row: FinancialStatementRow | undefined
+  ): DetailRow => {
+    const sub = isStructureRowDetailOnly(sr)
+    const annexLetter = String(row?.annexLetter ?? sr.annexLetter ?? "")
+    const isAnnexTitle = !sub && normalizeAnnexLetter(annexLetter) !== ""
+    const allowsGl = balanceSheetDetailRowAllowsGlBreakdown(
+      sr,
+      standardLinkCodes,
+      { isAnnexTitle, isSection: row?.isSection ?? false },
+    )
+    const rawDetail = row?.detailRows
+    const balanceAccounts =
+      allowsGl &&
+      rawDetail &&
+      rawDetail.length > 0 &&
+      balanceSheetDetailRowsLookLikeGlAccounts(rawDetail, standardLinkCodes)
+        ? rawDetail.map((dr) => ({
+            accountNumber: dr.id,
+            accountName: dr.label,
+            amount: dr.current ?? 0,
+            priorAmount: dr.prior,
+          }))
+        : undefined
+    return zeroAmountsForAnnexTitleRow({
+      label: detailLineLabelForDisplay(sr, row?.label ?? String(sr.label ?? ""), annexLetter),
+      statementLabel: row?.label ?? String(sr.linkCode ?? sr.label ?? ""),
+      annexLetter,
+      current: row?.current ?? 0,
+      prior: row?.prior ?? 0,
+      indent: sub,
+      isBold: sub ? false : true,
+      isSubtotal: row?.isResult ?? false,
+      isSection: row?.isSection ?? false,
+      isAnnexTitle,
+      balanceAccounts,
+      rowId: row?.id ?? String(sr.linkCode ?? sr.id ?? ""),
+      hasLiaisonCode: row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr),
+    })
+  }
+
   const mapBackendRowsDefinedOnly = (apiRows: FinancialStatementRow[], structure: Record<string, unknown>[]): DetailRow[] => {
     const used = new Set<number>()
+    const usedNested = new Set<string>()
     const detailStructureRows = listStructureRowsForDetailDisplay(structure)
-    return detailStructureRows.map((sr) => {
-      const row = findStatementApiRowForStructureRow(sr, apiRows, used)
-      const sub = isStructureRowDetailOnly(sr)
-      const annexLetter = String(row?.annexLetter ?? sr.annexLetter ?? "")
-      const isAnnexTitle = !sub && normalizeAnnexLetter(annexLetter) !== ""
-      const balanceAccounts =
-        row?.detailRows && row.detailRows.length > 0
-          ? row.detailRows.map((dr) => ({
-              accountNumber: dr.id,
-              accountName: dr.label,
-              amount: dr.current ?? 0,
-              priorAmount: dr.prior,
-            }))
-          : undefined
-      return zeroAmountsForAnnexTitleRow({
-        label: detailLineLabelForDisplay(sr, row?.label ?? String(sr.label ?? ""), annexLetter),
-        statementLabel: row?.label ?? String(sr.linkCode ?? sr.label ?? ""),
-        annexLetter,
-        current: row?.current ?? 0,
-        prior: row?.prior ?? 0,
-        indent: sub,
-        isBold: sub ? false : true,
-        isSubtotal: row?.isResult ?? false,
-        isSection: row?.isSection ?? false,
-        isAnnexTitle,
-        balanceAccounts,
-        rowId: row?.id ?? String(sr.linkCode ?? sr.id ?? ""),
-        hasLiaisonCode: row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr),
-      })
+    const fromStructure = detailStructureRows.map((sr) => {
+      const row = findStatementApiRowForStructureRow(sr, apiRows, used, usedNested)
+      return mapStructureRowToDetailRow(sr, row)
+    })
+
+    if (fromStructure.length > 0) {
+      return fromStructure
+    }
+
+    // Repli : lignes API marquées showInDetail (comme le Compte de résultat Détail).
+    const defined = apiRows.filter((row) => {
+      const sr = findStructureRowForStatementLine(row.id, row.label, structure)
+      return sr !== undefined && isShowInDetail(sr, structure) && isCodeMappingEnabled(sr)
+    })
+    const sorted = [...defined].sort((a, b) => {
+      const srA = findStructureRowForStatementLine(a.id, a.label, structure)!
+      const srB = findStructureRowForStatementLine(b.id, b.label, structure)!
+      return getStructureRowGlobalIndex(srA, structure) - getStructureRowGlobalIndex(srB, structure)
+    })
+    return sorted.map((row) => {
+      const sr = findStructureRowForStatementLine(row.id, row.label, structure)!
+      return mapStructureRowToDetailRow(sr, row)
     })
   }
 
   const mapSeriesRowToDetailRow = (
     sr: Record<string, unknown>,
     row: SeriesRow | undefined,
-    trend: number[]
+    trend: number[],
+    trendFn: (row: SeriesRow) => number[],
   ): DetailRow => {
     const sub = isStructureRowDetailOnly(sr)
     const annexLetter = String(row?.annexLetter ?? sr.annexLetter ?? "")
     const isAnnexTitle = !sub && normalizeAnnexLetter(annexLetter) !== ""
     const lastAmount = trend[0] || 0
     const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
+    const allowsGl = balanceSheetDetailRowAllowsGlBreakdown(
+      sr,
+      standardLinkCodes,
+      { isAnnexTitle, isSection: row?.isSection ?? false },
+    )
+    const rawDetail = row?.detailRows
+    const balanceAccounts =
+      allowsGl &&
+      rawDetail &&
+      rawDetail.length > 0 &&
+      balanceSheetDetailRowsLookLikeGlAccounts(rawDetail, standardLinkCodes)
+        ? rawDetail.map((dr) => {
+            const pseudo: SeriesRow = {
+              id: dr.id,
+              label: dr.label,
+              isBold: false,
+              isSection: false,
+              isResult: false,
+              amounts: dr.amounts,
+              detailRows: [],
+            }
+            const accountTrend = trendFn(pseudo)
+            return {
+              accountNumber: dr.id,
+              accountName: dr.label,
+              amount: accountTrend[0] ?? 0,
+              priorAmount: accountTrend[1],
+              trendValues: accountTrend,
+            }
+          })
+        : undefined
     return zeroAmountsForAnnexTitleRow({
       label: detailLineLabelForDisplay(sr, row?.label ?? String(sr.label ?? ""), annexLetter),
       statementLabel: row?.label ?? String(sr.linkCode ?? sr.label ?? ""),
@@ -410,6 +487,7 @@ export function BalanceSheetDetail({
       indent: sub,
       isAnnexTitle,
       trendValues: trend,
+      balanceAccounts,
       rowId: row?.id ?? String(sr.linkCode ?? sr.id ?? ""),
       hasLiaisonCode: row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr),
     })
@@ -422,11 +500,12 @@ export function BalanceSheetDetail({
     emptyTrendLength: number
   ): DetailRow[] => {
     const used = new Set<number>()
+    const usedNested = new Set<string>()
     const detailStructureRows = listStructureRowsForDetailDisplay(structure)
     return detailStructureRows.map((sr) => {
-      const row = findStatementApiRowForStructureRow(sr, rows, used)
+      const row = findStatementApiRowForStructureRow(sr, rows, used, usedNested)
       const trend = row ? trendFn(row) : Array(emptyTrendLength).fill(0)
-      return mapSeriesRowToDetailRow(sr, row, trend)
+      return mapSeriesRowToDetailRow(sr, row, trend, trendFn)
     })
   }
 
@@ -484,14 +563,8 @@ export function BalanceSheetDetail({
     if (view === "12months") return getSeriesDetailRows()
     if (view === "quarters") return getSeriesQuarterRows()
     if (view === "years") return getSeriesYearRows()
-    if (backendRows.length > 0) {
-      if (displayStructure === null) return []
-      if (displayStructure.length > 0) {
-        return mapBackendRowsDefinedOnly(backendRows, displayStructure)
-      }
-      return []
-    }
-    return []
+    if (displayStructure === null) return []
+    return mapBackendRowsDefinedOnly(backendRows, displayStructure)
   }
 
   // Helper function to capitalize first letter
@@ -501,6 +574,14 @@ export function BalanceSheetDetail({
   }
 
   let data = getDetailData()
+
+  if (title === "Détail" && !isForecastSection && (displayStructure?.length ?? statementStructure?.length)) {
+    data = filterBalanceSheetDetailRowsForHorizon(
+      data,
+      displayStructure ?? statementStructure ?? [],
+      view as IncomeStatementHorizonView
+    )
+  }
 
   if (!isStructureStudio) {
     const trendLen = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
@@ -800,7 +881,33 @@ export function BalanceSheetDetail({
 
   const getHorizonText = (): string => getHorizonModeLabel(view, period)
 
-  if (loading || (isMultiPeriod && seriesLoading) || entityDataLoading) {
+  let detailTableColumnCount = 2
+  if (view === "current") detailTableColumnCount = 2
+  else if (view === "comparison" || view === "ddm" || view === "ytd") {
+    if (isComparisonMode) detailTableColumnCount = 1 + entitiesToCompare.length
+    else {
+      const extra =
+        columnMode === "percentage"
+          ? 2
+          : columnMode === "variationAmount" || columnMode === "variationPercent"
+            ? 1
+            : 0
+      detailTableColumnCount = 3 + extra
+    }
+  } else if (view === "12months") detailTableColumnCount = 1 + getMonthLabels().length
+  else if (view === "quarters") detailTableColumnCount = 1 + getQuarterLabels().length
+  else if (view === "years") detailTableColumnCount = 1 + getYearLabels().length
+
+  const awaitingBalanceSheetStructure =
+    !isForecastSection && !!companyId && statementStructure === null
+
+  const isDataLoading =
+    awaitingBalanceSheetStructure ||
+    loading ||
+    (isMultiPeriod && seriesLoading) ||
+    entityDataLoading
+
+  if (isDataLoading) {
     return (
       <div className={cn("w-full", dashboardCardFrameStaticClass)}>
         <div className={dashboardCardRingClass} aria-hidden />
@@ -1072,11 +1179,17 @@ export function BalanceSheetDetail({
           </div>
         </div>
       ) : (
-        /* Table */
-      <div className="min-w-0 overflow-x-auto bg-white">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b-2 border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80">
+        /* Table — en-tête et colonne Compte figés au défilement (comme Sommaire) */
+      <div className="min-w-0 max-h-[min(72vh,56rem)] overflow-auto overscroll-contain bg-white">
+        <table className="w-full min-w-full border-separate border-spacing-0">
+          <thead
+            className={cn(
+              "[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-slate-100",
+              "[&_th]:border-b-2 [&_th]:border-slate-200",
+              "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
+            )}
+          >
+            <tr>
               <th
                 className={cn(
                   "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
@@ -1180,7 +1293,13 @@ export function BalanceSheetDetail({
               )}
             </tr>
           </thead>
-          <tbody>
+          <tbody
+            className={cn(
+              "[&_td]:border-b [&_td]:border-slate-200",
+              "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+              "[&_td:first-child]:bg-white",
+            )}
+          >
             {data.map((row, idx) => {
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
@@ -1189,13 +1308,31 @@ export function BalanceSheetDetail({
               /** Hors Paramètres : libellé sous-total masqué (blanc) mais chiffres en noir. */
               const annexSubtotalDarkNumbers = !!row.isAnnexSubtotal
               const displayLabel = row.isSection ? capitalizeFirst(row.label) : row.label
+              /** Séparateur toujours juste au-dessus du sous-total (pas sous le poste précédent / GL). */
+              const isSubtotalRow = !!row.isSubtotal || !!row.isAnnexSubtotal
               
-              // Check if next row is a subtotal to add dark border above it
-              const nextRowIsSubtotal = idx < data.length - 1 && data[idx + 1].isSubtotal
-              
-              // Check if this row can be expanded and if it's expanded
-              const canExpand = !!row.rowId && !!row.balanceAccounts && row.balanceAccounts.length > 0
+              // Expansion GL : tout poste mappé avec ≥1 compte GL
+              const matchedStructureRow =
+                displayStructure && row.rowId
+                  ? findStructureRowForStatementLine(
+                      row.rowId,
+                      row.statementLabel ?? row.label,
+                      displayStructure
+                    )
+                  : undefined
+              const canExpand = balanceSheetDetailCanExpandGlAccounts(
+                matchedStructureRow,
+                standardLinkCodes,
+                row
+              )
               const isExpanded = row.rowId ? expandedRows.has(row.rowId) : false
+              /** À l’ouverture : montants en graisse normale (pas gras). */
+              const amountWeightClass =
+                row.isBold && !isExpanded ? "font-semibold font-bold" : "text-slate-500"
+              const amountWeightClassPrior =
+                row.isBold && !isExpanded
+                  ? "font-semibold font-bold text-slate-600"
+                  : "text-slate-500"
               
               // Check if this row has a note
               const hasNote = row.rowId
@@ -1204,13 +1341,20 @@ export function BalanceSheetDetail({
 
               return (
                 <Fragment key={idx}>
+                  {isSubtotalRow && (
+                    <tr aria-hidden data-testid="balance-sheet-detail-subtotal-separator">
+                      <td
+                        colSpan={detailTableColumnCount}
+                        className="border-0 p-0 align-top leading-none border-t-2 border-t-slate-900"
+                      />
+                    </tr>
+                  )}
                   <tr
                     ref={row.rowId ? (el) => { analysisRowRefs.current[row.rowId!] = el } : undefined}
                     className={cn(
-                    "border-b",
-                    row.label === "" ? "h-2 border-slate-200" : "",
-                    nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
-                    canExpand && "hover:bg-slate-50 cursor-pointer"
+                    row.label === "" ? "h-2" : "",
+                    "hover:[&>td]:bg-slate-50/90 hover:[&>td:first-child]:bg-slate-50/90",
+                    canExpand && "cursor-pointer"
                   )}
                   onClick={() => canExpand && toggleRow(row.rowId!)}
                   >
@@ -1281,7 +1425,7 @@ export function BalanceSheetDetail({
                     <td
                       className={cn(
                         "px-6 py-3 text-right",
-                        row.isBold ? "font-semibold font-bold" : "text-slate-500",
+                        amountWeightClass,
                         shouldHideAmounts ? "text-white" : "",
                         annexSubtotalDarkNumbers ? "text-slate-900" : ""
                       )}
@@ -1295,7 +1439,7 @@ export function BalanceSheetDetail({
                       <td
                         className={cn(
                           "px-6 py-3 text-right",
-                          row.isBold ? "font-semibold font-bold" : "text-slate-500",
+                          amountWeightClass,
                           shouldHideAmounts ? "text-white" : "",
                           annexSubtotalDarkNumbers ? "text-slate-900" : ""
                         )}
@@ -1305,7 +1449,7 @@ export function BalanceSheetDetail({
                       <td
                         className={cn(
                           "px-6 py-3 text-right",
-                          row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500",
+                          amountWeightClassPrior,
                           shouldHideAmounts ? "text-white" : "",
                           annexSubtotalDarkNumbers ? "text-slate-900" : ""
                         )}
@@ -1334,10 +1478,10 @@ export function BalanceSheetDetail({
                         </td>
                       ) : columnMode === "percentage" ? (
                         <>
-                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}>
                             {row.current !== 0 ? `${getTotalAssetsPercentage(row.current, false).toFixed(1)}%` : "-"}
                           </td>
-                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${amountWeightClassPrior} ${shouldHideAmounts ? "text-white" : ""}`}>
                             {row.prior !== 0 ? `${getTotalAssetsPercentage(row.prior, true).toFixed(1)}%` : "-"}
                           </td>
                         </>
@@ -1352,7 +1496,7 @@ export function BalanceSheetDetail({
                         return (
                           <td
                             key={entity.id}
-                            className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
+                            className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}
                           >
                             {entityRow.current !== 0 ? formatCurrency(entityRow.current) : "-"}
                           </td>
@@ -1365,7 +1509,7 @@ export function BalanceSheetDetail({
                       <td
                         className={cn(
                           "px-6 py-3 text-right",
-                          row.isBold ? "font-semibold font-bold" : "text-slate-500",
+                          amountWeightClass,
                           shouldHideAmounts ? "text-white" : "",
                           annexSubtotalDarkNumbers ? "text-slate-900" : ""
                         )}
@@ -1375,7 +1519,7 @@ export function BalanceSheetDetail({
                       <td
                         className={cn(
                           "px-6 py-3 text-right",
-                          row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500",
+                          amountWeightClassPrior,
                           shouldHideAmounts ? "text-white" : "",
                           annexSubtotalDarkNumbers ? "text-slate-900" : ""
                         )}
@@ -1404,10 +1548,10 @@ export function BalanceSheetDetail({
                         </td>
                       ) : (
                         <>
-                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}>
                             {row.current !== 0 ? `${getTotalAssetsPercentage(row.current, false).toFixed(1)}%` : "-"}
                           </td>
-                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${amountWeightClassPrior} ${shouldHideAmounts ? "text-white" : ""}`}>
                             {row.prior !== 0 ? `${getTotalAssetsPercentage(row.prior, true).toFixed(1)}%` : "-"}
                           </td>
                         </>
@@ -1420,7 +1564,7 @@ export function BalanceSheetDetail({
                       <td
                         className={cn(
                           "px-6 py-3 text-right",
-                          row.isBold ? "font-semibold font-bold" : "text-slate-500",
+                          amountWeightClass,
                           shouldHideAmounts ? "text-white" : "",
                           annexSubtotalDarkNumbers ? "text-slate-900" : ""
                         )}
@@ -1430,7 +1574,7 @@ export function BalanceSheetDetail({
                       <td
                         className={cn(
                           "px-6 py-3 text-right",
-                          row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500",
+                          amountWeightClassPrior,
                           shouldHideAmounts ? "text-white" : "",
                           annexSubtotalDarkNumbers ? "text-slate-900" : ""
                         )}
@@ -1459,10 +1603,10 @@ export function BalanceSheetDetail({
                         </td>
                       ) : (
                         <>
-                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}`}>
                             {row.current !== 0 ? `${getTotalAssetsPercentage(row.current, false).toFixed(1)}%` : "-"}
                           </td>
-                          <td className={`px-6 py-3 text-right ${row.isBold ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                          <td className={`px-6 py-3 text-right ${amountWeightClassPrior} ${shouldHideAmounts ? "text-white" : ""}`}>
                             {row.prior !== 0 ? `${getTotalAssetsPercentage(row.prior, true).toFixed(1)}%` : "-"}
                           </td>
                         </>
@@ -1477,8 +1621,8 @@ export function BalanceSheetDetail({
                         <td
                           key={valueIdx}
                           className={cn(
-                            "px-4 py-3 text-right font-semibold",
-                            row.isBold ? "font-bold" : "",
+                            "px-4 py-3 text-right",
+                            row.isBold && !isExpanded ? "font-semibold font-bold" : "font-normal text-slate-600",
                             shouldHideAmounts ? "text-white" : "",
                             annexSubtotalDarkNumbers ? "text-slate-900" : ""
                           )}
@@ -1507,8 +1651,8 @@ export function BalanceSheetDetail({
                         <td
                           key={valueIdx}
                           className={cn(
-                            "px-4 py-3 text-right font-semibold",
-                            row.isBold ? "font-bold" : "",
+                            "px-4 py-3 text-right",
+                            row.isBold && !isExpanded ? "font-semibold font-bold" : "font-normal text-slate-600",
                             shouldHideAmounts ? "text-white" : "",
                             annexSubtotalDarkNumbers ? "text-slate-900" : ""
                           )}
@@ -1537,8 +1681,8 @@ export function BalanceSheetDetail({
                           <td
                             key={valueIdx}
                             className={cn(
-                              "px-4 py-3 text-right font-semibold",
-                              row.isBold ? "font-bold" : "",
+                              "px-4 py-3 text-right",
+                              row.isBold && !isExpanded ? "font-semibold font-bold" : "font-normal text-slate-600",
                               shouldHideAmounts ? "text-white" : "",
                               annexSubtotalDarkNumbers ? "text-slate-900" : "",
                               isForecastSection && valueIdx === 0 ? "bg-slate-50" : ""
@@ -1584,7 +1728,7 @@ export function BalanceSheetDetail({
                   )}
                 </tr>
                   {/* Expanded balance accounts */}
-                  {isExpanded && row.balanceAccounts && row.balanceAccounts.length > 0 && (
+                  {isExpanded && canExpand && row.balanceAccounts && row.balanceAccounts.length > 0 && (
                     <>
                       {row.balanceAccounts.map((account, accIdx) => {
                         const accountVariation = account.priorAmount !== undefined && account.amount && account.priorAmount
@@ -1595,7 +1739,7 @@ export function BalanceSheetDetail({
                           : 0
                         
                         return (
-                          <tr key={`${idx}-account-${accIdx}`} className="bg-slate-50 border-b border-slate-200">
+                          <tr key={`${idx}-account-${accIdx}`} className="[&>td]:bg-slate-50 [&>td:first-child]:bg-slate-50">
                             <td className="px-6 py-2 text-slate-500 pl-20 whitespace-nowrap">
                               <div className="flex items-center gap-3">
                                 <span className="text-xs font-semibold text-slate-500">{account.accountNumber}</span>
@@ -1604,22 +1748,22 @@ export function BalanceSheetDetail({
                             </td>
                             
                             {view === "current" && (
-                              <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
+                              <td className="px-6 py-2 text-right font-normal text-sm text-slate-700">
                                 {account.amount !== 0 ? formatCurrency(account.amount) : "-"}
                               </td>
                             )}
                             
                             {view === "comparison" && !isComparisonMode && (
                               <>
-                                <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
+                                <td className="px-6 py-2 text-right font-normal text-sm text-slate-700">
                                   {account.amount !== 0 ? formatCurrency(account.amount) : "-"}
                                 </td>
-                                <td className="px-6 py-2 text-right font-semibold text-sm text-slate-500">
+                                <td className="px-6 py-2 text-right font-normal text-sm text-slate-500">
                                   {account.priorAmount !== undefined && account.priorAmount !== 0 ? formatCurrency(account.priorAmount) : "-"}
                                 </td>
                                 {columnMode === "variationPercent" ? (
                                   <td
-                                    className={`px-6 py-2 text-right font-semibold text-sm ${
+                                    className={`px-6 py-2 text-right font-normal text-sm ${
                                       accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"
                                     }`}
                                   >
@@ -1629,7 +1773,7 @@ export function BalanceSheetDetail({
                                   </td>
                                 ) : columnMode === "variationAmount" ? (
                                   <td
-                                    className={`px-6 py-2 text-right font-semibold text-sm ${
+                                    className={`px-6 py-2 text-right font-normal text-sm ${
                                       accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"
                                     }`}
                                   >
@@ -1639,10 +1783,10 @@ export function BalanceSheetDetail({
                                   </td>
                                 ) : columnMode === "percentage" ? (
                                   <>
-                                    <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
+                                    <td className="px-6 py-2 text-right font-normal text-sm text-slate-700">
                                       {account.amount !== 0 ? `${getTotalAssetsPercentage(account.amount, false).toFixed(1)}%` : "-"}
                                     </td>
-                                    <td className="px-6 py-2 text-right font-semibold text-sm text-slate-500">
+                                    <td className="px-6 py-2 text-right font-normal text-sm text-slate-500">
                                       {account.priorAmount !== undefined && account.priorAmount !== 0 ? `${getTotalAssetsPercentage(account.priorAmount, true).toFixed(1)}%` : "-"}
                                     </td>
                                   </>
@@ -1652,15 +1796,15 @@ export function BalanceSheetDetail({
                             
                             {view === "ddm" && (
                               <>
-                                <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
+                                <td className="px-6 py-2 text-right font-normal text-sm text-slate-700">
                                   {account.amount !== 0 ? formatCurrency(account.amount) : "-"}
                                 </td>
-                                <td className="px-6 py-2 text-right font-semibold text-sm text-slate-500">
+                                <td className="px-6 py-2 text-right font-normal text-sm text-slate-500">
                                   {account.priorAmount !== undefined && account.priorAmount !== 0 ? formatCurrency(account.priorAmount) : "-"}
                                 </td>
                                 {columnMode === "variationPercent" ? (
                                   <td
-                                    className={`px-6 py-2 text-right font-semibold text-sm ${
+                                    className={`px-6 py-2 text-right font-normal text-sm ${
                                       accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"
                                     }`}
                                   >
@@ -1670,7 +1814,7 @@ export function BalanceSheetDetail({
                                   </td>
                                 ) : columnMode === "variationAmount" ? (
                                   <td
-                                    className={`px-6 py-2 text-right font-semibold text-sm ${
+                                    className={`px-6 py-2 text-right font-normal text-sm ${
                                       accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"
                                     }`}
                                   >
@@ -1680,10 +1824,10 @@ export function BalanceSheetDetail({
                                   </td>
                                 ) : (
                                   <>
-                                    <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
+                                    <td className="px-6 py-2 text-right font-normal text-sm text-slate-700">
                                       {account.amount !== 0 ? `${getTotalAssetsPercentage(account.amount, false).toFixed(1)}%` : "-"}
                                     </td>
-                                    <td className="px-6 py-2 text-right font-semibold text-sm text-slate-500">
+                                    <td className="px-6 py-2 text-right font-normal text-sm text-slate-500">
                                       {account.priorAmount !== undefined && account.priorAmount !== 0 ? `${getTotalAssetsPercentage(account.priorAmount, true).toFixed(1)}%` : "-"}
                                     </td>
                                   </>
@@ -1693,15 +1837,15 @@ export function BalanceSheetDetail({
                             
                             {view === "ytd" && (
                               <>
-                                <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
+                                <td className="px-6 py-2 text-right font-normal text-sm text-slate-700">
                                   {account.amount !== 0 ? formatCurrency(account.amount) : "-"}
                                 </td>
-                                <td className="px-6 py-2 text-right font-semibold text-sm text-slate-500">
+                                <td className="px-6 py-2 text-right font-normal text-sm text-slate-500">
                                   {account.priorAmount !== undefined && account.priorAmount !== 0 ? formatCurrency(account.priorAmount) : "-"}
                                 </td>
                                 {columnMode === "variationPercent" ? (
                                   <td
-                                    className={`px-6 py-2 text-right font-semibold text-sm ${
+                                    className={`px-6 py-2 text-right font-normal text-sm ${
                                       accountVariation && accountVariation >= 0 ? "text-emerald-600" : "text-red-600"
                                     }`}
                                   >
@@ -1711,7 +1855,7 @@ export function BalanceSheetDetail({
                                   </td>
                                 ) : columnMode === "variationAmount" ? (
                                   <td
-                                    className={`px-6 py-2 text-right font-semibold text-sm ${
+                                    className={`px-6 py-2 text-right font-normal text-sm ${
                                       accountVariationAmount >= 0 ? "text-emerald-600" : "text-red-600"
                                     }`}
                                   >
@@ -1721,10 +1865,10 @@ export function BalanceSheetDetail({
                                   </td>
                                 ) : (
                                   <>
-                                    <td className="px-6 py-2 text-right font-semibold text-sm text-slate-700">
+                                    <td className="px-6 py-2 text-right font-normal text-sm text-slate-700">
                                       {account.amount !== 0 ? `${getTotalAssetsPercentage(account.amount, false).toFixed(1)}%` : "-"}
                                     </td>
-                                    <td className="px-6 py-2 text-right font-semibold text-sm text-slate-500">
+                                    <td className="px-6 py-2 text-right font-normal text-sm text-slate-500">
                                       {account.priorAmount !== undefined && account.priorAmount !== 0 ? `${getTotalAssetsPercentage(account.priorAmount, true).toFixed(1)}%` : "-"}
                                     </td>
                                   </>
@@ -1740,7 +1884,7 @@ export function BalanceSheetDetail({
                                     <td
                                       key={valueIdx}
                                       className={cn(
-                                        "px-4 py-2 text-right font-semibold text-sm text-slate-700",
+                                        "px-4 py-2 text-right font-normal text-sm text-slate-700",
                                         isForecastSection && view === "years" && valueIdx === 0 ? "bg-slate-50" : ""
                                       )}
                                     >
@@ -1766,7 +1910,7 @@ export function BalanceSheetDetail({
                                     <td 
                                       key={emptyIdx} 
                                       className={cn(
-                                        "px-4 py-2 text-right font-semibold text-sm text-slate-400",
+                                        "px-4 py-2 text-right font-normal text-sm text-slate-400",
                                         isForecastSection && view === "years" && emptyIdx === 0 ? "bg-slate-50" : ""
                                       )}
                                     >
@@ -1787,7 +1931,7 @@ export function BalanceSheetDetail({
                                   return (
                                     <td
                                       key={entity.id}
-                                      className="px-6 py-2 text-right font-semibold text-sm text-slate-700"
+                                      className="px-6 py-2 text-right font-normal text-sm text-slate-700"
                                     >
                                       {accountAmount !== 0 ? formatCurrency(accountAmount) : "-"}
                                     </td>

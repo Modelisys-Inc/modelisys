@@ -5,7 +5,6 @@ import { Loader2, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -33,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  ApiError,
   createStandardLinkCode,
   deleteStandardLinkCode,
   updateStandardLinkCode,
@@ -43,7 +43,8 @@ import {
   cashFlowAttachableLinkCodeOptions,
   isCashFlowFamily,
   isComputedNetIncomeLinkCode,
-  NET_INCOME_SUM_FAMILIES,
+  NET_INCOME_EXPENSE_FAMILIES,
+  NET_INCOME_REVENUE_FAMILIES,
 } from "@/lib/standard-link-code-utils"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
@@ -210,7 +211,13 @@ export function StandardLinkCodeFormDialog({
           attached_link_codes: isCashFlow ? form.attached_link_codes : [],
         })
       } else if (initialCode) {
+        const nextCode = form.code.trim()
+        if (!nextCode) {
+          setError("Le code est obligatoire.")
+          return
+        }
         await updateStandardLinkCode(initialCode.code, {
+          ...(nextCode !== initialCode.code ? { new_code: nextCode } : {}),
           parent_code: parentCode,
           label_sub_account: label,
           label_account: null,
@@ -236,7 +243,7 @@ export function StandardLinkCodeFormDialog({
       onSaved()
       onOpenChange(false)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Impossible de supprimer ce code")
+      setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Impossible de supprimer ce code")
     } finally {
       setDeleting(false)
     }
@@ -257,7 +264,7 @@ export function StandardLinkCodeFormDialog({
               ? isCashFlow
                 ? "Créez un code Trésorerie et associez-y des codes Bilan ou Compte de résultat."
                 : "Le code sera ajouté sous son parent si vous en sélectionnez un."
-              : `Mise à jour de ${initialCode?.code ?? "ce code"}.`}
+              : `Mise à jour de ${initialCode?.code ?? "ce code"}. Vous pouvez renommer le code (ex. CMV.11 → CMV.12) pour libérer l’ancien identifiant.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -302,14 +309,28 @@ export function StandardLinkCodeFormDialog({
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-                <span className="text-xs font-medium text-slate-500">Code</span>
-                <p className="mt-0.5 font-mono text-sm font-semibold text-slate-800">{form.code}</p>
-              </div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-                <span className="text-xs font-medium text-slate-500">Famille</span>
-                <p className="mt-0.5 font-mono text-sm font-semibold text-slate-800">{form.family}</p>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="slc-code-edit">Code *</Label>
+                  {initialCode && isComputedNetIncomeLinkCode(initialCode.code) ? (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                      <p className="font-mono text-sm font-semibold text-slate-800">{form.code}</p>
+                    </div>
+                  ) : (
+                    <Input
+                      id="slc-code-edit"
+                      value={form.code}
+                      onChange={(e) => setField("code", e.target.value)}
+                      className="font-mono"
+                      required
+                    />
+                  )}
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+                  <span className="text-xs font-medium text-slate-500">Famille</span>
+                  <p className="mt-0.5 font-mono text-sm font-semibold text-slate-800">{form.family}</p>
+                </div>
               </div>
             </div>
           )}
@@ -400,9 +421,11 @@ export function StandardLinkCodeFormDialog({
 
           {initialCode && isComputedNetIncomeLinkCode(initialCode.code) ? (
             <p className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
-              Ce code est calculé automatiquement (somme des codes feuilles des familles{" "}
-              {NET_INCOME_SUM_FAMILIES.join(", ")}). Aucun compte du grand livre ne doit lui être
-              associé dans le mapping comptable.
+              Ce code est calculé automatiquement : (REV × −1) − (
+              {[...NET_INCOME_EXPENSE_FAMILIES].join(" + ")}), cumulé depuis le début de
+              l’exercice jusqu’au mois affiché. Familles revenus :{" "}
+              {[...NET_INCOME_REVENUE_FAMILIES].join(", ")}. Aucun compte du grand livre ne
+              doit lui être associé dans le mapping comptable.
             </p>
           ) : null}
 
@@ -471,13 +494,14 @@ export function StandardLinkCodeFormDialog({
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Annuler</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => void handleDelete()}
-                      disabled={deleting}
+                    <Button
+                      type="button"
+                      disabled={deleting || childCodes.length > 0}
                       className="bg-red-600 text-white hover:bg-red-700"
+                      onClick={() => void handleDelete()}
                     >
                       {deleting ? "Suppression…" : "Supprimer définitivement"}
-                    </AlertDialogAction>
+                    </Button>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>

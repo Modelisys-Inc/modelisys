@@ -45,10 +45,12 @@ async function setupViewer(page: Page) {
       body: JSON.stringify({
         mappings: [
           {
-            id: "am1", account_number: "1000", description: "Cash", link_code: null,
+            id: "am1", account_number: "1000", description: "Cash", link_code: "ACT-A.1",
             summary_ef: null, detail_ef: null, divisions: null, sub_divisions: null,
             fdrhc: false, interests: false, amortization: false, variable_costs: false,
-            fixed_costs: false, product: null, customer: null, supplier: null, interco_company_id: null,
+            fixed_costs: false, variable_cost_revenue_link_code: null,
+            liability_remaining_years: null, liability_interest_rate: null,
+            product: null, customer: null, supplier: null, interco_company_id: null,
           },
         ],
         total: 1, limit: 1000, offset: 0, has_more: false,
@@ -58,6 +60,41 @@ async function setupViewer(page: Page) {
   await page.route("**/api/companies/*/statement-structures/*", (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ structure: [] }) }),
   )
+  await page.route("**/api/standard-link-codes/flat*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          code: "ACT-A",
+          family: "ACT",
+          parent_code: null,
+          label: "Actif court terme",
+          label_account: "Actif court terme",
+          label_sub_account: null,
+          is_leaf: false,
+          sort_order: 0,
+          is_active: true,
+          attached_link_codes: [],
+        },
+        {
+          code: "ACT-A.1",
+          family: "ACT",
+          parent_code: "ACT-A",
+          label: "Encaisse",
+          label_account: "Actif court terme",
+          label_sub_account: "Encaisse",
+          is_leaf: true,
+          sort_order: 1,
+          is_active: true,
+          attached_link_codes: [],
+        },
+      ]),
+    }),
+  )
+  await page.route(`**/api/companies/${COMPANY_ID}/custom-link-codes*`, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([]) }),
+  )
 }
 
 test("viewer sees the mapping page read-only", async ({ page }) => {
@@ -66,7 +103,11 @@ test("viewer sees the mapping page read-only", async ({ page }) => {
 
   // Data is visible...
   await expect(page.getByText("1000")).toBeVisible()
-  // ...but no edit controls.
+  await expect(page.getByRole("columnheader", { name: /Parent/ })).toBeVisible()
+  await expect(page.getByRole("cell", { name: "ACT-A", exact: true })).toBeVisible()
+  await expect(page.getByRole("cell", { name: "ACT-A.1" })).toBeVisible()
+  // ...but no import or row settings for viewers.
   await expect(page.getByRole("button", { name: "Importer Excel" })).toHaveCount(0)
-  await expect(page.getByRole("button", { name: "Modifier le code de liaison pour 1000" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: /Paramètres du compte/ })).toHaveCount(0)
+  await expect(page.getByRole("checkbox", { name: /Sélectionner/ })).toHaveCount(0)
 })

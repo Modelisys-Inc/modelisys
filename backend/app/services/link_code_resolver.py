@@ -45,6 +45,7 @@ def valid_leaf_codes(
         .filter(
             StandardLinkCode.code.in_(requested_set),
             StandardLinkCode.is_leaf.is_(True),
+            StandardLinkCode.is_active.is_(True),
         )
         .all()
         if is_mappable_standard_link_code(row.code, row.is_leaf, row.family)

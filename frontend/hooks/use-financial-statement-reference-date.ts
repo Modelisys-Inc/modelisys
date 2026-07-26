@@ -11,7 +11,8 @@ export function isFinancialStatementPath(pathname: string | null): boolean {
   return (
     pathname.startsWith("/financial-statements/income-statement") ||
     pathname.startsWith("/financial-statements/balance-sheet") ||
-    pathname.startsWith("/financial-statements/cash-flow")
+    pathname.startsWith("/financial-statements/cash-flow") ||
+    pathname.startsWith("/analysis/working-capital")
   )
 }
 

@@ -87,7 +87,7 @@ def sort_codes_hierarchically(codes: list) -> list:
 from app.services.standard_link_code_utils import (
     NET_INCOME_BALANCE_LINK_CODE,
     build_net_income_balance_structure_row,
-    income_statement_leaf_codes_for_net_income,
+    income_statement_net_income_code_split,
 )
 
 
@@ -124,9 +124,9 @@ def _rows_for_family(codes: list, *, db: "Session | None" = None) -> list[dict]:
     family = codes[0].family if codes else ""
     top_level = [c for c in codes if c.parent_code is None]
 
-    net_income_sum_codes: list[str] | None = None
+    net_income_split: tuple[list[str], list[str]] | None = None
     if db is not None:
-        net_income_sum_codes = income_statement_leaf_codes_for_net_income(db)
+        net_income_split = income_statement_net_income_code_split(db)
 
     def _emit(code, depth: int = 0):
         indent = depth > 0
@@ -141,9 +141,10 @@ def _rows_for_family(codes: list, *, db: "Session | None" = None) -> list[dict]:
             for child in children:
                 _emit(child, depth + 1)
         else:
-            if code.code == NET_INCOME_BALANCE_LINK_CODE and net_income_sum_codes is not None:
+            if code.code == NET_INCOME_BALANCE_LINK_CODE and net_income_split is not None:
+                rev_codes, exp_codes = net_income_split
                 rows.append(
-                    build_net_income_balance_structure_row(code, net_income_sum_codes)
+                    build_net_income_balance_structure_row(code, rev_codes, exp_codes)
                 )
             else:
                 rows.append({
@@ -392,7 +393,7 @@ def standard_link_code_display_label(code) -> str:
 
 
 def _normalize_liaison_mode(row: dict) -> str:
-    """na | single | sum | difference — aligned with financial_statements and frontend."""
+    """na | single | sum | difference | product | quotient — aligned with frontend."""
     raw = row.get("liaisonMode")
     if isinstance(raw, str) and raw.strip():
         m = raw.strip().lower()
@@ -404,6 +405,10 @@ def _normalize_liaison_mode(row: dict) -> str:
             return "sum"
         if m in ("difference", "subtraction", "subtract"):
             return "difference"
+        if m in ("product", "multiplication", "multiply", "×"):
+            return "product"
+        if m in ("quotient", "division", "divide", "÷"):
+            return "quotient"
     lc = str(row.get("linkCode") or row.get("link_code") or "").strip()
     if lc:
         return "single"

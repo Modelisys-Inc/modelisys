@@ -67,6 +67,10 @@ export default function DebtPage() {
             companies={companies}
             title="Estimation des Dettes annuelles"
             projectionYears={projectionYears}
+            forecastBaseYear={new Date().getFullYear() + 1}
+            fiscalYear={new Date().getFullYear()}
+            referenceMonth={12}
+            projectionHorizon="annual"
           />
         </div>
       </main>

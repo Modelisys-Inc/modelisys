@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { BalanceSheetSummary } from "@/components/balance-sheet-summary"
 import { BalanceSheetDetail } from "@/components/balance-sheet-detail"
 import { StatementChart } from "@/components/statement-chart"
@@ -110,6 +110,32 @@ export default function BalanceSheetPage() {
     }
   }, [section, view])
 
+  const summaryViewInitializedRef = useRef(false)
+  const detailViewInitializedRef = useRef(false)
+
+  const applySummaryDetailViewDefaults = useCallback(() => {
+    setPeriod("monthly")
+    setView("comparison")
+    setComparisonType("lastMonth")
+    setColumnMode("variationAmount")
+    setSelectedBudgetId(null)
+  }, [])
+
+  const selectSection = useCallback(
+    (next: Section) => {
+      if (next === "summary" && !summaryViewInitializedRef.current) {
+        applySummaryDetailViewDefaults()
+        summaryViewInitializedRef.current = true
+      }
+      if (next === "detail" && !detailViewInitializedRef.current) {
+        applySummaryDetailViewDefaults()
+        detailViewInitializedRef.current = true
+      }
+      setSection(next)
+    },
+    [applySummaryDetailViewDefaults]
+  )
+
   // --- Fetch financial statement data from the API ---
   const [rows, setRows] = useState<FinancialStatementRow[]>([])
   const [loading, setLoading] = useState(false)
@@ -175,7 +201,7 @@ export default function BalanceSheetPage() {
           budget_id: comparisonType === "budget" && selectedBudgetId ? selectedBudgetId : undefined,
           division_id: selectedDivisionId || undefined,
           sub_division_id: selectedSubDivisionId || undefined,
-          structure_rev: structureVersion > 0 ? structureVersion : undefined,
+          structure_rev: structureVersion,
         }
 
         const response = await getBalanceSheet(companyId, params)
@@ -294,7 +320,7 @@ export default function BalanceSheetPage() {
                   <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
                     <Button
                       variant="ghost"
-                      onClick={() => setSection("dashboard")}
+                      onClick={() => selectSection("dashboard")}
                       className={`h-8 text-xs px-3 transition-all ${
                         section === "dashboard"
                           ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
@@ -305,7 +331,7 @@ export default function BalanceSheetPage() {
                     </Button>
                     <Button
                       variant="ghost"
-                      onClick={() => setSection("summary")}
+                      onClick={() => selectSection("summary")}
                       className={`h-8 text-xs px-3 transition-all ${
                         section === "summary"
                           ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
@@ -316,7 +342,7 @@ export default function BalanceSheetPage() {
                     </Button>
                     <Button
                       variant="ghost"
-                      onClick={() => setSection("detail")}
+                      onClick={() => selectSection("detail")}
                       className={`h-8 text-xs px-3 transition-all ${
                         section === "detail"
                           ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"

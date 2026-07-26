@@ -29,6 +29,7 @@ class TrialBalanceUploadResponse(BaseModel):
     company_id: uuid.UUID
     fiscal_year: int
     accounts_imported: int
+    months_imported: int = 1
     message: str
 
 
@@ -54,6 +55,14 @@ class TrialBalanceUnknownAccountPreview(BaseModel):
     amount: float
 
 
+class TrialBalanceMonthPreview(BaseModel):
+    year: int
+    month: int
+    label: str
+    amount_sum: float
+    balance_is_valid: bool
+
+
 class TrialBalanceUploadPreviewResponse(BaseModel):
     company_id: uuid.UUID
     fiscal_year: int
@@ -62,3 +71,8 @@ class TrialBalanceUploadPreviewResponse(BaseModel):
     balance_is_valid: bool
     row_count: int
     unknown_accounts: list[TrialBalanceUnknownAccountPreview]
+    import_mode: str = "single"
+    start_year: int | None = None
+    start_month: int | None = None
+    month_count: int = 1
+    month_previews: list[TrialBalanceMonthPreview] = Field(default_factory=list)

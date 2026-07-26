@@ -66,6 +66,7 @@ class StandardLinkCodeCreate(BaseModel):
 
 
 class StandardLinkCodeUpdate(BaseModel):
+    new_code: str | None = None
     parent_code: str | None = None
     label_account: str | None = None
     label_sub_account: str | None = None

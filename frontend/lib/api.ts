@@ -415,20 +415,43 @@ export async function listTrialBalanceReferencePeriods(
   return out
 }
 
+export type DeleteTrialBalanceParams =
+  | { fiscalYear: number; month: number }
+  | { fiscalYear: number; months: number[] }
+  | { fiscalYear: number; allMonths: true }
+  | { deleteAll: true }
+
+/** Supprime des périodes de balance (un mois, plusieurs, une année entière ou tout). */
+export async function deleteTrialBalancePeriods(
+  companyId: string,
+  params: DeleteTrialBalanceParams
+): Promise<TrialBalanceData> {
+  const query = new URLSearchParams()
+  if ("deleteAll" in params && params.deleteAll) {
+    query.set("delete_all", "true")
+  } else if ("allMonths" in params && params.allMonths) {
+    query.set("fiscal_year", params.fiscalYear.toString())
+    query.set("all_months", "true")
+  } else if ("months" in params) {
+    query.set("fiscal_year", params.fiscalYear.toString())
+    query.set("months", params.months.join(","))
+  } else {
+    query.set("fiscal_year", params.fiscalYear.toString())
+    query.set("month", params.month.toString())
+  }
+  return apiFetch<TrialBalanceData>(
+    `/api/companies/${companyId}/trial-balance?${query.toString()}`,
+    { method: "DELETE" }
+  )
+}
+
 /** Supprime toutes les écritures de balance pour un mois donné (exercice + mois). */
 export async function deleteTrialBalanceMonth(
   companyId: string,
   fiscalYear: number,
   month: number
 ): Promise<TrialBalanceData> {
-  const params = new URLSearchParams({
-    fiscal_year: fiscalYear.toString(),
-    month: month.toString(),
-  })
-  return apiFetch<TrialBalanceData>(
-    `/api/companies/${companyId}/trial-balance?${params.toString()}`,
-    { method: "DELETE" }
-  )
+  return deleteTrialBalancePeriods(companyId, { fiscalYear, month })
 }
 
 // --- Account Mappings API ---
@@ -447,6 +470,9 @@ export interface AccountMappingData {
   amortization: boolean
   variable_costs: boolean
   fixed_costs: boolean
+  variable_cost_revenue_link_code: string | null
+  liability_remaining_years: number | null
+  liability_interest_rate: number | null
   product: string | null
   customer: string | null
   supplier: string | null
@@ -487,6 +513,9 @@ export async function upsertAccountMappings(
     amortization?: boolean
     variable_costs?: boolean
     fixed_costs?: boolean
+    variable_cost_revenue_link_code?: string | null
+    liability_remaining_years?: number | null
+    liability_interest_rate?: number | null
     product?: string | null
     customer?: string | null
     supplier?: string | null
@@ -554,7 +583,7 @@ export async function listStatementStructures(
   return data.structures;
 }
 
-export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "capex" | "baiia";
+export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "working-capital" | "capex" | "baiia";
 
 export async function getStatementStructure(
   companyId: string,
@@ -704,6 +733,15 @@ export async function getCashFlow(
 ): Promise<FinancialStatementResponse> {
   return apiFetch<FinancialStatementResponse>(
     `/api/companies/${companyId}/financial-statements/cash-flow${buildFinancialStatementQuery(params)}`
+  )
+}
+
+export async function getCashFlowDetail(
+  companyId: string,
+  params: FinancialStatementParams
+): Promise<FinancialStatementResponse> {
+  return apiFetch<FinancialStatementResponse>(
+    `/api/companies/${companyId}/financial-statements/cash-flow-detail${buildFinancialStatementQuery(params)}`
   )
 }
 
@@ -1451,7 +1489,7 @@ export interface FinancialStatementSeriesParams {
 
 export async function getFinancialStatementSeries(
   companyId: string,
-  statementType: string,  // "income-statement" | "balance-sheet" | "cash-flow"
+  statementType: string,  // "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail"
   params: FinancialStatementSeriesParams
 ): Promise<FinancialStatementSeriesResponse> {
   const query = new URLSearchParams()
@@ -1504,6 +1542,14 @@ export interface TrialBalanceUnknownAccountPreview {
   amount: number
 }
 
+export interface TrialBalanceMonthPreview {
+  year: number
+  month: number
+  label: string
+  amount_sum: number
+  balance_is_valid: boolean
+}
+
 export interface TrialBalanceUploadPreview {
   company_id: string
   fiscal_year: number
@@ -1512,19 +1558,43 @@ export interface TrialBalanceUploadPreview {
   balance_is_valid: boolean
   row_count: number
   unknown_accounts: TrialBalanceUnknownAccountPreview[]
+  import_mode?: "single" | "multi"
+  start_year?: number | null
+  start_month?: number | null
+  month_count?: number
+  month_previews?: TrialBalanceMonthPreview[]
+}
+
+export type TrialBalanceUploadOptions = {
+  fiscalYear?: number
+  month?: number
+  importMode?: "single" | "multi"
+  startYear?: number
+  startMonth?: number
+  monthCount?: number
+}
+
+function appendTrialBalanceUploadParams(
+  params: URLSearchParams,
+  options?: TrialBalanceUploadOptions,
+) {
+  if (options?.fiscalYear != null) params.set("fiscal_year", options.fiscalYear.toString())
+  if (options?.month != null) params.set("month", options.month.toString())
+  if (options?.importMode) params.set("import_mode", options.importMode)
+  if (options?.startYear != null) params.set("start_year", options.startYear.toString())
+  if (options?.startMonth != null) params.set("start_month", options.startMonth.toString())
+  if (options?.monthCount != null) params.set("month_count", options.monthCount.toString())
 }
 
 export async function previewTrialBalanceUpload(
   companyId: string,
   file: File,
-  fiscalYear?: number,
-  month?: number
+  options?: TrialBalanceUploadOptions,
 ): Promise<TrialBalanceUploadPreview> {
   const formData = new FormData()
   formData.append("file", file)
   const params = new URLSearchParams()
-  if (fiscalYear != null) params.set("fiscal_year", fiscalYear.toString())
-  if (month != null) params.set("month", month.toString())
+  appendTrialBalanceUploadParams(params, options)
   const query = params.toString() ? `?${params.toString()}` : ""
 
   return apiFetch<TrialBalanceUploadPreview>(
@@ -1536,15 +1606,13 @@ export async function previewTrialBalanceUpload(
 export async function uploadTrialBalance(
   companyId: string,
   file: File,
-  fiscalYear?: number,
-  month?: number,
+  options?: TrialBalanceUploadOptions,
   ignoredAccounts?: string[]
-): Promise<{ accounts_imported: number; message: string }> {
+): Promise<{ accounts_imported: number; months_imported?: number; message: string }> {
   const formData = new FormData()
   formData.append("file", file)
   const params = new URLSearchParams()
-  if (fiscalYear != null) params.set("fiscal_year", fiscalYear.toString())
-  if (month != null) params.set("month", month.toString())
+  appendTrialBalanceUploadParams(params, options)
   for (const acc of ignoredAccounts ?? []) {
     const v = String(acc || "").trim()
     if (v) params.append("ignored_accounts", v)
@@ -2096,6 +2164,10 @@ export type StandardLinkCodeCreate = {
   sort_order?: number | null
 }
 
+export type StandardLinkCodeUpdate = Partial<Omit<StandardLinkCodeCreate, "code" | "family">> & {
+  new_code?: string
+}
+
 /** Create a global standard code (superadmin only). */
 export async function createStandardLinkCode(payload: StandardLinkCodeCreate): Promise<StandardLinkCode> {
   return apiFetch<StandardLinkCode>("/api/standard-link-codes", {
@@ -2107,7 +2179,7 @@ export async function createStandardLinkCode(payload: StandardLinkCodeCreate): P
 /** Edit a global code's metadata (superadmin only). */
 export async function updateStandardLinkCode(
   code: string,
-  payload: Partial<StandardLinkCodeCreate>,
+  payload: StandardLinkCodeUpdate,
 ): Promise<StandardLinkCode> {
   return apiFetch<StandardLinkCode>(`/api/standard-link-codes/${encodeURIComponent(code)}`, {
     method: "PATCH",

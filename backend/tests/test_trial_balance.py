@@ -534,3 +534,170 @@ def test_upload_csv_balanced_ok(client, auth_headers):
     )
     assert response.status_code == 200
     assert response.json()["accounts_imported"] == 2
+
+
+def test_upload_multi_month_preview_and_import(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    _put_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "1000", "description": "Cash"},
+        {"account_number": "2000", "description": "Payable"},
+    ])
+    csv_content = (
+        "#,Description,Jan 2024,Feb 2024\n"
+        "1000,Cash,100,50\n"
+        "2000,Payable,-100,-50\n"
+    ).encode("utf-8-sig")
+
+    preview = client.post(
+        f"/api/companies/{company_id}/trial-balance/upload-preview"
+        "?import_mode=multi&start_year=2024&start_month=1&month_count=2",
+        files={"file": ("tb.csv", BytesIO(csv_content), "text/csv")},
+        headers=auth_headers,
+    )
+    assert preview.status_code == 200
+    data = preview.json()
+    assert data["import_mode"] == "multi"
+    assert data["balance_is_valid"] is True
+    assert len(data["month_previews"]) == 2
+    assert data["month_previews"][0]["label"] == "Janvier 2024"
+
+    upload = client.post(
+        f"/api/companies/{company_id}/trial-balance/upload"
+        "?import_mode=multi&start_year=2024&start_month=1&month_count=2",
+        files={"file": ("tb.csv", BytesIO(csv_content), "text/csv")},
+        headers=auth_headers,
+    )
+    assert upload.status_code == 200
+    body = upload.json()
+    assert body["accounts_imported"] == 2
+    assert body["months_imported"] == 2
+
+    tb = client.get(
+        f"/api/companies/{company_id}/trial-balance?fiscal_year=2024",
+        headers=auth_headers,
+    )
+    assert tb.status_code == 200
+    accounts = {a["account_number"]: a for a in tb.json()["accounts"]}
+    assert accounts["1000"]["monthly_amounts"]["Janvier"] == 100.0
+    assert accounts["1000"]["monthly_amounts"]["Février"] == 50.0
+
+
+# --- DELETE trial balance ---
+
+
+def test_delete_trial_balance_single_month(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    _put_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "1000", "description": "Cash"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "1000",
+            "description": "Cash",
+            "monthly_amounts": {"Janvier": 100.0, "Février": 200.0},
+        },
+    ])
+
+    response = client.delete(
+        f"/api/companies/{company_id}/trial-balance?fiscal_year=2024&month=1",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["months_with_data"] == [2]
+    assert data["accounts"][0]["monthly_amounts"]["Janvier"] == 0.0
+    assert data["accounts"][0]["monthly_amounts"]["Février"] == 200.0
+
+
+def test_delete_trial_balance_multiple_months(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    _put_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "1000", "description": "Cash"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "1000",
+            "description": "Cash",
+            "monthly_amounts": {"Janvier": 100.0, "Février": 200.0, "Mars": 300.0},
+        },
+    ])
+
+    response = client.delete(
+        f"/api/companies/{company_id}/trial-balance?fiscal_year=2024&months=1,3",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["months_with_data"] == [2]
+    amounts = data["accounts"][0]["monthly_amounts"]
+    assert amounts["Janvier"] == 0.0
+    assert amounts["Février"] == 200.0
+    assert amounts["Mars"] == 0.0
+
+
+def test_delete_trial_balance_all_months_for_year(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    _put_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "1000", "description": "Cash"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "1000",
+            "description": "Cash",
+            "monthly_amounts": {"Janvier": 100.0, "Février": 200.0},
+        },
+    ], fiscal_year=2024)
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "1000",
+            "description": "Cash",
+            "monthly_amounts": {"Janvier": 500.0},
+        },
+    ], fiscal_year=2025)
+
+    response = client.delete(
+        f"/api/companies/{company_id}/trial-balance?fiscal_year=2024&all_months=true",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["months_with_data"] == []
+
+    tb_2025 = client.get(
+        f"/api/companies/{company_id}/trial-balance?fiscal_year=2025",
+        headers=auth_headers,
+    )
+    assert tb_2025.json()["months_with_data"] == [1]
+
+
+def test_delete_trial_balance_all_periods(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    _put_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "1000", "description": "Cash"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "1000",
+            "description": "Cash",
+            "monthly_amounts": {"Janvier": 100.0},
+        },
+    ], fiscal_year=2024)
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "1000",
+            "description": "Cash",
+            "monthly_amounts": {"Mars": 300.0},
+        },
+    ], fiscal_year=2025)
+
+    response = client.delete(
+        f"/api/companies/{company_id}/trial-balance?delete_all=true",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["months_with_data"] == []
+
+    years = client.get(
+        f"/api/companies/{company_id}/trial-balance/fiscal-years",
+        headers=auth_headers,
+    )
+    assert years.json() == []

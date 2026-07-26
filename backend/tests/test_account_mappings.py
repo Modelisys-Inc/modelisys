@@ -98,6 +98,26 @@ def test_upsert_account_mappings_all_fields(client, auth_headers):
     assert m["interco_company_id"] == interco_id
 
 
+def test_upsert_account_mappings_liability_term_fields(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+
+    entry = {
+        "account_number": "2500",
+        "description": "Long-term debt",
+        "liability_remaining_years": 7.5,
+        "liability_interest_rate": 5.25,
+    }
+    response = client.put(
+        f"/api/companies/{company_id}/account-mappings",
+        json=[entry],
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    m = response.json()["mappings"][0]
+    assert float(m["liability_remaining_years"]) == 7.5
+    assert float(m["liability_interest_rate"]) == 5.25
+
+
 def test_account_mappings_ordered_by_account_number(client, auth_headers):
     company_id = _create_company(client, auth_headers)
     entries = [

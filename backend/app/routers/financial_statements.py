@@ -2,12 +2,10 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import exists, func
 
 from app.database import get_db
 from app.dependencies import get_current_user, verify_company_access
 from app.models.company import Company
-from app.models.trial_balance import TrialBalanceEntry
 from app.models.user import User
 from app.schemas.financial_statement import (
     FinancialStatementResponse,
@@ -80,48 +78,6 @@ def get_balance_sheet(
     db: Session = Depends(get_db),
 ):
     company = verify_company_access(db, current_user, company_id)
-
-    # If there is no trial balance import for this exact reference date (calendar year + month),
-    # OR if the imported entries are effectively all zeros, do NOT "carry forward" balances.
-    # This prevents the balance-sheet cumulative logic from repeating the last imported month.
-    has_tb_for_ref = db.query(
-        exists().where(
-            TrialBalanceEntry.company_id == company_id,
-            TrialBalanceEntry.fiscal_year == fiscal_year,
-            TrialBalanceEntry.month == month,
-        )
-    ).scalar()
-    if not has_tb_for_ref:
-        return FinancialStatementResponse(
-            companyId=str(company.id),
-            statementType="balance-sheet",
-            fiscalYear=fiscal_year,
-            month=month,
-            period=period,
-            comparisonType=comparison_type,
-            rows=[],
-        )
-
-    total_abs = (
-        db.query(func.coalesce(func.sum(func.abs(TrialBalanceEntry.amount)), 0))
-        .filter(
-            TrialBalanceEntry.company_id == company_id,
-            TrialBalanceEntry.fiscal_year == fiscal_year,
-            TrialBalanceEntry.month == month,
-        )
-        .scalar()
-    )
-    if not total_abs or float(total_abs) == 0.0:
-        return FinancialStatementResponse(
-            companyId=str(company.id),
-            statementType="balance-sheet",
-            fiscalYear=fiscal_year,
-            month=month,
-            period=period,
-            comparisonType=comparison_type,
-            rows=[],
-        )
-
     fy, fm = _convert_calendar_to_fiscal(company, fiscal_year, month)
     return compute_financial_statement(
         db, company, "balance-sheet", fy, fm,
@@ -145,15 +101,40 @@ def get_cash_flow(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Cash flow is derived from the income statement and balance sheet deltas.
+    """Cash-flow summary computed from the company `cash-flow` structure.
 
-    For now, we treat it as a separate statement structure type that can be
-    configured per company, similar to income-statement and balance-sheet.
+    Link codes (TEX/TIN/TFI) expand via attached Bilan/CDR codes on the
+    Code de liaison page, then sum matching trial-balance accounts.
     """
     company = verify_company_access(db, current_user, company_id)
     fy, fm = _convert_calendar_to_fiscal(company, fiscal_year, month)
     return compute_financial_statement(
         db, company, "cash-flow", fy, fm,
+        period, comparison_type, budget_id, division_id, sub_division_id,
+        customer, supplier,
+    )
+
+
+@router.get("/cash-flow-detail", response_model=FinancialStatementResponse)
+def get_cash_flow_detail(
+    company_id: uuid.UUID,
+    fiscal_year: int = Query(...),
+    month: int = Query(default=12, ge=1, le=12),
+    period: str = Query(default="monthly"),
+    comparison_type: str = Query(default="prior_year"),
+    budget_id: uuid.UUID | None = Query(default=None),
+    division_id: uuid.UUID | None = Query(default=None),
+    sub_division_id: uuid.UUID | None = Query(default=None),
+    customer: str | None = Query(default=None),
+    supplier: str | None = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Cash-flow detail: same liaison/TB aggregation as summary, using `cash-flow-detail`."""
+    company = verify_company_access(db, current_user, company_id)
+    fy, fm = _convert_calendar_to_fiscal(company, fiscal_year, month)
+    return compute_financial_statement(
+        db, company, "cash-flow-detail", fy, fm,
         period, comparison_type, budget_id, division_id, sub_division_id,
         customer, supplier,
     )

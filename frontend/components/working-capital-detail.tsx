@@ -7,10 +7,19 @@ import { Company } from "@/components/entity-selector"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import { ComposedChart, Line, Area, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine, ReferenceArea, ResponsiveContainer, Cell } from "recharts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ChevronRight, ChevronDown } from "lucide-react"
+import { ChevronRight, ChevronDown, LayoutList } from "lucide-react"
 import { getFinancialStatementSeries, type FinancialStatementSeriesParams } from "@/lib/api"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { getRowAmounts, getPeriodLabels, aggregateToYears } from "@/lib/series-utils"
+import {
+  dashboardCardAccentClass,
+  dashboardCardBodyMutedClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardHeaderIconBoxClass,
+  dashboardCardRingClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 
 interface WorkingCapitalDetailProps {
   period: "monthly" | "quarterly" | "annual"
@@ -20,6 +29,9 @@ interface WorkingCapitalDetailProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
+  fiscalYear?: number
+  /** Mois calendaire (1–12) de la date de référence — borne la série (pas de mois futurs). */
+  referenceMonth?: number
 }
 
 interface BalanceAccount {
@@ -57,6 +69,8 @@ export function WorkingCapitalDetail({
   divisionId,
   subDivisionId,
   companies = [],
+  fiscalYear,
+  referenceMonth,
 }: WorkingCapitalDetailProps) {
   // State to track which accounts are excluded from working capital calculation (unchecked = excluded)
   const [excludedAccounts, setExcludedAccounts] = useState<Set<string>>(new Set())
@@ -108,14 +122,16 @@ export function WorkingCapitalDetail({
   }
   
   // Fetch series data for multi-period views
-  const currentYear = new Date().getFullYear()
+  const resolvedYear = fiscalYear ?? new Date().getFullYear()
+  const resolvedMonth = referenceMonth ?? new Date().getMonth() + 1
   const isMultiPeriod = view === "12months" || view === "24months" || view === "years"
   const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
 
   const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
     statementType: "balance-sheet",
-    fiscalYear: currentYear,
+    fiscalYear: resolvedYear,
+    month: resolvedMonth,
     months: monthsNeeded,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
@@ -148,8 +164,8 @@ export function WorkingCapitalDetail({
         indent: !sr.isBold && !sr.isSection && !sr.isResult,
         trendValues,
         accountId: sr.id,
-        rowId: sr.detailRows.length > 0 ? sr.id : undefined,
-        balanceAccounts: sr.detailRows.length > 0 ? sr.detailRows.map((dr) => {
+        rowId: (sr.detailRows?.length ?? 0) > 0 ? sr.id : undefined,
+        balanceAccounts: (sr.detailRows?.length ?? 0) > 0 ? sr.detailRows!.map((dr) => {
           const drAmounts = periods.map((p) => dr.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] || 0)
           return {
             accountNumber: dr.id,
@@ -255,7 +271,8 @@ export function WorkingCapitalDetail({
       for (const entity of entities) {
         try {
           const params: FinancialStatementSeriesParams = {
-            fiscal_year: currentYear,
+            fiscal_year: resolvedYear,
+            month: resolvedMonth,
             months: 12,
           }
           let entityCompanyId = companyId || ""
@@ -309,7 +326,7 @@ export function WorkingCapitalDetail({
 
     fetchEntityData()
     return () => { cancelled = true }
-  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, currentYear])
+  }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, resolvedYear, resolvedMonth])
 
   // Find total current assets value for percentage calculations
   const totalCurrentAssetsRow = data.find((row) => row.label.toLowerCase().includes("total actifs courants") && row.isSubtotal)
@@ -623,18 +640,21 @@ export function WorkingCapitalDetail({
   }
 
   return (
-    <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
+    <div className={cn("w-full", dashboardCardFrameStaticClass)}>
+      <div className={dashboardCardRingClass} aria-hidden />
       {/* Header */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">
+      <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 flex-1 items-start gap-4">
+            <div className={dashboardCardHeaderIconBoxClass}>
+              <LayoutList className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className={cn("mb-1 text-xl leading-tight", dashboardCardTitleClass)}>
                 {workingCapitalType === "FdRHC" ? "Composition du fonds de roulement hors caisse" : "Composition du fonds de roulement"}
               </h2>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                <span className="font-medium">{getHorizonText()}</span>
+              <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+                <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
                 <span className="text-slate-400">•</span>
                 {subDivisionId && divisionId && companyId ? (
                   <>
@@ -642,16 +662,16 @@ export function WorkingCapitalDetail({
                     <span className="text-slate-400">•</span>
                     <span>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
                     <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}</span>
                   </>
                 ) : divisionId && companyId ? (
                   <>
                     <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
                     <span className="text-slate-400">•</span>
-                    <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
+                    <span className={cn("font-semibold", dashboardCardAccentClass)}>{companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name || "Division"}</span>
                   </>
                 ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
+                  <span className={cn("font-semibold", dashboardCardAccentClass)}>{companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}</span>
                 ) : (
                   <span className="truncate">Toutes les sociétés</span>
                 )}
@@ -659,7 +679,7 @@ export function WorkingCapitalDetail({
             </div>
           </div>
           <Select value={workingCapitalType} onValueChange={(value: "FDR" | "FdRHC") => setWorkingCapitalType(value)}>
-            <SelectTrigger className="w-[120px] h-8 text-xs border-slate-300 text-slate-700">
+            <SelectTrigger className="h-8 w-[120px] border-2 border-slate-700/70 text-xs font-semibold text-[#2A2F3A]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -673,16 +693,16 @@ export function WorkingCapitalDetail({
       {/* Loading state */}
       {isMultiPeriod && seriesLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
         </div>
       )}
 
       {/* Table */}
       <div className="overflow-x-auto bg-white">
-        <table className="w-full">
+        <table className="w-full [&_th]:sticky [&_th]:top-0 [&_th]:z-10">
           <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Compte</th>
+            <tr className="border-b border-slate-200 bg-slate-50">
+              <th className="w-2/5 px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]">Compte</th>
               {view === "current" && (
                 <>
                   <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm w-[140px]">Courant</th>

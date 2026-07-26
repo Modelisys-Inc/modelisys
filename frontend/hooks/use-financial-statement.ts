@@ -5,17 +5,19 @@ import {
   getIncomeStatement,
   getBalanceSheet,
   getCashFlow,
+  getCashFlowDetail,
   type FinancialStatementRow,
   type FinancialStatementParams,
   type FinancialStatementResponse,
 } from "@/lib/api"
 
-type StatementType = "income-statement" | "balance-sheet" | "cash-flow"
+type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail"
 
 const fetchers: Record<StatementType, typeof getIncomeStatement> = {
   "income-statement": getIncomeStatement,
   "balance-sheet": getBalanceSheet,
   "cash-flow": getCashFlow,
+  "cash-flow-detail": getCashFlowDetail,
 }
 
 export function useFinancialStatement(
@@ -40,6 +42,14 @@ export function useFinancialStatement(
     setError(null)
 
     const fetcher = fetchers[type]
+    if (!fetcher) {
+      setError(`Unsupported statement type: ${type}`)
+      setRows([])
+      setData(null)
+      setLoading(false)
+      return
+    }
+
     fetcher(companyId, params)
       .then((response) => {
         setData(response)
@@ -63,6 +73,7 @@ export function useFinancialStatement(
     params.budget_id,
     params.division_id,
     params.sub_division_id,
+    params.structure_rev,
   ])
 
   return { data, rows, loading, error }

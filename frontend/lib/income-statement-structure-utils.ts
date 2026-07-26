@@ -2,11 +2,19 @@
 
 import type { StandardLinkCode } from "@/lib/api"
 import {
+  incomeStatementFamilyForSectionLabel,
+  incomeStatementFamilyHasMappedAccounts,
+  incomeStatementLinkCodeHasMappedAccounts,
+  standardParentCodeForSectionLabel,
+} from "@/lib/income-statement-mapping-rollup"
+import {
   CAPEX_PROJECTION_LINK_CODE_ROOTS,
   capexProjectionParentRoot,
   compareCapexProjectionLinkCodes,
-  getLeafDescendantsOfStandardLinkCode,
+  detailSubLineLiaisonFromStandardTarget,
+  getDetailSubLineCodesFromStandardLinkCode,
   isCapexProjectionLinkCode,
+  isComputedNetIncomeLinkCode,
   standardLinkCodeDisplayLabel,
 } from "@/lib/standard-link-code-utils"
 
@@ -260,6 +268,162 @@ export function isStructureRowHidden(row: Record<string, unknown>): boolean {
   return row.hidden === true
 }
 
+/** Champs à désactiver lors du masquage automatique (conserve le code de liaison pour réaffichage). */
+export function autoHideIncomeStatementSummaryRowPatch(): Record<string, unknown> {
+  return {
+    hidden: true,
+    defineMapping: false,
+    showInDetail: false,
+  }
+}
+
+/** Champs pour réafficher une ligne masquée automatiquement lorsque des comptes sont mappés. */
+export function autoUnhideIncomeStatementSummaryRowPatch(): Record<string, unknown> {
+  return { hidden: false }
+}
+
+/** Première ligne sommaire (non `detailOnly`) portant cette lettre d’annexe. */
+export function findSummaryAnnexOwnerRow(
+  structure: Record<string, unknown>[],
+  letter: string,
+): Record<string, unknown> | undefined {
+  const L = normalizeAnnexLetter(letter)
+  if (!L) return undefined
+  for (const row of structure) {
+    if (isStructureRowDetailOnly(row)) continue
+    if (isStructureRowEmptyLabel(row)) continue
+    if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== L) continue
+    return row
+  }
+  return undefined
+}
+
+/** Ligne sommaire visible au Détail (hors sous-lignes `detailOnly`). */
+export function isSummaryRowVisibleInDetail(row: Record<string, unknown>): boolean {
+  if (isStructureRowEmptyLabel(row)) return false
+  if (isStructureRowHidden(row)) return false
+  if (isStructureRowDetailOnly(row)) return false
+  if (row.showInDetail === false) return false
+  if (row.showInDetail === true) return true
+  return isCodeMappingEnabled(row)
+}
+
+function applyAutoHideIncomeStatementDetailOnlyRows(
+  structure: Record<string, unknown>[],
+  mappedIndex: Map<string, Set<string>>,
+): { rows: Record<string, unknown>[]; changed: boolean } {
+  let changed = false
+  const rows = structure.map((row) => {
+    if (!isStructureRowDetailOnly(row)) return row
+
+    const letter = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+    const owner = letter ? findSummaryAnnexOwnerRow(structure, letter) : undefined
+
+    if (owner && isStructureRowHidden(owner)) {
+      if (!isStructureRowHidden(row)) {
+        changed = true
+        return { ...row, ...autoHideIncomeStatementSummaryRowPatch() }
+      }
+      return row
+    }
+
+    const linkCode = String(row.linkCode ?? "").trim()
+    if (linkCode) {
+      const hasAccounts = incomeStatementLinkCodeHasMappedAccounts(linkCode, mappedIndex)
+      if (!hasAccounts && !isStructureRowHidden(row)) {
+        changed = true
+        return { ...row, ...autoHideIncomeStatementSummaryRowPatch() }
+      }
+      if (
+        hasAccounts &&
+        isStructureRowHidden(row) &&
+        (!owner || !isStructureRowHidden(owner))
+      ) {
+        changed = true
+        return { ...row, ...autoUnhideIncomeStatementSummaryRowPatch() }
+      }
+    } else if (
+      owner &&
+      !isStructureRowHidden(owner) &&
+      isStructureRowHidden(row)
+    ) {
+      changed = true
+      return { ...row, ...autoUnhideIncomeStatementSummaryRowPatch() }
+    }
+
+    return row
+  })
+  return { rows, changed }
+}
+
+/**
+ * Masque (case « Masquer ») les postes sommaire sans compte GL mappé pour leur code / famille.
+ * Conserve `linkCode` pour permettre le réaffichage quand le mapping est ajouté.
+ */
+export function applyAutoHideEmptyIncomeStatementSummaryRows(
+  structure: Record<string, unknown>[],
+  mappedIndex: Map<string, Set<string>>,
+  standardCodes: StandardLinkCode[],
+): Record<string, unknown>[] {
+  let changed = false
+  const next = structure.map((row) => {
+    if (isStructureRowDetailOnly(row)) return row
+    if (isStructureRowEmptyLabel(row)) return row
+    if (row.isResult === true || row.formula) return row
+
+    const linkCode = String(row.linkCode ?? "").trim()
+    if (linkCode) {
+      const hasAccounts = incomeStatementLinkCodeHasMappedAccounts(linkCode, mappedIndex)
+      if (!hasAccounts && !isStructureRowHidden(row)) {
+        changed = true
+        return { ...row, ...autoHideIncomeStatementSummaryRowPatch() }
+      }
+      if (hasAccounts && isStructureRowHidden(row)) {
+        changed = true
+        return { ...row, ...autoUnhideIncomeStatementSummaryRowPatch() }
+      }
+      return row
+    }
+
+    if (row.isSection === true) {
+      const family = incomeStatementFamilyForSectionLabel(String(row.label ?? ""))
+      if (family) {
+        const hasAccounts = incomeStatementFamilyHasMappedAccounts(family, mappedIndex)
+        if (!hasAccounts && !isStructureRowHidden(row)) {
+          changed = true
+          return { ...row, ...autoHideIncomeStatementSummaryRowPatch() }
+        }
+        if (hasAccounts && isStructureRowHidden(row)) {
+          changed = true
+          return { ...row, ...autoUnhideIncomeStatementSummaryRowPatch() }
+        }
+        return row
+      }
+
+      const parentCode = standardParentCodeForSectionLabel(String(row.label ?? ""), standardCodes)
+      if (parentCode) {
+        const hasAccounts = incomeStatementLinkCodeHasMappedAccounts(parentCode, mappedIndex)
+        if (!hasAccounts && !isStructureRowHidden(row)) {
+          changed = true
+          return { ...row, ...autoHideIncomeStatementSummaryRowPatch() }
+        }
+        if (hasAccounts && isStructureRowHidden(row)) {
+          changed = true
+          return { ...row, ...autoUnhideIncomeStatementSummaryRowPatch() }
+        }
+      }
+    }
+
+    return row
+  })
+
+  const afterSummary = changed ? next : structure
+  const detailPass = applyAutoHideIncomeStatementDetailOnlyRows(afterSummary, mappedIndex)
+  if (detailPass.changed) changed = true
+
+  return changed ? detailPass.rows : structure
+}
+
 /**
  * Case « Code » : liaison + lettre modifiables (defineMapping ou données existantes).
  */
@@ -281,11 +445,22 @@ export function isDefineMappingChecked(row: Record<string, unknown>): boolean {
 /**
  * Case « Annexe » (affichage au Détail). Si absent (données anciennes), même comportement
  * qu’avant : visible au détail lorsque le code de liaison est actif.
+ * Les sous-lignes `detailOnly` suivent la visibilité du poste sommaire de la même annexe.
  */
-export function isShowInDetail(row: Record<string, unknown>): boolean {
+export function isShowInDetail(
+  row: Record<string, unknown>,
+  structure?: Record<string, unknown>[],
+): boolean {
   if (isStructureRowEmptyLabel(row)) return false
   if (isStructureRowHidden(row)) return false
-  if (isStructureRowDetailOnly(row)) return true
+  if (isStructureRowDetailOnly(row)) {
+    if (!structure) return true
+    const letter = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+    if (!letter) return true
+    const owner = findSummaryAnnexOwnerRow(structure, letter)
+    if (!owner) return false
+    return isShowInDetail(owner, structure)
+  }
   if (row.showInDetail === false) return false
   if (row.showInDetail === true) return true
   return isCodeMappingEnabled(row)
@@ -314,40 +489,51 @@ export function findStructureRowForStatementLine(
   ) as Record<string, unknown> | undefined
 }
 
+function statementApiRowMatchesStructureRow(
+  row: { id?: string; label?: string; linkCode?: string },
+  structureRow: Record<string, unknown>,
+): boolean {
+  const linkCode = String(structureRow.linkCode ?? "").trim()
+  const structId = String(structureRow.id ?? "").trim()
+  const idNorm = String(row.id ?? "").trim()
+  const rowLink = String(row.linkCode ?? "").trim()
+  if (linkCode && (idNorm === linkCode || rowLink === linkCode)) return true
+  if (structId && idNorm === structId) return true
+  const lbl = normLabel(String(structureRow.label ?? ""))
+  return !!lbl && normLabel(String(row.label ?? "")) === lbl
+}
+
 /** Associe une entrée de structure (Paramètres) à une ligne renvoyée par l’API états / séries. */
 export function findStatementApiRowForStructureRow<
-  T extends { id?: string; label?: string; linkCode?: string },
+  T extends { id?: string; label?: string; linkCode?: string; detailRows?: T[] },
 >(
   structureRow: Record<string, unknown>,
   apiRows: T[],
   usedIndices: Set<number> = new Set(),
+  usedNestedIds: Set<string> = new Set(),
 ): T | undefined {
-  const linkCode = String(structureRow.linkCode ?? "").trim()
-  const structId = String(structureRow.id ?? "").trim()
   for (let i = 0; i < apiRows.length; i++) {
     if (usedIndices.has(i)) continue
     const row = apiRows[i]
-    const idNorm = String(row.id ?? "").trim()
-    const rowLink = String(row.linkCode ?? "").trim()
-    if (linkCode && (idNorm === linkCode || rowLink === linkCode)) {
-      usedIndices.add(i)
-      return row
-    }
-    if (structId && idNorm === structId) {
+    if (statementApiRowMatchesStructureRow(row, structureRow)) {
       usedIndices.add(i)
       return row
     }
   }
-  const lbl = normLabel(String(structureRow.label ?? ""))
-  if (lbl) {
-    for (let i = 0; i < apiRows.length; i++) {
-      if (usedIndices.has(i)) continue
-      if (normLabel(String(apiRows[i].label ?? "")) === lbl) {
-        usedIndices.add(i)
-        return apiRows[i]
-      }
+
+  for (let i = 0; i < apiRows.length; i++) {
+    const parent = apiRows[i]
+    const children = parent.detailRows
+    if (!children?.length) continue
+    for (const child of children) {
+      const childId = String(child.id ?? "").trim()
+      if (childId && usedNestedIds.has(childId)) continue
+      if (!statementApiRowMatchesStructureRow(child, structureRow)) continue
+      if (childId) usedNestedIds.add(childId)
+      return child
     }
   }
+
   return undefined
 }
 
@@ -359,20 +545,32 @@ export function listStructureRowsForSummaryDisplay(
     (sr) =>
       !isStructureRowEmptyLabel(sr) &&
       !isStructureRowHidden(sr) &&
-      !isStructureRowDetailOnly(sr),
+      !isStructureRowDetailOnly(sr) &&
+      !isComputedNetIncomeStructureRow(sr),
   )
 }
 
 /**
  * Lignes structure hors Paramètres : ordre conservé, espaces vides inclus,
  * lignes masquées et `detailOnly` exclues.
+ * CAP-C.1 (bénéfice net calculé) n’apparaît pas en ligne plate — seulement
+ * comme enfant d’expansion sous CAP-C.
  */
 export function listStructureRowsForPresentationDisplay(
   structure: Record<string, unknown>[],
 ): Record<string, unknown>[] {
   return structure.filter(
-    (sr) => !isStructureRowHidden(sr) && !isStructureRowDetailOnly(sr),
+    (sr) =>
+      !isStructureRowHidden(sr) &&
+      !isStructureRowDetailOnly(sr) &&
+      !isComputedNetIncomeStructureRow(sr),
   )
+}
+
+/** Ligne Bénéfice net calculé (CAP-C.1) — calculée, affichée sous CAP-C à l’expansion. */
+export function isComputedNetIncomeStructureRow(row: Record<string, unknown>): boolean {
+  if (row.isComputedNetIncome === true) return true
+  return isComputedNetIncomeLinkCode(String(row.linkCode ?? row.id ?? ""))
 }
 
 /** Lignes de structure à afficher au Détail (ordre Paramètres conservé). */
@@ -384,7 +582,8 @@ export function listStructureRowsForDetailDisplay(
       !isStructureRowEmptyLabel(sr) &&
       !isStructureRowHidden(sr) &&
       isShowInDetail(sr) &&
-      isCodeMappingEnabled(sr),
+      isCodeMappingEnabled(sr) &&
+      !isComputedNetIncomeStructureRow(sr),
   )
 }
 
@@ -589,8 +788,9 @@ export function getSummaryAnnexParentLinkCode(
 }
 
 /**
- * Aligne les sous-lignes Détail (`detailOnly`) sur les feuilles du plan standard
+ * Aligne les sous-lignes Détail (`detailOnly`) sur le plan standard
  * sous le code parent de chaque annexe (Sommaire) — Compte de résultat ou Bilan.
+ * REV : codes parents (REV-A, …) ; autres familles : feuilles (CMV.1, …).
  */
 export function syncIncomeStatementDetailSubLinesFromStandard(
   structure: Record<string, unknown>[],
@@ -605,8 +805,8 @@ export function syncIncomeStatementDetailSubLinesFromStandard(
     const parentCode = getSummaryAnnexParentLinkCode(next, letter)
     if (!parentCode) continue
 
-    const expectedLeaves = getLeafDescendantsOfStandardLinkCode(parentCode, standardCodes)
-    const expectedCodes = new Set(expectedLeaves.map((c) => c.code))
+    const expectedTargets = getDetailSubLineCodesFromStandardLinkCode(parentCode, standardCodes)
+    const expectedCodes = new Set(expectedTargets.map((c) => c.code))
 
     const existingByCode = new Map<string, Record<string, unknown>>()
     for (const row of next) {
@@ -634,28 +834,29 @@ export function syncIncomeStatementDetailSubLinesFromStandard(
     }
 
     const orderedRows: Record<string, unknown>[] = []
-    for (const leaf of expectedLeaves) {
-      const label = standardLinkCodeDisplayLabel(leaf)
-      const existing = existingByCode.get(leaf.code)
+    for (const target of expectedTargets) {
+      const label = standardLinkCodeDisplayLabel(target)
+      const liaison = detailSubLineLiaisonFromStandardTarget(target, standardCodes)
+      const existing = existingByCode.get(target.code)
       if (existing) {
         orderedRows.push({
           ...existing,
           label,
-          linkCode: leaf.code,
+          ...liaison,
           defineMapping: true,
           showInDetail: true,
           detailOnly: true,
           annexLetter: letter,
           indent: true,
-          liaisonMode: "single",
         })
       } else {
-        orderedRows.push(
-          newDetailSubLineRow(letter, {
+        orderedRows.push({
+          ...newDetailSubLineRow(letter, {
             label,
-            linkCode: leaf.code,
+            linkCode: liaison.linkCode,
           }),
-        )
+          ...liaison,
+        })
       }
     }
 
@@ -669,7 +870,7 @@ export function syncIncomeStatementDetailSubLinesFromStandard(
 export const syncDetailSubLinesFromStandard = syncIncomeStatementDetailSubLinesFromStandard
 
 /** Modes de la colonne Liaison (Sommaire / structure). */
-export type LiaisonMode = "na" | "single" | "sum" | "difference"
+export type LiaisonMode = "na" | "single" | "sum" | "difference" | "product" | "quotient"
 
 export function normalizeCodeList(val: unknown): string[] {
   if (val == null) return []
@@ -693,6 +894,8 @@ export function normalizeLiaisonMode(row: Record<string, unknown>): LiaisonMode 
     if (m === "single" || m === "unique" || m === "code") return "single"
     if (m === "sum" || m === "addition" || m === "add") return "sum"
     if (m === "difference" || m === "subtraction" || m === "subtract") return "difference"
+    if (m === "product" || m === "multiplication" || m === "multiply" || m === "×") return "product"
+    if (m === "quotient" || m === "division" || m === "divide" || m === "÷") return "quotient"
   }
   if (String(row.linkCode ?? "").trim()) return "single"
   if (normalizeCodeList(row.liaisonSumCodes).length) return "sum"
@@ -700,6 +903,14 @@ export function normalizeLiaisonMode(row: Record<string, unknown>): LiaisonMode 
   const d = normalizeCodeList(row.liaisonDenominatorCodes)
   if (n.length || d.length) return "difference"
   return "na"
+}
+
+/** Facteur optionnel sur une division : (N ÷ D) × facteur (ex. 365 pour un délai en jours). */
+export function normalizeLiaisonFactor(raw: unknown): number {
+  if (raw == null || raw === "") return 1
+  const n = typeof raw === "number" ? raw : Number(String(raw).trim().replace(",", "."))
+  if (!Number.isFinite(n)) return 1
+  return n
 }
 
 /** Tous les codes de liaison utilisés dans la structure (pour listes à cocher). */
@@ -779,7 +990,7 @@ export function seriesRowBelongsToRevenueAnnexDetail(
 ): boolean {
   const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
   if (!structRow) return false
-  if (!isCodeMappingEnabled(structRow) || !isShowInDetail(structRow)) return false
+  if (!isCodeMappingEnabled(structRow) || !isShowInDetail(structRow, structure)) return false
 
   if (normalizePosteNature(structRow.posteNature) === "revenus") return true
 
@@ -1007,7 +1218,7 @@ export function seriesRowBelongsToDepensesAnnexDetail(
   const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
   if (!structRow) return false
   if (seriesRowUsesExcludedProjectionExpenseLinkCode(sr, structure)) return false
-  if (!isCodeMappingEnabled(structRow) || !isShowInDetail(structRow)) return false
+  if (!isCodeMappingEnabled(structRow) || !isShowInDetail(structRow, structure)) return false
 
   if (normalizePosteNature(structRow.posteNature) === "depenses") return true
 
@@ -1057,8 +1268,17 @@ export function formatLiaisonCellHint(row: Record<string, unknown>): string {
     const n = normalizeCodeList(row.liaisonSumCodes).length
     return n ? `Σ ${n} code${n > 1 ? "s" : ""}` : "Σ …"
   }
+  if (mode === "product") {
+    const n = normalizeCodeList(row.liaisonSumCodes).length
+    return n ? `Π ${n} code${n > 1 ? "s" : ""}` : "Π …"
+  }
   const nn = normalizeCodeList(row.liaisonNumeratorCodes).length
   const nd = normalizeCodeList(row.liaisonDenominatorCodes).length
+  if (mode === "quotient") {
+    const f = normalizeLiaisonFactor(row.liaisonFactor)
+    const base = nn || nd ? `N${nn} ÷ D${nd}` : "N ÷ D …"
+    return f !== 1 ? `${base} ×${f}` : base
+  }
   if (nn || nd) return `N${nn} − D${nd}`
   return "N − D …"
 }

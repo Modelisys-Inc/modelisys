@@ -17,6 +17,7 @@ from app.schemas.statement_structure import (
     StatementStructureUpsert,
 )
 from app.services.statement_template import get_default_structure
+from app.services.standard_link_code_utils import ensure_net_income_in_balance_structure
 from app.utils.income_statement_structure_clean import strip_obsolete_income_statement_structure_rows
 
 router = APIRouter(prefix="/api/companies/{company_id}", tags=["statement-structures"])
@@ -26,6 +27,7 @@ VALID_STATEMENT_TYPES = {
     "balance-sheet",
     "cash-flow",
     "cash-flow-detail",
+    "working-capital",
     "capex",
     "baiia",
 }
@@ -85,11 +87,14 @@ def get_statement_structure(
     )
     if not structure:
         # Return the standard default structure instead of 404 / empty.
+        default_rows = get_default_structure(db, statement_type)
+        if statement_type == "balance-sheet":
+            default_rows = ensure_net_income_in_balance_structure(default_rows, db)
         return StatementStructureResponse(
             id=None,
             company_id=company_id,
             statement_type=statement_type,
-            structure=get_default_structure(db, statement_type),
+            structure=default_rows,
         )
     if statement_type == "income-statement" and structure.structure:
         cleaned = strip_obsolete_income_statement_structure_rows(list(structure.structure))
@@ -98,6 +103,14 @@ def get_statement_structure(
             company_id=structure.company_id,
             statement_type=structure.statement_type,
             structure=cleaned,
+        )
+    if statement_type == "balance-sheet" and structure.structure:
+        ensured = ensure_net_income_in_balance_structure(list(structure.structure), db)
+        return StatementStructureResponse(
+            id=structure.id,
+            company_id=structure.company_id,
+            statement_type=structure.statement_type,
+            structure=ensured,
         )
     return structure
 

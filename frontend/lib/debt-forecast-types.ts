@@ -24,7 +24,13 @@ export interface DebtForecastLoan {
   balloonMonth?: number
   /** Clé capex source `${rowId}-${yearIndex}` si créé depuis un projet Capex. */
   sourceCapexKey?: string
-  sourceType?: "capex" | "manual"
+  /** ID du mapping comptable source (passif PLT). */
+  sourceMappingId?: string
+  sourceAccountNumber?: string
+  sourceLinkCode?: string
+  referenceFiscalYear?: number
+  referenceMonth?: number
+  sourceType?: "capex" | "manual" | "mapping"
 }
 
 export const DEBT_REPAYMENT_MODE_LABELS: Record<DebtRepaymentMode, string> = {

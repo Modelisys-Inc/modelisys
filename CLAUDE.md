@@ -188,6 +188,9 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
 - Statement structures define the rows/sections of income statement, balance sheet, etc.
 - Account mappings link GL accounts to statement rows via `link_codes`
 - Cash flow is derived from income statement + balance sheet deltas
+- CF codes (TEX/TIN/TFI) with `attached_link_codes` including `CAP-C.1` reuse the
+  bilan CAP-C.1 formula (REV CT×−1 − charges) over the **selected horizon months**
+  (mois courant = that month only; YTD = Jan→mois; not always YTD like BS CAP-C.1)
 - See `docs/plans/` for detailed design documents
 
 ### Authorization (RBAC)

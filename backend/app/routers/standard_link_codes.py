@@ -108,7 +108,7 @@ def list_standard_link_codes(
     Pass ?leaf_only=true to return only assignable (leaf) codes.
     No authentication required — codes are global reference data.
     """
-    query = db.query(StandardLinkCode)
+    query = db.query(StandardLinkCode).filter(StandardLinkCode.is_active.is_(True))
     if leaf_only:
         query = query.filter(StandardLinkCode.is_leaf.is_(True))
         query = query.filter(StandardLinkCode.code != NET_INCOME_BALANCE_LINK_CODE)
@@ -157,7 +157,7 @@ def list_standard_link_codes_flat(
     db: Session = Depends(get_db),
 ):
     """Return all standard link codes as a flat list (useful for dropdowns)."""
-    query = db.query(StandardLinkCode)
+    query = db.query(StandardLinkCode).filter(StandardLinkCode.is_active.is_(True))
     if leaf_only:
         query = query.filter(StandardLinkCode.is_leaf.is_(True))
         query = query.filter(StandardLinkCode.code != NET_INCOME_BALANCE_LINK_CODE)
@@ -382,6 +382,13 @@ def update_standard_link_code(
         raise HTTPException(status_code=404, detail=f"Code '{code}' not found")
 
     updates = payload.model_dump(exclude_unset=True)
+
+    new_code = updates.pop("new_code", None)
+    if new_code is not None:
+        try:
+            record = coa_admin.rename_standard_code(db, code, new_code)
+        except coa_admin.CoaAdminError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
     if is_cash_flow_family(record.family):
         if "parent_code" in updates and updates["parent_code"]:

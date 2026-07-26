@@ -63,9 +63,35 @@ DEFAULT_CASH_FLOW_DETAIL = [
     {"label": "Trésorerie à la fin de l'exercice", "isBold": True, "isResult": True},
 ]
 
+# Analyse fonds de roulement — lignes configurables (code / formule via Paramètres).
+DEFAULT_WORKING_CAPITAL = [
+    {"label": "FDR", "defineMapping": True, "liaisonMode": "na", "displayFormat": "currency"},
+    {"label": "FdRHC", "defineMapping": True, "liaisonMode": "na", "displayFormat": "currency"},
+    {"label": "FDR / Revenus", "defineMapping": True, "liaisonMode": "na", "displayFormat": "percent"},
+    {"label": "FdRHC / Revenus", "defineMapping": True, "liaisonMode": "na", "displayFormat": "percent"},
+    {"label": "Ratio de FDR", "defineMapping": True, "liaisonMode": "na", "displayFormat": "number"},
+    {"label": "Ratio de FdRHC", "defineMapping": True, "liaisonMode": "na", "displayFormat": "number"},
+]
+
+# Analyse Capex — lignes configurables (code / formule via Paramètres).
+DEFAULT_CAPEX = [
+    {"label": "Capex", "defineMapping": True, "liaisonMode": "na", "displayFormat": "currency"},
+    {"label": "Amortissement", "defineMapping": True, "liaisonMode": "na", "displayFormat": "currency"},
+    {"label": "Capex / Revenus", "defineMapping": True, "liaisonMode": "na", "displayFormat": "percent"},
+    {"label": "Capex / BAIIA", "defineMapping": True, "liaisonMode": "na", "displayFormat": "percent"},
+    {
+        "label": "Capex / Flux de trésorerie liés aux opérations",
+        "defineMapping": True,
+        "liaisonMode": "na",
+        "displayFormat": "percent",
+    },
+]
+
 DEFAULT_STRUCTURES = {
     "income-statement": DEFAULT_INCOME_STATEMENT,
     "balance-sheet": DEFAULT_BALANCE_SHEET,
     "cash-flow": DEFAULT_CASH_FLOW,
     "cash-flow-detail": DEFAULT_CASH_FLOW_DETAIL,
+    "working-capital": DEFAULT_WORKING_CAPITAL,
+    "capex": DEFAULT_CAPEX,
 }

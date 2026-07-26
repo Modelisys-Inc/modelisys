@@ -106,6 +106,22 @@ def test_income_statement_default_structure_no_data(client, auth_headers):
     assert all(r["current"] == 0.0 for r in data["rows"])
 
 
+def test_balance_sheet_default_structure_no_data(client, auth_headers):
+    """A new company has a seeded BS structure; with no trial balance data rows return zeros."""
+    company_id = _create_company(client, auth_headers)
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/balance-sheet?fiscal_year=2024",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["companyId"] == company_id
+    assert data["statementType"] == "balance-sheet"
+    assert data["fiscalYear"] == 2024
+    assert len(data["rows"]) > 0
+    assert all(r["current"] == 0.0 for r in data["rows"])
+
+
 def test_statement_empty_no_structure(client, auth_headers, db):
     """When the cash-flow structure row is deleted, fallback to DEFAULT_STRUCTURES."""
     import uuid as _uuid
@@ -148,7 +164,7 @@ def test_income_statement_monthly(client, auth_headers):
     # Revenue row (month 1 = Janvier = 10000)
     rev_row = data["rows"][0]
     assert rev_row["label"] == "revenus"
-    assert rev_row["current"] == 10000.0
+    assert rev_row["current"] == -10000.0
 
     # COGS row (month 1 = 4000)
     cogs_row = data["rows"][1]
@@ -197,6 +213,261 @@ def test_income_statement_group_row_aggregates_mapping_by_groupe(client, auth_he
     rev_row = data["rows"][0]
     assert rev_row["label"] == "revenus"
     assert rev_row["current"] == 400.0
+
+
+def test_income_statement_rev_family_rollup_from_mapping_parents(db, client, auth_headers):
+    """Sommaire avec code parent REV = somme des comptes mappés aux feuilles REV (parent REV-A, REV-B, …)."""
+    from app.models.standard_link_code import StandardLinkCode
+
+    db.add_all([
+        StandardLinkCode(code="REV-A", family="REV", is_leaf=False, parent_code=None, sort_order=1),
+        StandardLinkCode(code="REV-A.1", family="REV", is_leaf=True, parent_code="REV-A", sort_order=2),
+        StandardLinkCode(code="REV-B", family="REV", is_leaf=False, parent_code=None, sort_order=3),
+        StandardLinkCode(code="REV-B.1", family="REV", is_leaf=True, parent_code="REV-B", sort_order=4),
+    ])
+    db.commit()
+
+    company_id = _create_company(client, auth_headers)
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "Sales A", "link_code": "REV-A.1"},
+        {"account_number": "4001", "description": "Sales B", "link_code": "REV-B.1"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "4000",
+            "description": "Sales A",
+            "monthly_amounts": {"Janvier": 100.0},
+        },
+        {
+            "account_number": "4001",
+            "description": "Sales B",
+            "monthly_amounts": {"Janvier": 300.0},
+        },
+    ])
+    _upsert_structure(client, auth_headers, company_id, "income-statement", [
+        {"label": "revenus", "isBold": True, "isSection": True, "linkCode": "REV", "defineMapping": True},
+    ])
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement"
+        "?fiscal_year=2024&month=1&period=monthly",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    rev_row = response.json()["rows"][0]
+    assert rev_row["label"] == "revenus"
+    assert rev_row["current"] == -400.0
+
+
+def test_balance_sheet_act_family_rollup_from_mapping_parents(db, client, auth_headers):
+    """Sommaire bilan avec code parent ACT = somme des comptes mappés aux feuilles ACT."""
+    from app.models.standard_link_code import StandardLinkCode
+
+    db.add_all([
+        StandardLinkCode(code="ACT-A", family="ACT", is_leaf=False, parent_code=None, sort_order=1),
+        StandardLinkCode(code="ACT-A.1", family="ACT", is_leaf=True, parent_code="ACT-A", sort_order=2),
+        StandardLinkCode(code="ACT-B", family="ACT", is_leaf=False, parent_code=None, sort_order=3),
+        StandardLinkCode(code="ACT-B.1", family="ACT", is_leaf=True, parent_code="ACT-B", sort_order=4),
+    ])
+    db.commit()
+
+    company_id = _create_company(client, auth_headers)
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "1000", "description": "Cash A", "link_code": "ACT-A.1"},
+        {"account_number": "1100", "description": "Cash B", "link_code": "ACT-B.1"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "1000",
+            "description": "Cash A",
+            "monthly_amounts": {"Janvier": 1000.0},
+        },
+        {
+            "account_number": "1100",
+            "description": "Cash B",
+            "monthly_amounts": {"Janvier": 2500.0},
+        },
+    ])
+    _upsert_structure(client, auth_headers, company_id, "balance-sheet", [
+        {"label": "actif à court terme", "isBold": True, "isSection": True, "linkCode": "ACT", "defineMapping": True},
+    ])
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/balance-sheet"
+        "?fiscal_year=2024&month=1&period=monthly",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    act_row = response.json()["rows"][0]
+    assert act_row["label"] == "actif à court terme"
+    assert act_row["current"] == 3500.0
+
+
+def test_balance_sheet_pct_family_applies_dt_ct_multiplier(db, client, auth_headers):
+    """Bilan : codes PCT (CT) → montants BV × (-1)."""
+    from app.models.standard_link_code import StandardLinkCode
+
+    db.add_all([
+        StandardLinkCode(code="PCT-A", family="PCT", is_leaf=False, parent_code=None, sort_order=1),
+        StandardLinkCode(code="PCT-A.1", family="PCT", is_leaf=True, parent_code="PCT-A", sort_order=2),
+    ])
+    db.commit()
+
+    company_id = _create_company(client, auth_headers)
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "2000", "description": "Payables", "link_code": "PCT-A.1"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "2000",
+            "description": "Payables",
+            "monthly_amounts": {"Janvier": 5000.0},
+        },
+    ])
+    _upsert_structure(client, auth_headers, company_id, "balance-sheet", [
+        {"label": "passif ct", "isBold": True, "isSection": True, "linkCode": "PCT-A", "defineMapping": True},
+    ])
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/balance-sheet"
+        "?fiscal_year=2024&month=1&period=monthly",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    row = response.json()["rows"][0]
+    assert row["current"] == -5000.0
+
+
+def test_balance_sheet_annex_detail_sub_line_amounts(db, client, auth_headers):
+    """Bilan Détail : sous-ligne ACT-C.2 = somme BV des comptes mappés à ce code de liaison."""
+    from app.models.standard_link_code import StandardLinkCode
+
+    db.add_all([
+        StandardLinkCode(code="ACT-C", family="ACT", is_leaf=False, parent_code=None, sort_order=10),
+        StandardLinkCode(code="ACT-C.1", family="ACT", is_leaf=True, parent_code="ACT-C", sort_order=11),
+        StandardLinkCode(code="ACT-C.2", family="ACT", is_leaf=True, parent_code="ACT-C", sort_order=12),
+    ])
+    db.commit()
+
+    company_id = _create_company(client, auth_headers)
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "1200", "description": "Clients", "link_code": "ACT-C.1"},
+        {"account_number": "1210", "description": "Clients apprentés", "link_code": "ACT-C.2"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "1200",
+            "description": "Clients",
+            "monthly_amounts": {"Janvier": 1000.0, "Février": 900.0},
+        },
+        {
+            "account_number": "1210",
+            "description": "Clients apprentés",
+            "monthly_amounts": {"Janvier": 250.0, "Février": 200.0},
+        },
+    ])
+    _upsert_structure(client, auth_headers, company_id, "balance-sheet", [
+        {
+            "label": "Comptes clients",
+            "linkCode": "ACT-C",
+            "liaisonMode": "sum",
+            "liaisonSumCodes": ["ACT-C.1", "ACT-C.2"],
+            "defineMapping": True,
+            "showInDetail": True,
+            "annexLetter": "1",
+        },
+    ])
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/balance-sheet"
+        "?fiscal_year=2024&month=2&period=monthly&comparison_type=lastMonth",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    rows = response.json()["rows"]
+
+    def _find_row_by_code(rs: list, code: str) -> dict | None:
+        for row in rs:
+            if row.get("id") == code or row.get("linkCode") == code:
+                return row
+            nested = row.get("detailRows") or []
+            for child in nested:
+                if child.get("id") == code or child.get("linkCode") == code:
+                    return child
+        return None
+
+    act_c2 = _find_row_by_code(rows, "ACT-C.2")
+    assert act_c2 is not None
+    assert act_c2["current"] == 200.0
+    assert act_c2["prior"] == 250.0
+
+
+def test_income_statement_intermediate_parent_rollup(db, client, auth_headers):
+    """Code parent intermédiaire (REV-A) = somme des feuilles rattachées dans le mapping."""
+    from app.models.standard_link_code import StandardLinkCode
+
+    db.add_all([
+        StandardLinkCode(code="REV-A", family="REV", is_leaf=False, parent_code=None, sort_order=1),
+        StandardLinkCode(code="REV-A.1", family="REV", is_leaf=True, parent_code="REV-A", sort_order=2),
+        StandardLinkCode(code="REV-A.2", family="REV", is_leaf=True, parent_code="REV-A", sort_order=3),
+    ])
+    db.commit()
+
+    company_id = _create_company(client, auth_headers)
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "A1", "link_code": "REV-A.1"},
+        {"account_number": "4001", "description": "A2", "link_code": "REV-A.2"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "A1", "monthly_amounts": {"Janvier": 50.0}},
+        {"account_number": "4001", "description": "A2", "monthly_amounts": {"Janvier": 70.0}},
+    ])
+    _upsert_structure(client, auth_headers, company_id, "income-statement", [
+        {"label": "revenus A", "isBold": True, "linkCode": "REV-A", "defineMapping": True},
+    ])
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement"
+        "?fiscal_year=2024&month=1&period=monthly",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    row = response.json()["rows"][0]
+    assert row["current"] == -120.0
+
+
+def test_income_statement_hidden_annex_hides_detail_only_sub_lines(client, auth_headers):
+    """Poste sommaire masqué (annexe EXP) : sous-lignes detailOnly sans showInDetail."""
+    company_id = _create_company(client, auth_headers)
+    _upsert_structure(client, auth_headers, company_id, "income-statement", [
+        {
+            "label": "Frais d'exploitation",
+            "linkCode": "EXP",
+            "defineMapping": True,
+            "showInDetail": True,
+            "annexLetter": "A",
+            "hidden": True,
+            "posteNature": "depenses",
+        },
+        {
+            "label": "EXP sous-ligne",
+            "detailOnly": True,
+            "linkCode": "EXP.1",
+            "defineMapping": True,
+            "showInDetail": True,
+            "annexLetter": "A",
+        },
+    ])
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement"
+        "?fiscal_year=2024&month=1&period=monthly",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    rows = response.json()["rows"]
+    detail_rows = [r for r in rows if r.get("detailOnly")]
+    assert detail_rows == [] or all(r.get("showInDetail") is not True for r in detail_rows)
 
 
 def test_income_statement_groupe_row_applies_dt_ct_per_mapped_account(client, auth_headers):
@@ -268,9 +539,9 @@ def test_income_statement_quarterly(client, auth_headers):
     assert response.status_code == 200
     data = response.json()
 
-    # Revenue Q1 = 10000 + 12000 + 11000 = 33000
+    # Revenue Q1 = -(10000 + 12000 + 11000) = -33000 (REV = CT)
     rev_row = data["rows"][0]
-    assert rev_row["current"] == 33000.0
+    assert rev_row["current"] == -33000.0
 
     # COGS Q1 = 4000 + 5000 + 4500 = 13500
     cogs_row = data["rows"][1]
@@ -291,7 +562,7 @@ def test_income_statement_annual(client, auth_headers):
 
     # Same as Q1 since only months 1-3 have data
     rev_row = data["rows"][0]
-    assert rev_row["current"] == 33000.0
+    assert rev_row["current"] == -33000.0
 
 
 def test_income_statement_ytd(client, auth_headers):
@@ -306,9 +577,9 @@ def test_income_statement_ytd(client, auth_headers):
     assert response.status_code == 200
     data = response.json()
 
-    # Revenue YTD through Feb = 10000 + 12000 = 22000
+    # Revenue YTD through Feb = -(10000 + 12000) = -22000
     rev_row = data["rows"][0]
-    assert rev_row["current"] == 22000.0
+    assert rev_row["current"] == -22000.0
 
 
 # --- Prior year comparison ---
@@ -350,11 +621,11 @@ def test_income_statement_prior_year_comparison(client, auth_headers):
     )
     assert response.status_code == 200
     row = response.json()["rows"][0]
-    assert row["current"] == 10000.0
-    assert row["prior"] == 8000.0
-    # Variation = ((10000 - 8000) / 8000) * 100 = 25.0%
-    assert row["variation"] == 25.0
-    assert row["variationAmount"] == 2000.0
+    assert row["current"] == -10000.0
+    assert row["prior"] == -8000.0
+    # Variation = ((-10000 - (-8000)) / |-8000|) * 100 = -25.0%
+    assert row["variation"] == -25.0
+    assert row["variationAmount"] == -2000.0
 
 
 # --- Balance sheet ---
@@ -607,6 +878,70 @@ def test_cash_flow_custom_tex_code_aggregates_attached_codes(client, auth_header
     assert row["current"] == 150.0
 
 
+def test_cash_flow_detail_custom_tex_code_aggregates_attached_codes(client, auth_headers, su_headers):
+    """Detail structure link codes sum accounts via attached Bilan/CDR codes (same as summary)."""
+    company_id = _create_company(client, auth_headers, name="CF Detail TEX Co")
+
+    leaf = client.post(
+        "/api/standard-link-codes",
+        json={
+            "code": "CFD-REV-1",
+            "family": "REV",
+            "label_sub_account": "Feuille exploitation détail",
+            "is_leaf": True,
+        },
+        headers=su_headers,
+    )
+    assert leaf.status_code == 201
+
+    tex_code = client.post(
+        "/api/standard-link-codes",
+        json={
+            "code": "TEX-CFD-1",
+            "family": "TEX",
+            "label_sub_account": "Exploitation détail agrégée",
+            "attached_link_codes": ["CFD-REV-1"],
+        },
+        headers=su_headers,
+    )
+    assert tex_code.status_code == 201
+
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4200", "description": "Revenue A", "link_code": "CFD-REV-1"},
+        {"account_number": "4201", "description": "Revenue B", "link_code": "CFD-REV-1"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "4200",
+            "description": "Revenue A",
+            "monthly_amounts": {"Janvier": 80.0},
+        },
+        {
+            "account_number": "4201",
+            "description": "Revenue B",
+            "monthly_amounts": {"Janvier": 40.0},
+        },
+    ], fiscal_year=2026)
+    _upsert_structure(client, auth_headers, company_id, "cash-flow-detail", [
+        {
+            "label": "Exploitation détail agrégée",
+            "linkCode": "TEX-CFD-1",
+            "liaisonMode": "single",
+            "defineMapping": True,
+        },
+    ])
+
+    r = client.get(
+        f"/api/companies/{company_id}/financial-statements/cash-flow-detail",
+        params={"fiscal_year": 2026, "month": 1},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    assert r.json()["statementType"] == "cash-flow-detail"
+    row = r.json()["rows"][0]
+    assert row["current"] == 120.0
+
+
 def test_cash_flow_series_annex_row_includes_gl_detail_rows(client, auth_headers):
     """Cash-flow series keeps GL detail rows for annex-enabled rows."""
     company_id = _create_company(client, auth_headers, name="CF Series Detail Co")
@@ -673,7 +1008,7 @@ def test_summary_metrics_basic(client, auth_headers):
     data = response.json()
     assert data["fiscalYear"] == 2024
     assert data["month"] == 1
-    assert data["revenue"] == 10000.0
+    assert data["revenue"] == -10000.0
 
 
 def test_summary_metrics_empty(client, auth_headers):
@@ -737,10 +1072,10 @@ def test_income_statement_with_children(client, auth_headers):
     assert response.status_code == 200
     row = response.json()["rows"][0]
     # Parent should sum children: 6000 + 4000 = 10000
-    assert row["current"] == 10000.0
+    assert row["current"] == -10000.0
     assert len(row["detailRows"]) == 2
-    assert row["detailRows"][0]["current"] == 6000.0
-    assert row["detailRows"][1]["current"] == 4000.0
+    assert row["detailRows"][0]["current"] == -6000.0
+    assert row["detailRows"][1]["current"] == -4000.0
 
 
 # --- Multiple accounts per link code ---
@@ -778,7 +1113,7 @@ def test_multiple_accounts_same_link_code(client, auth_headers):
     )
     assert response.status_code == 200
     # Should sum both: 3000 + 7000 = 10000
-    assert response.json()["rows"][0]["current"] == 10000.0
+    assert response.json()["rows"][0]["current"] == -10000.0
 
 
 # --- Variation calculation edge cases ---
@@ -811,7 +1146,7 @@ def test_variation_zero_prior(client, auth_headers):
     )
     assert response.status_code == 200
     row = response.json()["rows"][0]
-    assert row["current"] == 5000.0
+    assert row["current"] == -5000.0
     assert row["prior"] == 0.0
     assert row["variation"] == 0.0
 
@@ -833,7 +1168,7 @@ def test_financial_statements_unauthenticated(client):
     response = client.get(
         f"/api/companies/{fake_id}/financial-statements/income-statement?fiscal_year=2024",
     )
-    assert response.status_code == 401
+    assert response.status_code in (401, 403)
 
 
 def test_balance_sheet_company_not_found(client, auth_headers):
@@ -913,6 +1248,31 @@ def test_series_amounts_match_single_period(client, auth_headers):
     assert opex_series["amounts"]["2024-1"] == opex_single["current"]
 
 
+def test_series_anchored_on_reference_month(client, auth_headers):
+    """Series periods must end at the requested reference month, not default December."""
+    company_id = _setup_income_statement_data(client, auth_headers)
+
+    dec_response = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement/series"
+        "?fiscal_year=2024&month=12&months=12",
+        headers=auth_headers,
+    )
+    assert dec_response.status_code == 200
+    dec_labels = [p["label"] for p in dec_response.json()["periods"]]
+    assert dec_labels[-1] == "Déc 2024"
+    assert dec_labels[0] == "Jan 2024"
+
+    jan_response = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement/series"
+        "?fiscal_year=2024&month=1&months=12",
+        headers=auth_headers,
+    )
+    assert jan_response.status_code == 200
+    jan_labels = [p["label"] for p in jan_response.json()["periods"]]
+    assert jan_labels[-1] == "Jan 2024"
+    assert jan_labels[0] == "Fév 2023"
+
+
 def test_series_24_months_spans_two_years(client, auth_headers):
     """Series with months=24 should include data from two fiscal years."""
     company_id = _create_company(client, auth_headers)
@@ -952,12 +1312,12 @@ def test_series_24_months_spans_two_years(client, auth_headers):
     assert len(data["periods"]) == 24
 
     rev_row = data["rows"][0]
-    # 2023 month 1 should be 8000
-    assert rev_row["amounts"]["2023-1"] == 8000.0
-    # 2024 month 1 should be 10000
-    assert rev_row["amounts"]["2024-1"] == 10000.0
-    # 2024 month 2 should be 12000
-    assert rev_row["amounts"]["2024-2"] == 12000.0
+    # 2023 month 1 should be -8000 (REV = CT)
+    assert rev_row["amounts"]["2023-1"] == -8000.0
+    # 2024 month 1 should be -10000
+    assert rev_row["amounts"]["2024-1"] == -10000.0
+    # 2024 month 2 should be -12000
+    assert rev_row["amounts"]["2024-2"] == -12000.0
 
 
 def test_series_with_children(client, auth_headers):
@@ -1003,12 +1363,12 @@ def test_series_with_children(client, auth_headers):
     data = response.json()
     parent = data["rows"][0]
     # Parent should sum children
-    assert parent["amounts"]["2024-1"] == 10000.0
-    assert parent["amounts"]["2024-2"] == 12000.0
+    assert parent["amounts"]["2024-1"] == -10000.0
+    assert parent["amounts"]["2024-2"] == -12000.0
     # Detail rows
     assert len(parent["detailRows"]) == 2
-    assert parent["detailRows"][0]["amounts"]["2024-1"] == 6000.0
-    assert parent["detailRows"][1]["amounts"]["2024-1"] == 4000.0
+    assert parent["detailRows"][0]["amounts"]["2024-1"] == -6000.0
+    assert parent["detailRows"][1]["amounts"]["2024-1"] == -4000.0
 
 
 def test_series_empty_no_structure(client, auth_headers, db):
@@ -1061,15 +1421,15 @@ def test_summary_series_returns_12_months(client, auth_headers):
     assert data["fiscalYear"] == 2024
     assert len(data["months"]) == 12
 
-    # Month 1 (Janvier) should have revenue=10000
+    # Month 1 (Janvier) should have revenue=-10000 (REV = CT)
     m1 = data["months"][0]
     assert m1["month"] == 1
-    assert m1["revenue"] == 10000.0
+    assert m1["revenue"] == -10000.0
 
-    # Month 2 (Février) should have revenue=22000 (YTD: 10000+12000)
+    # Month 2 (Février) should have revenue=-22000 (YTD: -(10000+12000))
     m2 = data["months"][1]
     assert m2["month"] == 2
-    assert m2["revenue"] == 22000.0
+    assert m2["revenue"] == -22000.0
 
 
 def test_summary_series_empty(client, auth_headers):

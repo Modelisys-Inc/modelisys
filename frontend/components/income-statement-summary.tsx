@@ -8,8 +8,10 @@ import {
   getFinancialStatementSeries,
   listForecastConfigs,
   getStatementStructure,
+  listStandardLinkCodesFlat,
   type FinancialStatementSeriesParams,
   type FinancialStatementRow,
+  type StandardLinkCode,
 } from "@/lib/api"
 import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
@@ -24,6 +26,11 @@ import {
 } from "@/lib/series-reference-columns"
 import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { useIncomeStatementParentLinkCodes } from "@/hooks/use-income-statement-parent-link-codes"
+import {
+  filterIncomeStatementSummaryRowsForHorizon,
+  structureRowHiddenForHorizonDisplay,
+} from "@/lib/income-statement-horizon-filter"
+import type { IncomeStatementHorizonView } from "@/lib/income-statement-horizon-visibility"
 import {
   TOTAL_CHARGES_LABEL,
   collectDistinctLinkCodesFromStructure,
@@ -276,6 +283,9 @@ export function IncomeStatementSummary({
     setAddSpaceTargetIdx(null)
   }
 
+  const refMonth = referenceMonth ?? new Date().getMonth() + 1
+  const refYear = fiscalYear ?? new Date().getFullYear()
+
   // Determine months needed for series API based on view
   const isMultiPeriodView = view === "12months" || view === "24months" || view === "quarters" || view === "years"
   const seriesMonthsNeeded = view === "24months" ? 24 : view === "years" ? 72 : view === "quarters" ? 15 : 12
@@ -285,6 +295,7 @@ export function IncomeStatementSummary({
     companyId: companyId || null,
     statementType: "income-statement",
     fiscalYear: fiscalYear || new Date().getFullYear(),
+    month: refMonth,
     months: seriesMonthsNeeded,
     divisionId: divisionId || undefined,
     subDivisionId: subDivisionId || undefined,
@@ -301,13 +312,28 @@ export function IncomeStatementSummary({
     showIncomeStatementStructureSettings && !!companyId && !isComparisonMode
   const structEdit = useIncomeStatementStructureEdit(
     companyId ?? null,
-    structureEditMode && canInlineStructureEdit
+    canInlineStructureEdit
   )
+  const [standardCodesForFilter, setStandardCodesForFilter] = useState<StandardLinkCode[]>([])
+  useEffect(() => {
+    if (!canInlineStructureEdit) {
+      setStandardCodesForFilter([])
+      return
+    }
+    let cancelled = false
+    listStandardLinkCodesFlat(false)
+      .then((codes) => {
+        if (!cancelled) setStandardCodesForFilter(codes)
+      })
+      .catch(() => {
+        if (!cancelled) setStandardCodesForFilter([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [canInlineStructureEdit, structureVersion])
   const { codes: incomeParentLinkCodes, labels: incomeParentLinkLabels } =
     useIncomeStatementParentLinkCodes(structureEditMode && canInlineStructureEdit)
-
-  const refMonth = referenceMonth ?? new Date().getMonth() + 1
-  const refYear = fiscalYear ?? new Date().getFullYear()
 
   // Helper function to get comparison label
   const getComparisonLabel = (): string => {
@@ -815,6 +841,7 @@ export function IncomeStatementSummary({
         try {
           const params: FinancialStatementSeriesParams = {
             fiscal_year: currentYear,
+            month: refMonth,
             months: 12,
             structure_rev: structureVersion > 0 ? structureVersion : undefined,
           }
@@ -890,6 +917,7 @@ export function IncomeStatementSummary({
     isDivisionComparison,
     isSubDivisionComparison,
     fiscalYear,
+    refMonth,
     structureVersion,
   ])
 
@@ -1056,10 +1084,34 @@ export function IncomeStatementSummary({
   const showStructureCols =
     structureEditMode && canInlineStructureEdit && !structEdit.loading
   const effectiveData = displayDataWithUniversalFormulas
+  const horizonView = view as IncomeStatementHorizonView
+  const visibleData = useMemo(() => {
+    if (showStructureCols || !structEdit.structure.length) return effectiveData
+    const liaisonByLabel = new Map(
+      backendRows.map((r) => [normLabel(r.label), r.hasLiaisonCode === true])
+    )
+    const enriched = effectiveData.map((row) => ({
+      ...row,
+      hasLiaisonCode: liaisonByLabel.get(normLabel(row.label)),
+    }))
+    return filterIncomeStatementSummaryRowsForHorizon(
+      enriched,
+      structEdit.structure,
+      horizonView,
+      standardCodesForFilter
+    )
+  }, [
+    showStructureCols,
+    structEdit.structure,
+    effectiveData,
+    backendRows,
+    horizonView,
+    standardCodesForFilter,
+  ])
 
   const tableRowCount = showStructureCols
     ? structEdit.summaryStructureDisplayIndices.length
-    : effectiveData.length
+    : visibleData.length
 
   /** Doit correspondre au nombre de `<th>` du thead — sinon une ligne `colSpan` invalide casse `table-fixed`. */
   const summaryTableColumnCount = useMemo(() => {
@@ -1157,7 +1209,7 @@ export function IncomeStatementSummary({
     )
   }
 
-  if (effectiveData.length === 0) {
+  if (visibleData.length === 0) {
     // Projections: still show the years header/columns even before data is available.
     if (isForecastSection && view === "years") {
       const yearLabels = getYearLabels()
@@ -1410,18 +1462,17 @@ export function IncomeStatementSummary({
           {structEdit.error}
         </div>
       )}
-      {/* Table */}
+      {/* Table — en-tête et colonne Poste figés au défilement (comme Bilan Sommaire) */}
       <div
         className={cn(
-          "min-w-0 overflow-x-auto",
+          "min-w-0 max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
           isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
         )}
       >
         <table
           className={cn(
-            "w-full min-w-full",
+            "w-full min-w-full border-separate border-spacing-0",
             showStructureCols && "table-fixed",
-            isStructureStudio ? "border-separate border-spacing-0" : "border-collapse"
           )}
         >
             {showStructureCols && (
@@ -1436,15 +1487,19 @@ export function IncomeStatementSummary({
                 <col style={{ width: "5.5rem" }} />
               </colgroup>
             )}
-            <thead>
-              <tr
-                className={cn(
-                  "border-b",
-                  showStructureCols
-                    ? "border-slate-200 bg-gradient-to-r from-slate-50 via-slate-100/40 to-slate-50"
-                    : "border-b-2 border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80"
-                )}
-              >
+            <thead
+              className={cn(
+                "[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-slate-100",
+                "[&_th]:border-b [&_th]:border-slate-200",
+                !showStructureCols && "[&_th]:border-b-2",
+                "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
+                showStructureCols &&
+                  "[&_th]:bg-gradient-to-r [&_th]:from-slate-50 [&_th]:via-slate-100/40 [&_th]:to-slate-50",
+                !showStructureCols &&
+                  "[&_th]:bg-gradient-to-b [&_th]:from-slate-50 [&_th]:to-slate-100/80",
+              )}
+            >
+              <tr>
                 <th
                   className={cn(
                     "px-6 py-4 text-left text-sm font-semibold text-slate-900",
@@ -1691,7 +1746,13 @@ export function IncomeStatementSummary({
               )}
             </tr>
           </thead>
-          <tbody>
+          <tbody
+            className={cn(
+              "[&_td]:border-b [&_td]:border-slate-200",
+              "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+              "[&_td:first-child]:bg-white",
+            )}
+          >
             {showStructureCols && tableRowCount === 0 && (
               <tr>
                 <td
@@ -1708,7 +1769,7 @@ export function IncomeStatementSummary({
               const structRow = showStructureCols ? structEdit.structure[globalIdx]! : null
               const row = showStructureCols
                 ? summaryRowForStructureIndex(structRow!)
-                : effectiveData[idx]!
+                : visibleData[idx]!
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const isBoldRow = shouldBeBold(row.label, row)
@@ -1726,7 +1787,7 @@ export function IncomeStatementSummary({
                     ? summaryRowForStructureIndex(
                         structEdit.structure[structEdit.summaryStructureDisplayIndices[idx + 1]!]!
                       )
-                    : effectiveData[idx + 1]!
+                    : visibleData[idx + 1]!
                   : null
               const nextRowLabel = nextRow?.label?.toLowerCase() || ""
               const nextLabelNorm =
@@ -1737,7 +1798,7 @@ export function IncomeStatementSummary({
                             structEdit.structure[structEdit.summaryStructureDisplayIndices[idx + 1]!]?.label ??
                               ""
                           )
-                        : String(effectiveData[idx + 1]?.label ?? "")
+                        : String(visibleData[idx + 1]?.label ?? "")
                     )
                   : ""
               /** Bordure épaisse sous la ligne courante si la ligne suivante est un « résultat » clé — pas avant Total des charges / Bénéfice brut (séparation manuelle). */
@@ -1769,16 +1830,16 @@ export function IncomeStatementSummary({
                   )}
                   <tr
                     className={cn(
-                      "border-b transition-colors duration-150",
-                      row.label === "" ? "h-2 border-b border-b-slate-200" : "",
-                      nextRowIsKeyResult
-                        ? "border-b-2 border-b-slate-900"
-                        : showStructureCols
-                          ? "border-b border-b-slate-200/80"
-                          : "border-b border-b-slate-200",
-                      showStructureCols && row.label !== "" && "hover:bg-slate-100/70",
-                      showStructureCols && idx % 2 === 1 && row.label !== "" && "bg-slate-50/50",
-                      !showStructureCols && row.label !== "" && "hover:bg-slate-50/90"
+                      row.label === "" ? "h-2" : "",
+                      nextRowIsKeyResult && "[&>td]:border-b-2 [&>td]:border-b-slate-900",
+                      "hover:[&>td]:bg-slate-50/90 hover:[&>td:first-child]:bg-slate-50/90",
+                      showStructureCols &&
+                        row.label !== "" &&
+                        "hover:[&>td]:bg-slate-100/70 hover:[&>td:first-child]:bg-slate-100/70",
+                      showStructureCols &&
+                        idx % 2 === 1 &&
+                        row.label !== "" &&
+                        "[&>td]:bg-slate-50/50 [&>td:first-child]:bg-slate-50",
                     )}
                   >
                   <td
@@ -1860,31 +1921,37 @@ export function IncomeStatementSummary({
                       </td>
                       <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
                         <div className="flex justify-center">
+                          {(() => {
+                            const masquerAmounts = summaryRowForStructureIndex(structRow!)
+                            const horizonMasquer =
+                              !isStructureRowEmptyLabel(structRow!) &&
+                              structureRowHiddenForHorizonDisplay(
+                                structRow!,
+                                structEdit.structure,
+                                {
+                                  current: masquerAmounts.current,
+                                  prior: masquerAmounts.prior,
+                                  trendValues: masquerAmounts.trendValues,
+                                },
+                                horizonView,
+                                standardCodesForFilter
+                              )
+                            const masquerChecked =
+                              isStructureRowHidden(structRow!) || horizonMasquer
+                            return (
                           <label
                             className={cn(
                               "flex cursor-pointer items-center justify-center rounded-xl p-1.5 transition-colors",
-                              isStructureRowHidden(structRow)
+                              masquerChecked
                                 ? "bg-slate-200/80 ring-2 ring-slate-400/35"
                                 : "bg-slate-100/60 hover:bg-slate-200/60"
                             )}
                           >
                             <Checkbox
-                              checked={isStructureRowHidden(structRow)}
+                              checked={masquerChecked}
                               onCheckedChange={(v) => {
                                 if (v === true) {
-                                  structEdit.updateRow(globalIdx, {
-                                    hidden: true,
-                                    defineMapping: false,
-                                    showInDetail: false,
-                                    linkCode: undefined,
-                                    annexLetter: undefined,
-                                    posteNature: undefined,
-                                    liaisonMode: undefined,
-                                    liaisonSumCodes: undefined,
-                                    liaisonNumeratorCodes: undefined,
-                                    liaisonDenominatorCodes: undefined,
-                                    separatorAbove: undefined,
-                                  })
+                                  structEdit.hideSummaryRowAt(globalIdx)
                                 } else {
                                   structEdit.updateRow(globalIdx, { hidden: false })
                                 }
@@ -1893,6 +1960,8 @@ export function IncomeStatementSummary({
                               className="border-slate-300 data-[state=checked]:border-slate-700 data-[state=checked]:bg-slate-700"
                             />
                           </label>
+                            )
+                          })()}
                         </div>
                       </td>
                       <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">

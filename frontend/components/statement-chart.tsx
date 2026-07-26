@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useState, useMemo, useEffect } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
@@ -184,6 +184,7 @@ export function StatementChart({
     companyId: companyId || null,
     statementType,
     fiscalYear: fiscalYear || new Date().getFullYear(),
+    month: refMonth,
     months: seriesMonthsNeeded,
     divisionId: divisionId || undefined,
     subDivisionId: subDivisionId || undefined,

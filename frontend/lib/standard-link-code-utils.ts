@@ -1,5 +1,57 @@
 import type { StandardLinkCode, StandardLinkCodeFamilyGroup } from "@/lib/api"
 
+/** Nature comptable normale du solde (débit ou crédit). */
+export type LinkCodeDtCt = "DT" | "CT"
+
+/** DT/CT par famille — règle uniforme pour toute la charte (parents et feuilles). */
+const FAMILY_DT_CT: Readonly<Record<string, LinkCodeDtCt>> = {
+  ACT: "DT",
+  ALT: "DT",
+  PCT: "CT",
+  PLT: "CT",
+  CAP: "CT",
+  REV: "CT",
+  CMV: "DT",
+  EXP: "DT",
+  ADM: "DT",
+  VNT: "DT",
+  FIN: "DT",
+  AUT: "DT",
+  IMP: "DT",
+}
+
+/** Règle par défaut selon la famille. */
+export function defaultDtCtForFamily(family: string): LinkCodeDtCt | undefined {
+  return FAMILY_DT_CT[family.trim()]
+}
+
+/** Extrait la famille d'un code (ACT-B.1 → ACT, REV-A → REV). */
+export function deriveLinkCodeFamily(code: string): string {
+  const normalized = code.trim()
+  if (!normalized) return ""
+  return normalized.split("-")[0].split(".")[0].toUpperCase()
+}
+
+/** Résout DT/CT pour un code de liaison à partir de sa famille. */
+export function resolveLinkCodeDtCt(
+  row: Pick<StandardLinkCode, "code" | "family">,
+): LinkCodeDtCt | undefined {
+  const family = (row.family || deriveLinkCodeFamily(row.code)).trim()
+  return defaultDtCtForFamily(family)
+}
+
+/** Multiplicateur d'affichage Sommaire/Détail : CT → −1, DT ou indéterminé → 1. */
+export function linkCodeDtCtSignMultiplier(linkCode: string | undefined): number {
+  const lc = linkCode?.trim()
+  if (!lc) return 1
+  return resolveLinkCodeDtCt({ code: lc, family: deriveLinkCodeFamily(lc) }) === "CT" ? -1 : 1
+}
+
+/** Affichage table (DT, CT ou tiret pour Trésorerie). */
+export function linkCodeDtCtDisplay(row: Pick<StandardLinkCode, "code" | "family">): string {
+  return resolveLinkCodeDtCt(row) ?? "—"
+}
+
 /** Depth-first order: parent, then its children (by sort_order). */
 export function sortStandardLinkCodesHierarchically(
   codes: StandardLinkCode[],
@@ -71,11 +123,53 @@ export function isBalanceSheetFamily(family: string): boolean {
   return BALANCE_SHEET_FAMILIES.has(family)
 }
 
-/** Parent codes (`is_leaf = false`) from income-statement families only. */
+/** Ancres de famille au sommaire (REV, CMV, EXP, …) — pas les parents intermédiaires (REV-A, …). */
+export const INCOME_STATEMENT_FAMILY_ANCHORS = [
+  "REV",
+  "CMV",
+  "EXP",
+  "ADM",
+  "VNT",
+  "FIN",
+  "AUT",
+  "IMP",
+] as const
+
+const INCOME_STATEMENT_FAMILY_ANCHOR_LABELS: Record<string, string> = {
+  REV: "Chiffre d'affaires",
+  CMV: "Coûts des produits vendus",
+  EXP: "Frais d'exploitation",
+  ADM: "Frais d'administration",
+  VNT: "Frais de vente",
+  FIN: "Frais financiers",
+  AUT: "Autres dépenses (produits)",
+  IMP: "Impôts",
+}
+
+/** Codes de liaison sélectionnables au sommaire : ancres de famille uniquement. */
 export function filterIncomeStatementParentLinkCodes(
   codes: StandardLinkCode[],
 ): StandardLinkCode[] {
-  return codes.filter((c) => !c.is_leaf && isIncomeStatementFamily(c.family))
+  const labelMap = buildStandardLinkCodeLabelMap(codes)
+  return INCOME_STATEMENT_FAMILY_ANCHORS.map((fam) => {
+    const fromChart = codes.find((c) => c.code === fam && !c.is_leaf)
+    if (fromChart) return fromChart
+    return {
+      code: fam,
+      family: fam,
+      parent_code: null,
+      label_account: INCOME_STATEMENT_FAMILY_ANCHOR_LABELS[fam] ?? fam,
+      label_sub_account: null,
+      label: INCOME_STATEMENT_FAMILY_ANCHOR_LABELS[fam] ?? fam,
+      is_leaf: false,
+      sort_order: 0,
+      is_active: true,
+      attached_link_codes: [],
+    } satisfies StandardLinkCode
+  }).map((c) => ({
+    ...c,
+    label_account: c.label_account || labelMap.get(c.code) || INCOME_STATEMENT_FAMILY_ANCHOR_LABELS[c.code] || c.code,
+  }))
 }
 
 /** Parent codes (`is_leaf = false`) from balance-sheet families only. */
@@ -120,8 +214,237 @@ export function balanceSheetParentLinkCodeOptions(codes: StandardLinkCode[]): {
   }
 }
 
+/** Parents Bilan + ancrages Résultats pour l’analyse fonds de roulement. */
+export function workingCapitalLinkCodeOptions(codes: StandardLinkCode[]): {
+  codes: string[]
+  labels: Map<string, string>
+} {
+  const bs = balanceSheetParentLinkCodeOptions(codes)
+  const is = incomeStatementParentLinkCodeOptions(codes)
+  const labels = new Map<string, string>([...bs.labels, ...is.labels])
+  const merged = [...new Set([...bs.codes, ...is.codes])]
+  return { codes: merged, labels }
+}
+
 export function standardLinkCodeDisplayLabel(code: StandardLinkCode): string {
   return (code.label_sub_account || code.label_account || code.label || code.code).trim()
+}
+
+export type StandardLinkCodeLookup = Map<string, StandardLinkCode>
+
+const MAPPING_DERIVED_EMPTY = "—"
+
+/** Bilan ou Résultats selon la famille du code de liaison (charte standard). */
+export function mappingGroupeFromLinkCode(
+  linkCode: string | undefined,
+  codeByCode: StandardLinkCodeLookup,
+): string {
+  const lc = linkCode?.trim()
+  if (!lc) return MAPPING_DERIVED_EMPTY
+  const row = codeByCode.get(lc)
+  if (!row) return MAPPING_DERIVED_EMPTY
+  if (isBalanceSheetFamily(row.family)) return "Bilan"
+  if (isIncomeStatementFamily(row.family)) return "Résultats"
+  return MAPPING_DERIVED_EMPTY
+}
+
+/** Libellé du code de liaison (ex. ACT-A.1 → « Encaisse »). */
+export function mappingDetailFromLinkCode(
+  linkCode: string | undefined,
+  codeByCode: StandardLinkCodeLookup,
+): string {
+  const lc = linkCode?.trim()
+  if (!lc) return MAPPING_DERIVED_EMPTY
+  const row = codeByCode.get(lc)
+  if (!row) return MAPPING_DERIVED_EMPTY
+  return standardLinkCodeDisplayLabel(row)
+}
+
+/** Libellé du code parent (ex. ACT-A.1 → nom de ACT-A). */
+export function mappingPosteFromLinkCode(
+  linkCode: string | undefined,
+  codeByCode: StandardLinkCodeLookup,
+): string {
+  const lc = linkCode?.trim()
+  if (!lc) return MAPPING_DERIVED_EMPTY
+  const row = codeByCode.get(lc)
+  if (!row) return MAPPING_DERIVED_EMPTY
+  const parentCode = row.parent_code?.trim()
+  if (!parentCode) return MAPPING_DERIVED_EMPTY
+  const parent = codeByCode.get(parentCode)
+  if (!parent) return MAPPING_DERIVED_EMPTY
+  return standardLinkCodeDisplayLabel(parent)
+}
+
+/** Code parent du code de liaison (ex. ACT-A.1 → ACT-A), aligné sur la page Code de liaison. */
+export function mappingParentCodeFromLinkCode(
+  linkCode: string | undefined,
+  codeByCode: StandardLinkCodeLookup,
+): string {
+  const lc = linkCode?.trim()
+  if (!lc) return MAPPING_DERIVED_EMPTY
+  const row = codeByCode.get(lc)
+  if (!row) return MAPPING_DERIVED_EMPTY
+  const parentCode = row.parent_code?.trim()
+  return parentCode || MAPPING_DERIVED_EMPTY
+}
+
+/** Code assigné mais absent de la charte ou sans famille bilan / résultats. */
+export function isMappingLinkCodeIncomplete(
+  linkCode: string | undefined,
+  codeByCode: StandardLinkCodeLookup,
+): boolean {
+  const lc = linkCode?.trim()
+  if (!lc) return false
+  if (!codeByCode.has(lc)) return true
+  return mappingGroupeFromLinkCode(lc, codeByCode) === MAPPING_DERIVED_EMPTY
+}
+
+/**
+ * Codes non assignables au mapping GL et non éligibles au CV/CF
+ * (ajustements / provisions, amortissements, etc.).
+ */
+export const MAPPING_RESTRICTED_LINK_CODES = new Set([
+  "CMV.11",
+  "EXP.20",
+  "EXP.21",
+  "ADM.20",
+  "ADM.21",
+])
+
+/** Familles dont aucun code n'est assignable au mapping comptable. */
+export const MAPPING_RESTRICTED_FAMILIES = new Set(["AUT"])
+
+export function isMappingRestrictedLinkCode(
+  linkCode: string | undefined,
+  codeByCode: StandardLinkCodeLookup,
+): boolean {
+  const lc = linkCode?.trim()
+  if (!lc) return false
+  if (MAPPING_RESTRICTED_LINK_CODES.has(lc)) return true
+  const row = codeByCode.get(lc)
+  if (row && MAPPING_RESTRICTED_FAMILIES.has(row.family)) return true
+  return false
+}
+
+/** Feuilles assignables au mapping GL (hors codes / familles restreints). */
+export function filterAssignableMappingLinkCodes(codes: StandardLinkCode[]): StandardLinkCode[] {
+  const lookup = new Map(codes.map((c) => [c.code, c]))
+  return filterMappableLeafLinkCodes(codes).filter((c) => !isMappingRestrictedLinkCode(c.code, lookup))
+}
+
+/** Familles entièrement exclues des options coûts variables / fixes (mapping comptable). */
+export const MAPPING_COST_TYPE_EXCLUDED_FAMILIES = new Set(["REV", "IMP"])
+
+/**
+ * Codes FIN éligibles au CV/CF (frais bancaires variables ou fixes selon le GL).
+ * Les autres codes FIN (intérêts, etc.) restent exclus.
+ */
+export const MAPPING_COST_TYPE_INCLUDED_FIN_LINK_CODES = new Set(["FIN.1"])
+
+/** CV/CF : compte de résultat hors REV et IMP ; parmi FIN, seul FIN.1. */
+export function showsMappingCostTypeOptions(
+  linkCode: string | undefined,
+  codeByCode: StandardLinkCodeLookup,
+): boolean {
+  const lc = linkCode?.trim()
+  if (!lc) return false
+  const row = codeByCode.get(lc)
+  if (!row) return false
+  if (!isIncomeStatementFamily(row.family)) return false
+  if (MAPPING_COST_TYPE_EXCLUDED_FAMILIES.has(row.family)) return false
+  if (isMappingRestrictedLinkCode(lc, codeByCode)) return false
+  if (row.family === "FIN" && !MAPPING_COST_TYPE_INCLUDED_FIN_LINK_CODES.has(lc)) return false
+  return true
+}
+
+/** Sélecteur « compte de revenu associé » : charges variables uniquement (pas REV ni IMP). */
+export function showsMappingVariableRevenueLinkOption(
+  linkCode: string | undefined,
+  codeByCode: StandardLinkCodeLookup,
+): boolean {
+  if (!showsMappingCostTypeOptions(linkCode, codeByCode)) return false
+  const row = codeByCode.get(linkCode!.trim())
+  if (!row) return false
+  return row.family !== "REV" && row.family !== "IMP"
+}
+
+export type MappingCostTypeLabel = "variable" | "fixed" | "unset" | "na"
+
+export function mappingCostTypeLabel(
+  account: {
+    linkCode?: string
+    variableCosts?: boolean
+    fixedCosts?: boolean
+  },
+  codeByCode: StandardLinkCodeLookup,
+): MappingCostTypeLabel {
+  if (!showsMappingCostTypeOptions(account.linkCode, codeByCode)) return "na"
+  const variable = !!account.variableCosts
+  const fixed = !!account.fixedCosts
+  if (variable && !fixed) return "variable"
+  if (fixed && !variable) return "fixed"
+  return "unset"
+}
+
+export function mappingCostTypeDisplayLabel(
+  account: {
+    linkCode?: string
+    variableCosts?: boolean
+    fixedCosts?: boolean
+  },
+  codeByCode: StandardLinkCodeLookup,
+): string {
+  switch (mappingCostTypeLabel(account, codeByCode)) {
+    case "variable":
+      return "Variable"
+    case "fixed":
+      return "Fixe"
+    case "unset":
+      return "—"
+    default:
+      return "N/A"
+  }
+}
+
+export function isMappingCostTypeUnset(
+  account: {
+    linkCode?: string
+    variableCosts?: boolean
+    fixedCosts?: boolean
+  },
+  codeByCode: StandardLinkCodeLookup,
+): boolean {
+  return mappingCostTypeLabel(account, codeByCode) === "unset"
+}
+
+/** Feuilles REV pour l'affectation des coûts variables (REV-A.1, etc.). */
+export function filterRevenueLeafLinkCodes(codes: StandardLinkCode[]): StandardLinkCode[] {
+  return sortStandardLinkCodesHierarchically(
+    codes.filter((c) => c.is_leaf && c.family === "REV"),
+  )
+}
+
+export function sanitizeMappingCostTypeFields<
+  T extends {
+    linkCode?: string
+    variableCosts?: boolean
+    fixedCosts?: boolean
+    variableCostRevenueLinkCode?: string
+  },
+>(draft: T, codeByCode: StandardLinkCodeLookup): T {
+  if (!showsMappingCostTypeOptions(draft.linkCode, codeByCode)) {
+    return {
+      ...draft,
+      variableCosts: false,
+      fixedCosts: false,
+      variableCostRevenueLinkCode: undefined,
+    }
+  }
+  if (!draft.variableCosts || !showsMappingVariableRevenueLinkOption(draft.linkCode, codeByCode)) {
+    return { ...draft, variableCostRevenueLinkCode: undefined }
+  }
+  return draft
 }
 
 /** Racine des codes de liaison éligibles à la section Trésorerie (ex. CAP-C, CAP-C.1). */
@@ -130,7 +453,7 @@ export const CAP_C_CASH_FLOW_ROOT = "CAP-C"
 /** Bénéfice net au bilan : calculé, non mappable au GL. */
 export const NET_INCOME_BALANCE_LINK_CODE = "CAP-C.1"
 
-/** Familles du compte de résultat qui alimentent CAP-C.1. */
+/** Familles P&L (AUT reste affichée au CDR mais n’entre pas dans CAP-C.1). */
 export const NET_INCOME_SUM_FAMILIES = [
   "REV",
   "CMV",
@@ -142,8 +465,55 @@ export const NET_INCOME_SUM_FAMILIES = [
   "IMP",
 ] as const
 
+/** Numérateur CAP-C.1 : revenus (CT → ×−1). */
+export const NET_INCOME_REVENUE_FAMILIES = ["REV"] as const
+
+/** Dénominateur CAP-C.1 : charges (sans AUT). */
+export const NET_INCOME_EXPENSE_FAMILIES = [
+  "CMV",
+  "EXP",
+  "ADM",
+  "VNT",
+  "FIN",
+  "IMP",
+] as const
+
 export function isComputedNetIncomeLinkCode(code: string): boolean {
   return code.trim() === NET_INCOME_BALANCE_LINK_CODE
+}
+
+/** Racines PLT éligibles à la saisie durée restante / taux d'intérêt (mapping comptable). */
+export const MAPPING_LIABILITY_TERM_LINK_CODE_ROOTS = ["PLT-B", "PLT-G", "PLT-C", "PLT-D"] as const
+
+export function isMappingLiabilityTermLinkCode(code: string): boolean {
+  const normalized = code.trim()
+  if (!normalized) return false
+  return MAPPING_LIABILITY_TERM_LINK_CODE_ROOTS.some(
+    (root) => normalized === root || normalized.startsWith(`${root}.`),
+  )
+}
+
+export function showsMappingLiabilityTermOptions(linkCode: string | undefined): boolean {
+  const lc = linkCode?.trim()
+  if (!lc) return false
+  return isMappingLiabilityTermLinkCode(lc)
+}
+
+export function sanitizeMappingLiabilityTermFields<
+  T extends {
+    linkCode?: string
+    liabilityRemainingYears?: number
+    liabilityInterestRate?: number
+  },
+>(draft: T): T {
+  if (!showsMappingLiabilityTermOptions(draft.linkCode)) {
+    return {
+      ...draft,
+      liabilityRemainingYears: undefined,
+      liabilityInterestRate: undefined,
+    }
+  }
+  return draft
 }
 
 /** Racines Bilan affichées dans « Estimation des Capex annuels » (projections). */
@@ -181,6 +551,7 @@ export function compareCapexProjectionLinkCodes(a: string, b: string): number {
 }
 
 export function isMappableStandardLinkCode(code: StandardLinkCode): boolean {
+  if (code.is_active === false) return false
   if (isCashFlowFamily(code.family)) return false
   if (!code.is_leaf) return false
   return !isComputedNetIncomeLinkCode(code.code)
@@ -191,7 +562,10 @@ export function filterMappableLeafLinkCodes(codes: StandardLinkCode[]): Standard
 }
 
 export function incomeStatementLeafCodesForNetIncome(codes: StandardLinkCode[]): string[] {
-  const families = new Set<string>(NET_INCOME_SUM_FAMILIES)
+  const families = new Set<string>([
+    ...NET_INCOME_REVENUE_FAMILIES,
+    ...NET_INCOME_EXPENSE_FAMILIES,
+  ])
   return codes
     .filter((c) => c.is_leaf && families.has(c.family))
     .sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code))
@@ -361,16 +735,72 @@ export function getLeafDescendantsOfStandardLinkCode(
 ): StandardLinkCode[] {
   const parent = parentCode.trim()
   if (!parent) return []
-  if (!codes.some((c) => c.code === parent)) return []
 
-  const leaves: StandardLinkCode[] = []
-  const walk = (code: string) => {
-    for (const child of codes) {
-      if (child.parent_code !== code) continue
-      if (child.is_leaf) leaves.push(child)
-      else walk(child.code)
+  if (codes.some((c) => c.code === parent)) {
+    const leaves: StandardLinkCode[] = []
+    const walk = (code: string) => {
+      for (const child of codes) {
+        if (child.parent_code !== code) continue
+        if (child.is_leaf) leaves.push(child)
+        else walk(child.code)
+      }
+    }
+    walk(parent)
+    return sortStandardLinkCodesHierarchically(leaves)
+  }
+
+  // Family anchor (e.g. summary "REV" when chart roots are REV-A, REV-B, … but no "REV" node).
+  if (isIncomeStatementFamily(parent) || isBalanceSheetFamily(parent)) {
+    const familyLeaves = codes.filter(
+      (c) => c.family === parent && isMappableStandardLinkCode(c),
+    )
+    return sortStandardLinkCodesHierarchically(familyLeaves)
+  }
+
+  return []
+}
+
+/** REV family roots used as Détail sub-lines (REV-A, REV-B, …) when the summary anchor is « REV ». */
+export function getRevenueFamilyGroupingParents(codes: StandardLinkCode[]): StandardLinkCode[] {
+  return sortStandardLinkCodesHierarchically(
+    codes.filter(
+      (c) =>
+        c.family === "REV" &&
+        c.is_active !== false &&
+        !c.is_leaf &&
+        (c.parent_code == null || c.parent_code === ""),
+    ),
+  )
+}
+
+/**
+ * Codes to materialize as Détail sub-lines under a summary annex parent.
+ * REV @ family level → grouping parents (REV-A, …); otherwise → leaf descendants.
+ */
+export function getDetailSubLineCodesFromStandardLinkCode(
+  parentCode: string,
+  codes: StandardLinkCode[],
+): StandardLinkCode[] {
+  const parent = parentCode.trim()
+  if (!parent) return []
+
+  if (parent === "REV" && !codes.some((c) => c.code === "REV")) {
+    return getRevenueFamilyGroupingParents(codes)
+  }
+
+  return getLeafDescendantsOfStandardLinkCode(parentCode, codes)
+}
+
+/** Liaison fields for a synced Détail sub-line (parent codes roll up descendant leaves). */
+export function detailSubLineLiaisonFromStandardTarget(
+  target: StandardLinkCode,
+  codes: StandardLinkCode[],
+): { linkCode: string; liaisonMode: "single" | "sum"; liaisonSumCodes?: string[] } {
+  if (!target.is_leaf) {
+    const leafCodes = getLeafDescendantsOfStandardLinkCode(target.code, codes).map((c) => c.code)
+    if (leafCodes.length > 0) {
+      return { linkCode: target.code, liaisonMode: "sum", liaisonSumCodes: leafCodes }
     }
   }
-  walk(parent)
-  return sortStandardLinkCodesHierarchically(leaves)
+  return { linkCode: target.code, liaisonMode: "single" }
 }

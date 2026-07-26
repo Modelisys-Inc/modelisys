@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Index, String, Boolean, DateTime, ForeignKey, func
+from decimal import Decimal
+
+from sqlalchemy import Index, String, Boolean, DateTime, ForeignKey, Numeric, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -30,6 +32,9 @@ class AccountMapping(Base):
     amortization: Mapped[bool] = mapped_column(Boolean, default=False)
     variable_costs: Mapped[bool] = mapped_column(Boolean, default=False)
     fixed_costs: Mapped[bool] = mapped_column(Boolean, default=False)
+    variable_cost_revenue_link_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    liability_remaining_years: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
+    liability_interest_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
     product: Mapped[str | None] = mapped_column(String(255), nullable=True)
     customer: Mapped[str | None] = mapped_column(String(255), nullable=True)
     supplier: Mapped[str | None] = mapped_column(String(255), nullable=True)
