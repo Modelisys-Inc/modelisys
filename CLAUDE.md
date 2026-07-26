@@ -94,7 +94,12 @@ pnpm test:e2e:ui   # interactive UI mode
 - **Multi-tenancy via org scoping:** queries always filter by the user's organization
 - **Auth pattern:** `current_user: User = Depends(get_current_user)` on every router
 - **API prefix:** all routes under `/api/` (e.g., `/api/companies/{id}/...`)
-- **HTTP status codes:** 201 (create), 204 (delete), 401 (unauthenticated), 403 (unauthorized)
+- **HTTP status codes:** 201 (create), 204 (delete), 401 (unauthenticated), 403 (unauthorized).
+  Missing/malformed bearer credentials **must** be 401: FastAPI's stock `HTTPBearer`
+  raises 403 on the pinned 0.115.0 (newer releases raise 401), so `app/dependencies.py`
+  wraps it in `BearerAuth` to normalize the status regardless of version. Run backend
+  tests against the pinned `requirements.txt` versions — a newer local FastAPI hides
+  this divergence and CI catches it instead.
 - **Router/Schema/Model separation:** routers handle HTTP, schemas validate I/O, models define DB
 - **Cascade deletes** configured at the DB level via `ondelete="CASCADE"`
 - **Timestamps:** `created_at` and `updated_at` on all entities

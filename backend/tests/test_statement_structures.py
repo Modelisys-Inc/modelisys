@@ -1,6 +1,8 @@
 import io
 import uuid
 
+from app.services.statement_structure_defaults import DEFAULT_STRUCTURES
+
 
 def _create_company(client, auth_headers, name="Test Co"):
     response = client.post("/api/companies", json={"name": name}, headers=auth_headers)
@@ -214,9 +216,11 @@ def test_list_both_structures(client, auth_headers):
     )
     assert response.status_code == 200
     structures = response.json()["structures"]
-    assert len(structures) == 4
     types = {s["statement_type"] for s in structures}
-    assert types == {"income-statement", "balance-sheet", "cash-flow", "cash-flow-detail"}
+    # The two upserted types plus the seeded defaults — no duplicates.
+    assert {"income-statement", "balance-sheet"} <= types
+    assert types == set(DEFAULT_STRUCTURES.keys())
+    assert len(structures) == len(DEFAULT_STRUCTURES)
 
 
 def test_company_not_found(client, auth_headers):
