@@ -2324,3 +2324,127 @@ export async function saveStatementChartSlot(
     throw err
   }
 }
+
+// --- Company Diagnostic API ---
+// Miroir exact des modèles Pydantic backend/app/schemas/company_diagnostic.py (snake_case).
+
+export interface DiagnosticSummary {
+  latest_fiscal_year: number
+  /** "croissance" | "maturité" | "décroissance" */
+  lifecycle_stage: string
+  revenue_cagr_5y: number | null
+  latest_revenue: number
+  latest_ebitda: number
+  latest_net_income: number
+  latest_gross_margin_pct: number | null
+  latest_ebitda_margin_pct: number | null
+  latest_net_margin_pct: number | null
+  current_ratio: number | null
+  quick_ratio: number | null
+  debt_to_equity: number | null
+  capex_latest: number
+  capex_revenue_pct: number | null
+  indicative_enterprise_value_mid: number
+}
+
+export interface DiagnosticTrendYear {
+  fiscal_year: number
+  revenue: number
+  gross_profit: number
+  gross_margin_pct: number | null
+  ebitda: number
+  ebitda_margin_pct: number | null
+  net_income: number
+  net_margin_pct: number | null
+  current_assets: number
+  current_liabilities: number
+  inventory: number
+  total_assets: number
+  total_liabilities: number
+  equity: number
+  depreciation: number
+  capex: number
+  current_ratio: number | null
+  quick_ratio: number | null
+  debt_to_equity: number | null
+  asset_turnover: number | null
+  interest_coverage: number | null
+}
+
+export interface DiagnosticSeasonalityMonth {
+  month_number: number
+  month_label: string
+  average_revenue: number
+  average_ebitda: number
+  revenue_share_pct: number | null
+  ebitda_margin_pct: number | null
+}
+
+export interface DiagnosticDivisionPerformance {
+  division_id: string
+  division_name: string
+  revenue: number
+  gross_profit: number
+  gross_margin_pct: number | null
+  ebitda: number
+  ebitda_margin_pct: number | null
+  net_income: number
+  revenue_share_pct: number | null
+  revenue_cagr_5y: number | null
+  profitable: boolean
+}
+
+export interface DiagnosticProductPerformance {
+  product_name: string
+  revenue: number
+  gross_profit: number
+  gross_margin_pct: number | null
+  ebitda: number
+  ebitda_margin_pct: number | null
+  revenue_share_pct: number | null
+}
+
+export interface DiagnosticDivisionProductPerformance {
+  division_id: string
+  division_name: string
+  product_name: string
+  revenue: number
+  gross_profit: number
+  gross_margin_pct: number | null
+  ebitda: number
+  ebitda_margin_pct: number | null
+}
+
+export interface DiagnosticValuation {
+  normalized_ebitda: number
+  multiple_low: number
+  multiple_high: number
+  enterprise_value_low: number
+  enterprise_value_high: number
+  enterprise_value_mid: number
+  book_equity: number
+  rationale: string[]
+}
+
+export interface CompanyDiagnostic {
+  company_id: string
+  company_name: string
+  currency: string
+  fiscal_year_end: string
+  latest_fiscal_year: number
+  summary: DiagnosticSummary
+  trends: DiagnosticTrendYear[]
+  seasonality: DiagnosticSeasonalityMonth[]
+  divisions: DiagnosticDivisionPerformance[]
+  products: DiagnosticProductPerformance[]
+  division_products: DiagnosticDivisionProductPerformance[]
+  valuation: DiagnosticValuation
+  notes: string[]
+  generated_at: string
+}
+
+export async function getCompanyDiagnostic(
+  companyId: string
+): Promise<CompanyDiagnostic> {
+  return apiFetch<CompanyDiagnostic>(`/api/companies/${companyId}/diagnostic`)
+}

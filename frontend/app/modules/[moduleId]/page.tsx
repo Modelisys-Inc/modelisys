@@ -6,8 +6,13 @@ type PageProps = {
   params: Promise<{ moduleId: string }>
 }
 
+/** Modules disposant d'une vraie page statique (app/modules/{id}/page.tsx) — exclus du placeholder. */
+const MODULES_WITH_DEDICATED_PAGE = new Set<string>(["diagnostic"])
+
 export function generateStaticParams() {
-  return COMPANY_MODULES.map((module) => ({ moduleId: module.id }))
+  return COMPANY_MODULES.filter((module) => !MODULES_WITH_DEDICATED_PAGE.has(module.id)).map(
+    (module) => ({ moduleId: module.id }),
+  )
 }
 
 export default async function CompanyModulePage({ params }: PageProps) {

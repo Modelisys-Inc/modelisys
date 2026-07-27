@@ -38,8 +38,11 @@ from app.services.standard_link_code_utils import (
 # liaison resolution: TEX/TIN/TFI codes expand via attached Bilan/CDR codes.
 _CASH_FLOW_STATEMENT_TYPES = frozenset({"cash-flow", "cash-flow-detail"})
 
-# Per-request context so CF sums can add CAP-C.1 without threading kwargs everywhere.
+# Per-request contexts so CF sums can add CAP-C.1 and the diagnostic endpoint
+# can scope computations to a mapped product/service without widening every
+# function signature in this module.
 _cf_net_income_ctx: ContextVar[dict | None] = ContextVar("cf_net_income_ctx", default=None)
+_product_filter_ctx: ContextVar[str | None] = ContextVar("product_filter_ctx", default=None)
 
 def _is_cash_flow_statement_type(statement_type: str) -> bool:
     return statement_type in _CASH_FLOW_STATEMENT_TYPES
@@ -919,6 +922,51 @@ def _mapping_csv_matches_entity(
     return False
 
 
+def _mapping_csv_has_token(field: str | None, token: str | None) -> bool:
+    if not token:
+        return True
+    if not field or not str(field).strip():
+        return False
+    parts = {p.strip() for p in str(field).split(",") if p.strip()}
+    return token in parts
+
+
+def _mapping_matches_dimension_filters(
+    mapping: AccountMapping | None,
+    division_filter: str | None,
+    sub_division_filter: str | None,
+    division_uuid: uuid.UUID | None,
+    sub_division_uuid: uuid.UUID | None,
+    customer_filter: str | None,
+    supplier_filter: str | None,
+) -> bool:
+    if division_filter or division_uuid:
+        if not mapping or not _mapping_csv_matches_entity(
+            mapping.divisions, division_filter, division_uuid
+        ):
+            return False
+    if sub_division_filter or sub_division_uuid:
+        if not mapping or not _mapping_csv_matches_entity(
+            mapping.sub_divisions, sub_division_filter, sub_division_uuid
+        ):
+            return False
+
+    product_filter = _product_filter_ctx.get()
+    if product_filter and not _mapping_csv_has_token(
+        mapping.product if mapping else None, product_filter
+    ):
+        return False
+    if customer_filter and not _mapping_csv_has_token(
+        mapping.customer if mapping else None, customer_filter
+    ):
+        return False
+    if supplier_filter and not _mapping_csv_has_token(
+        mapping.supplier if mapping else None, supplier_filter
+    ):
+        return False
+    return True
+
+
 def _sum_for_link_code_single_month(
     link_code: str | None,
     mapping_index: dict[str, list[str]],
@@ -949,31 +997,21 @@ def _sum_for_link_code_single_month(
             or division_uuid
             or sub_division_filter
             or sub_division_uuid
+            or _product_filter_ctx.get()
             or customer_filter
             or supplier_filter
         ) and mappings_by_account:
             mapping = mappings_by_account.get(acct_num)
-            if division_filter or division_uuid:
-                if not mapping or not _mapping_csv_matches_entity(
-                    mapping.divisions, division_filter, division_uuid
-                ):
-                    continue
-            if sub_division_filter or sub_division_uuid:
-                if not mapping or not _mapping_csv_matches_entity(
-                    mapping.sub_divisions, sub_division_filter, sub_division_uuid
-                ):
-                    continue
-            if mapping:
-                if customer_filter and mapping.customer:
-                    if customer_filter not in mapping.customer.split(","):
-                        continue
-                elif customer_filter and not mapping.customer:
-                    continue
-                if supplier_filter and mapping.supplier:
-                    if supplier_filter not in mapping.supplier.split(","):
-                        continue
-                elif supplier_filter and not mapping.supplier:
-                    continue
+            if not _mapping_matches_dimension_filters(
+                mapping,
+                division_filter,
+                sub_division_filter,
+                division_uuid,
+                sub_division_uuid,
+                customer_filter,
+                supplier_filter,
+            ):
+                continue
 
         monthly = amount_index.get(acct_num, {})
         raw = monthly.get(fiscal_month, Decimal("0"))
@@ -1392,31 +1430,21 @@ def _sum_for_link_code(
             or division_uuid
             or sub_division_filter
             or sub_division_uuid
+            or _product_filter_ctx.get()
             or customer_filter
             or supplier_filter
         ) and mappings_by_account:
             mapping = mappings_by_account.get(acct_num)
-            if division_filter or division_uuid:
-                if not mapping or not _mapping_csv_matches_entity(
-                    mapping.divisions, division_filter, division_uuid
-                ):
-                    continue
-            if sub_division_filter or sub_division_uuid:
-                if not mapping or not _mapping_csv_matches_entity(
-                    mapping.sub_divisions, sub_division_filter, sub_division_uuid
-                ):
-                    continue
-            if mapping:
-                if customer_filter and mapping.customer:
-                    if customer_filter not in mapping.customer.split(","):
-                        continue
-                elif customer_filter and not mapping.customer:
-                    continue
-                if supplier_filter and mapping.supplier:
-                    if supplier_filter not in mapping.supplier.split(","):
-                        continue
-                elif supplier_filter and not mapping.supplier:
-                    continue
+            if not _mapping_matches_dimension_filters(
+                mapping,
+                division_filter,
+                sub_division_filter,
+                division_uuid,
+                sub_division_uuid,
+                customer_filter,
+                supplier_filter,
+            ):
+                continue
 
         monthly = amount_index.get(acct_num, {})
         mult = _dt_ct_multiplier_for_account(
@@ -1546,31 +1574,21 @@ def _gl_account_single_month_income_statement(
         or division_uuid
         or sub_division_filter
         or sub_division_uuid
+        or _product_filter_ctx.get()
         or customer_filter
         or supplier_filter
     ) and mappings_by_account:
         mapping = mappings_by_account.get(acct_num)
-        if division_filter or division_uuid:
-            if not mapping or not _mapping_csv_matches_entity(
-                mapping.divisions, division_filter, division_uuid
-            ):
-                return 0.0
-        if sub_division_filter or sub_division_uuid:
-            if not mapping or not _mapping_csv_matches_entity(
-                mapping.sub_divisions, sub_division_filter, sub_division_uuid
-            ):
-                return 0.0
-        if mapping:
-            if customer_filter and mapping.customer:
-                if customer_filter not in mapping.customer.split(","):
-                    return 0.0
-            elif customer_filter and not mapping.customer:
-                return 0.0
-            if supplier_filter and mapping.supplier:
-                if supplier_filter not in mapping.supplier.split(","):
-                    return 0.0
-            elif supplier_filter and not mapping.supplier:
-                return 0.0
+        if not _mapping_matches_dimension_filters(
+            mapping,
+            division_filter,
+            sub_division_filter,
+            division_uuid,
+            sub_division_uuid,
+            customer_filter,
+            supplier_filter,
+        ):
+            return 0.0
 
     monthly = amount_index.get(acct_num, {})
     mult = _dt_ct_multiplier_for_account(
@@ -1837,31 +1855,21 @@ def _gl_account_single_month_balance_sheet(
         or division_uuid
         or sub_division_filter
         or sub_division_uuid
+        or _product_filter_ctx.get()
         or customer_filter
         or supplier_filter
     ) and mappings_by_account:
         mapping = mappings_by_account.get(acct_num)
-        if division_filter or division_uuid:
-            if not mapping or not _mapping_csv_matches_entity(
-                mapping.divisions, division_filter, division_uuid
-            ):
-                return 0.0
-        if sub_division_filter or sub_division_uuid:
-            if not mapping or not _mapping_csv_matches_entity(
-                mapping.sub_divisions, sub_division_filter, sub_division_uuid
-            ):
-                return 0.0
-        if mapping:
-            if customer_filter and mapping.customer:
-                if customer_filter not in mapping.customer.split(","):
-                    return 0.0
-            elif customer_filter and not mapping.customer:
-                return 0.0
-            if supplier_filter and mapping.supplier:
-                if supplier_filter not in mapping.supplier.split(","):
-                    return 0.0
-            elif supplier_filter and not mapping.supplier:
-                return 0.0
+        if not _mapping_matches_dimension_filters(
+            mapping,
+            division_filter,
+            sub_division_filter,
+            division_uuid,
+            sub_division_uuid,
+            customer_filter,
+            supplier_filter,
+        ):
+            return 0.0
 
     monthly = amount_index.get(acct_num, {})
     mult = _dt_ct_multiplier_for_account(

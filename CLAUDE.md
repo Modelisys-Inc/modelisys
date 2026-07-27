@@ -198,6 +198,26 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   (mois courant = that month only; YTD = Jan→mois; not always YTD like BS CAP-C.1)
 - See `docs/plans/` for detailed design documents
 
+### Diagnostic (rapport VC)
+
+- `GET /api/companies/{id}/diagnostic` (read gate `verify_company_access`, viewers OK)
+  returns a single aggregate payload (`app/schemas/company_diagnostic.py`): 5-year
+  trends, seasonality, per-division profitability, product/service margins, 5-year
+  ratios, capex, and an indicative EBITDA-multiple valuation. Computed in
+  `app/services/company_diagnostic.py` on top of the statement engine using
+  link-code **family** sums (REV/CMV/… — never label matching); EBITDA = EBIT +
+  amortissement; equity = assets − liabilities; capex = ΔALT net + amortissement.
+  Product scoping uses `_product_filter_ctx` (ContextVar in
+  `financial_statements.py`); multiples come from `ForecastConfig`
+  `config_type="ebitda_multiple"` else default 3–5× (rationale notes the default).
+- Frontend: `/modules/diagnostic` (static route beats the `[moduleId]` placeholder;
+  reached via the module nav, not the sidebar). Components in
+  `frontend/components/diagnostic/`, hook `use-company-diagnostic.ts`, e2e (fully
+  mocked) in `frontend/e2e/diagnostic.spec.ts`.
+- Known deltas vs analysis pages (deliberate, flagged for product review): capex
+  differs from `/analysis/capex` (ΔALT vs Δ of first BS total row);
+  `interest_coverage` = EBIT/FIN here vs EBITDA/FIN on `/analysis/ratios`.
+
 ### Authorization (RBAC)
 
 Roles (see `app/dependencies.py`):

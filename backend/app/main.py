@@ -40,6 +40,7 @@ from app.routers import (
     business_risks,
     coa_promotion,
     companies,
+    company_diagnostic,
     company_link_codes,
     customers,
     exchange_rates,
@@ -186,6 +187,9 @@ app.include_router(coa_promotion.router)
 app.include_router(statement_structures.router, dependencies=_write_guard)
 app.include_router(statement_chart_configs.router, dependencies=_write_guard)
 app.include_router(financial_statements.router, dependencies=_write_guard)
+# Diagnostic d'entreprise (lecture seule) — même garde d'écriture que les autres
+# routers company-scoped (no-op sur GET, couvre toute mutation future).
+app.include_router(company_diagnostic.router, dependencies=_write_guard)
 app.include_router(exchange_rates.router, dependencies=_write_guard)
 app.include_router(budgets.router, dependencies=_write_guard)
 app.include_router(notes.router, dependencies=_write_guard)
