@@ -53,3 +53,5 @@ ENV/
 # Playwright test output
 frontend/playwright-report/
 frontend/test-results/
+# Design handoff archives (kept locally, not committed)
+Diagnostics page UI redesign.zip

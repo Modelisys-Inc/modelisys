@@ -211,9 +211,20 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   `financial_statements.py`); multiples come from `ForecastConfig`
   `config_type="ebitda_multiple"` else default 3–5× (rationale notes the default).
 - Frontend: `/modules/diagnostic` (static route beats the `[moduleId]` placeholder;
-  reached via the module nav, not the sidebar). Components in
-  `frontend/components/diagnostic/`, hook `use-company-diagnostic.ts`, e2e (fully
-  mocked) in `frontend/e2e/diagnostic.spec.ts`.
+  reached via the module nav, not the sidebar). Redesigned (2026-07) as a
+  dark-theme "cockpit" report: components in `frontend/components/diagnostic/v2/`
+  (hero with 0-100 health index, KPI strip, hand-written SVG charts — **no
+  Recharts** — drill-down drawer, sticky nav rail). Client-side derivations
+  (health index, typed signals, ratio definitions) in `lib/diagnostic-derive.ts`;
+  design tokens in `lib/diagnostic-theme.ts`; sector medians **hardcoded** in
+  `lib/diagnostic-benchmarks.ts` (should move to the backend eventually —
+  original handoff's `api-gaps.md` lists Phase-2 payload fields: EBITDA bridge,
+  per-year seasonality, cash flow, debt, headcount, multi-method valuation).
+  `diagnostic-format.ts` + `diagnostic-skeleton.tsx` (kept from v1) still used;
+  hook `use-company-diagnostic.ts` unchanged. E2e (fully mocked) in
+  `frontend/e2e/diagnostic.spec.ts` + `diagnostic-visual.spec.ts`; testids:
+  `kpi-cards`, `lifecycle-badge`, `division-row-{id}`, `valuation-notes`,
+  `diagnostic-error`, `diagnostic-signal`, `products-empty-state`.
 - Known deltas vs analysis pages (deliberate, flagged for product review): capex
   differs from `/analysis/capex` (ΔALT vs Δ of first BS total row);
   `interest_coverage` = EBIT/FIN here vs EBITDA/FIN on `/analysis/ratios`.

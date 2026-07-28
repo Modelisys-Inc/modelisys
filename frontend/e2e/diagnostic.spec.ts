@@ -227,67 +227,81 @@ async function mockDiagnostic(page: Page, payload: unknown, status = 200) {
 }
 
 test.describe("Page Diagnostic", () => {
-  test("rend l'en-tête, le badge de stade, les KPI et toutes les sections", async ({ page }) => {
+  test("rend le héros, l'indice de santé, les KPI et toutes les sections", async ({ page }) => {
     await setupAuthAndCommonMocks(page)
     await mockDiagnostic(page, buildDiagnosticPayload())
 
     await page.goto(URL)
 
-    // En-tête : société + badge de stade de vie.
+    // Héros : société + badge de stade de vie + méta du rapport.
     await expect(
       page.getByRole("heading", { name: "Aciers Beauport inc." }),
     ).toBeVisible({ timeout: 15000 })
     const badge = page.getByTestId("lifecycle-badge")
     await expect(badge).toBeVisible()
     await expect(badge).toHaveText("Croissance")
-    await expect(page.getByText(/Rapport généré le/)).toBeVisible()
+    await expect(page.getByText(/Exercice 2025 · CAD · généré le/)).toBeVisible()
 
-    // Cartes KPI.
+    // Indice de santé 0-100 et ses cinq piliers.
+    await expect(page.getByText("Indice de santé Modelisys")).toBeVisible()
+    for (const pillar of ["Croissance", "Rentabilité", "Liquidité", "Structure fin.", "Efficacité"]) {
+      await expect(page.getByText(pillar, { exact: true }).first()).toBeVisible()
+    }
+
+    // Commandes globales : période, filtre division, sélecteur de société.
+    await expect(page.getByRole("button", { name: "5A" })).toHaveAttribute("aria-pressed", "true")
+    await expect(page.getByRole("button", { name: "3A" })).toHaveAttribute("aria-pressed", "false")
+    await expect(page.getByRole("button", { name: "Toutes" })).toBeVisible()
+    await expect(page.getByRole("combobox", { name: "Société" })).toBeVisible()
+
+    // Bandeau KPI (7 cartes cliquables avec sparkline).
     const kpis = page.getByTestId("kpi-cards")
     await expect(kpis.getByText("Chiffre d'affaires", { exact: true })).toBeVisible()
     await expect(kpis.getByText("EBITDA", { exact: true })).toBeVisible()
     await expect(kpis.getByText("Bénéfice net", { exact: true })).toBeVisible()
+    await expect(kpis.getByText("Marge brute", { exact: true })).toBeVisible()
+    await expect(kpis.getByText("Dette / capitaux propres", { exact: true })).toBeVisible()
     await expect(kpis.getByText("Ratio de liquidité", { exact: true })).toBeVisible()
-    await expect(kpis.getByText("Dette / Capitaux propres", { exact: true })).toBeVisible()
-    await expect(kpis.getByText("Capex", { exact: true })).toBeVisible()
-    await expect(kpis.getByText("Valeur d'entreprise indicative", { exact: true })).toBeVisible()
+    await expect(kpis.getByText("Valeur d'entreprise", { exact: true })).toBeVisible()
 
     // Titres de toutes les sections.
     for (const heading of [
-      "Tendances sur 5 ans",
+      "Trajectoire",
       "Saisonnalité",
+      "Profil vs secteur",
       "Rentabilité par division",
-      "Revenus et marges par produits/services",
-      "Ratios financiers (5 ans)",
-      "Investissements (Capex)",
+      "Ratios financiers",
+      "Revenus et marges par produits / services",
       "Valorisation indicative",
     ]) {
       await expect(page.getByRole("heading", { name: heading })).toBeVisible()
     }
 
-    // Liens « Voir l'analyse détaillée ».
+    // Liens « Voir l'analyse détaillée » (saisonnalité, ratios, produits, valorisation).
     await expect(
       page.getByRole("link", { name: /Voir l'analyse détaillée/ }),
-    ).toHaveCount(5)
+    ).toHaveCount(4)
 
-    // Division non rentable surlignée en rouge + étiquette « Déficitaire ».
+    // Division non rentable : ligne marquée + étiquette « Déficitaire ».
     const koRow = page.getByTestId(`division-row-${DIVISION_KO}`)
     await expect(koRow).toBeVisible()
     await expect(koRow).toHaveAttribute("data-profitable", "false")
-    await expect(koRow).toHaveClass(/bg-red-50/)
     await expect(koRow.getByText("Déficitaire")).toBeVisible()
-
-    // La division rentable n'est pas surlignée.
     const okRow = page.getByTestId(`division-row-${DIVISION_OK}`)
     await expect(okRow).toHaveAttribute("data-profitable", "true")
-    await expect(okRow).not.toHaveClass(/bg-red-50/)
+    await expect(okRow.getByText("Déficitaire")).toHaveCount(0)
 
-    // Lignes narratives (style mémo) sous les titres de section.
-    await expect(page.getByText(/L'activité culmine en Avr/)).toBeVisible()
-    await expect(
-      page.getByText(/Chiffre d'affaires en croissance de 12,4 % par an/),
-    ).toBeVisible()
-    await expect(page.getByText(/La division Division Ouest est déficitaire/)).toBeVisible()
+    // Pastilles de filtre division : noms complets (pas de troncature au premier mot).
+    await expect(page.getByRole("button", { name: "Division Est", exact: true })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Division Ouest", exact: true })).toBeVisible()
+
+    // Signaux typés attachés aux graphiques (remplacent les narrations).
+    const signals = page.getByTestId("diagnostic-signal")
+    await expect(signals).toHaveCount(4)
+    await expect(signals.filter({ hasText: /Marge EBITDA en hausse/ })).toBeVisible()
+    await expect(signals.filter({ hasText: /Division Ouest est déficitaire/ })).toBeVisible()
+    await expect(signals.filter({ hasText: /Acier structural pèse/ })).toBeVisible()
+    await expect(signals.filter({ hasText: /Ratio de liquidité de/ })).toBeVisible()
 
     // Valorisation : justification + note d'avertissement.
     await expect(
@@ -295,6 +309,59 @@ test.describe("Page Diagnostic", () => {
     ).toBeVisible()
     await expect(
       page.getByTestId("valuation-notes").getByText(/Valorisation indicative seulement/),
+    ).toBeVisible()
+  })
+
+  test("tiroir de détail : ouverture depuis une ligne de division, fermeture par Échap", async ({
+    page,
+  }) => {
+    await setupAuthAndCommonMocks(page)
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(URL)
+
+    const koRow = page.getByTestId(`division-row-${DIVISION_KO}`)
+    await expect(koRow).toBeVisible({ timeout: 15000 })
+    await koRow.click()
+
+    // Le tiroir s'ouvre avec les statistiques de la division.
+    const drawer = page.getByRole("dialog", { name: "Division Ouest" })
+    await expect(drawer).toBeVisible()
+    await expect(drawer.getByText("Chiffre d'affaires", { exact: true })).toBeVisible()
+    await expect(drawer.getByText(/À restructurer ou à sortir/)).toBeVisible()
+
+    // Fermeture par le bouton ×.
+    await drawer.getByRole("button", { name: "Fermer le détail" }).click()
+    await expect(drawer).toHaveCount(0)
+
+    // Ouverture depuis une carte KPI, fermeture par Échap.
+    await page.getByTestId("kpi-cards").getByText("EBITDA", { exact: true }).click()
+    await expect(page.getByRole("dialog", { name: "EBITDA" })).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog", { name: "EBITDA" })).toHaveCount(0)
+
+    // Ouverture au clavier depuis une barre d'exercice de la trajectoire.
+    const yearBar = page.locator('#diag-trajectoire svg g[role="button"]').last()
+    await yearBar.focus()
+    await page.keyboard.press("Enter")
+    const yearDialog = page.getByRole("dialog")
+    await expect(yearDialog).toBeVisible()
+    await expect(yearDialog.getByText("Chiffre d'affaires de l'exercice")).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+  })
+
+  test("filtre de période 3A limité aux trois derniers exercices", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(URL)
+
+    await expect(page.getByRole("button", { name: "3A" })).toBeVisible({ timeout: 15000 })
+    await page.getByRole("button", { name: "3A" }).click()
+    await expect(page.getByRole("button", { name: "3A" })).toHaveAttribute("aria-pressed", "true")
+    await expect(
+      page.getByText("Chiffre d'affaires, EBITDA et marges — 3 derniers exercices"),
     ).toBeVisible()
   })
 
@@ -308,13 +375,11 @@ test.describe("Page Diagnostic", () => {
     await page.goto(URL)
 
     await expect(
-      page.getByRole("heading", { name: "Revenus et marges par produits/services" }),
+      page.getByRole("heading", { name: "Revenus et marges par produits / services" }),
     ).toBeVisible({ timeout: 15000 })
     await expect(page.getByTestId("products-empty-state")).toBeVisible()
     await expect(
-      page.getByText(
-        "Aucun produit/service mappé — associez des produits dans le mappage des comptes.",
-      ),
+      page.getByText("Aucun produit ou service configuré pour cette société."),
     ).toBeVisible()
   })
 

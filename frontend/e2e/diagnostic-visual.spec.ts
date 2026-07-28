@@ -287,10 +287,16 @@ test.describe("Diagnostic — rendu visuel", () => {
     ).toBeVisible({ timeout: 15000 })
     await expect(page.getByRole("heading", { name: "Valorisation indicative" })).toBeVisible()
 
-    // Attendre le rendu des graphiques (surfaces SVG Recharts) et la fin des animations.
+    // Attendre le rendu des graphiques (SVG faits main) : barres de la
+    // trajectoire, bulles du quadrant (une par division), polygones du radar.
     await expect
-      .poll(async () => page.locator(".recharts-surface").count(), { timeout: 15000 })
-      .toBeGreaterThanOrEqual(4)
+      .poll(async () => page.locator("#diag-trajectoire svg rect").count(), { timeout: 15000 })
+      .toBeGreaterThanOrEqual(5)
+    await expect(page.locator("#diag-divisions svg circle")).toHaveCount(3)
+    await expect
+      .poll(async () => page.locator("#diag-profil svg polygon").count())
+      .toBeGreaterThanOrEqual(2)
+    // Laisser finir les animations de compteurs et de croissance des barres.
     await page.waitForTimeout(2000)
 
     const shotPath =
