@@ -132,6 +132,7 @@ def create_company(
         name=request.name,
         fiscal_year_end=request.fiscal_year_end,
         currency=request.currency,
+        is_cumulative_tb=request.is_cumulative_tb,
         coa_version=current_coa_version,
     )
     db.add(company)

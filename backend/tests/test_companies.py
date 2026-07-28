@@ -12,6 +12,20 @@ def test_create_company(client, auth_headers):
     assert "id" in data
 
 
+def test_create_company_persists_is_cumulative_tb(client, auth_headers):
+    response = client.post(
+        "/api/companies",
+        json={"name": "Cumul Inc", "is_cumulative_tb": True},
+        headers=auth_headers,
+    )
+    assert response.status_code == 201
+    company_id = response.json()["id"]
+
+    fetched = client.get(f"/api/companies/{company_id}", headers=auth_headers)
+    assert fetched.status_code == 200
+    assert fetched.json()["is_cumulative_tb"] is True
+
+
 def test_create_company_with_divisions(client, auth_headers):
     response = client.post(
         "/api/companies",
