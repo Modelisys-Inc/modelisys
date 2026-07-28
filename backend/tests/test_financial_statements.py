@@ -1273,6 +1273,65 @@ def test_series_anchored_on_reference_month(client, auth_headers):
     assert jan_labels[0] == "Fév 2023"
 
 
+def test_series_includes_supplementary_link_codes_from_sum_lists(client, auth_headers):
+    """Codes only referenced in liaisonSumCodes must still be addressable in chart series."""
+    company_id = _create_company(client, auth_headers)
+
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "Sales A", "link_code": "REV-A"},
+        {"account_number": "4100", "description": "Sales B", "link_code": "REV-B"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "4000",
+            "description": "Sales A",
+            "monthly_amounts": {"Janvier": 10000.0},
+        },
+        {
+            "account_number": "4100",
+            "description": "Sales B",
+            "monthly_amounts": {"Janvier": 5000.0},
+        },
+    ], fiscal_year=2024)
+    _upsert_structure(client, auth_headers, company_id, "income-statement", [
+        {
+            "label": "Revenus",
+            "liaisonMode": "sum",
+            "liaisonSumCodes": ["REV-A", "REV-B"],
+        },
+    ])
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement/series"
+        "?fiscal_year=2024&month=1&months=1",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    by_code = {r.get("linkCode"): r for r in data["rows"] if r.get("linkCode")}
+    assert "REV-A" in by_code
+    assert "REV-B" in by_code
+    assert by_code["REV-A"]["amounts"]["2024-1"] == -10000.0
+    assert by_code["REV-B"]["amounts"]["2024-1"] == -5000.0
+
+
+def test_series_computes_baiia_row_from_income_families(client, auth_headers):
+    """The BAIIA summary row (isEBITA) must expose computed amounts in series."""
+    company_id = _setup_income_statement_data(client, auth_headers)
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement/series"
+        "?fiscal_year=2024&month=1&months=1",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    baiia = next((r for r in data["rows"] if str(r.get("label", "")).lower() == "baiia"), None)
+    assert baiia is not None
+    # REV -10000 ; COGS/OPEX ne sont pas des familles CMV/EXP → seul REV compte ici
+    assert baiia["amounts"]["2024-1"] == -10000.0
+
+
 def test_series_24_months_spans_two_years(client, auth_headers):
     """Series with months=24 should include data from two fiscal years."""
     company_id = _create_company(client, auth_headers)

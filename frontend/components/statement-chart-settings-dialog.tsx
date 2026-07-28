@@ -22,6 +22,7 @@ import {
 } from "@/lib/api"
 import {
   collectDistinctLinkCodesFromStructure,
+  collectSummaryRowSourcesFromStructure,
   mapLinkCodesToOwnerLabel,
   normalizeCodeList,
 } from "@/lib/income-statement-structure-utils"
@@ -72,10 +73,13 @@ function labelForCode(labels: Map<string, string> | undefined, code: string): st
 function summarizeMetricSpec(
   spec: ChartMetricSpec,
   labels: Map<string, string>,
+  summaryRows?: Array<{ id: string; label: string }>,
 ): string {
   if (spec.type === "single") {
     const code = spec.code.trim()
     if (!code) return "Choisir un code de liaison"
+    const summary = summaryRows?.find((r) => r.id.toLowerCase() === code.toLowerCase())
+    if (summary) return `Poste sommaire — ${summary.label}`
     const lbl = labelForCode(labels, code)
     return lbl ? `${code} — ${lbl}` : code
   }
@@ -156,6 +160,7 @@ export function ChartMetricSpecEditor({
   onChange,
   idPrefix,
   allLinkCodes,
+  summaryRowSources = [],
   linkCodeLabels,
   allowDerivedMargin,
   barSeriesOptions,
@@ -167,6 +172,7 @@ export function ChartMetricSpecEditor({
   onChange: (s: ChartMetricSpec) => void
   idPrefix: string
   allLinkCodes: string[]
+  summaryRowSources?: Array<{ id: string; label: string }>
   linkCodeLabels?: Map<string, string>
   allowDerivedMargin?: boolean
   barSeriesOptions?: { id: string; label: string }[]
@@ -234,9 +240,9 @@ export function ChartMetricSpecEditor({
         {spec.type === "single" ? (
           <div className="space-y-1.5">
             <Label htmlFor={`${idPrefix}-code`} className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Code de liaison
+              Code de liaison ou poste sommaire
             </Label>
-            {codeOptions.length === 0 ? (
+            {codeOptions.length === 0 && summaryRowSources.length === 0 ? (
               <p className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-xs text-amber-800">
                 Aucun code disponible : définissez des liaisons dans Paramètres {structureHintLabelProp ?? "Sommaire"}.
               </p>
@@ -249,12 +255,18 @@ export function ChartMetricSpecEditor({
                   id={`${idPrefix}-code`}
                   className="h-10 rounded-xl border-slate-200/90 bg-white text-sm"
                 >
-                  <SelectValue placeholder="Choisir un code" />
+                  <SelectValue placeholder="Choisir une source" />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
                   <SelectItem value={EMPTY_SELECT} className="text-slate-500">
                     — Non choisi —
                   </SelectItem>
+                  {summaryRowSources.map((row) => (
+                    <SelectItem key={`summary-${row.id}`} value={row.id} className="text-sm">
+                      <span className="font-medium text-slate-800">{row.label}</span>
+                      <span className="ml-1.5 text-slate-500">— poste sommaire</span>
+                    </SelectItem>
+                  ))}
                   {codeOptions.map((code) => (
                     <SelectItem key={code} value={code} className="text-sm">
                       <span className="font-mono">{code}</span>
@@ -266,6 +278,12 @@ export function ChartMetricSpecEditor({
                 </SelectContent>
               </Select>
             )}
+            {summaryRowSources.some((r) => r.label.toLowerCase() === "baiia") ? (
+              <p className="text-xs leading-relaxed text-slate-500">
+                Pour le BAIIA, choisissez le poste sommaire «&nbsp;BAIIA&nbsp;» (calculé automatiquement).
+                Additionner des codes de liaison ne reproduit pas le BAIIA du Sommaire.
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -425,6 +443,7 @@ function SeriesSidebarItem({
   index,
   selected,
   linkCodeLabels,
+  summaryRowSources = [],
   onSelect,
   onMoveUp,
   onMoveDown,
@@ -437,6 +456,7 @@ function SeriesSidebarItem({
   index: number
   selected: boolean
   linkCodeLabels: Map<string, string>
+  summaryRowSources?: Array<{ id: string; label: string }>
   onSelect: () => void
   onMoveUp: () => void
   onMoveDown: () => void
@@ -446,7 +466,7 @@ function SeriesSidebarItem({
   isLast: boolean
 }) {
   const color = series.color ?? DEFAULT_COLORS[index % DEFAULT_COLORS.length]
-  const specSummary = summarizeMetricSpec(series.spec, linkCodeLabels)
+  const specSummary = summarizeMetricSpec(series.spec, linkCodeLabels, summaryRowSources)
 
   return (
     <div
@@ -562,6 +582,7 @@ export function StatementChartSettingsDialog({
     updatedAt: string
   } | null>(null)
   const [linkCodes, setLinkCodes] = useState<string[]>([])
+  const [summaryRowSources, setSummaryRowSources] = useState<Array<{ id: string; label: string }>>([])
   const [linkCodeLabels, setLinkCodeLabels] = useState<Map<string, string>>(new Map())
   const [loadingCodes, setLoadingCodes] = useState(false)
 
@@ -586,11 +607,13 @@ export function StatementChartSettingsDialog({
       .then((data) => {
         if (cancelled) return
         setLinkCodes(collectDistinctLinkCodesFromStructure(data.structure ?? []))
+        setSummaryRowSources(collectSummaryRowSourcesFromStructure(data.structure ?? []))
         setLinkCodeLabels(mapLinkCodesToOwnerLabel(data.structure ?? []))
       })
       .catch(() => {
         if (!cancelled) {
           setLinkCodes([])
+          setSummaryRowSources([])
           setLinkCodeLabels(new Map())
         }
       })
@@ -861,6 +884,7 @@ export function StatementChartSettingsDialog({
                     index={idx}
                     selected={s.id === selectedSeriesId}
                     linkCodeLabels={linkCodeLabels}
+                    summaryRowSources={summaryRowSources}
                     onSelect={() => setSelectedSeriesId(s.id)}
                     onMoveUp={() => moveSeries(idx, -1)}
                     onMoveDown={() => moveSeries(idx, 1)}
@@ -896,7 +920,7 @@ export function StatementChartSettingsDialog({
                     </h4>
                   </div>
                   <Badge variant="outline" className="font-mono text-xs text-slate-500">
-                    {summarizeMetricSpec(selectedSeries.spec, linkCodeLabels)}
+                    {summarizeMetricSpec(selectedSeries.spec, linkCodeLabels, summaryRowSources)}
                   </Badge>
                 </div>
 
@@ -1019,6 +1043,7 @@ export function StatementChartSettingsDialog({
                     spec={selectedSeries.spec}
                     onChange={(spec) => updateSeries(selectedIndex, { spec })}
                     allLinkCodes={sortedCodes}
+                    summaryRowSources={summaryRowSources}
                     linkCodeLabels={linkCodeLabels}
                     allowDerivedMargin={selectedSeries.kind === "line"}
                     barSeriesOptions={barOptions.length ? barOptions : undefined}

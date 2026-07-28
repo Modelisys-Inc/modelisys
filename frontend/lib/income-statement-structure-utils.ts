@@ -932,6 +932,27 @@ export function collectDistinctLinkCodesFromStructure(
   return Array.from(seen).sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
 }
 
+/** Postes calculés du Sommaire (BAIIA, bénéfice brut, …) — sélectionnables dans les graphiques. */
+export function collectSummaryRowSourcesFromStructure(
+  structure: Record<string, unknown>[]
+): Array<{ id: string; label: string }> {
+  const out: Array<{ id: string; label: string }> = []
+  const seen = new Set<string>()
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    const id = String(row.id ?? row.linkCode ?? row.label ?? "").trim()
+    if (!id) continue
+    const key = id.toLowerCase()
+    if (seen.has(key)) continue
+    const isSummaryRow =
+      row.isEBITA === true || row.isResult === true || !!row.formula
+    if (!isSummaryRow) continue
+    seen.add(key)
+    out.push({ id, label: String(row.label ?? id).trim() || id })
+  }
+  return out.sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true }))
+}
+
 /**
  * Associe chaque code de liaison au libellé du poste qui le **définit** (ligne en
  * mode « Code unique » dont le `linkCode` vaut ce code). Permet d'afficher « 4100 —

@@ -21,17 +21,12 @@ import {
 } from "@/lib/series-reference-columns"
 
 /** Repère une ligne par id technique, par code de liaison Sommaire (`linkCode`) ou par id de compte détail. */
-export function findSeriesRowByCode(rows: SeriesRow[], code: string): SeriesRow | undefined {
-  const t = code.trim()
-  if (!t) return undefined
-  const lower = t.toLowerCase()
+function flattenSeriesRows(rows: SeriesRow[]): SeriesRow[] {
+  const out: SeriesRow[] = []
   for (const r of rows) {
-    if (r.id.trim().toLowerCase() === lower) return r
-    const lc = r.linkCode?.trim()
-    if (lc && lc.toLowerCase() === lower) return r
-    const dr = r.detailRows?.find((d) => d.id.trim().toLowerCase() === lower)
-    if (dr) {
-      return {
+    out.push(r)
+    for (const dr of r.detailRows ?? []) {
+      out.push({
         id: dr.id,
         label: dr.label,
         isBold: false,
@@ -39,10 +34,45 @@ export function findSeriesRowByCode(rows: SeriesRow[], code: string): SeriesRow 
         isResult: false,
         amounts: dr.amounts,
         detailRows: [],
-      }
+      })
     }
   }
+  return out
+}
+
+export function findSeriesRowByCode(rows: SeriesRow[], code: string): SeriesRow | undefined {
+  const t = code.trim()
+  if (!t) return undefined
+  const lower = t.toLowerCase()
+  for (const r of flattenSeriesRows(rows)) {
+    if (r.id.trim().toLowerCase() === lower) return r
+    const lc = r.linkCode?.trim()
+    if (lc && lc.toLowerCase() === lower) return r
+    if (r.label.trim().toLowerCase() === lower) return r
+  }
   return undefined
+}
+
+/** True when the metric spec has enough wiring to attempt a lookup (non-empty codes). */
+export function isChartMetricSpecConfigured(spec: ChartMetricSpec): boolean {
+  if (spec.type === "single") return spec.code.trim().length > 0
+  if (spec.type === "sum") return spec.codes.some((c) => c.trim().length > 0)
+  if (spec.type === "difference") {
+    return (
+      spec.numeratorCodes.some((c) => c.trim().length > 0)
+      || spec.denominatorCodes.some((c) => c.trim().length > 0)
+    )
+  }
+  if (spec.type === "ratio") {
+    return (
+      spec.numeratorCodes.some((c) => c.trim().length > 0)
+      && spec.denominatorCodes.some((c) => c.trim().length > 0)
+    )
+  }
+  if (spec.type === "derivedMargin") {
+    return isChartMetricSpecConfigured(spec.grossProfitFromSpec)
+  }
+  return false
 }
 
 function addSeries(a: number[], b: number[]): number[] {
@@ -62,13 +92,16 @@ function subSeries(a: number[], b: number[]): number[] {
 function sumCodesSeries(rows: SeriesRow[], periods: SeriesPeriod[], codes: string[]): number[] | null {
   if (!codes.length) return periods.map(() => 0)
   let acc: number[] | null = null
+  let resolved = 0
   for (const c of codes) {
     const row = findSeriesRowByCode(rows, c)
-    if (!row) return null
+    if (!row) continue
+    resolved += 1
     const v = getRowAmounts(row, periods)
     acc = acc === null ? v : addSeries(acc, v)
   }
-  return acc
+  if (!resolved) return null
+  return acc ?? periods.map(() => 0)
 }
 
 const REF_EPS = 1e-9
@@ -308,7 +341,11 @@ export function buildPerformanceChartData(
   refMonth: number,
   refYear: number
 ): { points: DynamicChartPoint[]; series: BuiltSeriesMeta[] } | null {
-  if (!config.series.length) return null
+  const activeSeries = config.series.filter((s) => {
+    if (s.spec.type === "derivedMargin") return true
+    return isChartMetricSpecConfigured(s.spec)
+  })
+  if (!activeSeries.length) return null
   const v = view === "quarters" ? "quarters" : view === "years" ? "years" : "months"
 
   let labels: string[]
@@ -325,12 +362,12 @@ export function buildPerformanceChartData(
   }
 
   const trends = new Map<string, number[]>()
-  const pass1 = config.series.filter((s) => s.spec.type !== "derivedMargin")
-  const pass2 = config.series.filter((s) => s.spec.type === "derivedMargin")
+  const pass1 = activeSeries.filter((s) => s.spec.type !== "derivedMargin")
+  const pass2 = activeSeries.filter((s) => s.spec.type === "derivedMargin")
 
   for (const s of pass1) {
     const t = resolveSeriesTrend(s, rows, periods, v, refMonth, refYear, count)
-    if (!t || t.length !== labels.length) return null
+    if (!t || t.length !== labels.length) continue
     trends.set(s.id, t)
   }
 
@@ -338,15 +375,18 @@ export function buildPerformanceChartData(
     const spec = s.spec
     if (spec.type !== "derivedMargin") continue
     const rev = trends.get(spec.revenueSeriesId)
-    if (!rev) return null
+    if (!rev) continue
     const gpT = trendFromMetricSpec(spec.grossProfitFromSpec, rows, periods, v, refMonth, refYear, count)
-    if (!gpT || gpT.length !== labels.length) return null
+    if (!gpT || gpT.length !== labels.length) continue
     const margin = computeDerivedGrossMarginPercent(rev, gpT)
-    if (margin.length !== labels.length) return null
+    if (margin.length !== labels.length) continue
     trends.set(s.id, margin)
   }
 
-  const seriesMeta: BuiltSeriesMeta[] = config.series.map((s) => ({
+  const resolvedSeries = activeSeries.filter((s) => trends.has(s.id))
+  if (!resolvedSeries.length) return null
+
+  const seriesMeta: BuiltSeriesMeta[] = resolvedSeries.map((s) => ({
     id: s.id,
     dataKey: sanitizeSeriesDataKey(s.id),
     kind: s.kind,
@@ -360,7 +400,7 @@ export function buildPerformanceChartData(
 
   const points: DynamicChartPoint[] = labels.map((label, i) => {
     const row: DynamicChartPoint = { period: label }
-    for (const s of config.series) {
+    for (const s of resolvedSeries) {
       const arr = trends.get(s.id)
       if (!arr) continue
       row[sanitizeSeriesDataKey(s.id)] = arr[i] ?? 0
