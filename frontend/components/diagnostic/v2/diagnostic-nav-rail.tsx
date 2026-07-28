@@ -42,8 +42,8 @@ export function DiagnosticNavRail({ sections, signalCount, signalSummary }: Diag
   }, [sections])
 
   return (
-    <aside className="sticky top-0 flex flex-col gap-0.5 self-start border-r border-[rgba(230,214,195,.09)] px-3.5 pb-7 pt-5">
-      <div className="px-2.5 pb-2.5 text-[9.5px] font-semibold uppercase tracking-[.16em] text-[rgba(201,184,165,.45)]">
+    <aside className="sticky top-0 flex flex-col gap-0.5 self-start border-r border-slate-200 px-3.5 pb-7 pt-5">
+      <div className="px-2.5 pb-2.5 text-[9.5px] font-semibold uppercase tracking-[.16em] text-slate-400">
         Rapport
       </div>
 
@@ -56,13 +56,13 @@ export function DiagnosticNavRail({ sections, signalCount, signalSummary }: Diag
             aria-current={isActive ? "true" : undefined}
             className={[
               "flex items-center gap-[9px] rounded-md px-2.5 py-[7px] text-xs font-medium leading-snug transition-colors",
-              isActive ? "bg-white/[.05] text-[#E6D6C3]" : "text-[rgba(201,184,165,.68)] hover:text-[#E6D6C3]",
+              isActive ? "bg-slate-100 text-[#2A2F3A]" : "text-slate-500 hover:text-[#2A2F3A]",
             ].join(" ")}
           >
             <span
               aria-hidden
               className="h-[5px] w-[5px] flex-none rounded-full"
-              style={{ background: isActive ? "#E0742D" : "rgba(201,184,165,.28)" }}
+              style={{ background: isActive ? "#E0742D" : "#cbd5e1" }}
             />
             {s.label}
           </a>
@@ -70,12 +70,12 @@ export function DiagnosticNavRail({ sections, signalCount, signalSummary }: Diag
       })}
 
       {signalCount ? (
-        <div className="mt-4 rounded-[10px] bg-[rgba(224,116,45,.08)] p-3 shadow-[inset_0_0_0_1px_rgba(224,116,45,.22)]">
+        <div className="mt-4 rounded-[10px] border border-orange-200 bg-orange-50 p-3">
           <div className="text-[11px] font-semibold leading-snug text-[#E0742D]">
             {signalCount} {signalCount > 1 ? "signaux" : "signal"} à traiter
           </div>
           {signalSummary && (
-            <div className="mt-1.5 text-[10.5px] leading-relaxed text-[rgba(201,184,165,.7)]">
+            <div className="mt-1.5 text-[10.5px] leading-relaxed text-slate-500">
               {signalSummary}
             </div>
           )}

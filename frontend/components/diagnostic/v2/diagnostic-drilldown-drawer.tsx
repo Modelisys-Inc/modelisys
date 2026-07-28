@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react"
 import Link from "next/link"
 import { X, ArrowRight } from "lucide-react"
 import type { DrillDownRequest } from "@/components/diagnostic/v2/types"
+import { DIAG } from "@/lib/diagnostic-theme"
 
 interface DiagnosticDrilldownDrawerProps {
   request: DrillDownRequest | null
@@ -11,9 +12,9 @@ interface DiagnosticDrilldownDrawerProps {
 }
 
 const TONE_COLOR: Record<string, string> = {
-  neutral: "#E6D6C3",
-  positive: "#34D399",
-  negative: "#F16A5C",
+  neutral: DIAG.text,
+  positive: DIAG.positive,
+  negative: DIAG.negative,
 }
 
 /**
@@ -80,18 +81,18 @@ export function DiagnosticDrilldownDrawer({ request, onClose }: DiagnosticDrilld
         aria-modal="true"
         aria-label={request.title}
         onKeyDown={trapFocus}
-        className="fixed inset-y-0 right-0 z-50 flex w-[440px] max-w-full flex-col overflow-auto bg-[#181C24] shadow-[-24px_0_60px_rgba(0,0,0,.5),inset_1px_0_0_rgba(230,214,195,.10)]"
+        className="fixed inset-y-0 right-0 z-50 flex w-[440px] max-w-full flex-col overflow-auto border-l border-slate-200 bg-white shadow-2xl shadow-slate-900/10"
       >
-        <header className="flex items-start justify-between gap-3 border-b border-[rgba(230,214,195,.09)] px-5 py-[18px]">
+        <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-[18px]">
           <div>
             <div className="text-[9.5px] font-semibold uppercase tracking-[.14em] text-[#E0742D]">
               {request.kicker}
             </div>
-            <div className="mt-1.5 text-[19px] font-semibold leading-tight tracking-[-.01em] text-[#E6D6C3]">
+            <div className="mt-1.5 text-[19px] font-semibold leading-tight tracking-[-.01em] text-[#2A2F3A]">
               {request.title}
             </div>
             {request.subtitle && (
-              <div className="mt-1 text-[11.5px] leading-snug text-[rgba(201,184,165,.6)]">
+              <div className="mt-1 text-[11.5px] leading-snug text-slate-500">
                 {request.subtitle}
               </div>
             )}
@@ -100,7 +101,7 @@ export function DiagnosticDrilldownDrawer({ request, onClose }: DiagnosticDrilld
             type="button"
             onClick={onClose}
             aria-label="Fermer le détail"
-            className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-white/[.06] text-[rgba(201,184,165,.7)] transition-colors hover:text-[#E6D6C3]"
+            className="flex h-7 w-7 flex-none items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-500 transition-colors hover:text-[#2A2F3A]"
           >
             <X className="h-4 w-4" aria-hidden />
           </button>
@@ -111,9 +112,9 @@ export function DiagnosticDrilldownDrawer({ request, onClose }: DiagnosticDrilld
             {request.stats.map((s) => (
               <div
                 key={s.label}
-                className="rounded-[9px] bg-white/[.03] px-3 py-2.5 shadow-[inset_0_0_0_1px_rgba(230,214,195,.08)]"
+                className="rounded-[9px] border border-slate-200 bg-slate-50 px-3 py-2.5"
               >
-                <div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[rgba(201,184,165,.5)]">
+                <div className="text-[9px] font-semibold uppercase tracking-[.1em] text-slate-400">
                   {s.label}
                 </div>
                 <div
@@ -128,7 +129,7 @@ export function DiagnosticDrilldownDrawer({ request, onClose }: DiagnosticDrilld
 
           {request.series.length > 0 && (
             <div>
-              <div className="mb-2.5 text-[9.5px] font-semibold uppercase tracking-[.12em] text-[rgba(201,184,165,.5)]">
+              <div className="mb-2.5 text-[9.5px] font-semibold uppercase tracking-[.12em] text-slate-400">
                 Évolution
               </div>
               <svg
@@ -155,7 +156,7 @@ export function DiagnosticDrilldownDrawer({ request, onClose }: DiagnosticDrilld
                         fontSize={10}
                         fontWeight={600}
                         fontFamily="ui-monospace,Menlo,monospace"
-                        fill="rgba(230,214,195,.8)"
+                        fill="#2A2F3A"
                       >
                         {request.formatValue(s.value)}
                       </text>
@@ -164,7 +165,7 @@ export function DiagnosticDrilldownDrawer({ request, onClose }: DiagnosticDrilld
                         y={126}
                         textAnchor="middle"
                         fontSize={10}
-                        fill="rgba(201,184,165,.55)"
+                        fill="#94a3b8"
                       >
                         {s.label}
                       </text>
@@ -177,12 +178,12 @@ export function DiagnosticDrilldownDrawer({ request, onClose }: DiagnosticDrilld
 
           {request.notes && request.notes.length > 0 && (
             <div>
-              <div className="mb-2 text-[9.5px] font-semibold uppercase tracking-[.12em] text-[rgba(201,184,165,.5)]">
+              <div className="mb-2 text-[9.5px] font-semibold uppercase tracking-[.12em] text-slate-400">
                 Lecture
               </div>
               <ul className="flex list-disc flex-col gap-1.5 pl-4">
                 {request.notes.map((n, i) => (
-                  <li key={i} className="text-[11.5px] leading-relaxed text-[rgba(201,184,165,.78)]">
+                  <li key={i} className="text-[11.5px] leading-relaxed text-slate-600">
                     {n}
                   </li>
                 ))}
@@ -193,7 +194,7 @@ export function DiagnosticDrilldownDrawer({ request, onClose }: DiagnosticDrilld
           {request.detailHref && (
             <Link
               href={request.detailHref}
-              className="inline-flex w-fit items-center gap-1.5 rounded-lg bg-[#E0742D] px-3.5 py-2.5 text-[11.5px] font-semibold text-[#14171D] transition-colors hover:bg-[#F08F4F]"
+              className="inline-flex w-fit items-center gap-1.5 rounded-lg bg-[#E0742D] px-3.5 py-2.5 text-[11.5px] font-semibold text-white transition-colors hover:bg-[#c96526]"
             >
               Ouvrir l&apos;analyse complète
               <ArrowRight className="h-3.5 w-3.5" aria-hidden />

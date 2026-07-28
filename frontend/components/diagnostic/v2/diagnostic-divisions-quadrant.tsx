@@ -39,7 +39,7 @@ export function DiagnosticDivisionsQuadrant({
 
   if (divisions.length === 0) {
     return (
-      <p className="py-10 text-center text-sm text-[rgba(201,184,165,.6)]">
+      <p className="py-10 text-center text-sm text-slate-500">
         Aucune division configurée pour cette société.
       </p>
     )
@@ -101,7 +101,7 @@ export function DiagnosticDivisionsQuadrant({
   return (
     <div ref={ref} className="grid gap-0 xl:grid-cols-[520px_1fr]">
       {/* Quadrant */}
-      <div className="px-2.5 pb-2.5 pt-3.5 xl:border-r xl:border-[rgba(230,214,195,.08)]">
+      <div className="px-2.5 pb-2.5 pt-3.5 xl:border-r xl:border-slate-200">
         <svg viewBox={`0 0 ${VB_W} ${VB_H}`} className="block h-auto w-full overflow-visible">
           <rect
             x={medX}
@@ -115,14 +115,14 @@ export function DiagnosticDivisionsQuadrant({
             const v = minCagr + (maxCagr - minCagr) * f
             return (
               <g key={`gx-${i}`}>
-                <line x1={sx(v)} x2={sx(v)} y1={PLOT_TOP} y2={PLOT_BOTTOM} stroke="rgba(230,214,195,.07)" />
+                <line x1={sx(v)} x2={sx(v)} y1={PLOT_TOP} y2={PLOT_BOTTOM} stroke="#e2e8f0" />
                 <text
                   x={sx(v)}
                   y={296}
                   textAnchor="middle"
                   fontSize={10}
                   fontFamily="ui-monospace,Menlo,monospace"
-                  fill="rgba(201,184,165,.42)"
+                  fill="#94a3b8"
                 >
                   {Math.round(v)} %
                 </text>
@@ -133,14 +133,14 @@ export function DiagnosticDivisionsQuadrant({
             const v = minMargin + (maxMargin - minMargin) * f
             return (
               <g key={`gy-${i}`}>
-                <line x1={PLOT_LEFT} x2={PLOT_RIGHT} y1={sy(v)} y2={sy(v)} stroke="rgba(230,214,195,.07)" />
+                <line x1={PLOT_LEFT} x2={PLOT_RIGHT} y1={sy(v)} y2={sy(v)} stroke="#e2e8f0" />
                 <text
                   x={54}
                   y={sy(v) + 4}
                   textAnchor="end"
                   fontSize={10}
                   fontFamily="ui-monospace,Menlo,monospace"
-                  fill="rgba(201,184,165,.42)"
+                  fill="#94a3b8"
                 >
                   {Math.round(v)} %
                 </text>
@@ -157,7 +157,7 @@ export function DiagnosticDivisionsQuadrant({
           <text x={66} y={272} fontSize={9.5} letterSpacing={1.2} fill="rgba(241,106,92,.65)">
             À RESTRUCTURER
           </text>
-          <text x={280} y={318} textAnchor="middle" fontSize={10} fill="rgba(201,184,165,.5)">
+          <text x={280} y={318} textAnchor="middle" fontSize={10} fill="#94a3b8">
             TCAC 5 ans du chiffre d&apos;affaires →
           </text>
           <text
@@ -166,7 +166,7 @@ export function DiagnosticDivisionsQuadrant({
             textAnchor="middle"
             transform="rotate(-90 14 150)"
             fontSize={10}
-            fill="rgba(201,184,165,.5)"
+            fill="#94a3b8"
           >
             Marge EBITDA →
           </text>
@@ -191,7 +191,7 @@ export function DiagnosticDivisionsQuadrant({
                   textAnchor="middle"
                   fontSize={10.5}
                   fontWeight={600}
-                  fill={d.profitable ? "rgba(230,214,195,.85)" : "#F16A5C"}
+                  fill={d.profitable ? "#2A2F3A" : "#dc2626"}
                 >
                   {d.division_name}
                 </text>
@@ -203,7 +203,7 @@ export function DiagnosticDivisionsQuadrant({
 
       {/* Tableau */}
       <div className="pt-2">
-        <div className="grid grid-cols-[1.3fr_.8fr_.7fr_.7fr_.8fr_.7fr] px-4 pb-2 text-[9.5px] font-semibold uppercase leading-tight tracking-[.08em] text-[rgba(201,184,165,.45)]">
+        <div className="grid grid-cols-[1.3fr_.8fr_.7fr_.7fr_.8fr_.7fr] px-4 pb-2 text-[9.5px] font-semibold uppercase leading-tight tracking-[.08em] text-slate-400">
           <span>Division</span>
           <span className="text-right">CA</span>
           <span className="text-right">Part</span>
@@ -220,7 +220,7 @@ export function DiagnosticDivisionsQuadrant({
             data-profitable={d.profitable ? "true" : "false"}
             onClick={() => openDivision(d)}
             className={[
-              "grid w-full grid-cols-[1.3fr_.8fr_.7fr_.7fr_.8fr_.7fr] items-center border-t border-[rgba(230,214,195,.06)] px-4 py-[9px] text-left transition-colors hover:bg-white/[.05]",
+              "grid w-full grid-cols-[1.3fr_.8fr_.7fr_.7fr_.8fr_.7fr] items-center border-t border-slate-200 px-4 py-[9px] text-left transition-colors hover:bg-slate-50",
               selectedDivisionId === d.division_id
                 ? "bg-[rgba(224,116,45,.12)]"
                 : d.profitable
@@ -236,7 +236,7 @@ export function DiagnosticDivisionsQuadrant({
               />
               <span
                 className="truncate text-xs font-medium"
-                style={{ color: d.profitable ? "rgba(230,214,195,.9)" : "#F16A5C" }}
+                style={{ color: d.profitable ? "#2A2F3A" : "#dc2626" }}
               >
                 {d.division_name}
               </span>
@@ -246,24 +246,24 @@ export function DiagnosticDivisionsQuadrant({
                 </span>
               )}
             </span>
-            <span className="text-right font-mono text-[11.5px] font-medium text-[rgba(230,214,195,.9)] tabular-nums">
+            <span className="text-right font-mono text-[11.5px] font-medium text-[#2A2F3A] tabular-nums">
               {formatMoney(d.revenue, currency)}
             </span>
-            <span className="text-right font-mono text-[11.5px] font-medium text-[rgba(201,184,165,.65)] tabular-nums">
+            <span className="text-right font-mono text-[11.5px] font-medium text-slate-500 tabular-nums">
               {formatPercent(d.revenue_share_pct)}
             </span>
-            <span className="text-right font-mono text-[11.5px] font-medium text-[rgba(201,184,165,.65)] tabular-nums">
+            <span className="text-right font-mono text-[11.5px] font-medium text-slate-500 tabular-nums">
               {formatPercent(d.ebitda_margin_pct)}
             </span>
             <span
               className="text-right font-mono text-[11.5px] font-medium tabular-nums"
-              style={{ color: d.ebitda < 0 ? "#F16A5C" : "rgba(230,214,195,.9)" }}
+              style={{ color: d.ebitda < 0 ? "#dc2626" : "#2A2F3A" }}
             >
               {formatMoney(d.ebitda, currency)}
             </span>
             <span
               className="text-right font-mono text-[11.5px] font-medium tabular-nums"
-              style={{ color: (d.revenue_cagr_5y ?? 0) > 10 ? "#34D399" : "rgba(201,184,165,.65)" }}
+              style={{ color: (d.revenue_cagr_5y ?? 0) > 10 ? "#059669" : "#64748b" }}
             >
               {formatPercent(d.revenue_cagr_5y)}
             </span>

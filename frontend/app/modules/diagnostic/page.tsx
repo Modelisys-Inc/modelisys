@@ -28,6 +28,7 @@ import { DiagnosticProductsSection } from "@/components/diagnostic/v2/diagnostic
 import { DiagnosticValuationSection } from "@/components/diagnostic/v2/diagnostic-valuation-section"
 import { DiagnosticDrilldownDrawer } from "@/components/diagnostic/v2/diagnostic-drilldown-drawer"
 import type { DrillDownRequest } from "@/components/diagnostic/v2/types"
+import { PAGE_CLASS } from "@/lib/diagnostic-theme"
 
 const SECTIONS = [
   { id: "diag-trajectoire", label: "Trajectoire" },
@@ -78,7 +79,7 @@ export default function DiagnosticModulePage() {
     >
       <SelectTrigger
         aria-label="Société"
-        className="h-[30px] w-[220px] rounded-[9px] border-0 bg-black/[.28] text-[11px] font-semibold text-[rgba(201,184,165,.85)] shadow-[inset_0_0_0_1px_rgba(230,214,195,.09)] hover:text-[#E6D6C3] focus:ring-2 focus:ring-[#E0742D]/35"
+        className="h-[30px] w-[220px] rounded-[9px] border border-slate-200 bg-white text-[11px] font-semibold text-[#2A2F3A] shadow-sm hover:bg-slate-50 focus:ring-2 focus:ring-[#E0742D]/35"
       >
         <SelectValue placeholder="Sélectionner une société" />
       </SelectTrigger>
@@ -93,7 +94,7 @@ export default function DiagnosticModulePage() {
   )
 
   return (
-    <div className="min-h-screen bg-[#14171D]">
+    <div className={PAGE_CLASS}>
       <DashboardHeader title="Modelisys" />
 
       <main className="relative">
@@ -119,12 +120,12 @@ export default function DiagnosticModulePage() {
         {error && !loading && (
           <div
             data-testid="diagnostic-error"
-            className="mx-auto my-16 flex max-w-lg flex-col items-center rounded-2xl bg-[#1A1E26] px-8 py-16 text-center shadow-[inset_0_0_0_1px_rgba(241,106,92,.3)]"
+            className="mx-auto my-16 flex max-w-lg flex-col items-center rounded-2xl border border-red-200 bg-white px-8 py-16 text-center shadow-sm"
           >
-            <AlertCircle className="mb-3 h-10 w-10 text-[#F16A5C]" aria-hidden />
-            <p className="text-sm font-medium text-[#E6D6C3]">Impossible de charger le diagnostic.</p>
-            <p className="mt-1 max-w-md text-xs text-[rgba(201,184,165,.6)]">{error}</p>
-            <Button onClick={reload} className="mt-4 bg-[#E0742D] text-[#14171D] hover:bg-[#F08F4F]">
+            <AlertCircle className="mb-3 h-10 w-10 text-red-600" aria-hidden />
+            <p className="text-sm font-medium text-[#2A2F3A]">Impossible de charger le diagnostic.</p>
+            <p className="mt-1 max-w-md text-xs text-slate-500">{error}</p>
+            <Button onClick={reload} className="mt-4 bg-[#E0742D] text-white hover:bg-[#c96526]">
               Réessayer
             </Button>
           </div>
@@ -275,9 +276,9 @@ export default function DiagnosticModulePage() {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="mx-auto my-16 flex max-w-lg flex-col items-center rounded-2xl bg-[#1A1E26] px-8 py-16 text-center shadow-[inset_0_0_0_1px_rgba(230,214,195,.09)]">
-      <Building2 className="mb-3 h-10 w-10 text-[rgba(201,184,165,.35)]" aria-hidden />
-      <p className="text-sm text-[rgba(201,184,165,.7)]">{message}</p>
+    <div className="mx-auto my-16 flex max-w-lg flex-col items-center rounded-2xl border border-slate-200 bg-white px-8 py-16 text-center shadow-sm">
+      <Building2 className="mb-3 h-10 w-10 text-slate-300" aria-hidden />
+      <p className="text-sm text-slate-600">{message}</p>
     </div>
   )
 }

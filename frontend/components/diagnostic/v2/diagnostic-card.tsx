@@ -20,7 +20,7 @@ interface DiagnosticCardProps {
 }
 
 /**
- * Carte de section du rapport Diagnostic (thème sombre).
+ * Carte de section du rapport Diagnostic (thème clair).
  *
  * Remplace `components/diagnostic/diagnostic-section.tsx` : même contrat
  * (titre, sous-titre, lien d'analyse détaillée) mais le paragraphe narratif
@@ -40,15 +40,15 @@ export function DiagnosticCard({
 }: DiagnosticCardProps) {
   return (
     <section id={id} className={`${CARD_CLASS} ${className}`}>
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[rgba(230,214,195,.08)] px-[18px] py-[15px]">
+      <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-[18px] py-[15px]">
         <div className="flex min-w-0 gap-[11px]">
           <span className="w-[3px] flex-none rounded-full bg-[#E0742D]" aria-hidden />
           <div className="min-w-0">
-            <h2 className="text-[15px] font-semibold leading-tight tracking-tight text-[#E6D6C3]">
+            <h2 className="text-[15px] font-semibold leading-tight tracking-tight text-[#2A2F3A]">
               {title}
             </h2>
             {subtitle && (
-              <p className="mt-[3px] text-[11.5px] leading-tight text-[rgba(201,184,165,.55)]">
+              <p className="mt-[3px] text-[11.5px] leading-tight text-slate-500">
                 {subtitle}
               </p>
             )}
@@ -93,7 +93,7 @@ export function LegendChip({
   variant?: "square" | "line"
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 text-[10.5px] font-medium text-[rgba(201,184,165,.7)]">
+    <span className="inline-flex items-center gap-1.5 text-[10.5px] font-medium text-slate-500">
       <span
         aria-hidden
         style={{ background: color }}

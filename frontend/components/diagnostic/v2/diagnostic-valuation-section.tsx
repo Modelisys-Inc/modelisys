@@ -76,7 +76,7 @@ export function DiagnosticValuationSection({
 
   return (
     <div ref={ref} className="grid gap-0 xl:grid-cols-[1.5fr_1fr]">
-      <div className="px-5 py-4 xl:border-r xl:border-[rgba(230,214,195,.08)]">
+      <div className="px-5 py-4 xl:border-r xl:border-slate-200">
         <svg viewBox={`0 0 ${VB_W} ${chartHeight}`} className="block h-auto w-full overflow-visible">
           {hasOverlap && (
             <rect
@@ -90,14 +90,14 @@ export function DiagnosticValuationSection({
 
           {ticks.map((v, i) => (
             <g key={i}>
-              <line x1={fx(v)} x2={fx(v)} y1={10} y2={chartHeight - 50} stroke="rgba(230,214,195,.07)" />
+              <line x1={fx(v)} x2={fx(v)} y1={10} y2={chartHeight - 50} stroke="#e2e8f0" />
               <text
                 x={fx(v)}
                 y={chartHeight - 32}
                 textAnchor="middle"
                 fontSize={10}
                 fontFamily="ui-monospace,Menlo,monospace"
-                fill="rgba(201,184,165,.42)"
+                fill="#94a3b8"
               >
                 {formatMoney(v, currency)}
               </text>
@@ -108,7 +108,7 @@ export function DiagnosticValuationSection({
             const y = 26 + i * rowHeight
             return (
               <g key={m.label}>
-                <text x={0} y={y + 13} fontSize={11} fontWeight={500} fill="rgba(201,184,165,.75)">
+                <text x={0} y={y + 13} fontSize={11} fontWeight={500} fill="#64748b">
                   {m.label}
                 </text>
                 <rect
@@ -117,7 +117,7 @@ export function DiagnosticValuationSection({
                   width={(fx(m.high) - fx(m.low)) * t}
                   height={18}
                   rx={9}
-                  fill={m.primary ? "rgba(52,211,153,.5)" : "rgba(230,214,195,.24)"}
+                  fill={m.primary ? "rgba(52,211,153,.5)" : "#cbd5e1"}
                 />
                 <text
                   x={fx(m.low) - 7}
@@ -125,7 +125,7 @@ export function DiagnosticValuationSection({
                   textAnchor="end"
                   fontSize={10}
                   fontFamily="ui-monospace,Menlo,monospace"
-                  fill="rgba(201,184,165,.55)"
+                  fill="#94a3b8"
                 >
                   {formatMoney(m.low, currency)}
                 </text>
@@ -134,7 +134,7 @@ export function DiagnosticValuationSection({
                   y={y + 13}
                   fontSize={10}
                   fontFamily="ui-monospace,Menlo,monospace"
-                  fill="rgba(201,184,165,.55)"
+                  fill="#94a3b8"
                 >
                   {formatMoney(m.high, currency)}
                 </text>
@@ -166,19 +166,19 @@ export function DiagnosticValuationSection({
 
       <div className="flex flex-col gap-0.5 px-5 py-4">
         <div className="grid grid-cols-2 gap-2.5 pb-3">
-          <div className="rounded-[9px] bg-white/[.03] px-3 py-2.5 shadow-[inset_0_0_0_1px_rgba(230,214,195,.08)]">
-            <div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[rgba(201,184,165,.5)]">
+          <div className="rounded-[9px] border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+            <div className="text-[9px] font-semibold uppercase tracking-[.1em] text-slate-400">
               EBITDA normalisé
             </div>
-            <div className="mt-1 font-mono text-[15px] font-semibold text-[#E6D6C3] tabular-nums">
+            <div className="mt-1 font-mono text-[15px] font-semibold text-[#2A2F3A] tabular-nums">
               {formatMoney(valuation.normalized_ebitda, currency)}
             </div>
           </div>
-          <div className="rounded-[9px] bg-white/[.03] px-3 py-2.5 shadow-[inset_0_0_0_1px_rgba(230,214,195,.08)]">
-            <div className="text-[9px] font-semibold uppercase tracking-[.1em] text-[rgba(201,184,165,.5)]">
+          <div className="rounded-[9px] border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+            <div className="text-[9px] font-semibold uppercase tracking-[.1em] text-slate-400">
               Fourchette de multiples
             </div>
-            <div className="mt-1 font-mono text-[15px] font-semibold text-[#E6D6C3] tabular-nums">
+            <div className="mt-1 font-mono text-[15px] font-semibold text-[#2A2F3A] tabular-nums">
               {formatMultiple(valuation.multiple_low)} – {formatMultiple(valuation.multiple_high)}
             </div>
           </div>
@@ -192,11 +192,11 @@ export function DiagnosticValuationSection({
                   "flex items-baseline justify-between gap-3 py-2.5",
                   i === equityBridge.length - 1
                     ? "mt-1 border-t border-[rgba(52,211,153,.3)]"
-                    : "border-b border-[rgba(230,214,195,.06)]",
+                    : "border-b border-slate-200",
                 ].join(" ")}
               >
                 <span
-                  className={row.emphasis ? "text-[12.5px] font-semibold text-[#E6D6C3]" : "text-xs text-[rgba(201,184,165,.7)]"}
+                  className={row.emphasis ? "text-[12.5px] font-semibold text-[#2A2F3A]" : "text-xs text-slate-500"}
                 >
                   {row.label}
                 </span>
@@ -204,7 +204,7 @@ export function DiagnosticValuationSection({
                   className={
                     row.emphasis
                       ? "font-mono text-sm font-semibold text-[#34D399] tabular-nums"
-                      : "font-mono text-xs font-medium text-[rgba(201,184,165,.7)] tabular-nums"
+                      : "font-mono text-xs font-medium text-slate-500 tabular-nums"
                   }
                 >
                   {formatMoney(row.value, currency)}
@@ -212,9 +212,9 @@ export function DiagnosticValuationSection({
               </div>
             ))
           : (
-              <div className="flex items-baseline justify-between gap-3 border-b border-[rgba(230,214,195,.06)] py-2.5">
-                <span className="text-xs text-[rgba(201,184,165,.7)]">Capitaux propres comptables</span>
-                <span className="font-mono text-xs font-medium text-[rgba(201,184,165,.7)] tabular-nums">
+              <div className="flex items-baseline justify-between gap-3 border-b border-slate-200 py-2.5">
+                <span className="text-xs text-slate-500">Capitaux propres comptables</span>
+                <span className="font-mono text-xs font-medium text-slate-500 tabular-nums">
                   {formatMoney(valuation.book_equity, currency)}
                 </span>
               </div>
@@ -223,7 +223,7 @@ export function DiagnosticValuationSection({
         {valuation.rationale.length > 0 && (
           <ul className="mt-3 flex list-disc flex-col gap-1.5 pl-4">
             {valuation.rationale.map((item, i) => (
-              <li key={i} className="text-[11px] leading-relaxed text-[rgba(201,184,165,.7)]">
+              <li key={i} className="text-[11px] leading-relaxed text-slate-500">
                 {item}
               </li>
             ))}
@@ -233,10 +233,10 @@ export function DiagnosticValuationSection({
         {notes.length > 0 && (
           <div
             data-testid="valuation-notes"
-            className="mt-3 flex gap-2.5 rounded-[9px] bg-white/[.03] px-3 py-2.5 shadow-[inset_0_0_0_1px_rgba(230,214,195,.08)]"
+            className="mt-3 flex gap-2.5 rounded-[9px] border border-slate-200 bg-slate-50/80 px-3 py-2.5"
           >
-            <Info className="mt-0.5 h-3.5 w-3.5 flex-none text-[rgba(201,184,165,.45)]" aria-hidden />
-            <div className="flex flex-col gap-1 text-[10.5px] leading-relaxed text-[rgba(201,184,165,.55)]">
+            <Info className="mt-0.5 h-3.5 w-3.5 flex-none text-slate-400" aria-hidden />
+            <div className="flex flex-col gap-1 text-[10.5px] leading-relaxed text-slate-400">
               {notes.map((n, i) => (
                 <p key={i}>{n}</p>
               ))}

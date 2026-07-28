@@ -212,7 +212,7 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   `config_type="ebitda_multiple"` else default 3–5× (rationale notes the default).
 - Frontend: `/modules/diagnostic` (static route beats the `[moduleId]` placeholder;
   reached via the module nav, not the sidebar). Redesigned (2026-07) as a
-  dark-theme "cockpit" report: components in `frontend/components/diagnostic/v2/`
+  light-theme report aligned with financial-statement pages: components in `frontend/components/diagnostic/v2/`
   (hero with 0-100 health index, KPI strip, hand-written SVG charts — **no
   Recharts** — drill-down drawer, sticky nav rail). Client-side derivations
   (health index, typed signals, ratio definitions) in `lib/diagnostic-derive.ts`;

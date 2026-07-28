@@ -27,7 +27,7 @@ export function DiagnosticProductsSection({
     return (
       <p
         data-testid="products-empty-state"
-        className="py-10 text-center text-sm text-[rgba(201,184,165,.6)]"
+        className="py-10 text-center text-sm text-slate-500"
       >
         Aucun produit ou service configuré pour cette société.
       </p>
@@ -75,10 +75,10 @@ export function DiagnosticProductsSection({
             }
             className="grid grid-cols-[158px_1fr_84px_64px] items-center gap-2.5 text-left transition-opacity hover:opacity-80"
           >
-            <span className="truncate text-[11.5px] font-medium leading-tight text-[rgba(230,214,195,.88)]">
+            <span className="truncate text-[11.5px] font-medium leading-tight text-[#2A2F3A]">
               {p.product_name}
             </span>
-            <span className="relative block h-4 overflow-hidden rounded bg-[rgba(230,214,195,.05)]">
+            <span className="relative block h-4 overflow-hidden rounded bg-slate-100">
               <span
                 className="absolute inset-y-0 left-0 rounded"
                 style={{
@@ -89,12 +89,12 @@ export function DiagnosticProductsSection({
                 }}
               />
             </span>
-            <span className="text-right font-mono text-[11px] font-medium text-[rgba(201,184,165,.7)] tabular-nums">
+            <span className="text-right font-mono text-[11px] font-medium text-slate-500 tabular-nums">
               {formatMoney(p.revenue, currency)}
             </span>
             <span
               className="text-right font-mono text-[11px] font-semibold tabular-nums"
-              style={{ color: negative ? "#F16A5C" : margin > 20 ? "#34D399" : "rgba(201,184,165,.75)" }}
+              style={{ color: negative ? "#dc2626" : margin > 20 ? "#059669" : "#64748b" }}
             >
               {formatPercent(margin)}
             </span>

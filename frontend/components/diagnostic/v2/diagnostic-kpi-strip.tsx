@@ -141,7 +141,7 @@ export function DiagnosticKpiStrip({ diagnostic, onDrillDown }: DiagnosticKpiStr
   return (
     <div
       data-testid="kpi-cards"
-      className="grid grid-cols-2 gap-px border-b border-[rgba(230,214,195,.09)] bg-[rgba(230,214,195,.09)] md:grid-cols-4 xl:grid-cols-7"
+      className="grid grid-cols-2 gap-px border-b border-slate-200 bg-slate-200 md:grid-cols-4 xl:grid-cols-7"
     >
       {kpis.map((k) => {
         const prevValue = k.series.length > 1 ? k.series[k.series.length - 2].value : null
@@ -171,12 +171,12 @@ export function DiagnosticKpiStrip({ diagnostic, onDrillDown }: DiagnosticKpiStr
                 formatValue: k.format,
               })
             }
-            className="flex min-w-0 cursor-pointer flex-col gap-1.5 bg-[#14171D] px-3.5 pb-[11px] pt-[13px] text-left transition-colors hover:bg-[#1D222B]"
+            className="flex min-w-0 cursor-pointer flex-col gap-1.5 bg-white px-3.5 pb-[11px] pt-[13px] text-left transition-colors hover:bg-slate-50"
           >
-            <span className="text-[9.5px] font-semibold uppercase leading-tight tracking-[.1em] text-[rgba(201,184,165,.55)]">
+            <span className="text-[9.5px] font-semibold uppercase leading-tight tracking-[.1em] text-slate-400">
               {k.label}
             </span>
-            <span className="truncate font-mono text-[19px] font-semibold leading-tight tracking-[-.02em] text-[#E6D6C3] tabular-nums">
+            <span className="truncate font-mono text-[19px] font-semibold leading-tight tracking-[-.02em] text-[#2A2F3A] tabular-nums">
               {k.format(k.value * t)}
             </span>
             <span className="flex items-end justify-between gap-2">
@@ -187,7 +187,7 @@ export function DiagnosticKpiStrip({ diagnostic, onDrillDown }: DiagnosticKpiStr
               </span>
               <Sparkline values={k.series.map((s) => s.value)} color={color} />
             </span>
-            <span className="text-[10px] leading-tight text-[rgba(201,184,165,.45)]">{k.hint}</span>
+            <span className="text-[10px] leading-tight text-slate-400">{k.hint}</span>
           </button>
         )
       })}

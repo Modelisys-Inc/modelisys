@@ -1,44 +1,52 @@
 /**
- * Jetons visuels du rapport Diagnostic (thème « cockpit sombre »).
+ * Jetons visuels du rapport Diagnostic (thème clair, aligné sur les pages
+ * financial-statements et analysis).
  *
- * Ces valeurs proviennent de la maquette HTML `Diagnostic.dc.html`.
- * Elles réutilisent l'ADN Modelisys déjà présent dans `dashboard-header.tsx` :
- *   #2A2F3A (surface d'en-tête), #E6D6C3 (texte crème), #C9B8A5 (texte secondaire),
- *   #E0742D (accent orange).
- *
- * Le rapport est volontairement sombre : les graphiques denses se lisent mieux
- * sur fond foncé et l'écran se distingue des pages « outils » qui restent claires.
+ * Réutilise l'ADN Modelisys : #2A2F3A (texte principal), #E0742D (accent orange),
+ * surfaces blanches / slate-50, bordures slate-200.
  */
 
 export const DIAG = {
   /** Fond de page du rapport. */
-  bg: "#14171D",
+  bg: "#f8fafc",
   /** Fond des cartes de section. */
-  card: "#1A1E26",
+  card: "#ffffff",
   /** Fond du tiroir de détail. */
-  drawer: "#181C24",
+  drawer: "#ffffff",
   /** Bandeau supérieur — identique au header applicatif existant. */
   chrome: "#2A2F3A",
 
-  /** Bordure interne des cartes (utilisée via box-shadow inset). */
-  hairline: "rgba(230,214,195,.09)",
+  /** Bordure des cartes. */
+  hairline: "#e2e8f0",
 
-  text: "#E6D6C3",
-  textMuted: "rgba(201,184,165,.70)",
-  textFaint: "rgba(201,184,165,.45)",
+  text: "#2A2F3A",
+  textMuted: "#64748b",
+  textFaint: "#94a3b8",
+
+  /** Couleurs de grille / axes SVG. */
+  gridLine: "#e2e8f0",
+  axisText: "#94a3b8",
+  chartLabel: "#2A2F3A",
 
   accent: "#E0742D",
-  positive: "#34D399",
-  positiveDeep: "#0F8F68",
-  positiveLight: "#3FE0A8",
-  warning: "#F5B544",
-  negative: "#F16A5C",
-  neutralLine: "#8FA3BF",
+  positive: "#059669",
+  positiveDeep: "#047857",
+  positiveLight: "#10b981",
+  warning: "#d97706",
+  negative: "#dc2626",
+  neutralLine: "#64748b",
 } as const
 
 /** Classes Tailwind réutilisées pour les cartes de section. */
 export const CARD_CLASS =
-  "overflow-hidden rounded-xl bg-[#1A1E26] shadow-[inset_0_0_0_1px_rgba(230,214,195,.09)]"
+  "overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+
+/** Fond de page du rapport. */
+export const PAGE_CLASS = "min-h-screen bg-gradient-to-b from-white via-slate-50 to-white"
+
+/** Sous-carte (stat, encadré) à l'intérieur d'une section. */
+export const SUBCARD_CLASS =
+  "rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5"
 
 /** Police chiffrée : toutes les valeurs numériques du rapport sont monospacées. */
 export const MONO_CLASS = "font-mono tabular-nums"
@@ -54,8 +62,8 @@ export function signalColor(tone: SignalTone): string {
 /** Classes du bandeau « Signal » attaché à un graphique. */
 export function signalClass(tone: SignalTone): string {
   if (tone === "risk")
-    return "rounded-lg bg-[rgba(241,106,92,.09)] px-3 py-2.5 text-[11px] leading-relaxed text-[rgba(230,214,195,.88)] shadow-[inset_0_0_0_1px_rgba(241,106,92,.26)]"
+    return "rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[11px] leading-relaxed text-red-900"
   if (tone === "watch")
-    return "rounded-lg bg-[rgba(245,181,68,.09)] px-3 py-2.5 text-[11px] leading-relaxed text-[rgba(230,214,195,.88)] shadow-[inset_0_0_0_1px_rgba(245,181,68,.26)]"
-  return "rounded-lg bg-[rgba(52,211,153,.09)] px-3 py-2.5 text-[11px] leading-relaxed text-[rgba(230,214,195,.88)] shadow-[inset_0_0_0_1px_rgba(52,211,153,.26)]"
+    return "rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-900"
+  return "rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-[11px] leading-relaxed text-emerald-900"
 }

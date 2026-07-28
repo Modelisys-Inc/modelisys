@@ -22,7 +22,7 @@ export function DiagnosticRatiosGrid({ trends, showBenchmarks = true }: Diagnost
 
   if (years.length === 0) {
     return (
-      <p className="py-10 text-center text-sm text-[rgba(201,184,165,.6)]">
+      <p className="py-10 text-center text-sm text-slate-500">
         Aucune donnée disponible pour calculer les ratios.
       </p>
     )
@@ -33,7 +33,7 @@ export function DiagnosticRatiosGrid({ trends, showBenchmarks = true }: Diagnost
   return (
     <div className="overflow-x-auto pb-2">
       <div
-        className="grid gap-2 px-[18px] pb-2 pt-1.5 text-[9.5px] font-semibold uppercase leading-tight tracking-[.08em] text-[rgba(201,184,165,.45)]"
+        className="grid gap-2 px-[18px] pb-2 pt-1.5 text-[9.5px] font-semibold uppercase leading-tight tracking-[.08em] text-slate-400"
         style={{ gridTemplateColumns: gridTemplate }}
       >
         <span>Ratio</span>
@@ -72,10 +72,10 @@ export function DiagnosticRatiosGrid({ trends, showBenchmarks = true }: Diagnost
         return (
           <div
             key={def.key}
-            className="grid items-center gap-2 border-t border-[rgba(230,214,195,.06)] px-[18px] py-2"
+            className="grid items-center gap-2 border-t border-slate-200 px-[18px] py-2"
             style={{ gridTemplateColumns: gridTemplate }}
           >
-            <span className="flex items-center gap-[7px] text-[11.5px] font-medium leading-tight text-[rgba(230,214,195,.88)]">
+            <span className="flex items-center gap-[7px] text-[11.5px] font-medium leading-tight text-[#2A2F3A]">
               <span
                 aria-hidden
                 className="h-1.5 w-1.5 flex-none rounded-full"
@@ -94,7 +94,7 @@ export function DiagnosticRatiosGrid({ trends, showBenchmarks = true }: Diagnost
                       ? ok
                         ? "#34D399"
                         : "#F5B544"
-                      : "rgba(201,184,165,.72)",
+                      : "#64748b",
                 }}
               >
                 {v === null ? "—" : def.format(v)}
@@ -114,7 +114,7 @@ export function DiagnosticRatiosGrid({ trends, showBenchmarks = true }: Diagnost
               </svg>
             </span>
 
-            <span className="text-right font-mono text-[11.5px] font-medium text-[rgba(201,184,165,.5)] tabular-nums">
+            <span className="text-right font-mono text-[11.5px] font-medium text-slate-400 tabular-nums">
               {showBenchmarks ? def.formatBenchmark(DEFAULT_BENCHMARK) : "—"}
             </span>
           </div>

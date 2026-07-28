@@ -45,7 +45,7 @@ export function DiagnosticBenchmarkRadar({
     <div ref={ref} className="px-3 pb-1.5 pt-2.5">
       <svg viewBox="0 0 400 320" className="block h-auto w-full overflow-visible">
         {rings.map((points, i) => (
-          <polygon key={i} points={points} fill="none" stroke="rgba(230,214,195,.08)" />
+          <polygon key={i} points={points} fill="none" stroke="#e2e8f0" />
         ))}
 
         {pillars.map((p, i) => {
@@ -55,8 +55,8 @@ export function DiagnosticBenchmarkRadar({
           const anchor = Math.abs(Math.cos(a)) < 0.2 ? "middle" : Math.cos(a) > 0 ? "start" : "end"
           return (
             <g key={p.key}>
-              <line x1={CX} y1={CY} x2={CX + Math.cos(a) * R} y2={CY + Math.sin(a) * R} stroke="rgba(230,214,195,.07)" />
-              <text x={lx} y={ly} textAnchor={anchor} fontSize={10} fontWeight={500} fill="rgba(201,184,165,.62)">
+              <line x1={CX} y1={CY} x2={CX + Math.cos(a) * R} y2={CY + Math.sin(a) * R} stroke="#e2e8f0" />
+              <text x={lx} y={ly} textAnchor={anchor} fontSize={10} fontWeight={500} fill="#64748b">
                 {p.label}
               </text>
             </g>
@@ -84,20 +84,20 @@ export function DiagnosticBenchmarkRadar({
               cy={CY + Math.sin(a) * R * ((p.score * t) / 100)}
               r={3.4}
               fill="#34D399"
-              stroke="#1A1E26"
+              stroke="#ffffff"
               strokeWidth={1.5}
             />
           )
         })}
 
         <rect x={112} y={298} width={10} height={10} rx={2} fill="rgba(52,211,153,.5)" stroke="#34D399" />
-        <text x={128} y={307} fontSize={10.5} fill="rgba(201,184,165,.7)">
+        <text x={128} y={307} fontSize={10.5} fill="#64748b">
           Société
         </text>
         {showBenchmark && (
           <>
             <rect x={186} y={298} width={10} height={10} rx={2} fill="rgba(224,116,45,.2)" stroke="#E0742D" />
-            <text x={202} y={307} fontSize={10.5} fill="rgba(201,184,165,.7)">
+            <text x={202} y={307} fontSize={10.5} fill="#64748b">
               Médiane secteur
             </text>
           </>

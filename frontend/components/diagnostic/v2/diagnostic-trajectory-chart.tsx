@@ -44,7 +44,7 @@ export function DiagnosticTrajectoryChart({
 
   if (years.length === 0) {
     return (
-      <p className="py-10 text-center text-sm text-[rgba(201,184,165,.6)]">
+      <p className="py-10 text-center text-sm text-slate-500">
         Aucune donnée historique disponible pour cette société.
       </p>
     )
@@ -81,14 +81,14 @@ export function DiagnosticTrajectoryChart({
 
         {gridlines.map((g, i) => (
           <g key={i}>
-            <line x1={58} x2={1030} y1={g.y} y2={g.y} stroke="rgba(230,214,195,.07)" />
+            <line x1={58} x2={1030} y1={g.y} y2={g.y} stroke="#e2e8f0" />
             <text
               x={50}
               y={g.y + 4}
               textAnchor="end"
               fontSize={11}
               fontFamily="ui-monospace,Menlo,monospace"
-              fill="rgba(201,184,165,.45)"
+              fill="#94a3b8"
             >
               {g.left}
             </text>
@@ -97,7 +97,7 @@ export function DiagnosticTrajectoryChart({
               y={g.y + 4}
               fontSize={11}
               fontFamily="ui-monospace,Menlo,monospace"
-              fill="rgba(201,184,165,.45)"
+              fill="#94a3b8"
             >
               {g.right}
             </text>
@@ -172,7 +172,7 @@ export function DiagnosticTrajectoryChart({
                 fontSize={12}
                 fontWeight={600}
                 fontFamily="ui-monospace,Menlo,monospace"
-                fill="rgba(230,214,195,.92)"
+                fill="#2A2F3A"
               >
                 {formatCompactMoney(revenue, currency)}
               </text>
@@ -182,7 +182,7 @@ export function DiagnosticTrajectoryChart({
                 textAnchor="middle"
                 fontSize={12}
                 fontWeight={600}
-                fill={i === years.length - 1 ? "#E6D6C3" : "rgba(201,184,165,.7)"}
+                fill={i === years.length - 1 ? "#2A2F3A" : "#64748b"}
               >
                 {y.fiscal_year}
               </text>
@@ -192,7 +192,7 @@ export function DiagnosticTrajectoryChart({
                 textAnchor="middle"
                 fontSize={10.5}
                 fontFamily="ui-monospace,Menlo,monospace"
-                fill={yoy === null ? "rgba(201,184,165,.3)" : yoy >= 0 ? "#34D399" : "#F16A5C"}
+                fill={yoy === null ? "#cbd5e1" : yoy >= 0 ? "#34D399" : "#F16A5C"}
               >
                 {yoy === null ? "—" : `${yoy >= 0 ? "+" : "−"}${formatPercent(Math.abs(yoy))}`}
               </text>
@@ -230,7 +230,7 @@ export function DiagnosticTrajectoryChart({
               cy={yPct(y.ebitda_margin_pct ?? 0)}
               r={3.6}
               fill="#F5B544"
-              stroke="#1A1E26"
+              stroke="#ffffff"
               strokeWidth={2}
               opacity={t}
             />
@@ -239,7 +239,7 @@ export function DiagnosticTrajectoryChart({
               cy={yPct(y.net_margin_pct ?? 0)}
               r={3.6}
               fill="#8FA3BF"
-              stroke="#1A1E26"
+              stroke="#ffffff"
               strokeWidth={2}
               opacity={t}
             />
