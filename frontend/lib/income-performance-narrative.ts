@@ -1,6 +1,6 @@
 import { formatCurrency } from "@/lib/financial-utils"
 import type { BuiltSeriesMeta, DynamicChartPoint } from "@/lib/performance-chart-series"
-import { PERFORMANCE_CHART_QUARTER_COUNT, PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
+import { PERFORMANCE_CHART_MONTH_COUNT_24, PERFORMANCE_CHART_QUARTER_COUNT, PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
 
 /** Points alignés sur le graphique Performance financière (revenus, marge, BAIIA). */
 export type PerformanceNarrativePoint = {
@@ -16,6 +16,8 @@ export type PerformanceNarrativeParagraph = {
   body: string
   /** Paragraphe complémentaire (ex. trajectoire BAIIA vs revenus). */
   secondaryBody?: string
+  /** Lecture saisonnière (horizon mensuel 24 mois). */
+  seasonalityBody?: string
   /** Ligne de repères chiffrés (fourchette, moyenne, TCAC). */
   statsLine?: string
 }
@@ -33,6 +35,25 @@ export type PerformanceNarrativeResult =
       referencePeriod: string
       paragraphs: PerformanceNarrativeParagraph[]
     }
+  | {
+      mode: "monthly"
+      title: string
+      subtitle: string
+      referencePeriod: string
+      paragraphs: PerformanceNarrativeParagraph[]
+    }
+
+type WindowCagrMode = "calendar-years" | "months-annualized"
+
+type WindowNarrativeCopy = {
+  periodUnit: string
+  periodUnitPlural: string
+  referenceForPeriod: (period: string) => string
+  priorComparisonLabel: string
+  subtitle: string
+  cagrMode: WindowCagrMode
+  marginTrendLabel: string
+}
 
 const DATA_EPSILON = 1e-6
 
@@ -73,7 +94,190 @@ function parsePeriodYear(period: string): number | null {
   return Number.isFinite(y) ? y : null
 }
 
-/** Un exercice est retenu lorsque les revenus sont disponibles (proxy d'une balance exploitable). */
+const ANNUAL_COPY: WindowNarrativeCopy = {
+  periodUnit: "exercice",
+  periodUnitPlural: "exercices",
+  referenceForPeriod: (period) => `l'exercice ${period}`,
+  priorComparisonLabel: "En glissement annuel",
+  subtitle: "Analyse pluriannuelle — lecture financière à la date de référence",
+  cagrMode: "calendar-years",
+  marginTrendLabel: "/an",
+}
+
+const MONTHLY_COPY: WindowNarrativeCopy = {
+  periodUnit: "mois",
+  periodUnitPlural: "mois",
+  referenceForPeriod: (period) => `le mois de ${period}`,
+  priorComparisonLabel: "Par rapport au mois précédent",
+  subtitle: `Analyse sur ${PERFORMANCE_CHART_MONTH_COUNT_24} mois — lecture financière à la date de référence`,
+  cagrMode: "months-annualized",
+  marginTrendLabel: "/an (annualisé)",
+}
+
+/** Abrégés alignés sur `monthShortLabelsFromReference` (Jan, Fév, …). */
+const CHART_MONTH_ABBREVS = [
+  "Jan",
+  "Fév",
+  "Mar",
+  "Avr",
+  "Mai",
+  "Jun",
+  "Jul",
+  "Aoû",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Déc",
+] as const
+
+const FRENCH_MONTH_NAMES = [
+  "janvier",
+  "février",
+  "mars",
+  "avril",
+  "mai",
+  "juin",
+  "juillet",
+  "août",
+  "septembre",
+  "octobre",
+  "novembre",
+  "décembre",
+] as const
+
+export function parseChartMonthPeriod(period: string): { month: number; year: number } | null {
+  const parts = period.trim().split(/\s+/)
+  if (parts.length < 2) return null
+  const year = parseInt(parts[parts.length - 1]!, 10)
+  if (!Number.isFinite(year)) return null
+  const abbrev = parts[0]!
+  const monthIdx = CHART_MONTH_ABBREVS.findIndex((a) => a.toLowerCase() === abbrev.toLowerCase())
+  if (monthIdx < 0) return null
+  return { month: monthIdx + 1, year }
+}
+
+function monthName(month: number): string {
+  return FRENCH_MONTH_NAMES[month - 1] ?? `mois ${month}`
+}
+
+function formatSeasonalityValue(value: number, format: "currency" | "percent"): string {
+  if (format === "percent") return `${value.toFixed(1)} %`
+  return formatCurrency(value)
+}
+
+/**
+ * Lecture saisonnière sur 24 mois : moyennes par mois calendaire, pic / creux,
+ * position du mois de référence vs sa moyenne saisonnière, comparaison homologue N-1.
+ */
+export function buildSeasonalityParagraph(
+  periods: string[],
+  values: number[],
+  format: "currency" | "percent",
+  metricLabel: string,
+): string | null {
+  if (periods.length < 12 || values.length !== periods.length) return null
+
+  const byCalendarMonth = new Map<number, number[]>()
+  const parsed: { month: number; year: number; value: number; period: string }[] = []
+
+  for (let i = 0; i < periods.length; i++) {
+    const meta = parseChartMonthPeriod(periods[i]!)
+    if (!meta) continue
+    parsed.push({ ...meta, value: values[i]!, period: periods[i]! })
+    const bucket = byCalendarMonth.get(meta.month) ?? []
+    bucket.push(values[i]!)
+    byCalendarMonth.set(meta.month, bucket)
+  }
+
+  const recurringMonths = [...byCalendarMonth.entries()].filter(([, v]) => v.length >= 2)
+  if (recurringMonths.length < 3) return null
+
+  const monthlyAverages = [...byCalendarMonth.entries()]
+    .map(([month, vals]) => ({
+      month,
+      name: monthName(month),
+      mean: vals.reduce((a, b) => a + b, 0) / vals.length,
+      count: vals.length,
+    }))
+    .sort((a, b) => b.mean - a.mean)
+
+  const peak = monthlyAverages[0]!
+  const trough = monthlyAverages[monthlyAverages.length - 1]!
+  const spreadPct =
+    Math.abs(trough.mean) > DATA_EPSILON
+      ? ((peak.mean - trough.mean) / Math.abs(trough.mean)) * 100
+      : null
+
+  const sentences: string[] = [
+    `Sur les ${PERFORMANCE_CHART_MONTH_COUNT_24} derniers mois, la saisonnalité de ${metricLabel} fait ressortir un pic récurrent en ${peak.name} (moyenne de ${formatSeasonalityValue(peak.mean, format)}) et un creux en ${trough.name} (moyenne de ${formatSeasonalityValue(trough.mean, format)}).`,
+  ]
+
+  if (spreadPct !== null && Math.abs(spreadPct) >= 1) {
+    sentences.push(
+      `L'écart entre ces deux extrêmes saisonniers représente environ ${fmtPct(spreadPct)} en variation relative.`,
+    )
+  }
+
+  const ref = parsed[0]
+  if (ref) {
+    const seasonalBucket = byCalendarMonth.get(ref.month) ?? []
+    const seasonalMean =
+      seasonalBucket.length > 0
+        ? seasonalBucket.reduce((a, b) => a + b, 0) / seasonalBucket.length
+        : null
+    if (seasonalMean !== null && seasonalBucket.length >= 2) {
+      const vsSeasonal = pctChange(ref.value, seasonalMean)
+      if (vsSeasonal !== null && Math.abs(vsSeasonal) > 0.5) {
+        sentences.push(
+          vsSeasonal > 0
+            ? `À la date de référence (${ref.period}), le niveau observé (${formatSeasonalityValue(ref.value, format)}) dépasse la moyenne saisonnière de ${monthName(ref.month)} (${formatSeasonalityValue(seasonalMean, format)}, sur ${seasonalBucket.length} observations) de ${fmtPct(vsSeasonal)}.`
+            : `À la date de référence (${ref.period}), le niveau observé (${formatSeasonalityValue(ref.value, format)}) se situe ${fmtPct(Math.abs(vsSeasonal))} sous la moyenne saisonnière de ${monthName(ref.month)} (${formatSeasonalityValue(seasonalMean, format)}, sur ${seasonalBucket.length} observations).`,
+        )
+      } else if (seasonalMean !== null) {
+        sentences.push(
+          `À la date de référence (${ref.period}), le niveau observé est aligné sur la moyenne saisonnière de ${monthName(ref.month)} (${formatSeasonalityValue(seasonalMean, format)}).`,
+        )
+      }
+    }
+
+    const priorYear = parsed.find((p) => p.month === ref.month && p.year === ref.year - 1)
+    if (priorYear) {
+      const yoy =
+        format === "percent"
+          ? ref.value - priorYear.value
+          : pctChange(ref.value, priorYear.value)
+      if (yoy !== null && (format === "percent" ? Math.abs(yoy) > 0.05 : Math.abs(yoy) > 0.5)) {
+        sentences.push(
+          format === "percent"
+            ? `En comparaison homologue (${ref.period} vs ${priorYear.period}), ${metricLabel} ${yoy > 0 ? "progresse" : "recule"} de ${fmtPts(Math.abs(yoy))}.`
+            : `En comparaison homologue (${ref.period} vs ${priorYear.period}), ${metricLabel} affiche une ${trendWord(yoy)} de ${fmtPct(Math.abs(yoy))}.`,
+        )
+      } else {
+        sentences.push(
+          `En comparaison homologue (${ref.period} vs ${priorYear.period}), ${metricLabel} demeure stable.`,
+        )
+      }
+    }
+  }
+
+  return sentences.length ? sentences.join(" ") : null
+}
+
+function attachSeasonalityBody(
+  paragraph: PerformanceNarrativeParagraph,
+  points: PerformanceNarrativePoint[],
+  pickValue: (p: PerformanceNarrativePoint) => number,
+  format: "currency" | "percent",
+  metricLabel: string,
+  copy: WindowNarrativeCopy,
+): PerformanceNarrativeParagraph {
+  if (copy.cagrMode !== "months-annualized") return paragraph
+  const { values, periods } = filterPresentSeries(points, pickValue)
+  const seasonalityBody = buildSeasonalityParagraph(periods, values, format, metricLabel)
+  return seasonalityBody ? { ...paragraph, seasonalityBody } : paragraph
+}
+
+/** Un point est retenu lorsque les revenus sont disponibles (proxy d'une balance exploitable). */
 export function isAnnualExercisePresent(point: PerformanceNarrativePoint): boolean {
   return Math.abs(point.revenue) > DATA_EPSILON
 }
@@ -92,7 +296,7 @@ type PresentSeries = {
   excludedPeriods: string[]
 }
 
-function filterPresentAnnualSeries(
+function filterPresentSeries(
   points: PerformanceNarrativePoint[],
   pickValue: (p: PerformanceNarrativePoint) => number,
 ): PresentSeries {
@@ -155,17 +359,42 @@ type CagrResult = {
   intervalCount: number
 }
 
-function computeCagrFromPresentSeries(values: number[], periods: string[]): CagrResult | null {
+/** TCAC annualisé à partir d'une fenêtre mensuelle (n = nombre de mois entre début et fin). */
+export function computeAnnualizedCagrFromMonths(
+  latest: number,
+  oldest: number,
+  monthCount: number,
+): number | null {
+  if (monthCount <= 0) return null
+  if (Math.abs(oldest) < DATA_EPSILON) return null
+  if (oldest <= 0 || latest <= 0) return null
+  return (Math.pow(latest / oldest, 12 / monthCount) - 1) * 100
+}
+
+function computeCagrFromPresentSeries(
+  values: number[],
+  periods: string[],
+  cagrMode: WindowCagrMode,
+): CagrResult | null {
   if (values.length < 2) return null
   const latest = values[0]!
   const oldest = values[values.length - 1]!
-  const latestYear = parsePeriodYear(periods[0]!)
-  const oldestYear = parsePeriodYear(periods[periods.length - 1]!)
-  const intervalCount =
-    latestYear !== null && oldestYear !== null ? latestYear - oldestYear : values.length - 1
+  let intervalCount: number
+  if (cagrMode === "calendar-years") {
+    const latestYear = parsePeriodYear(periods[0]!)
+    const oldestYear = parsePeriodYear(periods[periods.length - 1]!)
+    intervalCount =
+      latestYear !== null && oldestYear !== null ? latestYear - oldestYear : values.length - 1
+  } else {
+    intervalCount = values.length - 1
+  }
   if (intervalCount <= 0) return null
+  const cagr =
+    cagrMode === "calendar-years"
+      ? computeCagr(latest, oldest, intervalCount)
+      : computeAnnualizedCagrFromMonths(latest, oldest, intervalCount)
   return {
-    cagr: computeCagr(latest, oldest, intervalCount),
+    cagr,
     fromPeriod: periods[periods.length - 1]!,
     toPeriod: periods[0]!,
     intervalCount,
@@ -181,14 +410,22 @@ function scopeSentence(
   observationCount: number,
   periods: string[],
   excludedPeriods: string[],
+  copy: WindowNarrativeCopy,
 ): string {
   const from = periods[periods.length - 1]
   const to = periods[0]
   if (!from || !to) return "Sur la période analysée"
-  const base = `Sur ${observationCount} exercice${observationCount > 1 ? "s" : ""} disposant de données (${from} à ${to})`
+  const unit =
+    observationCount > 1 && copy.periodUnitPlural !== copy.periodUnit
+      ? copy.periodUnitPlural
+      : copy.periodUnit
+  const base = `Sur ${observationCount} ${unit} disposant de données (${from} à ${to})`
   if (!excludedPeriods.length) return base
-  const excluded = excludedPeriods.join(", ")
-  return `${base}; les exercices ${excluded} sont exclus de l'analyse faute de données exploitables`
+  const excluded =
+    excludedPeriods.length <= 4
+      ? excludedPeriods.join(", ")
+      : `${excludedPeriods.length} ${copy.periodUnitPlural}`
+  return `${base}; les ${copy.periodUnitPlural} ${excluded} sont exclus de l'analyse faute de données exploitables`
 }
 
 function positionVsMeanSentence(latest: number, mean: number, format: "currency" | "percent"): string {
@@ -224,36 +461,41 @@ function buildStatsLine(
   format: "currency" | "percent",
   cagr: CagrResult | null,
   marginAnnualizedPts: number | null,
+  marginTrendSuffix = "/an",
 ): string {
   const parts = [
     `Fourchette : ${formatMetricValue(stats.min, format)} (${stats.minPeriod}) – ${formatMetricValue(stats.max, format)} (${stats.maxPeriod})`,
     `Moyenne : ${formatMetricValue(stats.mean, format)}`,
   ]
   if (cagr?.cagr !== null && cagr) parts.push(`TCAC : ${fmtPct(cagr.cagr)}`)
-  if (marginAnnualizedPts !== null) parts.push(`Évol. annualisée : ${fmtPts(marginAnnualizedPts)}/an`)
+  if (marginAnnualizedPts !== null)
+    parts.push(`Évol. annualisée : ${fmtPts(marginAnnualizedPts)}${marginTrendSuffix}`)
   return parts.join(" · ")
 }
 
-function buildCurrencyAnnualParagraph(
+function buildCurrencyWindowParagraph(
   heading: string,
   label: string,
   format: "currency",
   points: PerformanceNarrativePoint[],
   pickValue: (p: PerformanceNarrativePoint) => number,
+  copy: WindowNarrativeCopy,
+  withSeasonality = true,
 ): PerformanceNarrativeParagraph | null {
-  const { values, periods, excludedPeriods } = filterPresentAnnualSeries(points, pickValue)
+  const { values, periods, excludedPeriods } = filterPresentSeries(points, pickValue)
   const stats = windowStats(values, periods)
   if (!stats || !values.length) return null
 
   const latest = values[0]!
   const prior = values.length > 1 ? values[1]! : null
   const priorPeriod = values.length > 1 ? periods[1]! : null
-  const cagr = computeCagrFromPresentSeries(values, periods)
-  const scope = scopeSentence(values.length, periods, excludedPeriods)
+  const cagr = computeCagrFromPresentSeries(values, periods, copy.cagrMode)
+  const scope = scopeSentence(values.length, periods, excludedPeriods, copy)
+  const retainedLabel = copy.periodUnitPlural === "mois" ? "les mois retenus" : "les exercices retenus"
 
   const sentences: string[] = [
-    `${scope}, ${label} s'établit à ${formatMetricValue(latest, format)} pour l'exercice ${periods[0]}.`,
-    `La fourchette observée s'étend de ${formatMetricValue(stats.min, format)} en ${stats.minPeriod} (fourchette basse) à ${formatMetricValue(stats.max, format)} en ${stats.maxPeriod} (fourchette haute), pour une moyenne de ${formatMetricValue(stats.mean, format)} sur les exercices retenus.`,
+    `${scope}, ${label} s'établit à ${formatMetricValue(latest, format)} pour ${copy.referenceForPeriod(periods[0]!)}.`,
+    `La fourchette observée s'étend de ${formatMetricValue(stats.min, format)} en ${stats.minPeriod} (fourchette basse) à ${formatMetricValue(stats.max, format)} en ${stats.maxPeriod} (fourchette haute), pour une moyenne de ${formatMetricValue(stats.mean, format)} sur ${retainedLabel}.`,
     positionVsMeanSentence(latest, stats.mean, format),
   ]
 
@@ -272,8 +514,8 @@ function buildCurrencyAnnualParagraph(
       const dir = trendWord(yoy)
       sentences.push(
         dir === "stabilité"
-          ? `En glissement annuel, ${label} est stable par rapport à ${priorPeriod} (${formatMetricValue(prior, format)}).`
-          : `En glissement annuel, ${label} affiche une ${dir} de ${fmtPct(Math.abs(yoy))} par rapport à ${priorPeriod} (${formatMetricValue(prior, format)}).`,
+          ? `${copy.priorComparisonLabel}, ${label} est stable par rapport à ${priorPeriod} (${formatMetricValue(prior, format)}).`
+          : `${copy.priorComparisonLabel}, ${label} affiche une ${dir} de ${fmtPct(Math.abs(yoy))} par rapport à ${priorPeriod} (${formatMetricValue(prior, format)}).`,
       )
     }
   }
@@ -284,19 +526,22 @@ function buildCurrencyAnnualParagraph(
     sentences.push(`À la date de référence, ${label} se situe au plus bas de la période analysée.`)
   }
 
-  return {
+  const paragraph: PerformanceNarrativeParagraph = {
     heading,
     body: sentences.join(" "),
     statsLine: buildStatsLine(stats, format, cagr, null),
   }
+  return withSeasonality
+    ? attachSeasonalityBody(paragraph, points, pickValue, format, label, copy)
+    : paragraph
 }
 
-function buildMarginAnnualParagraph(points: PerformanceNarrativePoint[]): PerformanceNarrativeParagraph | null {
-  const { values, periods, excludedPeriods } = filterPresentAnnualSeries(
-    points,
-    (p) => p.grossMarginPercent,
-  )
-  const grossProfits = filterPresentAnnualSeries(points, (p) => p.grossProfit)
+function buildMarginWindowParagraph(
+  points: PerformanceNarrativePoint[],
+  copy: WindowNarrativeCopy,
+): PerformanceNarrativeParagraph | null {
+  const { values, periods, excludedPeriods } = filterPresentSeries(points, (p) => p.grossMarginPercent)
+  const grossProfits = filterPresentSeries(points, (p) => p.grossProfit)
   const stats = windowStats(values, periods)
   if (!stats || !values.length) return null
 
@@ -305,15 +550,20 @@ function buildMarginAnnualParagraph(points: PerformanceNarrativePoint[]): Perfor
   const prior = values.length > 1 ? values[1]! : null
   const priorPeriod = values.length > 1 ? periods[1]! : null
   const oldest = values[values.length - 1]!
-  const gpCagr = computeCagrFromPresentSeries(grossProfits.values, grossProfits.periods)
-  const scope = scopeSentence(values.length, periods, excludedPeriods)
+  const gpCagr = computeCagrFromPresentSeries(grossProfits.values, grossProfits.periods, copy.cagrMode)
+  const scope = scopeSentence(values.length, periods, excludedPeriods, copy)
+  const retainedLabel = copy.periodUnitPlural === "mois" ? "les mois retenus" : "les exercices retenus"
 
   const marginAnnualizedPts =
-    gpCagr && gpCagr.intervalCount > 0 ? (latest - oldest) / gpCagr.intervalCount : null
+    gpCagr && gpCagr.intervalCount > 0
+      ? copy.cagrMode === "months-annualized"
+        ? ((latest - oldest) / gpCagr.intervalCount) * 12
+        : (latest - oldest) / gpCagr.intervalCount
+      : null
 
   const sentences: string[] = [
-    `${scope}, la marge brute rapportée aux revenus s'affiche à ${latest.toFixed(1)} % pour l'exercice ${periods[0]}, soit un bénéfice brut de ${formatCurrency(latestGp)}.`,
-    `Sur les exercices retenus, la marge évolue entre ${stats.min.toFixed(1)} % en ${stats.minPeriod} (fourchette basse) et ${stats.max.toFixed(1)} % en ${stats.maxPeriod} (fourchette haute), pour une moyenne de ${stats.mean.toFixed(1)} %.`,
+    `${scope}, la marge brute rapportée aux revenus s'affiche à ${latest.toFixed(1)} % pour ${copy.referenceForPeriod(periods[0]!)}, soit un bénéfice brut de ${formatCurrency(latestGp)}.`,
+    `Sur ${retainedLabel}, la marge évolue entre ${stats.min.toFixed(1)} % en ${stats.minPeriod} (fourchette basse) et ${stats.max.toFixed(1)} % en ${stats.maxPeriod} (fourchette haute), pour une moyenne de ${stats.mean.toFixed(1)} %.`,
     positionVsMeanSentence(latest, stats.mean, "percent"),
   ]
 
@@ -327,8 +577,8 @@ function buildMarginAnnualParagraph(points: PerformanceNarrativePoint[]): Perfor
     const dir = trendWord(marginAnnualizedPts)
     sentences.push(
       dir === "stabilité"
-        ? `La marge brute demeure stable en moyenne (${fmtPts(marginAnnualizedPts)}/an) sur la période retenue.`
-        : `La marge brute affiche une ${dir} moyenne de ${fmtPts(Math.abs(marginAnnualizedPts))} par année sur la période retenue.`,
+        ? `La marge brute demeure stable en moyenne (${fmtPts(marginAnnualizedPts)}${copy.marginTrendLabel}) sur la période retenue.`
+        : `La marge brute affiche une ${dir} moyenne de ${fmtPts(Math.abs(marginAnnualizedPts))}${copy.marginTrendLabel} sur la période retenue.`,
     )
   }
 
@@ -349,23 +599,31 @@ function buildMarginAnnualParagraph(points: PerformanceNarrativePoint[]): Perfor
     sentences.push("À la date de référence, la marge brute se situe à son niveau le plus bas sur la période retenue.")
   }
 
-  return {
-    heading: "Marge brute",
-    body: sentences.join(" "),
-    statsLine: buildStatsLine(stats, "percent", gpCagr, marginAnnualizedPts),
-  }
+  return attachSeasonalityBody(
+    {
+      heading: "Marge brute",
+      body: sentences.join(" "),
+      statsLine: buildStatsLine(stats, "percent", gpCagr, marginAnnualizedPts, copy.marginTrendLabel),
+    },
+    points,
+    (p) => p.grossMarginPercent,
+    "percent",
+    "la marge brute",
+    copy,
+  )
 }
 
 /** Compare la trajectoire du BAIIA à celle des revenus (TCAC, ratio opérationnel, glissement annuel). */
 export function buildBaiiaVsRevenueTrajectoryParagraph(
   points: PerformanceNarrativePoint[],
+  copy: WindowNarrativeCopy = ANNUAL_COPY,
 ): string | null {
-  const rev = filterPresentAnnualSeries(points, (p) => p.revenue)
-  const ebita = filterPresentAnnualSeries(points, (p) => p.ebita)
+  const rev = filterPresentSeries(points, (p) => p.revenue)
+  const ebita = filterPresentSeries(points, (p) => p.ebita)
   if (rev.values.length < 2 || ebita.values.length < 2) return null
 
-  const revCagr = computeCagrFromPresentSeries(rev.values, rev.periods)
-  const ebitaCagr = computeCagrFromPresentSeries(ebita.values, ebita.periods)
+  const revCagr = computeCagrFromPresentSeries(rev.values, rev.periods, copy.cagrMode)
+  const ebitaCagr = computeCagrFromPresentSeries(ebita.values, ebita.periods, copy.cagrMode)
 
   const latestRev = rev.values[0]!
   const latestEbita = ebita.values[0]!
@@ -448,36 +706,61 @@ export function buildBaiiaVsRevenueTrajectoryParagraph(
   return sentences.length ? sentences.join(" ") : null
 }
 
-function buildBaiiaAnnualParagraph(points: PerformanceNarrativePoint[]): PerformanceNarrativeParagraph | null {
-  const base = buildCurrencyAnnualParagraph("BAIIA", "le BAIIA", "currency", points, (p) => p.ebita)
+function buildBaiiaWindowParagraph(
+  points: PerformanceNarrativePoint[],
+  copy: WindowNarrativeCopy,
+): PerformanceNarrativeParagraph | null {
+  const base = buildCurrencyWindowParagraph(
+    "BAIIA",
+    "le BAIIA",
+    "currency",
+    points,
+    (p) => p.ebita,
+    copy,
+    false,
+  )
   if (!base) return null
-  const secondaryBody = buildBaiiaVsRevenueTrajectoryParagraph(points)
-  return secondaryBody ? { ...base, secondaryBody } : base
+  const secondaryBody = buildBaiiaVsRevenueTrajectoryParagraph(points, copy)
+  const withSecondary = secondaryBody ? { ...base, secondaryBody } : base
+  return attachSeasonalityBody(withSecondary, points, (p) => p.ebita, "currency", "le BAIIA", copy)
 }
 
-function buildAnnualPerformanceNarrative(data: PerformanceNarrativePoint[]): PerformanceNarrativeResult {
+function buildWindowPerformanceNarrative(
+  data: PerformanceNarrativePoint[],
+  copy: WindowNarrativeCopy,
+  mode: "annual" | "monthly",
+): PerformanceNarrativeResult {
   const present = data.filter(isAnnualExercisePresent)
   const referencePeriod = present[0]?.period ?? data[0]?.period ?? ""
 
   const paragraphs = [
-    buildCurrencyAnnualParagraph(
+    buildCurrencyWindowParagraph(
       "Revenus",
       "le chiffre d'affaires",
       "currency",
       data,
       (p) => p.revenue,
+      copy,
     ),
-    buildMarginAnnualParagraph(data),
-    buildBaiiaAnnualParagraph(data),
+    buildMarginWindowParagraph(data, copy),
+    buildBaiiaWindowParagraph(data, copy),
   ].filter((p): p is PerformanceNarrativeParagraph => p !== null)
 
   return {
-    mode: "annual",
+    mode,
     title: "Lecture de la performance",
-    subtitle: "Analyse pluriannuelle — lecture financière à la date de référence",
+    subtitle: copy.subtitle,
     referencePeriod,
     paragraphs,
   }
+}
+
+function buildAnnualPerformanceNarrative(data: PerformanceNarrativePoint[]): PerformanceNarrativeResult {
+  return buildWindowPerformanceNarrative(data, ANNUAL_COPY, "annual")
+}
+
+function buildMonthlyPerformanceNarrative(data: PerformanceNarrativePoint[]): PerformanceNarrativeResult {
+  return buildWindowPerformanceNarrative(data, MONTHLY_COPY, "monthly")
 }
 
 /**
@@ -637,5 +920,6 @@ export function buildIncomePerformanceNarrative(
 ): PerformanceNarrativeResult | null {
   if (!data.length) return null
   if (view === "years") return buildAnnualPerformanceNarrative(data)
+  if (view === "24months") return buildMonthlyPerformanceNarrative(data)
   return buildSequentialPerformanceNarrative(data, view)
 }

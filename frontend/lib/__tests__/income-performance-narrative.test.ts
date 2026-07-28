@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest"
 import {
   buildIncomePerformanceNarrative,
+  buildSeasonalityParagraph,
   computeCagr,
   isAnnualExercisePresent,
+  parseChartMonthPeriod,
   type PerformanceNarrativePoint,
 } from "@/lib/income-performance-narrative"
+import { monthShortLabelsFromReference } from "@/lib/series-reference-columns"
 
 function sampleAnnualData(): PerformanceNarrativePoint[] {
   return [
@@ -14,6 +17,38 @@ function sampleAnnualData(): PerformanceNarrativePoint[] {
     { period: "2022", revenue: 950_000, grossProfit: 323_000, ebita: 160_000, grossMarginPercent: 34 },
     { period: "2021", revenue: 900_000, grossProfit: 288_000, ebita: 140_000, grossMarginPercent: 32 },
   ]
+}
+
+/** Facteur saisonnier par mois calendaire (1 = janvier … 12 = décembre). */
+const SEASONAL_REVENUE_FACTOR: Record<number, number> = {
+  1: 0.8,
+  2: 0.85,
+  3: 0.9,
+  4: 0.95,
+  5: 1.0,
+  6: 1.05,
+  7: 1.1,
+  8: 1.05,
+  9: 1.0,
+  10: 0.95,
+  11: 0.9,
+  12: 1.2,
+}
+
+function sampleMonthly24Data(refMonth = 12, refYear = 2025): PerformanceNarrativePoint[] {
+  const labels = monthShortLabelsFromReference(refMonth, refYear, 24)
+  return labels.map((period) => {
+    const meta = parseChartMonthPeriod(period)!
+    const factor = SEASONAL_REVENUE_FACTOR[meta.month] ?? 1
+    const revenue = 100_000 * factor
+    return {
+      period,
+      revenue,
+      grossProfit: revenue * 0.38,
+      ebita: revenue * 0.15,
+      grossMarginPercent: 38,
+    }
+  })
 }
 
 describe("isAnnualExercisePresent", () => {
@@ -78,7 +113,57 @@ describe("buildIncomePerformanceNarrative — vue annuelle", () => {
   })
 })
 
-describe("buildIncomePerformanceNarrative — vue mensuelle", () => {
+describe("buildIncomePerformanceNarrative — vue mensuelle (24 mois)", () => {
+  it("retourne une analyse fenêtre identique à l'annuel", () => {
+    const data = sampleMonthly24Data()
+    const result = buildIncomePerformanceNarrative(data, "24months")
+    expect(result?.mode).toBe("monthly")
+    if (result?.mode !== "monthly") return
+    expect(result.paragraphs).toHaveLength(3)
+    expect(result.paragraphs[0]!.body).toContain("fourchette basse")
+    expect(result.paragraphs[0]!.body).toContain("TCAC")
+    expect(result.paragraphs[2]!.secondaryBody).toContain("chiffre d'affaires")
+  })
+
+  it("ajoute un paragraphe saisonnalité pour chaque section", () => {
+    const data = sampleMonthly24Data()
+    const result = buildIncomePerformanceNarrative(data, "24months")
+    expect(result?.mode).toBe("monthly")
+    if (result?.mode !== "monthly") return
+
+    for (const paragraph of result.paragraphs) {
+      expect(paragraph.seasonalityBody).toBeTruthy()
+      expect(paragraph.seasonalityBody).toContain("saisonnalité")
+      expect(paragraph.seasonalityBody).toContain("pic récurrent")
+      expect(paragraph.seasonalityBody).toContain("creux")
+    }
+
+    expect(result.paragraphs[0]!.seasonalityBody).toContain("décembre")
+    expect(result.paragraphs[0]!.seasonalityBody).toContain("janvier")
+    expect(result.paragraphs[0]!.seasonalityBody).toContain("comparaison homologue")
+  })
+})
+
+describe("buildSeasonalityParagraph", () => {
+  it("parse les libellés de mois du graphique", () => {
+    expect(parseChartMonthPeriod("Déc 2025")).toEqual({ month: 12, year: 2025 })
+    expect(parseChartMonthPeriod("Jan 2024")).toEqual({ month: 1, year: 2024 })
+    expect(parseChartMonthPeriod("2025/12")).toBeNull()
+  })
+
+  it("détecte pic et creux saisonniers sur 24 mois", () => {
+    const data = sampleMonthly24Data()
+    const periods = data.map((d) => d.period)
+    const values = data.map((d) => d.revenue)
+    const text = buildSeasonalityParagraph(periods, values, "currency", "les revenus")
+    expect(text).toBeTruthy()
+    expect(text).toContain("décembre")
+    expect(text).toContain("janvier")
+    expect(text).toContain("24 derniers mois")
+  })
+})
+
+describe("buildIncomePerformanceNarrative — vue mensuelle séquentielle (12 mois IS)", () => {
   it("conserve le mode séquentiel", () => {
     const data = sampleAnnualData().slice(0, 2)
     const result = buildIncomePerformanceNarrative(data, "12months")

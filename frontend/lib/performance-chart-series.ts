@@ -319,6 +319,7 @@ export type BuiltSeriesMeta = {
 export const PERFORMANCE_CHART_QUARTER_COUNT = 8
 /** Aligné sur l’horizon « Annuel - 5 ans » (année de référence + 4 années précédentes). */
 export const PERFORMANCE_CHART_YEAR_COUNT = 5
+export const PERFORMANCE_CHART_MONTH_COUNT_24 = 24
 
 /**
  * Nombre de mois à charger pour l’API : chaque trimestre doit pouvoir sommer 3 mois civils complets,
@@ -327,6 +328,7 @@ export const PERFORMANCE_CHART_YEAR_COUNT = 5
 export function performanceChartSeriesMonthsNeeded(view: string): number {
   if (view === "years") return PERFORMANCE_CHART_YEAR_COUNT * 12 + 12
   if (view === "quarters") return PERFORMANCE_CHART_QUARTER_COUNT * 3 + 6
+  if (view === "24months") return PERFORMANCE_CHART_MONTH_COUNT_24 + 6
   return 12
 }
 
@@ -356,6 +358,9 @@ export function buildPerformanceChartData(
   } else if (view === "years") {
     count = PERFORMANCE_CHART_YEAR_COUNT
     labels = yearLabelsFromReference(refYear, count)
+  } else if (view === "24months") {
+    count = PERFORMANCE_CHART_MONTH_COUNT_24
+    labels = monthShortLabelsFromReference(refMonth, refYear, count)
   } else {
     labels = monthShortLabelsFromReference(refMonth, refYear, 12)
     count = 12

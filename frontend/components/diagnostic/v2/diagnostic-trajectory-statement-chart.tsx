@@ -52,6 +52,7 @@ export function DiagnosticTrajectoryStatementChart({
   )
 
   const referenceMonth = parseFiscalEndMonth(fiscalYearEnd)
+  const chartView = horizonView === "years" ? "years" : "24months"
 
   return (
     <div id="diag-trajectoire" className="scroll-mt-28">
@@ -61,7 +62,7 @@ export function DiagnosticTrajectoryStatementChart({
         </div>
       ) : activeSlot ? (
         <StatementChart
-          key={`${activeSlot.chartInstanceId}-${horizonView}`}
+          key={`${activeSlot.chartInstanceId}-${chartView}`}
           statementType="income-statement"
           slot={activeSlot}
           chartSlotNumber={slots.findIndex((s) => s.chartInstanceId === activeSlotId) + 1}
@@ -70,7 +71,7 @@ export function DiagnosticTrajectoryStatementChart({
           onChartInstanceChange={setActiveSlotId}
           onChartConfigSaved={refresh}
           period="monthly"
-          view={horizonView}
+          view={chartView}
           companyId={companyId}
           companies={companies}
           fiscalYear={latestFiscalYear}

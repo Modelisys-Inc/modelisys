@@ -90,7 +90,7 @@ function EmbeddedHorizonToggle({ value, onChange }: ChartHorizonToggleProps) {
 interface StatementChartProps {
   statementType: StatementType
   period: "monthly" | "quarterly" | "annual"
-  view: "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
+  view: "comparison" | "ytd" | "ddm" | "12months" | "24months" | "quarters" | "years"
   companyId?: string | null
   divisionId?: string | null
   subDivisionId?: string | null
@@ -176,7 +176,7 @@ function IncomePerformanceNarrativeSection({ narrative }: { narrative: Performan
         <div className="min-w-0 w-full flex-1">
           <h4 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{narrative.title}</h4>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            {narrative.mode === "annual"
+            {narrative.mode === "annual" || narrative.mode === "monthly"
               ? narrative.subtitle
               : "Synthèse factuelle à partir des séries affichées (variations séquentielles et lecture de fenêtre)."}
           </p>
@@ -187,6 +187,12 @@ function IncomePerformanceNarrativeSection({ narrative }: { narrative: Performan
                 <p className="mt-2 text-sm leading-relaxed text-[#5C5F66] text-pretty">{p.body}</p>
                 {p.secondaryBody ? (
                   <p className="mt-3 text-sm leading-relaxed text-[#5C5F66] text-pretty">{p.secondaryBody}</p>
+                ) : null}
+                {p.seasonalityBody ? (
+                  <p className="mt-3 text-sm leading-relaxed text-[#5C5F66] text-pretty">
+                    <span className="font-medium text-slate-600">Saisonnalité — </span>
+                    {p.seasonalityBody}
+                  </p>
                 ) : null}
                 {p.statsLine ? (
                   <p className="mt-3 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 text-xs font-medium tabular-nums text-slate-600">
