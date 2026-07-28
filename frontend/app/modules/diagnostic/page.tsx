@@ -13,8 +13,8 @@ import { buildSignals } from "@/lib/diagnostic-derive"
 import { DiagnosticHero } from "@/components/diagnostic/v2/diagnostic-hero"
 import { DiagnosticKpiStrip } from "@/components/diagnostic/v2/diagnostic-kpi-strip"
 import { DiagnosticNavRail } from "@/components/diagnostic/v2/diagnostic-nav-rail"
-import { DiagnosticCard, LegendChip } from "@/components/diagnostic/v2/diagnostic-card"
-import { DiagnosticTrajectoryChart } from "@/components/diagnostic/v2/diagnostic-trajectory-chart"
+import { DiagnosticCard } from "@/components/diagnostic/v2/diagnostic-card"
+import { DiagnosticTrajectoryStatementChart } from "@/components/diagnostic/v2/diagnostic-trajectory-statement-chart"
 import { DiagnosticSeasonalityHeatmap } from "@/components/diagnostic/v2/diagnostic-seasonality-heatmap"
 import { DiagnosticDivisionsQuadrant } from "@/components/diagnostic/v2/diagnostic-divisions-quadrant"
 import { DiagnosticBenchmarkRadar } from "@/components/diagnostic/v2/diagnostic-benchmark-radar"
@@ -113,26 +113,13 @@ export default function DiagnosticModulePage() {
               </div>
 
               <div className="flex min-w-0 flex-col gap-4 px-6 pb-10 pt-5">
-                <DiagnosticCard
-                  id="diag-trajectoire"
-                  title="Trajectoire"
-                  subtitle="Chiffre d'affaires, EBITDA et marges — 5 derniers exercices"
+                <DiagnosticTrajectoryStatementChart
+                  companyId={selectedCompanyId!}
+                  companies={companies}
+                  latestFiscalYear={data.latest_fiscal_year}
+                  fiscalYearEnd={data.fiscal_year_end}
                   signal={signalFor("trajectoire")}
-                  legend={
-                    <span className="hidden items-center gap-3 lg:flex">
-                      <LegendChip label="Chiffre d'affaires" color="linear-gradient(#3FE0A8,#0F8F68)" />
-                      <LegendChip label="EBITDA" color="#E0742D" />
-                      <LegendChip label="Marge EBITDA" color="#F5B544" variant="line" />
-                      <LegendChip label="Marge nette" color="#8FA3BF" variant="line" />
-                    </span>
-                  }
-                >
-                  <DiagnosticTrajectoryChart
-                    trends={trends}
-                    currency={data.currency}
-                    onDrillDown={setDrillDown}
-                  />
-                </DiagnosticCard>
+                />
 
                 <div className="grid gap-4 xl:grid-cols-2">
                   <DiagnosticCard

@@ -273,6 +273,71 @@ async function setupMocks(page: Page) {
       body: JSON.stringify(payload),
     }),
   )
+
+  await page.route(`**/api/companies/${COMPANY_ID}/statement-chart-configs*`, (route) => {
+    if (route.request().method() === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          slots: [
+            {
+              chart_instance_id: "default",
+              slot_index: 0,
+              version: 1,
+              config: {
+                version: 2,
+                chartTitle: "",
+                series: [
+                  {
+                    id: "r",
+                    kind: "bar",
+                    label: "Revenus",
+                    spec: { type: "single", code: "REV-001" },
+                    yAxis: "left",
+                    valueFormat: "currency",
+                    showOnChart: true,
+                    showInSidePanel: true,
+                    color: "#3b82f6",
+                  },
+                ],
+              },
+              updated_by_user_email: "u@e.com",
+              updated_at: "2026-05-18T00:00:00Z",
+            },
+          ],
+        }),
+      })
+    }
+    return route.continue()
+  })
+
+  await page.route(
+    `**/api/companies/${COMPANY_ID}/financial-statements/income-statement/series*`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          companyId: COMPANY_ID,
+          statementType: "income-statement",
+          fiscalYear: 2025,
+          periods: [{ fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" }],
+          rows: [
+            {
+              id: "REV-001",
+              linkCode: "REV-001",
+              label: "Revenus",
+              isBold: false,
+              isSection: false,
+              isResult: false,
+              amounts: { "2025-12": 18_450_000 },
+              detailRows: [],
+            },
+          ],
+        }),
+      }),
+  )
 }
 
 test.describe("Diagnostic — rendu visuel", () => {
@@ -287,11 +352,13 @@ test.describe("Diagnostic — rendu visuel", () => {
     ).toBeVisible({ timeout: 15000 })
     await expect(page.getByRole("heading", { name: "Valorisation indicative" })).toBeVisible()
 
-    // Attendre le rendu des graphiques (SVG faits main) : barres de la
-    // trajectoire, bulles du quadrant (une par division), polygones du radar.
+    // Trajectoire = carte Performance financière (Recharts).
+    await expect(page.getByRole("heading", { name: "Performance financière" })).toBeVisible()
     await expect
-      .poll(async () => page.locator("#diag-trajectoire svg rect").count(), { timeout: 15000 })
-      .toBeGreaterThanOrEqual(5)
+      .poll(async () => page.locator("#diag-trajectoire .recharts-bar-rectangle").count(), {
+        timeout: 15000,
+      })
+      .toBeGreaterThanOrEqual(1)
     await expect(page.locator("#diag-divisions svg circle")).toHaveCount(3)
     await expect
       .poll(async () => page.locator("#diag-profil svg polygon").count())

@@ -30,6 +30,7 @@ import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import {
   buildIncomePerformanceNarrative,
   mapDynamicChartToNarrativePoints,
+  type PerformanceNarrativeResult,
 } from "@/lib/income-performance-narrative"
 import {
   defaultChartCardTitle,
@@ -43,6 +44,48 @@ import {
   performanceChartSeriesMonthsNeeded,
 } from "@/lib/performance-chart-series"
 import { StatementChartSettingsDialog } from "@/components/statement-chart-settings-dialog"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
+
+export type ChartHorizonToggleValue = "years" | "12months"
+
+export type ChartHorizonToggleProps = {
+  value: ChartHorizonToggleValue
+  onChange: (value: ChartHorizonToggleValue) => void
+}
+
+function EmbeddedHorizonToggle({ value, onChange }: ChartHorizonToggleProps) {
+  const options: { id: ChartHorizonToggleValue; label: string }[] = [
+    { id: "years", label: HORIZON_LABEL.annuel5Ans },
+    { id: "12months", label: HORIZON_LABEL.mensuel },
+  ]
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Horizon</span>
+      <div
+        className="flex gap-[3px] rounded-[9px] border border-slate-200 bg-slate-100 p-[3px]"
+        role="group"
+        aria-label="Horizon du graphique"
+      >
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            aria-pressed={value === opt.id}
+            onClick={() => onChange(opt.id)}
+            className={cn(
+              "cursor-pointer rounded-md px-3 py-1.5 text-[11px] font-semibold transition-colors",
+              value === opt.id
+                ? "bg-[#E0742D] text-white"
+                : "bg-transparent text-slate-500 hover:text-[#2A2F3A]",
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 interface StatementChartProps {
   statementType: StatementType
@@ -71,6 +114,8 @@ interface StatementChartProps {
   onChartConfigSaved?: () => void
   /** Only set on additional (non-default) slots. */
   onRemoveChart?: () => void
+  /** Toggle Annuel 5 ans / Mensuel intégré à l'en-tête (Diagnostic). */
+  embeddedHorizon?: ChartHorizonToggleProps
 }
 
 function PerformanceChartRemoveButton({ onRemove }: { onRemove: () => void }) {
@@ -119,9 +164,9 @@ function formatSeriesValue(v: number, fmt: ChartValueFormat): string {
   return formatCurrency(v)
 }
 
-type PerformanceNarrativeResult = NonNullable<ReturnType<typeof buildIncomePerformanceNarrative>>
+type PerformanceNarrativeResultNonNull = NonNullable<PerformanceNarrativeResult>
 
-function IncomePerformanceNarrativeSection({ narrative }: { narrative: PerformanceNarrativeResult }) {
+function IncomePerformanceNarrativeSection({ narrative }: { narrative: PerformanceNarrativeResultNonNull }) {
   return (
     <div className="w-full border-t border-slate-200 bg-gradient-to-b from-slate-50/80 to-white px-6 pb-8 pt-10 sm:px-7 sm:pb-9 sm:pt-12">
       <div className="flex w-full max-w-none items-start gap-3">
@@ -131,13 +176,23 @@ function IncomePerformanceNarrativeSection({ narrative }: { narrative: Performan
         <div className="min-w-0 w-full flex-1">
           <h4 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">{narrative.title}</h4>
           <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            Synthèse factuelle à partir des séries affichées (variations séquentielles et lecture de fenêtre).
+            {narrative.mode === "annual"
+              ? narrative.subtitle
+              : "Synthèse factuelle à partir des séries affichées (variations séquentielles et lecture de fenêtre)."}
           </p>
-          <div className="mt-5 space-y-5">
+          <div className="mt-5 space-y-6">
             {narrative.paragraphs.map((p) => (
               <div key={p.heading}>
                 <p className="text-sm font-semibold text-[#2A2F3A]">{p.heading}</p>
                 <p className="mt-2 text-sm leading-relaxed text-[#5C5F66] text-pretty">{p.body}</p>
+                {p.secondaryBody ? (
+                  <p className="mt-3 text-sm leading-relaxed text-[#5C5F66] text-pretty">{p.secondaryBody}</p>
+                ) : null}
+                {p.statsLine ? (
+                  <p className="mt-3 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 text-xs font-medium tabular-nums text-slate-600">
+                    {p.statsLine}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>
@@ -169,6 +224,7 @@ export function StatementChart({
   onChartInstanceChange,
   onChartConfigSaved,
   onRemoveChart,
+  embeddedHorizon,
 }: StatementChartProps) {
   const perfConfig: StatementChartConfig = slot.config
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -276,6 +332,11 @@ export function StatementChart({
       <>
         <div className={`mb-6 flex min-h-64 flex-col items-center justify-center gap-3 px-4 py-8 ${dashboardStyleCard}`}>
           <div className={dashboardStyleCardAccent} aria-hidden />
+          {embeddedHorizon ? (
+            <div className="relative mb-2 w-full max-w-xl border-b border-slate-100 pb-4">
+              <EmbeddedHorizonToggle {...embeddedHorizon} />
+            </div>
+          ) : null}
           <p className="relative text-center text-sm text-[#5C5F66]">Aucune donnée disponible pour ce graphique.</p>
           {companyId ? (
             <p className="max-w-md text-center text-xs text-slate-500">
@@ -344,12 +405,21 @@ export function StatementChart({
                     </h3>
                   )}
                   <div className="flex flex-wrap items-center gap-3 text-sm text-[#5C5F66]">
-                    <span className="font-medium text-slate-700">{getHorizonText()}</span>
-                    <span className="text-slate-300">•</span>
+                    {embeddedHorizon ? (
+                      <EmbeddedHorizonToggle {...embeddedHorizon} />
+                    ) : (
+                      <>
+                        <span className="font-medium text-slate-700">{getHorizonText()}</span>
+                        <span className="text-slate-300">•</span>
+                      </>
+                    )}
                     {companyId ? (
-                      <span className="font-semibold text-[#2A2F3A]">
-                        {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
-                      </span>
+                      <>
+                        {embeddedHorizon ? <span className="text-slate-300">•</span> : null}
+                        <span className="font-semibold text-[#2A2F3A]">
+                          {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+                        </span>
+                      </>
                     ) : (
                       <span className="truncate">Toutes les sociétés</span>
                     )}

@@ -65,6 +65,71 @@ async function setupAuthAndCommonMocks(page: Page) {
       }),
     }),
   )
+
+  await page.route(`**/api/companies/${COMPANY_ID}/statement-chart-configs*`, (route) => {
+    if (route.request().method() === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          slots: [
+            {
+              chart_instance_id: "default",
+              slot_index: 0,
+              version: 1,
+              config: {
+                version: 2,
+                chartTitle: "",
+                series: [
+                  {
+                    id: "r",
+                    kind: "bar",
+                    label: "Revenus",
+                    spec: { type: "single", code: "REV-001" },
+                    yAxis: "left",
+                    valueFormat: "currency",
+                    showOnChart: true,
+                    showInSidePanel: true,
+                    color: "#3b82f6",
+                  },
+                ],
+              },
+              updated_by_user_email: "u@e.com",
+              updated_at: "2026-05-18T00:00:00Z",
+            },
+          ],
+        }),
+      })
+    }
+    return route.continue()
+  })
+
+  await page.route(
+    `**/api/companies/${COMPANY_ID}/financial-statements/income-statement/series*`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          companyId: COMPANY_ID,
+          statementType: "income-statement",
+          fiscalYear: 2025,
+          periods: [{ fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" }],
+          rows: [
+            {
+              id: "REV-001",
+              linkCode: "REV-001",
+              label: "Revenus",
+              isBold: false,
+              isSection: false,
+              isResult: false,
+              amounts: { "2025-12": 5_200_000 },
+              detailRows: [],
+            },
+          ],
+        }),
+      }),
+  )
 }
 
 function buildDiagnosticPayload(overrides: Record<string, unknown> = {}) {
@@ -248,8 +313,13 @@ test.describe("Page Diagnostic", () => {
       await expect(page.getByText(pillar, { exact: true }).first()).toBeVisible()
     }
 
-    // Pas de filtres période / division : rapport consolidé sur 5 ans.
-    await expect(page.getByText("Chiffre d'affaires, EBITDA et marges — 5 derniers exercices")).toBeVisible()
+    // Trajectoire = carte Performance financière (même config que le tableau de bord IS).
+    await expect(page.getByRole("heading", { name: "Performance financière" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Annuel - 5 ans" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+    await expect(page.getByRole("button", { name: "Mensuel" })).toHaveAttribute("aria-pressed", "false")
 
     // Bandeau KPI (7 cartes cliquables avec sparkline).
     const kpis = page.getByTestId("kpi-cards")
@@ -263,7 +333,7 @@ test.describe("Page Diagnostic", () => {
 
     // Titres de toutes les sections.
     for (const heading of [
-      "Trajectoire",
+      "Performance financière",
       "Saisonnalité",
       "Profil vs secteur",
       "Rentabilité par division",
@@ -332,16 +402,6 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByRole("dialog", { name: "EBITDA" })).toBeVisible()
     await page.keyboard.press("Escape")
     await expect(page.getByRole("dialog", { name: "EBITDA" })).toHaveCount(0)
-
-    // Ouverture au clavier depuis une barre d'exercice de la trajectoire.
-    const yearBar = page.locator('#diag-trajectoire svg g[role="button"]').last()
-    await yearBar.focus()
-    await page.keyboard.press("Enter")
-    const yearDialog = page.getByRole("dialog")
-    await expect(yearDialog).toBeVisible()
-    await expect(yearDialog.getByText("Chiffre d'affaires de l'exercice")).toBeVisible()
-    await page.keyboard.press("Escape")
-    await expect(page.getByRole("dialog")).toHaveCount(0)
   })
 
   test("état vide des produits lorsque products est vide", async ({ page }) => {
