@@ -10,7 +10,7 @@ import { test, expect, Page } from "@playwright/test"
  */
 
 const COMPANY_ID = "22222222-2222-2222-2222-222222222222"
-const URL = "/modules/diagnostic"
+const URL = `/modules/diagnostic?companyId=${COMPANY_ID}`
 
 async function setupMocks(page: Page) {
   await page.addInitScript(() => {

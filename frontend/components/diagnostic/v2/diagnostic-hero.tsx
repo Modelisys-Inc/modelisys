@@ -1,6 +1,5 @@
 "use client"
 
-import type { ReactNode } from "react"
 import type { CompanyDiagnostic } from "@/lib/api"
 import { formatDateFr, formatPercent, lifecycleLabel } from "@/components/diagnostic/diagnostic-format"
 import {
@@ -12,26 +11,8 @@ import {
 import { signalColor } from "@/lib/diagnostic-theme"
 import { useCountUp } from "@/components/diagnostic/v2/use-count-up"
 
-export type DiagnosticPeriod = "5A" | "3A"
-
 interface DiagnosticHeroProps {
   diagnostic: CompanyDiagnostic
-  period: DiagnosticPeriod
-  onPeriodChange: (p: DiagnosticPeriod) => void
-  divisionId: string | null
-  onDivisionChange: (id: string | null) => void
-  companySelector?: ReactNode
-}
-
-const PERIODS: DiagnosticPeriod[] = ["5A", "3A"]
-
-function pillClass(active: boolean): string {
-  return [
-    "cursor-pointer rounded-md px-3 py-1.5 text-[11px] font-semibold transition-colors",
-    active
-      ? "bg-[#E0742D] text-white"
-      : "bg-transparent text-slate-500 hover:text-[#2A2F3A]",
-  ].join(" ")
 }
 
 function lifecycleChipClass(stage: string): string {
@@ -42,14 +23,7 @@ function lifecycleChipClass(stage: string): string {
   return "border border-slate-200 bg-slate-100 text-slate-600"
 }
 
-export function DiagnosticHero({
-  diagnostic,
-  period,
-  onPeriodChange,
-  divisionId,
-  onDivisionChange,
-  companySelector,
-}: DiagnosticHeroProps) {
+export function DiagnosticHero({ diagnostic }: DiagnosticHeroProps) {
   const health = computeHealthIndex(diagnostic)
   const signals = buildSignals(diagnostic)
   const t = useCountUp(900)
@@ -115,47 +89,6 @@ export function DiagnosticHero({
               ))}
             </div>
           )}
-
-          <div className="mt-0.5 flex flex-wrap items-center gap-3.5">
-            <div className="flex gap-[3px] rounded-[9px] border border-slate-200 bg-slate-100 p-[3px]">
-              {PERIODS.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  aria-pressed={period === p}
-                  onClick={() => onPeriodChange(p)}
-                  className={pillClass(period === p)}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex flex-wrap gap-[3px] rounded-[9px] border border-slate-200 bg-slate-100 p-[3px]">
-              <button
-                type="button"
-                aria-pressed={divisionId === null}
-                onClick={() => onDivisionChange(null)}
-                className={pillClass(divisionId === null)}
-              >
-                Toutes
-              </button>
-              {diagnostic.divisions.map((d) => (
-                <button
-                  key={d.division_id}
-                  type="button"
-                  aria-pressed={divisionId === d.division_id}
-                  onClick={() => onDivisionChange(d.division_id)}
-                  className={`${pillClass(divisionId === d.division_id)} max-w-[160px] truncate`}
-                  title={d.division_name}
-                >
-                  {d.division_name}
-                </button>
-              ))}
-            </div>
-
-            {companySelector}
-          </div>
         </div>
 
         <div className="flex flex-col gap-3 rounded-[14px] border border-slate-200 bg-white px-[18px] py-4 shadow-sm">

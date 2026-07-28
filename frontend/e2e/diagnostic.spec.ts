@@ -3,7 +3,7 @@ import { test, expect, Page } from "@playwright/test"
 const COMPANY_ID = "11111111-1111-1111-1111-111111111111"
 const DIVISION_OK = "d1111111-1111-1111-1111-111111111111"
 const DIVISION_KO = "d2222222-2222-2222-2222-222222222222"
-const URL = "/modules/diagnostic"
+const URL = `/modules/diagnostic?companyId=${COMPANY_ID}`
 
 async function setupAuthAndCommonMocks(page: Page) {
   // Injecter le cookie de session + jetons avant tout script de page.
@@ -248,11 +248,8 @@ test.describe("Page Diagnostic", () => {
       await expect(page.getByText(pillar, { exact: true }).first()).toBeVisible()
     }
 
-    // Commandes globales : période, filtre division, sélecteur de société.
-    await expect(page.getByRole("button", { name: "5A" })).toHaveAttribute("aria-pressed", "true")
-    await expect(page.getByRole("button", { name: "3A" })).toHaveAttribute("aria-pressed", "false")
-    await expect(page.getByRole("button", { name: "Toutes" })).toBeVisible()
-    await expect(page.getByRole("combobox", { name: "Société" })).toBeVisible()
+    // Pas de filtres période / division : rapport consolidé sur 5 ans.
+    await expect(page.getByText("Chiffre d'affaires, EBITDA et marges — 5 derniers exercices")).toBeVisible()
 
     // Bandeau KPI (7 cartes cliquables avec sparkline).
     const kpis = page.getByTestId("kpi-cards")
@@ -290,10 +287,6 @@ test.describe("Page Diagnostic", () => {
     const okRow = page.getByTestId(`division-row-${DIVISION_OK}`)
     await expect(okRow).toHaveAttribute("data-profitable", "true")
     await expect(okRow.getByText("Déficitaire")).toHaveCount(0)
-
-    // Pastilles de filtre division : noms complets (pas de troncature au premier mot).
-    await expect(page.getByRole("button", { name: "Division Est", exact: true })).toBeVisible()
-    await expect(page.getByRole("button", { name: "Division Ouest", exact: true })).toBeVisible()
 
     // Signaux typés attachés aux graphiques (remplacent les narrations).
     const signals = page.getByTestId("diagnostic-signal")
@@ -349,20 +342,6 @@ test.describe("Page Diagnostic", () => {
     await expect(yearDialog.getByText("Chiffre d'affaires de l'exercice")).toBeVisible()
     await page.keyboard.press("Escape")
     await expect(page.getByRole("dialog")).toHaveCount(0)
-  })
-
-  test("filtre de période 3A limité aux trois derniers exercices", async ({ page }) => {
-    await setupAuthAndCommonMocks(page)
-    await mockDiagnostic(page, buildDiagnosticPayload())
-
-    await page.goto(URL)
-
-    await expect(page.getByRole("button", { name: "3A" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "3A" }).click()
-    await expect(page.getByRole("button", { name: "3A" })).toHaveAttribute("aria-pressed", "true")
-    await expect(
-      page.getByText("Chiffre d'affaires, EBITDA et marges — 3 derniers exercices"),
-    ).toBeVisible()
   })
 
   test("état vide des produits lorsque products est vide", async ({ page }) => {

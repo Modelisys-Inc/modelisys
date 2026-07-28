@@ -8,8 +8,6 @@ import type { DrillDownRequest } from "@/components/diagnostic/v2/types"
 interface DiagnosticDivisionsQuadrantProps {
   divisions: DiagnosticDivisionPerformance[]
   currency: string
-  selectedDivisionId: string | null
-  onSelectDivision: (id: string | null) => void
   onDrillDown: (req: DrillDownRequest) => void
 }
 
@@ -31,8 +29,6 @@ const PLOT_BOTTOM = 280
 export function DiagnosticDivisionsQuadrant({
   divisions,
   currency,
-  selectedDivisionId,
-  onSelectDivision,
   onDrillDown,
 }: DiagnosticDivisionsQuadrantProps) {
   const { ref, t } = useCountUpOnVisible<HTMLDivElement>(700)
@@ -65,7 +61,6 @@ export function DiagnosticDivisionsQuadrant({
   const medY = sy(median(margins))
 
   const openDivision = (d: DiagnosticDivisionPerformance) => {
-    onSelectDivision(d.division_id)
     onDrillDown({
       kicker: "Division",
       title: d.division_name,
@@ -183,7 +178,7 @@ export function DiagnosticDivisionsQuadrant({
                   r={r}
                   fill={d.profitable ? "rgba(52,211,153,.22)" : "rgba(241,106,92,.24)"}
                   stroke={d.profitable ? "#34D399" : "#F16A5C"}
-                  strokeWidth={selectedDivisionId === d.division_id ? 3 : 1.6}
+                  strokeWidth={1.6}
                 />
                 <text
                   x={x}
@@ -221,11 +216,7 @@ export function DiagnosticDivisionsQuadrant({
             onClick={() => openDivision(d)}
             className={[
               "grid w-full grid-cols-[1.3fr_.8fr_.7fr_.7fr_.8fr_.7fr] items-center border-t border-slate-200 px-4 py-[9px] text-left transition-colors hover:bg-slate-50",
-              selectedDivisionId === d.division_id
-                ? "bg-[rgba(224,116,45,.12)]"
-                : d.profitable
-                  ? ""
-                  : "bg-[rgba(241,106,92,.06)]",
+              d.profitable ? "" : "bg-[rgba(241,106,92,.06)]",
             ].join(" ")}
           >
             <span className="flex min-w-0 items-center gap-2">

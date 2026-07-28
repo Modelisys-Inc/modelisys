@@ -1,21 +1,16 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState, type ReactNode } from "react"
+import Link from "next/link"
 import { AlertCircle, Building2 } from "lucide-react"
+import { useSearchParams } from "next/navigation"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { useCompanies } from "@/hooks/use-companies"
 import { useCompanyDiagnostic } from "@/hooks/use-company-diagnostic"
 import { DiagnosticSkeleton } from "@/components/diagnostic/diagnostic-skeleton"
 import { buildSignals } from "@/lib/diagnostic-derive"
-import { DiagnosticHero, type DiagnosticPeriod } from "@/components/diagnostic/v2/diagnostic-hero"
+import { DiagnosticHero } from "@/components/diagnostic/v2/diagnostic-hero"
 import { DiagnosticKpiStrip } from "@/components/diagnostic/v2/diagnostic-kpi-strip"
 import { DiagnosticNavRail } from "@/components/diagnostic/v2/diagnostic-nav-rail"
 import { DiagnosticCard, LegendChip } from "@/components/diagnostic/v2/diagnostic-card"
@@ -41,15 +36,13 @@ const SECTIONS = [
 ]
 
 export default function DiagnosticModulePage() {
+  const searchParams = useSearchParams()
+  const companyIdFromUrl = searchParams.get("companyId")
   const { companies, loading: companiesLoading } = useCompanies()
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
-  const [period, setPeriod] = useState<DiagnosticPeriod>("5A")
-  const [divisionId, setDivisionId] = useState<string | null>(null)
   const [drillDown, setDrillDown] = useState<DrillDownRequest | null>(null)
 
-  useEffect(() => {
-    if (!selectedCompanyId && companies.length > 0) setSelectedCompanyId(companies[0].id)
-  }, [companies, selectedCompanyId])
+  const selectedCompanyId =
+    companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
 
   const { data, loading, error, reload } = useCompanyDiagnostic(selectedCompanyId)
 
@@ -61,63 +54,33 @@ export default function DiagnosticModulePage() {
 
   const trends = useMemo(() => {
     if (!data) return []
-    const sorted = [...data.trends].sort((a, b) => a.fiscal_year - b.fiscal_year)
-    return period === "3A" ? sorted.slice(-3) : sorted
-  }, [data, period])
-
-  const selectedDivision = data?.divisions.find((d) => d.division_id === divisionId) ?? null
-  const divisionScale = selectedDivision ? (selectedDivision.revenue_share_pct ?? 100) / 100 : 1
-
-  const companySelector = companies.length > 0 && (
-    <Select
-      value={selectedCompanyId || ""}
-      onValueChange={(value) => {
-        setSelectedCompanyId(value || null)
-        setDivisionId(null)
-        setDrillDown(null)
-      }}
-    >
-      <SelectTrigger
-        aria-label="Société"
-        className="h-[30px] w-[220px] rounded-[9px] border border-slate-200 bg-white text-[11px] font-semibold text-[#2A2F3A] shadow-sm hover:bg-slate-50 focus:ring-2 focus:ring-[#E0742D]/35"
-      >
-        <SelectValue placeholder="Sélectionner une société" />
-      </SelectTrigger>
-      <SelectContent>
-        {companies.map((company) => (
-          <SelectItem key={company.id} value={company.id}>
-            {company.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
+    return [...data.trends].sort((a, b) => a.fiscal_year - b.fiscal_year)
+  }, [data])
 
   return (
     <div className={PAGE_CLASS}>
       <DashboardHeader title="Modelisys" />
 
       <main className="relative">
-        {/* Sélecteur de société toujours accessible tant que le rapport (qui l'intègre) n'est pas rendu. */}
-        {!(data && !loading && !error) && companies.length > 0 && (
-          <div className="flex justify-end px-7 pt-4">{companySelector}</div>
-        )}
-
         {!companiesLoading && companies.length === 0 && (
           <EmptyState message="Aucune société disponible. Créez d'abord une société dans la configuration pour générer un diagnostic." />
         )}
 
         {companies.length > 0 && !selectedCompanyId && (
-          <EmptyState message="Sélectionnez une société pour générer le diagnostic." />
+          <EmptyState message="Sélectionnez une société depuis Mon portail pour afficher le diagnostic.">
+            <Button asChild className="mt-4 bg-[#E0742D] text-white hover:bg-[#c96526]">
+              <Link href="/mon-portail">Ouvrir Mon portail</Link>
+            </Button>
+          </EmptyState>
         )}
 
-        {(companiesLoading || loading) && !error && !data && (
+        {(companiesLoading || loading) && selectedCompanyId && !error && !data && (
           <div className="px-6 py-10">
             <DiagnosticSkeleton />
           </div>
         )}
 
-        {error && !loading && (
+        {error && !loading && selectedCompanyId && (
           <div
             data-testid="diagnostic-error"
             className="mx-auto my-16 flex max-w-lg flex-col items-center rounded-2xl border border-red-200 bg-white px-8 py-16 text-center shadow-sm"
@@ -133,14 +96,7 @@ export default function DiagnosticModulePage() {
 
         {data && !loading && !error && (
           <div className="relative">
-            <DiagnosticHero
-              diagnostic={data}
-              period={period}
-              onPeriodChange={setPeriod}
-              divisionId={divisionId}
-              onDivisionChange={setDivisionId}
-              companySelector={companySelector}
-            />
+            <DiagnosticHero diagnostic={data} />
 
             <DiagnosticKpiStrip diagnostic={data} onDrillDown={setDrillDown} />
 
@@ -160,11 +116,7 @@ export default function DiagnosticModulePage() {
                 <DiagnosticCard
                   id="diag-trajectoire"
                   title="Trajectoire"
-                  subtitle={
-                    selectedDivision
-                      ? `Chiffre d'affaires, EBITDA et marges — ${period === "3A" ? "3" : "5"} derniers exercices · ${selectedDivision.division_name} : approximation par la part du CA du dernier exercice`
-                      : `Chiffre d'affaires, EBITDA et marges — ${period === "3A" ? "3" : "5"} derniers exercices`
-                  }
+                  subtitle="Chiffre d'affaires, EBITDA et marges — 5 derniers exercices"
                   signal={signalFor("trajectoire")}
                   legend={
                     <span className="hidden items-center gap-3 lg:flex">
@@ -178,7 +130,6 @@ export default function DiagnosticModulePage() {
                   <DiagnosticTrajectoryChart
                     trends={trends}
                     currency={data.currency}
-                    scale={divisionScale}
                     onDrillDown={setDrillDown}
                   />
                 </DiagnosticCard>
@@ -218,8 +169,6 @@ export default function DiagnosticModulePage() {
                   <DiagnosticDivisionsQuadrant
                     divisions={data.divisions}
                     currency={data.currency}
-                    selectedDivisionId={divisionId}
-                    onSelectDivision={setDivisionId}
                     onDrillDown={setDrillDown}
                   />
                 </DiagnosticCard>
@@ -274,11 +223,12 @@ export default function DiagnosticModulePage() {
   )
 }
 
-function EmptyState({ message }: { message: string }) {
+function EmptyState({ message, children }: { message: string; children?: ReactNode }) {
   return (
     <div className="mx-auto my-16 flex max-w-lg flex-col items-center rounded-2xl border border-slate-200 bg-white px-8 py-16 text-center shadow-sm">
       <Building2 className="mb-3 h-10 w-10 text-slate-300" aria-hidden />
       <p className="text-sm text-slate-600">{message}</p>
+      {children}
     </div>
   )
 }
