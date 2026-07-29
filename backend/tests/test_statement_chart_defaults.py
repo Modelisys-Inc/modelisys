@@ -41,9 +41,41 @@ def test_cash_flow_default_has_stacked_bars_plus_net_line():
     assert cfg["series"][3].get("stackGroup") is None
 
 
+def test_diagnostic_revenue_default_is_revenue_only():
+    cfg = seed_default_chart_config("diagnostic-revenue")
+    assert cfg["chartTitle"] == "Revenus"
+    assert len(cfg["series"]) == 1
+    assert cfg["series"][0]["kind"] == "bar"
+    assert cfg["series"][0]["label"] == "Revenus"
+
+
+def test_diagnostic_margin_by_revenue_default_has_revenue_and_margin():
+    cfg = seed_default_chart_config("diagnostic-margin-by-revenue")
+    assert cfg["chartTitle"] == "Marge par Revenus"
+    assert len(cfg["series"]) == 2
+    assert cfg["series"][0]["kind"] == "bar"
+    assert cfg["series"][1]["kind"] == "line"
+    assert cfg["series"][1]["valueFormat"] == "ratio"
+
+
+def test_diagnostic_expenses_default_is_expense_bar():
+    cfg = seed_default_chart_config("diagnostic-expenses")
+    assert cfg["chartTitle"] == "Dépenses"
+    assert len(cfg["series"]) == 1
+    assert cfg["series"][0]["kind"] == "bar"
+    assert cfg["series"][0]["label"] == "Dépenses"
+
+
 def test_empty_link_codes_for_all_defaults():
     """Defaults pre-build series shape but leave link codes blank — the user picks them."""
-    for stype in ("income-statement", "balance-sheet", "cash-flow"):
+    for stype in (
+        "income-statement",
+        "balance-sheet",
+        "cash-flow",
+        "diagnostic-revenue",
+        "diagnostic-margin-by-revenue",
+        "diagnostic-expenses",
+    ):
         cfg = seed_default_chart_config(stype)
         for s in cfg["series"]:
             spec = s["spec"]

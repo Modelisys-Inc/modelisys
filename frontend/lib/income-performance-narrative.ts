@@ -536,21 +536,47 @@ function buildCurrencyWindowParagraph(
     : paragraph
 }
 
-function buildMarginWindowParagraph(
+function filterPresentMarginSeries(
+  points: PerformanceNarrativePoint[],
+  pickValue: (p: PerformanceNarrativePoint) => number,
+): PresentSeries {
+  const excludedPeriods: string[] = []
+  const values: number[] = []
+  const periods: string[] = []
+
+  for (const point of points) {
+    const v = pickValue(point)
+    if (!Number.isFinite(v)) {
+      excludedPeriods.push(point.period)
+      continue
+    }
+    values.push(v)
+    periods.push(point.period)
+  }
+
+  return { values, periods, excludedPeriods }
+}
+
+function buildMarginWindowParagraphForSeries(
+  heading: string,
+  metricLabel: string,
   points: PerformanceNarrativePoint[],
   copy: WindowNarrativeCopy,
 ): PerformanceNarrativeParagraph | null {
-  const { values, periods, excludedPeriods } = filterPresentSeries(points, (p) => p.grossMarginPercent)
-  const grossProfits = filterPresentSeries(points, (p) => p.grossProfit)
+  const { values, periods, excludedPeriods } = filterPresentMarginSeries(points, (p) => p.grossMarginPercent)
+  const grossProfits = filterPresentMarginSeries(points, (p) => p.grossProfit)
+  const hasGrossProfit = grossProfits.values.some((v) => Math.abs(v) > DATA_EPSILON)
   const stats = windowStats(values, periods)
   if (!stats || !values.length) return null
 
   const latest = values[0]!
-  const latestGp = grossProfits.values[0]!
+  const latestGp = grossProfits.values[0] ?? 0
   const prior = values.length > 1 ? values[1]! : null
   const priorPeriod = values.length > 1 ? periods[1]! : null
   const oldest = values[values.length - 1]!
-  const gpCagr = computeCagrFromPresentSeries(grossProfits.values, grossProfits.periods, copy.cagrMode)
+  const gpCagr = hasGrossProfit
+    ? computeCagrFromPresentSeries(grossProfits.values, grossProfits.periods, copy.cagrMode)
+    : null
   const scope = scopeSentence(values.length, periods, excludedPeriods, copy)
   const retainedLabel = copy.periodUnitPlural === "mois" ? "les mois retenus" : "les exercices retenus"
 
@@ -559,26 +585,32 @@ function buildMarginWindowParagraph(
       ? copy.cagrMode === "months-annualized"
         ? ((latest - oldest) / gpCagr.intervalCount) * 12
         : (latest - oldest) / gpCagr.intervalCount
-      : null
+      : values.length >= 2
+        ? copy.cagrMode === "months-annualized"
+          ? ((latest - oldest) / (values.length - 1)) * 12
+          : (latest - oldest) / (values.length - 1)
+        : null
 
   const sentences: string[] = [
-    `${scope}, la marge brute rapportée aux revenus s'affiche à ${latest.toFixed(1)} % pour ${copy.referenceForPeriod(periods[0]!)}, soit un bénéfice brut de ${formatCurrency(latestGp)}.`,
+    hasGrossProfit
+      ? `${scope}, ${metricLabel} s'affiche à ${latest.toFixed(1)} % pour ${copy.referenceForPeriod(periods[0]!)}, soit un bénéfice brut de ${formatCurrency(latestGp)}.`
+      : `${scope}, ${metricLabel} s'affiche à ${latest.toFixed(1)} % pour ${copy.referenceForPeriod(periods[0]!)}.`,
     `Sur ${retainedLabel}, la marge évolue entre ${stats.min.toFixed(1)} % en ${stats.minPeriod} (fourchette basse) et ${stats.max.toFixed(1)} % en ${stats.maxPeriod} (fourchette haute), pour une moyenne de ${stats.mean.toFixed(1)} %.`,
     positionVsMeanSentence(latest, stats.mean, "percent"),
   ]
 
-  if (gpCagr?.cagr !== null && gpCagr) {
+  if (hasGrossProfit && gpCagr?.cagr !== null && gpCagr) {
     sentences.push(
       `Le bénéfice brut progresse à un TCAC de ${fmtPct(gpCagr.cagr!)} entre ${gpCagr.fromPeriod} et ${gpCagr.toPeriod}, indicateur de la dynamique sous-jacente du volume et de la marge.`,
     )
   }
 
-  if (marginAnnualizedPts !== null && gpCagr && gpCagr.intervalCount > 0) {
+  if (marginAnnualizedPts !== null && Math.abs(marginAnnualizedPts) > 0.05) {
     const dir = trendWord(marginAnnualizedPts)
     sentences.push(
       dir === "stabilité"
-        ? `La marge brute demeure stable en moyenne (${fmtPts(marginAnnualizedPts)}${copy.marginTrendLabel}) sur la période retenue.`
-        : `La marge brute affiche une ${dir} moyenne de ${fmtPts(Math.abs(marginAnnualizedPts))}${copy.marginTrendLabel} sur la période retenue.`,
+        ? `La marge demeure stable en moyenne (${fmtPts(marginAnnualizedPts)}${copy.marginTrendLabel}) sur la période retenue.`
+        : `La marge affiche une ${dir} moyenne de ${fmtPts(Math.abs(marginAnnualizedPts))}${copy.marginTrendLabel} sur la période retenue.`,
     )
   }
 
@@ -594,23 +626,30 @@ function buildMarginWindowParagraph(
   }
 
   if (nearlyEqual(latest, stats.max, 0.05)) {
-    sentences.push("À la date de référence, la marge brute constitue le niveau le plus élevé de la fenêtre analysée.")
+    sentences.push(`À la date de référence, ${metricLabel} constitue le niveau le plus élevé de la fenêtre analysée.`)
   } else if (nearlyEqual(latest, stats.min, 0.05)) {
-    sentences.push("À la date de référence, la marge brute se situe à son niveau le plus bas sur la période retenue.")
+    sentences.push(`À la date de référence, ${metricLabel} se situe à son niveau le plus bas sur la période retenue.`)
   }
 
   return attachSeasonalityBody(
     {
-      heading: "Marge brute",
+      heading,
       body: sentences.join(" "),
       statsLine: buildStatsLine(stats, "percent", gpCagr, marginAnnualizedPts, copy.marginTrendLabel),
     },
     points,
     (p) => p.grossMarginPercent,
     "percent",
-    "la marge brute",
+    metricLabel,
     copy,
   )
+}
+
+function buildMarginWindowParagraph(
+  points: PerformanceNarrativePoint[],
+  copy: WindowNarrativeCopy,
+): PerformanceNarrativeParagraph | null {
+  return buildMarginWindowParagraphForSeries("Marge brute", "la marge brute rapportée aux revenus", points, copy)
 }
 
 /** Compare la trajectoire du BAIIA à celle des revenus (TCAC, ratio opérationnel, glissement annuel). */
@@ -755,12 +794,98 @@ function buildWindowPerformanceNarrative(
   }
 }
 
+export type RevenueSeriesNarrativeSlice = {
+  heading: string
+  metricLabel: string
+  points: PerformanceNarrativePoint[]
+}
+
+function metricLabelForRevenueSeries(heading: string): string {
+  const h = heading.trim()
+  if (!h) return "cette source de revenus"
+  if (/^(le |la |les |l')/i.test(h)) return h
+  return `les ${h.charAt(0).toLowerCase()}${h.slice(1)}`
+}
+
+function buildRevenueSeriesWindowNarrative(
+  series: RevenueSeriesNarrativeSlice[],
+  copy: WindowNarrativeCopy,
+  mode: "annual" | "monthly",
+): PerformanceNarrativeResult | null {
+  const paragraphs = series
+    .map((s) =>
+      buildCurrencyWindowParagraph(
+        s.heading,
+        s.metricLabel,
+        "currency",
+        s.points,
+        (p) => p.revenue,
+        copy,
+      ),
+    )
+    .filter((p): p is PerformanceNarrativeParagraph => p !== null)
+
+  if (!paragraphs.length) return null
+
+  const referencePeriod =
+    series
+      .flatMap((s) => s.points)
+      .find(isAnnualExercisePresent)?.period ??
+    series[0]?.points[0]?.period ??
+    ""
+
+  return {
+    mode,
+    title: "Lecture de la performance",
+    subtitle: copy.subtitle,
+    referencePeriod,
+    paragraphs,
+  }
+}
+
 function buildAnnualPerformanceNarrative(data: PerformanceNarrativePoint[]): PerformanceNarrativeResult {
   return buildWindowPerformanceNarrative(data, ANNUAL_COPY, "annual")
 }
 
 function buildMonthlyPerformanceNarrative(data: PerformanceNarrativePoint[]): PerformanceNarrativeResult {
   return buildWindowPerformanceNarrative(data, MONTHLY_COPY, "monthly")
+}
+
+export function mapDynamicChartToRevenueSeriesNarratives(
+  points: DynamicChartPoint[],
+  seriesMeta: BuiltSeriesMeta[],
+): RevenueSeriesNarrativeSlice[] {
+  if (!points.length || !seriesMeta.length) return []
+
+  return seriesMeta
+    .filter((s) => s.kind === "bar" && s.valueFormat === "currency")
+    .map((bar) => {
+      const heading = bar.label.trim() || "Revenus"
+      return {
+        heading,
+        metricLabel: metricLabelForRevenueSeries(heading),
+        points: points.map((p) => {
+          const row = p as Record<string, string | number>
+          const revenue = Number(row[bar.dataKey] ?? 0)
+          return {
+            period: String(row.period ?? ""),
+            revenue,
+            grossProfit: 0,
+            ebita: 0,
+            grossMarginPercent: 0,
+          }
+        }),
+      }
+    })
+}
+
+/** @deprecated Préférer `mapDynamicChartToRevenueSeriesNarratives` (une série). */
+export function mapDynamicChartToRevenueNarrativePoints(
+  points: DynamicChartPoint[],
+  seriesMeta: BuiltSeriesMeta[],
+): PerformanceNarrativePoint[] | null {
+  const slices = mapDynamicChartToRevenueSeriesNarratives(points, seriesMeta)
+  return slices[0]?.points ?? null
 }
 
 /**
@@ -922,4 +1047,142 @@ export function buildIncomePerformanceNarrative(
   if (view === "years") return buildAnnualPerformanceNarrative(data)
   if (view === "24months") return buildMonthlyPerformanceNarrative(data)
   return buildSequentialPerformanceNarrative(data, view)
+}
+
+/** Synthèse revenus par série affichée (carte Diagnostic « Revenus »). */
+export function buildRevenueOnlyPerformanceNarrative(
+  series: RevenueSeriesNarrativeSlice[],
+  view: string,
+): PerformanceNarrativeResult | null {
+  if (!series.length) return null
+  if (view === "years") return buildRevenueSeriesWindowNarrative(series, ANNUAL_COPY, "annual")
+  if (view === "24months") return buildRevenueSeriesWindowNarrative(series, MONTHLY_COPY, "monthly")
+  return null
+}
+
+export type MarginSeriesNarrativeSlice = {
+  heading: string
+  metricLabel: string
+  points: PerformanceNarrativePoint[]
+}
+
+function metricLabelForMarginSeries(heading: string): string {
+  const h = heading.trim()
+  if (!h) return "cette marge"
+  if (/^(le |la |les |l')/i.test(h)) return h
+  return `la marge de ${h.charAt(0).toLowerCase()}${h.slice(1)}`
+}
+
+function buildMarginSeriesWindowNarrative(
+  series: MarginSeriesNarrativeSlice[],
+  copy: WindowNarrativeCopy,
+  mode: "annual" | "monthly",
+): PerformanceNarrativeResult | null {
+  const paragraphs = series
+    .map((s) => buildMarginWindowParagraphForSeries(s.heading, s.metricLabel, s.points, copy))
+    .filter((p): p is PerformanceNarrativeParagraph => p !== null)
+
+  if (!paragraphs.length) return null
+
+  const referencePeriod =
+    series
+      .flatMap((s) => s.points)
+      .find((p) => Number.isFinite(p.grossMarginPercent))?.period ??
+    series[0]?.points[0]?.period ??
+    ""
+
+  return {
+    mode,
+    title: "Lecture de la performance",
+    subtitle: copy.subtitle,
+    referencePeriod,
+    paragraphs,
+  }
+}
+
+export function mapDynamicChartToMarginByRevenueSeriesNarratives(
+  points: DynamicChartPoint[],
+  seriesMeta: BuiltSeriesMeta[],
+): MarginSeriesNarrativeSlice[] {
+  if (!points.length || !seriesMeta.length) return []
+
+  return seriesMeta
+    .filter((s) => s.valueFormat === "ratio")
+    .map((line) => {
+      const heading = line.label.trim() || "Marge"
+      return {
+        heading,
+        metricLabel: metricLabelForMarginSeries(heading),
+        points: points.map((p) => {
+          const row = p as Record<string, string | number>
+          const grossMarginPercent = Number(row[line.dataKey] ?? 0)
+          return {
+            period: String(row.period ?? ""),
+            revenue: Number.isFinite(grossMarginPercent) ? 1 : 0,
+            grossProfit: 0,
+            ebita: 0,
+            grossMarginPercent,
+          }
+        }),
+      }
+    })
+}
+
+/** Synthèse marge par série affichée (carte Diagnostic « Marge par Revenus »). */
+export function buildMarginByRevenueOnlyPerformanceNarrative(
+  series: MarginSeriesNarrativeSlice[],
+  view: string,
+): PerformanceNarrativeResult | null {
+  if (!series.length) return null
+  if (view === "years") return buildMarginSeriesWindowNarrative(series, ANNUAL_COPY, "annual")
+  if (view === "24months") return buildMarginSeriesWindowNarrative(series, MONTHLY_COPY, "monthly")
+  return null
+}
+
+function metricLabelForExpenseSeries(heading: string): string {
+  const h = heading.trim()
+  if (!h) return "ces dépenses"
+  if (/^(le |la |les |l')/i.test(h)) return h
+  const lower = h.toLowerCase()
+  if (lower === "dépenses" || lower === "depenses") return "les dépenses"
+  return `les dépenses de ${h.charAt(0).toLowerCase()}${h.slice(1)}`
+}
+
+export function mapDynamicChartToExpenseSeriesNarratives(
+  points: DynamicChartPoint[],
+  seriesMeta: BuiltSeriesMeta[],
+): RevenueSeriesNarrativeSlice[] {
+  if (!points.length || !seriesMeta.length) return []
+
+  return seriesMeta
+    .filter((s) => s.kind === "bar" && s.valueFormat === "currency")
+    .map((bar) => {
+      const heading = bar.label.trim() || "Dépenses"
+      return {
+        heading,
+        metricLabel: metricLabelForExpenseSeries(heading),
+        points: points.map((p) => {
+          const row = p as Record<string, string | number>
+          const revenue = Number(row[bar.dataKey] ?? 0)
+          return {
+            period: String(row.period ?? ""),
+            revenue,
+            grossProfit: 0,
+            ebita: 0,
+            grossMarginPercent: 0,
+          }
+        }),
+      }
+    })
+}
+
+/** Synthèse dépenses par série affichée (carte Diagnostic « Dépenses »). */
+export function buildExpensesOnlyPerformanceNarrative(
+  series: RevenueSeriesNarrativeSlice[],
+  view: string,
+): PerformanceNarrativeResult | null {
+  if (!series.length) return null
+  if (view === "years") return buildRevenueSeriesWindowNarrative(series, ANNUAL_COPY, "annual")
+  if (view === "24months") return buildRevenueSeriesWindowNarrative(series, MONTHLY_COPY, "monthly")
+  return null
 }

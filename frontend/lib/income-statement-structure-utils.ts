@@ -975,6 +975,65 @@ export function mapLinkCodesToOwnerLabel(
   return map
 }
 
+function rowLabelForLinkCodePicker(
+  row: Record<string, unknown>,
+  annexToSummary: Map<string, string>,
+): string {
+  const raw = String(row.label ?? "").trim()
+  if (raw) return raw
+  const fallback = summaryLabelForLinkedRow(row, annexToSummary)
+  return fallback === "—" ? "" : fallback
+}
+
+/**
+ * Libellés pour les sélecteurs de codes (paramètres des graphiques) : postes de la
+ * structure (y compris parents en mode somme, ex. REV-A) puis charte standard en repli.
+ * Les libellés « propriétaire » (mode code unique) priment en dernier.
+ */
+export function buildLinkCodeLabelsForChartPicker(
+  structure: Record<string, unknown>[],
+  standardLabels?: Map<string, string>,
+): Map<string, string> {
+  const out = new Map<string, string>()
+  const annexToSummary = mapAnnexLetterToSummaryLabel(structure)
+
+  const setLabel = (code: string, label: string, force = false) => {
+    const c = code.trim()
+    const l = label.trim()
+    if (!c || !l) return
+    if (force || !out.has(c)) out.set(c, l)
+  }
+
+  if (standardLabels) {
+    for (const [code, label] of standardLabels) setLabel(code, label)
+  }
+
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    const label = rowLabelForLinkCodePicker(row, annexToSummary)
+    if (!label) continue
+    const mode = normalizeLiaisonMode(row)
+    const add = (code: string) => setLabel(code, label, true)
+
+    if (mode === "single") {
+      add(String(row.linkCode ?? ""))
+    } else if (mode === "sum") {
+      add(String(row.linkCode ?? ""))
+      for (const c of normalizeCodeList(row.liaisonSumCodes)) add(c)
+    } else if (mode === "difference") {
+      add(String(row.linkCode ?? ""))
+      for (const c of normalizeCodeList(row.liaisonNumeratorCodes)) add(c)
+      for (const c of normalizeCodeList(row.liaisonDenominatorCodes)) add(c)
+    }
+  }
+
+  for (const [code, label] of mapLinkCodesToOwnerLabel(structure)) {
+    setLabel(code, label, true)
+  }
+
+  return out
+}
+
 /** Au moins un poste du sommaire est marqué « Revenus » (nature). */
 export function structureHasRevenuePosteNatureRow(structure: Record<string, unknown>[]): boolean {
   for (const row of structure) {

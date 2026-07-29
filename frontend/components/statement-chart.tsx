@@ -26,14 +26,22 @@ import {
   dashboardCardRingClass,
   dashboardCardStructureSettingsButtonClass,
 } from "@/lib/dashboard-card-style"
+import { CARD_CLASS } from "@/lib/diagnostic-theme"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import {
   buildIncomePerformanceNarrative,
+  buildExpensesOnlyPerformanceNarrative,
+  buildMarginByRevenueOnlyPerformanceNarrative,
+  buildRevenueOnlyPerformanceNarrative,
   mapDynamicChartToNarrativePoints,
+  mapDynamicChartToExpenseSeriesNarratives,
+  mapDynamicChartToMarginByRevenueSeriesNarratives,
+  mapDynamicChartToRevenueSeriesNarratives,
   type PerformanceNarrativeResult,
 } from "@/lib/income-performance-narrative"
 import {
   defaultChartCardTitle,
+  seriesStatementTypeForChart,
   type ChartSlot,
   type ChartValueFormat,
   type StatementChartConfig,
@@ -116,6 +124,10 @@ interface StatementChartProps {
   onRemoveChart?: () => void
   /** Toggle Annuel 5 ans / Mensuel intégré à l'en-tête (Diagnostic). */
   embeddedHorizon?: ChartHorizonToggleProps
+  /** Contour de carte : tableau de bord IS (défaut) ou rapport Diagnostic (bordure pâle). */
+  cardAppearance?: "dashboard" | "diagnostic"
+  /** Portée de la lecture narrative sous le graphique. */
+  narrativeScope?: "full" | "revenue-only" | "margin-by-revenue-only" | "expenses-only"
 }
 
 function PerformanceChartRemoveButton({ onRemove }: { onRemove: () => void }) {
@@ -158,6 +170,14 @@ function PerformanceChartRemoveButton({ onRemove }: { onRemove: () => void }) {
 
 const dashboardStyleCard = cn(dashboardCardFrameClass, "z-10 transition-all duration-500 ease-out")
 const dashboardStyleCardAccent = dashboardCardRingClass
+const diagnosticStyleCard = cn(CARD_CLASS, "relative z-10")
+
+function resolveStatementChartCardClasses(appearance: "dashboard" | "diagnostic") {
+  if (appearance === "diagnostic") {
+    return { card: diagnosticStyleCard, showAccent: false }
+  }
+  return { card: dashboardStyleCard, showAccent: true }
+}
 
 function formatSeriesValue(v: number, fmt: ChartValueFormat): string {
   if (fmt === "ratio") return `${v.toFixed(1)}%`
@@ -231,7 +251,11 @@ export function StatementChart({
   onChartConfigSaved,
   onRemoveChart,
   embeddedHorizon,
+  cardAppearance = "dashboard",
+  narrativeScope = "full",
 }: StatementChartProps) {
+  const { card: cardFrameClass, showAccent: showCardAccent } = resolveStatementChartCardClasses(cardAppearance)
+  const seriesStatementType = seriesStatementTypeForChart(statementType)
   const perfConfig: StatementChartConfig = slot.config
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [visibleSeriesIds, setVisibleSeriesIds] = useState<Record<string, boolean>>(() =>
@@ -244,7 +268,7 @@ export function StatementChart({
   const seriesMonthsNeeded = performanceChartSeriesMonthsNeeded(view)
   const { rows: seriesRows, periods: seriesPeriods, loading: seriesLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
-    statementType,
+    statementType: seriesStatementType,
     fiscalYear: fiscalYear || new Date().getFullYear(),
     month: refMonth,
     months: seriesMonthsNeeded,
@@ -268,13 +292,39 @@ export function StatementChart({
 
   const effectiveLoading = loading || seriesLoading
 
+  const narrativeSeriesMeta = useMemo(
+    () => seriesMeta.filter((m) => visibleSeriesIds[m.id] !== false),
+    [seriesMeta, visibleSeriesIds],
+  )
+
   const narrative = useMemo(() => {
-    if (statementType !== "income-statement") return null
-    if (!dynamicPoints?.length || !seriesMeta.length) return null
-    const mapped = mapDynamicChartToNarrativePoints(dynamicPoints, seriesMeta)
+    const diagnosticTypes = new Set([
+      "income-statement",
+      "diagnostic-revenue",
+      "diagnostic-margin-by-revenue",
+      "diagnostic-expenses",
+    ])
+    if (!diagnosticTypes.has(statementType)) return null
+    if (!dynamicPoints?.length || !narrativeSeriesMeta.length) return null
+    if (narrativeScope === "revenue-only") {
+      const slices = mapDynamicChartToRevenueSeriesNarratives(dynamicPoints, narrativeSeriesMeta)
+      if (!slices.length) return null
+      return buildRevenueOnlyPerformanceNarrative(slices, view)
+    }
+    if (narrativeScope === "margin-by-revenue-only") {
+      const slices = mapDynamicChartToMarginByRevenueSeriesNarratives(dynamicPoints, narrativeSeriesMeta)
+      if (!slices.length) return null
+      return buildMarginByRevenueOnlyPerformanceNarrative(slices, view)
+    }
+    if (narrativeScope === "expenses-only") {
+      const slices = mapDynamicChartToExpenseSeriesNarratives(dynamicPoints, narrativeSeriesMeta)
+      if (!slices.length) return null
+      return buildExpensesOnlyPerformanceNarrative(slices, view)
+    }
+    const mapped = mapDynamicChartToNarrativePoints(dynamicPoints, narrativeSeriesMeta)
     if (!mapped) return null
     return buildIncomePerformanceNarrative(mapped, view)
-  }, [statementType, dynamicPoints, seriesMeta, view])
+  }, [statementType, dynamicPoints, narrativeSeriesMeta, view, narrativeScope])
 
   const settingsDialog = (
     <StatementChartSettingsDialog
@@ -324,8 +374,8 @@ export function StatementChart({
   if (effectiveLoading) {
     return (
       <>
-        <div className={`mb-6 flex h-64 items-center justify-center ${dashboardStyleCard}`}>
-          <div className={dashboardStyleCardAccent} aria-hidden />
+        <div className={`mb-6 flex h-64 items-center justify-center ${cardFrameClass}`}>
+          {showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#E0742D]" />
         </div>
         {settingsDialog}
@@ -336,8 +386,8 @@ export function StatementChart({
   if (!dynamicPoints || !dynamicPoints.length || !seriesMeta.length) {
     return (
       <>
-        <div className={`mb-6 flex min-h-64 flex-col items-center justify-center gap-3 px-4 py-8 ${dashboardStyleCard}`}>
-          <div className={dashboardStyleCardAccent} aria-hidden />
+        <div className={`mb-6 flex min-h-64 flex-col items-center justify-center gap-3 px-4 py-8 ${cardFrameClass}`}>
+          {showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
           {embeddedHorizon ? (
             <div className="relative mb-2 w-full max-w-xl border-b border-slate-100 pb-4">
               <EmbeddedHorizonToggle {...embeddedHorizon} />
@@ -378,8 +428,8 @@ export function StatementChart({
 
   return (
     <>
-      <div className={`group mb-6 ${dashboardStyleCard}`}>
-        <div className={dashboardStyleCardAccent} aria-hidden />
+      <div className={`group mb-6 ${cardFrameClass}`}>
+        {showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
         <div className="relative border-b border-slate-200 bg-white/90 px-6 py-5 sm:px-7">
           <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 flex-1 items-center gap-4">

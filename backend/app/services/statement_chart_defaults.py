@@ -10,7 +10,14 @@ by company.
 from typing import Literal
 
 
-StatementType = Literal["income-statement", "balance-sheet", "cash-flow"]
+StatementType = Literal[
+    "income-statement",
+    "balance-sheet",
+    "cash-flow",
+    "diagnostic-revenue",
+    "diagnostic-margin-by-revenue",
+    "diagnostic-expenses",
+]
 
 _DEFAULT_COLORS = [
     "#3b82f6",  # 0
@@ -170,10 +177,89 @@ def _cash_flow_default() -> dict:
     }
 
 
+def _diagnostic_revenue_default() -> dict:
+    return {
+        "version": 2,
+        "chartTitle": "Revenus",
+        "series": [
+            {
+                "id": "diag-revenue-primary",
+                "kind": "bar",
+                "label": "Revenus",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[0],
+            },
+        ],
+    }
+
+
+def _diagnostic_margin_by_revenue_default() -> dict:
+    rev_id = "diag-margin-rev-primary"
+    return {
+        "version": 2,
+        "chartTitle": "Marge par Revenus",
+        "series": [
+            {
+                "id": rev_id,
+                "kind": "bar",
+                "label": "Revenus",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[0],
+            },
+            {
+                "id": "diag-margin-primary",
+                "kind": "line",
+                "label": "Marge brute (%)",
+                "spec": {
+                    "type": "derivedMargin",
+                    "revenueSeriesId": rev_id,
+                    "grossProfitFromSpec": {"type": "single", "code": ""},
+                },
+                "yAxis": "right",
+                "valueFormat": "ratio",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[2],
+            },
+        ],
+    }
+
+
+def _diagnostic_expenses_default() -> dict:
+    return {
+        "version": 2,
+        "chartTitle": "Dépenses",
+        "series": [
+            {
+                "id": "diag-expense-primary",
+                "kind": "bar",
+                "label": "Dépenses",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[3],
+            },
+        ],
+    }
+
+
 _FACTORIES = {
     "income-statement": _income_statement_default,
     "balance-sheet": _balance_sheet_default,
     "cash-flow": _cash_flow_default,
+    "diagnostic-revenue": _diagnostic_revenue_default,
+    "diagnostic-margin-by-revenue": _diagnostic_margin_by_revenue_default,
+    "diagnostic-expenses": _diagnostic_expenses_default,
 }
 
 

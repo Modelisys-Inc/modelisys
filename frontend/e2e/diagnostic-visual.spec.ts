@@ -276,6 +276,10 @@ async function setupMocks(page: Page) {
 
   await page.route(`**/api/companies/${COMPANY_ID}/statement-chart-configs*`, (route) => {
     if (route.request().method() === "GET") {
+      const url = new URL(route.request().url())
+      const statementType = url.searchParams.get("statement_type") ?? "income-statement"
+      const isRevenue = statementType === "diagnostic-revenue"
+      const isExpenses = statementType === "diagnostic-expenses"
       return route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -285,23 +289,85 @@ async function setupMocks(page: Page) {
               chart_instance_id: "default",
               slot_index: 0,
               version: 1,
-              config: {
-                version: 2,
-                chartTitle: "",
-                series: [
-                  {
-                    id: "r",
-                    kind: "bar",
-                    label: "Revenus",
-                    spec: { type: "single", code: "REV-001" },
-                    yAxis: "left",
-                    valueFormat: "currency",
-                    showOnChart: true,
-                    showInSidePanel: true,
-                    color: "#3b82f6",
+              config: isRevenue
+                ? {
+                    version: 2,
+                    chartTitle: "Revenus",
+                    series: [
+                      {
+                        id: "r",
+                        kind: "bar",
+                        label: "Revenus",
+                        spec: { type: "single", code: "REV-001" },
+                        yAxis: "left",
+                        valueFormat: "currency",
+                        showOnChart: true,
+                        showInSidePanel: true,
+                        color: "#3b82f6",
+                      },
+                    ],
+                  }
+                : isExpenses
+                  ? {
+                      version: 2,
+                      chartTitle: "Dépenses",
+                      series: [
+                        {
+                          id: "x",
+                          kind: "bar",
+                          label: "Dépenses",
+                          spec: { type: "single", code: "EXP-001" },
+                          yAxis: "left",
+                          valueFormat: "currency",
+                          showOnChart: true,
+                          showInSidePanel: true,
+                          color: "#ef4444",
+                        },
+                      ],
+                    }
+                : {
+                    version: 2,
+                    chartTitle: "Performance financière",
+                    series: [
+                      {
+                        id: "r",
+                        kind: "bar",
+                        label: "Revenus",
+                        spec: { type: "single", code: "REV-001" },
+                        yAxis: "left",
+                        valueFormat: "currency",
+                        showOnChart: true,
+                        showInSidePanel: true,
+                        color: "#3b82f6",
+                      },
+                      {
+                        id: "e",
+                        kind: "bar",
+                        label: "BAIIA",
+                        spec: { type: "single", code: "EBIT-001" },
+                        yAxis: "left",
+                        valueFormat: "currency",
+                        showOnChart: true,
+                        showInSidePanel: true,
+                        color: "#10b981",
+                      },
+                      {
+                        id: "m",
+                        kind: "line",
+                        label: "Marge brute (%)",
+                        spec: {
+                          type: "derivedMargin",
+                          revenueSeriesId: "r",
+                          grossProfitFromSpec: { type: "single", code: "GP-001" },
+                        },
+                        yAxis: "right",
+                        valueFormat: "ratio",
+                        showOnChart: true,
+                        showInSidePanel: true,
+                        color: "#f59e0b",
+                      },
+                    ],
                   },
-                ],
-              },
               updated_by_user_email: "u@e.com",
               updated_at: "2026-05-18T00:00:00Z",
             },
@@ -355,7 +421,7 @@ test.describe("Diagnostic — rendu visuel", () => {
     // Trajectoire = carte Performance financière (Recharts).
     await expect(page.getByRole("heading", { name: "Performance financière" })).toBeVisible()
     await expect
-      .poll(async () => page.locator("#diag-trajectoire .recharts-bar-rectangle").count(), {
+      .poll(async () => page.locator("#diag-rapport .recharts-bar-rectangle").count(), {
         timeout: 15000,
       })
       .toBeGreaterThanOrEqual(1)

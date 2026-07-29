@@ -1,12 +1,20 @@
 import { describe, it, expect } from "vitest"
 import {
+  buildExpensesOnlyPerformanceNarrative,
   buildIncomePerformanceNarrative,
+  buildMarginByRevenueOnlyPerformanceNarrative,
+  buildRevenueOnlyPerformanceNarrative,
   buildSeasonalityParagraph,
   computeCagr,
   isAnnualExercisePresent,
+  mapDynamicChartToExpenseSeriesNarratives,
+  mapDynamicChartToMarginByRevenueSeriesNarratives,
+  mapDynamicChartToRevenueSeriesNarratives,
   parseChartMonthPeriod,
   type PerformanceNarrativePoint,
+  type RevenueSeriesNarrativeSlice,
 } from "@/lib/income-performance-narrative"
+import type { BuiltSeriesMeta, DynamicChartPoint } from "@/lib/performance-chart-series"
 import { monthShortLabelsFromReference } from "@/lib/series-reference-columns"
 
 function sampleAnnualData(): PerformanceNarrativePoint[] {
@@ -160,6 +168,211 @@ describe("buildSeasonalityParagraph", () => {
     expect(text).toContain("décembre")
     expect(text).toContain("janvier")
     expect(text).toContain("24 derniers mois")
+  })
+})
+
+describe("mapDynamicChartToRevenueSeriesNarratives", () => {
+  it("produit une tranche par histogramme monétaire", () => {
+    const points: DynamicChartPoint[] = [
+      { period: "2025", v_a: 100, v_b: 40, v_c: 10 },
+      { period: "2024", v_a: 90, v_b: 35, v_c: 8 },
+    ]
+    const meta: BuiltSeriesMeta[] = [
+      {
+        id: "a",
+        dataKey: "v_a",
+        kind: "bar",
+        label: "Ventes",
+        color: "#3b82f6",
+        yAxis: "left",
+        valueFormat: "currency",
+        showOnChart: true,
+        showInSidePanel: true,
+      },
+      {
+        id: "b",
+        dataKey: "v_b",
+        kind: "bar",
+        label: "Services",
+        color: "#10b981",
+        yAxis: "left",
+        valueFormat: "currency",
+        showOnChart: true,
+        showInSidePanel: true,
+      },
+      {
+        id: "c",
+        dataKey: "v_c",
+        kind: "line",
+        label: "Tendance",
+        color: "#f59e0b",
+        yAxis: "right",
+        valueFormat: "ratio",
+        showOnChart: true,
+        showInSidePanel: false,
+      },
+    ]
+
+    const slices = mapDynamicChartToRevenueSeriesNarratives(points, meta)
+    expect(slices).toHaveLength(2)
+    expect(slices.map((s) => s.heading)).toEqual(["Ventes", "Services"])
+    expect(slices[0]!.points[0]!.revenue).toBe(100)
+    expect(slices[1]!.points[0]!.revenue).toBe(40)
+  })
+})
+
+function revenueSlice(label: string, points: PerformanceNarrativePoint[]): RevenueSeriesNarrativeSlice {
+  return {
+    heading: label,
+    metricLabel: label === "Revenus" ? "le chiffre d'affaires" : `les ${label.toLowerCase()}`,
+    points,
+  }
+}
+
+describe("buildMarginByRevenueOnlyPerformanceNarrative", () => {
+  it("retourne un paragraphe par série de marge affichée", () => {
+    const data = sampleAnnualData().map((p) => ({
+      ...p,
+      revenue: 1,
+      grossProfit: 0,
+      grossMarginPercent: p.grossMarginPercent,
+    }))
+    const result = buildMarginByRevenueOnlyPerformanceNarrative(
+      [
+        { heading: "Marge produits", metricLabel: "la marge de produits", points: data },
+        {
+          heading: "Marge services",
+          metricLabel: "la marge de services",
+          points: data.map((p) => ({ ...p, grossMarginPercent: p.grossMarginPercent - 5 })),
+        },
+      ],
+      "years",
+    )
+    expect(result?.paragraphs).toHaveLength(2)
+    expect(result?.paragraphs[0]!.heading).toBe("Marge produits")
+    expect(result?.paragraphs[1]!.heading).toBe("Marge services")
+  })
+})
+
+describe("mapDynamicChartToMarginByRevenueSeriesNarratives", () => {
+  it("produit une tranche par série au format ratio", () => {
+    const points: DynamicChartPoint[] = [
+      { period: "2025", v_m1: 38, v_m2: 42 },
+      { period: "2024", v_m1: 36, v_m2: 40 },
+    ]
+    const meta: BuiltSeriesMeta[] = [
+      {
+        id: "m1",
+        dataKey: "v_m1",
+        kind: "line",
+        label: "Marge produits",
+        color: "#f59e0b",
+        yAxis: "right",
+        valueFormat: "ratio",
+        showOnChart: true,
+        showInSidePanel: true,
+      },
+      {
+        id: "m2",
+        dataKey: "v_m2",
+        kind: "line",
+        label: "Marge services",
+        color: "#8b5cf6",
+        yAxis: "right",
+        valueFormat: "ratio",
+        showOnChart: true,
+        showInSidePanel: true,
+      },
+    ]
+    const slices = mapDynamicChartToMarginByRevenueSeriesNarratives(points, meta)
+    expect(slices).toHaveLength(2)
+    expect(slices[0]!.points[0]!.grossMarginPercent).toBe(38)
+  })
+})
+
+describe("buildRevenueOnlyPerformanceNarrative", () => {
+  it("retourne un seul paragraphe Revenus en vue annuelle", () => {
+    const result = buildRevenueOnlyPerformanceNarrative([revenueSlice("Revenus", sampleAnnualData())], "years")
+    expect(result?.mode).toBe("annual")
+    if (result?.mode !== "annual") return
+    expect(result.paragraphs).toHaveLength(1)
+    expect(result.paragraphs[0]!.heading).toBe("Revenus")
+    expect(result.title).toBe("Lecture de la performance")
+  })
+
+  it("retourne un paragraphe par source de revenus configurée", () => {
+    const data = sampleAnnualData()
+    const result = buildRevenueOnlyPerformanceNarrative(
+      [
+        revenueSlice("Ventes produits", data),
+        revenueSlice("Services", data.map((p) => ({ ...p, revenue: p.revenue * 0.4 }))),
+        revenueSlice("Location", data.map((p) => ({ ...p, revenue: p.revenue * 0.1 }))),
+        revenueSlice("Autres", data.map((p) => ({ ...p, revenue: p.revenue * 0.05 }))),
+      ],
+      "years",
+    )
+    expect(result?.paragraphs).toHaveLength(4)
+    expect(result?.paragraphs.map((p) => p.heading)).toEqual([
+      "Ventes produits",
+      "Services",
+      "Location",
+      "Autres",
+    ])
+  })
+
+  it("inclut la saisonnalité en vue mensuelle 24 mois", () => {
+    const data = sampleMonthly24Data()
+    const result = buildRevenueOnlyPerformanceNarrative([revenueSlice("Revenus", data)], "24months")
+    expect(result?.mode).toBe("monthly")
+    if (result?.mode !== "monthly") return
+    expect(result.paragraphs).toHaveLength(1)
+    expect(result.paragraphs[0]!.seasonalityBody).toContain("saisonnalité")
+  })
+})
+
+describe("buildExpensesOnlyPerformanceNarrative", () => {
+  it("retourne un seul paragraphe Dépenses en vue annuelle", () => {
+    const result = buildExpensesOnlyPerformanceNarrative([revenueSlice("Dépenses", sampleAnnualData())], "years")
+    expect(result?.mode).toBe("annual")
+    if (result?.mode !== "annual") return
+    expect(result.paragraphs).toHaveLength(1)
+    expect(result.paragraphs[0]!.heading).toBe("Dépenses")
+    expect(result.title).toBe("Lecture de la performance")
+  })
+
+  it("retourne un paragraphe par série de dépenses configurée", () => {
+    const data = sampleAnnualData()
+    const result = buildExpensesOnlyPerformanceNarrative(
+      [
+        revenueSlice("Salaires", data),
+        revenueSlice("Marketing", data.map((p) => ({ ...p, revenue: p.revenue * 0.15 }))),
+      ],
+      "years",
+    )
+    expect(result?.paragraphs).toHaveLength(2)
+    expect(result?.paragraphs.map((p) => p.heading)).toEqual(["Salaires", "Marketing"])
+  })
+})
+
+describe("mapDynamicChartToExpenseSeriesNarratives", () => {
+  it("mappe les barres monétaires visibles", () => {
+    const points: DynamicChartPoint[] = [{ period: "2025", exp: 500_000 }]
+    const meta: BuiltSeriesMeta[] = [
+      {
+        id: "exp",
+        dataKey: "exp",
+        label: "Charges d'exploitation",
+        kind: "bar",
+        valueFormat: "currency",
+        showOnChart: true,
+        showInSidePanel: true,
+      },
+    ]
+    const slices = mapDynamicChartToExpenseSeriesNarratives(points, meta)
+    expect(slices).toHaveLength(1)
+    expect(slices[0]!.heading).toBe("Charges d'exploitation")
+    expect(slices[0]!.metricLabel).toBe("les dépenses de charges d'exploitation")
+    expect(slices[0]!.points[0]!.revenue).toBe(500_000)
   })
 })
 

@@ -3,7 +3,7 @@ import { test, expect, Page } from "@playwright/test"
 const COMPANY_ID = "11111111-1111-1111-1111-111111111111"
 const DIVISION_OK = "d1111111-1111-1111-1111-111111111111"
 const DIVISION_KO = "d2222222-2222-2222-2222-222222222222"
-const URL = `/modules/diagnostic?companyId=${COMPANY_ID}`
+const DIAGNOSTIC_PAGE_URL = `/modules/diagnostic?companyId=${COMPANY_ID}`
 
 async function setupAuthAndCommonMocks(page: Page) {
   // Injecter le cookie de session + jetons avant tout script de page.
@@ -68,6 +68,125 @@ async function setupAuthAndCommonMocks(page: Page) {
 
   await page.route(`**/api/companies/${COMPANY_ID}/statement-chart-configs*`, (route) => {
     if (route.request().method() === "GET") {
+      const url = new URL(route.request().url())
+      const statementType = url.searchParams.get("statement_type") ?? "income-statement"
+      const marginConfig = {
+        version: 2,
+        chartTitle: "Marge par Revenus",
+        series: [
+          {
+            id: "r",
+            kind: "bar",
+            label: "Revenus",
+            spec: { type: "single", code: "REV-001" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#3b82f6",
+          },
+          {
+            id: "m",
+            kind: "line",
+            label: "Marge brute (%)",
+            spec: {
+              type: "derivedMargin",
+              revenueSeriesId: "r",
+              grossProfitFromSpec: { type: "single", code: "GP-001" },
+            },
+            yAxis: "right",
+            valueFormat: "ratio",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#f59e0b",
+          },
+        ],
+      }
+      const revenueConfig = {
+        version: 2,
+        chartTitle: "Revenus",
+        series: [
+          {
+            id: "r",
+            kind: "bar",
+            label: "Revenus",
+            spec: { type: "single", code: "REV-001" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#3b82f6",
+          },
+        ],
+      }
+      const expensesConfig = {
+        version: 2,
+        chartTitle: "Dépenses",
+        series: [
+          {
+            id: "x",
+            kind: "bar",
+            label: "Dépenses",
+            spec: { type: "single", code: "EXP-001" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#ef4444",
+          },
+        ],
+      }
+      const performanceConfig = {
+        version: 2,
+        chartTitle: "Performance financière",
+        series: [
+          {
+            id: "r",
+            kind: "bar",
+            label: "Revenus",
+            spec: { type: "single", code: "REV-001" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#3b82f6",
+          },
+          {
+            id: "e",
+            kind: "bar",
+            label: "BAIIA",
+            spec: { type: "single", code: "EBIT-001" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#10b981",
+          },
+          {
+            id: "m",
+            kind: "line",
+            label: "Marge brute (%)",
+            spec: {
+              type: "derivedMargin",
+              revenueSeriesId: "r",
+              grossProfitFromSpec: { type: "single", code: "GP-001" },
+            },
+            yAxis: "right",
+            valueFormat: "ratio",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#f59e0b",
+          },
+        ],
+      }
+      const config =
+        statementType === "diagnostic-revenue"
+          ? revenueConfig
+          : statementType === "diagnostic-margin-by-revenue"
+            ? marginConfig
+            : statementType === "diagnostic-expenses"
+              ? expensesConfig
+              : performanceConfig
       return route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -77,23 +196,7 @@ async function setupAuthAndCommonMocks(page: Page) {
               chart_instance_id: "default",
               slot_index: 0,
               version: 1,
-              config: {
-                version: 2,
-                chartTitle: "",
-                series: [
-                  {
-                    id: "r",
-                    kind: "bar",
-                    label: "Revenus",
-                    spec: { type: "single", code: "REV-001" },
-                    yAxis: "left",
-                    valueFormat: "currency",
-                    showOnChart: true,
-                    showInSidePanel: true,
-                    color: "#3b82f6",
-                  },
-                ],
-              },
+              config,
               updated_by_user_email: "u@e.com",
               updated_at: "2026-05-18T00:00:00Z",
             },
@@ -296,7 +399,7 @@ test.describe("Page Diagnostic", () => {
     await setupAuthAndCommonMocks(page)
     await mockDiagnostic(page, buildDiagnosticPayload())
 
-    await page.goto(URL)
+    await page.goto(DIAGNOSTIC_PAGE_URL)
 
     // Héros : société + badge de stade de vie + méta du rapport.
     await expect(
@@ -375,13 +478,64 @@ test.describe("Page Diagnostic", () => {
     ).toBeVisible()
   })
 
+  test("vue Revenus : remplace la carte Performance financière", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(DIAGNOSTIC_PAGE_URL)
+
+    await expect(page.getByRole("heading", { name: "Performance financière" })).toBeVisible({
+      timeout: 15000,
+    })
+
+    await page.getByRole("button", { name: "Revenus", exact: true }).click()
+
+    await expect(page.getByRole("heading", { name: "Revenus", exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Performance financière" })).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Annuel - 5 ans" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Paramètres" })).toBeVisible()
+    await expect(page.getByText("Lecture de la performance")).toBeVisible()
+  })
+
+  test("vue Marge par Revenus : remplace la carte du rapport", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(DIAGNOSTIC_PAGE_URL)
+
+    await page.getByRole("button", { name: "Marge par Revenus", exact: true }).click()
+
+    await expect(page.getByRole("heading", { name: "Marge par Revenus", exact: true })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByRole("button", { name: "Annuel - 5 ans" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Paramètres" })).toBeVisible()
+    await expect(page.getByText("Lecture de la performance")).toBeVisible()
+  })
+
+  test("vue Dépenses : remplace la carte du rapport", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(DIAGNOSTIC_PAGE_URL)
+
+    await page.getByRole("button", { name: "Dépenses", exact: true }).click()
+
+    await expect(page.getByRole("heading", { name: "Dépenses", exact: true })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByRole("button", { name: "Annuel - 5 ans" })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Paramètres" })).toBeVisible()
+    await expect(page.getByText("Lecture de la performance")).toBeVisible()
+  })
+
   test("tiroir de détail : ouverture depuis une ligne de division, fermeture par Échap", async ({
     page,
   }) => {
     await setupAuthAndCommonMocks(page)
     await mockDiagnostic(page, buildDiagnosticPayload())
 
-    await page.goto(URL)
+    await page.goto(DIAGNOSTIC_PAGE_URL)
 
     const koRow = page.getByTestId(`division-row-${DIVISION_KO}`)
     await expect(koRow).toBeVisible({ timeout: 15000 })
@@ -411,7 +565,7 @@ test.describe("Page Diagnostic", () => {
       buildDiagnosticPayload({ products: [], division_products: [] }),
     )
 
-    await page.goto(URL)
+    await page.goto(DIAGNOSTIC_PAGE_URL)
 
     await expect(
       page.getByRole("heading", { name: "Revenus et marges par produits / services" }),
@@ -443,7 +597,7 @@ test.describe("Page Diagnostic", () => {
       }
     })
 
-    await page.goto(URL)
+    await page.goto(DIAGNOSTIC_PAGE_URL)
 
     // Erreur affichée avec bouton Réessayer.
     await expect(page.getByTestId("diagnostic-error")).toBeVisible({ timeout: 15000 })

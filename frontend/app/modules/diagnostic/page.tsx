@@ -12,9 +12,15 @@ import { DiagnosticSkeleton } from "@/components/diagnostic/diagnostic-skeleton"
 import { buildSignals } from "@/lib/diagnostic-derive"
 import { DiagnosticHero } from "@/components/diagnostic/v2/diagnostic-hero"
 import { DiagnosticKpiStrip } from "@/components/diagnostic/v2/diagnostic-kpi-strip"
-import { DiagnosticNavRail } from "@/components/diagnostic/v2/diagnostic-nav-rail"
+import {
+  DiagnosticNavRail,
+  type DiagnosticReportView,
+} from "@/components/diagnostic/v2/diagnostic-nav-rail"
 import { DiagnosticCard } from "@/components/diagnostic/v2/diagnostic-card"
-import { DiagnosticTrajectoryStatementChart } from "@/components/diagnostic/v2/diagnostic-trajectory-statement-chart"
+import {
+  DiagnosticReportChartSection,
+  DIAGNOSTIC_REPORT_ANCHOR_ID,
+} from "@/components/diagnostic/v2/diagnostic-trajectory-statement-chart"
 import { DiagnosticSeasonalityHeatmap } from "@/components/diagnostic/v2/diagnostic-seasonality-heatmap"
 import { DiagnosticDivisionsQuadrant } from "@/components/diagnostic/v2/diagnostic-divisions-quadrant"
 import { DiagnosticBenchmarkRadar } from "@/components/diagnostic/v2/diagnostic-benchmark-radar"
@@ -25,8 +31,14 @@ import { DiagnosticDrilldownDrawer } from "@/components/diagnostic/v2/diagnostic
 import type { DrillDownRequest } from "@/components/diagnostic/v2/types"
 import { PAGE_CLASS } from "@/lib/diagnostic-theme"
 
-const SECTIONS = [
-  { id: "diag-trajectoire", label: "Trajectoire" },
+const REPORT_VIEWS = [
+  { id: "performance" as const, label: "Performance financière" },
+  { id: "revenue" as const, label: "Revenus" },
+  { id: "margin-by-revenue" as const, label: "Marge par Revenus" },
+  { id: "expenses" as const, label: "Dépenses" },
+]
+
+const SCROLL_SECTIONS = [
   { id: "diag-saisonnalite", label: "Saisonnalité" },
   { id: "diag-divisions", label: "Divisions" },
   { id: "diag-profil", label: "Profil vs secteur" },
@@ -40,6 +52,7 @@ export default function DiagnosticModulePage() {
   const companyIdFromUrl = searchParams.get("companyId")
   const { companies, loading: companiesLoading } = useCompanies()
   const [drillDown, setDrillDown] = useState<DrillDownRequest | null>(null)
+  const [reportView, setReportView] = useState<DiagnosticReportView>("performance")
 
   const selectedCompanyId =
     companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
@@ -103,7 +116,11 @@ export default function DiagnosticModulePage() {
             <div className="grid items-start xl:grid-cols-[210px_1fr]">
               <div className="hidden xl:block">
                 <DiagnosticNavRail
-                  sections={SECTIONS}
+                  reportViews={REPORT_VIEWS}
+                  activeReportView={reportView}
+                  onReportViewChange={setReportView}
+                  reportAnchorId={DIAGNOSTIC_REPORT_ANCHOR_ID}
+                  sections={SCROLL_SECTIONS}
                   signalCount={signals.filter((s) => s.tone !== "ok").length}
                   signalSummary={signals
                     .filter((s) => s.tone !== "ok")
@@ -113,7 +130,8 @@ export default function DiagnosticModulePage() {
               </div>
 
               <div className="flex min-w-0 flex-col gap-4 px-6 pb-10 pt-5">
-                <DiagnosticTrajectoryStatementChart
+                <DiagnosticReportChartSection
+                  reportView={reportView}
                   companyId={selectedCompanyId!}
                   companies={companies}
                   latestFiscalYear={data.latest_fiscal_year}

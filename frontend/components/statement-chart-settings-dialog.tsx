@@ -16,20 +16,23 @@ import {
 } from "@/components/ui/select"
 import {
   getStatementStructure,
+  listStandardLinkCodesFlat,
   saveStatementChartSlot,
   StaleVersionError,
   type StatementType as ApiStatementType,
 } from "@/lib/api"
 import {
+  buildLinkCodeLabelsForChartPicker,
   collectDistinctLinkCodesFromStructure,
   collectSummaryRowSourcesFromStructure,
-  mapLinkCodesToOwnerLabel,
   normalizeCodeList,
 } from "@/lib/income-statement-structure-utils"
+import { buildStandardLinkCodeLabelMap } from "@/lib/standard-link-code-utils"
 import {
   DEFAULT_COLORS,
   defaultChartCardTitle,
   newSeriesId,
+  structureStatementTypeForChart,
   type ChartMetricSpec,
   type ChartSlot,
   type ChartValueFormat,
@@ -54,8 +57,9 @@ import {
 const EMPTY_SELECT = "__empty__"
 
 function structureHintLabel(t: StatementType): string {
-  if (t === "income-statement") return "Sommaire du compte de résultat"
-  if (t === "balance-sheet") return "Sommaire du bilan"
+  const core = structureStatementTypeForChart(t)
+  if (core === "income-statement") return "Sommaire du compte de résultat"
+  if (core === "balance-sheet") return "Sommaire du bilan"
   return "Sommaire de la trésorerie"
 }
 
@@ -603,12 +607,21 @@ export function StatementChartSettingsDialog({
     if (!open || !companyId) return
     let cancelled = false
     setLoadingCodes(true)
-    getStatementStructure(companyId, statementType as unknown as ApiStatementType)
-      .then((data) => {
+    getStatementStructure(companyId, structureStatementTypeForChart(statementType) as unknown as ApiStatementType)
+      .then(async (data) => {
         if (cancelled) return
-        setLinkCodes(collectDistinctLinkCodesFromStructure(data.structure ?? []))
-        setSummaryRowSources(collectSummaryRowSourcesFromStructure(data.structure ?? []))
-        setLinkCodeLabels(mapLinkCodesToOwnerLabel(data.structure ?? []))
+        const structure = data.structure ?? []
+        let standardLabels = new Map<string, string>()
+        try {
+          const standardCodes = await listStandardLinkCodesFlat(false)
+          if (!cancelled) standardLabels = buildStandardLinkCodeLabelMap(standardCodes)
+        } catch {
+          /* repli structure seule */
+        }
+        if (cancelled) return
+        setLinkCodes(collectDistinctLinkCodesFromStructure(structure))
+        setSummaryRowSources(collectSummaryRowSourcesFromStructure(structure))
+        setLinkCodeLabels(buildLinkCodeLabelsForChartPicker(structure, standardLabels))
       })
       .catch(() => {
         if (!cancelled) {

@@ -5,7 +5,15 @@
  * Storage is server-side (see lib/api.ts); this module is types + helpers only.
  */
 
-export type StatementType = "income-statement" | "balance-sheet" | "cash-flow"
+export type StatementType =
+  | "income-statement"
+  | "balance-sheet"
+  | "cash-flow"
+  | "diagnostic-revenue"
+  | "diagnostic-margin-by-revenue"
+  | "diagnostic-expenses"
+
+export type CoreStatementType = "income-statement" | "balance-sheet" | "cash-flow"
 
 export type ChartMetricSpec =
   | { type: "single"; code: string }
@@ -75,8 +83,24 @@ export function newSeriesId(): string {
 
 export function defaultChartCardTitle(statementType: StatementType): string {
   if (statementType === "income-statement") return "Performance financière"
+  if (statementType === "diagnostic-revenue") return "Revenus"
+  if (statementType === "diagnostic-margin-by-revenue") return "Marge par Revenus"
+  if (statementType === "diagnostic-expenses") return "Dépenses"
   if (statementType === "balance-sheet") return "Bilan"
   return "Flux de trésorerie"
+}
+
+/** Type de relevé utilisé pour charger les séries (API financial-statements/.../series). */
+export function seriesStatementTypeForChart(statementType: StatementType): CoreStatementType {
+  if (statementType === "diagnostic-revenue") return "income-statement"
+  if (statementType === "diagnostic-margin-by-revenue") return "income-statement"
+  if (statementType === "diagnostic-expenses") return "income-statement"
+  return statementType
+}
+
+/** Type de relevé utilisé pour la structure / codes de liaison dans les paramètres. */
+export function structureStatementTypeForChart(statementType: StatementType): CoreStatementType {
+  return seriesStatementTypeForChart(statementType)
 }
 
 const EMPTY_CONFIG: StatementChartConfig = {

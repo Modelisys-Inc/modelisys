@@ -6,6 +6,7 @@ import {
   listAnnexLettersForDetailSubLines,
   listAnnexOptionsForDetailSubLineModal,
   syncIncomeStatementDetailSubLinesFromStandard,
+  buildLinkCodeLabelsForChartPicker,
 } from "../income-statement-structure-utils"
 import type { StandardLinkCode } from "@/lib/api"
 
@@ -239,5 +240,48 @@ describe("syncIncomeStatementDetailSubLinesFromStandard", () => {
     expect(detailRows.map((r) => r.linkCode)).toEqual(["REV-A"])
     expect(detailRows[0]!.liaisonMode).toBe("sum")
     expect(detailRows[0]!.liaisonSumCodes).toEqual(["REV-A.1"])
+  })
+})
+
+describe("buildLinkCodeLabelsForChartPicker", () => {
+  it("libellère les parents REV-A / REV-B (mode somme) via structure et charte standard", () => {
+    const structure: Row[] = [
+      {
+        label: "Revenus",
+        defineMapping: true,
+        showInDetail: true,
+        annexLetter: "A",
+        linkCode: "REV",
+        liaisonMode: "single",
+      },
+      {
+        label: "Produits électroniques",
+        detailOnly: true,
+        annexLetter: "A",
+        linkCode: "REV-A",
+        liaisonMode: "sum",
+        liaisonSumCodes: ["REV-A.1"],
+      },
+      {
+        label: "Services",
+        detailOnly: true,
+        annexLetter: "A",
+        linkCode: "REV-B",
+        liaisonMode: "sum",
+        liaisonSumCodes: ["REV-B.1"],
+      },
+    ]
+    const standardLabels = new Map<string, string>([
+      ["REV-A", "Produits électroniques (MO)"],
+      ["REV-B", "Services (MO)"],
+      ["REV-A.1", "Capteurs"],
+    ])
+
+    const labels = buildLinkCodeLabelsForChartPicker(structure, standardLabels)
+
+    expect(labels.get("REV-A")).toBe("Produits électroniques")
+    expect(labels.get("REV-B")).toBe("Services")
+    expect(labels.get("REV-A.1")).toBe("Produits électroniques")
+    expect(labels.get("REV")).toBe("Revenus")
   })
 })

@@ -7,9 +7,19 @@ export interface RailSection {
   label: string
 }
 
+export type DiagnosticReportView = "performance" | "revenue" | "margin-by-revenue" | "expenses"
+
+export interface DiagnosticReportViewOption {
+  id: DiagnosticReportView
+  label: string
+}
+
 interface DiagnosticNavRailProps {
+  reportViews: DiagnosticReportViewOption[]
+  activeReportView: DiagnosticReportView
+  onReportViewChange: (view: DiagnosticReportView) => void
+  reportAnchorId: string
   sections: RailSection[]
-  /** Nombre de signaux « risque » ou « vigilance » à traiter. */
   signalCount?: number
   signalSummary?: string
 }
@@ -17,29 +27,40 @@ interface DiagnosticNavRailProps {
 /**
  * Rail de navigation collant avec scroll spy.
  *
- * Le rapport fait ~4 000 px de haut ; sans rail, l'utilisateur perd le fil.
- * Le lecteur n'est pas obligé de scroller pour savoir ce que contient la page.
+ * Sous « Rapport », les vues (Performance financière, Revenus) remplacent la carte
+ * du haut ; les autres entrées font défiler vers les sections du rapport.
  */
-export function DiagnosticNavRail({ sections, signalCount, signalSummary }: DiagnosticNavRailProps) {
-  const [active, setActive] = useState(sections[0]?.id ?? "")
+export function DiagnosticNavRail({
+  reportViews,
+  activeReportView,
+  onReportViewChange,
+  reportAnchorId,
+  sections,
+  signalCount,
+  signalSummary,
+}: DiagnosticNavRailProps) {
+  const [activeSection, setActiveSection] = useState(sections[0]?.id ?? reportAnchorId)
 
   useEffect(() => {
     if (typeof IntersectionObserver === "undefined") return
+    const observedIds = [reportAnchorId, ...sections.map((s) => s.id)]
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries
           .filter((e) => e.isIntersecting)
           .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
-        if (visible[0]) setActive(visible[0].target.id)
+        if (visible[0]) setActiveSection(visible[0].target.id)
       },
-      { rootMargin: "-20% 0px -70% 0px", threshold: 0 }
+      { rootMargin: "-20% 0px -70% 0px", threshold: 0 },
     )
-    sections.forEach((s) => {
-      const el = document.getElementById(s.id)
+    observedIds.forEach((id) => {
+      const el = document.getElementById(id)
       if (el) observer.observe(el)
     })
     return () => observer.disconnect()
-  }, [sections])
+  }, [sections, reportAnchorId])
+
+  const reportGroupActive = activeSection === reportAnchorId
 
   return (
     <aside className="sticky top-0 flex flex-col gap-0.5 self-start border-r border-slate-200 px-3.5 pb-7 pt-5">
@@ -47,8 +68,36 @@ export function DiagnosticNavRail({ sections, signalCount, signalSummary }: Diag
         Rapport
       </div>
 
+      {reportViews.map((view) => {
+        const isActive = reportGroupActive && activeReportView === view.id
+        return (
+          <button
+            key={view.id}
+            type="button"
+            onClick={() => {
+              onReportViewChange(view.id)
+              document.getElementById(reportAnchorId)?.scrollIntoView({ behavior: "smooth", block: "start" })
+            }}
+            aria-current={isActive ? "true" : undefined}
+            className={[
+              "flex w-full items-center gap-[9px] rounded-md px-2.5 py-[7px] text-left text-xs font-medium leading-snug transition-colors",
+              isActive ? "bg-slate-100 text-[#2A2F3A]" : "text-slate-500 hover:text-[#2A2F3A]",
+            ].join(" ")}
+          >
+            <span
+              aria-hidden
+              className="h-[5px] w-[5px] flex-none rounded-full"
+              style={{ background: isActive ? "#E0742D" : "#cbd5e1" }}
+            />
+            {view.label}
+          </button>
+        )
+      })}
+
+      <div className="my-2 border-t border-slate-100" aria-hidden />
+
       {sections.map((s) => {
-        const isActive = active === s.id
+        const isActive = activeSection === s.id
         return (
           <a
             key={s.id}
@@ -75,9 +124,7 @@ export function DiagnosticNavRail({ sections, signalCount, signalSummary }: Diag
             {signalCount} {signalCount > 1 ? "signaux" : "signal"} à traiter
           </div>
           {signalSummary && (
-            <div className="mt-1.5 text-[10.5px] leading-relaxed text-slate-500">
-              {signalSummary}
-            </div>
+            <div className="mt-1.5 text-[10.5px] leading-relaxed text-slate-500">{signalSummary}</div>
           )}
         </div>
       ) : null}
