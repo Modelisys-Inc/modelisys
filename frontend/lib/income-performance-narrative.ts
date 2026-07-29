@@ -800,12 +800,32 @@ function buildWindowPerformanceNarrative(
   }
 }
 
+export type VariableCostAccountBreakdown = {
+  accountNumber: string
+  label: string
+  /** Montants par période, alignés sur `points` de la tranche. */
+  amounts: number[]
+}
+
+export type RevenueComponentBreakdown = {
+  id: string
+  label: string
+  /** `link-code` pour un code REV ; `gl-account` pour un compte du détail. */
+  kind: "link-code" | "gl-account"
+  /** Montants par période, alignés sur `points` de la tranche. */
+  amounts: number[]
+}
+
 export type RevenueSeriesNarrativeSlice = {
   heading: string
   metricLabel: string
   points: PerformanceNarrativePoint[]
   variableCostMapped?: boolean
   variableCostAccountCount?: number
+  /** Ventilation GL des coûts variables (mapping comptable). */
+  variableCostAccounts?: VariableCostAccountBreakdown[]
+  /** Ventilation des revenus (sous-codes REV ou comptes GL). */
+  revenueComponents?: RevenueComponentBreakdown[]
   /** Codes feuilles REV effectivement rattachés via le mapping (ex. REV-A.1, REV-A.2). */
   matchedRevenueLinkCodes?: string[]
   /** Cibles résolues pour la série (parent + feuilles, ex. REV-A + REV-A.1 + REV-A.2). */

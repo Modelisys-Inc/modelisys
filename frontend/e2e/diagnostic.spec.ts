@@ -516,8 +516,144 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByText("Lecture de la contribution marginale par revenus")).toBeVisible()
   })
 
-  test("vue Dépenses : remplace la carte du rapport", async ({ page }) => {
+  test("vue Dépenses : pont de rentabilité CV / CF", async ({ page }) => {
     await setupAuthAndCommonMocks(page)
+    await page.route(`**/api/companies/${COMPANY_ID}/account-mappings`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          mappings: [
+            {
+              id: "m1",
+              account_number: "5010",
+              description: "Matières",
+              link_code: "CMV.1",
+              summary_ef: null,
+              detail_ef: null,
+              divisions: null,
+              sub_divisions: null,
+              fdrhc: false,
+              interests: false,
+              amortization: false,
+              variable_costs: true,
+              fixed_costs: false,
+              variable_cost_revenue_link_code: "REV-001",
+              liability_remaining_years: null,
+              liability_interest_rate: null,
+              product: null,
+              customer: null,
+              supplier: null,
+              interco_company_id: null,
+            },
+            {
+              id: "m2",
+              account_number: "6010",
+              description: "Salaires admin",
+              link_code: "ADM.1",
+              summary_ef: null,
+              detail_ef: null,
+              divisions: null,
+              sub_divisions: null,
+              fdrhc: false,
+              interests: false,
+              amortization: false,
+              variable_costs: false,
+              fixed_costs: true,
+              variable_cost_revenue_link_code: null,
+              liability_remaining_years: null,
+              liability_interest_rate: null,
+              product: null,
+              customer: null,
+              supplier: null,
+              interco_company_id: null,
+            },
+          ],
+        }),
+      }),
+    )
+    await page.route("**/api/standard-link-codes/flat*", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            code: "REV-001",
+            family: "REV",
+            parent_code: null,
+            is_leaf: true,
+            is_active: true,
+            label_sub_account: "Revenus",
+            label_account: "Revenus",
+            ft_category: null,
+            account_type: null,
+            coa_version: 1,
+            deprecated_at: null,
+          },
+        ]),
+      }),
+    )
+    await page.route(
+      `**/api/companies/${COMPANY_ID}/financial-statements/income-statement/series*`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            companyId: COMPANY_ID,
+            statementType: "income-statement",
+            fiscalYear: 2025,
+            periods: [
+              { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
+              { fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" },
+            ],
+            rows: [
+              {
+                id: "REV-001",
+                linkCode: "REV-001",
+                label: "Revenus",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: { "2024-12": 4_000_000, "2025-12": 5_200_000 },
+                detailRows: [],
+              },
+              {
+                id: "cmv",
+                linkCode: "CMV",
+                label: "CMV",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: {},
+                detailRows: [
+                  {
+                    id: "5010",
+                    label: "Matières",
+                    amounts: { "2024-12": 1_500_000, "2025-12": 1_800_000 },
+                  },
+                ],
+              },
+              {
+                id: "adm",
+                linkCode: "ADM",
+                label: "Admin",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: {},
+                detailRows: [
+                  {
+                    id: "6010",
+                    label: "Salaires admin",
+                    amounts: { "2024-12": 900_000, "2025-12": 1_000_000 },
+                  },
+                ],
+              },
+            ],
+          }),
+        }),
+    )
     await mockDiagnostic(page, buildDiagnosticPayload())
 
     await page.goto(DIAGNOSTIC_PAGE_URL)
@@ -528,8 +664,16 @@ test.describe("Page Diagnostic", () => {
       timeout: 15000,
     })
     await expect(page.getByRole("button", { name: "Annuel - 5 ans" })).toBeVisible()
-    await expect(page.getByRole("button", { name: "Paramètres" })).toBeVisible()
-    await expect(page.getByText("Lecture de la performance")).toBeVisible()
+    await expect(page.getByTestId("expense-contribution-bridge-report")).toBeVisible()
+    await expect(page.getByTestId("expense-contribution-bridge-chart")).toBeVisible()
+    await expect(page.getByText("Pont de rentabilité")).toBeVisible()
+    await expect(page.getByText("Lecture des dépenses")).toBeVisible()
+    await expect(page.getByText("Coûts variables", { exact: true }).first()).toBeVisible()
+    await expect(page.getByText("Coûts fixes", { exact: true }).first()).toBeVisible()
+    await expect(page.getByTestId("expense-breakeven-chart")).toBeVisible()
+    await expect(page.getByText("Seuil de rentabilité").first()).toBeVisible()
+    await expect(page.getByText("Survol interactif")).toBeVisible()
+    await expect(page.getByTestId("breakeven-methodology-note")).toBeVisible()
   })
 
   test("tiroir de détail : ouverture depuis une ligne de division, fermeture par Échap", async ({

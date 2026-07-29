@@ -4,11 +4,19 @@ import { slugifyRevenueSourceId } from "@/lib/revenue-contributive-margin-table"
 const DATA_EPSILON = 1e-6
 const MONTHLY_EVOLUTION_COUNT = 12
 
+export type ContributiveMarginEvolutionDetailRow = {
+  id: string
+  label: string
+  values: (number | null)[]
+  displayKind?: "link-code" | "gl-account"
+}
+
 export type ContributiveMarginEvolutionMetric = {
   id: string
   label: string
   format: "currency" | "percent"
   values: (number | null)[]
+  detailRows?: ContributiveMarginEvolutionDetailRow[]
 }
 
 export type ContributiveMarginEvolutionTable = {
@@ -79,13 +87,41 @@ export function buildRevenueContributiveMarginEvolutionTable(
     return (margin / total) * 100
   })
 
+  const revenueDetailRows =
+    slice.revenueComponents?.map((component) => ({
+      id: component.id,
+      label: component.label,
+      displayKind: component.kind,
+      values: orderedIndices.map((pointIndex) => component.amounts[pointIndex] ?? null),
+    })) ?? undefined
+
+  const variableCostDetailRows =
+    slice.variableCostAccounts?.map((account) => ({
+      id: account.accountNumber,
+      label: account.label,
+      displayKind: "gl-account" as const,
+      values: orderedIndices.map((pointIndex) => account.amounts[pointIndex] ?? null),
+    })) ?? undefined
+
   return {
     sourceId: slugifyRevenueSourceId(slice.heading, sliceIndex),
     sourceLabel: slice.heading,
     periods,
     metrics: [
-      { id: "revenue", label: "Revenus", format: "currency", values: revenues },
-      { id: "variable-cost", label: "Coûts var.", format: "currency", values: variableCosts },
+      {
+        id: "revenue",
+        label: "Revenus",
+        format: "currency",
+        values: revenues,
+        detailRows: revenueDetailRows?.length ? revenueDetailRows : undefined,
+      },
+      {
+        id: "variable-cost",
+        label: "Coûts var.",
+        format: "currency",
+        values: variableCosts,
+        detailRows: variableCostDetailRows?.length ? variableCostDetailRows : undefined,
+      },
       {
         id: "contributive-margin",
         label: "Contr. marginale",

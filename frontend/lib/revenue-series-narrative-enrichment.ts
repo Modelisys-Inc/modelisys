@@ -1,7 +1,12 @@
 import type { AccountMappingData, SeriesPeriod, SeriesRow, StandardLinkCode } from "@/lib/api"
-import type { RevenueSeriesNarrativeSlice } from "@/lib/income-performance-narrative"
+import type {
+  RevenueSeriesNarrativeSlice,
+  RevenueComponentBreakdown,
+  VariableCostAccountBreakdown,
+} from "@/lib/income-performance-narrative"
 import {
   buildSyntheticSeriesRow,
+  computeMetricSeries,
   findSeriesRowByCode,
   PERFORMANCE_CHART_MONTH_COUNT_24,
   PERFORMANCE_CHART_YEAR_COUNT,
@@ -15,7 +20,11 @@ import {
   yearLabelsFromReference,
   yearTrendFromReference,
 } from "@/lib/series-reference-columns"
-import { getLeafDescendantsOfStandardLinkCode } from "@/lib/standard-link-code-utils"
+import {
+  getDetailSubLineCodesFromStandardLinkCode,
+  getLeafDescendantsOfStandardLinkCode,
+  standardLinkCodeDisplayLabel,
+} from "@/lib/standard-link-code-utils"
 
 const DATA_EPSILON = 1e-6
 
@@ -128,6 +137,19 @@ function sumAccountDetailAmounts(
   return totals
 }
 
+function resolveVariableCostAccountLabel(
+  accountNumber: string,
+  mappingsByAccount: Map<string, AccountMappingData>,
+  rows: SeriesRow[],
+): string {
+  const mapping = mappingsByAccount.get(accountNumber)
+  const description = mapping?.description?.trim()
+  if (description) return description
+  const row = findSeriesRowByCode(rows, accountNumber)
+  if (row?.label?.trim()) return row.label.trim()
+  return accountNumber
+}
+
 function variableCostTrendForAccounts(
   mappings: AccountMappingData[],
   accountNumbers: string[],
@@ -162,6 +184,195 @@ function chartPeriodLabelsForView(view: string, refMonth: number, refYear: numbe
     return monthShortLabelsFromReference(refMonth, refYear, PERFORMANCE_CHART_MONTH_COUNT_24)
   }
   return []
+}
+
+export type RevenueBreakdownTarget = {
+  id: string
+  label: string
+  kind: "link-code" | "gl-account"
+}
+
+function labelForLinkCode(
+  code: string,
+  seriesRows: SeriesRow[],
+  standardLinkCodes?: StandardLinkCode[],
+): string {
+  const std = standardLinkCodes?.find((c) => c.code === code)
+  if (std) return standardLinkCodeDisplayLabel(std)
+  const row = findSeriesRowByCode(seriesRows, code)
+  if (row?.label?.trim()) return row.label.trim()
+  return code
+}
+
+function glRevenueBreakdownTargets(
+  code: string,
+  seriesRows: SeriesRow[],
+): RevenueBreakdownTarget[] {
+  const row = findSeriesRowByCode(seriesRows, code)
+  if (!row?.detailRows?.length) return []
+  return row.detailRows.map((dr) => ({
+    id: dr.id,
+    label: dr.label.trim() || dr.id,
+    kind: "gl-account" as const,
+  }))
+}
+
+/** Sous-lignes de revenus : enfants REV du plan comptable, comptes GL ou codes sommés. */
+export function resolveRevenueBreakdownTargets(
+  spec: ChartMetricSpec,
+  seriesRows: SeriesRow[],
+  standardLinkCodes?: StandardLinkCode[],
+): RevenueBreakdownTarget[] {
+  if (spec.type === "difference" || spec.type === "ratio" || spec.type === "derivedMargin") {
+    return []
+  }
+
+  const topCodes = extractLinkCodesFromMetricSpec(spec)
+  if (!topCodes.length) return []
+
+  const targets: RevenueBreakdownTarget[] = []
+  const seen = new Set<string>()
+
+  const pushTarget = (target: RevenueBreakdownTarget) => {
+    if (seen.has(target.id)) return
+    seen.add(target.id)
+    targets.push(target)
+  }
+
+  for (const code of topCodes) {
+    if (standardLinkCodes?.length) {
+      const subLines = getDetailSubLineCodesFromStandardLinkCode(code, standardLinkCodes)
+      if (subLines.length > 0) {
+        for (const subLine of subLines) {
+          pushTarget({
+            id: subLine.code,
+            label: standardLinkCodeDisplayLabel(subLine),
+            kind: "link-code",
+          })
+        }
+        continue
+      }
+    }
+
+    const glLines = glRevenueBreakdownTargets(code, seriesRows)
+    if (glLines.length > 0) {
+      for (const line of glLines) pushTarget(line)
+      continue
+    }
+
+    if (spec.type === "sum" && topCodes.length > 1) {
+      pushTarget({
+        id: code,
+        label: labelForLinkCode(code, seriesRows, standardLinkCodes),
+        kind: "link-code",
+      })
+    }
+  }
+
+  return targets
+}
+
+function revenueTrendForTarget(
+  target: RevenueBreakdownTarget,
+  seriesRows: SeriesRow[],
+  periods: SeriesPeriod[],
+  view: string,
+  refMonth: number,
+  refYear: number,
+): number[] | null {
+  const vals = computeMetricSeries({ type: "single", code: target.id }, seriesRows, periods)
+  if (!vals || vals.length !== periods.length) return null
+  const synthetic = buildSyntheticSeriesRow(periods, vals)
+  if (view === "years") {
+    return yearTrendFromReference(synthetic, periods, refYear, PERFORMANCE_CHART_YEAR_COUNT)
+  }
+  if (view === "24months") {
+    return monthTrendFromReference(
+      synthetic,
+      periods,
+      refMonth,
+      refYear,
+      PERFORMANCE_CHART_MONTH_COUNT_24,
+    )
+  }
+  return null
+}
+
+function buildRevenueComponentBreakdowns(
+  spec: ChartMetricSpec,
+  seriesRows: SeriesRow[],
+  periods: SeriesPeriod[],
+  view: string,
+  refMonth: number,
+  refYear: number,
+  slicePoints: RevenueSeriesNarrativeSlice["points"],
+  standardLinkCodes?: StandardLinkCode[],
+): RevenueComponentBreakdown[] | undefined {
+  const targets = resolveRevenueBreakdownTargets(spec, seriesRows, standardLinkCodes)
+  if (targets.length === 0 || !slicePoints.length) return undefined
+
+  const labels = chartPeriodLabelsForView(view, refMonth, refYear)
+  if (!labels.length) return undefined
+
+  const breakdowns: RevenueComponentBreakdown[] = []
+  for (const target of targets) {
+    const trend = revenueTrendForTarget(target, seriesRows, periods, view, refMonth, refYear)
+    if (!trend || trend.length !== labels.length) continue
+    const amountByPeriod = new Map(labels.map((label, i) => [label, trend[i] ?? 0]))
+    breakdowns.push({
+      id: target.id,
+      label: target.label,
+      kind: target.kind,
+      amounts: slicePoints.map((point) => amountByPeriod.get(point.period) ?? 0),
+    })
+  }
+
+  if (!breakdowns.length) return undefined
+  return breakdowns.sort((a, b) => (b.amounts[0] ?? 0) - (a.amounts[0] ?? 0))
+}
+
+function buildVariableCostAccountBreakdowns(
+  mappings: AccountMappingData[],
+  accountNumbers: string[],
+  seriesRows: SeriesRow[],
+  periods: SeriesPeriod[],
+  view: string,
+  refMonth: number,
+  refYear: number,
+  slicePoints: RevenueSeriesNarrativeSlice["points"],
+): VariableCostAccountBreakdown[] | undefined {
+  if (!accountNumbers.length || !slicePoints.length) return undefined
+
+  const labels = chartPeriodLabelsForView(view, refMonth, refYear)
+  if (!labels.length) return undefined
+
+  const mappingsByAccount = new Map(mappings.map((m) => [m.account_number, m]))
+  const breakdowns: VariableCostAccountBreakdown[] = []
+
+  for (const accountNumber of accountNumbers) {
+    const trend = variableCostTrendForAccounts(
+      mappings,
+      [accountNumber],
+      seriesRows,
+      periods,
+      view,
+      refMonth,
+      refYear,
+    )
+    if (!trend || trend.length !== labels.length) continue
+
+    const costByPeriod = new Map(labels.map((label, i) => [label, trend[i] ?? 0]))
+    const amounts = slicePoints.map((point) => costByPeriod.get(point.period) ?? 0)
+    breakdowns.push({
+      accountNumber,
+      label: resolveVariableCostAccountLabel(accountNumber, mappingsByAccount, seriesRows),
+      amounts,
+    })
+  }
+
+  if (!breakdowns.length) return undefined
+
+  return breakdowns.sort((a, b) => (b.amounts[0] ?? 0) - (a.amounts[0] ?? 0))
 }
 
 export type RevenueSeriesEnrichmentMeta = {
@@ -235,29 +446,48 @@ export function enrichRevenueSeriesForNarrative(params: {
   return slices.map((slice, index) => {
     const bar = currencyBars[index]
     if (!bar) return slice
+    const config = chartSeries.find((s) => s.id === bar.id)
     const meta = enrichmentMeta.get(bar.id)
-    if (!meta) {
-      return { ...slice, variableCostMapped: false, variableCostAccountCount: 0 }
+    const revenueComponents =
+      config && slice.points.length
+        ? buildRevenueComponentBreakdowns(
+            config.spec,
+            seriesRows,
+            periods,
+            view,
+            refMonth,
+            refYear,
+            slice.points,
+            standardLinkCodes,
+          )
+        : undefined
+
+    const baseSlice: RevenueSeriesNarrativeSlice = {
+      ...slice,
+      revenueComponents,
+      resolvedRevenueLinkCodes: meta?.resolvedTargetLinkCodes,
     }
 
-    const hasMapping = meta.matchedRevenueLinkCodes.length > 0
-    if (!hasMapping) {
+    if (!meta) {
+      return { ...baseSlice, variableCostMapped: false, variableCostAccountCount: 0 }
+    }
+
+    const hasVariableCostMapping = meta.matchedRevenueLinkCodes.length > 0
+    if (!hasVariableCostMapping) {
       return {
-        ...slice,
+        ...baseSlice,
         variableCostMapped: false,
         variableCostAccountCount: 0,
         matchedRevenueLinkCodes: [],
-        resolvedRevenueLinkCodes: meta.resolvedTargetLinkCodes,
       }
     }
 
     if (!meta.variableCostAccountNumbers.length) {
       return {
-        ...slice,
+        ...baseSlice,
         variableCostMapped: true,
         variableCostAccountCount: 0,
         matchedRevenueLinkCodes: meta.matchedRevenueLinkCodes,
-        resolvedRevenueLinkCodes: meta.resolvedTargetLinkCodes,
       }
     }
 
@@ -273,11 +503,10 @@ export function enrichRevenueSeriesForNarrative(params: {
     const labels = chartPeriodLabelsForView(view, refMonth, refYear)
     if (!trend || trend.length !== labels.length) {
       return {
-        ...slice,
+        ...baseSlice,
         variableCostMapped: true,
         variableCostAccountCount: meta.variableCostAccountNumbers.length,
         matchedRevenueLinkCodes: meta.matchedRevenueLinkCodes,
-        resolvedRevenueLinkCodes: meta.resolvedTargetLinkCodes,
       }
     }
 
@@ -295,14 +524,24 @@ export function enrichRevenueSeriesForNarrative(params: {
         variableCost,
       }
     })
+    const variableCostAccounts = buildVariableCostAccountBreakdowns(
+      mappings,
+      meta.variableCostAccountNumbers,
+      seriesRows,
+      periods,
+      view,
+      refMonth,
+      refYear,
+      points,
+    )
 
     return {
-      ...slice,
+      ...baseSlice,
       points,
       variableCostMapped: true,
       variableCostAccountCount: meta.variableCostAccountNumbers.length,
+      variableCostAccounts,
       matchedRevenueLinkCodes: meta.matchedRevenueLinkCodes,
-      resolvedRevenueLinkCodes: meta.resolvedTargetLinkCodes,
     }
   })
 }

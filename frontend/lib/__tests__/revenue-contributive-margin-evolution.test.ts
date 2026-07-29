@@ -50,6 +50,77 @@ describe("buildRevenueContributiveMarginEvolutionTable", () => {
     ])
   })
 
+  it("expose la ventilation des coûts variables par compte GL", () => {
+    const electroniques = slice("Électroniques", [
+      { period: "2025", revenue: 1200, variableCost: 500 },
+      { period: "2024", revenue: 1000, variableCost: 450 },
+    ])
+    electroniques.variableCostAccounts = [
+      {
+        accountNumber: "5010",
+        label: "Matières",
+        amounts: [300, 280],
+      },
+      {
+        accountNumber: "5020",
+        label: "Main-d'œuvre directe",
+        amounts: [200, 170],
+      },
+    ]
+
+    const table = buildRevenueContributiveMarginEvolutionTable(
+      electroniques,
+      [electroniques],
+      0,
+      "years",
+    )
+    const variableCost = table?.metrics.find((m) => m.id === "variable-cost")
+
+    expect(variableCost?.detailRows).toHaveLength(2)
+    expect(variableCost?.detailRows?.[0]).toMatchObject({
+      id: "5010",
+      label: "Matières",
+      values: [300, 280],
+    })
+    expect(variableCost?.detailRows?.[1]?.values).toEqual([200, 170])
+  })
+
+  it("expose la ventilation des revenus par sous-code REV", () => {
+    const electroniques = slice("Électroniques", [
+      { period: "2025", revenue: 1200, variableCost: 500 },
+      { period: "2024", revenue: 1000, variableCost: 450 },
+    ])
+    electroniques.revenueComponents = [
+      {
+        id: "REV-A.1",
+        label: "Charpentes",
+        kind: "link-code",
+        amounts: [700, 600],
+      },
+      {
+        id: "REV-A.2",
+        label: "Composants",
+        kind: "link-code",
+        amounts: [500, 400],
+      },
+    ]
+
+    const table = buildRevenueContributiveMarginEvolutionTable(
+      electroniques,
+      [electroniques],
+      0,
+      "years",
+    )
+    const revenue = table?.metrics.find((m) => m.id === "revenue")
+
+    expect(revenue?.detailRows).toHaveLength(2)
+    expect(revenue?.detailRows?.[0]).toMatchObject({
+      id: "REV-A.1",
+      displayKind: "link-code",
+      values: [700, 600],
+    })
+  })
+
   it("limite l'horizon mensuel aux 12 derniers mois", () => {
     const points = Array.from({ length: 24 }, (_, index) => ({
       period: `M${index + 1}`,

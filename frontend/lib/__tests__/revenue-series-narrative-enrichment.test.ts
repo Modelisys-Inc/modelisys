@@ -7,6 +7,7 @@ import {
   collectVariableCostAccountsForRevenueCodes,
   enrichRevenueSeriesForNarrative,
   extractLinkCodesFromMetricSpec,
+  resolveRevenueBreakdownTargets,
   resolveRevenueTargetLinkCodes,
   revenueLinkMatchesChartCodes,
 } from "@/lib/revenue-series-narrative-enrichment"
@@ -137,12 +138,79 @@ describe("revenue-series-narrative-enrichment", () => {
     expect(matchedRevenueLinkCodes).toEqual(["REV-A.1"])
   })
 
+  it("résout les sous-lignes REV pour la ventilation des revenus", () => {
+    const targets = resolveRevenueBreakdownTargets(
+      { type: "single", code: "REV-A" },
+      [],
+      REV_CHART,
+    )
+    expect(targets.map((t) => t.id)).toEqual(["REV-A.1", "REV-A.2"])
+    expect(targets.every((t) => t.kind === "link-code")).toBe(true)
+  })
+
+  it("ventile les revenus par comptes GL lorsque le code est une feuille", () => {
+    const rows: SeriesRow[] = [
+      {
+        id: "rev-a-1",
+        label: "Charpentes",
+        linkCode: "REV-A.1",
+        isBold: false,
+        isSection: false,
+        isResult: false,
+        amounts: {},
+        detailRows: [
+          { id: "4010", label: "Ventes charpentes", amounts: { "2024-12": 30_000, "2025-12": 40_000 } },
+          { id: "4015", label: "Ventes accessoires", amounts: { "2024-12": 10_000, "2025-12": 12_000 } },
+        ],
+      },
+    ]
+    const targets = resolveRevenueBreakdownTargets(
+      { type: "single", code: "REV-A.1" },
+      rows,
+      REV_CHART,
+    )
+    expect(targets).toEqual([
+      { id: "4010", label: "Ventes charpentes", kind: "gl-account" },
+      { id: "4015", label: "Ventes accessoires", kind: "gl-account" },
+    ])
+  })
+
   it("enrichit les tranches avec les coûts variables par période", () => {
     const periods: SeriesPeriod[] = [
       { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
       { fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" },
     ]
     const rows: SeriesRow[] = [
+      {
+        id: "rev-a",
+        label: "Produits",
+        linkCode: "REV-A",
+        isBold: false,
+        isSection: false,
+        isResult: false,
+        amounts: { "2024-12": 80_000, "2025-12": 100_000 },
+        detailRows: [],
+      },
+      {
+        id: "rev-a-1",
+        label: "Charpentes",
+        linkCode: "REV-A.1",
+        isBold: false,
+        isSection: false,
+        isResult: false,
+        amounts: { "2024-12": 50_000, "2025-12": 60_000 },
+        detailRows: [],
+      },
+      {
+        id: "rev-a-2",
+        label: "Composants",
+        linkCode: "REV-A.2",
+        isBold: false,
+        isSection: false,
+        isResult: false,
+        amounts: { "2024-12": 30_000, "2025-12": 40_000 },
+        detailRows: [],
+      },
       {
         id: "cmv",
         label: "CMV",
@@ -224,5 +292,12 @@ describe("revenue-series-narrative-enrichment", () => {
     expect(enriched[0]!.points[0]!.variableCost).toBe(50_000)
     expect(enriched[0]!.points[0]!.grossProfit).toBe(50_000)
     expect(enriched[0]!.points[0]!.grossMarginPercent).toBe(50)
+    expect(enriched[0]!.variableCostAccounts).toEqual([
+      expect.objectContaining({ accountNumber: "5010", label: "Matières", amounts: [40_000, 30_000] }),
+      expect.objectContaining({ accountNumber: "5020", label: "MOD", amounts: [10_000, 10_000] }),
+    ])
+    expect(enriched[0]!.revenueComponents?.map((c) => c.id)).toEqual(["REV-A.1", "REV-A.2"])
+    expect(enriched[0]!.revenueComponents?.[0]?.amounts).toEqual([60_000, 50_000])
+    expect(enriched[0]!.revenueComponents?.[1]?.amounts).toEqual([40_000, 30_000])
   })
 })
