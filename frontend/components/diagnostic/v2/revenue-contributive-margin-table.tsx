@@ -147,8 +147,8 @@ export function RevenueContributiveMarginTable({
             <span className="text-right font-mono text-[11.5px] text-slate-500 tabular-nums">
               {formatPercent(100)}
             </span>
-            <span className="text-right font-mono text-[11.5px] text-slate-500 tabular-nums">
-              {totals.contributiveMargin !== null ? formatPercent(100) : "—"}
+            <span className="text-right font-mono text-[11.5px] text-[#2A2F3A] tabular-nums">
+              {formatOptionalPercent(totals.contributiveSharePct)}
             </span>
             <span className="text-right font-mono text-[11.5px] text-slate-400 tabular-nums">—</span>
           </div>

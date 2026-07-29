@@ -83,7 +83,18 @@ describe("buildRevenueContributiveMarginTotals", () => {
       slice("Services", 500, undefined, false),
     ])
     const totals = buildRevenueContributiveMarginTotals(rows)
-    expect(totals.variableCost).toBeNull()
-    expect(totals.contributiveMargin).toBeNull()
+    expect(totals.variableCost).toBe(400)
+    expect(totals.contributiveMargin).toBe(600)
+    expect(totals.marginPct).toBeCloseTo(60)
+    expect(totals.contributiveSharePct).toBe(100)
+  })
+
+  it("affiche la part contributrice totale à 100 % quand la marge est quantifiée", () => {
+    const rows = buildRevenueContributiveMarginRows([
+      slice("Produits", 1000, 400),
+      slice("Services", 500, 200),
+    ])
+    const totals = buildRevenueContributiveMarginTotals(rows)
+    expect(totals.contributiveSharePct).toBe(100)
   })
 })

@@ -17,7 +17,7 @@ export type RevenueContributiveMarginRow = {
   mappingConfigured: boolean
 }
 
-function slugifyId(label: string, index: number): string {
+export function slugifyRevenueSourceId(label: string, index: number): string {
   const base = label
     .trim()
     .toLowerCase()
@@ -52,7 +52,7 @@ export function buildRevenueContributiveMarginRows(
         : null
 
     return {
-      id: slugifyId(slice.heading, index),
+      id: slugifyRevenueSourceId(slice.heading, index),
       label: slice.heading,
       revenue,
       variableCost,
@@ -84,21 +84,40 @@ export type RevenueContributiveMarginTotals = {
   variableCost: number | null
   contributiveMargin: number | null
   marginPct: number | null
+  contributiveSharePct: number | null
 }
 
 export function buildRevenueContributiveMarginTotals(
   rows: RevenueContributiveMarginRow[],
 ): RevenueContributiveMarginTotals {
   const revenue = rows.reduce((sum, r) => sum + r.revenue, 0)
-  const allCostsKnown = rows.every((r) => r.variableCost !== null)
-  const variableCost = allCostsKnown
-    ? rows.reduce((sum, r) => sum + (r.variableCost ?? 0), 0)
-    : null
-  const contributiveMargin =
-    variableCost !== null ? revenue - variableCost : null
+  const quantifiedRows = rows.filter((r) => r.contributiveMargin !== null)
+
+  if (!quantifiedRows.length) {
+    return {
+      revenue,
+      variableCost: null,
+      contributiveMargin: null,
+      marginPct: null,
+      contributiveSharePct: null,
+    }
+  }
+
+  const contributiveMargin = quantifiedRows.reduce((sum, r) => sum + (r.contributiveMargin ?? 0), 0)
+  const marginRevenue = quantifiedRows.reduce((sum, r) => sum + r.revenue, 0)
   const marginPct =
-    contributiveMargin !== null && Math.abs(revenue) > DATA_EPSILON
-      ? (contributiveMargin / revenue) * 100
-      : null
-  return { revenue, variableCost, contributiveMargin, marginPct }
+    Math.abs(marginRevenue) > DATA_EPSILON ? (contributiveMargin / marginRevenue) * 100 : null
+
+  const allCostsKnown = quantifiedRows.every((r) => r.variableCost !== null)
+  const variableCost = allCostsKnown
+    ? quantifiedRows.reduce((sum, r) => sum + (r.variableCost ?? 0), 0)
+    : null
+
+  return {
+    revenue,
+    variableCost,
+    contributiveMargin,
+    marginPct,
+    contributiveSharePct: 100,
+  }
 }

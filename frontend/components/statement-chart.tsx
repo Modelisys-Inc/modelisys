@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, type ReactNode } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
 import { ChartContainer, ChartTooltip, ChartLegend } from "@/components/ui/chart"
@@ -25,6 +25,8 @@ import { listAccountMappings, type AccountMappingData } from "@/lib/api"
 import { enrichRevenueSeriesForNarrative } from "@/lib/revenue-series-narrative-enrichment"
 import { buildRevenueContributiveMarginRows } from "@/lib/revenue-contributive-margin-table"
 import { RevenueContributiveMarginTable } from "@/components/diagnostic/v2/revenue-contributive-margin-table"
+import { RevenueContributiveMarginEvolutionTable } from "@/components/diagnostic/v2/revenue-contributive-margin-evolution-table"
+import { buildRevenueContributiveMarginEvolutionTables } from "@/lib/revenue-contributive-margin-evolution"
 import { cn } from "@/lib/utils"
 import {
   dashboardCardFrameClass,
@@ -249,8 +251,10 @@ function groupNarrativeParagraphs(paragraphs: PerformanceNarrativeResultNonNull[
 
 function IncomePerformanceNarrativeSection({
   narrative,
+  renderAfterParagraph,
 }: {
   narrative: PerformanceNarrativeResultNonNull
+  renderAfterParagraph?: (paragraph: PerformanceNarrativeResultNonNull["paragraphs"][number]) => ReactNode
 }) {
   const groups = groupNarrativeParagraphs(narrative.paragraphs)
 
@@ -300,6 +304,7 @@ function IncomePerformanceNarrativeSection({
                           {p.statsLine}
                         </p>
                       ) : null}
+                      {renderAfterParagraph?.(p)}
                     </div>
                   ))}
                 </div>
@@ -447,6 +452,13 @@ export function StatementChart({
   const contributiveMarginNarrative = useMemo(() => {
     if (narrativeScope !== "margin-by-revenue-only" || !enrichedRevenueSlices?.length) return null
     return buildContributiveMarginByRevenueNarrative(enrichedRevenueSlices, view)
+  }, [narrativeScope, enrichedRevenueSlices, view])
+
+  const contributiveMarginEvolutionTables = useMemo(() => {
+    if (narrativeScope !== "margin-by-revenue-only" || !enrichedRevenueSlices?.length) {
+      return null
+    }
+    return buildRevenueContributiveMarginEvolutionTables(enrichedRevenueSlices, view)
   }, [narrativeScope, enrichedRevenueSlices, view])
 
   const companyCurrency = currency
@@ -857,7 +869,19 @@ export function StatementChart({
             </div>
           ) : null}
           {contributiveMarginNarrative ? (
-            <IncomePerformanceNarrativeSection narrative={contributiveMarginNarrative} />
+            <IncomePerformanceNarrativeSection
+              narrative={contributiveMarginNarrative}
+              renderAfterParagraph={(paragraph) => {
+                const evolution = contributiveMarginEvolutionTables?.get(paragraph.heading)
+                if (!evolution) return null
+                return (
+                  <RevenueContributiveMarginEvolutionTable
+                    table={evolution}
+                    currency={companyCurrency}
+                  />
+                )
+              }}
+            />
           ) : null}
         </div>
         {settingsDialog}
