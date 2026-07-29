@@ -134,6 +134,7 @@ export default function DiagnosticModulePage() {
                   reportView={reportView}
                   companyId={selectedCompanyId!}
                   companies={companies}
+                  currency={data.currency}
                   latestFiscalYear={data.latest_fiscal_year}
                   fiscalYearEnd={data.fiscal_year_end}
                   signal={signalFor("trajectoire")}

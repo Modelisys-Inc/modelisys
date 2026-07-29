@@ -9,11 +9,17 @@ export type PerformanceNarrativePoint = {
   grossProfit: number
   ebita: number
   grossMarginPercent: number
+  /** Coûts variables rattachés via le mapping comptable (vue Revenus). */
+  variableCost?: number
 }
+
+export type NarrativeParagraphSection = "revenue-performance" | "contributive-margin" | "revenue-mix"
 
 export type PerformanceNarrativeParagraph = {
   heading: string
   body: string
+  /** Regroupement visuel sous « Lecture de la performance ». */
+  section?: NarrativeParagraphSection
   /** Paragraphe complémentaire (ex. trajectoire BAIIA vs revenus). */
   secondaryBody?: string
   /** Lecture saisonnière (horizon mensuel 24 mois). */
@@ -798,6 +804,270 @@ export type RevenueSeriesNarrativeSlice = {
   heading: string
   metricLabel: string
   points: PerformanceNarrativePoint[]
+  variableCostMapped?: boolean
+  variableCostAccountCount?: number
+  /** Codes feuilles REV effectivement rattachés via le mapping (ex. REV-A.1, REV-A.2). */
+  matchedRevenueLinkCodes?: string[]
+  /** Cibles résolues pour la série (parent + feuilles, ex. REV-A + REV-A.1 + REV-A.2). */
+  resolvedRevenueLinkCodes?: string[]
+}
+
+function ordinalFr(rank: number): string {
+  if (rank === 1) return "1re"
+  return `${rank}e`
+}
+
+function revenueRankLabel(rank: number, total: number): string {
+  if (total <= 1) return "source unique"
+  if (rank === 1) return "la principale source de revenus"
+  if (rank === total) return "la source la moins significative"
+  return `la ${ordinalFr(rank)} source de revenus`
+}
+
+function totalRevenueAtPoint(series: RevenueSeriesNarrativeSlice[], pointIndex: number): number {
+  return series.reduce((sum, s) => sum + (s.points[pointIndex]?.revenue ?? 0), 0)
+}
+
+function buildRevenueShareSentence(
+  slice: RevenueSeriesNarrativeSlice,
+  series: RevenueSeriesNarrativeSlice[],
+  rank: number,
+): string | null {
+  if (series.length <= 1) return null
+  const latestRevenue = slice.points[0]?.revenue ?? 0
+  const totalLatest = totalRevenueAtPoint(series, 0)
+  if (Math.abs(totalLatest) < DATA_EPSILON) return null
+
+  const share = (latestRevenue / totalLatest) * 100
+  const priorRevenue = slice.points[1]?.revenue ?? null
+  const totalPrior = series.length > 1 && slice.points.length > 1 ? totalRevenueAtPoint(series, 1) : null
+
+  const parts = [
+    `Au regard de la composition du chiffre d'affaires, ${slice.metricLabel} représente ${share.toFixed(1).replace(".", ",")} % du total à la date de référence et constitue ${revenueRankLabel(rank, series.length)}.`,
+  ]
+
+  if (priorRevenue !== null && totalPrior !== null && Math.abs(totalPrior) > DATA_EPSILON) {
+    const priorShare = (priorRevenue / totalPrior) * 100
+    const deltaPts = share - priorShare
+    if (Math.abs(deltaPts) > 0.05) {
+      const dir = deltaPts > 0 ? "une hausse" : "une baisse"
+      parts.push(
+        `La pondération ${dir} de ${fmtPts(Math.abs(deltaPts))} par rapport à la période précédente (${priorShare.toFixed(1).replace(".", ",")} % → ${share.toFixed(1).replace(".", ",")} %) traduit un rééquilibrement de la structure des revenus.`,
+      )
+    } else {
+      parts.push("La pondération relative demeure stable par rapport à la période précédente.")
+    }
+  }
+
+  if (rank === 1 && series.length > 2) {
+    const sortedByRevenue = [...series].sort(
+      (a, b) => (b.points[0]?.revenue ?? 0) - (a.points[0]?.revenue ?? 0),
+    )
+    const secondShare = ((sortedByRevenue[1]?.points[0]?.revenue ?? 0) / totalLatest) * 100
+    if (secondShare > 0) {
+      parts.push(
+        `L'écart avec la deuxième source (${Math.abs(share - secondShare).toFixed(1).replace(".", ",")} pt${Math.abs(share - secondShare) >= 2 ? "s" : ""} de pondération) confirme le poids prépondérant de cette activité dans le profil de revenus.`,
+      )
+    }
+  }
+
+  return parts.join(" ")
+}
+
+function buildContributiveMarginParagraph(
+  slice: RevenueSeriesNarrativeSlice,
+  copy: WindowNarrativeCopy,
+  marginRank: number,
+  totalSeries: number,
+): PerformanceNarrativeParagraph {
+  const heading = `Marge contributive — ${slice.heading}`
+  const hasQuantifiedMargin = slice.points.some(
+    (p) => p.variableCost !== undefined && Math.abs(p.revenue) > DATA_EPSILON,
+  )
+
+  if (!slice.variableCostMapped) {
+    return {
+      heading,
+      section: "contributive-margin",
+      body: "Aucun rattachement de coûts variables n'a été configuré dans le mapping comptable pour cette source. Paramétrez le type « Variable » et le compte de revenu associé (ex. REV-A.1) sur chaque compte de charge afin d'obtenir la marge contributive.",
+    }
+  }
+
+  if (!hasQuantifiedMargin) {
+    const accountNote =
+      slice.variableCostAccountCount && slice.variableCostAccountCount > 0
+        ? `${slice.variableCostAccountCount} compte${slice.variableCostAccountCount > 1 ? "s" : ""} de coûts variables ${slice.variableCostAccountCount > 1 ? "sont rattachés" : "est rattaché"} au(x) code(s) ${(slice.matchedRevenueLinkCodes ?? []).join(", ") || "—"}, mais les montants ne sont pas disponibles sur l'horizon analysé.`
+        : `Des codes de revenus sont résolus (${(slice.resolvedRevenueLinkCodes ?? []).join(", ") || "—"}), mais aucun compte de charge variable n'est encore associé dans le mapping comptable.`
+    return {
+      heading,
+      section: "contributive-margin",
+      body: accountNote,
+    }
+  }
+
+  const marginParagraph = buildMarginWindowParagraphForSeries(
+    slice.heading,
+    `la marge contributive de ${slice.metricLabel.replace(/^les? /, "")}`,
+    slice.points,
+    copy,
+  )
+  const variableCostDetail = buildVariableCostAnalysisBody(slice, copy)
+  const rankNote =
+    totalSeries > 1
+      ? ` À la date de référence, cette source affiche la ${marginRank === 1 ? "meilleure" : marginRank === totalSeries ? "plus faible" : `${ordinalFr(marginRank)} plus élevée`} marge contributive du portefeuille analysé.`
+      : ""
+
+  if (marginParagraph) {
+    return {
+      ...marginParagraph,
+      heading,
+      section: "contributive-margin",
+      body: `${marginParagraph.body}${rankNote}`,
+      secondaryBody: variableCostDetail ?? undefined,
+    }
+  }
+
+  return {
+    heading,
+    section: "contributive-margin",
+    body: `${variableCostDetail ?? "Marge contributive non calculable."}${rankNote}`,
+  }
+}
+
+function buildContributiveMarginRankingParagraph(
+  series: RevenueSeriesNarrativeSlice[],
+  copy: WindowNarrativeCopy,
+): PerformanceNarrativeParagraph | null {
+  const ranked = series
+    .map((s) => ({
+      heading: s.heading,
+      margin: s.points[0]?.grossMarginPercent ?? null,
+      revenue: s.points[0]?.revenue ?? 0,
+      contributiveProfit: s.points[0]?.grossProfit ?? 0,
+    }))
+    .filter((r) => r.margin !== null && Number.isFinite(r.margin) && Math.abs(r.revenue) > DATA_EPSILON)
+    .sort((a, b) => (b.margin ?? 0) - (a.margin ?? 0))
+
+  if (ranked.length < 2) return null
+
+  const breakdown = ranked
+    .map((r) => `${r.heading} (${(r.margin ?? 0).toFixed(1).replace(".", ",")} %)`)
+    .join(", ")
+  const spread = (ranked[0]!.margin ?? 0) - (ranked[ranked.length - 1]!.margin ?? 0)
+
+  return {
+    heading: "Synthèse comparative des marges",
+    section: "contributive-margin",
+    body: `Classement des marges contributives à la date de référence : ${breakdown}. L'écart entre la source la plus rentable et la moins rentable atteint ${spread.toFixed(1).replace(".", ",")} points de marge, à interpréter conjointement avec la pondération de chaque activité dans le chiffre d'affaires.`,
+    statsLine: ranked
+      .map(
+        (r) =>
+          `${r.heading} : ${(r.margin ?? 0).toFixed(1).replace(".", ",")} % (${formatMetricValue(r.contributiveProfit, "currency")})`,
+      )
+      .join(" · "),
+  }
+}
+
+function buildVariableCostAnalysisBody(slice: RevenueSeriesNarrativeSlice, copy: WindowNarrativeCopy): string | null {
+  const mapped = slice.variableCostMapped
+  const accountCount = slice.variableCostAccountCount ?? 0
+
+  if (!mapped) {
+    return "Aucun rattachement de coûts variables n'a été configuré dans le mapping comptable pour cette source ; la marge contributive ne peut être quantifiée à partir des comptes actuellement paramétrés."
+  }
+
+  if (accountCount === 0) {
+    return "Aucun compte de coût variable n'est associé à cette source de revenus dans le mapping comptable."
+  }
+
+  const latestRevenue = slice.points[0]?.revenue ?? 0
+  const latestCost = slice.points[0]?.variableCost
+  if (latestCost === undefined) {
+    return `${accountCount} compte${accountCount > 1 ? "s" : ""} de coûts variables ${accountCount > 1 ? "sont rattachés" : "est rattaché"} dans le mapping comptable, mais les montants ne sont pas disponibles sur l'horizon analysé.`
+  }
+
+  const priorCost = slice.points[1]?.variableCost ?? null
+  const priorRevenue = slice.points[1]?.revenue ?? null
+  const contributiveMargin =
+    Math.abs(latestRevenue) > DATA_EPSILON
+      ? ((latestRevenue - latestCost) / latestRevenue) * 100
+      : null
+  const costToRevenue =
+    Math.abs(latestRevenue) > DATA_EPSILON ? (latestCost / latestRevenue) * 100 : null
+  const matchedLeaves = slice.matchedRevenueLinkCodes ?? []
+  const rollupNote =
+    matchedLeaves.length > 1
+      ? `Les coûts variables agrègent les rattachements des codes ${matchedLeaves.join(", ")} configurés dans le mapping comptable. `
+      : matchedLeaves.length === 1 && (slice.resolvedRevenueLinkCodes?.length ?? 0) > 1
+        ? `Les coûts variables proviennent du rattachement au code ${matchedLeaves[0]} (parmi les composantes ${slice.resolvedRevenueLinkCodes!.join(", ")}). `
+        : ""
+
+  const sentences = [
+    `${rollupNote}Les coûts variables rattachés dans le mapping comptable (${accountCount} compte${accountCount > 1 ? "s" : ""}) s'élèvent à ${formatMetricValue(latestCost, "currency")} pour ${copy.referenceForPeriod(slice.points[0]!.period)}, soit ${costToRevenue !== null ? `${costToRevenue.toFixed(1).replace(".", ",")} %` : "—"} des revenus de cette source.`,
+  ]
+
+  if (contributiveMargin !== null) {
+    sentences.push(
+      `La marge contributive après coûts variables s'établit à ${contributiveMargin.toFixed(1).replace(".", ",")} %, indicateur clé de la rentabilité opérationnelle de cette activité avant charges fixes et frais généraux.`,
+    )
+  }
+
+  if (priorCost !== null && priorRevenue !== null) {
+    const costChange = pctChange(latestCost, priorCost)
+    const revChange = pctChange(latestRevenue, priorRevenue)
+    if (costChange !== null && revChange !== null) {
+      if (Math.abs(costChange - revChange) > 0.5) {
+        const spread = costChange - revChange
+        sentences.push(
+          spread > 0
+            ? `En glissement, les coûts variables progressent plus vite (+${fmtPct(Math.abs(costChange))}) que le chiffre d'affaires (+${fmtPct(Math.abs(revChange))}), ce qui exerce une pression sur la marge contributive.`
+            : `En glissement, les coûts variables évoluent moins vite (${fmtPct(costChange)}) que le chiffre d'affaires (${fmtPct(revChange)}), ce qui favorise l'amélioration de la marge contributive.`,
+        )
+      } else {
+        sentences.push(
+          "Les coûts variables évoluent globalement en phase avec le chiffre d'affaires sur la période comparée.",
+        )
+      }
+    }
+  }
+
+  return sentences.join(" ")
+}
+
+function buildRevenueMixSummaryParagraph(series: RevenueSeriesNarrativeSlice[]): PerformanceNarrativeParagraph | null {
+  if (series.length <= 1) return null
+  const total = totalRevenueAtPoint(series, 0)
+  if (Math.abs(total) < DATA_EPSILON) return null
+
+  const ranked = series
+    .map((s) => ({
+      heading: s.heading,
+      revenue: s.points[0]?.revenue ?? 0,
+      share: ((s.points[0]?.revenue ?? 0) / total) * 100,
+    }))
+    .sort((a, b) => b.share - a.share)
+
+  const breakdown = ranked
+    .map((r) => `${r.heading} (${r.share.toFixed(1).replace(".", ",")} %)`)
+    .join(", ")
+
+  const topTwo = ranked.slice(0, 2).reduce((sum, r) => sum + r.share, 0)
+  const concentration =
+    ranked.length >= 2
+      ? `Les deux principales sources totalisent ${topTwo.toFixed(1).replace(".", ",")} % du chiffre d'affaires${
+          topTwo >= 70
+            ? ", ce qui traduit une concentration notable et un risque de dépendance commerciale à surveiller."
+            : topTwo >= 50
+              ? ", ce qui reflète une structure de revenus relativement diversifiée."
+              : ", ce qui témoigne d'une diversification marquée entre les activités."
+        }`
+      : ""
+
+  return {
+    heading: "Structure du chiffre d'affaires",
+    section: "revenue-mix",
+    body: `À la date de référence, la répartition du chiffre d'affaires par source est la suivante : ${breakdown}. ${concentration}`.trim(),
+  }
 }
 
 function metricLabelForRevenueSeries(heading: string): string {
@@ -811,19 +1081,47 @@ function buildRevenueSeriesWindowNarrative(
   series: RevenueSeriesNarrativeSlice[],
   copy: WindowNarrativeCopy,
   mode: "annual" | "monthly",
+  options?: { revenueAnalysis?: boolean },
 ): PerformanceNarrativeResult | null {
+  const revenueAnalysis = options?.revenueAnalysis === true
+  const rankedIndices = revenueAnalysis
+    ? series
+        .map((s, i) => ({ i, revenue: s.points[0]?.revenue ?? 0 }))
+        .sort((a, b) => b.revenue - a.revenue)
+    : []
+  const rankByIndex = new Map<number, number>()
+  rankedIndices.forEach((item, rank) => rankByIndex.set(item.i, rank + 1))
+
   const paragraphs = series
-    .map((s) =>
-      buildCurrencyWindowParagraph(
+    .map((s, index) => {
+      const base = buildCurrencyWindowParagraph(
         s.heading,
         s.metricLabel,
         "currency",
         s.points,
         (p) => p.revenue,
         copy,
-      ),
-    )
+      )
+      if (!base) return null
+
+      if (!revenueAnalysis) return base
+
+      const shareSentence = buildRevenueShareSentence(s, series, rankByIndex.get(index) ?? index + 1)
+      const bodyParts = [base.body]
+      if (shareSentence) bodyParts.push(shareSentence)
+
+      return {
+        ...base,
+        section: "revenue-performance" as const,
+        body: bodyParts.join(" "),
+      }
+    })
     .filter((p): p is PerformanceNarrativeParagraph => p !== null)
+
+  if (revenueAnalysis) {
+    const mixParagraph = buildRevenueMixSummaryParagraph(series)
+    if (mixParagraph) paragraphs.push(mixParagraph)
+  }
 
   if (!paragraphs.length) return null
 
@@ -1055,8 +1353,70 @@ export function buildRevenueOnlyPerformanceNarrative(
   view: string,
 ): PerformanceNarrativeResult | null {
   if (!series.length) return null
-  if (view === "years") return buildRevenueSeriesWindowNarrative(series, ANNUAL_COPY, "annual")
-  if (view === "24months") return buildRevenueSeriesWindowNarrative(series, MONTHLY_COPY, "monthly")
+  if (view === "years") {
+    return buildRevenueSeriesWindowNarrative(series, ANNUAL_COPY, "annual", { revenueAnalysis: true })
+  }
+  if (view === "24months") {
+    return buildRevenueSeriesWindowNarrative(series, MONTHLY_COPY, "monthly", { revenueAnalysis: true })
+  }
+  return null
+}
+
+function buildContributiveMarginSeriesWindowNarrative(
+  series: RevenueSeriesNarrativeSlice[],
+  copy: WindowNarrativeCopy,
+  mode: "annual" | "monthly",
+): PerformanceNarrativeResult | null {
+  const rankedIndices = series
+    .map((s, i) => ({
+      i,
+      margin: s.points[0]?.grossMarginPercent ?? null,
+      revenue: s.points[0]?.revenue ?? 0,
+    }))
+    .filter((r) => r.margin !== null && Math.abs(r.revenue) > DATA_EPSILON)
+    .sort((a, b) => (b.margin ?? 0) - (a.margin ?? 0))
+  const rankByIndex = new Map<number, number>()
+  rankedIndices.forEach((item, rank) => rankByIndex.set(item.i, rank + 1))
+
+  const paragraphs = series
+    .map((s, index) =>
+      buildContributiveMarginParagraph(s, copy, rankByIndex.get(index) ?? index + 1, series.length),
+    )
+    .filter((p): p is PerformanceNarrativeParagraph => p !== null)
+
+  const ranking = buildContributiveMarginRankingParagraph(series, copy)
+  if (ranking) paragraphs.push(ranking)
+
+  if (!paragraphs.length) return null
+
+  const referencePeriod =
+    series
+      .flatMap((s) => s.points)
+      .find((p) => p.variableCost !== undefined && Math.abs(p.revenue) > DATA_EPSILON)?.period ??
+    series[0]?.points[0]?.period ??
+    ""
+
+  return {
+    mode,
+    title: "Lecture de la contribution marginale par revenus",
+    subtitle: copy.subtitle,
+    referencePeriod,
+    paragraphs,
+  }
+}
+
+/** Synthèse contribution marginale par source (carte Diagnostic « Marge par Revenus »). */
+export function buildContributiveMarginByRevenueNarrative(
+  series: RevenueSeriesNarrativeSlice[],
+  view: string,
+): PerformanceNarrativeResult | null {
+  if (!series.length) return null
+  if (view === "years") {
+    return buildContributiveMarginSeriesWindowNarrative(series, ANNUAL_COPY, "annual")
+  }
+  if (view === "24months") {
+    return buildContributiveMarginSeriesWindowNarrative(series, MONTHLY_COPY, "monthly")
+  }
   return null
 }
 

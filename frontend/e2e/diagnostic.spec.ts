@@ -510,7 +510,10 @@ test.describe("Page Diagnostic", () => {
     })
     await expect(page.getByRole("button", { name: "Annuel - 5 ans" })).toBeVisible()
     await expect(page.getByRole("button", { name: "Paramètres" })).toBeVisible()
-    await expect(page.getByText("Lecture de la performance")).toBeVisible()
+    await expect(page.getByTestId("contributive-margin-report")).toBeVisible()
+    await expect(page.getByTestId("revenue-contributive-margin-table")).toBeVisible()
+    await expect(page.getByText("Marges contributives par source de revenus")).toBeVisible()
+    await expect(page.getByText("Lecture de la contribution marginale par revenus")).toBeVisible()
   })
 
   test("vue Dépenses : remplace la carte du rapport", async ({ page }) => {

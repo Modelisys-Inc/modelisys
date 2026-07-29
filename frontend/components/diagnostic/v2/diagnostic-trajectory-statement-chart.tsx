@@ -44,12 +44,13 @@ interface DiagnosticReportChartSectionProps {
   companies: Company[]
   latestFiscalYear: number
   fiscalYearEnd?: string
+  currency?: string
   signal?: { tone: SignalTone; text: string } | null
 }
 
 /**
  * Carte graphique du haut du rapport Diagnostic (Performance, Revenus, Marge par Revenus, Dépenses).
- * Config, paramètres et lecture narrative sont indépendants par vue.
+ * La vue « Marge par Revenus » réutilise la configuration des séries de la vue « Revenus ».
  */
 export function DiagnosticReportChartSection({
   reportView,
@@ -57,14 +58,17 @@ export function DiagnosticReportChartSection({
   companies,
   latestFiscalYear,
   fiscalYearEnd,
+  currency,
   signal,
 }: DiagnosticReportChartSectionProps) {
   const [horizonView, setHorizonView] = useState<ChartHorizonToggleValue>("years")
   const { statementType, narrativeScope } = resolveReportChartConfig(reportView)
+  const slotStatementType: StatementType =
+    reportView === "margin-by-revenue" ? "diagnostic-revenue" : statementType
 
   const { slots, activeSlotId, setActiveSlotId, refresh, loading } = useStatementChartSlots(
     companyId,
-    statementType,
+    slotStatementType,
   )
 
   const activeSlot = slots.find((s) => s.chartInstanceId === activeSlotId) ?? slots[0]
@@ -73,10 +77,10 @@ export function DiagnosticReportChartSection({
     () =>
       slots.map((s, i) => {
         const title = s.config.chartTitle.trim()
-        const label = title || defaultChartCardTitle(statementType) || `Graphique ${i + 1}`
+        const label = title || defaultChartCardTitle(slotStatementType) || `Graphique ${i + 1}`
         return { id: s.chartInstanceId, label }
       }),
-    [slots, statementType],
+    [slots, slotStatementType],
   )
 
   const referenceMonth = parseFiscalEndMonth(fiscalYearEnd)
@@ -92,6 +96,7 @@ export function DiagnosticReportChartSection({
         <StatementChart
           key={`${reportView}-${activeSlot.chartInstanceId}-${chartView}`}
           statementType={statementType}
+          chartConfigStatementType={reportView === "margin-by-revenue" ? "diagnostic-revenue" : undefined}
           slot={activeSlot}
           chartSlotNumber={slots.findIndex((s) => s.chartInstanceId === activeSlotId) + 1}
           chartSlotCount={slots.length}
@@ -102,6 +107,7 @@ export function DiagnosticReportChartSection({
           view={chartView}
           companyId={companyId}
           companies={companies}
+          currency={currency}
           fiscalYear={latestFiscalYear}
           referenceMonth={referenceMonth}
           structureVersion={0}

@@ -20,6 +20,11 @@ import {
 } from "@/components/ui/alert-dialog"
 import { TrendingUp, TrendingDown, ChevronDown, FileText, Settings, Trash2 } from "lucide-react"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { useStandardLinkCodesFlat } from "@/hooks/use-standard-link-codes"
+import { listAccountMappings, type AccountMappingData } from "@/lib/api"
+import { enrichRevenueSeriesForNarrative } from "@/lib/revenue-series-narrative-enrichment"
+import { buildRevenueContributiveMarginRows } from "@/lib/revenue-contributive-margin-table"
+import { RevenueContributiveMarginTable } from "@/components/diagnostic/v2/revenue-contributive-margin-table"
 import { cn } from "@/lib/utils"
 import {
   dashboardCardFrameClass,
@@ -31,11 +36,10 @@ import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import {
   buildIncomePerformanceNarrative,
   buildExpensesOnlyPerformanceNarrative,
-  buildMarginByRevenueOnlyPerformanceNarrative,
   buildRevenueOnlyPerformanceNarrative,
+  buildContributiveMarginByRevenueNarrative,
   mapDynamicChartToNarrativePoints,
   mapDynamicChartToExpenseSeriesNarratives,
-  mapDynamicChartToMarginByRevenueSeriesNarratives,
   mapDynamicChartToRevenueSeriesNarratives,
   type PerformanceNarrativeResult,
 } from "@/lib/income-performance-narrative"
@@ -103,6 +107,7 @@ interface StatementChartProps {
   divisionId?: string | null
   subDivisionId?: string | null
   companies?: Company[]
+  currency?: string
   comparisonType?: "lastMonth" | "pastMonth" | "budget"
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
@@ -128,6 +133,8 @@ interface StatementChartProps {
   cardAppearance?: "dashboard" | "diagnostic"
   /** Portée de la lecture narrative sous le graphique. */
   narrativeScope?: "full" | "revenue-only" | "margin-by-revenue-only" | "expenses-only"
+  /** Type de config persistée (ex. Marge par Revenus lit la config Revenus). */
+  chartConfigStatementType?: StatementType
 }
 
 function PerformanceChartRemoveButton({ onRemove }: { onRemove: () => void }) {
@@ -186,7 +193,67 @@ function formatSeriesValue(v: number, fmt: ChartValueFormat): string {
 
 type PerformanceNarrativeResultNonNull = NonNullable<PerformanceNarrativeResult>
 
-function IncomePerformanceNarrativeSection({ narrative }: { narrative: PerformanceNarrativeResultNonNull }) {
+const NARRATIVE_SECTION_META: Record<
+  string,
+  { title: string; description?: string; className?: string }
+> = {
+  "revenue-performance": {
+    title: "Performance des revenus",
+    description: "Niveau, variation et pondération de chaque source de chiffre d'affaires.",
+  },
+  "revenue-mix": {
+    title: "Structure du chiffre d'affaires",
+    description: "Répartition et concentration des sources de revenus.",
+  },
+  "contributive-margin": {
+    title: "Analyse par source de revenus",
+    description: "Coûts variables, marge contributive et positionnement relatif.",
+  },
+}
+
+function groupNarrativeParagraphs(paragraphs: PerformanceNarrativeResultNonNull["paragraphs"]) {
+  const hasSections = paragraphs.some((p) => p.section)
+  if (!hasSections) {
+    return [{ id: "default", title: null as string | null, description: null as string | null, className: undefined, paragraphs }]
+  }
+
+  const order = ["revenue-performance", "contributive-margin", "revenue-mix"] as const
+  const groups: Array<{
+    id: string
+    title: string | null
+    description: string | null
+    className?: string
+    paragraphs: typeof paragraphs
+  }> = []
+
+  for (const sectionId of order) {
+    const items = paragraphs.filter((p) => p.section === sectionId)
+    if (!items.length) continue
+    const meta = NARRATIVE_SECTION_META[sectionId]
+    groups.push({
+      id: sectionId,
+      title: meta?.title ?? sectionId,
+      description: meta?.description ?? null,
+      className: meta?.className,
+      paragraphs: items,
+    })
+  }
+
+  const uncategorized = paragraphs.filter((p) => !p.section)
+  if (uncategorized.length) {
+    groups.push({ id: "other", title: null, description: null, paragraphs: uncategorized })
+  }
+
+  return groups
+}
+
+function IncomePerformanceNarrativeSection({
+  narrative,
+}: {
+  narrative: PerformanceNarrativeResultNonNull
+}) {
+  const groups = groupNarrativeParagraphs(narrative.paragraphs)
+
   return (
     <div className="w-full border-t border-slate-200 bg-gradient-to-b from-slate-50/80 to-white px-6 pb-8 pt-10 sm:px-7 sm:pb-9 sm:pt-12">
       <div className="flex w-full max-w-none items-start gap-3">
@@ -200,25 +267,43 @@ function IncomePerformanceNarrativeSection({ narrative }: { narrative: Performan
               ? narrative.subtitle
               : "Synthèse factuelle à partir des séries affichées (variations séquentielles et lecture de fenêtre)."}
           </p>
-          <div className="mt-5 space-y-6">
-            {narrative.paragraphs.map((p) => (
-              <div key={p.heading}>
-                <p className="text-sm font-semibold text-[#2A2F3A]">{p.heading}</p>
-                <p className="mt-2 text-sm leading-relaxed text-[#5C5F66] text-pretty">{p.body}</p>
-                {p.secondaryBody ? (
-                  <p className="mt-3 text-sm leading-relaxed text-[#5C5F66] text-pretty">{p.secondaryBody}</p>
+          <div className="mt-5 space-y-8">
+            {groups.map((group) => (
+              <div key={group.id}>
+                <div className={group.className}>
+                {group.title ? (
+                  <div className="mb-4">
+                    <h5 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
+                      {group.title}
+                    </h5>
+                    {group.description ? (
+                      <p className="mt-1 text-xs leading-relaxed text-slate-500">{group.description}</p>
+                    ) : null}
+                  </div>
                 ) : null}
-                {p.seasonalityBody ? (
-                  <p className="mt-3 text-sm leading-relaxed text-[#5C5F66] text-pretty">
-                    <span className="font-medium text-slate-600">Saisonnalité — </span>
-                    {p.seasonalityBody}
-                  </p>
-                ) : null}
-                {p.statsLine ? (
-                  <p className="mt-3 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 text-xs font-medium tabular-nums text-slate-600">
-                    {p.statsLine}
-                  </p>
-                ) : null}
+                <div className="space-y-6">
+                  {group.paragraphs.map((p) => (
+                    <div key={`${group.id}-${p.heading}`}>
+                      <p className="text-sm font-semibold text-[#2A2F3A]">{p.heading}</p>
+                      <p className="mt-2 text-sm leading-relaxed text-[#5C5F66] text-pretty">{p.body}</p>
+                      {p.secondaryBody ? (
+                        <p className="mt-3 text-sm leading-relaxed text-[#5C5F66] text-pretty">{p.secondaryBody}</p>
+                      ) : null}
+                      {p.seasonalityBody ? (
+                        <p className="mt-3 text-sm leading-relaxed text-[#5C5F66] text-pretty">
+                          <span className="font-medium text-slate-600">Saisonnalité — </span>
+                          {p.seasonalityBody}
+                        </p>
+                      ) : null}
+                      {p.statsLine ? (
+                        <p className="mt-3 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2 text-xs font-medium tabular-nums text-slate-600">
+                          {p.statsLine}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+                </div>
               </div>
             ))}
           </div>
@@ -236,6 +321,7 @@ export function StatementChart({
   divisionId,
   subDivisionId,
   companies = [],
+  currency = "CAD",
   comparisonType: _comparisonType = "lastMonth",
   selectedBudgetId: _selectedBudgetId = null,
   selectedBudgetName: _selectedBudgetName = null,
@@ -253,10 +339,14 @@ export function StatementChart({
   embeddedHorizon,
   cardAppearance = "dashboard",
   narrativeScope = "full",
+  chartConfigStatementType,
 }: StatementChartProps) {
+  const isContributiveMarginView = narrativeScope === "margin-by-revenue-only"
+  const configStatementType = chartConfigStatementType ?? statementType
   const { card: cardFrameClass, showAccent: showCardAccent } = resolveStatementChartCardClasses(cardAppearance)
   const seriesStatementType = seriesStatementTypeForChart(statementType)
   const perfConfig: StatementChartConfig = slot.config
+  const [accountMappings, setAccountMappings] = useState<AccountMappingData[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [visibleSeriesIds, setVisibleSeriesIds] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(slot.config.series.map((s) => [s.id, s.showOnChart])),
@@ -264,6 +354,8 @@ export function StatementChart({
 
   const refMonth = referenceMonth ?? new Date().getMonth() + 1
   const refYear = fiscalYear ?? new Date().getFullYear()
+  const contributiveMarginEnrichment = narrativeScope === "margin-by-revenue-only"
+  const { codes: standardLinkCodes } = useStandardLinkCodesFlat(false, undefined, contributiveMarginEnrichment)
 
   const seriesMonthsNeeded = performanceChartSeriesMonthsNeeded(view)
   const { rows: seriesRows, periods: seriesPeriods, loading: seriesLoading } = useFinancialStatementSeries({
@@ -282,6 +374,24 @@ export function StatementChart({
     setVisibleSeriesIds(Object.fromEntries(slot.config.series.map((s) => [s.id, s.showOnChart])))
   }, [slot.chartInstanceId, slot.version])
 
+  useEffect(() => {
+    if (!companyId || narrativeScope !== "margin-by-revenue-only") {
+      setAccountMappings([])
+      return
+    }
+    let cancelled = false
+    listAccountMappings(companyId)
+      .then((mappings) => {
+        if (!cancelled) setAccountMappings(mappings)
+      })
+      .catch(() => {
+        if (!cancelled) setAccountMappings([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, narrativeScope, structureVersion])
+
   const dynamicBuild = useMemo(() => {
     if (!seriesRows.length || !seriesPeriods.length) return null
     return buildPerformanceChartData(perfConfig, seriesRows, seriesPeriods, view, refMonth, refYear)
@@ -296,6 +406,50 @@ export function StatementChart({
     () => seriesMeta.filter((m) => visibleSeriesIds[m.id] !== false),
     [seriesMeta, visibleSeriesIds],
   )
+
+  const enrichedRevenueSlices = useMemo(() => {
+    if (narrativeScope !== "margin-by-revenue-only" || !dynamicPoints?.length || !narrativeSeriesMeta.length) {
+      return null
+    }
+    const slices = mapDynamicChartToRevenueSeriesNarratives(dynamicPoints, narrativeSeriesMeta)
+    if (!slices.length) return null
+    return enrichRevenueSeriesForNarrative({
+      slices,
+      seriesMeta: narrativeSeriesMeta,
+      chartSeries: perfConfig.series,
+      mappings: accountMappings,
+      seriesRows,
+      periods: seriesPeriods,
+      view,
+      refMonth,
+      refYear,
+      standardLinkCodes,
+    })
+  }, [
+    narrativeScope,
+    dynamicPoints,
+    narrativeSeriesMeta,
+    perfConfig.series,
+    accountMappings,
+    seriesRows,
+    seriesPeriods,
+    view,
+    refMonth,
+    refYear,
+    standardLinkCodes,
+  ])
+
+  const contributiveMarginRows = useMemo(() => {
+    if (!enrichedRevenueSlices?.length) return null
+    return buildRevenueContributiveMarginRows(enrichedRevenueSlices)
+  }, [enrichedRevenueSlices])
+
+  const contributiveMarginNarrative = useMemo(() => {
+    if (narrativeScope !== "margin-by-revenue-only" || !enrichedRevenueSlices?.length) return null
+    return buildContributiveMarginByRevenueNarrative(enrichedRevenueSlices, view)
+  }, [narrativeScope, enrichedRevenueSlices, view])
+
+  const companyCurrency = currency
 
   const narrative = useMemo(() => {
     const diagnosticTypes = new Set([
@@ -312,9 +466,7 @@ export function StatementChart({
       return buildRevenueOnlyPerformanceNarrative(slices, view)
     }
     if (narrativeScope === "margin-by-revenue-only") {
-      const slices = mapDynamicChartToMarginByRevenueSeriesNarratives(dynamicPoints, narrativeSeriesMeta)
-      if (!slices.length) return null
-      return buildMarginByRevenueOnlyPerformanceNarrative(slices, view)
+      return null
     }
     if (narrativeScope === "expenses-only") {
       const slices = mapDynamicChartToExpenseSeriesNarratives(dynamicPoints, narrativeSeriesMeta)
@@ -324,13 +476,19 @@ export function StatementChart({
     const mapped = mapDynamicChartToNarrativePoints(dynamicPoints, narrativeSeriesMeta)
     if (!mapped) return null
     return buildIncomePerformanceNarrative(mapped, view)
-  }, [statementType, dynamicPoints, narrativeSeriesMeta, view, narrativeScope])
+  }, [
+    statementType,
+    dynamicPoints,
+    narrativeSeriesMeta,
+    view,
+    narrativeScope,
+  ])
 
   const settingsDialog = (
     <StatementChartSettingsDialog
       open={settingsOpen}
       onOpenChange={setSettingsOpen}
-      statementType={statementType}
+      statementType={configStatementType}
       companyId={companyId ?? ""}
       slot={slot}
       onSaved={() => {
@@ -350,7 +508,11 @@ export function StatementChart({
 
   const defaultTitle = defaultChartCardTitle(statementType)
   const storedChartTitle = perfConfig.chartTitle.trim()
-  const cardTitle = storedChartTitle && storedChartTitle !== defaultTitle ? storedChartTitle : defaultTitle
+  const cardTitle = isContributiveMarginView
+    ? defaultTitle
+    : storedChartTitle && storedChartTitle !== defaultTitle
+      ? storedChartTitle
+      : defaultTitle
 
   const dynamicChartConfig = useMemo(() => {
     const c: Record<string, { label: string; color: string }> = {}
@@ -384,22 +546,28 @@ export function StatementChart({
   }
 
   if (!dynamicPoints || !dynamicPoints.length || !seriesMeta.length) {
+    const emptyMessage = isContributiveMarginView
+      ? "Aucune source de revenus configurée. Paramétrez les séries dans la vue Revenus du rapport."
+      : "Aucune donnée disponible pour ce graphique."
+    const emptyHint = isContributiveMarginView
+      ? "Les codes de liaison (ex. REV-A) doivent correspondre aux séries définies sous Revenus."
+      : "Vérifiez les séries et liaisons dans Paramètres. Les codes doivent correspondre à des lignes présentes dans les séries."
+    const settingsLabel = isContributiveMarginView ? "Paramètres des revenus" : "Paramètres du graphique"
+
     return (
       <>
-        <div className={`mb-6 flex min-h-64 flex-col items-center justify-center gap-3 px-4 py-8 ${cardFrameClass}`}>
+        <div
+          className={`mb-6 flex min-h-64 flex-col items-center justify-center gap-3 px-4 py-8 ${cardFrameClass}`}
+          data-testid={isContributiveMarginView ? "contributive-margin-empty" : undefined}
+        >
           {showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
           {embeddedHorizon ? (
             <div className="relative mb-2 w-full max-w-xl border-b border-slate-100 pb-4">
               <EmbeddedHorizonToggle {...embeddedHorizon} />
             </div>
           ) : null}
-          <p className="relative text-center text-sm text-[#5C5F66]">Aucune donnée disponible pour ce graphique.</p>
-          {companyId ? (
-            <p className="max-w-md text-center text-xs text-slate-500">
-              Vérifiez les séries et liaisons dans Paramètres. Les codes doivent correspondre à des lignes présentes
-              dans les séries.
-            </p>
-          ) : null}
+          <p className="relative text-center text-sm text-[#5C5F66]">{emptyMessage}</p>
+          {companyId ? <p className="max-w-md text-center text-xs text-slate-500">{emptyHint}</p> : null}
           {companyId ? (
             <div className="flex flex-wrap items-center justify-center gap-2">
               <Button
@@ -409,11 +577,13 @@ export function StatementChart({
                 onClick={() => setSettingsOpen(true)}
               >
                 <Settings className="h-4 w-4" aria-hidden />
-                Paramètres du graphique
+                {settingsLabel}
               </Button>
-              {onRemoveChart ? <PerformanceChartRemoveButton onRemove={onRemoveChart} /> : null}
+              {onRemoveChart && !isContributiveMarginView ? (
+                <PerformanceChartRemoveButton onRemove={onRemoveChart} />
+              ) : null}
             </div>
-          ) : onRemoveChart ? (
+          ) : onRemoveChart && !isContributiveMarginView ? (
             <PerformanceChartRemoveButton onRemove={onRemoveChart} />
           ) : null}
         </div>
@@ -428,7 +598,7 @@ export function StatementChart({
 
   return (
     <>
-      <div className={`group mb-6 ${cardFrameClass}`}>
+      <div className={`group mb-6 ${cardFrameClass}`} data-testid={isContributiveMarginView ? "contributive-margin-report" : undefined}>
         {showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
         <div className="relative border-b border-slate-200 bg-white/90 px-6 py-5 sm:px-7">
           <div className="flex items-center justify-between gap-4">
@@ -479,10 +649,17 @@ export function StatementChart({
                     ) : (
                       <span className="truncate">Toutes les sociétés</span>
                     )}
+                    {isContributiveMarginView ? (
+                      <>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-xs text-slate-500">Sources configurées dans Revenus</span>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               </div>
               <div className="flex min-w-0 max-w-full shrink flex-wrap items-center justify-end gap-3">
+                {!isContributiveMarginView ? (
                 <div className="flex min-w-0 max-w-[min(100%,28rem)] flex-wrap items-center justify-end gap-x-4 gap-y-2">
                   {seriesMeta.map((m) => (
                     <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
@@ -496,6 +673,7 @@ export function StatementChart({
                     </label>
                   ))}
                 </div>
+                ) : null}
                 <div className="flex shrink-0 items-center gap-1">
                   {companyId ? (
                     <Button
@@ -503,10 +681,16 @@ export function StatementChart({
                       variant="outline"
                       className={cn(dashboardCardStructureSettingsButtonClass, "shrink-0")}
                       onClick={() => setSettingsOpen(true)}
-                      aria-label={`Paramètres du graphique ${cardTitle}`}
+                      aria-label={
+                        isContributiveMarginView
+                          ? "Paramètres des revenus"
+                          : `Paramètres du graphique ${cardTitle}`
+                      }
                     >
                       <Settings className="h-4 w-4" aria-hidden />
-                      <span className="hidden sm:inline">Paramètres</span>
+                      <span className="hidden sm:inline">
+                        {isContributiveMarginView ? "Paramètres des revenus" : "Paramètres"}
+                      </span>
                     </Button>
                   ) : null}
                   {onRemoveChart ? <PerformanceChartRemoveButton onRemove={onRemoveChart} /> : null}
@@ -515,6 +699,7 @@ export function StatementChart({
             </div>
           </div>
 
+          {!isContributiveMarginView ? (
           <div className="relative bg-white">
             <div className="px-6 py-6 sm:px-7">
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
@@ -664,7 +849,16 @@ export function StatementChart({
               </div>
             </div>
           </div>
+          ) : null}
           {narrative ? <IncomePerformanceNarrativeSection narrative={narrative} /> : null}
+          {narrativeScope === "margin-by-revenue-only" && contributiveMarginRows?.length ? (
+            <div className="border-t border-slate-200 py-6">
+              <RevenueContributiveMarginTable rows={contributiveMarginRows} currency={companyCurrency} />
+            </div>
+          ) : null}
+          {contributiveMarginNarrative ? (
+            <IncomePerformanceNarrativeSection narrative={contributiveMarginNarrative} />
+          ) : null}
         </div>
         {settingsDialog}
       </>

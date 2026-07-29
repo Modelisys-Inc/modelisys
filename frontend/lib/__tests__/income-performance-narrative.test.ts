@@ -3,6 +3,7 @@ import {
   buildExpensesOnlyPerformanceNarrative,
   buildIncomePerformanceNarrative,
   buildMarginByRevenueOnlyPerformanceNarrative,
+  buildContributiveMarginByRevenueNarrative,
   buildRevenueOnlyPerformanceNarrative,
   buildSeasonalityParagraph,
   computeCagr,
@@ -297,6 +298,7 @@ describe("buildRevenueOnlyPerformanceNarrative", () => {
     if (result?.mode !== "annual") return
     expect(result.paragraphs).toHaveLength(1)
     expect(result.paragraphs[0]!.heading).toBe("Revenus")
+    expect(result.paragraphs[0]!.section).toBe("revenue-performance")
     expect(result.title).toBe("Lecture de la performance")
   })
 
@@ -311,8 +313,8 @@ describe("buildRevenueOnlyPerformanceNarrative", () => {
       ],
       "years",
     )
-    expect(result?.paragraphs).toHaveLength(4)
-    expect(result?.paragraphs.map((p) => p.heading)).toEqual([
+    expect(result?.paragraphs).toHaveLength(5)
+    expect(result?.paragraphs.slice(0, 4).map((p) => p.heading)).toEqual([
       "Ventes produits",
       "Services",
       "Location",
@@ -327,6 +329,77 @@ describe("buildRevenueOnlyPerformanceNarrative", () => {
     if (result?.mode !== "monthly") return
     expect(result.paragraphs).toHaveLength(1)
     expect(result.paragraphs[0]!.seasonalityBody).toContain("saisonnalité")
+  })
+
+  it("ajoute la pondération et la structure du CA pour plusieurs sources", () => {
+    const data = sampleAnnualData()
+    const result = buildRevenueOnlyPerformanceNarrative(
+      [
+        revenueSlice("Ventes produits", data),
+        revenueSlice("Services", data.map((p) => ({ ...p, revenue: p.revenue * 0.35 }))),
+      ],
+      "years",
+    )
+    expect(result?.paragraphs.length).toBeGreaterThanOrEqual(3)
+    expect(result?.paragraphs[0]!.body).toContain("% du total")
+    expect(result?.paragraphs.some((p) => p.heading === "Structure du chiffre d'affaires")).toBe(true)
+  })
+
+  it("ne génère pas de paragraphe de marge contributive", () => {
+    const data = sampleAnnualData()
+    const result = buildRevenueOnlyPerformanceNarrative(
+      [
+        {
+          heading: "Produits",
+          metricLabel: "les produits",
+          points: data,
+          variableCostMapped: false,
+        },
+      ],
+      "years",
+    )
+    expect(result?.paragraphs.some((p) => p.section === "contributive-margin")).toBe(false)
+  })
+})
+
+describe("buildContributiveMarginByRevenueNarrative", () => {
+  it("utilise le titre Lecture de la contribution marginale par revenus", () => {
+    const data = sampleAnnualData().map((p) => ({
+      ...p,
+      variableCost: p.revenue * 0.4,
+      grossProfit: p.revenue * 0.6,
+      grossMarginPercent: 60,
+    }))
+    const result = buildContributiveMarginByRevenueNarrative(
+      [
+        {
+          heading: "Produits",
+          metricLabel: "les produits",
+          points: data,
+          variableCostMapped: true,
+          variableCostAccountCount: 2,
+        },
+      ],
+      "years",
+    )
+    expect(result?.title).toBe("Lecture de la contribution marginale par revenus")
+    expect(result?.paragraphs.some((p) => p.section === "contributive-margin")).toBe(true)
+    expect(result?.paragraphs[0]!.heading).toBe("Marge contributive — Produits")
+  })
+
+  it("signale l'absence de mapping comptable", () => {
+    const result = buildContributiveMarginByRevenueNarrative(
+      [
+        {
+          heading: "Produits",
+          metricLabel: "les produits",
+          points: sampleAnnualData(),
+          variableCostMapped: false,
+        },
+      ],
+      "years",
+    )
+    expect(result?.paragraphs[0]!.body).toContain("mapping comptable")
   })
 })
 
