@@ -674,6 +674,8 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByText("Seuil de rentabilité").first()).toBeVisible()
     await expect(page.getByText("Survol interactif")).toBeVisible()
     await expect(page.getByTestId("breakeven-methodology-note")).toBeVisible()
+    await expect(page.getByTestId("contributive-margin-evolution-expense-variable-costs")).toBeVisible()
+    await expect(page.getByTestId("contributive-margin-evolution-expense-fixed-costs")).toBeVisible()
   })
 
   test("tiroir de détail : ouverture depuis une ligne de division, fermeture par Échap", async ({

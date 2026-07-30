@@ -138,7 +138,13 @@ export function ExpenseContributionBridgeChart({
 
           <div className="lg:col-span-4">
             <ChartContainer config={chartConfig} className="h-[420px] w-full">
-              <ComposedChart data={chartData} margin={{ top: 20, right: 24, left: 8, bottom: 5 }}>
+              <ComposedChart
+                data={chartData}
+                margin={{ top: 20, right: 24, left: 8, bottom: 5 }}
+                barCategoryGap="32%"
+                barGap={2}
+                maxBarSize={36}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke={DIAG.gridLine} />
                 <XAxis
                   dataKey="period"

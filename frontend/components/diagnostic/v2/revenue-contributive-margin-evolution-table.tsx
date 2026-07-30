@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { formatMoney, formatPercent } from "@/components/diagnostic/diagnostic-format"
 import type {
@@ -39,9 +39,147 @@ const headerValueClass = cn(headerCellClass, "text-right")
 const labelCellClass = "px-2 py-[9px] text-left text-xs font-medium text-[#2A2F3A] first:pl-1"
 const valueCellClass =
   "px-2 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums text-slate-600 last:pr-1"
-const detailLabelCellClass = "px-2 py-[7px] pl-7 text-left text-[11.5px] text-slate-500 first:pl-1"
+
+function detailLabelClass(depth: number): string {
+  const pad = depth <= 1 ? "pl-7" : depth === 2 ? "pl-12" : "pl-16"
+  return cn(
+    "px-2 py-[7px] text-left text-[11.5px] text-slate-500 first:pl-1",
+    pad,
+    depth === 1 && "font-medium text-slate-600",
+  )
+}
+
 const detailValueCellClass =
   "px-2 py-[7px] text-right font-mono text-[11px] font-normal tabular-nums text-slate-500 last:pr-1"
+
+function detailRowKey(metricId: string, path: string[]): string {
+  return [metricId, ...path].join("/")
+}
+
+function DetailRows({
+  details,
+  metric,
+  table,
+  currency,
+  metricId,
+  path,
+  depth,
+  expandedRows,
+  onToggle,
+}: {
+  details: ContributiveMarginEvolutionDetailRow[]
+  metric: ContributiveMarginEvolutionMetric
+  table: ContributiveMarginEvolutionTable
+  currency: string
+  metricId: string
+  path: string[]
+  depth: number
+  expandedRows: Record<string, boolean>
+  onToggle: (key: string) => void
+}): ReactNode {
+  return details.map((detail) => {
+    const rowPath = [...path, detail.id]
+    const key = detailRowKey(metricId, rowPath)
+    const canExpand = (detail.detailRows?.length ?? 0) > 0
+    const expanded = expandedRows[key] === true
+
+    return (
+      <DetailRowBranch
+        key={key}
+        detail={detail}
+        metric={metric}
+        table={table}
+        currency={currency}
+        metricId={metricId}
+        rowPath={rowPath}
+        depth={depth}
+        canExpand={canExpand}
+        expanded={expanded}
+        onToggle={() => onToggle(key)}
+        expandedRows={expandedRows}
+        onToggleRow={onToggle}
+      />
+    )
+  })
+}
+
+function DetailRowBranch({
+  detail,
+  metric,
+  table,
+  currency,
+  metricId,
+  rowPath,
+  depth,
+  canExpand,
+  expanded,
+  onToggle,
+  expandedRows,
+  onToggleRow,
+}: {
+  detail: ContributiveMarginEvolutionDetailRow
+  metric: ContributiveMarginEvolutionMetric
+  table: ContributiveMarginEvolutionTable
+  currency: string
+  metricId: string
+  rowPath: string[]
+  depth: number
+  canExpand: boolean
+  expanded: boolean
+  onToggle: () => void
+  expandedRows: Record<string, boolean>
+  onToggleRow: (key: string) => void
+}): ReactNode {
+  const key = detailRowKey(metricId, rowPath)
+  const testIdSuffix = rowPath.join("-")
+
+  return (
+    <>
+      <tr
+        className={cn(
+          "bg-slate-50/70",
+          canExpand && "cursor-pointer hover:bg-slate-100/80",
+        )}
+        onClick={canExpand ? onToggle : undefined}
+        data-testid={`contributive-margin-${metric.id}-detail-${testIdSuffix}`}
+        aria-expanded={canExpand ? expanded : undefined}
+      >
+        <td className={detailLabelClass(depth)}>
+          <span className="inline-flex items-center gap-1.5">
+            {canExpand ? (
+              <span className="flex-shrink-0" aria-hidden>
+                {expanded ? (
+                  <ChevronDown className="h-3 w-3 text-slate-500" />
+                ) : (
+                  <ChevronRight className="h-3 w-3 text-slate-500" />
+                )}
+              </span>
+            ) : null}
+            <span>{formatDetailLabel(detail)}</span>
+          </span>
+        </td>
+        {detail.values.map((value, index) => (
+          <td key={`${key}-${table.periods[index]}`} className={detailValueCellClass}>
+            {formatCell(value, metric.format, currency)}
+          </td>
+        ))}
+      </tr>
+      {canExpand && expanded ? (
+        <DetailRows
+          details={detail.detailRows!}
+          metric={metric}
+          table={table}
+          currency={currency}
+          metricId={metricId}
+          path={rowPath}
+          depth={depth + 1}
+          expandedRows={expandedRows}
+          onToggle={onToggleRow}
+        />
+      ) : null}
+    </>
+  )
+}
 
 function MetricRows({
   metric,
@@ -49,12 +187,16 @@ function MetricRows({
   currency,
   expanded,
   onToggleExpand,
+  expandedRows,
+  onToggleDetailRow,
 }: {
   metric: ContributiveMarginEvolutionMetric
   table: ContributiveMarginEvolutionTable
   currency: string
   expanded: boolean
   onToggleExpand?: () => void
+  expandedRows: Record<string, boolean>
+  onToggleDetailRow: (key: string) => void
 }) {
   const canExpand = (metric.detailRows?.length ?? 0) > 0
 
@@ -89,25 +231,19 @@ function MetricRows({
           </td>
         ))}
       </tr>
-      {canExpand && expanded
-        ? metric.detailRows!.map((detail) => (
-            <tr
-              key={`${metric.id}-${detail.id}`}
-              className="bg-slate-50/70"
-              data-testid={`contributive-margin-${metric.id}-detail-${detail.id}`}
-            >
-              <td className={detailLabelCellClass}>{formatDetailLabel(detail)}</td>
-              {detail.values.map((value, index) => (
-                <td
-                  key={`${detail.id}-${table.periods[index]}`}
-                  className={detailValueCellClass}
-                >
-                  {formatCell(value, metric.format, currency)}
-                </td>
-              ))}
-            </tr>
-          ))
-        : null}
+      {canExpand && expanded ? (
+        <DetailRows
+          details={metric.detailRows!}
+          metric={metric}
+          table={table}
+          currency={currency}
+          metricId={metric.id}
+          path={[]}
+          depth={1}
+          expandedRows={expandedRows}
+          onToggle={onToggleDetailRow}
+        />
+      ) : null}
     </>
   )
 }
@@ -118,11 +254,16 @@ export function RevenueContributiveMarginEvolutionTable({
   className,
 }: RevenueContributiveMarginEvolutionTableProps) {
   const [expandedMetrics, setExpandedMetrics] = useState<Record<string, boolean>>({})
+  const [expandedDetailRows, setExpandedDetailRows] = useState<Record<string, boolean>>({})
 
   if (!table.periods.length) return null
 
   const toggleMetric = (metricId: string) => {
     setExpandedMetrics((current) => ({ ...current, [metricId]: !current[metricId] }))
+  }
+
+  const toggleDetailRow = (key: string) => {
+    setExpandedDetailRows((current) => ({ ...current, [key]: !current[key] }))
   }
 
   return (
@@ -152,6 +293,8 @@ export function RevenueContributiveMarginEvolutionTable({
               onToggleExpand={
                 metric.detailRows?.length ? () => toggleMetric(metric.id) : undefined
               }
+              expandedRows={expandedDetailRows}
+              onToggleDetailRow={toggleDetailRow}
             />
           ))}
         </tbody>

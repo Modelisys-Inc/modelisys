@@ -32,6 +32,8 @@ import { buildRevenueContributiveMarginEvolutionTables } from "@/lib/revenue-con
 import { buildExpenseContributionBridge } from "@/lib/expense-contribution-bridge"
 import { computeBreakevenAnalysis } from "@/lib/expense-breakeven"
 import { buildExpensesBridgeNarrative } from "@/lib/expense-bridge-narrative"
+import { buildExpenseBridgeNarrativeContext } from "@/lib/expense-bridge-narrative-context"
+import { buildExpenseCostBreakdownTables } from "@/lib/expense-cost-breakdown-tables"
 import { cn } from "@/lib/utils"
 import {
   dashboardCardFrameClass,
@@ -423,10 +425,66 @@ export function StatementChart({
     standardLinkCodes,
   ])
 
+  const expensesBridgeNarrativeContext = useMemo(() => {
+    if (!isExpensesBridgeView || !expenseContributionBridge || !seriesRows.length || !seriesPeriods.length) {
+      return null
+    }
+    return buildExpenseBridgeNarrativeContext({
+      mappings: accountMappings,
+      seriesRows,
+      periods: seriesPeriods,
+      view,
+      refMonth,
+      refYear,
+      bridge: expenseContributionBridge,
+      standardLinkCodes,
+    })
+  }, [
+    isExpensesBridgeView,
+    expenseContributionBridge,
+    accountMappings,
+    seriesRows,
+    seriesPeriods,
+    view,
+    refMonth,
+    refYear,
+    standardLinkCodes,
+  ])
+
   const expensesBridgeNarrative = useMemo(() => {
     if (!isExpensesBridgeView || !expenseContributionBridge) return null
-    return buildExpensesBridgeNarrative(expenseContributionBridge, view)
-  }, [isExpensesBridgeView, expenseContributionBridge, view])
+    return buildExpensesBridgeNarrative(
+      expenseContributionBridge,
+      view,
+      expensesBridgeNarrativeContext,
+    )
+  }, [isExpensesBridgeView, expenseContributionBridge, view, expensesBridgeNarrativeContext])
+
+  const expenseCostBreakdownTables = useMemo(() => {
+    if (!isExpensesBridgeView || !expenseContributionBridge || !seriesRows.length || !seriesPeriods.length) {
+      return null
+    }
+    return buildExpenseCostBreakdownTables({
+      mappings: accountMappings,
+      seriesRows,
+      periods: seriesPeriods,
+      view,
+      refMonth,
+      refYear,
+      bridge: expenseContributionBridge,
+      standardLinkCodes,
+    })
+  }, [
+    isExpensesBridgeView,
+    expenseContributionBridge,
+    accountMappings,
+    seriesRows,
+    seriesPeriods,
+    view,
+    refMonth,
+    refYear,
+    standardLinkCodes,
+  ])
 
   const expensesBreakevenAnalysis = useMemo(() => {
     if (!isExpensesBridgeView || !expenseContributionBridge?.points[0]) return null
@@ -944,7 +1002,19 @@ export function StatementChart({
           </div>
           ) : null}
           {expensesBridgeNarrative ? (
-            <IncomePerformanceNarrativeSection narrative={expensesBridgeNarrative} />
+            <IncomePerformanceNarrativeSection
+              narrative={expensesBridgeNarrative}
+              renderAfterParagraph={(paragraph) => {
+                const breakdown = expenseCostBreakdownTables?.get(paragraph.heading)
+                if (!breakdown) return null
+                return (
+                  <RevenueContributiveMarginEvolutionTable
+                    table={breakdown}
+                    currency={companyCurrency}
+                  />
+                )
+              }}
+            />
           ) : null}
           {expensesBreakevenAnalysis ? (
             <ExpenseBreakevenChart

@@ -9,6 +9,8 @@ export type ContributiveMarginEvolutionDetailRow = {
   label: string
   values: (number | null)[]
   displayKind?: "link-code" | "gl-account"
+  /** Sous-lignes (ex. comptes GL sous un code parent). */
+  detailRows?: ContributiveMarginEvolutionDetailRow[]
 }
 
 export type ContributiveMarginEvolutionMetric = {

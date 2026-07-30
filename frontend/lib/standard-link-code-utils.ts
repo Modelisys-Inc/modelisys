@@ -135,6 +135,45 @@ export const INCOME_STATEMENT_FAMILY_ANCHORS = [
   "IMP",
 ] as const
 
+const INCOME_STATEMENT_FAMILY_ANCHOR_SET = new Set<string>(INCOME_STATEMENT_FAMILY_ANCHORS)
+
+export function isIncomeStatementFamilyAnchorCode(code: string | undefined): boolean {
+  const lc = code?.trim()
+  if (!lc) return false
+  return INCOME_STATEMENT_FAMILY_ANCHOR_SET.has(lc)
+}
+
+/**
+ * Niveau de regroupement pour la ventilation CV/CF (diagnostic Dépenses).
+ * - Feuille rattachée à un poste (ex. CMV-A.1) → regroupe sous le poste (CMV-A).
+ * - Feuille rattachée directement à une famille (ex. CMV.1 / parent CMV) → regroupe sous le code assigné.
+ */
+export function resolveExpenseCostGroupingFromLinkCode(
+  linkCode: string | undefined,
+  codeByCode: StandardLinkCodeLookup,
+): { id: string; label: string } | null {
+  const lc = linkCode?.trim()
+  if (!lc) return null
+  const row = codeByCode.get(lc)
+  if (!row) return { id: lc, label: lc }
+
+  const parentCode = row.parent_code?.trim()
+  if (!parentCode) {
+    return { id: row.code, label: standardLinkCodeDisplayLabel(row) }
+  }
+
+  if (isIncomeStatementFamilyAnchorCode(parentCode)) {
+    return { id: row.code, label: standardLinkCodeDisplayLabel(row) }
+  }
+
+  const parent = codeByCode.get(parentCode)
+  if (parent) {
+    return { id: parent.code, label: standardLinkCodeDisplayLabel(parent) }
+  }
+
+  return { id: parentCode, label: parentCode }
+}
+
 const INCOME_STATEMENT_FAMILY_ANCHOR_LABELS: Record<string, string> = {
   REV: "Chiffre d'affaires",
   CMV: "Coûts des produits vendus",
