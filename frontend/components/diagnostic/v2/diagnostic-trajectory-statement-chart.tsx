@@ -83,7 +83,7 @@ export function DiagnosticReportChartSection({
       : reportView === "expenses-by-division"
         ? "diagnostic-expenses"
         : reportView === "financial-position"
-          ? "balance-sheet"
+          ? "diagnostic-financial-position"
           : statementType
 
   const { slots, activeSlotId, setActiveSlotId, refresh, loading } = useStatementChartSlots(
@@ -116,7 +116,13 @@ export function DiagnosticReportChartSection({
         <StatementChart
           key={`${reportView}-${activeSlot.chartInstanceId}-${chartView}`}
           statementType={statementType}
-          chartConfigStatementType={reportView === "margin-by-revenue" ? "diagnostic-revenue" : undefined}
+          chartConfigStatementType={
+            reportView === "margin-by-revenue"
+              ? "diagnostic-revenue"
+              : reportView === "financial-position"
+                ? "diagnostic-financial-position"
+                : undefined
+          }
           slot={activeSlot}
           chartSlotNumber={slots.findIndex((s) => s.chartInstanceId === activeSlotId) + 1}
           chartSlotCount={slots.length}

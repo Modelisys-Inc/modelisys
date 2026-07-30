@@ -195,6 +195,19 @@ export function yearTrendFromReference(
   return years.map((y) => sumCalendarYear(map, y))
 }
 
+/** Bilan : solde à la date de clôture (mois de référence) pour chaque année — pas une somme des mois. */
+export function balanceSheetYearTrendFromReference(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  refMonth: number,
+  refYear: number,
+  count = 6,
+): number[] {
+  const map = buildAmountsByCalendarMonth(row, periods)
+  const years = calendarYearSequenceFromReference(refYear, count)
+  return years.map((year) => map.get(calendarMonthKey(refMonth, year)) ?? 0)
+}
+
 export function yearLabelsFromReference(refYear: number, count = 6): string[] {
   return calendarYearSequenceFromReference(refYear, count).map(String)
 }

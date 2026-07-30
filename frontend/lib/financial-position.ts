@@ -1,31 +1,42 @@
 import type { AccountMappingData, SeriesPeriod, SeriesRow } from "@/lib/api"
-import { BALANCE_SHEET_FAMILY_SECTION_LABELS } from "@/lib/balance-sheet-mapping-rollup"
-import { findSeriesRowByCode } from "@/lib/performance-chart-series"
 import {
+  FINANCIAL_POSITION_SERIES_ID_TO_FAMILY,
+} from "@/lib/financial-position-config"
+import { balanceSheetFamilyForSectionLabel } from "@/lib/balance-sheet-mapping-rollup"
+import {
+  findStatementApiRowForStructureRow,
+  listStructureRowsForPresentationDisplay,
+} from "@/lib/income-statement-structure-utils"
+import {
+  buildSyntheticSeriesRow,
+  computeMetricSeries,
+  findSeriesRowByCode,
+  isChartMetricSpecConfigured,
+} from "@/lib/performance-chart-series"
+import type { StatementChartConfig, StatementChartSeries } from "@/lib/statement-chart-config"
+import {
+  balanceSheetYearTrendFromReference,
   monthShortLabelsFromReference,
   monthTrendFromReference,
   yearLabelsFromReference,
-  yearTrendFromReference,
 } from "@/lib/series-reference-columns"
 import {
   PERFORMANCE_CHART_MONTH_COUNT_24,
   PERFORMANCE_CHART_YEAR_COUNT,
-  buildSyntheticSeriesRow,
 } from "@/lib/performance-chart-series"
-import { getRowAmounts } from "@/lib/series-utils"
-import { deriveLinkCodeFamily, linkCodeDtCtSignMultiplier } from "@/lib/standard-link-code-utils"
 
 const DATA_EPSILON = 1e-6
+const NET_INCOME_LINK_CODE = "CAP-C.1"
 
 export const BALANCE_POSITION_FAMILIES = ["ACT", "ALT", "PCT", "PLT", "CAP"] as const
 export type BalancePositionFamily = (typeof BALANCE_POSITION_FAMILIES)[number]
 
 export const BALANCE_POSITION_FAMILY_LABELS: Record<BalancePositionFamily, string> = {
-  ACT: BALANCE_SHEET_FAMILY_SECTION_LABELS.ACT!,
-  ALT: BALANCE_SHEET_FAMILY_SECTION_LABELS.ALT!,
-  PCT: BALANCE_SHEET_FAMILY_SECTION_LABELS.PCT!,
-  PLT: BALANCE_SHEET_FAMILY_SECTION_LABELS.PLT!,
-  CAP: BALANCE_SHEET_FAMILY_SECTION_LABELS.CAP!,
+  ACT: "Actif à court terme",
+  ALT: "Actif à long terme",
+  PCT: "Passif à court terme",
+  PLT: "Passif à long terme",
+  CAP: "Capitaux propres",
 }
 
 export type FinancialPositionPoint = {
@@ -44,51 +55,192 @@ export type FinancialPositionResult = {
   mappedAccountCount: number
 }
 
-function displayAmount(raw: number, linkCode: string): number {
-  const sign = linkCodeDtCtSignMultiplier(linkCode)
-  return Math.abs(raw * sign)
-}
-
-function sumFamilyMonthlyAmounts(
-  family: BalancePositionFamily,
-  mappings: AccountMappingData[],
-  rows: SeriesRow[],
-  periods: SeriesPeriod[],
-): number[] {
-  const totals = periods.map(() => 0)
-  const linkCodeAttributed = new Set<string>()
-
-  for (const mapping of mappings) {
-    const linkCode = mapping.link_code?.trim()
-    if (!linkCode || deriveLinkCodeFamily(linkCode) !== family) continue
-
-    let row = findSeriesRowByCode(rows, mapping.account_number)
-    if (!row && !linkCodeAttributed.has(linkCode)) {
-      row = findSeriesRowByCode(rows, linkCode)
-      if (row) linkCodeAttributed.add(linkCode)
-    }
-    if (!row) continue
-
-    const amounts = getRowAmounts(row, periods)
-    for (let i = 0; i < periods.length; i++) {
-      totals[i]! += displayAmount(amounts[i] ?? 0, linkCode)
+function flattenSeriesRowsDeep(rows: SeriesRow[]): SeriesRow[] {
+  const out: SeriesRow[] = []
+  const walk = (list: SeriesRow[]) => {
+    for (const row of list) {
+      out.push(row)
+      for (const detail of row.detailRows ?? []) {
+        walk([
+          {
+            id: detail.id,
+            label: detail.label,
+            isBold: false,
+            isSection: false,
+            isResult: false,
+            amounts: detail.amounts,
+            detailRows: [],
+          },
+        ])
+      }
     }
   }
-
-  return totals
+  walk(rows)
+  return out
 }
 
-function trendFromMonthlyAmounts(
-  monthly: number[],
+function structureRowBalanceFamily(
+  structureRow: Record<string, unknown>,
+): BalancePositionFamily | null {
+  const linkCode = String(structureRow.linkCode ?? "").trim().toUpperCase()
+  if (BALANCE_POSITION_FAMILIES.includes(linkCode as BalancePositionFamily)) {
+    return linkCode as BalancePositionFamily
+  }
+  const family = balanceSheetFamilyForSectionLabel(String(structureRow.label ?? ""))
+  if (family && BALANCE_POSITION_FAMILIES.includes(family as BalancePositionFamily)) {
+    return family as BalancePositionFamily
+  }
+  return null
+}
+
+function findFamilySeriesRowsByStructure(
+  structure: Record<string, unknown>[],
+  seriesRows: SeriesRow[],
+): Map<BalancePositionFamily, SeriesRow> {
+  const map = new Map<BalancePositionFamily, SeriesRow>()
+  const used = new Set<number>()
+  const usedNested = new Set<string>()
+  const presentationRows = listStructureRowsForPresentationDisplay(structure)
+
+  for (const structureRow of presentationRows) {
+    const linkCode = String(structureRow.linkCode ?? "").trim().toUpperCase()
+    if (!BALANCE_POSITION_FAMILIES.includes(linkCode as BalancePositionFamily)) continue
+    if (map.has(linkCode as BalancePositionFamily)) continue
+    const row = findStatementApiRowForStructureRow(structureRow, seriesRows, used, usedNested)
+    if (!row) continue
+    map.set(linkCode as BalancePositionFamily, row)
+  }
+
+  for (const structureRow of presentationRows) {
+    const family = structureRowBalanceFamily(structureRow)
+    if (!family || map.has(family)) continue
+    const row = findStatementApiRowForStructureRow(structureRow, seriesRows, used, usedNested)
+    if (!row) continue
+    map.set(family, row)
+  }
+
+  return map
+}
+
+function findFamilySeriesRowFromFlatRows(
+  rows: SeriesRow[],
+  family: BalancePositionFamily,
+): SeriesRow | undefined {
+  const byCode = findSeriesRowByCode(rows, family)
+  if (byCode) return byCode
+
+  const byLabel = findSeriesRowByCode(rows, BALANCE_POSITION_FAMILY_LABELS[family])
+  if (byLabel) return byLabel
+
+  for (const row of flattenSeriesRowsDeep(rows)) {
+    if (row.linkCode?.trim().toUpperCase() === family) return row
+    const rowFamily = balanceSheetFamilyForSectionLabel(row.label)
+    if (rowFamily === family) return row
+  }
+
+  return undefined
+}
+
+/** Ligne série bilan alignée sur le Sommaire (agrégat famille + CAP-C.1 côté serveur). */
+export function findFamilySeriesRow(
+  rows: SeriesRow[],
+  family: BalancePositionFamily,
+  structure?: Record<string, unknown>[],
+): SeriesRow | undefined {
+  if (structure?.length) {
+    const fromStructure = findFamilySeriesRowsByStructure(structure, rows).get(family)
+    if (fromStructure) return fromStructure
+  }
+
+  return findFamilySeriesRowFromFlatRows(rows, family)
+}
+
+function seriesRowsForChartSpec(
+  spec: StatementChartSeries["spec"],
+  rows: SeriesRow[],
+): SeriesRow[] {
+  if (spec.type === "single") {
+    const code = spec.code.trim()
+    if (!code) return []
+    const row = findSeriesRowByCode(rows, code)
+    return row ? [row] : []
+  }
+  if (spec.type === "sum") {
+    return spec.codes
+      .map((code) => findSeriesRowByCode(rows, code.trim()))
+      .filter((row): row is SeriesRow => row !== undefined)
+  }
+  return []
+}
+
+/** Lignes série utilisées pour ventiler un poste (config graphique ou Sommaire). */
+export function resolveFamilyBreakdownSourceRows(
+  family: BalancePositionFamily,
+  rows: SeriesRow[],
+  structure: Record<string, unknown>[] | undefined,
+  chartConfig: StatementChartConfig | undefined,
+): SeriesRow[] {
+  const configuredSeries = chartConfig?.series.find(
+    (s) => FINANCIAL_POSITION_SERIES_ID_TO_FAMILY[s.id] === family,
+  )
+  if (configuredSeries && isChartMetricSpecConfigured(configuredSeries.spec)) {
+    const fromConfig = seriesRowsForChartSpec(configuredSeries.spec, rows)
+    if (fromConfig.length) return fromConfig
+  }
+
+  const familyRow = findFamilySeriesRow(rows, family, structure)
+  return familyRow ? [familyRow] : []
+}
+
+function familyTrendFromSeriesRow(
+  row: SeriesRow | undefined,
   periods: SeriesPeriod[],
   view: string,
   refMonth: number,
   refYear: number,
 ): number[] | null {
-  if (!periods.length) return null
-  const synthetic = buildSyntheticSeriesRow(periods, monthly)
+  if (!row || !periods.length) return null
   if (view === "years") {
-    return yearTrendFromReference(synthetic, periods, refYear, PERFORMANCE_CHART_YEAR_COUNT)
+    return balanceSheetYearTrendFromReference(
+      row,
+      periods,
+      refMonth,
+      refYear,
+      PERFORMANCE_CHART_YEAR_COUNT,
+    )
+  }
+  if (view === "24months") {
+    return monthTrendFromReference(
+      row,
+      periods,
+      refMonth,
+      refYear,
+      PERFORMANCE_CHART_MONTH_COUNT_24,
+    )
+  }
+  return null
+}
+
+function trendFromChartSeries(
+  series: StatementChartSeries,
+  rows: SeriesRow[],
+  periods: SeriesPeriod[],
+  view: string,
+  refMonth: number,
+  refYear: number,
+): number[] | null {
+  if (!isChartMetricSpecConfigured(series.spec)) return null
+  const vals = computeMetricSeries(series.spec, rows, periods)
+  if (!vals || vals.length !== periods.length) return null
+  const synthetic = buildSyntheticSeriesRow(periods, vals)
+  if (view === "years") {
+    return balanceSheetYearTrendFromReference(
+      synthetic,
+      periods,
+      refMonth,
+      refYear,
+      PERFORMANCE_CHART_YEAR_COUNT,
+    )
   }
   if (view === "24months") {
     return monthTrendFromReference(
@@ -102,41 +254,105 @@ function trendFromMonthlyAmounts(
   return null
 }
 
+function resolveFamilyTrend(
+  family: BalancePositionFamily,
+  chartConfig: StatementChartConfig | undefined,
+  rows: SeriesRow[],
+  periods: SeriesPeriod[],
+  structure: Record<string, unknown>[] | undefined,
+  view: string,
+  refMonth: number,
+  refYear: number,
+): number[] | null {
+  const configuredSeries = chartConfig?.series.find(
+    (s) => FINANCIAL_POSITION_SERIES_ID_TO_FAMILY[s.id] === family,
+  )
+  if (configuredSeries && isChartMetricSpecConfigured(configuredSeries.spec)) {
+    const fromConfig = trendFromChartSeries(
+      configuredSeries,
+      rows,
+      periods,
+      view,
+      refMonth,
+      refYear,
+    )
+    if (fromConfig) return fromConfig
+  }
+
+  return familyTrendFromSeriesRow(findFamilySeriesRow(rows, family, structure), periods, view, refMonth, refYear)
+}
+
+function addSeries(a: number[] | null, b: number[] | null): number[] | null {
+  if (!a && !b) return null
+  const len = Math.max(a?.length ?? 0, b?.length ?? 0)
+  if (!len) return null
+  return Array.from({ length: len }, (_, i) => (a?.[i] ?? 0) + (b?.[i] ?? 0))
+}
+
 function periodLabelsForView(view: string, refMonth: number, refYear: number, pointCount: number): string[] {
   if (view === "years") return yearLabelsFromReference(refYear, pointCount)
   if (view === "24months") return monthShortLabelsFromReference(refMonth, refYear, pointCount)
   return []
 }
 
-function countMappedBalanceAccounts(mappings: AccountMappingData[]): number {
-  return mappings.filter((m) => {
-    const family = deriveLinkCodeFamily(m.link_code ?? "")
-    return BALANCE_POSITION_FAMILIES.includes(family as BalancePositionFamily)
-  }).length
+function countMappedBalanceAccounts(rows: SeriesRow[], structure?: Record<string, unknown>[]): number {
+  const accountIds = new Set<string>()
+  for (const family of BALANCE_POSITION_FAMILIES) {
+    const familyRow = findFamilySeriesRow(rows, family, structure)
+    for (const detail of familyRow?.detailRows ?? []) {
+      if (detail.id?.trim()) accountIds.add(detail.id.trim())
+    }
+  }
+  return accountIds.size
 }
 
 export function buildFinancialPositionResult(params: {
   rows: SeriesRow[]
   periods: SeriesPeriod[]
-  mappings: AccountMappingData[]
+  mappings?: AccountMappingData[]
+  structure?: Record<string, unknown>[]
+  chartConfig?: StatementChartConfig
   view: string
   refMonth: number
   refYear: number
 }): FinancialPositionResult | null {
-  const { rows, periods, mappings, view, refMonth, refYear } = params
+  const { rows, periods, structure, chartConfig, view, refMonth, refYear } = params
   if (!rows.length || !periods.length) return null
 
+  const capC1Row = findSeriesRowByCode(rows, NET_INCOME_LINK_CODE)
+
   const familyTrends = Object.fromEntries(
-    BALANCE_POSITION_FAMILIES.map((family) => [
-      family,
-      trendFromMonthlyAmounts(
-        sumFamilyMonthlyAmounts(family, mappings, rows, periods),
+    BALANCE_POSITION_FAMILIES.map((family) => {
+      let trend = resolveFamilyTrend(
+        family,
+        chartConfig,
+        rows,
         periods,
+        structure,
         view,
         refMonth,
         refYear,
-      ),
-    ]),
+      )
+
+      if (family === "CAP" && capC1Row) {
+        const capSeries = chartConfig?.series.find((s) => s.id === "fp-cap")
+        const capUsesConfiguredCode = Boolean(
+          capSeries && isChartMetricSpecConfigured(capSeries.spec),
+        )
+        const capAlreadyIncludesC1 =
+          findFamilySeriesRow(rows, "CAP", structure)?.detailRows?.some(
+            (detail) => detail.id.trim().toUpperCase() === NET_INCOME_LINK_CODE,
+          ) ?? false
+        if (!capUsesConfiguredCode && !capAlreadyIncludesC1) {
+          trend = addSeries(
+            trend,
+            familyTrendFromSeriesRow(capC1Row, periods, view, refMonth, refYear),
+          )
+        }
+      }
+
+      return [family, trend]
+    }),
   ) as Record<BalancePositionFamily, number[] | null>
 
   const pointCount = Math.max(
@@ -144,7 +360,7 @@ export function buildFinancialPositionResult(params: {
     0,
   )
   if (!pointCount) {
-    return { points: [], mappedAccountCount: countMappedBalanceAccounts(mappings) }
+    return { points: [], mappedAccountCount: countMappedBalanceAccounts(rows, structure) }
   }
 
   const labels = periodLabelsForView(view, refMonth, refYear, pointCount)
@@ -168,9 +384,21 @@ export function buildFinancialPositionResult(params: {
     })
   }
 
+  const hasData = points.some(
+    (point) =>
+      Math.abs(point.act) > DATA_EPSILON ||
+      Math.abs(point.alt) > DATA_EPSILON ||
+      Math.abs(point.pct) > DATA_EPSILON ||
+      Math.abs(point.plt) > DATA_EPSILON ||
+      Math.abs(point.cap) > DATA_EPSILON,
+  )
+  if (!hasData) {
+    return { points: [], mappedAccountCount: countMappedBalanceAccounts(rows, structure) }
+  }
+
   return {
     points,
-    mappedAccountCount: countMappedBalanceAccounts(mappings),
+    mappedAccountCount: countMappedBalanceAccounts(rows, structure),
   }
 }
 

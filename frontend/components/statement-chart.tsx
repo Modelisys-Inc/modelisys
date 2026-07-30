@@ -22,7 +22,7 @@ import { TrendingUp, TrendingDown, ChevronDown, FileText, Settings, Trash2 } fro
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { useDivisionSeriesBundle } from "@/hooks/use-division-series-bundle"
 import { useStandardLinkCodesFlat } from "@/hooks/use-standard-link-codes"
-import { listAccountMappings, type AccountMappingData } from "@/lib/api"
+import { listAccountMappings, getStatementStructure, type AccountMappingData } from "@/lib/api"
 import { enrichRevenueSeriesForNarrative } from "@/lib/revenue-series-narrative-enrichment"
 import { buildRevenueContributiveMarginRows } from "@/lib/revenue-contributive-margin-table"
 import { RevenueContributiveMarginTable } from "@/components/diagnostic/v2/revenue-contributive-margin-table"
@@ -46,6 +46,7 @@ import { FinancialPositionChart } from "@/components/diagnostic/v2/financial-pos
 import { buildFinancialPositionResult } from "@/lib/financial-position"
 import { buildFinancialPositionBreakdownTables } from "@/lib/financial-position-breakdown"
 import { buildFinancialPositionNarrative } from "@/lib/financial-position-narrative"
+import type { FinancialPositionSettingsPanel } from "@/lib/financial-position-config"
 import { cn } from "@/lib/utils"
 import {
   dashboardCardFrameClass,
@@ -384,7 +385,10 @@ export function StatementChart({
   const seriesStatementType = seriesStatementTypeForChart(statementType)
   const perfConfig: StatementChartConfig = slot.config
   const [accountMappings, setAccountMappings] = useState<AccountMappingData[]>([])
+  const [balanceSheetStructure, setBalanceSheetStructure] = useState<Record<string, unknown>[] | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [financialPositionSettingsPanel, setFinancialPositionSettingsPanel] =
+    useState<FinancialPositionSettingsPanel | null>(null)
   const [visibleSeriesIds, setVisibleSeriesIds] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(slot.config.series.map((s) => [s.id, s.showOnChart])),
   )
@@ -444,6 +448,24 @@ export function StatementChart({
       cancelled = true
     }
   }, [companyId, needsMappingEnrichment, structureVersion])
+
+  useEffect(() => {
+    if (!companyId || !isFinancialPositionView) {
+      setBalanceSheetStructure(null)
+      return
+    }
+    let cancelled = false
+    getStatementStructure(companyId, "balance-sheet")
+      .then((data) => {
+        if (!cancelled) setBalanceSheetStructure((data.structure ?? []) as Record<string, unknown>[])
+      })
+      .catch(() => {
+        if (!cancelled) setBalanceSheetStructure([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, isFinancialPositionView, structureVersion])
 
   const divisionProfitabilitySlices = useMemo(() => {
     if (!isDivisionContributiveMarginView || !companyDivisions.length) return null
@@ -505,6 +527,8 @@ export function StatementChart({
       rows: seriesRows,
       periods: seriesPeriods,
       mappings: accountMappings,
+      structure: balanceSheetStructure ?? undefined,
+      chartConfig: slot.config,
       view,
       refMonth,
       refYear,
@@ -514,6 +538,8 @@ export function StatementChart({
     seriesRows,
     seriesPeriods,
     accountMappings,
+    balanceSheetStructure,
+    slot.config,
     view,
     refMonth,
     refYear,
@@ -531,6 +557,8 @@ export function StatementChart({
       rows: seriesRows,
       periods: seriesPeriods,
       mappings: accountMappings,
+      structure: balanceSheetStructure ?? undefined,
+      chartConfig: slot.config,
       view,
       refMonth,
       refYear,
@@ -542,6 +570,8 @@ export function StatementChart({
     seriesRows,
     seriesPeriods,
     accountMappings,
+    balanceSheetStructure,
+    slot.config,
     view,
     refMonth,
     refYear,
@@ -749,6 +779,23 @@ export function StatementChart({
     />
   )
 
+  const financialPositionSettingsDialog = isFinancialPositionView ? (
+    <StatementChartSettingsDialog
+      open={financialPositionSettingsPanel !== null}
+      onOpenChange={(open) => {
+        if (!open) setFinancialPositionSettingsPanel(null)
+      }}
+      statementType={configStatementType}
+      companyId={companyId ?? ""}
+      slot={slot}
+      financialPositionPanel={financialPositionSettingsPanel ?? undefined}
+      onSaved={() => {
+        onChartConfigSaved?.()
+        setFinancialPositionSettingsPanel(null)
+      }}
+    />
+  ) : null
+
   const slotBadge =
     chartSlotCount != null && chartSlotCount > 1 && chartSlotNumber != null ? (
       <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium tabular-nums text-slate-500">
@@ -793,6 +840,7 @@ export function StatementChart({
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#E0742D]" />
         </div>
         {settingsDialog}
+        {financialPositionSettingsDialog}
       </>
     )
   }
@@ -819,6 +867,7 @@ export function StatementChart({
           {companyId ? <p className="max-w-md text-center text-xs text-slate-500">{emptyHint}</p> : null}
         </div>
         {settingsDialog}
+        {financialPositionSettingsDialog}
       </>
     )
   }
@@ -848,6 +897,7 @@ export function StatementChart({
           {companyId ? <p className="max-w-md text-center text-xs text-slate-500">{emptyHint}</p> : null}
         </div>
         {settingsDialog}
+        {financialPositionSettingsDialog}
       </>
     )
   }
@@ -875,6 +925,7 @@ export function StatementChart({
             {companyId ? <p className="max-w-md text-center text-xs text-slate-500">{emptyHint}</p> : null}
           </div>
           {settingsDialog}
+        {financialPositionSettingsDialog}
         </>
       )
     }
@@ -925,6 +976,7 @@ export function StatementChart({
           ) : null}
         </div>
         {settingsDialog}
+        {financialPositionSettingsDialog}
       </>
     )
   }
@@ -1076,6 +1128,8 @@ export function StatementChart({
               points={financialPositionResult.points}
               currency={companyCurrency}
               view={view}
+              canConfigure={Boolean(companyId)}
+              onOpenPanelSettings={setFinancialPositionSettingsPanel}
             />
           ) : !isContributiveMarginTableView && !isFinancialPositionView ? (
           <div className="relative bg-white">
@@ -1307,6 +1361,7 @@ export function StatementChart({
           ) : null}
         </div>
         {settingsDialog}
+        {financialPositionSettingsDialog}
       </>
     )
 }

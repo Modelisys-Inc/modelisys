@@ -196,6 +196,72 @@ async function setupAuthAndCommonMocks(page: Page) {
           },
         ],
       }
+      const financialPositionConfig = {
+        version: 2,
+        chartTitle: "Situation financière",
+        series: [
+          {
+            id: "fp-act",
+            kind: "bar",
+            label: "Actif court terme",
+            spec: { type: "single", code: "ACT" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#3b82f6",
+            stackGroup: "fp-assets",
+          },
+          {
+            id: "fp-alt",
+            kind: "bar",
+            label: "Actif long terme",
+            spec: { type: "single", code: "ALT" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#10b981",
+            stackGroup: "fp-assets",
+          },
+          {
+            id: "fp-pct",
+            kind: "bar",
+            label: "Passif court terme",
+            spec: { type: "single", code: "PCT" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#f59e0b",
+            stackGroup: "fp-liabilities",
+          },
+          {
+            id: "fp-plt",
+            kind: "bar",
+            label: "Passif long terme",
+            spec: { type: "single", code: "PLT" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#8b5cf6",
+            stackGroup: "fp-liabilities",
+          },
+          {
+            id: "fp-cap",
+            kind: "bar",
+            label: "Capitaux propres",
+            spec: { type: "single", code: "CAP" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#06b6d4",
+            stackGroup: "fp-liabilities",
+          },
+        ],
+      }
       const config =
         statementType === "diagnostic-revenue"
           ? revenueConfig
@@ -203,6 +269,8 @@ async function setupAuthAndCommonMocks(page: Page) {
             ? marginConfig
             : statementType === "diagnostic-expenses"
               ? expensesConfig
+              : statementType === "diagnostic-financial-position"
+                ? financialPositionConfig
               : statementType === "balance-sheet"
                 ? balanceSheetConfig
                 : performanceConfig
@@ -901,15 +969,36 @@ test.describe("Page Diagnostic", () => {
 
   test("vue Situation financière : bilan consolidé société", async ({ page }) => {
     await setupAuthAndCommonMocks(page)
+    await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/balance-sheet`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          structure: [
+            { label: "Actif à court terme", isSection: true, linkCode: "ACT" },
+            { label: "Actif à long terme", isSection: true, linkCode: "ALT" },
+            { label: "Passif à court terme", isSection: true, linkCode: "PCT" },
+            { label: "Passif à long terme", isSection: true, linkCode: "PLT" },
+            { label: "Capitaux propres", isSection: true, linkCode: "CAP" },
+          ],
+        }),
+      }),
+    )
     await page.route("**/api/standard-link-codes/flat*", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify([
+          { code: "ACT-A", family: "ACT", parent_code: "ACT", is_leaf: false, is_active: true, label_sub_account: null, label_account: "Trésorerie", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
           { code: "ACT-A.1", family: "ACT", parent_code: "ACT-A", is_leaf: true, is_active: true, label_sub_account: "Encaisse", label_account: "Trésorerie", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
+          { code: "ALT-A", family: "ALT", parent_code: "ALT", is_leaf: false, is_active: true, label_sub_account: null, label_account: "Immobilisations", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
           { code: "ALT-A.1", family: "ALT", parent_code: "ALT-A", is_leaf: true, is_active: true, label_sub_account: "Immobilisations", label_account: "Immobilisations", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
+          { code: "PCT-A", family: "PCT", parent_code: "PCT", is_leaf: false, is_active: true, label_sub_account: null, label_account: "Fournisseurs", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
           { code: "PCT-A.1", family: "PCT", parent_code: "PCT-A", is_leaf: true, is_active: true, label_sub_account: "Fournisseurs", label_account: "Fournisseurs", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
+          { code: "CAP-A", family: "CAP", parent_code: "CAP", is_leaf: false, is_active: true, label_sub_account: null, label_account: "Capital", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
           { code: "CAP-A.1", family: "CAP", parent_code: "CAP-A", is_leaf: true, is_active: true, label_sub_account: "Capital", label_account: "Capital", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
+          { code: "CAP-C", family: "CAP", parent_code: "CAP", is_leaf: false, is_active: true, label_sub_account: null, label_account: "Résultat", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
+          { code: "CAP-C.1", family: "CAP", parent_code: "CAP-C", is_leaf: true, is_active: true, label_sub_account: "Bénéfices non répartis", label_account: "Résultat", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
         ]),
       }),
     )
@@ -1027,44 +1116,63 @@ test.describe("Page Diagnostic", () => {
             ],
             rows: [
               {
-                id: "1000",
-                linkCode: "ACT-A.1",
-                label: "Encaisse",
+                id: "ACT",
+                linkCode: "ACT",
+                label: "Actif à court terme",
                 isBold: false,
-                isSection: false,
+                isSection: true,
                 isResult: false,
                 amounts: { "2024-12": 108_000, "2025-12": 120_000 },
-                detailRows: [],
+                detailRows: [
+                  { id: "1000", label: "Encaisse", amounts: { "2024-12": 108_000, "2025-12": 120_000 } },
+                ],
               },
               {
-                id: "1500",
-                linkCode: "ALT-A.1",
-                label: "Immobilisations",
+                id: "ALT",
+                linkCode: "ALT",
+                label: "Actif à long terme",
                 isBold: false,
-                isSection: false,
+                isSection: true,
                 isResult: false,
                 amounts: { "2024-12": 252_000, "2025-12": 280_000 },
+                detailRows: [
+                  { id: "1500", label: "Immobilisations", amounts: { "2024-12": 252_000, "2025-12": 280_000 } },
+                ],
+              },
+              {
+                id: "PCT",
+                linkCode: "PCT",
+                label: "Passif à court terme",
+                isBold: false,
+                isSection: true,
+                isResult: false,
+                amounts: { "2024-12": 72_000, "2025-12": 80_000 },
+                detailRows: [
+                  { id: "2000", label: "Fournisseurs", amounts: { "2024-12": 72_000, "2025-12": 80_000 } },
+                ],
+              },
+              {
+                id: "PLT",
+                linkCode: "PLT",
+                label: "Passif à long terme",
+                isBold: false,
+                isSection: true,
+                isResult: false,
+                amounts: { "2024-12": 0, "2025-12": 0 },
                 detailRows: [],
               },
               {
-                id: "2000",
-                linkCode: "PCT-A.1",
-                label: "Fournisseurs",
+                id: "CAP",
+                linkCode: "CAP",
+                label: "Capitaux propres",
                 isBold: false,
-                isSection: false,
+                isSection: true,
                 isResult: false,
-                amounts: { "2024-12": -72_000, "2025-12": -80_000 },
-                detailRows: [],
-              },
-              {
-                id: "3000",
-                linkCode: "CAP-A.1",
-                label: "Capital",
-                isBold: false,
-                isSection: false,
-                isResult: false,
-                amounts: { "2024-12": -288_000, "2025-12": -320_000 },
-                detailRows: [],
+                amounts: { "2024-12": 288_000, "2025-12": 320_000 },
+                detailRows: [
+                  { id: "3000", label: "Capital", amounts: { "2024-12": 260_000, "2025-12": 290_000 } },
+                  { id: "CAP-C.1", label: "Bénéfices non répartis", amounts: { "2024-12": 28_000, "2025-12": 30_000 } },
+                ],
               },
             ],
           }),
@@ -1082,11 +1190,22 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByTestId("financial-position-chart")).toBeVisible()
     await expect(page.getByTestId("financial-position-chart-assets")).toBeVisible()
     await expect(page.getByTestId("financial-position-chart-liabilities")).toBeVisible()
+    await expect(page.getByTestId("financial-position-chart-assets-settings")).toBeVisible()
+    await expect(page.getByTestId("financial-position-chart-liabilities-settings")).toBeVisible()
+    await page.getByTestId("financial-position-chart-assets-settings").click()
+    await expect(page.getByRole("heading", { name: "Paramètres — Actif" })).toBeVisible()
+    await page.getByRole("button", { name: "Fermer" }).click()
     await expect(page.getByText("Actif court terme").first()).toBeVisible()
     await expect(page.getByText("Capitaux propres").first()).toBeVisible()
     await expect(page.getByRole("heading", { name: "Lecture de la situation financière" })).toBeVisible()
     await expect(page.getByRole("heading", { name: "Situation financière" }).nth(1)).toBeVisible()
     await expect(page.getByText("Actif à court terme", { exact: true }).first()).toBeVisible()
+    await expect(page.getByTestId("contributive-margin-evolution-ACT")).toBeVisible()
+    await page.getByTestId("contributive-margin-act-row").click()
+    await expect(page.getByText("ACT-A — Trésorerie")).toBeVisible()
+    await page.getByText("ACT-A — Trésorerie").click()
+    await expect(page.getByText("1000 — Encaisse")).toBeVisible()
+    await expect(page.getByTestId("contributive-margin-evolution-CAP")).toBeVisible()
     await expect(page.getByRole("button", { name: "Mensuel" })).toBeVisible()
     await page.getByRole("button", { name: "Mensuel" }).click()
     await expect(page.getByTestId("financial-position-chart")).toBeVisible()

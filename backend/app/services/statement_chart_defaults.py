@@ -255,6 +255,75 @@ def _diagnostic_expenses_default() -> dict:
     }
 
 
+def _diagnostic_financial_position_default() -> dict:
+    return {
+        "version": 2,
+        "chartTitle": "Situation financière",
+        "series": [
+            {
+                "id": "fp-act",
+                "kind": "bar",
+                "label": "Actif court terme",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[0],
+                "stackGroup": "fp-assets",
+            },
+            {
+                "id": "fp-alt",
+                "kind": "bar",
+                "label": "Actif long terme",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[1],
+                "stackGroup": "fp-assets",
+            },
+            {
+                "id": "fp-pct",
+                "kind": "bar",
+                "label": "Passif court terme",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[2],
+                "stackGroup": "fp-liabilities",
+            },
+            {
+                "id": "fp-plt",
+                "kind": "bar",
+                "label": "Passif long terme",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[3],
+                "stackGroup": "fp-liabilities",
+            },
+            {
+                "id": "fp-cap",
+                "kind": "bar",
+                "label": "Capitaux propres",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[5],
+                "stackGroup": "fp-liabilities",
+            },
+        ],
+    }
+
+
 _FACTORIES = {
     "income-statement": _income_statement_default,
     "balance-sheet": _balance_sheet_default,
@@ -263,7 +332,7 @@ _FACTORIES = {
     "diagnostic-margin-by-revenue": _diagnostic_margin_by_revenue_default,
     "diagnostic-expenses": _diagnostic_expenses_default,
     "diagnostic-expenses-by-division": _diagnostic_expenses_default,
-    "diagnostic-financial-position": _balance_sheet_default,
+    "diagnostic-financial-position": _diagnostic_financial_position_default,
 }
 
 

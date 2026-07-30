@@ -27,7 +27,10 @@ import {
   collectSummaryRowSourcesFromStructure,
   normalizeCodeList,
 } from "@/lib/income-statement-structure-utils"
-import { buildStandardLinkCodeLabelMap } from "@/lib/standard-link-code-utils"
+import {
+  financialPositionPanelTitle,
+  type FinancialPositionSettingsPanel,
+} from "@/lib/financial-position-config"
 import {
   DEFAULT_COLORS,
   defaultChartCardTitle,
@@ -440,6 +443,8 @@ interface StatementChartSettingsDialogProps {
   companyId: string
   slot: ChartSlot
   onSaved: () => void
+  /** Limite l’édition aux séries d’un panneau Situation financière (Actif ou Passif). */
+  financialPositionPanel?: FinancialPositionSettingsPanel
 }
 
 function SeriesSidebarItem({
@@ -572,6 +577,7 @@ export function StatementChartSettingsDialog({
   companyId,
   slot,
   onSaved,
+  financialPositionPanel,
 }: StatementChartSettingsDialogProps) {
   const [localConfig, setLocalConfig] = useState<StatementChartConfig>(slot.config)
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(
@@ -592,10 +598,23 @@ export function StatementChartSettingsDialog({
 
   useEffect(() => {
     setLocalConfig(slot.config)
-    setSelectedSeriesId(slot.config.series[0]?.id ?? null)
+    if (financialPositionPanel) {
+      const firstInPanel = slot.config.series.find((s) => s.stackGroup === financialPositionPanel)
+      setSelectedSeriesId(firstInPanel?.id ?? slot.config.series[0]?.id ?? null)
+    } else {
+      setSelectedSeriesId(slot.config.series[0]?.id ?? null)
+    }
     setStaleConflict(null)
     setSaveError(null)
-  }, [slot.chartInstanceId, slot.version, open])
+  }, [slot.chartInstanceId, slot.version, open, financialPositionPanel])
+
+  const panelSeriesEntries = useMemo(() => {
+    const entries = localConfig.series.map((series, index) => ({ series, index }))
+    if (!financialPositionPanel) return entries
+    return entries.filter(({ series }) => series.stackGroup === financialPositionPanel)
+  }, [localConfig.series, financialPositionPanel])
+
+  const isFinancialPositionPanelMode = Boolean(financialPositionPanel)
 
   useEffect(() => {
     if (!localConfig.series.some((s) => s.id === selectedSeriesId)) {
@@ -657,8 +676,14 @@ export function StatementChartSettingsDialog({
 
   const selectedIndex = localConfig.series.findIndex((s) => s.id === selectedSeriesId)
   const selectedSeries = selectedIndex >= 0 ? localConfig.series[selectedIndex] : null
-  const barCount = localConfig.series.filter((s) => s.kind === "bar").length
-  const lineCount = localConfig.series.filter((s) => s.kind === "line").length
+  const barCount = panelSeriesEntries.filter(({ series }) => series.kind === "bar").length
+  const lineCount = panelSeriesEntries.filter(({ series }) => series.kind === "line").length
+  const settingsTitle = financialPositionPanel
+    ? financialPositionPanelTitle(financialPositionPanel)
+    : "Paramètres du graphique"
+  const settingsDescription = financialPositionPanel
+    ? "Associez chaque barre à un code de liaison du Sommaire bilan. Les montants suivent l’horizon sélectionné (clôture de période)."
+    : `Configurez les histogrammes et courbes de ${defaultChartCardTitle(statementType).toLowerCase()}. Les données proviennent des mêmes codes de liaison que le Sommaire.`
 
   async function handleSave() {
     setSaving(true)
@@ -766,14 +791,14 @@ export function StatementChartSettingsDialog({
           </Button>
           <DialogHeader className="space-y-1 text-left">
             <DialogTitle className="text-lg font-semibold tracking-tight text-slate-900">
-              Paramètres du graphique
+              {settingsTitle}
             </DialogTitle>
             <DialogDescription className="text-sm text-slate-500">
-              Configurez les histogrammes et courbes de {defaultChartCardTitle(statementType).toLowerCase()}. Les
-              données proviennent des mêmes codes de liaison que le Sommaire.
+              {settingsDescription}
             </DialogDescription>
           </DialogHeader>
 
+          {!isFinancialPositionPanelMode ? (
           <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
             <div className="space-y-1.5">
               <Label htmlFor="perf-chart-card-title" className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -790,6 +815,9 @@ export function StatementChartSettingsDialog({
             </div>
             <p className="text-xs leading-snug text-slate-400 lg:max-w-xs lg:pb-2.5">{hint}</p>
           </div>
+          ) : (
+            <p className="mt-4 text-xs leading-snug text-slate-400">{hint}</p>
+          )}
         </div>
 
         {staleConflict && (
@@ -852,12 +880,13 @@ export function StatementChartSettingsDialog({
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-900">
                   Séries
-                  <span className="ml-1.5 font-normal text-slate-400">({localConfig.series.length})</span>
+                  <span className="ml-1.5 font-normal text-slate-400">({panelSeriesEntries.length})</span>
                 </h3>
                 <span className="text-[11px] text-slate-400">
                   {barCount} barre{barCount > 1 ? "s" : ""} · {lineCount} courbe{lineCount > 1 ? "s" : ""}
                 </span>
               </div>
+              {!isFinancialPositionPanelMode ? (
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -882,19 +911,20 @@ export function StatementChartSettingsDialog({
                   Courbe
                 </Button>
               </div>
+              ) : null}
             </div>
 
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 [scrollbar-width:thin]">
-              {localConfig.series.length === 0 ? (
+              {panelSeriesEntries.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-6 text-center text-xs text-slate-500">
-                  Ajoutez un histogramme ou une courbe pour commencer.
+                  Aucune série pour ce panneau.
                 </p>
               ) : (
-                localConfig.series.map((s, idx) => (
+                panelSeriesEntries.map(({ series: s, index: idx }, panelIdx) => (
                   <SeriesSidebarItem
                     key={s.id}
                     series={s}
-                    index={idx}
+                    index={panelIdx}
                     selected={s.id === selectedSeriesId}
                     linkCodeLabels={linkCodeLabels}
                     summaryRowSources={summaryRowSources}
@@ -902,9 +932,9 @@ export function StatementChartSettingsDialog({
                     onMoveUp={() => moveSeries(idx, -1)}
                     onMoveDown={() => moveSeries(idx, 1)}
                     onRemove={() => removeSeries(idx)}
-                    canRemove={localConfig.series.length > 1}
-                    isFirst={idx === 0}
-                    isLast={idx === localConfig.series.length - 1}
+                    canRemove={!isFinancialPositionPanelMode && localConfig.series.length > 1}
+                    isFirst={panelIdx === 0}
+                    isLast={panelIdx === panelSeriesEntries.length - 1}
                   />
                 ))
               )}
@@ -926,7 +956,8 @@ export function StatementChartSettingsDialog({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      Série {selectedIndex + 1} sur {localConfig.series.length}
+                      Série {panelSeriesEntries.findIndex((e) => e.series.id === selectedSeriesId) + 1} sur{" "}
+                      {panelSeriesEntries.length}
                     </p>
                     <h4 className="mt-1 text-lg font-semibold text-slate-900">
                       {selectedSeries.kind === "bar" ? "Histogramme" : "Courbe"}

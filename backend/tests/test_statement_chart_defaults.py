@@ -72,10 +72,16 @@ def test_diagnostic_expenses_by_division_default_matches_expenses():
     assert cfg == expenses
 
 
-def test_diagnostic_financial_position_default_matches_balance_sheet():
+def test_diagnostic_financial_position_default_has_five_family_series():
     cfg = seed_default_chart_config("diagnostic-financial-position")
-    balance = seed_default_chart_config("balance-sheet")
-    assert cfg == balance
+    assert cfg["chartTitle"] == "Situation financière"
+    assert len(cfg["series"]) == 5
+    ids = {s["id"] for s in cfg["series"]}
+    assert ids == {"fp-act", "fp-alt", "fp-pct", "fp-plt", "fp-cap"}
+    assets = [s for s in cfg["series"] if s.get("stackGroup") == "fp-assets"]
+    liabilities = [s for s in cfg["series"] if s.get("stackGroup") == "fp-liabilities"]
+    assert len(assets) == 2
+    assert len(liabilities) == 3
 
 
 def test_empty_link_codes_for_all_defaults():
