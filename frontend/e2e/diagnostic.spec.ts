@@ -1204,6 +1204,8 @@ test.describe("Page Diagnostic", () => {
     await page.getByTestId("contributive-margin-act-row").click()
     await expect(page.getByText("ACT-A — Trésorerie")).toBeVisible()
     await page.getByText("ACT-A — Trésorerie").click()
+    await expect(page.getByText("ACT-A.1 — Encaisse")).toBeVisible()
+    await page.getByText("ACT-A.1 — Encaisse").click()
     await expect(page.getByText("1000 — Encaisse")).toBeVisible()
     await expect(page.getByTestId("contributive-margin-evolution-CAP")).toBeVisible()
     await expect(page.getByRole("button", { name: "Mensuel" })).toBeVisible()

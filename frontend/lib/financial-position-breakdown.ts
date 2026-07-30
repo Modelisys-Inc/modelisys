@@ -366,6 +366,67 @@ function posteTrendFromSeries(
   )
 }
 
+function resolveLeafLinkCodeLabel(linkCode: string, codeByCode: StandardLinkCodeLookup): string {
+  const row = codeByCode.get(linkCode.trim())
+  if (row) return standardLinkCodeDisplayLabel(row)
+  const detail = mappingDetailFromLinkCode(linkCode, codeByCode)
+  return detail !== MAPPING_DERIVED_EMPTY ? detail : linkCode
+}
+
+function leafLinkCodesUnderPoste(
+  posteCode: string,
+  rows: SeriesRow[],
+  mappings: AccountMappingData[],
+  codeByCode: StandardLinkCodeLookup,
+): string[] {
+  const leaves = new Set<string>()
+  const poste = posteCode.trim()
+
+  for (const row of codeByCode.values()) {
+    if (row.parent_code?.trim() === poste && row.is_leaf) leaves.add(row.code)
+  }
+
+  for (const mapping of mappings) {
+    const linkCode = mapping.link_code?.trim()
+    if (!linkCode || linkCode === poste) continue
+    if (!mappingBelongsToPoste(linkCode, poste, codeByCode)) continue
+    if (resolveBalanceSheetPosteCode(linkCode, codeByCode) !== poste) continue
+    leaves.add(linkCode)
+  }
+
+  for (const detail of collectSeriesDetailsForPoste(poste, rows, codeByCode)) {
+    const id = detail.id?.trim()
+    if (id) leaves.add(id)
+  }
+
+  return [...leaves].sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+}
+
+function leafLinkCodeTrendFromSeries(
+  linkCode: string,
+  rows: SeriesRow[],
+  periods: SeriesPeriod[],
+  view: string,
+  refMonth: number,
+  refYear: number,
+  windowSize: number,
+): number[] | null {
+  const linkRow = findSeriesRowByCode(rows, linkCode)
+  if (linkRow) {
+    const trend = seriesRowBalanceTrend(linkRow, periods, view, refMonth, refYear)
+    if (trend && trend.length >= windowSize) return trend
+  }
+
+  for (const row of rows) {
+    const detail = row.detailRows?.find((child) => child.id?.trim() === linkCode)
+    if (!detail) continue
+    const trend = balanceDetailTrend(detail, periods, view, refMonth, refYear)
+    if (trend && trend.length >= windowSize) return trend
+  }
+
+  return null
+}
+
 function buildGlDetailRow(params: {
   accountNumber: string
   detail: SeriesDetailRow
@@ -389,6 +450,209 @@ function buildGlDetailRow(params: {
   }
 }
 
+function buildGlRowsUnderLeafLinkCode(params: {
+  linkCode: string
+  rows: SeriesRow[]
+  mappings: AccountMappingData[]
+  mappingsByAccount: Map<string, AccountMappingData>
+  periods: SeriesPeriod[]
+  view: string
+  refMonth: number
+  refYear: number
+  windowSize: number
+  codeByCode: StandardLinkCodeLookup
+}): ContributiveMarginEvolutionDetailRow[] {
+  const {
+    linkCode,
+    rows,
+    mappings,
+    mappingsByAccount,
+    periods,
+    view,
+    refMonth,
+    refYear,
+    windowSize,
+    codeByCode,
+  } = params
+
+  const leafRow = findSeriesRowByCode(rows, linkCode)
+  const glRows: ContributiveMarginEvolutionDetailRow[] = []
+  const seenAccounts = new Set<string>()
+
+  for (const detail of leafRow?.detailRows ?? []) {
+    const accountNumber = detail.id?.trim()
+    if (!accountNumber || seenAccounts.has(accountNumber)) continue
+    if (!isGlAccountDetailId(accountNumber, codeByCode)) continue
+
+    const glRow = buildGlDetailRow({
+      accountNumber,
+      detail,
+      mappingsByAccount,
+      periods,
+      view,
+      refMonth,
+      refYear,
+      windowSize,
+    })
+    if (glRow && rowHasVisibleAmounts(glRow.values, windowSize)) {
+      seenAccounts.add(accountNumber)
+      glRows.push(glRow)
+    }
+  }
+
+  const accountNumbers = [
+    ...new Set(
+      mappings
+        .filter((mapping) => mapping.link_code?.trim() === linkCode)
+        .map((mapping) => mapping.account_number),
+    ),
+  ].sort()
+
+  for (const accountNumber of accountNumbers) {
+    if (seenAccounts.has(accountNumber)) continue
+
+    const detail = findGlDetailInSeries(accountNumber, rows)
+    if (detail) {
+      const glRow = buildGlDetailRow({
+        accountNumber,
+        detail,
+        mappingsByAccount,
+        periods,
+        view,
+        refMonth,
+        refYear,
+        windowSize,
+      })
+      if (glRow && rowHasVisibleAmounts(glRow.values, windowSize)) {
+        seenAccounts.add(accountNumber)
+        glRows.push(glRow)
+      }
+      continue
+    }
+
+    const seriesRow = rows.find((row) => row.id === accountNumber)
+    if (!seriesRow) continue
+    const monthly = getRowAmounts(seriesRow, periods)
+    const synthetic = buildSyntheticSeriesRow(periods, monthly)
+    const trend = seriesRowBalanceTrend(synthetic, periods, view, refMonth, refYear)
+    if (!trend || trend.length < windowSize || !rowHasVisibleAmounts(trend, windowSize)) continue
+    seenAccounts.add(accountNumber)
+    glRows.push({
+      id: accountNumber,
+      label: resolveAccountLabel(
+        accountNumber,
+        { id: accountNumber, label: seriesRow.label, amounts: {} },
+        mappingsByAccount,
+      ),
+      displayKind: "gl-account",
+      values: trend.slice(0, windowSize),
+    })
+  }
+
+  return glRows.sort((a, b) => {
+    const aLatest = a.values[0] ?? 0
+    const bLatest = b.values[0] ?? 0
+    return (bLatest as number) - (aLatest as number)
+  })
+}
+
+function buildLeafLinkCodeDetailRow(params: {
+  linkCode: string
+  rows: SeriesRow[]
+  mappings: AccountMappingData[]
+  mappingsByAccount: Map<string, AccountMappingData>
+  periods: SeriesPeriod[]
+  view: string
+  refMonth: number
+  refYear: number
+  windowSize: number
+  codeByCode: StandardLinkCodeLookup
+}): ContributiveMarginEvolutionDetailRow | null {
+  const {
+    linkCode,
+    rows,
+    mappings,
+    mappingsByAccount,
+    periods,
+    view,
+    refMonth,
+    refYear,
+    windowSize,
+    codeByCode,
+  } = params
+
+  const glChildren = buildGlRowsUnderLeafLinkCode({
+    linkCode,
+    rows,
+    mappings,
+    mappingsByAccount,
+    periods,
+    view,
+    refMonth,
+    refYear,
+    windowSize,
+    codeByCode,
+  })
+
+  let trend = leafLinkCodeTrendFromSeries(
+    linkCode,
+    rows,
+    periods,
+    view,
+    refMonth,
+    refYear,
+    windowSize,
+  )
+
+  if (!trend && glChildren.length) {
+    trend = glChildren.reduce(
+      (acc, child) => sumNullableSeries(acc, child.values),
+      glChildren[0]!.values.map(() => 0 as number | null),
+    )
+  }
+
+  if (!trend || trend.length < windowSize || !rowHasVisibleAmounts(trend, windowSize)) return null
+
+  return {
+    id: linkCode,
+    label: resolveLeafLinkCodeLabel(linkCode, codeByCode),
+    displayKind: "link-code",
+    values: trend.slice(0, windowSize),
+    detailRows: glChildren.length ? glChildren : undefined,
+  }
+}
+
+function buildLeafLinkCodeRowsUnderPoste(params: {
+  posteCode: string
+  rows: SeriesRow[]
+  mappings: AccountMappingData[]
+  mappingsByAccount: Map<string, AccountMappingData>
+  periods: SeriesPeriod[]
+  view: string
+  refMonth: number
+  refYear: number
+  windowSize: number
+  codeByCode: StandardLinkCodeLookup
+}): ContributiveMarginEvolutionDetailRow[] {
+  const leafCodes = leafLinkCodesUnderPoste(
+    params.posteCode,
+    params.rows,
+    params.mappings,
+    params.codeByCode,
+  )
+
+  return leafCodes
+    .map((linkCode) => buildLeafLinkCodeDetailRow({ ...params, linkCode }))
+    .map((row) => (row ? filterZeroDetailRow(row, params.windowSize) : null))
+    .filter((row): row is ContributiveMarginEvolutionDetailRow => row !== null)
+    .sort((a, b) => {
+      const aLatest = a.values[0] ?? 0
+      const bLatest = b.values[0] ?? 0
+      return (bLatest as number) - (aLatest as number)
+    })
+}
+
+/** Repli : comptes GL rattachés directement au poste sans sous-code feuille. */
 function buildGlRowsUnderPoste(params: {
   posteCode: string
   rows: SeriesRow[]
@@ -522,7 +786,6 @@ function buildPosteDetailRow(params: {
     codeByCode,
   } = params
 
-  const posteRow = findSeriesRowByCode(rows, posteCode)
   let trend = posteTrendFromSeries(
     posteCode,
     rows,
@@ -534,7 +797,7 @@ function buildPosteDetailRow(params: {
     codeByCode,
   )
 
-  const glChildren = buildGlRowsUnderPoste({
+  const leafChildren = buildLeafLinkCodeRowsUnderPoste({
     posteCode,
     rows,
     mappings,
@@ -546,6 +809,22 @@ function buildPosteDetailRow(params: {
     windowSize,
     codeByCode,
   })
+
+  const glChildren =
+    leafChildren.length > 0
+      ? leafChildren
+      : buildGlRowsUnderPoste({
+          posteCode,
+          rows,
+          mappings,
+          mappingsByAccount,
+          periods,
+          view,
+          refMonth,
+          refYear,
+          windowSize,
+          codeByCode,
+        })
 
   if (!trend && glChildren.length) {
     trend = glChildren.reduce(

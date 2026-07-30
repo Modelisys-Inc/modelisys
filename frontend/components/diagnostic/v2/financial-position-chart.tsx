@@ -60,7 +60,7 @@ function GroupedBarPanel({
     return cfg
   }, [series])
 
-  const displayData = useMemo(() => [...data].reverse(), [data])
+  const displayData = data
 
   return (
     <div data-testid={testId} className="rounded-xl border border-slate-200 bg-white">

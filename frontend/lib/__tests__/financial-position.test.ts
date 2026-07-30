@@ -457,7 +457,11 @@ describe("buildFinancialPositionBreakdownTables", () => {
     const actTable = tables.get(familyHeading("ACT"))
     expect(actTable?.metrics[0]?.detailRows?.[0]?.id).toBe("ACT-A")
     expect(actTable?.metrics[0]?.detailRows?.[0]?.displayKind).toBe("link-code")
-    expect(actTable?.metrics[0]?.detailRows?.[0]?.detailRows?.[0]?.displayKind).toBe("gl-account")
+    expect(actTable?.metrics[0]?.detailRows?.[0]?.detailRows?.[0]?.id).toBe("ACT-A.1")
+    expect(actTable?.metrics[0]?.detailRows?.[0]?.detailRows?.[0]?.displayKind).toBe("link-code")
+    expect(actTable?.metrics[0]?.detailRows?.[0]?.detailRows?.[0]?.detailRows?.[0]?.displayKind).toBe(
+      "gl-account",
+    )
     const capTable = tables.get(familyHeading("CAP"))
     expect(capTable?.metrics[0]?.detailRows?.every((row) => row.displayKind === "link-code")).toBe(true)
     expect(capTable?.metrics[0]?.detailRows?.map((row) => row.id)).toEqual(
