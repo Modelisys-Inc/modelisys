@@ -72,6 +72,12 @@ def test_diagnostic_expenses_by_division_default_matches_expenses():
     assert cfg == expenses
 
 
+def test_diagnostic_financial_position_default_matches_balance_sheet():
+    cfg = seed_default_chart_config("diagnostic-financial-position")
+    balance = seed_default_chart_config("balance-sheet")
+    assert cfg == balance
+
+
 def test_empty_link_codes_for_all_defaults():
     """Defaults pre-build series shape but leave link codes blank — the user picks them."""
     for stype in (
@@ -80,8 +86,9 @@ def test_empty_link_codes_for_all_defaults():
         "cash-flow",
         "diagnostic-revenue",
         "diagnostic-margin-by-revenue",
-        "diagnostic-expenses",
-        "diagnostic-expenses-by-division",
+      "diagnostic-expenses",
+      "diagnostic-expenses-by-division",
+      "diagnostic-financial-position",
     ):
         cfg = seed_default_chart_config(stype)
         for s in cfg["series"]:

@@ -13,6 +13,7 @@ export type DiagnosticReportView =
   | "margin-by-revenue"
   | "expenses"
   | "expenses-by-division"
+  | "financial-position"
 
 export interface DiagnosticReportViewOption {
   id: DiagnosticReportView

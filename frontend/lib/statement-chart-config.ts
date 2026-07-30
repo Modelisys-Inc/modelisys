@@ -13,6 +13,7 @@ export type StatementType =
   | "diagnostic-margin-by-revenue"
   | "diagnostic-expenses"
   | "diagnostic-expenses-by-division"
+  | "diagnostic-financial-position"
 
 export type CoreStatementType = "income-statement" | "balance-sheet" | "cash-flow"
 
@@ -88,6 +89,7 @@ export function defaultChartCardTitle(statementType: StatementType): string {
   if (statementType === "diagnostic-margin-by-revenue") return "Marge par Revenus"
   if (statementType === "diagnostic-expenses") return "Dépenses"
   if (statementType === "diagnostic-expenses-by-division") return "Divisions"
+  if (statementType === "diagnostic-financial-position") return "Situation financière"
   if (statementType === "balance-sheet") return "Bilan"
   return "Flux de trésorerie"
 }
@@ -98,6 +100,7 @@ export function seriesStatementTypeForChart(statementType: StatementType): CoreS
   if (statementType === "diagnostic-margin-by-revenue") return "income-statement"
   if (statementType === "diagnostic-expenses") return "income-statement"
   if (statementType === "diagnostic-expenses-by-division") return "income-statement"
+  if (statementType === "diagnostic-financial-position") return "balance-sheet"
   return statementType
 }
 

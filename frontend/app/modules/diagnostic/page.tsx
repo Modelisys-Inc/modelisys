@@ -37,6 +37,7 @@ const REPORT_VIEWS = [
   { id: "margin-by-revenue" as const, label: "Marge par Revenus" },
   { id: "expenses" as const, label: "Dépenses" },
   { id: "expenses-by-division" as const, label: "Divisions" },
+  { id: "financial-position" as const, label: "Situation financière" },
 ]
 
 const SCROLL_SECTIONS = [

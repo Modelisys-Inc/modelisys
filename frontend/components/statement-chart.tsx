@@ -42,6 +42,10 @@ import {
 import { buildDivisionProfitabilityEvolutionTables } from "@/lib/division-profitability-evolution"
 import { buildDivisionProfitabilityNarrative } from "@/lib/division-profitability-narrative"
 import { DivisionProfitabilityTable } from "@/components/diagnostic/v2/division-profitability-table"
+import { FinancialPositionChart } from "@/components/diagnostic/v2/financial-position-chart"
+import { buildFinancialPositionResult } from "@/lib/financial-position"
+import { buildFinancialPositionBreakdownTables } from "@/lib/financial-position-breakdown"
+import { buildFinancialPositionNarrative } from "@/lib/financial-position-narrative"
 import { cn } from "@/lib/utils"
 import {
   dashboardCardFrameClass,
@@ -147,7 +151,7 @@ interface StatementChartProps {
   /** Contour de carte : tableau de bord IS (défaut) ou rapport Diagnostic (bordure pâle). */
   cardAppearance?: "dashboard" | "diagnostic"
   /** Portée de la lecture narrative sous le graphique. */
-  narrativeScope?: "full" | "revenue-only" | "margin-by-revenue-only" | "expenses-only" | "expenses-by-division-only"
+  narrativeScope?: "full" | "revenue-only" | "margin-by-revenue-only" | "expenses-only" | "expenses-by-division-only" | "financial-position-only"
   /** Type de config persistée (ex. Marge par Revenus lit la config Revenus). */
   chartConfigStatementType?: StatementType
 }
@@ -229,6 +233,10 @@ const NARRATIVE_SECTION_META: Record<
     description:
       "Revenus, coûts variables et fixes, marge contributive et bénéfice d'exploitation par division.",
   },
+  "financial-position": {
+    title: "Situation financière",
+    description: "Actifs, passifs et capitaux propres de la société de référence.",
+  },
 }
 
 function groupNarrativeParagraphs(paragraphs: PerformanceNarrativeResultNonNull["paragraphs"]) {
@@ -237,7 +245,7 @@ function groupNarrativeParagraphs(paragraphs: PerformanceNarrativeResultNonNull[
     return [{ id: "default", title: null as string | null, description: null as string | null, className: undefined, paragraphs }]
   }
 
-  const order = ["revenue-performance", "contributive-margin", "division-profitability", "revenue-mix"] as const
+  const order = ["revenue-performance", "contributive-margin", "division-profitability", "financial-position", "revenue-mix"] as const
   const groups: Array<{
     id: string
     title: string | null
@@ -366,10 +374,11 @@ export function StatementChart({
 }: StatementChartProps) {
   const isContributiveMarginView = narrativeScope === "margin-by-revenue-only"
   const isDivisionContributiveMarginView = narrativeScope === "expenses-by-division-only"
+  const isFinancialPositionView = narrativeScope === "financial-position-only"
   const isContributiveMarginTableView = isContributiveMarginView || isDivisionContributiveMarginView
   const isExpensesBridgeView = narrativeScope === "expenses-only"
   const needsMappingEnrichment =
-    isContributiveMarginView || isExpensesBridgeView || isDivisionContributiveMarginView
+    isContributiveMarginView || isExpensesBridgeView || isDivisionContributiveMarginView || isFinancialPositionView
   const configStatementType = chartConfigStatementType ?? statementType
   const { card: cardFrameClass, showAccent: showCardAccent } = resolveStatementChartCardClasses(cardAppearance)
   const seriesStatementType = seriesStatementTypeForChart(statementType)
@@ -490,6 +499,55 @@ export function StatementChart({
     standardLinkCodes,
   ])
 
+  const financialPositionResult = useMemo(() => {
+    if (!isFinancialPositionView || !seriesRows.length || !seriesPeriods.length) return null
+    return buildFinancialPositionResult({
+      rows: seriesRows,
+      periods: seriesPeriods,
+      mappings: accountMappings,
+      view,
+      refMonth,
+      refYear,
+    })
+  }, [
+    isFinancialPositionView,
+    seriesRows,
+    seriesPeriods,
+    accountMappings,
+    view,
+    refMonth,
+    refYear,
+  ])
+
+  const financialPositionNarrative = useMemo(() => {
+    if (!isFinancialPositionView || !financialPositionResult?.points.length) return null
+    return buildFinancialPositionNarrative(financialPositionResult, view)
+  }, [isFinancialPositionView, financialPositionResult, view])
+
+  const financialPositionBreakdownTables = useMemo(() => {
+    if (!isFinancialPositionView || !financialPositionResult?.points.length) return null
+    return buildFinancialPositionBreakdownTables({
+      result: financialPositionResult,
+      rows: seriesRows,
+      periods: seriesPeriods,
+      mappings: accountMappings,
+      view,
+      refMonth,
+      refYear,
+      standardLinkCodes,
+    })
+  }, [
+    isFinancialPositionView,
+    financialPositionResult,
+    seriesRows,
+    seriesPeriods,
+    accountMappings,
+    view,
+    refMonth,
+    refYear,
+    standardLinkCodes,
+  ])
+
   const expenseContributionBridge = useMemo(() => {
     if (!isExpensesBridgeView || !seriesRows.length || !seriesPeriods.length) return null
     return buildExpenseContributionBridge({
@@ -587,7 +645,8 @@ export function StatementChart({
   const seriesMeta = dynamicBuild?.series ?? []
 
   const effectiveLoading =
-    loading || seriesLoading || (isDivisionContributiveMarginView && divisionSeriesLoading)
+    loading ||
+    (isDivisionContributiveMarginView ? divisionSeriesLoading : seriesLoading)
 
   const narrativeSeriesMeta = useMemo(
     () => seriesMeta.filter((m) => visibleSeriesIds[m.id] !== false),
@@ -701,7 +760,7 @@ export function StatementChart({
 
   const defaultTitle = defaultChartCardTitle(statementType)
   const storedChartTitle = perfConfig.chartTitle.trim()
-  const cardTitle = isContributiveMarginTableView
+  const cardTitle = isContributiveMarginTableView || isFinancialPositionView
     ? defaultTitle
     : storedChartTitle && storedChartTitle !== defaultTitle
       ? storedChartTitle
@@ -764,6 +823,35 @@ export function StatementChart({
     )
   }
 
+  if (
+    isFinancialPositionView &&
+    (!financialPositionResult || !financialPositionResult.points.length)
+  ) {
+    const emptyMessage =
+      "Impossible de construire la situation financière : vérifiez le mapping bilan (familles ACT, ALT, PCT, PLT, CAP)."
+    const emptyHint =
+      "Les comptes du bilan doivent être mappés à des codes de liaison dans Paramètres → Mapping comptable."
+
+    return (
+      <>
+        <div
+          className={`mb-6 flex min-h-64 flex-col items-center justify-center gap-3 px-4 py-8 ${cardFrameClass}`}
+          data-testid="financial-position-no-data"
+        >
+          {showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
+          {embeddedHorizon ? (
+            <div className="relative mb-2 w-full max-w-xl border-b border-slate-100 pb-4">
+              <EmbeddedHorizonToggle {...embeddedHorizon} />
+            </div>
+          ) : null}
+          <p className="relative text-center text-sm text-[#5C5F66]">{emptyMessage}</p>
+          {companyId ? <p className="max-w-md text-center text-xs text-slate-500">{emptyHint}</p> : null}
+        </div>
+        {settingsDialog}
+      </>
+    )
+  }
+
   if (isExpensesBridgeView) {
     if (!seriesRows.length || !seriesPeriods.length || !expenseContributionBridge?.points.length) {
       const emptyMessage =
@@ -792,6 +880,7 @@ export function StatementChart({
     }
   } else if (
     !isDivisionContributiveMarginView &&
+    !isFinancialPositionView &&
     (!dynamicPoints || !dynamicPoints.length || !seriesMeta.length)
   ) {
     const emptyMessage = isContributiveMarginView
@@ -853,9 +942,11 @@ export function StatementChart({
             ? "contributive-margin-report"
             : isDivisionContributiveMarginView
               ? "division-contributive-margin-report"
-              : isExpensesBridgeView
-                ? "expense-contribution-bridge-report"
-                : undefined
+              : isFinancialPositionView
+                ? "financial-position-report"
+                : isExpensesBridgeView
+                  ? "expense-contribution-bridge-report"
+                  : undefined
         }
       >
         {showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
@@ -918,6 +1009,11 @@ export function StatementChart({
                         <span className="text-slate-300">•</span>
                         <span className="text-xs text-slate-500">Affectations division dans le mapping comptable</span>
                       </>
+                    ) : isFinancialPositionView ? (
+                      <>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-xs text-slate-500">Bilan consolidé (ACT, ALT, PCT, PLT, CAP)</span>
+                      </>
                     ) : isExpensesBridgeView ? (
                       <>
                         <span className="text-slate-300">•</span>
@@ -928,7 +1024,7 @@ export function StatementChart({
                 </div>
               </div>
               <div className="flex min-w-0 max-w-full shrink flex-wrap items-center justify-end gap-3">
-                {!isContributiveMarginTableView && !isExpensesBridgeView ? (
+                {!isContributiveMarginTableView && !isExpensesBridgeView && !isFinancialPositionView ? (
                 <div className="flex min-w-0 max-w-[min(100%,28rem)] flex-wrap items-center justify-end gap-x-4 gap-y-2">
                   {seriesMeta.map((m) => (
                     <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
@@ -944,7 +1040,7 @@ export function StatementChart({
                 </div>
                 ) : null}
                 <div className="flex shrink-0 items-center gap-1">
-                  {companyId && !isExpensesBridgeView && !isDivisionContributiveMarginView ? (
+                  {companyId && !isExpensesBridgeView && !isDivisionContributiveMarginView && !isFinancialPositionView ? (
                     <Button
                       type="button"
                       variant="outline"
@@ -975,7 +1071,13 @@ export function StatementChart({
               variableCostAccountCount={expenseContributionBridge.mappingStatus.variableCostAccountCount}
               fixedCostAccountCount={expenseContributionBridge.mappingStatus.fixedCostAccountCount}
             />
-          ) : !isContributiveMarginTableView ? (
+          ) : isFinancialPositionView && financialPositionResult?.points.length ? (
+            <FinancialPositionChart
+              points={financialPositionResult.points}
+              currency={companyCurrency}
+              view={view}
+            />
+          ) : !isContributiveMarginTableView && !isFinancialPositionView ? (
           <div className="relative bg-white">
             <div className="px-6 py-6 sm:px-7">
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
@@ -1162,6 +1264,21 @@ export function StatementChart({
                 return (
                   <RevenueContributiveMarginEvolutionTable
                     table={evolution}
+                    currency={companyCurrency}
+                  />
+                )
+              }}
+            />
+          ) : null}
+          {financialPositionNarrative ? (
+            <IncomePerformanceNarrativeSection
+              narrative={financialPositionNarrative}
+              renderAfterParagraph={(paragraph) => {
+                const breakdown = financialPositionBreakdownTables?.get(paragraph.heading)
+                if (!breakdown) return null
+                return (
+                  <RevenueContributiveMarginEvolutionTable
+                    table={breakdown}
                     currency={companyCurrency}
                   />
                 )

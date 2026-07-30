@@ -16,6 +16,7 @@ export type DiagnosticChartNarrativeScope =
   | "margin-by-revenue-only"
   | "expenses-only"
   | "expenses-by-division-only"
+  | "financial-position-only"
 
 function parseFiscalEndMonth(fiscalYearEnd?: string): number {
   const raw = fiscalYearEnd?.split("-")[0]
@@ -40,6 +41,12 @@ function resolveReportChartConfig(reportView: DiagnosticReportView): {
     return {
       statementType: "diagnostic-expenses-by-division",
       narrativeScope: "expenses-by-division-only",
+    }
+  }
+  if (reportView === "financial-position") {
+    return {
+      statementType: "diagnostic-financial-position",
+      narrativeScope: "financial-position-only",
     }
   }
   return { statementType: "income-statement", narrativeScope: "full" }
@@ -75,7 +82,9 @@ export function DiagnosticReportChartSection({
       ? "diagnostic-revenue"
       : reportView === "expenses-by-division"
         ? "diagnostic-expenses"
-        : statementType
+        : reportView === "financial-position"
+          ? "balance-sheet"
+          : statementType
 
   const { slots, activeSlotId, setActiveSlotId, refresh, loading } = useStatementChartSlots(
     companyId,

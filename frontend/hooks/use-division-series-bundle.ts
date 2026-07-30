@@ -17,6 +17,7 @@ interface UseDivisionSeriesBundleParams {
   months?: number
   enabled?: boolean
   structureVersion?: number
+  statementType?: "income-statement" | "balance-sheet"
 }
 
 interface UseDivisionSeriesBundleReturn {
@@ -33,6 +34,7 @@ export function useDivisionSeriesBundle({
   months = 12,
   enabled = true,
   structureVersion = 0,
+  statementType = "income-statement",
 }: UseDivisionSeriesBundleParams): UseDivisionSeriesBundleReturn {
   const [bundles, setBundles] = useState<DivisionSeriesBundle[]>([])
   const [loading, setLoading] = useState(false)
@@ -52,7 +54,7 @@ export function useDivisionSeriesBundle({
 
     Promise.all(
       divisions.map(async (division) => {
-        const response = await getFinancialStatementSeries(companyId, "income-statement", {
+        const response = await getFinancialStatementSeries(companyId, statementType, {
           fiscal_year: fiscalYear,
           month,
           months,
@@ -82,7 +84,7 @@ export function useDivisionSeriesBundle({
     return () => {
       cancelled = true
     }
-  }, [companyId, divisions, fiscalYear, month, months, enabled, structureVersion])
+  }, [companyId, divisions, fiscalYear, month, months, enabled, structureVersion, statementType])
 
   return { bundles, loading, error }
 }

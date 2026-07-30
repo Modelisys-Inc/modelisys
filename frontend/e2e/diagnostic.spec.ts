@@ -179,6 +179,23 @@ async function setupAuthAndCommonMocks(page: Page) {
           },
         ],
       }
+      const balanceSheetConfig = {
+        version: 2,
+        chartTitle: "Bilan",
+        series: [
+          {
+            id: "bs-a",
+            kind: "bar",
+            label: "Actifs",
+            spec: { type: "single", code: "ACT-A" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#3b82f6",
+          },
+        ],
+      }
       const config =
         statementType === "diagnostic-revenue"
           ? revenueConfig
@@ -186,7 +203,9 @@ async function setupAuthAndCommonMocks(page: Page) {
             ? marginConfig
             : statementType === "diagnostic-expenses"
               ? expensesConfig
-              : performanceConfig
+              : statementType === "balance-sheet"
+                ? balanceSheetConfig
+                : performanceConfig
       return route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -878,6 +897,199 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByRole("heading", { name: "Lecture de la rentabilité par division" })).toBeVisible()
     await expect(page.getByRole("heading", { name: "Analyse par divisions" })).toBeVisible()
     await expect(page.getByTestId("division-profitability-table").getByText("Bén. expl.", { exact: true }).first()).toBeVisible()
+  })
+
+  test("vue Situation financière : bilan consolidé société", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await page.route("**/api/standard-link-codes/flat*", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          { code: "ACT-A.1", family: "ACT", parent_code: "ACT-A", is_leaf: true, is_active: true, label_sub_account: "Encaisse", label_account: "Trésorerie", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
+          { code: "ALT-A.1", family: "ALT", parent_code: "ALT-A", is_leaf: true, is_active: true, label_sub_account: "Immobilisations", label_account: "Immobilisations", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
+          { code: "PCT-A.1", family: "PCT", parent_code: "PCT-A", is_leaf: true, is_active: true, label_sub_account: "Fournisseurs", label_account: "Fournisseurs", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
+          { code: "CAP-A.1", family: "CAP", parent_code: "CAP-A", is_leaf: true, is_active: true, label_sub_account: "Capital", label_account: "Capital", ft_category: null, account_type: null, coa_version: 1, deprecated_at: null },
+        ]),
+      }),
+    )
+    await page.route(`**/api/companies/${COMPANY_ID}/account-mappings`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          mappings: [
+            {
+              id: "bs-m1",
+              account_number: "1000",
+              description: "Encaisse",
+              link_code: "ACT-A.1",
+              summary_ef: null,
+              detail_ef: null,
+              divisions: null,
+              sub_divisions: null,
+              fdrhc: false,
+              interests: false,
+              amortization: false,
+              variable_costs: false,
+              fixed_costs: false,
+              variable_cost_revenue_link_code: null,
+              liability_remaining_years: null,
+              liability_interest_rate: null,
+              product: null,
+              customer: null,
+              supplier: null,
+              interco_company_id: null,
+            },
+            {
+              id: "bs-m2",
+              account_number: "1500",
+              description: "Immobilisations",
+              link_code: "ALT-A.1",
+              summary_ef: null,
+              detail_ef: null,
+              divisions: null,
+              sub_divisions: null,
+              fdrhc: false,
+              interests: false,
+              amortization: false,
+              variable_costs: false,
+              fixed_costs: false,
+              variable_cost_revenue_link_code: null,
+              liability_remaining_years: null,
+              liability_interest_rate: null,
+              product: null,
+              customer: null,
+              supplier: null,
+              interco_company_id: null,
+            },
+            {
+              id: "bs-m3",
+              account_number: "2000",
+              description: "Fournisseurs",
+              link_code: "PCT-A.1",
+              summary_ef: null,
+              detail_ef: null,
+              divisions: null,
+              sub_divisions: null,
+              fdrhc: false,
+              interests: false,
+              amortization: false,
+              variable_costs: false,
+              fixed_costs: false,
+              variable_cost_revenue_link_code: null,
+              liability_remaining_years: null,
+              liability_interest_rate: null,
+              product: null,
+              customer: null,
+              supplier: null,
+              interco_company_id: null,
+            },
+            {
+              id: "bs-m4",
+              account_number: "3000",
+              description: "Capital",
+              link_code: "CAP-A.1",
+              summary_ef: null,
+              detail_ef: null,
+              divisions: null,
+              sub_divisions: null,
+              fdrhc: false,
+              interests: false,
+              amortization: false,
+              variable_costs: false,
+              fixed_costs: false,
+              variable_cost_revenue_link_code: null,
+              liability_remaining_years: null,
+              liability_interest_rate: null,
+              product: null,
+              customer: null,
+              supplier: null,
+              interco_company_id: null,
+            },
+          ],
+        }),
+      }),
+    )
+    await page.route(
+      `**/api/companies/${COMPANY_ID}/financial-statements/balance-sheet/series*`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            companyId: COMPANY_ID,
+            statementType: "balance-sheet",
+            fiscalYear: 2025,
+            periods: [
+              { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
+              { fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" },
+            ],
+            rows: [
+              {
+                id: "1000",
+                linkCode: "ACT-A.1",
+                label: "Encaisse",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: { "2024-12": 108_000, "2025-12": 120_000 },
+                detailRows: [],
+              },
+              {
+                id: "1500",
+                linkCode: "ALT-A.1",
+                label: "Immobilisations",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: { "2024-12": 252_000, "2025-12": 280_000 },
+                detailRows: [],
+              },
+              {
+                id: "2000",
+                linkCode: "PCT-A.1",
+                label: "Fournisseurs",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: { "2024-12": -72_000, "2025-12": -80_000 },
+                detailRows: [],
+              },
+              {
+                id: "3000",
+                linkCode: "CAP-A.1",
+                label: "Capital",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: { "2024-12": -288_000, "2025-12": -320_000 },
+                detailRows: [],
+              },
+            ],
+          }),
+        }),
+    )
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(DIAGNOSTIC_PAGE_URL)
+
+    await page.getByRole("button", { name: "Situation financière", exact: true }).click()
+
+    await expect(page.getByTestId("financial-position-report")).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByTestId("financial-position-chart")).toBeVisible()
+    await expect(page.getByTestId("financial-position-chart-assets")).toBeVisible()
+    await expect(page.getByTestId("financial-position-chart-liabilities")).toBeVisible()
+    await expect(page.getByText("Actif court terme").first()).toBeVisible()
+    await expect(page.getByText("Capitaux propres").first()).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Lecture de la situation financière" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Situation financière" }).nth(1)).toBeVisible()
+    await expect(page.getByText("Actif à court terme", { exact: true }).first()).toBeVisible()
+    await expect(page.getByRole("button", { name: "Mensuel" })).toBeVisible()
+    await page.getByRole("button", { name: "Mensuel" }).click()
+    await expect(page.getByTestId("financial-position-chart")).toBeVisible()
   })
 
   test("tiroir de détail : ouverture depuis une ligne de division, fermeture par Échap", async ({
