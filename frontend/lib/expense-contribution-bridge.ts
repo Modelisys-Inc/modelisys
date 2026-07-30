@@ -113,7 +113,7 @@ function bridgeWindowSize(pointCount: number, view: string): number {
   return Math.min(MONTHLY_BRIDGE_COUNT, pointCount)
 }
 
-function resolveRevenueLeafCodes(
+export function resolveRevenueLeafCodes(
   standardLinkCodes: StandardLinkCode[] | undefined,
   rows: SeriesRow[],
 ): string[] {

@@ -57,7 +57,7 @@ function resolveParentGroupForAccount(
   return { id: linkCode, label: linkCode }
 }
 
-function buildGroupedDetailRows(params: {
+export function buildGroupedEvolutionDetailRows(params: {
   accountNumbers: string[]
   mappingsByAccount: Map<string, AccountMappingData>
   rows: SeriesRow[]
@@ -67,6 +67,11 @@ function buildGroupedDetailRows(params: {
   refYear: number
   windowSize: number
   codeByCode: StandardLinkCodeLookup
+  resolveParentGroup?: (
+    accountNumber: string,
+    mappingsByAccount: Map<string, AccountMappingData>,
+    codeByCode: StandardLinkCodeLookup,
+  ) => { id: string; label: string }
 }): ContributiveMarginEvolutionDetailRow[] {
   const {
     accountNumbers,
@@ -78,6 +83,7 @@ function buildGroupedDetailRows(params: {
     refYear,
     windowSize,
     codeByCode,
+    resolveParentGroup = resolveParentGroupForAccount,
   } = params
 
   const glRowsByParent = new Map<string, ContributiveMarginEvolutionDetailRow[]>()
@@ -102,7 +108,7 @@ function buildGroupedDetailRows(params: {
       values: trend.slice(0, windowSize),
     }
 
-    const group = resolveParentGroupForAccount(accountNumber, mappingsByAccount, codeByCode)
+    const group = resolveParentGroup(accountNumber, mappingsByAccount, codeByCode)
     parentMeta.set(group.id, group)
     const siblings = glRowsByParent.get(group.id) ?? []
     siblings.push(glRow)
@@ -242,7 +248,7 @@ function buildCostSectionTable(params: {
 
   if (!periods.length || !windowSize) return null
 
-  const detailRows = buildGroupedDetailRows({
+  const detailRows = buildGroupedEvolutionDetailRows({
     accountNumbers,
     mappingsByAccount,
     rows,

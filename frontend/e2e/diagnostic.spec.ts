@@ -678,6 +678,208 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByTestId("contributive-margin-evolution-expense-fixed-costs")).toBeVisible()
   })
 
+  test("vue Divisions : marges contributives par division", async ({ page }) => {
+    const DIV_EST = "d1111111-1111-1111-1111-111111111111"
+    const DIV_OUEST = "d2222222-2222-2222-2222-222222222222"
+
+    await setupAuthAndCommonMocks(page)
+    await page.route("**/api/companies", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          companies: [
+            {
+              id: COMPANY_ID,
+              name: "Aciers Beauport inc.",
+              fiscal_year_end: "12-31",
+              currency: "CAD",
+              divisions: [
+                { id: DIV_EST, name: "Division Est", sub_divisions: [] },
+                { id: DIV_OUEST, name: "Division Ouest", sub_divisions: [] },
+              ],
+              created_at: "2020-01-01T00:00:00Z",
+              updated_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }),
+      }),
+    )
+    await page.route(`**/api/companies/${COMPANY_ID}/account-mappings`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          mappings: [
+            {
+              id: "m1",
+              account_number: "5010",
+              description: "Matières Est",
+              link_code: "CMV.1",
+              summary_ef: null,
+              detail_ef: null,
+              divisions: "Division Est",
+              sub_divisions: null,
+              fdrhc: false,
+              interests: false,
+              amortization: false,
+              variable_costs: true,
+              fixed_costs: false,
+              variable_cost_revenue_link_code: null,
+              liability_remaining_years: null,
+              liability_interest_rate: null,
+              product: null,
+              customer: null,
+              supplier: null,
+              interco_company_id: null,
+            },
+            {
+              id: "m2",
+              account_number: "6010",
+              description: "Salaires Est",
+              link_code: "ADM.1",
+              summary_ef: null,
+              detail_ef: null,
+              divisions: "Division Est",
+              sub_divisions: null,
+              fdrhc: false,
+              interests: false,
+              amortization: false,
+              variable_costs: false,
+              fixed_costs: true,
+              variable_cost_revenue_link_code: null,
+              liability_remaining_years: null,
+              liability_interest_rate: null,
+              product: null,
+              customer: null,
+              supplier: null,
+              interco_company_id: null,
+            },
+          ],
+        }),
+      }),
+    )
+    await page.route("**/api/standard-link-codes/flat*", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            code: "REV-001",
+            family: "REV",
+            parent_code: null,
+            is_leaf: true,
+            is_active: true,
+            label_sub_account: "Revenus",
+            label_account: "Revenus",
+            ft_category: null,
+            account_type: null,
+            coa_version: 1,
+            deprecated_at: null,
+          },
+        ]),
+      }),
+    )
+    await page.route(
+      `**/api/companies/${COMPANY_ID}/financial-statements/income-statement/series*`,
+      (route) => {
+        const url = new URL(route.request().url())
+        const divisionId = url.searchParams.get("division_id")
+        const revenue =
+          divisionId === DIV_EST ? 5_200_000 : divisionId === DIV_OUEST ? 1_800_000 : 7_000_000
+        const variableCost =
+          divisionId === DIV_EST ? 1_800_000 : divisionId === DIV_OUEST ? 900_000 : 2_700_000
+        const fixedCost =
+          divisionId === DIV_EST ? 1_000_000 : divisionId === DIV_OUEST ? 1_100_000 : 2_100_000
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            companyId: COMPANY_ID,
+            statementType: "income-statement",
+            fiscalYear: 2025,
+            periods: [
+              { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
+              { fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" },
+            ],
+            rows: [
+              {
+                id: "REV-001",
+                linkCode: "REV-001",
+                label: "Revenus",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: {
+                  "2024-12": Math.round(revenue * 0.85),
+                  "2025-12": revenue,
+                },
+                detailRows: [],
+              },
+              {
+                id: "cmv",
+                linkCode: "CMV",
+                label: "CMV",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: {},
+                detailRows: [
+                  {
+                    id: "5010",
+                    label: "Matières",
+                    amounts: {
+                      "2024-12": Math.round(variableCost * 0.9),
+                      "2025-12": variableCost,
+                    },
+                  },
+                ],
+              },
+              {
+                id: "adm",
+                linkCode: "ADM",
+                label: "Admin",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: {},
+                detailRows: [
+                  {
+                    id: "6010",
+                    label: "Salaires",
+                    amounts: {
+                      "2024-12": Math.round(fixedCost * 0.95),
+                      "2025-12": fixedCost,
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
+        })
+      },
+    )
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(DIAGNOSTIC_PAGE_URL)
+
+    await page.getByRole("button", { name: "Divisions", exact: true }).click()
+
+    await expect(page.getByRole("heading", { name: "Divisions", exact: true })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByTestId("division-contributive-margin-report")).toBeVisible()
+    await expect(page.getByTestId("division-profitability-table")).toBeVisible()
+    await expect(
+      page.getByTestId("division-profitability-table").getByRole("heading", {
+        name: "Rentabilité par division",
+      }),
+    ).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Lecture de la rentabilité par division" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Analyse par divisions" })).toBeVisible()
+    await expect(page.getByTestId("division-profitability-table").getByText("Bén. expl.", { exact: true }).first()).toBeVisible()
+  })
+
   test("tiroir de détail : ouverture depuis une ligne de division, fermeture par Échap", async ({
     page,
   }) => {

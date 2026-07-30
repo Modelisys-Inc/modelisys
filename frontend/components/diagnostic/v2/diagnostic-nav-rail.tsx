@@ -7,7 +7,12 @@ export interface RailSection {
   label: string
 }
 
-export type DiagnosticReportView = "performance" | "revenue" | "margin-by-revenue" | "expenses"
+export type DiagnosticReportView =
+  | "performance"
+  | "revenue"
+  | "margin-by-revenue"
+  | "expenses"
+  | "expenses-by-division"
 
 export interface DiagnosticReportViewOption {
   id: DiagnosticReportView

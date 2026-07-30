@@ -225,6 +225,13 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   `frontend/e2e/diagnostic.spec.ts` + `diagnostic-visual.spec.ts`; testids:
   `kpi-cards`, `lifecycle-badge`, `division-row-{id}`, `valuation-notes`,
   `diagnostic-error`, `diagnostic-signal`, `products-empty-state`.
+  **Rapport (nav rail):** vues Performance / Revenus / Marge par Revenus / Dépenses /
+  **Divisions** — la vue Divisions (sous Dépenses) réutilise la config chart
+  `diagnostic-expenses`, charge une série ER par division (`division_id` sur
+  l'API series) et construit un pont REV → CV → marge contributive → CF → bénéfice
+  d'exploitation par division via `lib/division-profitability.ts` (mapping `divisions`
+  CSV) ; tableau `DivisionProfitabilityTable`, lecture CPA
+  `division-profitability-narrative`, tableaux indicateurs extensibles (REV / CV / CF).
 - Known deltas vs analysis pages (deliberate, flagged for product review): capex
   differs from `/analysis/capex` (ΔALT vs Δ of first BS total row);
   `interest_coverage` = EBIT/FIN here vs EBITDA/FIN on `/analysis/ratios`.

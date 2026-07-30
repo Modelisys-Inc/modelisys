@@ -15,6 +15,7 @@ export type DiagnosticChartNarrativeScope =
   | "revenue-only"
   | "margin-by-revenue-only"
   | "expenses-only"
+  | "expenses-by-division-only"
 
 function parseFiscalEndMonth(fiscalYearEnd?: string): number {
   const raw = fiscalYearEnd?.split("-")[0]
@@ -34,6 +35,12 @@ function resolveReportChartConfig(reportView: DiagnosticReportView): {
   }
   if (reportView === "expenses") {
     return { statementType: "diagnostic-expenses", narrativeScope: "expenses-only" }
+  }
+  if (reportView === "expenses-by-division") {
+    return {
+      statementType: "diagnostic-expenses-by-division",
+      narrativeScope: "expenses-by-division-only",
+    }
   }
   return { statementType: "income-statement", narrativeScope: "full" }
 }
@@ -64,7 +71,11 @@ export function DiagnosticReportChartSection({
   const [horizonView, setHorizonView] = useState<ChartHorizonToggleValue>("years")
   const { statementType, narrativeScope } = resolveReportChartConfig(reportView)
   const slotStatementType: StatementType =
-    reportView === "margin-by-revenue" ? "diagnostic-revenue" : statementType
+    reportView === "margin-by-revenue"
+      ? "diagnostic-revenue"
+      : reportView === "expenses-by-division"
+        ? "diagnostic-expenses"
+        : statementType
 
   const { slots, activeSlotId, setActiveSlotId, refresh, loading } = useStatementChartSlots(
     companyId,

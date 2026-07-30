@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { TrendingUp, TrendingDown, ChevronDown, FileText, Settings, Trash2 } from "lucide-react"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { useDivisionSeriesBundle } from "@/hooks/use-division-series-bundle"
 import { useStandardLinkCodesFlat } from "@/hooks/use-standard-link-codes"
 import { listAccountMappings, type AccountMappingData } from "@/lib/api"
 import { enrichRevenueSeriesForNarrative } from "@/lib/revenue-series-narrative-enrichment"
@@ -34,6 +35,13 @@ import { computeBreakevenAnalysis } from "@/lib/expense-breakeven"
 import { buildExpensesBridgeNarrative } from "@/lib/expense-bridge-narrative"
 import { buildExpenseBridgeNarrativeContext } from "@/lib/expense-bridge-narrative-context"
 import { buildExpenseCostBreakdownTables } from "@/lib/expense-cost-breakdown-tables"
+import {
+  buildDivisionProfitabilityRows,
+  buildDivisionProfitabilitySlices,
+} from "@/lib/division-profitability"
+import { buildDivisionProfitabilityEvolutionTables } from "@/lib/division-profitability-evolution"
+import { buildDivisionProfitabilityNarrative } from "@/lib/division-profitability-narrative"
+import { DivisionProfitabilityTable } from "@/components/diagnostic/v2/division-profitability-table"
 import { cn } from "@/lib/utils"
 import {
   dashboardCardFrameClass,
@@ -139,7 +147,7 @@ interface StatementChartProps {
   /** Contour de carte : tableau de bord IS (défaut) ou rapport Diagnostic (bordure pâle). */
   cardAppearance?: "dashboard" | "diagnostic"
   /** Portée de la lecture narrative sous le graphique. */
-  narrativeScope?: "full" | "revenue-only" | "margin-by-revenue-only" | "expenses-only"
+  narrativeScope?: "full" | "revenue-only" | "margin-by-revenue-only" | "expenses-only" | "expenses-by-division-only"
   /** Type de config persistée (ex. Marge par Revenus lit la config Revenus). */
   chartConfigStatementType?: StatementType
 }
@@ -216,6 +224,11 @@ const NARRATIVE_SECTION_META: Record<
     title: "Analyse par source de revenus",
     description: "Coûts variables, marge contributive et positionnement relatif.",
   },
+  "division-profitability": {
+    title: "Analyse par divisions",
+    description:
+      "Revenus, coûts variables et fixes, marge contributive et bénéfice d'exploitation par division.",
+  },
 }
 
 function groupNarrativeParagraphs(paragraphs: PerformanceNarrativeResultNonNull["paragraphs"]) {
@@ -224,7 +237,7 @@ function groupNarrativeParagraphs(paragraphs: PerformanceNarrativeResultNonNull[
     return [{ id: "default", title: null as string | null, description: null as string | null, className: undefined, paragraphs }]
   }
 
-  const order = ["revenue-performance", "contributive-margin", "revenue-mix"] as const
+  const order = ["revenue-performance", "contributive-margin", "division-profitability", "revenue-mix"] as const
   const groups: Array<{
     id: string
     title: string | null
@@ -352,8 +365,11 @@ export function StatementChart({
   chartConfigStatementType,
 }: StatementChartProps) {
   const isContributiveMarginView = narrativeScope === "margin-by-revenue-only"
+  const isDivisionContributiveMarginView = narrativeScope === "expenses-by-division-only"
+  const isContributiveMarginTableView = isContributiveMarginView || isDivisionContributiveMarginView
   const isExpensesBridgeView = narrativeScope === "expenses-only"
-  const needsMappingEnrichment = isContributiveMarginView || isExpensesBridgeView
+  const needsMappingEnrichment =
+    isContributiveMarginView || isExpensesBridgeView || isDivisionContributiveMarginView
   const configStatementType = chartConfigStatementType ?? statementType
   const { card: cardFrameClass, showAccent: showCardAccent } = resolveStatementChartCardClasses(cardAppearance)
   const seriesStatementType = seriesStatementTypeForChart(statementType)
@@ -366,6 +382,10 @@ export function StatementChart({
 
   const refMonth = referenceMonth ?? new Date().getMonth() + 1
   const refYear = fiscalYear ?? new Date().getFullYear()
+  const companyDivisions = useMemo(
+    () => companies.find((c) => c.id === companyId)?.divisions ?? [],
+    [companies, companyId],
+  )
   const { codes: standardLinkCodes } = useStandardLinkCodesFlat(false, undefined, needsMappingEnrichment)
 
   const seriesMonthsNeeded = performanceChartSeriesMonthsNeeded(view)
@@ -377,7 +397,20 @@ export function StatementChart({
     months: seriesMonthsNeeded,
     divisionId: divisionId || undefined,
     subDivisionId: subDivisionId || undefined,
-    enabled: true,
+    enabled: !isDivisionContributiveMarginView,
+    structureVersion,
+  })
+
+  const {
+    bundles: divisionSeriesBundles,
+    loading: divisionSeriesLoading,
+  } = useDivisionSeriesBundle({
+    companyId: companyId || null,
+    divisions: companyDivisions,
+    fiscalYear: fiscalYear || new Date().getFullYear(),
+    month: refMonth,
+    months: seriesMonthsNeeded,
+    enabled: isDivisionContributiveMarginView && Boolean(companyId) && companyDivisions.length > 0,
     structureVersion,
   })
 
@@ -402,6 +435,60 @@ export function StatementChart({
       cancelled = true
     }
   }, [companyId, needsMappingEnrichment, structureVersion])
+
+  const divisionProfitabilitySlices = useMemo(() => {
+    if (!isDivisionContributiveMarginView || !companyDivisions.length) return null
+    return buildDivisionProfitabilitySlices({
+      divisions: companyDivisions,
+      divisionSeries: divisionSeriesBundles,
+      mappings: accountMappings,
+      view,
+      refMonth,
+      refYear,
+      standardLinkCodes,
+    })
+  }, [
+    isDivisionContributiveMarginView,
+    companyDivisions,
+    divisionSeriesBundles,
+    accountMappings,
+    view,
+    refMonth,
+    refYear,
+    standardLinkCodes,
+  ])
+
+  const divisionProfitabilityRows = useMemo(() => {
+    if (!divisionProfitabilitySlices?.length) return null
+    return buildDivisionProfitabilityRows(divisionProfitabilitySlices)
+  }, [divisionProfitabilitySlices])
+
+  const divisionProfitabilityNarrative = useMemo(() => {
+    if (!isDivisionContributiveMarginView || !divisionProfitabilitySlices?.length) return null
+    return buildDivisionProfitabilityNarrative(divisionProfitabilitySlices, view)
+  }, [isDivisionContributiveMarginView, divisionProfitabilitySlices, view])
+
+  const divisionProfitabilityEvolutionTables = useMemo(() => {
+    if (!isDivisionContributiveMarginView || !divisionProfitabilitySlices?.length) return null
+    return buildDivisionProfitabilityEvolutionTables({
+      slices: divisionProfitabilitySlices,
+      divisionSeries: divisionSeriesBundles,
+      mappings: accountMappings,
+      view,
+      refMonth,
+      refYear,
+      standardLinkCodes,
+    })
+  }, [
+    isDivisionContributiveMarginView,
+    divisionProfitabilitySlices,
+    divisionSeriesBundles,
+    accountMappings,
+    view,
+    refMonth,
+    refYear,
+    standardLinkCodes,
+  ])
 
   const expenseContributionBridge = useMemo(() => {
     if (!isExpensesBridgeView || !seriesRows.length || !seriesPeriods.length) return null
@@ -499,7 +586,8 @@ export function StatementChart({
   const dynamicPoints = dynamicBuild?.points ?? null
   const seriesMeta = dynamicBuild?.series ?? []
 
-  const effectiveLoading = loading || seriesLoading
+  const effectiveLoading =
+    loading || seriesLoading || (isDivisionContributiveMarginView && divisionSeriesLoading)
 
   const narrativeSeriesMeta = useMemo(
     () => seriesMeta.filter((m) => visibleSeriesIds[m.id] !== false),
@@ -563,6 +651,7 @@ export function StatementChart({
       "diagnostic-revenue",
       "diagnostic-margin-by-revenue",
       "diagnostic-expenses",
+      "diagnostic-expenses-by-division",
     ])
     if (!diagnosticTypes.has(statementType)) return null
     if (!dynamicPoints?.length || !narrativeSeriesMeta.length) return null
@@ -612,7 +701,7 @@ export function StatementChart({
 
   const defaultTitle = defaultChartCardTitle(statementType)
   const storedChartTitle = perfConfig.chartTitle.trim()
-  const cardTitle = isContributiveMarginView
+  const cardTitle = isContributiveMarginTableView
     ? defaultTitle
     : storedChartTitle && storedChartTitle !== defaultTitle
       ? storedChartTitle
@@ -649,6 +738,32 @@ export function StatementChart({
     )
   }
 
+  if (isDivisionContributiveMarginView && !companyDivisions.length) {
+    const emptyMessage =
+      "Aucune division n'est définie dans la structure organisationnelle de cette société."
+    const emptyHint =
+      "Créez des divisions dans Paramètres → Structure organisationnelle, puis affectez les comptes du mapping comptable à chaque division."
+
+    return (
+      <>
+        <div
+          className={`mb-6 flex min-h-64 flex-col items-center justify-center gap-3 px-4 py-8 ${cardFrameClass}`}
+          data-testid="division-contributive-margin-empty"
+        >
+          {showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
+          {embeddedHorizon ? (
+            <div className="relative mb-2 w-full max-w-xl border-b border-slate-100 pb-4">
+              <EmbeddedHorizonToggle {...embeddedHorizon} />
+            </div>
+          ) : null}
+          <p className="relative text-center text-sm text-[#5C5F66]">{emptyMessage}</p>
+          {companyId ? <p className="max-w-md text-center text-xs text-slate-500">{emptyHint}</p> : null}
+        </div>
+        {settingsDialog}
+      </>
+    )
+  }
+
   if (isExpensesBridgeView) {
     if (!seriesRows.length || !seriesPeriods.length || !expenseContributionBridge?.points.length) {
       const emptyMessage =
@@ -675,7 +790,10 @@ export function StatementChart({
         </>
       )
     }
-  } else if (!dynamicPoints || !dynamicPoints.length || !seriesMeta.length) {
+  } else if (
+    !isDivisionContributiveMarginView &&
+    (!dynamicPoints || !dynamicPoints.length || !seriesMeta.length)
+  ) {
     const emptyMessage = isContributiveMarginView
       ? "Aucune source de revenus configurée. Paramétrez les séries dans la vue Revenus du rapport."
       : "Aucune donnée disponible pour ce graphique."
@@ -733,9 +851,11 @@ export function StatementChart({
         data-testid={
           isContributiveMarginView
             ? "contributive-margin-report"
-            : isExpensesBridgeView
-              ? "expense-contribution-bridge-report"
-              : undefined
+            : isDivisionContributiveMarginView
+              ? "division-contributive-margin-report"
+              : isExpensesBridgeView
+                ? "expense-contribution-bridge-report"
+                : undefined
         }
       >
         {showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
@@ -793,6 +913,11 @@ export function StatementChart({
                         <span className="text-slate-300">•</span>
                         <span className="text-xs text-slate-500">Sources configurées dans Revenus</span>
                       </>
+                    ) : isDivisionContributiveMarginView ? (
+                      <>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-xs text-slate-500">Affectations division dans le mapping comptable</span>
+                      </>
                     ) : isExpensesBridgeView ? (
                       <>
                         <span className="text-slate-300">•</span>
@@ -803,7 +928,7 @@ export function StatementChart({
                 </div>
               </div>
               <div className="flex min-w-0 max-w-full shrink flex-wrap items-center justify-end gap-3">
-                {!isContributiveMarginView && !isExpensesBridgeView ? (
+                {!isContributiveMarginTableView && !isExpensesBridgeView ? (
                 <div className="flex min-w-0 max-w-[min(100%,28rem)] flex-wrap items-center justify-end gap-x-4 gap-y-2">
                   {seriesMeta.map((m) => (
                     <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
@@ -819,7 +944,7 @@ export function StatementChart({
                 </div>
                 ) : null}
                 <div className="flex shrink-0 items-center gap-1">
-                  {companyId && !isExpensesBridgeView ? (
+                  {companyId && !isExpensesBridgeView && !isDivisionContributiveMarginView ? (
                     <Button
                       type="button"
                       variant="outline"
@@ -850,7 +975,7 @@ export function StatementChart({
               variableCostAccountCount={expenseContributionBridge.mappingStatus.variableCostAccountCount}
               fixedCostAccountCount={expenseContributionBridge.mappingStatus.fixedCostAccountCount}
             />
-          ) : !isContributiveMarginView ? (
+          ) : !isContributiveMarginTableView ? (
           <div className="relative bg-white">
             <div className="px-6 py-6 sm:px-7">
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
@@ -1023,6 +1148,26 @@ export function StatementChart({
             />
           ) : null}
           {narrative ? <IncomePerformanceNarrativeSection narrative={narrative} /> : null}
+          {isDivisionContributiveMarginView && divisionProfitabilityRows?.length ? (
+            <div className="border-t border-slate-200 py-6">
+              <DivisionProfitabilityTable rows={divisionProfitabilityRows} currency={companyCurrency} />
+            </div>
+          ) : null}
+          {divisionProfitabilityNarrative ? (
+            <IncomePerformanceNarrativeSection
+              narrative={divisionProfitabilityNarrative}
+              renderAfterParagraph={(paragraph) => {
+                const evolution = divisionProfitabilityEvolutionTables?.get(paragraph.heading)
+                if (!evolution) return null
+                return (
+                  <RevenueContributiveMarginEvolutionTable
+                    table={evolution}
+                    currency={companyCurrency}
+                  />
+                )
+              }}
+            />
+          ) : null}
           {narrativeScope === "margin-by-revenue-only" && contributiveMarginRows?.length ? (
             <div className="border-t border-slate-200 py-6">
               <RevenueContributiveMarginTable rows={contributiveMarginRows} currency={companyCurrency} />

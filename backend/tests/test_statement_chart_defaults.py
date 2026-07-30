@@ -66,6 +66,12 @@ def test_diagnostic_expenses_default_is_expense_bar():
     assert cfg["series"][0]["label"] == "Dépenses"
 
 
+def test_diagnostic_expenses_by_division_default_matches_expenses():
+    cfg = seed_default_chart_config("diagnostic-expenses-by-division")
+    expenses = seed_default_chart_config("diagnostic-expenses")
+    assert cfg == expenses
+
+
 def test_empty_link_codes_for_all_defaults():
     """Defaults pre-build series shape but leave link codes blank — the user picks them."""
     for stype in (
@@ -75,6 +81,7 @@ def test_empty_link_codes_for_all_defaults():
         "diagnostic-revenue",
         "diagnostic-margin-by-revenue",
         "diagnostic-expenses",
+        "diagnostic-expenses-by-division",
     ):
         cfg = seed_default_chart_config(stype)
         for s in cfg["series"]:

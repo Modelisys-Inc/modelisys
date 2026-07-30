@@ -11,6 +11,10 @@ interface RevenueContributiveMarginTableProps {
   rows: RevenueContributiveMarginRow[]
   currency: string
   className?: string
+  title?: string
+  description?: string
+  rowColumnLabel?: string
+  testId?: string
 }
 
 function formatOptionalMoney(value: number | null, currency: string): string {
@@ -27,6 +31,10 @@ export function RevenueContributiveMarginTable({
   rows,
   currency,
   className,
+  title = "Marges contributives par source de revenus",
+  description = "Revenus, coûts variables (mapping comptable) et contribution marginale à la date de référence. Les parts indiquent la pondération dans le chiffre d'affaires et dans la contribution totale.",
+  rowColumnLabel = "Source",
+  testId = "revenue-contributive-margin-table",
 }: RevenueContributiveMarginTableProps) {
   if (!rows.length) return null
 
@@ -35,15 +43,12 @@ export function RevenueContributiveMarginTable({
     "grid grid-cols-[minmax(0,1.35fr)_minmax(0,.85fr)_minmax(0,.85fr)_minmax(0,.9fr)_minmax(0,.65fr)_minmax(0,.65fr)_minmax(0,.75fr)_minmax(0,.65fr)]"
 
   return (
-    <section data-testid="revenue-contributive-margin-table" className={cn("w-full", className)}>
+    <section data-testid={testId} className={cn("w-full", className)}>
       <div className="mb-4 px-4 sm:px-6">
         <h5 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-600">
-          Marges contributives par source de revenus
+          {title}
         </h5>
-        <p className="mt-1 text-xs leading-relaxed text-slate-500">
-          Revenus, coûts variables (mapping comptable) et contribution marginale à la date de référence.
-          Les parts indiquent la pondération dans le chiffre d&apos;affaires et dans la contribution totale.
-        </p>
+        <p className="mt-1 text-xs leading-relaxed text-slate-500">{description}</p>
       </div>
 
       <div className="w-full overflow-x-auto">
@@ -54,7 +59,7 @@ export function RevenueContributiveMarginTable({
               "w-full px-4 pb-2 text-[9.5px] font-semibold uppercase leading-tight tracking-[.08em] text-slate-400 sm:px-6",
             )}
           >
-            <span>Source</span>
+            <span>{rowColumnLabel}</span>
             <span className="text-right">Revenus</span>
             <span className="text-right">Coûts var.</span>
             <span className="text-right">Contr. marginale</span>

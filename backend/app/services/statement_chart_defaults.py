@@ -17,6 +17,7 @@ StatementType = Literal[
     "diagnostic-revenue",
     "diagnostic-margin-by-revenue",
     "diagnostic-expenses",
+    "diagnostic-expenses-by-division",
 ]
 
 _DEFAULT_COLORS = [
@@ -260,6 +261,7 @@ _FACTORIES = {
     "diagnostic-revenue": _diagnostic_revenue_default,
     "diagnostic-margin-by-revenue": _diagnostic_margin_by_revenue_default,
     "diagnostic-expenses": _diagnostic_expenses_default,
+    "diagnostic-expenses-by-division": _diagnostic_expenses_default,
 }
 
 
