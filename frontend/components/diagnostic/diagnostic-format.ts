@@ -84,6 +84,28 @@ export function formatDateFr(iso: string): string {
   return new Intl.DateTimeFormat("fr-CA", { dateStyle: "long" }).format(d)
 }
 
+const REFERENCE_MONTH_LABELS = [
+  "janvier",
+  "février",
+  "mars",
+  "avril",
+  "mai",
+  "juin",
+  "juillet",
+  "août",
+  "septembre",
+  "octobre",
+  "novembre",
+  "décembre",
+] as const
+
+/** Libellé calendaire pour la date de référence d'un diagnostic (ex. « juin 2025 »). */
+export function formatReferencePeriod(year: number, month: number): string {
+  const label = REFERENCE_MONTH_LABELS[month - 1]
+  if (!label) return String(year)
+  return `${label} ${year}`
+}
+
 export type LifecycleStage = "croissance" | "maturité" | "décroissance"
 
 export function lifecycleLabel(stage: string): string {

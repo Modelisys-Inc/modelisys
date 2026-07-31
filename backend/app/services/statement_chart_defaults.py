@@ -19,6 +19,7 @@ StatementType = Literal[
     "diagnostic-expenses",
     "diagnostic-expenses-by-division",
     "diagnostic-financial-position",
+    "diagnostic-working-capital",
 ]
 
 _DEFAULT_COLORS = [
@@ -255,6 +256,87 @@ def _diagnostic_expenses_default() -> dict:
     }
 
 
+def _diagnostic_working_capital_default() -> dict:
+    return {
+        "version": 2,
+        "chartTitle": "Fonds de roulement",
+        "series": [
+            {
+                "id": "wc-fdr",
+                "kind": "bar",
+                "label": "Fonds de roulement",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[0],
+                "stackGroup": "wc-fdr",
+            },
+            {
+                "id": "wc-fdrhc",
+                "kind": "bar",
+                "label": "Fonds de roulement hors caisse",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[1],
+                "stackGroup": "wc-fdr",
+            },
+            {
+                "id": "wc-dso",
+                "kind": "bar",
+                "label": "DSO",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "ratio",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[2],
+                "stackGroup": "wc-cycle",
+            },
+            {
+                "id": "wc-dio",
+                "kind": "bar",
+                "label": "Rotation des stocks",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "ratio",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[3],
+                "stackGroup": "wc-cycle",
+            },
+            {
+                "id": "wc-dpo",
+                "kind": "bar",
+                "label": "DPO",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "ratio",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[5],
+                "stackGroup": "wc-cycle",
+            },
+            {
+                "id": "wc-ccc",
+                "kind": "line",
+                "label": "CCC",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "ratio",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[4],
+                "stackGroup": "wc-cycle",
+            },
+        ],
+    }
+
+
 def _diagnostic_financial_position_default() -> dict:
     return {
         "version": 2,
@@ -333,6 +415,7 @@ _FACTORIES = {
     "diagnostic-expenses": _diagnostic_expenses_default,
     "diagnostic-expenses-by-division": _diagnostic_expenses_default,
     "diagnostic-financial-position": _diagnostic_financial_position_default,
+    "diagnostic-working-capital": _diagnostic_working_capital_default,
 }
 
 

@@ -201,7 +201,10 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
 ### Diagnostic (rapport VC)
 
 - `GET /api/companies/{id}/diagnostic` (read gate `verify_company_access`, viewers OK)
-  returns a single aggregate payload (`app/schemas/company_diagnostic.py`): 5-year
+  accepts optional `fiscal_year` + `month` query params (calendar dates, same as
+  financial statements) to anchor the report; without them, the latest trial-balance
+  period is used. Returns a single aggregate payload (`app/schemas/company_diagnostic.py`):
+  `reference_period`, 5-year trends (YTD window aligned on the reference month),
   trends, seasonality, per-division profitability, product/service margins, 5-year
   ratios, capex, and an indicative EBITDA-multiple valuation. Computed in
   `app/services/company_diagnostic.py` on top of the statement engine using
@@ -210,8 +213,11 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   Product scoping uses `_product_filter_ctx` (ContextVar in
   `financial_statements.py`); multiples come from `ForecastConfig`
   `config_type="ebitda_multiple"` else default 3–5× (rationale notes the default).
-- Frontend: `/modules/diagnostic` (static route beats the `[moduleId]` placeholder;
-  reached via the module nav, not the sidebar). Redesigned (2026-07) as a
+- Frontend: `/modules/diagnostic?companyId=…` (static route beats the `[moduleId]` placeholder;
+  reached via the module nav when a company is selected — same pattern as Projections).
+  **Portail** : liste / création des diagnostics (registre `localStorage` via
+  `lib/diagnostic-registry.ts`, incl. `referenceYear` / `referenceMonth` per entry);
+  rapport à `/modules/diagnostic/[diagnosticId]?companyId=…`. Redesigned (2026-07) as a
   light-theme report aligned with financial-statement pages: components in `frontend/components/diagnostic/v2/`
   (hero with 0-100 health index, KPI strip, hand-written SVG charts — **no
   Recharts** — drill-down drawer, sticky nav rail). Client-side derivations
@@ -221,7 +227,7 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   original handoff's `api-gaps.md` lists Phase-2 payload fields: EBITDA bridge,
   per-year seasonality, cash flow, debt, headcount, multi-method valuation).
   `diagnostic-format.ts` + `diagnostic-skeleton.tsx` (kept from v1) still used;
-  hook `use-company-diagnostic.ts` unchanged. E2e (fully mocked) in
+  hook `use-company-diagnostic.ts` (passes reference date to the API). E2e (fully mocked) in
   `frontend/e2e/diagnostic.spec.ts` + `diagnostic-visual.spec.ts`; testids:
   `kpi-cards`, `lifecycle-badge`, `division-row-{id}`, `valuation-notes`,
   `diagnostic-error`, `diagnostic-signal`, `products-empty-state`.
@@ -232,6 +238,13 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   d'exploitation par division via `lib/division-profitability.ts` (mapping `divisions`
   CSV) ; tableau `DivisionProfitabilityTable`, lecture CPA
   `division-profitability-narrative`, tableaux indicateurs extensibles (REV / CV / CF).
+  **Situation financière** (`diagnostic-financial-position`) : bilan ACT/ALT/PCT/PLT/CAP,
+  libs `financial-position*.ts`, graphiques dual-panel `financial-position-chart.tsx`.
+  **Fonds de roulement** (`diagnostic-working-capital`, indenté sous Situation financière) :
+  réutilise la structure `working-capital` (même moteur que `/analysis/working-capital`,
+  `working-capital-structure-utils.ts`) + séries bilan + CDR (TTM) ; graphiques FDR/FdRHC
+  et cycle DSO/DIO/DPO/CCC (`working-capital-diagnostic-chart.tsx`) ; lecture +
+  tableaux indicateurs dans `working-capital-diagnostic-{narrative,breakdown}.ts`.
 - Known deltas vs analysis pages (deliberate, flagged for product review): capex
   differs from `/analysis/capex` (ΔALT vs Δ of first BS total row);
   `interest_coverage` = EBIT/FIN here vs EBITDA/FIN on `/analysis/ratios`.

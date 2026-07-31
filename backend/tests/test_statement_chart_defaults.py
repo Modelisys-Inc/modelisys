@@ -84,6 +84,18 @@ def test_diagnostic_financial_position_default_has_five_family_series():
     assert len(liabilities) == 3
 
 
+def test_diagnostic_working_capital_default_has_six_series():
+    cfg = seed_default_chart_config("diagnostic-working-capital")
+    assert cfg["chartTitle"] == "Fonds de roulement"
+    assert len(cfg["series"]) == 6
+    ids = {s["id"] for s in cfg["series"]}
+    assert ids == {"wc-fdr", "wc-fdrhc", "wc-dso", "wc-dio", "wc-dpo", "wc-ccc"}
+    fdr = [s for s in cfg["series"] if s.get("stackGroup") == "wc-fdr"]
+    cycle = [s for s in cfg["series"] if s.get("stackGroup") == "wc-cycle"]
+    assert len(fdr) == 2
+    assert len(cycle) == 4
+
+
 def test_empty_link_codes_for_all_defaults():
     """Defaults pre-build series shape but leave link codes blank — the user picks them."""
     for stype in (
@@ -95,6 +107,7 @@ def test_empty_link_codes_for_all_defaults():
       "diagnostic-expenses",
       "diagnostic-expenses-by-division",
       "diagnostic-financial-position",
+      "diagnostic-working-capital",
     ):
         cfg = seed_default_chart_config(stype)
         for s in cfg["series"]:

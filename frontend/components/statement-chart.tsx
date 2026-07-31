@@ -43,9 +43,13 @@ import { buildDivisionProfitabilityEvolutionTables } from "@/lib/division-profit
 import { buildDivisionProfitabilityNarrative } from "@/lib/division-profitability-narrative"
 import { DivisionProfitabilityTable } from "@/components/diagnostic/v2/division-profitability-table"
 import { FinancialPositionChart } from "@/components/diagnostic/v2/financial-position-chart"
+import { WorkingCapitalDiagnosticChart } from "@/components/diagnostic/v2/working-capital-diagnostic-chart"
 import { buildFinancialPositionResult } from "@/lib/financial-position"
 import { buildFinancialPositionBreakdownTables } from "@/lib/financial-position-breakdown"
 import { buildFinancialPositionNarrative } from "@/lib/financial-position-narrative"
+import { buildWorkingCapitalDiagnosticResult, workingCapitalIsMonthsNeeded } from "@/lib/working-capital-diagnostic"
+import { buildWorkingCapitalDiagnosticBreakdownTables } from "@/lib/working-capital-diagnostic-breakdown"
+import { buildWorkingCapitalDiagnosticNarrative } from "@/lib/working-capital-diagnostic-narrative"
 import type { FinancialPositionSettingsPanel } from "@/lib/financial-position-config"
 import { cn } from "@/lib/utils"
 import {
@@ -152,7 +156,7 @@ interface StatementChartProps {
   /** Contour de carte : tableau de bord IS (défaut) ou rapport Diagnostic (bordure pâle). */
   cardAppearance?: "dashboard" | "diagnostic"
   /** Portée de la lecture narrative sous le graphique. */
-  narrativeScope?: "full" | "revenue-only" | "margin-by-revenue-only" | "expenses-only" | "expenses-by-division-only" | "financial-position-only"
+  narrativeScope?: "full" | "revenue-only" | "margin-by-revenue-only" | "expenses-only" | "expenses-by-division-only" | "financial-position-only" | "working-capital-only"
   /** Type de config persistée (ex. Marge par Revenus lit la config Revenus). */
   chartConfigStatementType?: StatementType
 }
@@ -238,6 +242,10 @@ const NARRATIVE_SECTION_META: Record<
     title: "Situation financière",
     description: "Actifs, passifs et capitaux propres de la société de référence.",
   },
+  "working-capital": {
+    title: "Fonds de roulement",
+    description: "Fonds de roulement, cycle de trésorerie et indicateurs de délais.",
+  },
 }
 
 function groupNarrativeParagraphs(paragraphs: PerformanceNarrativeResultNonNull["paragraphs"]) {
@@ -246,7 +254,7 @@ function groupNarrativeParagraphs(paragraphs: PerformanceNarrativeResultNonNull[
     return [{ id: "default", title: null as string | null, description: null as string | null, className: undefined, paragraphs }]
   }
 
-  const order = ["revenue-performance", "contributive-margin", "division-profitability", "financial-position", "revenue-mix"] as const
+  const order = ["revenue-performance", "contributive-margin", "division-profitability", "financial-position", "working-capital", "revenue-mix"] as const
   const groups: Array<{
     id: string
     title: string | null
@@ -376,6 +384,7 @@ export function StatementChart({
   const isContributiveMarginView = narrativeScope === "margin-by-revenue-only"
   const isDivisionContributiveMarginView = narrativeScope === "expenses-by-division-only"
   const isFinancialPositionView = narrativeScope === "financial-position-only"
+  const isWorkingCapitalView = narrativeScope === "working-capital-only"
   const isContributiveMarginTableView = isContributiveMarginView || isDivisionContributiveMarginView
   const isExpensesBridgeView = narrativeScope === "expenses-only"
   const needsMappingEnrichment =
@@ -386,6 +395,7 @@ export function StatementChart({
   const perfConfig: StatementChartConfig = slot.config
   const [accountMappings, setAccountMappings] = useState<AccountMappingData[]>([])
   const [balanceSheetStructure, setBalanceSheetStructure] = useState<Record<string, unknown>[] | null>(null)
+  const [workingCapitalStructure, setWorkingCapitalStructure] = useState<Record<string, unknown>[] | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [financialPositionSettingsPanel, setFinancialPositionSettingsPanel] =
     useState<FinancialPositionSettingsPanel | null>(null)
@@ -402,6 +412,9 @@ export function StatementChart({
   const { codes: standardLinkCodes } = useStandardLinkCodesFlat(false, undefined, needsMappingEnrichment)
 
   const seriesMonthsNeeded = performanceChartSeriesMonthsNeeded(view)
+  const isMonthsNeeded = isWorkingCapitalView
+    ? workingCapitalIsMonthsNeeded(seriesMonthsNeeded)
+    : seriesMonthsNeeded
   const { rows: seriesRows, periods: seriesPeriods, loading: seriesLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
     statementType: seriesStatementType,
@@ -411,6 +424,22 @@ export function StatementChart({
     divisionId: divisionId || undefined,
     subDivisionId: subDivisionId || undefined,
     enabled: !isDivisionContributiveMarginView,
+    structureVersion,
+  })
+
+  const {
+    rows: isSeriesRows,
+    periods: isSeriesPeriods,
+    loading: isSeriesLoading,
+  } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "income-statement",
+    fiscalYear: fiscalYear || new Date().getFullYear(),
+    month: refMonth,
+    months: isMonthsNeeded,
+    divisionId: divisionId || undefined,
+    subDivisionId: subDivisionId || undefined,
+    enabled: isWorkingCapitalView && Boolean(companyId),
     structureVersion,
   })
 
@@ -466,6 +495,24 @@ export function StatementChart({
       cancelled = true
     }
   }, [companyId, isFinancialPositionView, structureVersion])
+
+  useEffect(() => {
+    if (!companyId || !isWorkingCapitalView) {
+      setWorkingCapitalStructure(null)
+      return
+    }
+    let cancelled = false
+    getStatementStructure(companyId, "working-capital")
+      .then((data) => {
+        if (!cancelled) setWorkingCapitalStructure((data.structure ?? []) as Record<string, unknown>[])
+      })
+      .catch(() => {
+        if (!cancelled) setWorkingCapitalStructure([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, isWorkingCapitalView, structureVersion])
 
   const divisionProfitabilitySlices = useMemo(() => {
     if (!isDivisionContributiveMarginView || !companyDivisions.length) return null
@@ -578,6 +625,61 @@ export function StatementChart({
     standardLinkCodes,
   ])
 
+  const workingCapitalResult = useMemo(() => {
+    if (!isWorkingCapitalView || !seriesRows.length || !seriesPeriods.length) return null
+    return buildWorkingCapitalDiagnosticResult({
+      bsRows: seriesRows,
+      bsPeriods: seriesPeriods,
+      isRows: isSeriesRows,
+      isPeriods: isSeriesPeriods,
+      structure: workingCapitalStructure ?? [],
+      view,
+      refMonth,
+      refYear,
+    })
+  }, [
+    isWorkingCapitalView,
+    seriesRows,
+    seriesPeriods,
+    isSeriesRows,
+    isSeriesPeriods,
+    workingCapitalStructure,
+    view,
+    refMonth,
+    refYear,
+  ])
+
+  const workingCapitalNarrative = useMemo(() => {
+    if (!isWorkingCapitalView || !workingCapitalResult?.points.length) return null
+    return buildWorkingCapitalDiagnosticNarrative(workingCapitalResult, view)
+  }, [isWorkingCapitalView, workingCapitalResult, view])
+
+  const workingCapitalBreakdownTables = useMemo(() => {
+    if (!isWorkingCapitalView || !workingCapitalResult?.points.length) return null
+    return buildWorkingCapitalDiagnosticBreakdownTables({
+      result: workingCapitalResult,
+      bsRows: seriesRows,
+      isRows: isSeriesRows,
+      bsPeriods: seriesPeriods,
+      isPeriods: isSeriesPeriods,
+      structure: workingCapitalStructure ?? [],
+      view,
+      refMonth,
+      refYear,
+    })
+  }, [
+    isWorkingCapitalView,
+    workingCapitalResult,
+    seriesRows,
+    isSeriesRows,
+    seriesPeriods,
+    isSeriesPeriods,
+    workingCapitalStructure,
+    view,
+    refMonth,
+    refYear,
+  ])
+
   const expenseContributionBridge = useMemo(() => {
     if (!isExpensesBridgeView || !seriesRows.length || !seriesPeriods.length) return null
     return buildExpenseContributionBridge({
@@ -676,7 +778,11 @@ export function StatementChart({
 
   const effectiveLoading =
     loading ||
-    (isDivisionContributiveMarginView ? divisionSeriesLoading : seriesLoading)
+    (isDivisionContributiveMarginView
+      ? divisionSeriesLoading
+      : isWorkingCapitalView
+        ? seriesLoading || isSeriesLoading
+        : seriesLoading)
 
   const narrativeSeriesMeta = useMemo(
     () => seriesMeta.filter((m) => visibleSeriesIds[m.id] !== false),
@@ -807,7 +913,7 @@ export function StatementChart({
 
   const defaultTitle = defaultChartCardTitle(statementType)
   const storedChartTitle = perfConfig.chartTitle.trim()
-  const cardTitle = isContributiveMarginTableView || isFinancialPositionView
+  const cardTitle = isContributiveMarginTableView || isFinancialPositionView || isWorkingCapitalView
     ? defaultTitle
     : storedChartTitle && storedChartTitle !== defaultTitle
       ? storedChartTitle
@@ -902,6 +1008,36 @@ export function StatementChart({
     )
   }
 
+  if (
+    isWorkingCapitalView &&
+    (!workingCapitalResult || !workingCapitalResult.points.length)
+  ) {
+    const emptyMessage =
+      "Impossible de construire le fonds de roulement : vérifiez la structure et le mapping comptable."
+    const emptyHint =
+      "Configurez les lignes FDR, FdRHC, DSO, DPO et rotation des stocks dans Analyse → Fonds de roulement, puis vérifiez le mapping bilan et résultat."
+
+    return (
+      <>
+        <div
+          className={`mb-6 flex min-h-64 flex-col items-center justify-center gap-3 px-4 py-8 ${cardFrameClass}`}
+          data-testid="working-capital-no-data"
+        >
+          {showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
+          {embeddedHorizon ? (
+            <div className="relative mb-2 w-full max-w-xl border-b border-slate-100 pb-4">
+              <EmbeddedHorizonToggle {...embeddedHorizon} />
+            </div>
+          ) : null}
+          <p className="relative text-center text-sm text-[#5C5F66]">{emptyMessage}</p>
+          {companyId ? <p className="max-w-md text-center text-xs text-slate-500">{emptyHint}</p> : null}
+        </div>
+        {settingsDialog}
+        {financialPositionSettingsDialog}
+      </>
+    )
+  }
+
   if (isExpensesBridgeView) {
     if (!seriesRows.length || !seriesPeriods.length || !expenseContributionBridge?.points.length) {
       const emptyMessage =
@@ -932,6 +1068,7 @@ export function StatementChart({
   } else if (
     !isDivisionContributiveMarginView &&
     !isFinancialPositionView &&
+    !isWorkingCapitalView &&
     (!dynamicPoints || !dynamicPoints.length || !seriesMeta.length)
   ) {
     const emptyMessage = isContributiveMarginView
@@ -996,6 +1133,8 @@ export function StatementChart({
               ? "division-contributive-margin-report"
               : isFinancialPositionView
                 ? "financial-position-report"
+                : isWorkingCapitalView
+                  ? "working-capital-report"
                 : isExpensesBridgeView
                   ? "expense-contribution-bridge-report"
                   : undefined
@@ -1066,6 +1205,11 @@ export function StatementChart({
                         <span className="text-slate-300">•</span>
                         <span className="text-xs text-slate-500">Bilan consolidé (ACT, ALT, PCT, PLT, CAP)</span>
                       </>
+                    ) : isWorkingCapitalView ? (
+                      <>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-xs text-slate-500">Structure fonds de roulement (bilan + TTM résultat)</span>
+                      </>
                     ) : isExpensesBridgeView ? (
                       <>
                         <span className="text-slate-300">•</span>
@@ -1076,7 +1220,7 @@ export function StatementChart({
                 </div>
               </div>
               <div className="flex min-w-0 max-w-full shrink flex-wrap items-center justify-end gap-3">
-                {!isContributiveMarginTableView && !isExpensesBridgeView && !isFinancialPositionView ? (
+                {!isContributiveMarginTableView && !isExpensesBridgeView && !isFinancialPositionView && !isWorkingCapitalView ? (
                 <div className="flex min-w-0 max-w-[min(100%,28rem)] flex-wrap items-center justify-end gap-x-4 gap-y-2">
                   {seriesMeta.map((m) => (
                     <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
@@ -1092,7 +1236,7 @@ export function StatementChart({
                 </div>
                 ) : null}
                 <div className="flex shrink-0 items-center gap-1">
-                  {companyId && !isExpensesBridgeView && !isDivisionContributiveMarginView && !isFinancialPositionView ? (
+                  {companyId && !isExpensesBridgeView && !isDivisionContributiveMarginView && !isFinancialPositionView && !isWorkingCapitalView ? (
                     <Button
                       type="button"
                       variant="outline"
@@ -1131,7 +1275,13 @@ export function StatementChart({
               canConfigure={Boolean(companyId)}
               onOpenPanelSettings={setFinancialPositionSettingsPanel}
             />
-          ) : !isContributiveMarginTableView && !isFinancialPositionView ? (
+          ) : isWorkingCapitalView && workingCapitalResult?.points.length ? (
+            <WorkingCapitalDiagnosticChart
+              points={workingCapitalResult.points}
+              currency={companyCurrency}
+              view={view}
+            />
+          ) : !isContributiveMarginTableView && !isFinancialPositionView && !isWorkingCapitalView ? (
           <div className="relative bg-white">
             <div className="px-6 py-6 sm:px-7">
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
@@ -1329,6 +1479,21 @@ export function StatementChart({
               narrative={financialPositionNarrative}
               renderAfterParagraph={(paragraph) => {
                 const breakdown = financialPositionBreakdownTables?.get(paragraph.heading)
+                if (!breakdown) return null
+                return (
+                  <RevenueContributiveMarginEvolutionTable
+                    table={breakdown}
+                    currency={companyCurrency}
+                  />
+                )
+              }}
+            />
+          ) : null}
+          {workingCapitalNarrative ? (
+            <IncomePerformanceNarrativeSection
+              narrative={workingCapitalNarrative}
+              renderAfterParagraph={(paragraph) => {
+                const breakdown = workingCapitalBreakdownTables?.get(paragraph.heading)
                 if (!breakdown) return null
                 return (
                   <RevenueContributiveMarginEvolutionTable

@@ -16,7 +16,7 @@ export type ContributiveMarginEvolutionDetailRow = {
 export type ContributiveMarginEvolutionMetric = {
   id: string
   label: string
-  format: "currency" | "percent"
+  format: "currency" | "percent" | "days"
   values: (number | null)[]
   detailRows?: ContributiveMarginEvolutionDetailRow[]
 }

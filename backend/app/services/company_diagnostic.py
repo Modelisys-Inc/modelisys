@@ -49,6 +49,7 @@ from app.schemas.company_diagnostic import (
     DiagnosticDivisionPerformance,
     DiagnosticDivisionProductPerformance,
     DiagnosticProductPerformance,
+    DiagnosticReferencePeriod,
     DiagnosticSeasonalityMonth,
     DiagnosticSummary,
     DiagnosticTrendYear,
@@ -58,6 +59,7 @@ from app.services.financial_statements import (
     FRENCH_MONTH_ABBREVS,
     _build_fiscal_year_data_multi,
     _build_mapping_index,
+    _calendar_to_fiscal_date,
     _fiscal_month_to_calendar,
     _gl_account_sum_months_balance_sheet,
     _gl_account_sum_months_income_statement,
@@ -130,14 +132,68 @@ def _product_scope(token: str) -> Iterator[None]:
         _product_filter_ctx.reset(ctx_token)
 
 
+# ─── référence temporelle ─────────────────────────────────────────────────────
+
+def _resolve_reference_period(
+    db: Session,
+    company: Company,
+    calendar_year: int | None,
+    calendar_month: int | None,
+) -> DiagnosticReferencePeriod:
+    fy_end_month, _ = _parse_fiscal_year_end(company.fiscal_year_end)
+
+    if calendar_year is not None and calendar_month is not None:
+        ref_fy, ref_fm = _calendar_to_fiscal_date(calendar_year, calendar_month, fy_end_month)
+        return DiagnosticReferencePeriod(
+            calendar_year=calendar_year,
+            calendar_month=calendar_month,
+            fiscal_year=ref_fy,
+            fiscal_month=ref_fm,
+        )
+
+    latest = (
+        db.query(TrialBalanceEntry.fiscal_year, TrialBalanceEntry.month)
+        .filter(TrialBalanceEntry.company_id == company.id)
+        .order_by(TrialBalanceEntry.fiscal_year.desc(), TrialBalanceEntry.month.desc())
+        .first()
+    )
+    if latest is not None:
+        cal_year, cal_month = int(latest.fiscal_year), int(latest.month)
+        ref_fy, ref_fm = _calendar_to_fiscal_date(cal_year, cal_month, fy_end_month)
+        return DiagnosticReferencePeriod(
+            calendar_year=cal_year,
+            calendar_month=cal_month,
+            fiscal_year=ref_fy,
+            fiscal_month=ref_fm,
+        )
+
+    now = datetime.now(timezone.utc)
+    cal_year, cal_month = now.year, now.month
+    ref_fy, ref_fm = _calendar_to_fiscal_date(cal_year, cal_month, fy_end_month)
+    return DiagnosticReferencePeriod(
+        calendar_year=cal_year,
+        calendar_month=cal_month,
+        fiscal_year=ref_fy,
+        fiscal_month=ref_fm,
+    )
+
+
 # ─── contexte de calcul ───────────────────────────────────────────────────────
 
 class _DiagnosticContext:
     """Données partagées entre tous les calculs du diagnostic (une seule lecture TB)."""
 
-    def __init__(self, db: Session, company: Company) -> None:
+    def __init__(
+        self,
+        db: Session,
+        company: Company,
+        reference: DiagnosticReferencePeriod,
+    ) -> None:
         self.db = db
         self.company = company
+        self.reference = reference
+        self.ref_fiscal_year = reference.fiscal_year
+        self.ref_fiscal_month = reference.fiscal_month
         self.fy_end_month, _ = _parse_fiscal_year_end(company.fiscal_year_end)
 
         # Exercices disponibles (au plus 5, croissants). La colonne
@@ -155,7 +211,8 @@ class _DiagnosticContext:
                 fiscal_years.add(int(cal_year) + 1)
             else:
                 fiscal_years.add(int(cal_year))
-        self.years: list[int] = sorted(fiscal_years)[-_MAX_TREND_YEARS:]
+        available_years = sorted(y for y in fiscal_years if y <= self.ref_fiscal_year)
+        self.years: list[int] = available_years[-_MAX_TREND_YEARS:]
 
         # Mappings + index code de liaison → comptes
         self.mappings: list[AccountMapping] = (
@@ -262,18 +319,26 @@ class _DiagnosticContext:
 
     # -- métriques par exercice ----------------------------------------------
 
-    def bs_months(self, fiscal_year: int) -> list[int]:
-        """Mois fiscaux à agréger pour le bilan de fin d'exercice.
+    def income_months(self, fiscal_year: int) -> list[int]:
+        """Mois fiscaux pour le P&L (fenêtre YTD alignée sur la date de référence)."""
+        if fiscal_year > self.ref_fiscal_year:
+            return []
+        if self.ref_fiscal_month >= 12:
+            return _ANNUAL_MONTHS
+        return list(range(1, self.ref_fiscal_month + 1))
 
-        Non cumulatif : dernier mois disponible (solde de clôture) ; cumulatif :
-        1..dernier mois (les montants dé-cumulés se recomposent en solde).
-        """
+    def bs_months(self, fiscal_year: int) -> list[int]:
+        """Mois fiscaux pour le bilan à la date de référence (même mois fiscal chaque année)."""
+        if fiscal_year > self.ref_fiscal_year:
+            return []
         index = self.amount_indices.get(fiscal_year) or {}
         available = {m for monthly in index.values() for m in monthly}
         if not available:
             return []
-        last = max(available)
-        return list(range(1, last + 1)) if self.company.is_cumulative_tb else [last]
+        target_month = min(self.ref_fiscal_month, max(available))
+        if self.company.is_cumulative_tb:
+            return list(range(1, target_month + 1))
+        return [target_month]
 
     def income_metrics(
         self,
@@ -339,7 +404,10 @@ def _build_trends(ctx: _DiagnosticContext) -> list[DiagnosticTrendYear]:
     trends: list[DiagnosticTrendYear] = []
     previous_alt: float | None = None
     for fiscal_year in ctx.years:
-        inc = ctx.income_metrics(fiscal_year, _ANNUAL_MONTHS)
+        months = ctx.income_months(fiscal_year)
+        if not months:
+            continue
+        inc = ctx.income_metrics(fiscal_year, months)
         bal = ctx.balance_metrics(fiscal_year)
 
         # Capex ≈ Δ immobilisations nettes (ALT) + amortissement de l'exercice.
@@ -433,6 +501,7 @@ def _build_seasonality(ctx: _DiagnosticContext) -> list[DiagnosticSeasonalityMon
 def _build_divisions(
     ctx: _DiagnosticContext, latest_year: int, total_revenue: float,
 ) -> list[DiagnosticDivisionPerformance]:
+    months = ctx.income_months(latest_year)
     divisions = (
         ctx.db.query(Division)
         .filter(Division.company_id == ctx.company.id)
@@ -441,10 +510,10 @@ def _build_divisions(
     )
     results: list[DiagnosticDivisionPerformance] = []
     for division in divisions:
-        inc = ctx.income_metrics(latest_year, _ANNUAL_MONTHS, division)
+        inc = ctx.income_metrics(latest_year, months, division)
 
         yearly_revenue = [
-            (fy, ctx.income_metrics(fy, _ANNUAL_MONTHS, division)["revenue"])
+            (fy, ctx.income_metrics(fy, ctx.income_months(fy), division)["revenue"])
             for fy in ctx.years
         ]
         positive = [(fy, rev) for fy, rev in yearly_revenue if rev > 0]
@@ -506,10 +575,11 @@ def _build_products(
     if not tokens:
         return [], []
 
+    months = ctx.income_months(latest_year)
     products: list[DiagnosticProductPerformance] = []
     for token in tokens:
         with _product_scope(token):
-            inc = ctx.income_metrics(latest_year, _ANNUAL_MONTHS)
+            inc = ctx.income_metrics(latest_year, months)
         products.append(
             DiagnosticProductPerformance(
                 product_name=token,
@@ -532,7 +602,7 @@ def _build_products(
     for division in divisions:
         for token in tokens:
             with _product_scope(token):
-                inc = ctx.income_metrics(latest_year, _ANNUAL_MONTHS, division)
+                inc = ctx.income_metrics(latest_year, months, division)
             if abs(inc["revenue"]) < 0.005:
                 continue
             division_products.append(
@@ -659,14 +729,23 @@ def _build_valuation(
 
 # ─── point d'entrée ───────────────────────────────────────────────────────────
 
-def compute_company_diagnostic(db: Session, company: Company) -> CompanyDiagnosticResponse:
+def compute_company_diagnostic(
+    db: Session,
+    company: Company,
+    *,
+    reference_calendar_year: int | None = None,
+    reference_calendar_month: int | None = None,
+) -> CompanyDiagnosticResponse:
     """Calcule le diagnostic complet d'une entreprise.
 
     Comportement sans données TB : réponse 200 schéma-valide avec tendances,
-    saisonnalité, divisions et produits vides ; `latest_fiscal_year` = année
-    civile courante ; sommaire à zéro ; évaluation avec multiples par défaut.
+    saisonnalité, divisions et produits vides ; `latest_fiscal_year` = exercice
+    fiscal de référence ; sommaire à zéro ; évaluation avec multiples par défaut.
     """
-    ctx = _DiagnosticContext(db, company)
+    reference = _resolve_reference_period(
+        db, company, reference_calendar_year, reference_calendar_month,
+    )
+    ctx = _DiagnosticContext(db, company, reference)
 
     trends = _build_trends(ctx)
     seasonality = _build_seasonality(ctx)
@@ -682,7 +761,7 @@ def compute_company_diagnostic(db: Session, company: Company) -> CompanyDiagnost
         products, division_products = _build_products(ctx, latest_year, latest.revenue)
     else:
         latest = None
-        latest_year = datetime.now(timezone.utc).year
+        latest_year = reference.fiscal_year
         divisions = []
         products = []
         division_products = []
@@ -722,6 +801,7 @@ def compute_company_diagnostic(db: Session, company: Company) -> CompanyDiagnost
         currency=company.currency,
         fiscal_year_end=company.fiscal_year_end,
         latest_fiscal_year=latest_year,
+        reference_period=reference,
         summary=summary,
         trends=trends,
         seasonality=seasonality,

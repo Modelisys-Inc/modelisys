@@ -250,23 +250,7 @@ export function buildSignals(
   const out: DiagnosticSignal[] = []
   const years = [...diagnostic.trends].sort((a, b) => a.fiscal_year - b.fiscal_year)
   const latest = years[years.length - 1]
-  const first = years[0]
   if (!latest) return out
-
-  // Trajectoire — gain ou perte de marge sur la période.
-  if (first && first.ebitda_margin_pct != null && latest.ebitda_margin_pct != null) {
-    const delta = latest.ebitda_margin_pct - first.ebitda_margin_pct
-    if (Math.abs(delta) >= 1) {
-      out.push({
-        section: "trajectoire",
-        tone: delta > 0 ? "ok" : "risk",
-        text:
-          delta > 0
-            ? `Marge EBITDA en hausse de ${nf(delta, 1)} pts depuis ${first.fiscal_year} — la croissance est rentable.`
-            : `Marge EBITDA en baisse de ${nf(Math.abs(delta), 1)} pts depuis ${first.fiscal_year} — la croissance se paie en marge.`,
-      })
-    }
-  }
 
   // Liquidité sous le repère sectoriel.
   if (latest.current_ratio != null && latest.current_ratio < benchmark.current_ratio) {

@@ -98,12 +98,20 @@ class DiagnosticValuation(BaseModel):
     rationale: list[str] = Field(default_factory=list)
 
 
+class DiagnosticReferencePeriod(BaseModel):
+    calendar_year: int
+    calendar_month: int
+    fiscal_year: int
+    fiscal_month: int
+
+
 class CompanyDiagnosticResponse(BaseModel):
     company_id: str
     company_name: str
     currency: str
     fiscal_year_end: str
     latest_fiscal_year: int
+    reference_period: DiagnosticReferencePeriod
     summary: DiagnosticSummary
     trends: list[DiagnosticTrendYear] = Field(default_factory=list)
     seasonality: list[DiagnosticSeasonalityMonth] = Field(default_factory=list)

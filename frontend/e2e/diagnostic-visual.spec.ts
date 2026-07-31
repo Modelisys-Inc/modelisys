@@ -77,6 +77,12 @@ async function setupMocks(page: Page) {
     currency: "CAD",
     fiscal_year_end: "12-31",
     latest_fiscal_year: 2025,
+    reference_period: {
+      calendar_year: 2025,
+      calendar_month: 12,
+      fiscal_year: 2025,
+      fiscal_month: 12,
+    },
     summary: {
       latest_fiscal_year: 2025,
       lifecycle_stage: "croissance",

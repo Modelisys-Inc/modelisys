@@ -14,10 +14,13 @@ export type DiagnosticReportView =
   | "expenses"
   | "expenses-by-division"
   | "financial-position"
+  | "working-capital"
 
 export interface DiagnosticReportViewOption {
   id: DiagnosticReportView
   label: string
+  /** Indentation visuelle sous une section parente du rapport. */
+  indent?: boolean
 }
 
 interface DiagnosticNavRailProps {
@@ -86,7 +89,8 @@ export function DiagnosticNavRail({
             }}
             aria-current={isActive ? "true" : undefined}
             className={[
-              "flex w-full items-center gap-[9px] rounded-md px-2.5 py-[7px] text-left text-xs font-medium leading-snug transition-colors",
+              "flex w-full items-center gap-[9px] rounded-md py-[7px] text-left text-xs font-medium leading-snug transition-colors",
+              view.indent ? "pl-6 pr-2.5" : "px-2.5",
               isActive ? "bg-slate-100 text-[#2A2F3A]" : "text-slate-500 hover:text-[#2A2F3A]",
             ].join(" ")}
           >

@@ -61,6 +61,7 @@ function getNavItemActive(pathname: string | null, item: NavItem): boolean {
   if (item.label === "Paramètres") return pathname?.startsWith("/settings") || false
   if (item.label === "Support") return pathname?.startsWith("/contact") || false
   if (item.label === "Tableau de bord") return pathname?.startsWith("/tableau-de-bord") || false
+  if (item.label === "Diagnostic") return pathname?.startsWith("/modules/diagnostic") || false
   if (item.label === "Outils financiers") return pathname === "/dashboard"
   if (item.label === "Configuration") return pathname?.startsWith("/settings/companies") || false
   if (item.label === "Reporting financier") return pathname?.startsWith("/financial-statements") || false

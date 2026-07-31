@@ -2426,12 +2426,20 @@ export interface DiagnosticValuation {
   rationale: string[]
 }
 
+export interface DiagnosticReferencePeriod {
+  calendar_year: number
+  calendar_month: number
+  fiscal_year: number
+  fiscal_month: number
+}
+
 export interface CompanyDiagnostic {
   company_id: string
   company_name: string
   currency: string
   fiscal_year_end: string
   latest_fiscal_year: number
+  reference_period: DiagnosticReferencePeriod
   summary: DiagnosticSummary
   trends: DiagnosticTrendYear[]
   seasonality: DiagnosticSeasonalityMonth[]
@@ -2444,7 +2452,16 @@ export interface CompanyDiagnostic {
 }
 
 export async function getCompanyDiagnostic(
-  companyId: string
+  companyId: string,
+  options?: { referenceYear?: number; referenceMonth?: number },
 ): Promise<CompanyDiagnostic> {
-  return apiFetch<CompanyDiagnostic>(`/api/companies/${companyId}/diagnostic`)
+  const params = new URLSearchParams()
+  if (options?.referenceYear != null && options?.referenceMonth != null) {
+    params.set("fiscal_year", String(options.referenceYear))
+    params.set("month", String(options.referenceMonth))
+  }
+  const qs = params.toString()
+  return apiFetch<CompanyDiagnostic>(
+    `/api/companies/${companyId}/diagnostic${qs ? `?${qs}` : ""}`,
+  )
 }

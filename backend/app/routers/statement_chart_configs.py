@@ -34,6 +34,7 @@ StatementTypeQuery = Literal[
     "diagnostic-expenses",
     "diagnostic-expenses-by-division",
     "diagnostic-financial-position",
+    "diagnostic-working-capital",
 ]
 
 

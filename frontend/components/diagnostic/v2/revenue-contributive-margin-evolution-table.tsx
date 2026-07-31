@@ -19,10 +19,11 @@ interface RevenueContributiveMarginEvolutionTableProps {
 
 function formatCell(
   value: number | null,
-  format: "currency" | "percent",
+  format: "currency" | "percent" | "days",
   currency: string,
 ): string {
   if (value === null || !Number.isFinite(value)) return "—"
+  if (format === "days") return `${value.toFixed(1).replace(".", ",")} j`
   return format === "currency" ? formatMoney(value, currency) : formatPercent(value)
 }
 

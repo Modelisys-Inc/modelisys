@@ -175,6 +175,8 @@ def test_diagnostic_happy_path_trends_and_summary(client, auth_headers, db):
 
     assert data["company_id"] == company_id
     assert data["latest_fiscal_year"] == 2024
+    assert data["reference_period"]["calendar_year"] == 2024
+    assert data["reference_period"]["calendar_month"] == 12
     assert data["currency"] == "CAD"
     assert data["generated_at"]
 
@@ -412,3 +414,32 @@ def test_diagnostic_viewer_can_read(client, auth_headers, db):
     response = _get_diagnostic(client, viewer_headers, company_id)
     assert response.status_code == 200
     assert response.json()["company_id"] == company_id
+
+
+def test_diagnostic_reference_period_limits_trends(client, auth_headers, db):
+    company_id = _setup_full_company(client, auth_headers, db)
+
+    response = client.get(
+        f"/api/companies/{company_id}/diagnostic",
+        headers=auth_headers,
+        params={"fiscal_year": 2023, "month": 12},
+    )
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["reference_period"]["calendar_year"] == 2023
+    assert data["reference_period"]["calendar_month"] == 12
+    assert data["latest_fiscal_year"] == 2023
+    assert [t["fiscal_year"] for t in data["trends"]] == [2022, 2023]
+    assert data["trends"][-1]["revenue"] == pytest.approx(110000.0)
+
+
+def test_diagnostic_reference_params_must_be_paired(client, auth_headers, db):
+    company_id = _setup_full_company(client, auth_headers, db)
+
+    response = client.get(
+        f"/api/companies/{company_id}/diagnostic",
+        headers=auth_headers,
+        params={"fiscal_year": 2024},
+    )
+    assert response.status_code == 422

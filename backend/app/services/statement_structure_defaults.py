@@ -71,6 +71,11 @@ DEFAULT_WORKING_CAPITAL = [
     {"label": "FdRHC / Revenus", "defineMapping": True, "liaisonMode": "na", "displayFormat": "percent"},
     {"label": "Ratio de FDR", "defineMapping": True, "liaisonMode": "na", "displayFormat": "number"},
     {"label": "Ratio de FdRHC", "defineMapping": True, "liaisonMode": "na", "displayFormat": "number"},
+    {"label": "", "separatorAbove": True},
+    {"label": "DSO", "defineMapping": True, "liaisonMode": "na", "displayFormat": "days"},
+    {"label": "Rotation des stocks", "defineMapping": True, "liaisonMode": "na", "displayFormat": "days"},
+    {"label": "DPO", "defineMapping": True, "liaisonMode": "na", "displayFormat": "days"},
+    {"label": "CCC", "defineMapping": True, "liaisonMode": "na", "displayFormat": "days"},
 ]
 
 # Analyse Capex — lignes configurables (code / formule via Paramètres).

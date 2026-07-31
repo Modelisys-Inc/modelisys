@@ -3,6 +3,11 @@
 import { useState, useEffect } from "react"
 import { getCompanyDiagnostic, type CompanyDiagnostic } from "@/lib/api"
 
+export interface DiagnosticReferenceOptions {
+  referenceYear: number
+  referenceMonth: number
+}
+
 interface UseCompanyDiagnosticReturn {
   data: CompanyDiagnostic | null
   loading: boolean
@@ -12,12 +17,16 @@ interface UseCompanyDiagnosticReturn {
 
 /** Charge le diagnostic complet d'une société (GET /api/companies/{id}/diagnostic). */
 export function useCompanyDiagnostic(
-  companyId: string | null
+  companyId: string | null,
+  reference?: DiagnosticReferenceOptions | null,
 ): UseCompanyDiagnosticReturn {
   const [data, setData] = useState<CompanyDiagnostic | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [reloadCounter, setReloadCounter] = useState(0)
+
+  const referenceYear = reference?.referenceYear
+  const referenceMonth = reference?.referenceMonth
 
   useEffect(() => {
     if (!companyId) {
@@ -30,7 +39,12 @@ export function useCompanyDiagnostic(
     setLoading(true)
     setError(null)
 
-    getCompanyDiagnostic(companyId)
+    getCompanyDiagnostic(
+      companyId,
+      referenceYear != null && referenceMonth != null
+        ? { referenceYear, referenceMonth }
+        : undefined,
+    )
       .then((response) => {
         if (!cancelled) setData(response)
       })
@@ -47,7 +61,7 @@ export function useCompanyDiagnostic(
     return () => {
       cancelled = true
     }
-  }, [companyId, reloadCounter])
+  }, [companyId, referenceYear, referenceMonth, reloadCounter])
 
   return {
     data,

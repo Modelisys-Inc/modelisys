@@ -1,16 +1,35 @@
 import { test, expect, Page } from "@playwright/test"
 
 const COMPANY_ID = "11111111-1111-1111-1111-111111111111"
+const DIAGNOSTIC_ID = "diag1111-1111-1111-1111-111111111111"
 const DIVISION_OK = "d1111111-1111-1111-1111-111111111111"
 const DIVISION_KO = "d2222222-2222-2222-2222-222222222222"
-const DIAGNOSTIC_PAGE_URL = `/modules/diagnostic?companyId=${COMPANY_ID}`
+const DIAGNOSTIC_REGISTRY_KEY = "modelisys-diagnostic-registry"
+const DIAGNOSTIC_PAGE_URL = `/modules/diagnostic/${DIAGNOSTIC_ID}?companyId=${COMPANY_ID}`
+const DIAGNOSTIC_PORTAL_URL = `/modules/diagnostic?companyId=${COMPANY_ID}`
 
 async function setupAuthAndCommonMocks(page: Page) {
   // Injecter le cookie de session + jetons avant tout script de page.
-  await page.addInitScript(() => {
-    localStorage.setItem("access_token", "fake-access-token")
-    localStorage.setItem("refresh_token", "fake-refresh-token")
-  })
+  await page.addInitScript(
+    ({ key, record }) => {
+      localStorage.setItem("access_token", "fake-access-token")
+      localStorage.setItem("refresh_token", "fake-refresh-token")
+      localStorage.setItem(key, JSON.stringify([record]))
+    },
+    {
+      key: DIAGNOSTIC_REGISTRY_KEY,
+      record: {
+        id: DIAGNOSTIC_ID,
+        companyId: COMPANY_ID,
+        companyName: "Aciers Beauport inc.",
+        title: "Aciers Beauport inc. — test",
+        referenceYear: 2025,
+        referenceMonth: 12,
+        createdAt: "2026-05-18T00:00:00.000Z",
+        lastOpenedAt: "2026-05-18T00:00:00.000Z",
+      },
+    },
+  )
   await page.context().addCookies([
     {
       name: "has_session",
@@ -262,6 +281,84 @@ async function setupAuthAndCommonMocks(page: Page) {
           },
         ],
       }
+      const workingCapitalConfig = {
+        version: 2,
+        chartTitle: "Fonds de roulement",
+        series: [
+          {
+            id: "wc-fdr",
+            kind: "bar",
+            label: "Fonds de roulement",
+            spec: { type: "single", code: "" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#3b82f6",
+            stackGroup: "wc-fdr",
+          },
+          {
+            id: "wc-fdrhc",
+            kind: "bar",
+            label: "Fonds de roulement hors caisse",
+            spec: { type: "single", code: "" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#10b981",
+            stackGroup: "wc-fdr",
+          },
+          {
+            id: "wc-dso",
+            kind: "bar",
+            label: "DSO",
+            spec: { type: "single", code: "" },
+            yAxis: "left",
+            valueFormat: "ratio",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#f59e0b",
+            stackGroup: "wc-cycle",
+          },
+          {
+            id: "wc-dio",
+            kind: "bar",
+            label: "Rotation des stocks",
+            spec: { type: "single", code: "" },
+            yAxis: "left",
+            valueFormat: "ratio",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#8b5cf6",
+            stackGroup: "wc-cycle",
+          },
+          {
+            id: "wc-dpo",
+            kind: "bar",
+            label: "DPO",
+            spec: { type: "single", code: "" },
+            yAxis: "left",
+            valueFormat: "ratio",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#06b6d4",
+            stackGroup: "wc-cycle",
+          },
+          {
+            id: "wc-ccc",
+            kind: "line",
+            label: "CCC",
+            spec: { type: "single", code: "" },
+            yAxis: "left",
+            valueFormat: "ratio",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#ec4899",
+            stackGroup: "wc-cycle",
+          },
+        ],
+      }
       const config =
         statementType === "diagnostic-revenue"
           ? revenueConfig
@@ -271,6 +368,8 @@ async function setupAuthAndCommonMocks(page: Page) {
               ? expensesConfig
               : statementType === "diagnostic-financial-position"
                 ? financialPositionConfig
+              : statementType === "diagnostic-working-capital"
+                ? workingCapitalConfig
               : statementType === "balance-sheet"
                 ? balanceSheetConfig
                 : performanceConfig
@@ -329,6 +428,12 @@ function buildDiagnosticPayload(overrides: Record<string, unknown> = {}) {
     currency: "CAD",
     fiscal_year_end: "12-31",
     latest_fiscal_year: 2025,
+    reference_period: {
+      calendar_year: 2025,
+      calendar_month: 12,
+      fiscal_year: 2025,
+      fiscal_month: 12,
+    },
     summary: {
       latest_fiscal_year: 2025,
       lifecycle_stage: "croissance",
@@ -472,7 +577,7 @@ function buildDiagnosticPayload(overrides: Record<string, unknown> = {}) {
 }
 
 async function mockDiagnostic(page: Page, payload: unknown, status = 200) {
-  await page.route(`**/api/companies/${COMPANY_ID}/diagnostic`, (route) =>
+  await page.route(`**/api/companies/${COMPANY_ID}/diagnostic**`, (route) =>
     route.fulfill({
       status,
       contentType: "application/json",
@@ -482,7 +587,24 @@ async function mockDiagnostic(page: Page, payload: unknown, status = 200) {
 }
 
 test.describe("Page Diagnostic", () => {
-  test("rend le héros, l'indice de santé, les KPI et toutes les sections", async ({ page }) => {
+  test("portail : liste et création de diagnostic", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(DIAGNOSTIC_PORTAL_URL)
+
+    await expect(page.getByRole("heading", { name: "Diagnostic", exact: true })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByText("Mes diagnostics")).toBeVisible()
+    await expect(page.getByRole("button", { name: "Nouveau diagnostic" })).toBeVisible()
+    await expect(page.getByText("Aciers Beauport inc. — test")).toBeVisible()
+    await page.getByRole("button", { name: "Ouvrir le diagnostic" }).click()
+    await expect(page).toHaveURL(new RegExp(`/modules/diagnostic/${DIAGNOSTIC_ID}\\?companyId=${COMPANY_ID}`))
+    await expect(page.getByRole("heading", { name: "Aciers Beauport inc." })).toBeVisible()
+  })
+
+  test("rend le héros, les KPI et toutes les sections", async ({ page }) => {
     await setupAuthAndCommonMocks(page)
     await mockDiagnostic(page, buildDiagnosticPayload())
 
@@ -496,12 +618,6 @@ test.describe("Page Diagnostic", () => {
     await expect(badge).toBeVisible()
     await expect(badge).toHaveText("Croissance")
     await expect(page.getByText(/Exercice 2025 · CAD · généré le/)).toBeVisible()
-
-    // Indice de santé 0-100 et ses cinq piliers.
-    await expect(page.getByText("Indice de santé Modelisys")).toBeVisible()
-    for (const pillar of ["Croissance", "Rentabilité", "Liquidité", "Structure fin.", "Efficacité"]) {
-      await expect(page.getByText(pillar, { exact: true }).first()).toBeVisible()
-    }
 
     // Trajectoire = carte Performance financière (même config que le tableau de bord IS).
     await expect(page.getByRole("heading", { name: "Performance financière" })).toBeVisible()
@@ -550,8 +666,7 @@ test.describe("Page Diagnostic", () => {
 
     // Signaux typés attachés aux graphiques (remplacent les narrations).
     const signals = page.getByTestId("diagnostic-signal")
-    await expect(signals).toHaveCount(4)
-    await expect(signals.filter({ hasText: /Marge EBITDA en hausse/ })).toBeVisible()
+    await expect(signals).toHaveCount(3)
     await expect(signals.filter({ hasText: /Division Ouest est déficitaire/ })).toBeVisible()
     await expect(signals.filter({ hasText: /Acier structural pèse/ })).toBeVisible()
     await expect(signals.filter({ hasText: /Ratio de liquidité de/ })).toBeVisible()
@@ -1211,6 +1326,150 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByRole("button", { name: "Mensuel" })).toBeVisible()
     await page.getByRole("button", { name: "Mensuel" }).click()
     await expect(page.getByTestId("financial-position-chart")).toBeVisible()
+  })
+
+  test("vue Fonds de roulement : graphiques FDR et cycle de trésorerie", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/working-capital`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          structure: [
+            {
+              label: "FDR",
+              defineMapping: true,
+              liaisonMode: "difference",
+              liaisonNumeratorCodes: ["ACT"],
+              liaisonDenominatorCodes: ["PCT"],
+              displayFormat: "currency",
+            },
+            {
+              label: "FdRHC",
+              defineMapping: true,
+              liaisonMode: "difference",
+              liaisonNumeratorCodes: ["ACT"],
+              liaisonDenominatorCodes: ["PCT"],
+              displayFormat: "currency",
+            },
+            {
+              label: "DSO",
+              defineMapping: true,
+              liaisonMode: "quotient",
+              liaisonNumeratorCodes: ["ACT"],
+              liaisonDenominatorCodes: ["REV"],
+              liaisonFactor: 365,
+              displayFormat: "days",
+            },
+            {
+              label: "Rotation des stocks",
+              defineMapping: true,
+              liaisonMode: "quotient",
+              liaisonNumeratorCodes: ["ACT"],
+              liaisonDenominatorCodes: ["REV"],
+              liaisonFactor: 365,
+              displayFormat: "days",
+            },
+            {
+              label: "DPO",
+              defineMapping: true,
+              liaisonMode: "quotient",
+              liaisonNumeratorCodes: ["PCT"],
+              liaisonDenominatorCodes: ["REV"],
+              liaisonFactor: 365,
+              displayFormat: "days",
+            },
+            {
+              label: "CCC",
+              defineMapping: true,
+              liaisonMode: "na",
+              displayFormat: "days",
+            },
+          ],
+        }),
+      }),
+    )
+    await page.route(
+      `**/api/companies/${COMPANY_ID}/financial-statements/balance-sheet/series*`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            companyId: COMPANY_ID,
+            statementType: "balance-sheet",
+            fiscalYear: 2025,
+            periods: [
+              { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
+              { fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" },
+            ],
+            rows: [
+              {
+                id: "ACT",
+                linkCode: "ACT",
+                label: "Actif à court terme",
+                isBold: false,
+                isSection: true,
+                isResult: false,
+                amounts: { "2024-12": 108_000, "2025-12": 120_000 },
+                detailRows: [],
+              },
+              {
+                id: "PCT",
+                linkCode: "PCT",
+                label: "Passif à court terme",
+                isBold: false,
+                isSection: true,
+                isResult: false,
+                amounts: { "2024-12": 72_000, "2025-12": 80_000 },
+                detailRows: [],
+              },
+            ],
+          }),
+        }),
+    )
+    await page.route(
+      `**/api/companies/${COMPANY_ID}/financial-statements/income-statement/series*`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            companyId: COMPANY_ID,
+            statementType: "income-statement",
+            fiscalYear: 2025,
+            periods: [
+              { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
+              { fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" },
+            ],
+            rows: [
+              {
+                id: "REV",
+                linkCode: "REV",
+                label: "Revenus",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: { "2024-12": 4_800_000, "2025-12": 5_200_000 },
+                detailRows: [],
+              },
+            ],
+          }),
+        }),
+    )
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(DIAGNOSTIC_PAGE_URL)
+
+    await page.getByRole("button", { name: "Fonds de roulement", exact: true }).click()
+
+    await expect(page.getByTestId("working-capital-report")).toBeVisible({ timeout: 15000 })
+    await expect(page.getByTestId("working-capital-chart")).toBeVisible()
+    await expect(page.getByTestId("working-capital-chart-fdr")).toBeVisible()
+    await expect(page.getByTestId("working-capital-chart-cycle")).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Lecture du fonds de roulement" })).toBeVisible()
+    await expect(page.getByText("Fonds de roulement", { exact: true }).first()).toBeVisible()
+    await expect(page.getByText("Cycle de trésorerie").first()).toBeVisible()
   })
 
   test("tiroir de détail : ouverture depuis une ligne de division, fermeture par Échap", async ({

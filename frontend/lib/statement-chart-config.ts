@@ -14,6 +14,7 @@ export type StatementType =
   | "diagnostic-expenses"
   | "diagnostic-expenses-by-division"
   | "diagnostic-financial-position"
+  | "diagnostic-working-capital"
 
 export type CoreStatementType = "income-statement" | "balance-sheet" | "cash-flow"
 
@@ -90,6 +91,7 @@ export function defaultChartCardTitle(statementType: StatementType): string {
   if (statementType === "diagnostic-expenses") return "Dépenses"
   if (statementType === "diagnostic-expenses-by-division") return "Divisions"
   if (statementType === "diagnostic-financial-position") return "Situation financière"
+  if (statementType === "diagnostic-working-capital") return "Fonds de roulement"
   if (statementType === "balance-sheet") return "Bilan"
   return "Flux de trésorerie"
 }
@@ -101,6 +103,7 @@ export function seriesStatementTypeForChart(statementType: StatementType): CoreS
   if (statementType === "diagnostic-expenses") return "income-statement"
   if (statementType === "diagnostic-expenses-by-division") return "income-statement"
   if (statementType === "diagnostic-financial-position") return "balance-sheet"
+  if (statementType === "diagnostic-working-capital") return "balance-sheet"
   return statementType
 }
 

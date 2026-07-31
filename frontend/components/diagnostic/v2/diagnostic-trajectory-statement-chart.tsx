@@ -17,12 +17,7 @@ export type DiagnosticChartNarrativeScope =
   | "expenses-only"
   | "expenses-by-division-only"
   | "financial-position-only"
-
-function parseFiscalEndMonth(fiscalYearEnd?: string): number {
-  const raw = fiscalYearEnd?.split("-")[0]
-  const n = parseInt(raw ?? "12", 10)
-  return Number.isFinite(n) && n >= 1 && n <= 12 ? n : 12
-}
+  | "working-capital-only"
 
 function resolveReportChartConfig(reportView: DiagnosticReportView): {
   statementType: StatementType
@@ -49,6 +44,12 @@ function resolveReportChartConfig(reportView: DiagnosticReportView): {
       narrativeScope: "financial-position-only",
     }
   }
+  if (reportView === "working-capital") {
+    return {
+      statementType: "diagnostic-working-capital",
+      narrativeScope: "working-capital-only",
+    }
+  }
   return { statementType: "income-statement", narrativeScope: "full" }
 }
 
@@ -56,8 +57,8 @@ interface DiagnosticReportChartSectionProps {
   reportView: DiagnosticReportView
   companyId: string
   companies: Company[]
-  latestFiscalYear: number
-  fiscalYearEnd?: string
+  referenceYear: number
+  referenceMonth: number
   currency?: string
   signal?: { tone: SignalTone; text: string } | null
 }
@@ -70,8 +71,8 @@ export function DiagnosticReportChartSection({
   reportView,
   companyId,
   companies,
-  latestFiscalYear,
-  fiscalYearEnd,
+  referenceYear,
+  referenceMonth,
   currency,
   signal,
 }: DiagnosticReportChartSectionProps) {
@@ -84,6 +85,8 @@ export function DiagnosticReportChartSection({
         ? "diagnostic-expenses"
         : reportView === "financial-position"
           ? "diagnostic-financial-position"
+          : reportView === "working-capital"
+            ? "diagnostic-working-capital"
           : statementType
 
   const { slots, activeSlotId, setActiveSlotId, refresh, loading } = useStatementChartSlots(
@@ -103,7 +106,6 @@ export function DiagnosticReportChartSection({
     [slots, slotStatementType],
   )
 
-  const referenceMonth = parseFiscalEndMonth(fiscalYearEnd)
   const chartView = horizonView === "years" ? "years" : "24months"
 
   return (
@@ -121,6 +123,8 @@ export function DiagnosticReportChartSection({
               ? "diagnostic-revenue"
               : reportView === "financial-position"
                 ? "diagnostic-financial-position"
+                : reportView === "working-capital"
+                  ? "diagnostic-working-capital"
                 : undefined
           }
           slot={activeSlot}
@@ -134,7 +138,7 @@ export function DiagnosticReportChartSection({
           companyId={companyId}
           companies={companies}
           currency={currency}
-          fiscalYear={latestFiscalYear}
+          fiscalYear={referenceYear}
           referenceMonth={referenceMonth}
           structureVersion={0}
           loading={loading}
