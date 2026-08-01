@@ -151,6 +151,7 @@ export function WorkingCapitalAnalysis({
   const loading = bsLoading || isLoading
   const canInlineStructureEdit = showStructureSettings && !!companyId
   const isStructureStudio = structureEditMode && canInlineStructureEdit
+  const isDiagnosticAppearance = appearance === "diagnostic"
 
   useEffect(() => {
     if (!companyId) {
@@ -553,31 +554,77 @@ export function WorkingCapitalAnalysis({
     2 + (view === "current" ? 2 : Math.max(trendCount, getPeriodColumnLabels().length, 1))
 
   /** Style montants : Détail CDR (slate-500) ; postes gras → libellé + montants en gras. */
-  const metricColumnClass =
-    "box-border w-[18rem] min-w-[18rem] max-w-[18rem] sm:w-[20rem] sm:min-w-[20rem] sm:max-w-[20rem]"
+  const metricColumnClass = isDiagnosticAppearance
+    ? "box-border min-w-[9.5rem] max-w-[14rem]"
+    : "box-border w-[18rem] min-w-[18rem] max-w-[18rem] sm:w-[20rem] sm:min-w-[20rem] sm:max-w-[20rem]"
   const amountCellClass = (isBold?: boolean) =>
     cn(
-      "whitespace-nowrap px-6 py-3 text-right text-sm",
-      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
+      isDiagnosticAppearance
+        ? "whitespace-nowrap px-3 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums"
+        : "whitespace-nowrap px-6 py-3 text-right text-sm",
+      isBold
+        ? isDiagnosticAppearance
+          ? "text-[#2A2F3A]"
+          : "font-semibold font-bold text-slate-900"
+        : "text-slate-500",
     )
   const amountTrendCellClass = (isBold?: boolean) =>
     cn(
-      "min-w-[5.5rem] whitespace-nowrap px-4 py-3 text-right text-sm",
-      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
+      isDiagnosticAppearance
+        ? "min-w-[4.5rem] whitespace-nowrap px-2.5 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums"
+        : "min-w-[5.5rem] whitespace-nowrap px-4 py-3 text-right text-sm",
+      isBold
+        ? isDiagnosticAppearance
+          ? "text-[#2A2F3A]"
+          : "font-semibold font-bold text-slate-900"
+        : "text-slate-500",
     )
+  const averageColumnBgClass = "bg-gradient-to-b from-slate-50 to-slate-100/50"
   const amountAverageCellClass = (isBold?: boolean) =>
     cn(
-      "min-w-[7.5rem] whitespace-nowrap bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3 text-right text-sm",
-      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
+      isDiagnosticAppearance
+        ? "min-w-[5.5rem] whitespace-nowrap px-3 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums"
+        : "min-w-[7.5rem] whitespace-nowrap px-6 py-3 text-right text-sm",
+      averageColumnBgClass,
+      isBold
+        ? isDiagnosticAppearance
+          ? "text-[#2A2F3A]"
+          : "font-semibold font-bold text-slate-900"
+        : "text-slate-500",
     )
   const metricLabelCellClass = (isBold?: boolean, isChild?: boolean) =>
     cn(
       metricColumnClass,
-      "sticky left-0 z-10",
+      !isDiagnosticAppearance && "sticky left-0 z-10",
       isChild
-        ? "bg-slate-50 py-2.5 pl-14 pr-6 text-sm text-slate-600"
-        : cn("bg-white px-6 py-3 text-slate-900", isBold && "font-bold"),
+        ? isDiagnosticAppearance
+          ? "bg-slate-50 py-2 pl-10 pr-4 text-[11px] text-slate-600"
+          : "bg-slate-50 py-2.5 pl-14 pr-6 text-sm text-slate-600"
+        : isDiagnosticAppearance
+          ? cn("bg-white px-4 py-[9px] text-xs font-medium text-[#2A2F3A]", isBold && "font-semibold")
+          : cn("bg-white px-6 py-3 text-slate-900", isBold && "font-bold"),
     )
+  const tableHeaderClass = isDiagnosticAppearance
+    ? "px-4 py-2 text-[9.5px] font-semibold uppercase leading-tight tracking-[.08em] text-slate-400"
+    : "px-6 py-4 text-sm font-semibold text-[#2A2F3A]"
+  const tableHeaderAverageClass = cn(
+    tableHeaderClass,
+    isDiagnosticAppearance ? "min-w-[5.5rem]" : "min-w-[7.5rem]",
+    "text-right",
+    averageColumnBgClass,
+  )
+  const tableHeaderPeriodClass = isDiagnosticAppearance
+    ? cn(tableHeaderClass, "text-right", view === "current" ? "min-w-[5.5rem]" : "min-w-[4.5rem] px-2.5")
+    : cn(
+        tableHeaderClass,
+        "text-right",
+        view === "current" ? "min-w-[7.5rem]" : "min-w-[5.5rem] px-4",
+      )
+  const rowHoverClass = isDiagnosticAppearance ? "hover:bg-slate-50" : "hover:bg-[#E0742D]/[0.04]"
+  const rowHoverCellClass = isDiagnosticAppearance ? "group-hover:bg-slate-50" : "group-hover:bg-[#FDF6F1]"
+  const averageRowHoverCellClass = isDiagnosticAppearance
+    ? "group-hover:from-slate-100 group-hover:to-slate-100/70"
+    : "group-hover:from-[#FDF6F1] group-hover:to-[#FDF6F1]"
 
   const renderMetricRow = (
     rowKey: string,
@@ -644,21 +691,22 @@ export function WorkingCapitalAnalysis({
       <Fragment key={rowKey}>
         <tr
           className={cn(
-            "group transition-colors hover:bg-[#E0742D]/[0.04]",
+            "group transition-colors",
+            rowHoverClass,
             canExpand && "cursor-pointer",
           )}
           onClick={canExpand ? () => toggleRow(rowKey) : undefined}
           data-testid={canExpand ? `wc-metric-expand-${rowKey}` : undefined}
           aria-expanded={canExpand ? isExpanded : undefined}
         >
-          <td className={cn(metricLabelCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+          <td className={cn(metricLabelCellClass(metric.isBold), rowHoverCellClass)}>
             <div className="flex items-center gap-2">
               {canExpand ? (
                 <span className="flex-shrink-0" aria-hidden>
                   {isExpanded ? (
-                    <ChevronDown className="h-4 w-4 text-slate-500" />
+                    <ChevronDown className={cn(isDiagnosticAppearance ? "h-3 w-3" : "h-4 w-4", "text-slate-500")} />
                   ) : (
-                    <ChevronRight className="h-4 w-4 text-slate-500" />
+                    <ChevronRight className={cn(isDiagnosticAppearance ? "h-3 w-3" : "h-4 w-4", "text-slate-500")} />
                   )}
                 </span>
               ) : (
@@ -667,15 +715,15 @@ export function WorkingCapitalAnalysis({
               <span className="min-w-0 truncate">{metric.label}</span>
             </div>
           </td>
-          <td className={cn(amountAverageCellClass(metric.isBold), "group-hover:from-[#FDF6F1] group-hover:to-[#FDF6F1]")}>
+          <td className={cn(amountAverageCellClass(metric.isBold), averageRowHoverCellClass)}>
             {formatCell(average)}
           </td>
           {view === "current" ? (
             <>
-              <td className={cn(amountCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+              <td className={cn(amountCellClass(metric.isBold), rowHoverCellClass)}>
                 {formatCell(values[0] ?? 0)}
               </td>
-              <td className={cn(amountCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+              <td className={cn(amountCellClass(metric.isBold), rowHoverCellClass)}>
                 {formatCell(values[1] ?? 0)}
               </td>
             </>
@@ -683,7 +731,7 @@ export function WorkingCapitalAnalysis({
             values.map((v, idx) => (
               <td
                 key={idx}
-                className={cn(amountTrendCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}
+                className={cn(amountTrendCellClass(metric.isBold), rowHoverCellClass)}
               >
                 {formatCell(v)}
               </td>
@@ -749,8 +797,6 @@ export function WorkingCapitalAnalysis({
     )
   }
 
-  const isDiagnosticAppearance = appearance === "diagnostic"
-
   const analysisBody = isStructureStudio ? (
     <StatementStructureStudio
       embedded
@@ -780,47 +826,29 @@ export function WorkingCapitalAnalysis({
       {!loading && companyId && (
         <div
           className={cn(
-            "min-w-0 overflow-auto overscroll-contain bg-white",
-            isDiagnosticAppearance ? "max-h-none" : "max-h-[min(72vh,56rem)]",
+            "min-w-0 bg-white",
+            isDiagnosticAppearance
+              ? "overflow-x-auto pb-2 pt-2"
+              : "max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
           )}
           data-testid="wc-summary-table-scroll"
         >
           <table className="w-full min-w-max border-separate border-spacing-0">
             <thead
               className={cn(
-                "[&_th]:sticky [&_th]:top-0 [&_th]:z-20",
-                "[&_th]:border-b-2 [&_th]:border-slate-200",
-                "[&_th]:bg-gradient-to-b [&_th]:from-slate-50 [&_th]:to-slate-100/80",
-                "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
+                !isDiagnosticAppearance && "[&_th]:sticky [&_th]:top-0 [&_th]:z-20",
+                isDiagnosticAppearance
+                  ? "[&_th]:border-b [&_th]:border-slate-200"
+                  : "[&_th]:border-b-2 [&_th]:border-slate-200 [&_th]:bg-gradient-to-b [&_th]:from-slate-50 [&_th]:to-slate-100/80 [&_th:first-child]:left-0 [&_th:first-child]:z-30",
               )}
             >
               <tr>
-                <th
-                  className={cn(
-                    metricColumnClass,
-                    "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
-                  )}
-                >
+                <th className={cn(metricColumnClass, tableHeaderClass, "text-left")}>
                   Métrique
                 </th>
-                <th
-                  className={cn(
-                    "min-w-[7.5rem] whitespace-nowrap px-6 py-4 text-right text-sm font-semibold text-[#2A2F3A]",
-                    "bg-gradient-to-b from-slate-50 to-slate-100/50",
-                  )}
-                >
-                  Moyenne
-                </th>
+                <th className={tableHeaderAverageClass}>Moyenne</th>
                 {getPeriodColumnLabels().map((label, idx) => (
-                  <th
-                    key={idx}
-                    className={cn(
-                      "whitespace-nowrap text-right text-sm font-semibold text-[#2A2F3A]",
-                      view === "current"
-                        ? "min-w-[7.5rem] px-6 py-4"
-                        : "min-w-[5.5rem] px-4 py-4",
-                    )}
-                  >
+                  <th key={idx} className={tableHeaderPeriodClass}>
                     {label}
                   </th>
                 ))}
@@ -828,8 +856,9 @@ export function WorkingCapitalAnalysis({
             </thead>
             <tbody
               className={cn(
-                "[&_td]:border-b [&_td]:border-slate-200",
-                "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+                isDiagnosticAppearance
+                  ? "[&_td]:border-t [&_td]:border-slate-200"
+                  : "[&_td]:border-b [&_td]:border-slate-200 [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
               )}
             >
               {tableRows.map((item) => {
@@ -852,7 +881,9 @@ export function WorkingCapitalAnalysis({
                       <td
                         className={cn(
                           metricColumnClass,
-                          "sticky left-0 z-10 bg-white px-6 py-4 text-transparent select-none",
+                          !isDiagnosticAppearance && "sticky left-0 z-10",
+                          isDiagnosticAppearance ? "px-4 py-4" : "px-6 py-4",
+                          "bg-white text-transparent select-none",
                         )}
                       >
                         {"\u00a0"}

@@ -88,16 +88,30 @@ export type ChartHorizonToggleValue = "years" | "12months"
 export type ChartHorizonToggleProps = {
   value: ChartHorizonToggleValue
   onChange: (value: ChartHorizonToggleValue) => void
+  variant?: "default" | "diagnostic"
 }
 
-export function EmbeddedHorizonToggle({ value, onChange }: ChartHorizonToggleProps) {
+export function EmbeddedHorizonToggle({
+  value,
+  onChange,
+  variant = "default",
+}: ChartHorizonToggleProps) {
   const options: { id: ChartHorizonToggleValue; label: string }[] = [
     { id: "years", label: HORIZON_LABEL.annuel5Ans },
     { id: "12months", label: HORIZON_LABEL.mensuel },
   ]
+  const isDiagnostic = variant === "diagnostic"
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Horizon</span>
+      <span
+        className={cn(
+          isDiagnostic
+            ? "text-[9.5px] font-semibold uppercase leading-tight tracking-[.08em] text-slate-400"
+            : "text-[11px] font-medium uppercase tracking-wide text-slate-500",
+        )}
+      >
+        Horizon
+      </span>
       <div
         className="flex gap-[3px] rounded-[9px] border border-slate-200 bg-slate-100 p-[3px]"
         role="group"
@@ -110,7 +124,8 @@ export function EmbeddedHorizonToggle({ value, onChange }: ChartHorizonTogglePro
             aria-pressed={value === opt.id}
             onClick={() => onChange(opt.id)}
             className={cn(
-              "cursor-pointer rounded-md px-3 py-1.5 text-[11px] font-semibold transition-colors",
+              "cursor-pointer rounded-md font-semibold transition-colors",
+              isDiagnostic ? "px-2.5 py-1 text-[10.5px]" : "px-3 py-1.5 text-[11px]",
               value === opt.id
                 ? "bg-[#E0742D] text-white"
                 : "bg-transparent text-slate-500 hover:text-[#2A2F3A]",

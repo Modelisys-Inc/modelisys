@@ -34,9 +34,16 @@ export function DiagnosticWorkingCapitalSection({
       title="Fonds de roulement"
       subtitle="Indicateurs synchronisés avec la structure Analyse → Fonds de roulement"
       detailHref={workingCapitalHref}
-      legend={<EmbeddedHorizonToggle value={horizonView} onChange={setHorizonView} />}
       bodyClassName="p-0"
     >
+      <div className="border-b border-slate-200 px-[18px] py-2.5">
+        <EmbeddedHorizonToggle
+          variant="diagnostic"
+          value={horizonView}
+          onChange={setHorizonView}
+        />
+      </div>
+
       <WorkingCapitalAnalysis
         appearance="diagnostic"
         period="monthly"
