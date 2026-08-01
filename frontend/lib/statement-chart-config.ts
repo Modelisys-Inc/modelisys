@@ -112,6 +112,14 @@ export function structureStatementTypeForChart(statementType: StatementType): Co
   return seriesStatementTypeForChart(statementType)
 }
 
+/** Structures à charger pour les sélecteurs de codes (paramètres des graphiques). */
+export function structureTypesForChartSettings(statementType: StatementType): CoreStatementType[] {
+  if (statementType === "diagnostic-working-capital") {
+    return ["income-statement", "balance-sheet"]
+  }
+  return [structureStatementTypeForChart(statementType)]
+}
+
 const EMPTY_CONFIG: StatementChartConfig = {
   version: 2,
   chartTitle: "",

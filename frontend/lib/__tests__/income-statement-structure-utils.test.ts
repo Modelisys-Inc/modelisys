@@ -7,6 +7,7 @@ import {
   listAnnexOptionsForDetailSubLineModal,
   syncIncomeStatementDetailSubLinesFromStandard,
   buildLinkCodeLabelsForChartPicker,
+  buildMergedChartPickerLinkData,
 } from "../income-statement-structure-utils"
 import type { StandardLinkCode } from "@/lib/api"
 
@@ -283,5 +284,62 @@ describe("buildLinkCodeLabelsForChartPicker", () => {
     expect(labels.get("REV-B")).toBe("Services")
     expect(labels.get("REV-A.1")).toBe("Produits électroniques")
     expect(labels.get("REV")).toBe("Revenus")
+  })
+
+  it("ne propage pas le libellé d'un poste N−D vers les codes référencés", () => {
+    const structure: Row[] = [
+      {
+        label: "Ventes nettes",
+        defineMapping: true,
+        linkCode: "REV.1",
+        liaisonMode: "single",
+      },
+      {
+        label: "Bénéfice net",
+        defineMapping: true,
+        linkCode: "BN",
+        liaisonMode: "difference",
+        liaisonNumeratorCodes: ["REV.1", "REV.2"],
+        liaisonDenominatorCodes: ["CHG.1"],
+      },
+    ]
+    const labels = buildLinkCodeLabelsForChartPicker(structure)
+    expect(labels.get("REV.1")).toBe("Ventes nettes")
+    expect(labels.get("BN")).toBe("Bénéfice net")
+    expect(labels.get("REV.2")).toBeUndefined()
+  })
+})
+
+describe("buildMergedChartPickerLinkData", () => {
+  it("fusionne CR et bilan en priorisant les libellés du compte de résultat", () => {
+    const income: Row[] = [
+      {
+        label: "Ventes",
+        defineMapping: true,
+        linkCode: "REV.1",
+        liaisonMode: "single",
+      },
+    ]
+    const balance: Row[] = [
+      {
+        label: "Bénéfice net",
+        defineMapping: true,
+        linkCode: "CAP",
+        liaisonMode: "difference",
+        liaisonNumeratorCodes: ["REV.1"],
+        liaisonDenominatorCodes: ["ACT"],
+      },
+      {
+        label: "Actif court terme",
+        defineMapping: true,
+        linkCode: "ACT",
+        liaisonMode: "single",
+      },
+    ]
+    const merged = buildMergedChartPickerLinkData([income, balance])
+    expect(merged.codes).toContain("REV.1")
+    expect(merged.codes).toContain("ACT")
+    expect(merged.labels.get("REV.1")).toBe("Ventes")
+    expect(merged.labels.get("ACT")).toBe("Actif court terme")
   })
 })

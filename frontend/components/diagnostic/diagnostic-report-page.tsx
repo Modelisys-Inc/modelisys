@@ -20,6 +20,10 @@ import {
   DiagnosticReportChartSection,
   DIAGNOSTIC_REPORT_ANCHOR_ID,
 } from "@/components/diagnostic/v2/diagnostic-trajectory-statement-chart"
+import {
+  DiagnosticExecutiveSummary,
+  DIAGNOSTIC_SUMMARY_ANCHOR_ID,
+} from "@/components/diagnostic/v2/diagnostic-executive-summary"
 import { DiagnosticSeasonalityHeatmap } from "@/components/diagnostic/v2/diagnostic-seasonality-heatmap"
 import { DiagnosticDivisionsQuadrant } from "@/components/diagnostic/v2/diagnostic-divisions-quadrant"
 import { DiagnosticBenchmarkRadar } from "@/components/diagnostic/v2/diagnostic-benchmark-radar"
@@ -32,13 +36,14 @@ import { PAGE_CLASS } from "@/lib/diagnostic-theme"
 import { touchDiagnostic } from "@/lib/diagnostic-registry"
 
 const REPORT_VIEWS = [
+  { id: "sommaire" as const, label: "Sommaire" },
   { id: "performance" as const, label: "Performance financière" },
   { id: "revenue" as const, label: "Revenus" },
   { id: "margin-by-revenue" as const, label: "Marge par Revenus" },
   { id: "expenses" as const, label: "Dépenses" },
   { id: "expenses-by-division" as const, label: "Divisions" },
   { id: "financial-position" as const, label: "Situation financière" },
-  { id: "working-capital" as const, label: "Fonds de roulement", indent: true },
+  { id: "working-capital" as const, label: "Fonds de roulement" },
 ]
 
 const SCROLL_SECTIONS = [
@@ -65,7 +70,7 @@ export function DiagnosticReportPage({
 }: DiagnosticReportPageProps) {
   const { companies, loading: companiesLoading } = useCompanies()
   const [drillDown, setDrillDown] = useState<DrillDownRequest | null>(null)
-  const [reportView, setReportView] = useState<DiagnosticReportView>("performance")
+  const [reportView, setReportView] = useState<DiagnosticReportView>("sommaire")
 
   const { data, loading, error, reload } = useCompanyDiagnostic(companyId, {
     referenceYear,
@@ -139,6 +144,7 @@ export function DiagnosticReportPage({
                   activeReportView={reportView}
                   onReportViewChange={setReportView}
                   reportAnchorId={DIAGNOSTIC_REPORT_ANCHOR_ID}
+                  summaryAnchorId={DIAGNOSTIC_SUMMARY_ANCHOR_ID}
                   sections={SCROLL_SECTIONS}
                   signalCount={signals.filter((s) => s.tone !== "ok").length}
                   signalSummary={signals
@@ -149,15 +155,29 @@ export function DiagnosticReportPage({
               </div>
 
               <div className="flex min-w-0 flex-col gap-4 px-6 pb-10 pt-5">
-                <DiagnosticReportChartSection
-                  reportView={reportView}
-                  companyId={companyId}
-                  companies={companies}
-                  currency={data.currency}
-                  referenceYear={data.reference_period.calendar_year}
-                  referenceMonth={data.reference_period.calendar_month}
-                  signal={signalFor("trajectoire")}
-                />
+                {reportView === "sommaire" ? (
+                  <DiagnosticExecutiveSummary
+                    diagnostic={data}
+                    onNavigateToView={(view) => {
+                      setReportView(view)
+                      requestAnimationFrame(() => {
+                        document
+                          .getElementById(DIAGNOSTIC_REPORT_ANCHOR_ID)
+                          ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                      })
+                    }}
+                  />
+                ) : (
+                  <DiagnosticReportChartSection
+                    reportView={reportView}
+                    companyId={companyId}
+                    companies={companies}
+                    currency={data.currency}
+                    referenceYear={data.reference_period.calendar_year}
+                    referenceMonth={data.reference_period.calendar_month}
+                    signal={signalFor("trajectoire")}
+                  />
+                )}
 
                 <div className="grid gap-4 xl:grid-cols-2">
                   <DiagnosticCard

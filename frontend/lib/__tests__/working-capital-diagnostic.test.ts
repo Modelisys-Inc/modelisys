@@ -118,6 +118,45 @@ describe("buildWorkingCapitalDiagnosticResult", () => {
     expect(result?.points[0]?.dso).toBeGreaterThan(0)
     expect(result?.points[0]?.ccc).toBeDefined()
   })
+
+  it("uses ACT/PCT link codes for FDR when structure rows are in mode na", () => {
+    const naStructure = [
+      { label: "FDR", defineMapping: true, liaisonMode: "na", displayFormat: "currency" },
+    ]
+    const actPctBsRows: SeriesRow[] = [
+      {
+        id: "ACT",
+        linkCode: "ACT",
+        label: "Actif CT",
+        amounts: { "2025-12": 120_000 },
+        isBold: false,
+        isSection: false,
+        isResult: false,
+        detailRows: [],
+      },
+      {
+        id: "PCT",
+        linkCode: "PCT",
+        label: "Passif CT",
+        amounts: { "2025-12": 30_000 },
+        isBold: false,
+        isSection: false,
+        isResult: false,
+        detailRows: [],
+      },
+    ]
+    const result = buildWorkingCapitalDiagnosticResult({
+      bsRows: actPctBsRows,
+      bsPeriods: [{ fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" }],
+      isRows: [],
+      isPeriods: [],
+      structure: naStructure,
+      view: "years",
+      refMonth: 12,
+      refYear: 2025,
+    })
+    expect(result?.points[0]?.fdr).toBe(90_000)
+  })
 })
 
 describe("buildWorkingCapitalDiagnosticNarrative", () => {

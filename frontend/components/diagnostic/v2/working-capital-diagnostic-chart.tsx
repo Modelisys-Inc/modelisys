@@ -114,7 +114,7 @@ function CyclePanel({ data }: { data: WorkingCapitalDiagnosticPoint[] }) {
   const chartConfig = useMemo(
     () => ({
       dso: { label: "DSO", color: CYCLE_COLORS.dso },
-      dio: { label: "Rotation des stocks", color: CYCLE_COLORS.dio },
+      dio: { label: "DIO", color: CYCLE_COLORS.dio },
       dpo: { label: "DPO", color: CYCLE_COLORS.dpo },
       ccc: { label: "CCC", color: CYCLE_COLORS.ccc },
     }),
@@ -126,7 +126,7 @@ function CyclePanel({ data }: { data: WorkingCapitalDiagnosticPoint[] }) {
       <div className="border-b border-slate-100 px-4 py-3 sm:px-5">
         <h4 className="text-sm font-semibold text-[#2A2F3A]">Cycle de trésorerie</h4>
         <p className="mt-1 text-xs leading-relaxed text-slate-500">
-          DSO, rotation des stocks, DPO et cycle de conversion de trésorerie (CCC) en jours.
+          DSO, DIO, DPO et cycle de conversion de trésorerie (CCC) en jours.
         </p>
       </div>
       <div className="px-2 py-4 sm:px-4">
@@ -175,13 +175,7 @@ function CyclePanel({ data }: { data: WorkingCapitalDiagnosticPoint[] }) {
               formatter={(value) => <span className="text-slate-600">{value}</span>}
             />
             <Bar dataKey="dso" name="DSO" fill={CYCLE_COLORS.dso} radius={[4, 4, 0, 0]} maxBarSize={32} />
-            <Bar
-              dataKey="dio"
-              name="Rotation des stocks"
-              fill={CYCLE_COLORS.dio}
-              radius={[4, 4, 0, 0]}
-              maxBarSize={32}
-            />
+            <Bar dataKey="dio" name="DIO" fill={CYCLE_COLORS.dio} radius={[4, 4, 0, 0]} maxBarSize={32} />
             <Bar dataKey="dpo" name="DPO" fill={CYCLE_COLORS.dpo} radius={[4, 4, 0, 0]} maxBarSize={32} />
             <Line
               type="monotone"
@@ -201,7 +195,6 @@ function CyclePanel({ data }: { data: WorkingCapitalDiagnosticPoint[] }) {
 export function WorkingCapitalDiagnosticChart({
   points,
   currency,
-  view,
   className,
 }: WorkingCapitalDiagnosticChartProps) {
   if (!points.length) return null
@@ -211,8 +204,9 @@ export function WorkingCapitalDiagnosticChart({
       <div className="px-6 py-6 sm:px-7">
         <div className="mb-5">
           <p className="text-xs leading-relaxed text-slate-500">
-            Indicateurs issus de la structure « Fonds de roulement » (Analyse). Configurez les formules et codes de
-            liaison dans l&apos;analyse dédiée si les montants sont vides.
+            Indicateurs calculés automatiquement à partir de la structure « Fonds de roulement »
+            (Analyse → Fonds de roulement). Pour modifier les formules ou les codes de liaison,
+            configurez-les sur cette page d&apos;analyse.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">

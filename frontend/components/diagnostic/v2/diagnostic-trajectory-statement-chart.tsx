@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import type { Company } from "@/components/entity-selector"
 import { StatementChart, type ChartHorizonToggleValue } from "@/components/statement-chart"
+import { DiagnosticWorkingCapitalSection } from "@/components/diagnostic/v2/diagnostic-working-capital-section"
 import { useStatementChartSlots } from "@/hooks/use-statement-chart-slots"
 import type { DiagnosticReportView } from "@/components/diagnostic/v2/diagnostic-nav-rail"
 import { defaultChartCardTitle, type StatementType } from "@/lib/statement-chart-config"
@@ -77,6 +78,7 @@ export function DiagnosticReportChartSection({
   signal,
 }: DiagnosticReportChartSectionProps) {
   const [horizonView, setHorizonView] = useState<ChartHorizonToggleValue>("years")
+  const isWorkingCapitalView = reportView === "working-capital"
   const { statementType, narrativeScope } = resolveReportChartConfig(reportView)
   const slotStatementType: StatementType =
     reportView === "margin-by-revenue"
@@ -85,12 +87,10 @@ export function DiagnosticReportChartSection({
         ? "diagnostic-expenses"
         : reportView === "financial-position"
           ? "diagnostic-financial-position"
-          : reportView === "working-capital"
-            ? "diagnostic-working-capital"
           : statementType
 
   const { slots, activeSlotId, setActiveSlotId, refresh, loading } = useStatementChartSlots(
-    companyId,
+    isWorkingCapitalView ? null : companyId,
     slotStatementType,
   )
 
@@ -108,6 +108,17 @@ export function DiagnosticReportChartSection({
 
   const chartView = horizonView === "years" ? "years" : "24months"
 
+  if (isWorkingCapitalView) {
+    return (
+      <DiagnosticWorkingCapitalSection
+        companyId={companyId}
+        companies={companies}
+        referenceYear={referenceYear}
+        referenceMonth={referenceMonth}
+      />
+    )
+  }
+
   return (
     <div id={DIAGNOSTIC_REPORT_ANCHOR_ID} className="scroll-mt-28">
       {loading && !activeSlot ? (
@@ -123,8 +134,6 @@ export function DiagnosticReportChartSection({
               ? "diagnostic-revenue"
               : reportView === "financial-position"
                 ? "diagnostic-financial-position"
-                : reportView === "working-capital"
-                  ? "diagnostic-working-capital"
                 : undefined
           }
           slot={activeSlot}

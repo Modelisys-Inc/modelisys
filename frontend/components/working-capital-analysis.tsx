@@ -49,6 +49,8 @@ interface WorkingCapitalAnalysisProps {
   structureVersion?: number
   showStructureSettings?: boolean
   onStructureSaved?: () => void
+  /** En diagnostic : contenu seul, sans chrome « tableau de bord ». */
+  appearance?: "dashboard" | "diagnostic"
 }
 
 interface AnalysisData {
@@ -113,6 +115,7 @@ export function WorkingCapitalAnalysis({
   structureVersion = 0,
   showStructureSettings = true,
   onStructureSaved,
+  appearance = "dashboard",
 }: WorkingCapitalAnalysisProps) {
   const resolvedYear = fiscalYear ?? new Date().getFullYear()
   const resolvedMonth = referenceMonth ?? new Date().getMonth() + 1
@@ -746,6 +749,152 @@ export function WorkingCapitalAnalysis({
     )
   }
 
+  const isDiagnosticAppearance = appearance === "diagnostic"
+
+  const analysisBody = isStructureStudio ? (
+    <StatementStructureStudio
+      embedded
+      companyId={companyId!}
+      statementType="working-capital"
+      hideAnnexColumns
+      onSaved={() => {
+        onStructureSaved?.()
+        setStructureEditMode(false)
+      }}
+      onClose={() => setStructureEditMode(false)}
+    />
+  ) : (
+    <>
+      {loading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
+        </div>
+      )}
+
+      {!companyId && !loading && (
+        <div className="flex items-center justify-center py-12 text-sm text-slate-500">
+          Sélectionnez une société
+        </div>
+      )}
+
+      {!loading && companyId && (
+        <div
+          className={cn(
+            "min-w-0 overflow-auto overscroll-contain bg-white",
+            isDiagnosticAppearance ? "max-h-none" : "max-h-[min(72vh,56rem)]",
+          )}
+          data-testid="wc-summary-table-scroll"
+        >
+          <table className="w-full min-w-max border-separate border-spacing-0">
+            <thead
+              className={cn(
+                "[&_th]:sticky [&_th]:top-0 [&_th]:z-20",
+                "[&_th]:border-b-2 [&_th]:border-slate-200",
+                "[&_th]:bg-gradient-to-b [&_th]:from-slate-50 [&_th]:to-slate-100/80",
+                "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
+              )}
+            >
+              <tr>
+                <th
+                  className={cn(
+                    metricColumnClass,
+                    "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
+                  )}
+                >
+                  Métrique
+                </th>
+                <th
+                  className={cn(
+                    "min-w-[7.5rem] whitespace-nowrap px-6 py-4 text-right text-sm font-semibold text-[#2A2F3A]",
+                    "bg-gradient-to-b from-slate-50 to-slate-100/50",
+                  )}
+                >
+                  Moyenne
+                </th>
+                {getPeriodColumnLabels().map((label, idx) => (
+                  <th
+                    key={idx}
+                    className={cn(
+                      "whitespace-nowrap text-right text-sm font-semibold text-[#2A2F3A]",
+                      view === "current"
+                        ? "min-w-[7.5rem] px-6 py-4"
+                        : "min-w-[5.5rem] px-4 py-4",
+                    )}
+                  >
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody
+              className={cn(
+                "[&_td]:border-b [&_td]:border-slate-200",
+                "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+              )}
+            >
+              {tableRows.map((item) => {
+                if (item.kind === "separator") {
+                  return (
+                    <tr key={item.key} aria-hidden data-testid="wc-structure-separator">
+                      <td colSpan={tableColumnCount} className="border-0 p-0">
+                        <div className="my-1 border-t-2 border-slate-700" />
+                      </td>
+                    </tr>
+                  )
+                }
+                if (item.kind === "spacer") {
+                  const periodColCount =
+                    view === "current"
+                      ? 2
+                      : Math.max(trendCount, getPeriodColumnLabels().length, 1)
+                  return (
+                    <tr key={item.key} data-testid="wc-structure-spacer" className="h-2">
+                      <td
+                        className={cn(
+                          metricColumnClass,
+                          "sticky left-0 z-10 bg-white px-6 py-4 text-transparent select-none",
+                        )}
+                      >
+                        {"\u00a0"}
+                      </td>
+                      <td
+                        className={cn(
+                          amountAverageCellClass(false),
+                          "py-4 text-transparent select-none",
+                        )}
+                        data-testid="wc-spacer-average-cell"
+                      >
+                        {"\u00a0"}
+                      </td>
+                      {Array.from({ length: periodColCount }, (_, idx) => (
+                        <td
+                          key={idx}
+                          className={cn(
+                            view === "current"
+                              ? amountCellClass(false)
+                              : amountTrendCellClass(false),
+                            "py-4 text-transparent select-none",
+                          )}
+                        >
+                          {"\u00a0"}
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                }
+                return renderMetricRow(item.key, item.metric, item.operands)
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  )
+
+  if (isDiagnosticAppearance) {
+    return analysisBody
+  }
+
   return (
     <div className={cn("mb-6", dashboardCardFrameStaticClass)}>
       <div className={dashboardCardRingClass} aria-hidden />
@@ -808,143 +957,7 @@ export function WorkingCapitalAnalysis({
         </div>
       </div>
 
-      {isStructureStudio ? (
-        <StatementStructureStudio
-          embedded
-          companyId={companyId!}
-          statementType="working-capital"
-          hideAnnexColumns
-          onSaved={() => {
-            onStructureSaved?.()
-            setStructureEditMode(false)
-          }}
-          onClose={() => setStructureEditMode(false)}
-        />
-      ) : (
-        <>
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
-            </div>
-          )}
-
-          {!companyId && !loading && (
-            <div className="flex items-center justify-center py-12 text-sm text-slate-500">
-              Sélectionnez une société
-            </div>
-          )}
-
-          {!loading && companyId && (
-              <div
-                className="min-w-0 max-h-[min(72vh,56rem)] overflow-auto overscroll-contain bg-white"
-                data-testid="wc-summary-table-scroll"
-              >
-                <table className="w-full min-w-max border-separate border-spacing-0">
-                  <thead
-                    className={cn(
-                      "[&_th]:sticky [&_th]:top-0 [&_th]:z-20",
-                      "[&_th]:border-b-2 [&_th]:border-slate-200",
-                      "[&_th]:bg-gradient-to-b [&_th]:from-slate-50 [&_th]:to-slate-100/80",
-                      "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
-                    )}
-                  >
-                    <tr>
-                      <th
-                        className={cn(
-                          metricColumnClass,
-                          "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
-                        )}
-                      >
-                        Métrique
-                      </th>
-                      <th
-                        className={cn(
-                          "min-w-[7.5rem] whitespace-nowrap px-6 py-4 text-right text-sm font-semibold text-[#2A2F3A]",
-                          "bg-gradient-to-b from-slate-50 to-slate-100/50",
-                        )}
-                      >
-                        Moyenne
-                      </th>
-                      {getPeriodColumnLabels().map((label, idx) => (
-                        <th
-                          key={idx}
-                          className={cn(
-                            "whitespace-nowrap text-right text-sm font-semibold text-[#2A2F3A]",
-                            view === "current"
-                              ? "min-w-[7.5rem] px-6 py-4"
-                              : "min-w-[5.5rem] px-4 py-4",
-                          )}
-                        >
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody
-                    className={cn(
-                      // Même motif que CDR / Bilan : bordures sur les td (border-separate).
-                      "[&_td]:border-b [&_td]:border-slate-200",
-                      "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
-                    )}
-                  >
-                    {tableRows.map((item) => {
-                      if (item.kind === "separator") {
-                        return (
-                          <tr key={item.key} aria-hidden data-testid="wc-structure-separator">
-                            <td colSpan={tableColumnCount} className="border-0 p-0">
-                              <div className="my-1 border-t-2 border-slate-700" />
-                            </td>
-                          </tr>
-                        )
-                      }
-                      if (item.kind === "spacer") {
-                        const periodColCount =
-                          view === "current"
-                            ? 2
-                            : Math.max(trendCount, getPeriodColumnLabels().length, 1)
-                        return (
-                          <tr key={item.key} data-testid="wc-structure-spacer" className="h-2">
-                            <td
-                              className={cn(
-                                metricColumnClass,
-                                "sticky left-0 z-10 bg-white px-6 py-4 text-transparent select-none",
-                              )}
-                            >
-                              {"\u00a0"}
-                            </td>
-                            <td
-                              className={cn(
-                                amountAverageCellClass(false),
-                                "py-4 text-transparent select-none",
-                              )}
-                              data-testid="wc-spacer-average-cell"
-                            >
-                              {"\u00a0"}
-                            </td>
-                            {Array.from({ length: periodColCount }, (_, idx) => (
-                              <td
-                                key={idx}
-                                className={cn(
-                                  view === "current"
-                                    ? amountCellClass(false)
-                                    : amountTrendCellClass(false),
-                                  "py-4 text-transparent select-none",
-                                )}
-                              >
-                                {"\u00a0"}
-                              </td>
-                            ))}
-                          </tr>
-                        )
-                      }
-                      return renderMetricRow(item.key, item.metric, item.operands)
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-        </>
-      )}
+      {analysisBody}
     </div>
   )
 }

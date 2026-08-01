@@ -8,6 +8,7 @@ export interface RailSection {
 }
 
 export type DiagnosticReportView =
+  | "sommaire"
   | "performance"
   | "revenue"
   | "margin-by-revenue"
@@ -28,6 +29,8 @@ interface DiagnosticNavRailProps {
   activeReportView: DiagnosticReportView
   onReportViewChange: (view: DiagnosticReportView) => void
   reportAnchorId: string
+  /** Ancre du sommaire exécutif (première entrée du rapport). */
+  summaryAnchorId?: string
   sections: RailSection[]
   signalCount?: number
   signalSummary?: string
@@ -44,6 +47,7 @@ export function DiagnosticNavRail({
   activeReportView,
   onReportViewChange,
   reportAnchorId,
+  summaryAnchorId,
   sections,
   signalCount,
   signalSummary,
@@ -52,7 +56,11 @@ export function DiagnosticNavRail({
 
   useEffect(() => {
     if (typeof IntersectionObserver === "undefined") return
-    const observedIds = [reportAnchorId, ...sections.map((s) => s.id)]
+    const observedIds = [
+      ...(summaryAnchorId ? [summaryAnchorId] : []),
+      reportAnchorId,
+      ...sections.map((s) => s.id),
+    ]
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries
@@ -67,9 +75,7 @@ export function DiagnosticNavRail({
       if (el) observer.observe(el)
     })
     return () => observer.disconnect()
-  }, [sections, reportAnchorId])
-
-  const reportGroupActive = activeSection === reportAnchorId
+  }, [sections, reportAnchorId, summaryAnchorId])
 
   return (
     <aside className="sticky top-0 flex flex-col gap-0.5 self-start border-r border-slate-200 px-3.5 pb-7 pt-5">
@@ -78,14 +84,16 @@ export function DiagnosticNavRail({
       </div>
 
       {reportViews.map((view) => {
-        const isActive = reportGroupActive && activeReportView === view.id
+        const isActive = activeReportView === view.id
         return (
           <button
             key={view.id}
             type="button"
             onClick={() => {
               onReportViewChange(view.id)
-              document.getElementById(reportAnchorId)?.scrollIntoView({ behavior: "smooth", block: "start" })
+              const anchor =
+                view.id === "sommaire" && summaryAnchorId ? summaryAnchorId : reportAnchorId
+              document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" })
             }}
             aria-current={isActive ? "true" : undefined}
             className={[

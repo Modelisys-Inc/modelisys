@@ -16,6 +16,7 @@ interface DiagnosticCardProps {
   signal?: { tone: SignalTone; text: string } | null
   className?: string
   bodyClassName?: string
+  testId?: string
   children: ReactNode
 }
 
@@ -36,10 +37,11 @@ export function DiagnosticCard({
   signal,
   className = "",
   bodyClassName = "",
+  testId,
   children,
 }: DiagnosticCardProps) {
   return (
-    <section id={id} className={`${CARD_CLASS} ${className}`}>
+    <section id={id} data-testid={testId} className={`${CARD_CLASS} ${className}`}>
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-[18px] py-[15px]">
         <div className="flex min-w-0 gap-[11px]">
           <span className="w-[3px] flex-none rounded-full bg-[#E0742D]" aria-hidden />

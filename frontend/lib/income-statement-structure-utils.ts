@@ -1020,10 +1020,11 @@ export function buildLinkCodeLabelsForChartPicker(
     } else if (mode === "sum") {
       add(String(row.linkCode ?? ""))
       for (const c of normalizeCodeList(row.liaisonSumCodes)) add(c)
-    } else if (mode === "difference") {
+    } else if (mode === "difference" || mode === "quotient") {
+      // Seul le code du poste calculé porte ce libellé ; les codes N/D sont des références.
       add(String(row.linkCode ?? ""))
-      for (const c of normalizeCodeList(row.liaisonNumeratorCodes)) add(c)
-      for (const c of normalizeCodeList(row.liaisonDenominatorCodes)) add(c)
+    } else if (mode === "product") {
+      add(String(row.linkCode ?? ""))
     }
   }
 
@@ -1032,6 +1033,71 @@ export function buildLinkCodeLabelsForChartPicker(
   }
 
   return out
+}
+
+/**
+ * Codes + libellés pour les paramètres de graphique quand plusieurs structures
+ * alimentent le sélecteur (ex. fonds de roulement : CR + bilan).
+ * Ordre recommandé : compte de résultat, puis bilan.
+ */
+export function buildMergedChartPickerLinkData(
+  structures: Record<string, unknown>[],
+  standardLabels?: Map<string, string>,
+): {
+  codes: string[]
+  labels: Map<string, string>
+  summaryRowSources: Array<{ id: string; label: string }>
+} {
+  const codeSet = new Set<string>()
+  const summaryById = new Map<string, { id: string; label: string }>()
+
+  for (const structure of structures) {
+    for (const code of collectDistinctLinkCodesFromStructure(structure)) {
+      codeSet.add(code)
+    }
+    for (const row of collectSummaryRowSourcesFromStructure(structure)) {
+      const key = row.id.toLowerCase()
+      if (!summaryById.has(key)) summaryById.set(key, row)
+    }
+  }
+
+  const labels = new Map<string, string>()
+  if (standardLabels) {
+    for (const [code, label] of standardLabels) {
+      const c = code.trim()
+      const l = label.trim()
+      if (c && l) labels.set(c, l)
+    }
+  }
+
+  for (const structure of structures) {
+    const partial = buildLinkCodeLabelsForChartPicker(structure)
+    for (const [code, label] of partial) {
+      if (!labels.has(code)) labels.set(code, label)
+    }
+  }
+
+  for (const structure of structures) {
+    for (const [code, label] of mapLinkCodesToOwnerLabel(structure)) {
+      labels.set(code, label)
+    }
+  }
+
+  if (standardLabels) {
+    for (const [code, label] of standardLabels) {
+      const c = code.trim()
+      const l = label.trim()
+      if (c && l && !labels.has(c)) labels.set(c, l)
+    }
+  }
+
+  return {
+    codes: Array.from(codeSet).sort((a, b) => a.localeCompare(b, "fr", { numeric: true })),
+    labels,
+    summaryRowSources: Array.from(summaryById.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, "fr", { numeric: true }),
+    ),
+  }
 }
 
 /** Au moins un poste du sommaire est marqué « Revenus » (nature). */

@@ -324,7 +324,7 @@ async function setupAuthAndCommonMocks(page: Page) {
           {
             id: "wc-dio",
             kind: "bar",
-            label: "Rotation des stocks",
+            label: "DIO",
             spec: { type: "single", code: "" },
             yAxis: "left",
             valueFormat: "ratio",
@@ -619,6 +619,12 @@ test.describe("Page Diagnostic", () => {
     await expect(badge).toHaveText("Croissance")
     await expect(page.getByText(/Exercice 2025 · CAD · généré le/)).toBeVisible()
 
+    // Sommaire exécutif affiché par défaut.
+    await expect(page.getByTestId("diagnostic-executive-summary")).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Sommaire exécutif" })).toBeVisible()
+
+    await page.getByRole("button", { name: "Performance financière", exact: true }).click()
+
     // Trajectoire = carte Performance financière (même config que le tableau de bord IS).
     await expect(page.getByRole("heading", { name: "Performance financière" })).toBeVisible()
     await expect(page.getByRole("button", { name: "Annuel - 5 ans" })).toHaveAttribute(
@@ -685,6 +691,8 @@ test.describe("Page Diagnostic", () => {
     await mockDiagnostic(page, buildDiagnosticPayload())
 
     await page.goto(DIAGNOSTIC_PAGE_URL)
+
+    await page.getByRole("button", { name: "Performance financière", exact: true }).click()
 
     await expect(page.getByRole("heading", { name: "Performance financière" })).toBeVisible({
       timeout: 15000,
@@ -1328,7 +1336,7 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByTestId("financial-position-chart")).toBeVisible()
   })
 
-  test("vue Fonds de roulement : graphiques FDR et cycle de trésorerie", async ({ page }) => {
+  test("vue Fonds de roulement : tableau Analyse du fonds de roulement", async ({ page }) => {
     await setupAuthAndCommonMocks(page)
     await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/working-capital`, (route) =>
       route.fulfill({
@@ -1362,7 +1370,7 @@ test.describe("Page Diagnostic", () => {
               displayFormat: "days",
             },
             {
-              label: "Rotation des stocks",
+              label: "DIO",
               defineMapping: true,
               liaisonMode: "quotient",
               liaisonNumeratorCodes: ["ACT"],
@@ -1463,13 +1471,17 @@ test.describe("Page Diagnostic", () => {
 
     await page.getByRole("button", { name: "Fonds de roulement", exact: true }).click()
 
+    const wcNav = page.getByRole("button", { name: "Fonds de roulement", exact: true })
+    await expect(wcNav).toHaveAttribute("aria-current", "true")
+
     await expect(page.getByTestId("working-capital-report")).toBeVisible({ timeout: 15000 })
-    await expect(page.getByTestId("working-capital-chart")).toBeVisible()
-    await expect(page.getByTestId("working-capital-chart-fdr")).toBeVisible()
-    await expect(page.getByTestId("working-capital-chart-cycle")).toBeVisible()
-    await expect(page.getByRole("heading", { name: "Lecture du fonds de roulement" })).toBeVisible()
-    await expect(page.getByText("Fonds de roulement", { exact: true }).first()).toBeVisible()
-    await expect(page.getByText("Cycle de trésorerie").first()).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Fonds de roulement" })).toBeVisible()
+    await expect(page.getByTestId("wc-summary-table-scroll")).toBeVisible()
+    await expect(page.getByText("FDR", { exact: true }).first()).toBeVisible()
+    await expect(page.getByText("DSO", { exact: true }).first()).toBeVisible()
+    await expect(
+      page.getByTestId("working-capital-report").getByRole("link", { name: /Voir l'analyse détaillée/i }),
+    ).toBeVisible()
   })
 
   test("tiroir de détail : ouverture depuis une ligne de division, fermeture par Échap", async ({

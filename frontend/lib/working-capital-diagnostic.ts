@@ -7,17 +7,19 @@ import {
   monthShortLabelsFromReference,
   yearLabelsFromReference,
 } from "@/lib/series-reference-columns"
+import { findRow, getRowAmounts } from "@/lib/series-utils"
+import {
+  resolveWorkingCapitalStructureAmount,
+  seriesAmountForLinkCode,
+  WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS,
+  workingCapitalRowRefCode,
+} from "@/lib/working-capital-structure-utils"
 import {
   isCodeMappingEnabled,
   isStructureRowEmptyLabel,
   isStructureRowHidden,
+  normalizeLiaisonMode,
 } from "@/lib/income-statement-structure-utils"
-import { findRow, getRowAmounts } from "@/lib/series-utils"
-import {
-  resolveWorkingCapitalStructureAmount,
-  WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS,
-  workingCapitalRowRefCode,
-} from "@/lib/working-capital-structure-utils"
 import {
   WORKING_CAPITAL_METRIC_KEYS,
   WORKING_CAPITAL_SERIES_ID_TO_METRIC,
@@ -33,7 +35,7 @@ export const WORKING_CAPITAL_METRIC_LABELS: Record<WorkingCapitalMetricKey, stri
   fdr: "Fonds de roulement",
   fdrhc: "Fonds de roulement hors caisse",
   dso: "DSO — Délai de recouvrement clients",
-  dio: "Rotation des stocks",
+  dio: "DIO",
   dpo: "DPO — Délai de paiement fournisseurs",
   ccc: "CCC — Cycle de conversion de trésorerie",
 }
@@ -155,14 +157,41 @@ function heuristicFdr(
   periodIndex: number,
   exCash: boolean,
 ): number {
-  const assetsRow = findRow(bsRows, "total actifs courants")
-  const liabilitiesRow = findRow(bsRows, "total passifs courants")
-  const cashRow =
-    findRow(bsRows, "encaisse") || findRow(bsRows, "trésorerie") || findRow(bsRows, "cash")
-  const assets = assetsRow ? getRowAmounts(assetsRow, bsPeriods)[periodIndex] ?? 0 : 0
-  const liabilities = liabilitiesRow ? getRowAmounts(liabilitiesRow, bsPeriods)[periodIndex] ?? 0 : 0
-  const cash = cashRow ? getRowAmounts(cashRow, bsPeriods)[periodIndex] ?? 0 : 0
+  const act = seriesAmountForLinkCode("ACT", bsRows, bsPeriods, periodIndex)
+  const pct = seriesAmountForLinkCode("PCT", bsRows, bsPeriods, periodIndex)
+  let assets = act
+  let liabilities = pct
+
+  if (assets === 0 && liabilities === 0) {
+    const assetsRow = findRow(bsRows, "total actifs courants")
+    const liabilitiesRow = findRow(bsRows, "total passifs courants")
+    assets = assetsRow ? getRowAmounts(assetsRow, bsPeriods)[periodIndex] ?? 0 : 0
+    liabilities = liabilitiesRow ? getRowAmounts(liabilitiesRow, bsPeriods)[periodIndex] ?? 0 : 0
+  }
+
+  let cash = seriesAmountForLinkCode("ENC", bsRows, bsPeriods, periodIndex)
+  if (cash === 0) {
+    const cashRow =
+      findRow(bsRows, "encaisse") || findRow(bsRows, "trésorerie") || findRow(bsRows, "cash")
+    cash = cashRow ? getRowAmounts(cashRow, bsPeriods)[periodIndex] ?? 0 : 0
+  }
+
   return exCash ? assets - cash - liabilities : assets - liabilities
+}
+
+function resolveCccFromComponents(
+  structure: Record<string, unknown>[],
+  bsRows: SeriesRow[],
+  isRows: SeriesRow[],
+  bsPeriods: SeriesPeriod[],
+  isPeriods: SeriesPeriod[],
+  periodIndex: number,
+): number | null {
+  const dso = resolveMetricAtPeriod("dso", structure, bsRows, isRows, bsPeriods, isPeriods, periodIndex)
+  const dio = resolveMetricAtPeriod("dio", structure, bsRows, isRows, bsPeriods, isPeriods, periodIndex)
+  const dpo = resolveMetricAtPeriod("dpo", structure, bsRows, isRows, bsPeriods, isPeriods, periodIndex)
+  if (dso === null && dio === null && dpo === null) return null
+  return (dso ?? 0) + (dio ?? 0) - (dpo ?? 0)
 }
 
 function resolveMetricAtPeriod(
@@ -176,26 +205,32 @@ function resolveMetricAtPeriod(
 ): number | null {
   const row = findStructureRowForMetric(structure, metric)
   if (row) {
-    const amount = resolveWorkingCapitalStructureAmount(
-      row,
-      bsRows,
-      isRows,
-      bsPeriods,
-      isPeriods,
-      periodIndex,
-      structure,
-    )
-    if (amount !== null) return amount
+    const mode = normalizeLiaisonMode(row)
+    if (mode !== "na") {
+      const amount = resolveWorkingCapitalStructureAmount(
+        row,
+        bsRows,
+        isRows,
+        bsPeriods,
+        isPeriods,
+        periodIndex,
+        structure,
+      )
+      if (amount !== null) return amount
+    }
   }
 
   if (metric === "fdr") return heuristicFdr(bsRows, bsPeriods, periodIndex, false)
   if (metric === "fdrhc") return heuristicFdr(bsRows, bsPeriods, periodIndex, true)
   if (metric === "ccc") {
-    const dso = resolveMetricAtPeriod("dso", structure, bsRows, isRows, bsPeriods, isPeriods, periodIndex)
-    const dio = resolveMetricAtPeriod("dio", structure, bsRows, isRows, bsPeriods, isPeriods, periodIndex)
-    const dpo = resolveMetricAtPeriod("dpo", structure, bsRows, isRows, bsPeriods, isPeriods, periodIndex)
-    if (dso === null && dio === null && dpo === null) return null
-    return (dso ?? 0) + (dio ?? 0) - (dpo ?? 0)
+    return resolveCccFromComponents(
+      structure,
+      bsRows,
+      isRows,
+      bsPeriods,
+      isPeriods,
+      periodIndex,
+    )
   }
 
   return null
@@ -233,8 +268,12 @@ export function buildWorkingCapitalDiagnosticResult(params: {
   view: string
   refMonth: number
   refYear: number
+  /** Attendre le chargement de la structure WC avant de calculer (évite un faux vide). */
+  structureReady?: boolean
 }): WorkingCapitalDiagnosticResult | null {
-  const { bsRows, bsPeriods, isRows, isPeriods, structure, view, refMonth, refYear } = params
+  const { bsRows, bsPeriods, isRows, isPeriods, structure, view, refMonth, refYear, structureReady = true } =
+    params
+  if (!structureReady) return null
   if (!bsPeriods.length) return null
 
   const anchors = periodAnchorsForView(bsPeriods, view, refMonth, refYear)

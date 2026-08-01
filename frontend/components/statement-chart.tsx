@@ -47,7 +47,8 @@ import { WorkingCapitalDiagnosticChart } from "@/components/diagnostic/v2/workin
 import { buildFinancialPositionResult } from "@/lib/financial-position"
 import { buildFinancialPositionBreakdownTables } from "@/lib/financial-position-breakdown"
 import { buildFinancialPositionNarrative } from "@/lib/financial-position-narrative"
-import { buildWorkingCapitalDiagnosticResult, workingCapitalIsMonthsNeeded } from "@/lib/working-capital-diagnostic"
+import { buildWorkingCapitalDiagnosticResult } from "@/lib/working-capital-diagnostic"
+import { WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS } from "@/lib/working-capital-structure-utils"
 import { buildWorkingCapitalDiagnosticBreakdownTables } from "@/lib/working-capital-diagnostic-breakdown"
 import { buildWorkingCapitalDiagnosticNarrative } from "@/lib/working-capital-diagnostic-narrative"
 import type { FinancialPositionSettingsPanel } from "@/lib/financial-position-config"
@@ -89,7 +90,7 @@ export type ChartHorizonToggleProps = {
   onChange: (value: ChartHorizonToggleValue) => void
 }
 
-function EmbeddedHorizonToggle({ value, onChange }: ChartHorizonToggleProps) {
+export function EmbeddedHorizonToggle({ value, onChange }: ChartHorizonToggleProps) {
   const options: { id: ChartHorizonToggleValue; label: string }[] = [
     { id: "years", label: HORIZON_LABEL.annuel5Ans },
     { id: "12months", label: HORIZON_LABEL.mensuel },
@@ -412,15 +413,17 @@ export function StatementChart({
   const { codes: standardLinkCodes } = useStandardLinkCodesFlat(false, undefined, needsMappingEnrichment)
 
   const seriesMonthsNeeded = performanceChartSeriesMonthsNeeded(view)
+  const wcDisplayMonths = view === "24months" ? 24 : view === "years" ? 60 : 12
+  const bsMonthsForFetch = isWorkingCapitalView ? wcDisplayMonths : seriesMonthsNeeded
   const isMonthsNeeded = isWorkingCapitalView
-    ? workingCapitalIsMonthsNeeded(seriesMonthsNeeded)
+    ? wcDisplayMonths + WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS
     : seriesMonthsNeeded
   const { rows: seriesRows, periods: seriesPeriods, loading: seriesLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
     statementType: seriesStatementType,
     fiscalYear: fiscalYear || new Date().getFullYear(),
     month: refMonth,
-    months: seriesMonthsNeeded,
+    months: bsMonthsForFetch,
     divisionId: divisionId || undefined,
     subDivisionId: subDivisionId || undefined,
     enabled: !isDivisionContributiveMarginView,
@@ -626,16 +629,18 @@ export function StatementChart({
   ])
 
   const workingCapitalResult = useMemo(() => {
-    if (!isWorkingCapitalView || !seriesRows.length || !seriesPeriods.length) return null
+    if (!isWorkingCapitalView || workingCapitalStructure === null) return null
+    if (!seriesRows.length || !seriesPeriods.length) return null
     return buildWorkingCapitalDiagnosticResult({
       bsRows: seriesRows,
       bsPeriods: seriesPeriods,
       isRows: isSeriesRows,
       isPeriods: isSeriesPeriods,
-      structure: workingCapitalStructure ?? [],
+      structure: workingCapitalStructure,
       view,
       refMonth,
       refYear,
+      structureReady: true,
     })
   }, [
     isWorkingCapitalView,
@@ -781,7 +786,7 @@ export function StatementChart({
     (isDivisionContributiveMarginView
       ? divisionSeriesLoading
       : isWorkingCapitalView
-        ? seriesLoading || isSeriesLoading
+        ? seriesLoading || isSeriesLoading || workingCapitalStructure === null
         : seriesLoading)
 
   const narrativeSeriesMeta = useMemo(
@@ -1010,12 +1015,14 @@ export function StatementChart({
 
   if (
     isWorkingCapitalView &&
+    workingCapitalStructure !== null &&
     (!workingCapitalResult || !workingCapitalResult.points.length)
   ) {
     const emptyMessage =
       "Impossible de construire le fonds de roulement : vérifiez la structure et le mapping comptable."
     const emptyHint =
-      "Configurez les lignes FDR, FdRHC, DSO, DPO et rotation des stocks dans Analyse → Fonds de roulement, puis vérifiez le mapping bilan et résultat."
+      "Les indicateurs sont calculés à partir de la structure Analyse → Fonds de roulement (FDR, DSO, DIO, DPO, CCC). Vérifiez les formules et le mapping bilan / résultat sur cette page."
+    const wcHref = companyId ? `/analysis/working-capital?companyId=${companyId}` : "/analysis/working-capital"
 
     return (
       <>
@@ -1031,6 +1038,14 @@ export function StatementChart({
           ) : null}
           <p className="relative text-center text-sm text-[#5C5F66]">{emptyMessage}</p>
           {companyId ? <p className="max-w-md text-center text-xs text-slate-500">{emptyHint}</p> : null}
+          {companyId ? (
+            <a
+              href={wcHref}
+              className="relative mt-1 text-sm font-medium text-[#E0742D] hover:underline"
+            >
+              Ouvrir Analyse → Fonds de roulement
+            </a>
+          ) : null}
         </div>
         {settingsDialog}
         {financialPositionSettingsDialog}
@@ -1279,7 +1294,6 @@ export function StatementChart({
             <WorkingCapitalDiagnosticChart
               points={workingCapitalResult.points}
               currency={companyCurrency}
-              view={view}
             />
           ) : !isContributiveMarginTableView && !isFinancialPositionView && !isWorkingCapitalView ? (
           <div className="relative bg-white">

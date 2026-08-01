@@ -11,6 +11,8 @@ import { logout } from "@/lib/api"
 import { isFinancialStatementPath } from "@/hooks/use-financial-statement-reference-date"
 import { FinancialStatementReferenceControls } from "@/components/financial-statement-reference-controls"
 import { companyDashboardNavItem, companyModuleNavItems } from "@/lib/company-module-navigation"
+import { FinancialToolsNavDropdown } from "@/components/financial-tools-nav-dropdown"
+import { isFinancialToolsPath } from "@/lib/financial-tools-navigation"
 
 interface DashboardHeaderProps {
   title?: string
@@ -19,11 +21,6 @@ interface DashboardHeaderProps {
 
 const defaultNavigationItems = [
   { label: "Outils financiers", href: "/dashboard" },
-  { label: "Reporting financier", href: "/financial-statements/income-statement" },
-  { label: "Analyse", href: "/analysis/working-capital" },
-  { label: "Projections", href: "/projections" },
-  { label: "Valorisation", href: "/evaluation/business-model" },
-  { label: "Documentation", href: "/year-end-cpa" },
   { label: "Configuration", href: "/settings/companies" },
 ]
 
@@ -62,12 +59,9 @@ function getNavItemActive(pathname: string | null, item: NavItem): boolean {
   if (item.label === "Support") return pathname?.startsWith("/contact") || false
   if (item.label === "Tableau de bord") return pathname?.startsWith("/tableau-de-bord") || false
   if (item.label === "Diagnostic") return pathname?.startsWith("/modules/diagnostic") || false
-  if (item.label === "Outils financiers") return pathname === "/dashboard"
+  if (item.label === "Outils financiers") return isFinancialToolsPath(pathname)
   if (item.label === "Configuration") return pathname?.startsWith("/settings/companies") || false
-  if (item.label === "Reporting financier") return pathname?.startsWith("/financial-statements") || false
-  if (item.label === "Analyse") return pathname?.startsWith("/analysis") || false
-  if (item.label === "Projections") return pathname?.startsWith("/projections") || false
-  if (item.label === "Valorisation") return pathname?.startsWith("/evaluation") || false
+  if (item.label === "Documentation") return pathname?.startsWith("/year-end-cpa") || false
   return pathname?.startsWith(itemPath) || false
 }
 
@@ -95,7 +89,7 @@ export function DashboardHeader({ title = "Gestion Comptable", description }: Da
 
 function DashboardHeaderSkeleton() {
   return (
-    <header className="w-full border-b border-white/10 bg-[#2A2F3A]/92 backdrop-blur-md shadow-md">
+    <header className="relative z-50 w-full border-b border-white/10 bg-[#2A2F3A]/92 backdrop-blur-md shadow-md">
       <div className="w-full border-b border-white/10 px-6 py-0.5 h-9" />
       <div className="w-full px-6 py-2 md:py-2.5 h-12" />
     </header>
@@ -150,11 +144,10 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
   const companyPhaseItems = companyNavItems.filter((item) =>
     companyModuleNavItems.some((module) => module.label === item.label),
   )
-  const companyToolsItem = companyNavItems.find((item) => item.label === "Outils financiers")
   const companyConfigItem = companyNavItems.find((item) => item.label === "Configuration")
 
   return (
-    <header className="w-full border-b border-white/10 bg-[#2A2F3A]/92 backdrop-blur-md shadow-md">
+    <header className="relative z-50 w-full border-b border-white/10 bg-[#2A2F3A]/92 backdrop-blur-md shadow-md">
       <div className="w-full border-b border-white/10 px-6 py-0.5">
         <div
           className={`flex min-h-0 items-center gap-2 ${showFsRefInHeader ? "justify-between" : "justify-end"}`}
@@ -212,8 +205,8 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
         </div>
       </div>
 
-      <div className="w-full px-6 py-2 md:py-2.5">
-        <div className="flex items-center gap-3">
+      <div className="w-full overflow-visible px-6 py-2 md:py-2.5">
+        <div className="flex items-center gap-3 overflow-visible">
           <div className="flex items-center gap-3">
             {title === "Modelisys" && (
               <>
@@ -244,8 +237,8 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
             className="hidden md:block h-7 w-px shrink-0 bg-gradient-to-b from-[#E0742D]/80 via-white/15 to-transparent"
             aria-hidden
           />
-          <nav className="hidden md:flex items-center gap-1">
-            {showCompanyTrajectoryNav && monPortailItem && companyDashboardItem && companyToolsItem && companyConfigItem ? (
+          <nav className="hidden md:flex items-center gap-1 overflow-visible">
+            {showCompanyTrajectoryNav && monPortailItem && companyDashboardItem && companyConfigItem ? (
               <>
                 <NavLink item={monPortailItem} pathname={pathname} />
                 <NavVerticalSeparator />
@@ -257,17 +250,26 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
                   </Fragment>
                 ))}
                 <NavVerticalSeparator />
-                <NavLink item={companyToolsItem} pathname={pathname} />
+                <FinancialToolsNavDropdown pathname={pathname} companyId={selectedCompanyId} />
                 <NavLink item={companyConfigItem} pathname={pathname} />
               </>
             ) : (
               navigationItems.map((item) => {
+                if (item.label === "Outils financiers") {
+                  return (
+                    <FinancialToolsNavDropdown
+                      key="financial-tools-menu"
+                      pathname={pathname}
+                      companyId={selectedCompanyId}
+                    />
+                  )
+                }
                 const isActive = getNavItemActive(pathname, item)
-                const isLastBeforeConfig = isPortalHeader
-                  ? item.label === "Ressources"
-                  : item.label === "Documentation"
+                const showSeparatorBefore =
+                  !isPortalHeader && item.label === "Configuration"
                 return (
                   <Fragment key={`${item.label}-${item.href}`}>
+                    {showSeparatorBefore ? <NavVerticalSeparator /> : null}
                     <Link
                       href={item.href}
                       className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
@@ -278,7 +280,6 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
                     >
                       {item.label}
                     </Link>
-                    {isLastBeforeConfig ? <NavVerticalSeparator /> : null}
                   </Fragment>
                 )
               })

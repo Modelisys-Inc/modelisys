@@ -23,6 +23,7 @@ import {
 } from "@/lib/api"
 import {
   buildLinkCodeLabelsForChartPicker,
+  buildMergedChartPickerLinkData,
   collectDistinctLinkCodesFromStructure,
   collectSummaryRowSourcesFromStructure,
   normalizeCodeList,
@@ -36,6 +37,7 @@ import {
   defaultChartCardTitle,
   newSeriesId,
   structureStatementTypeForChart,
+  structureTypesForChartSettings,
   type ChartMetricSpec,
   type ChartSlot,
   type ChartValueFormat,
@@ -598,8 +600,9 @@ export function StatementChartSettingsDialog({
 
   useEffect(() => {
     setLocalConfig(slot.config)
-    if (financialPositionPanel) {
-      const firstInPanel = slot.config.series.find((s) => s.stackGroup === financialPositionPanel)
+    const panelFilter = financialPositionPanel
+    if (panelFilter) {
+      const firstInPanel = slot.config.series.find((s) => s.stackGroup === panelFilter)
       setSelectedSeriesId(firstInPanel?.id ?? slot.config.series[0]?.id ?? null)
     } else {
       setSelectedSeriesId(slot.config.series[0]?.id ?? null)
@@ -614,7 +617,7 @@ export function StatementChartSettingsDialog({
     return entries.filter(({ series }) => series.stackGroup === financialPositionPanel)
   }, [localConfig.series, financialPositionPanel])
 
-  const isFinancialPositionPanelMode = Boolean(financialPositionPanel)
+  const isPanelMode = Boolean(financialPositionPanel)
 
   useEffect(() => {
     if (!localConfig.series.some((s) => s.id === selectedSeriesId)) {
@@ -626,10 +629,15 @@ export function StatementChartSettingsDialog({
     if (!open || !companyId) return
     let cancelled = false
     setLoadingCodes(true)
-    getStatementStructure(companyId, structureStatementTypeForChart(statementType) as unknown as ApiStatementType)
-      .then(async (data) => {
+    const structureTypes = structureTypesForChartSettings(statementType)
+    Promise.all(
+      structureTypes.map((t) =>
+        getStatementStructure(companyId, t as unknown as ApiStatementType),
+      ),
+    )
+      .then(async (results) => {
         if (cancelled) return
-        const structure = data.structure ?? []
+        const structures = results.map((data) => (data.structure ?? []) as Record<string, unknown>[])
         let standardLabels = new Map<string, string>()
         try {
           const standardCodes = await listStandardLinkCodesFlat(false)
@@ -638,9 +646,17 @@ export function StatementChartSettingsDialog({
           /* repli structure seule */
         }
         if (cancelled) return
-        setLinkCodes(collectDistinctLinkCodesFromStructure(structure))
-        setSummaryRowSources(collectSummaryRowSourcesFromStructure(structure))
-        setLinkCodeLabels(buildLinkCodeLabelsForChartPicker(structure, standardLabels))
+        if (structures.length > 1) {
+          const merged = buildMergedChartPickerLinkData(structures, standardLabels)
+          setLinkCodes(merged.codes)
+          setSummaryRowSources(merged.summaryRowSources)
+          setLinkCodeLabels(merged.labels)
+        } else {
+          const structure = structures[0] ?? []
+          setLinkCodes(collectDistinctLinkCodesFromStructure(structure))
+          setSummaryRowSources(collectSummaryRowSourcesFromStructure(structure))
+          setLinkCodeLabels(buildLinkCodeLabelsForChartPicker(structure, standardLabels))
+        }
       })
       .catch(() => {
         if (!cancelled) {
@@ -798,7 +814,7 @@ export function StatementChartSettingsDialog({
             </DialogDescription>
           </DialogHeader>
 
-          {!isFinancialPositionPanelMode ? (
+          {!isPanelMode ? (
           <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
             <div className="space-y-1.5">
               <Label htmlFor="perf-chart-card-title" className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -886,7 +902,7 @@ export function StatementChartSettingsDialog({
                   {barCount} barre{barCount > 1 ? "s" : ""} · {lineCount} courbe{lineCount > 1 ? "s" : ""}
                 </span>
               </div>
-              {!isFinancialPositionPanelMode ? (
+              {!isPanelMode ? (
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -932,7 +948,7 @@ export function StatementChartSettingsDialog({
                     onMoveUp={() => moveSeries(idx, -1)}
                     onMoveDown={() => moveSeries(idx, 1)}
                     onRemove={() => removeSeries(idx)}
-                    canRemove={!isFinancialPositionPanelMode && localConfig.series.length > 1}
+                    canRemove={!isPanelMode && localConfig.series.length > 1}
                     isFirst={panelIdx === 0}
                     isLast={panelIdx === panelSeriesEntries.length - 1}
                   />
