@@ -211,3 +211,48 @@ export function balanceSheetYearTrendFromReference(
 export function yearLabelsFromReference(refYear: number, count = 6): string[] {
   return calendarYearSequenceFromReference(refYear, count).map(String)
 }
+
+/** Index dans `periods` du mois civil (ex. août 2025), ou −1 si absent. */
+export function findPeriodIndexForCalendarMonth(
+  periods: SeriesPeriod[],
+  month: number,
+  year: number,
+): number {
+  for (let i = 0; i < periods.length; i++) {
+    const cal = parseSeriesPeriodCalendarLabel(periods[i]!.label)
+    if (cal?.month === month && cal?.year === year) return i
+  }
+  const direct = periods.findIndex(
+    (p) => p.fiscalYear === year && p.fiscalMonth === month,
+  )
+  if (direct >= 0) return direct
+  const targetLabel = formatCalendarMonthYear(month, year)
+  return periods.findIndex((p) => p.label.trim() === targetLabel)
+}
+
+/**
+ * Indices bilan pour chaque année du même mois de référence (ordre chronologique : plus ancien → plus récent).
+ * Ex. réf. août 2026 → août 2021 … août 2026.
+ */
+export function yearPeriodIndicesFromReference(
+  periods: SeriesPeriod[],
+  refMonth: number,
+  refYear: number,
+  count = 6,
+): number[] {
+  const yearsChronological = [...calendarYearSequenceFromReference(refYear, count)].reverse()
+  return yearsChronological.map((year) => findPeriodIndexForCalendarMonth(periods, refMonth, year))
+}
+
+/** Montants à chaque année du même mois de référence (ordre chronologique). */
+export function sliceAmountsAtReferenceMonthYears(
+  amounts: number[],
+  periods: SeriesPeriod[],
+  refMonth: number,
+  refYear: number,
+  count = 6,
+): number[] {
+  return yearPeriodIndicesFromReference(periods, refMonth, refYear, count).map((index) =>
+    index >= 0 ? (amounts[index] ?? 0) : 0,
+  )
+}

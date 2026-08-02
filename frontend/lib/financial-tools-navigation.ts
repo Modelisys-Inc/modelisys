@@ -72,3 +72,21 @@ export function appendCompanyIdToHref(href: string, companyId: string | null | u
   const separator = href.includes("?") ? "&" : "?"
   return `${href}${separator}companyId=${companyId}`
 }
+
+export function appendFinancialToolHref(
+  href: string,
+  params: {
+    companyId?: string | null
+    refMonth?: string | null
+    refYear?: string | null
+  },
+): string {
+  const search = new URLSearchParams()
+  if (params.companyId) search.set("companyId", params.companyId)
+  if (params.refMonth) search.set("refMonth", params.refMonth)
+  if (params.refYear) search.set("refYear", params.refYear)
+  const qs = search.toString()
+  if (!qs) return href
+  const separator = href.includes("?") ? "&" : "?"
+  return `${href}${separator}${qs}`
+}

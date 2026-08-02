@@ -22,8 +22,10 @@ import {
   mappingPosteFromLinkCode,
   sanitizeMappingCostTypeFields,
   sanitizeMappingLiabilityTermFields,
+  sanitizeMappingAltAssetFields,
   showsMappingCostTypeOptions,
   showsMappingLiabilityTermOptions,
+  showsMappingAltAssetTypeOptions,
   showsMappingVariableRevenueLinkOption,
   standardLinkCodeDisplayLabel,
   type StandardLinkCodeLookup,
@@ -39,6 +41,8 @@ export type AccountMappingDraft = {
   variableCosts?: boolean
   fixedCosts?: boolean
   variableCostRevenueLinkCode?: string
+  altAssetCost?: boolean
+  altAccumulatedAmortization?: boolean
   liabilityRemainingYears?: number
   liabilityInterestRate?: number
   interco?: string
@@ -111,6 +115,7 @@ export function AccountMappingSettingsPanel({
   )
 
   const showCostTypeOptions = showsMappingCostTypeOptions(draft.linkCode, linkCodeByCode)
+  const showAltAssetTypeOptions = showsMappingAltAssetTypeOptions(draft.linkCode)
   const showVariableRevenueLink = showsMappingVariableRevenueLinkOption(draft.linkCode, linkCodeByCode)
   const showLiabilityTermOptions = showsMappingLiabilityTermOptions(draft.linkCode)
 
@@ -120,8 +125,10 @@ export function AccountMappingSettingsPanel({
   )
 
   const handleSave = () => {
-    const sanitized = sanitizeMappingLiabilityTermFields(
-      sanitizeMappingCostTypeFields(draft, linkCodeByCode),
+    const sanitized = sanitizeMappingAltAssetFields(
+      sanitizeMappingLiabilityTermFields(
+        sanitizeMappingCostTypeFields(draft, linkCodeByCode),
+      ),
     )
     void onSave(sanitized)
   }
@@ -188,8 +195,10 @@ export function AccountMappingSettingsPanel({
                 onChange={(code) =>
                   setDraft((d) => {
                     const next = { ...d, linkCode: code }
-                    return sanitizeMappingLiabilityTermFields(
-                      sanitizeMappingCostTypeFields(next, linkCodeByCode),
+                    return sanitizeMappingAltAssetFields(
+                      sanitizeMappingLiabilityTermFields(
+                        sanitizeMappingCostTypeFields(next, linkCodeByCode),
+                      ),
                     )
                   })
                 }
@@ -371,6 +380,46 @@ export function AccountMappingSettingsPanel({
                     </Select>
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+            {showAltAssetTypeOptions ? (
+              <div className="space-y-3 border-t border-slate-100 pt-3">
+                <p className="text-xs font-medium text-slate-600">Immobilisation (ALT-B / C / D)</p>
+                <div className="flex flex-wrap gap-6">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                    <Checkbox
+                      checked={draft.altAssetCost || false}
+                      disabled={!canEdit}
+                      onCheckedChange={(checked) =>
+                        setDraft((d) =>
+                          sanitizeMappingAltAssetFields({
+                            ...d,
+                            altAssetCost: checked === true,
+                            altAccumulatedAmortization:
+                              checked === true ? false : d.altAccumulatedAmortization,
+                          }),
+                        )
+                      }
+                    />
+                    Coût
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+                    <Checkbox
+                      checked={draft.altAccumulatedAmortization || false}
+                      disabled={!canEdit}
+                      onCheckedChange={(checked) =>
+                        setDraft((d) =>
+                          sanitizeMappingAltAssetFields({
+                            ...d,
+                            altAccumulatedAmortization: checked === true,
+                            altAssetCost: checked === true ? false : d.altAssetCost,
+                          }),
+                        )
+                      }
+                    />
+                    Amortissement cumulé
+                  </label>
+                </div>
               </div>
             ) : null}
             {showLiabilityTermOptions ? (

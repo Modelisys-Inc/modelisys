@@ -32,6 +32,7 @@ import {
   ensureBalanceSheetValidationStructure,
   isBalanceSheetValidationStructureRow,
 } from "@/lib/balance-sheet-validation"
+import { isCapexSettingsStructureRow } from "@/lib/capex-analysis-settings"
 
 export type StatementStructureEditKind = Extract<
   StatementType,
@@ -66,7 +67,8 @@ export function useStatementStructureEdit(
         .map((r, i) =>
           !isStructureRowDetailOnly(r) &&
           !isComputedNetIncomeStructureRow(r) &&
-          !(statementType === "balance-sheet" && isBalanceSheetValidationStructureRow(r))
+          !(statementType === "balance-sheet" && isBalanceSheetValidationStructureRow(r)) &&
+          !(statementType === "capex" && isCapexSettingsStructureRow(r))
             ? i
             : -1,
         )

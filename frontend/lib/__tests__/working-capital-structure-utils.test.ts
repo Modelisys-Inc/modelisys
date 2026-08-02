@@ -3,6 +3,8 @@ import {
   resolveWorkingCapitalStructureAmount,
   collectWorkingCapitalFormulaRefCodes,
   collectWorkingCapitalIncludedOperands,
+  collectWorkingCapitalIncludedOperandsForDisplay,
+  resolveWorkingCapitalOperandAmount,
   workingCapitalRowRefCode,
   normalizeWorkingCapitalDisplayFormat,
   resolveWorkingCapitalDisplayFormat,
@@ -398,5 +400,146 @@ describe("collectWorkingCapitalIncludedOperands", () => {
       { code: "A", role: "term", sign: "+" },
       { code: "B", role: "term", sign: "+" },
     ])
+  })
+})
+
+describe("collectWorkingCapitalIncludedOperandsForDisplay", () => {
+  const bsRows: SeriesRow[] = [
+    {
+      id: "ALT-B",
+      linkCode: "ALT-B",
+      label: "Immobilisations corporelles",
+      isBold: false,
+      isSection: false,
+      isResult: false,
+      amounts: { "2025-8": 500_000 },
+      detailRows: [],
+    },
+    {
+      id: "ALT-B.1",
+      linkCode: "ALT-B.1",
+      label: "Terrains",
+      isBold: false,
+      isSection: false,
+      isResult: false,
+      amounts: { "2025-8": 200_000 },
+      detailRows: [],
+    },
+    {
+      id: "ALT-B.2",
+      linkCode: "ALT-B.2",
+      label: "Bâtisses",
+      isBold: false,
+      isSection: false,
+      isResult: false,
+      amounts: { "2025-8": 300_000 },
+      detailRows: [],
+    },
+  ]
+
+  it("expands a single parent link code into child series rows", () => {
+    expect(
+      collectWorkingCapitalIncludedOperandsForDisplay(
+        {
+          label: "Immobilisations corporelles",
+          defineMapping: true,
+          liaisonMode: "single",
+          linkCode: "ALT-B",
+        },
+        { bsRows, isRows: [] },
+      ),
+    ).toEqual([
+      { code: "ALT-B.1", role: "term", sign: "" },
+      { code: "ALT-B.2", role: "term", sign: "" },
+    ])
+  })
+
+  it("keeps the parent code when no child rows exist", () => {
+    expect(
+      collectWorkingCapitalIncludedOperandsForDisplay(
+        {
+          label: "Encaisse",
+          defineMapping: true,
+          liaisonMode: "single",
+          linkCode: "ENC",
+        },
+        { bsRows, isRows: [] },
+      ),
+    ).toEqual([{ code: "ENC", role: "term", sign: "" }])
+  })
+})
+
+describe("resolveWorkingCapitalOperandAmount child rollup", () => {
+  const periods: SeriesPeriod[] = [{ fiscalYear: 2025, fiscalMonth: 8, label: "Août 2025" }]
+
+  const bsRows: SeriesRow[] = [
+    {
+      id: "ALT-B",
+      linkCode: "ALT-B",
+      label: "Immobilisations corporelles",
+      isBold: false,
+      isSection: false,
+      isResult: false,
+      amounts: { "2025-8": 0 },
+      detailRows: [],
+    },
+    {
+      id: "ALT-B.1",
+      linkCode: "ALT-B.1",
+      label: "Terrains",
+      isBold: false,
+      isSection: false,
+      isResult: false,
+      amounts: { "2025-8": 200_000 },
+      detailRows: [],
+    },
+    {
+      id: "ALT-B.2",
+      linkCode: "ALT-B.2",
+      label: "Bâtisses",
+      isBold: false,
+      isSection: false,
+      isResult: false,
+      amounts: { "2025-8": 300_000 },
+      detailRows: [],
+    },
+  ]
+
+  it("sums child balances when the parent code balance is zero", () => {
+    expect(
+      resolveWorkingCapitalOperandAmount("ALT-B", bsRows, [], periods, periods, 0),
+    ).toBe(500_000)
+  })
+
+  it("keeps the parent balance when it is already non-zero", () => {
+    const rowsWithParentTotal = [
+      { ...bsRows[0]!, amounts: { "2025-8": 480_000 } },
+      ...bsRows.slice(1),
+    ]
+    expect(
+      resolveWorkingCapitalOperandAmount("ALT-B", rowsWithParentTotal, [], periods, periods, 0),
+    ).toBe(480_000)
+  })
+
+  it("resolves single-code structure row total from child series balances", () => {
+    const structure = [
+      {
+        label: "Immobilisations corporelles",
+        defineMapping: true,
+        liaisonMode: "single",
+        linkCode: "ALT-B",
+      },
+    ]
+    expect(
+      resolveWorkingCapitalStructureAmount(
+        structure[0]!,
+        bsRows,
+        [],
+        periods,
+        periods,
+        0,
+        structure,
+      ),
+    ).toBe(500_000)
   })
 })

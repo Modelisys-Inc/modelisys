@@ -12,7 +12,7 @@ import { getStatementStructure } from "@/lib/api"
 import {
   resolveWorkingCapitalStructureAmount,
   resolveWorkingCapitalOperandAmount,
-  collectWorkingCapitalIncludedOperands,
+  collectWorkingCapitalIncludedOperandsForDisplay,
   workingCapitalOperandDisplayLabel,
   workingCapitalStructureViewRows,
   normalizeWorkingCapitalDisplayFormat,
@@ -420,6 +420,11 @@ export function WorkingCapitalAnalysis({
     return null
   }
 
+  const operandDisplayContext = useMemo(
+    () => ({ bsRows, isRows }),
+    [bsRows, isRows],
+  )
+
   const tableRows: Array<
     | { kind: "separator"; key: string }
     | { kind: "spacer"; key: string }
@@ -492,7 +497,10 @@ export function WorkingCapitalAnalysis({
           key: item.key,
           metric: buildMetricFromRow(item.row, item.index),
           structureRow: item.row,
-          operands: collectWorkingCapitalIncludedOperands(item.row),
+          operands: collectWorkingCapitalIncludedOperandsForDisplay(
+            item.row,
+            operandDisplayContext,
+          ),
         }
       })
     }
@@ -510,7 +518,7 @@ export function WorkingCapitalAnalysis({
       key: `fallback-${idx}`,
       metric: buildMetricFromRow(row, idx),
       structureRow: row,
-      operands: collectWorkingCapitalIncludedOperands(row),
+      operands: collectWorkingCapitalIncludedOperandsForDisplay(row, operandDisplayContext),
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [structure, bsRows, isRows, bsPeriods, isPeriods, data, view])

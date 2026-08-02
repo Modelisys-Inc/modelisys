@@ -46,6 +46,40 @@ _CASH_FLOW_STATEMENT_TYPES = frozenset({"cash-flow", "cash-flow-detail"})
 # function signature in this module.
 _cf_net_income_ctx: ContextVar[dict | None] = ContextVar("cf_net_income_ctx", default=None)
 _product_filter_ctx: ContextVar[str | None] = ContextVar("product_filter_ctx", default=None)
+_alt_asset_cost_only_ctx: ContextVar[bool] = ContextVar("alt_asset_cost_only_ctx", default=False)
+
+_CAPEX_PROJECTION_LINK_CODE_ROOTS = ("ALT-B", "ALT-C", "ALT-D")
+
+
+def _is_capex_projection_link_code(link_code: str | None) -> bool:
+    if not link_code:
+        return False
+    normalized = str(link_code).strip()
+    if not normalized:
+        return False
+    for root in _CAPEX_PROJECTION_LINK_CODE_ROOTS:
+        if normalized == root or normalized.startswith(f"{root}."):
+            return True
+    return False
+
+
+def _account_included_for_alt_asset_cost_only(
+    mapping: AccountMapping | None,
+    link_code: str | None,
+) -> bool:
+    """When capex cost-only mode is on, ALT-B/C/D sums include only mapped Coût accounts."""
+    if not _alt_asset_cost_only_ctx.get():
+        return True
+    resolved = str(link_code or "").strip()
+    if not resolved and mapping and mapping.link_code:
+        resolved = str(mapping.link_code).strip()
+    if not _is_capex_projection_link_code(resolved):
+        return True
+    if not mapping:
+        return False
+    if mapping.alt_accumulated_amortization:
+        return False
+    return bool(mapping.alt_asset_cost)
 
 def _is_cash_flow_statement_type(statement_type: str) -> bool:
     return statement_type in _CASH_FLOW_STATEMENT_TYPES
@@ -995,6 +1029,7 @@ def _sum_for_link_code_single_month(
     )
     total = Decimal("0")
     for acct_num in account_numbers:
+        mapping = mappings_by_account.get(acct_num) if mappings_by_account else None
         if (
             division_filter
             or division_uuid
@@ -1004,7 +1039,6 @@ def _sum_for_link_code_single_month(
             or customer_filter
             or supplier_filter
         ) and mappings_by_account:
-            mapping = mappings_by_account.get(acct_num)
             if not _mapping_matches_dimension_filters(
                 mapping,
                 division_filter,
@@ -1015,6 +1049,8 @@ def _sum_for_link_code_single_month(
                 supplier_filter,
             ):
                 continue
+        if not _account_included_for_alt_asset_cost_only(mapping, link_code):
+            continue
 
         monthly = amount_index.get(acct_num, {})
         raw = monthly.get(fiscal_month, Decimal("0"))
@@ -1427,6 +1463,7 @@ def _sum_for_link_code(
     )
     total = Decimal("0")
     for acct_num in account_numbers:
+        mapping = mappings_by_account.get(acct_num) if mappings_by_account else None
         # Apply division/sub-division/customer/supplier filter if provided
         if (
             division_filter
@@ -1437,7 +1474,6 @@ def _sum_for_link_code(
             or customer_filter
             or supplier_filter
         ) and mappings_by_account:
-            mapping = mappings_by_account.get(acct_num)
             if not _mapping_matches_dimension_filters(
                 mapping,
                 division_filter,
@@ -1448,6 +1484,8 @@ def _sum_for_link_code(
                 supplier_filter,
             ):
                 continue
+        if not _account_included_for_alt_asset_cost_only(mapping, link_code):
+            continue
 
         monthly = amount_index.get(acct_num, {})
         mult = _dt_ct_multiplier_for_account(
@@ -3475,6 +3513,7 @@ def compute_financial_statement_series(
     sub_division_id: uuid.UUID | None = None,
     customer_filter: str | None = None,
     supplier_filter: str | None = None,
+    alt_asset_cost_only: bool = False,
 ) -> dict:
     """Compute monthly series data for a financial statement.
 
@@ -3533,6 +3572,10 @@ def compute_financial_statement_series(
         parent_rollup = build_parent_rollup_index(mappings, chart)
         mapping_index = merge_parent_rollup_into_mapping_index(mapping_index, parent_rollup)
     mappings_by_account = {m.account_number: m for m in mappings}
+
+    alt_token = None
+    if alt_asset_cost_only:
+        alt_token = _alt_asset_cost_only_ctx.set(True)
 
     try:
         # 3. Resolve division/sub-division filters
@@ -3644,6 +3687,8 @@ def compute_financial_statement_series(
             "rows": rows,
         }
     finally:
+        if alt_token is not None:
+            _alt_asset_cost_only_ctx.reset(alt_token)
         if cf_token is not None:
             _cf_net_income_ctx.reset(cf_token)
 

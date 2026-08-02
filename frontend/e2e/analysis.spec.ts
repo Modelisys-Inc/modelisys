@@ -83,4 +83,9 @@ test.describe("Analysis Pages", () => {
     await expect(page.getByTestId("capex-summary-table-scroll")).toBeVisible({ timeout: 15000 });
     await expect(page.getByRole("button", { name: "Paramètres" })).toBeVisible();
   });
+
+  test("capex page shows reference date selector in header", async ({ page }) => {
+    await page.goto("/analysis/capex");
+    await expect(page.getByText("Date de référence")).toBeVisible({ timeout: 10000 });
+  });
 });

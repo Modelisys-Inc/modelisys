@@ -2,11 +2,12 @@
 
 import { useCallback, useRef, useState } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { ChevronDown } from "lucide-react"
 import {
   FINANCIAL_TOOLS_NAV_ITEMS,
   FINANCIAL_TOOLS_OVERVIEW_HREF,
-  appendCompanyIdToHref,
+  appendFinancialToolHref,
   isFinancialToolLinkActive,
   isFinancialToolsPath,
 } from "@/lib/financial-tools-navigation"
@@ -25,6 +26,9 @@ export function FinancialToolsNavDropdown({
 }: FinancialToolsNavDropdownProps) {
   const [open, setOpen] = useState(false)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchParams = useSearchParams()
+  const refMonth = searchParams.get("refMonth")
+  const refYear = searchParams.get("refYear")
   const isActive = isFinancialToolsPath(pathname)
 
   const clearCloseTimer = useCallback(() => {
@@ -44,7 +48,11 @@ export function FinancialToolsNavDropdown({
     closeTimer.current = setTimeout(() => setOpen(false), 120)
   }, [clearCloseTimer])
 
-  const overviewHref = appendCompanyIdToHref(FINANCIAL_TOOLS_OVERVIEW_HREF, companyId)
+  const overviewHref = appendFinancialToolHref(FINANCIAL_TOOLS_OVERVIEW_HREF, {
+    companyId,
+    refMonth,
+    refYear,
+  })
 
   return (
     <div
@@ -82,7 +90,7 @@ export function FinancialToolsNavDropdown({
           <div className="min-w-[220px] rounded-xl border border-white/10 bg-[#2A2F3A] p-2 shadow-2xl shadow-black/40 ring-1 ring-white/10">
             <ul className="space-y-0.5">
               {FINANCIAL_TOOLS_NAV_ITEMS.map((item) => {
-                const href = appendCompanyIdToHref(item.href, companyId)
+                const href = appendFinancialToolHref(item.href, { companyId, refMonth, refYear })
                 const itemActive = isFinancialToolLinkActive(pathname, item)
                 return (
                   <li key={item.href}>

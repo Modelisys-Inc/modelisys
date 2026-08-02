@@ -33,6 +33,8 @@ class AccountMapping(Base):
     variable_costs: Mapped[bool] = mapped_column(Boolean, default=False)
     fixed_costs: Mapped[bool] = mapped_column(Boolean, default=False)
     variable_cost_revenue_link_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    alt_asset_cost: Mapped[bool] = mapped_column(Boolean, default=False)
+    alt_accumulated_amortization: Mapped[bool] = mapped_column(Boolean, default=False)
     liability_remaining_years: Mapped[Decimal | None] = mapped_column(Numeric(8, 2), nullable=True)
     liability_interest_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
     product: Mapped[str | None] = mapped_column(String(255), nullable=True)

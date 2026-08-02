@@ -17,8 +17,14 @@ import {
   PanelTop,
   Percent,
   Trash2,
+  TrendingUp,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import {
+  readRowCapexCostDisplayMode,
+  structureRowConfigUsesCapexCostCodes,
+  type CapexCostDisplayMode,
+} from "@/lib/capex-analysis-settings"
 import {
   Select,
   SelectContent,
@@ -52,9 +58,11 @@ export type StatementSummaryStructureEditApi = {
 export function StatementSummaryStructureColgroup({
   hideAnnexColumns = false,
   showDisplayFormatColumn = false,
+  showCapexCostDisplayColumn = false,
 }: {
   hideAnnexColumns?: boolean
   showDisplayFormatColumn?: boolean
+  showCapexCostDisplayColumn?: boolean
 }) {
   return (
     <colgroup>
@@ -64,6 +72,7 @@ export function StatementSummaryStructureColgroup({
       <col style={{ width: "7rem" }} />
       <col style={{ width: "7rem" }} />
       {showDisplayFormatColumn ? <col style={{ width: "7.5rem" }} /> : null}
+      {showCapexCostDisplayColumn ? <col style={{ width: "9rem" }} /> : null}
       {!hideAnnexColumns ? (
         <>
           <col style={{ width: "7rem" }} />
@@ -79,10 +88,12 @@ export function StatementSummaryStructureThead({
   posteHeader = "Poste",
   hideAnnexColumns = false,
   showDisplayFormatColumn = false,
+  showCapexCostDisplayColumn = false,
 }: {
   posteHeader?: string
   hideAnnexColumns?: boolean
   showDisplayFormatColumn?: boolean
+  showCapexCostDisplayColumn?: boolean
 }) {
   return (
     <>
@@ -178,6 +189,23 @@ export function StatementSummaryStructureThead({
           </Tooltip>
         </th>
       ) : null}
+      {showCapexCostDisplayColumn ? (
+        <th className="box-border w-[9rem] px-2 py-4 text-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                  <TrendingUp className="h-4 w-4 text-slate-600" />
+                </span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800">Coût ALT</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[260px] text-balance">
+              Pour les codes ALT-B / C / D : afficher le solde réel ou la variation (N − N−1).
+            </TooltipContent>
+          </Tooltip>
+        </th>
+      ) : null}
       {!hideAnnexColumns ? (
         <>
           <th className="box-border w-[7rem] px-2 py-4 text-center">
@@ -239,6 +267,8 @@ type StructureRowCellsProps = {
   allowProductQuotient?: boolean
   /** Fonds de roulement : colonne Format ($ / Nombre / %). */
   showDisplayFormatColumn?: boolean
+  /** Capex : colonne Réel / Variation par ligne (coûts ALT). */
+  showCapexCostDisplayColumn?: boolean
 }
 
 export function StatementSummaryStructureRowCells({
@@ -255,6 +285,7 @@ export function StatementSummaryStructureRowCells({
   hideAnnexColumns = false,
   allowProductQuotient = false,
   showDisplayFormatColumn = false,
+  showCapexCostDisplayColumn = false,
 }: StructureRowCellsProps) {
   return (
     <>
@@ -420,6 +451,37 @@ export function StatementSummaryStructureRowCells({
                 <SelectItem value="number">Nombre</SelectItem>
                 <SelectItem value="percent">%</SelectItem>
                 <SelectItem value="days">Jours</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </td>
+      ) : null}
+      {showCapexCostDisplayColumn ? (
+        <td className="box-border w-[9rem] px-2 py-2.5 align-middle">
+          {isStructureRowEmptyLabel(structRow) ||
+          isStructureRowHidden(structRow) ||
+          !structureRowConfigUsesCapexCostCodes(structRow) ? (
+            <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
+              —
+            </span>
+          ) : (
+            <Select
+              value={readRowCapexCostDisplayMode(structRow)}
+              onValueChange={(v) =>
+                structEdit.updateRow(globalIdx, {
+                  capexCostDisplayMode: v as CapexCostDisplayMode,
+                })
+              }
+            >
+              <SelectTrigger
+                className="h-9 w-full rounded-xl border-slate-200/90 text-xs shadow-sm focus:border-[#E0742D]/50 focus:ring-2 focus:ring-[#E0742D]/20"
+                aria-label="Affichage du coût ALT"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="actual">Réel</SelectItem>
+                <SelectItem value="variation">Variation (N − N−1)</SelectItem>
               </SelectContent>
             </Select>
           )}

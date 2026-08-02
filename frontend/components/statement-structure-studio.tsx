@@ -37,6 +37,7 @@ import {
 const SUMMARY_STRUCTURE_COLUMN_COUNT = 8
 const SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX = 6
 const SUMMARY_STRUCTURE_COLUMN_COUNT_WC = 7
+const SUMMARY_STRUCTURE_COLUMN_COUNT_CAPEX = 8
 
 interface StatementStructureStudioToolbarProps {
   companyId: string
@@ -215,11 +216,14 @@ export function StatementStructureStudio({
 
   const annexIdentifierAutoAssigned = isBalanceSheet
   const showDisplayFormatColumn = isLinkCodeAnalysis
-  const structureColumnCount = showDisplayFormatColumn
-    ? SUMMARY_STRUCTURE_COLUMN_COUNT_WC
-    : hideAnnexColumns
-      ? SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX
-      : SUMMARY_STRUCTURE_COLUMN_COUNT
+  const showCapexCostDisplayColumn = isCapex
+  const structureColumnCount = showCapexCostDisplayColumn
+    ? SUMMARY_STRUCTURE_COLUMN_COUNT_CAPEX
+    : showDisplayFormatColumn
+      ? SUMMARY_STRUCTURE_COLUMN_COUNT_WC
+      : hideAnnexColumns
+        ? SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX
+        : SUMMARY_STRUCTURE_COLUMN_COUNT
 
   return (
     <div
@@ -258,6 +262,7 @@ export function StatementStructureStudio({
           <StatementSummaryStructureColgroup
             hideAnnexColumns={hideAnnexColumns}
             showDisplayFormatColumn={showDisplayFormatColumn}
+            showCapexCostDisplayColumn={showCapexCostDisplayColumn}
           />
           <thead className="bg-slate-50/70">
             <tr>
@@ -265,6 +270,7 @@ export function StatementStructureStudio({
                 posteHeader="Poste"
                 hideAnnexColumns={hideAnnexColumns}
                 showDisplayFormatColumn={showDisplayFormatColumn}
+                showCapexCostDisplayColumn={showCapexCostDisplayColumn}
               />
             </tr>
           </thead>
@@ -350,6 +356,7 @@ export function StatementStructureStudio({
                       hideAnnexColumns={hideAnnexColumns}
                       allowProductQuotient={isLinkCodeAnalysis}
                       showDisplayFormatColumn={showDisplayFormatColumn}
+                      showCapexCostDisplayColumn={showCapexCostDisplayColumn}
                     />
                   </tr>
                 </Fragment>

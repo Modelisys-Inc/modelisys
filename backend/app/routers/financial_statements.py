@@ -175,6 +175,7 @@ def get_financial_statement_series(
     sub_division_id: uuid.UUID | None = Query(default=None),
     customer: str | None = Query(default=None),
     supplier: str | None = Query(default=None),
+    alt_asset_cost_only: bool = Query(default=False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -183,4 +184,5 @@ def get_financial_statement_series(
     return compute_financial_statement_series(
         db, company, statement_type, fy, fm, months,
         division_id, sub_division_id, customer, supplier,
+        alt_asset_cost_only=alt_asset_cost_only,
     )

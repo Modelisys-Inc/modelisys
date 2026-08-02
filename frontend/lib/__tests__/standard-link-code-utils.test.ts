@@ -11,6 +11,10 @@ import {
   sanitizeMappingLiabilityTermFields,
   showsMappingCostTypeOptions,
   showsMappingLiabilityTermOptions,
+  showsMappingAltAssetTypeOptions,
+  mappingAltAssetTypeLabel,
+  sanitizeMappingAltAssetFields,
+  isMappingAltAssetTypeUnset,
   resolveLinkCodeDtCt,
   linkCodeDtCtDisplay,
   defaultDtCtForFamily,
@@ -190,6 +194,55 @@ describe("mapping liability term options", () => {
       linkCode: "CMV.1",
       liabilityRemainingYears: undefined,
       liabilityInterestRate: undefined,
+    })
+  })
+})
+
+describe("mapping alt asset type options", () => {
+  it("matches ALT-B/C/D roots and descendants", () => {
+    expect(showsMappingAltAssetTypeOptions("ALT-B")).toBe(true)
+    expect(showsMappingAltAssetTypeOptions("ALT-B.1")).toBe(true)
+    expect(showsMappingAltAssetTypeOptions("ALT-C.2")).toBe(true)
+    expect(showsMappingAltAssetTypeOptions("ALT-D.3")).toBe(true)
+    expect(showsMappingAltAssetTypeOptions("ALT-A.1")).toBe(false)
+    expect(showsMappingAltAssetTypeOptions("CMV.1")).toBe(false)
+  })
+
+  it("labels cost vs accumulated and detects unset", () => {
+    expect(
+      mappingAltAssetTypeLabel({
+        linkCode: "ALT-B.1",
+        altAssetCost: true,
+        altAccumulatedAmortization: false,
+      }),
+    ).toBe("cost")
+    expect(
+      mappingAltAssetTypeLabel({
+        linkCode: "ALT-C.1",
+        altAssetCost: false,
+        altAccumulatedAmortization: true,
+      }),
+    ).toBe("accumulated")
+    expect(
+      isMappingAltAssetTypeUnset({
+        linkCode: "ALT-D.1",
+        altAssetCost: false,
+        altAccumulatedAmortization: false,
+      }),
+    ).toBe(true)
+  })
+
+  it("clears alt fields when link code is not capex projection", () => {
+    expect(
+      sanitizeMappingAltAssetFields({
+        linkCode: "CMV.1",
+        altAssetCost: true,
+        altAccumulatedAmortization: false,
+      }),
+    ).toEqual({
+      linkCode: "CMV.1",
+      altAssetCost: false,
+      altAccumulatedAmortization: false,
     })
   })
 })

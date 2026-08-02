@@ -13,7 +13,13 @@ import { usePathname, useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
 import { useFinancialStatementReferenceDate } from "@/hooks/use-financial-statement-reference-date"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, getPeriodLabels, aggregateToYears } from "@/lib/series-utils"
+import { getRowAmounts, getPeriodLabels } from "@/lib/series-utils"
+import {
+  sliceAmountsAtReferenceMonthYears,
+  yearPeriodIndicesFromReference,
+  calendarYearSequenceFromReference,
+} from "@/lib/series-reference-columns"
+import { alignSeriesPeriodIndex } from "@/lib/working-capital-structure-utils"
 import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 
 type Period = "monthly" | "quarterly" | "annual"
@@ -108,6 +114,7 @@ export default function CapexPage() {
     divisionId: selectedDivisionId || null,
     subDivisionId: selectedSubDivisionId || null,
     enabled: !!selectedCompanyId,
+    altAssetCostOnly: true,
   })
 
   const { rows: isRows, periods: isPeriods, loading: isLoading } = useFinancialStatementSeries({
@@ -145,12 +152,18 @@ export default function CapexPage() {
     let depValues: number[] | null = null
 
     if (view === "years") {
-      const agg = aggregateToYears(amounts, periods)
-      labels = agg.labels
-      values = agg.amounts
+      values = sliceAmountsAtReferenceMonthYears(amounts, periods, selectedMonth, selectedYear, 6)
+      labels = calendarYearSequenceFromReference(selectedYear, 6)
+        .reverse()
+        .map(String)
       if (depAmounts) {
-        const depAgg = aggregateToYears(depAmounts, isPeriods)
-        depValues = depAgg.amounts
+        depValues = yearPeriodIndicesFromReference(periods, selectedMonth, selectedYear, 6).map(
+          (bsIdx) => {
+            if (bsIdx < 0) return 0
+            const isIdx = alignSeriesPeriodIndex(isPeriods, periods, bsIdx)
+            return Math.abs(depAmounts[isIdx] ?? 0)
+          },
+        )
       }
     } else {
       labels = getPeriodLabels(periods)

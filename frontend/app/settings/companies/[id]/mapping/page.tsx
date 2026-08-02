@@ -34,16 +34,21 @@ import {
 } from "@/lib/api"
 import {
   filterAssignableMappingLinkCodes,
+  isMappingAltAssetTypeUnset,
   isMappingCostTypeUnset,
   isMappingLinkCodeIncomplete,
+  mappingAccountTypeDisplayLabel,
+  mappingAltAssetTypeLabel,
   mappingCostTypeDisplayLabel,
   mappingCostTypeLabel,
   mappingDetailFromLinkCode,
   mappingGroupeFromLinkCode,
   mappingParentCodeFromLinkCode,
   mappingPosteFromLinkCode,
+  sanitizeMappingAltAssetFields,
   sanitizeMappingCostTypeFields,
   sanitizeMappingLiabilityTermFields,
+  showsMappingAltAssetTypeOptions,
   showsMappingCostTypeOptions,
   type StandardLinkCodeLookup,
 } from "@/lib/standard-link-code-utils"
@@ -84,6 +89,8 @@ interface AccountMapping {
   variableCosts?: boolean
   fixedCosts?: boolean
   variableCostRevenueLinkCode?: string
+  altAssetCost?: boolean
+  altAccumulatedAmortization?: boolean
   liabilityRemainingYears?: number
   liabilityInterestRate?: number
   /** Conservé côté API, non affiché dans le tableau. */
@@ -118,6 +125,8 @@ function mapApiMapping(m: AccountMappingData): AccountMapping {
     variableCosts: m.variable_costs,
     fixedCosts: m.fixed_costs,
     variableCostRevenueLinkCode: m.variable_cost_revenue_link_code || undefined,
+    altAssetCost: m.alt_asset_cost,
+    altAccumulatedAmortization: m.alt_accumulated_amortization,
     liabilityRemainingYears:
       m.liability_remaining_years != null ? Number(m.liability_remaining_years) : undefined,
     liabilityInterestRate:
@@ -162,9 +171,14 @@ function isAccountCostTypeUnset(account: AccountMapping, linkCodeByCode: Standar
   return isMappingCostTypeUnset(account, linkCodeByCode)
 }
 
+function isAccountAltAssetTypeUnset(account: AccountMapping): boolean {
+  if (!account.linkCode?.trim()) return false
+  return isMappingAltAssetTypeUnset(account)
+}
+
 type BulkActionMode = "linkCode" | "costType"
 
-type MappingDiagnosticFilter = "none" | "unassigned" | "invalid" | "costTypeUnset"
+type MappingDiagnosticFilter = "none" | "unassigned" | "invalid" | "costTypeUnset" | "altAssetTypeUnset"
 
 type MappingColumnKey =
   | "accountNumber"
@@ -199,6 +213,32 @@ function MappingCostTypeSticker({
   account: AccountMapping
   linkCodeByCode: StandardLinkCodeLookup
 }) {
+  const altKind = mappingAltAssetTypeLabel(account)
+  if (altKind !== "na") {
+    if (altKind === "cost") {
+      return (
+        <span className="inline-flex rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-900 ring-1 ring-emerald-200/80">
+          Coût
+        </span>
+      )
+    }
+    if (altKind === "accumulated") {
+      return (
+        <span className="inline-flex rounded-md bg-orange-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-orange-900 ring-1 ring-orange-200/80">
+          Amort. cumulé
+        </span>
+      )
+    }
+    return (
+      <span
+        className="inline-flex rounded-md bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-900 ring-1 ring-amber-200/80"
+        title="Indiquez Coût ou Amortissement cumulé dans les paramètres du compte"
+      >
+        À définir
+      </span>
+    )
+  }
+
   const kind = mappingCostTypeLabel(account, linkCodeByCode)
   if (kind === "na") return <span className="text-slate-300">—</span>
   if (kind === "variable") {
@@ -246,7 +286,7 @@ function getAccountColumnValue(
     case "linkCode":
       return displayCellValue(account.linkCode)
     case "costType":
-      return mappingCostTypeDisplayLabel(account, ctx.linkCodeByCode)
+      return mappingAccountTypeDisplayLabel(account, ctx.linkCodeByCode)
     case "poste":
       return displayCellValue(mappingPosteFromLinkCode(account.linkCode, ctx.linkCodeByCode))
     case "detail":
@@ -269,6 +309,8 @@ function toApiMappingEntry(m: AccountMapping) {
     variable_costs: m.variableCosts || false,
     fixed_costs: m.fixedCosts || false,
     variable_cost_revenue_link_code: m.variableCostRevenueLinkCode ?? null,
+    alt_asset_cost: m.altAssetCost || false,
+    alt_accumulated_amortization: m.altAccumulatedAmortization || false,
     liability_remaining_years: m.liabilityRemainingYears ?? null,
     liability_interest_rate: m.liabilityInterestRate ?? null,
     product: m.product ?? null,
@@ -300,6 +342,7 @@ export default function CompanyMappingPage() {
   const [company, setCompany] = useState<Company | null>(null)
   const [companyDivisions, setCompanyDivisions] = useState<Division[]>([])
   const [accounts, setAccounts] = useState<AccountMapping[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [allCompanies, setAllCompanies] = useState<Company[]>([])
   const [loading, setLoading] = useState(true)
   const [incomeStatementStructure, setIncomeStatementStructure] = useState<
@@ -373,12 +416,13 @@ export default function CompanyMappingPage() {
   useEffect(() => {
     if (companyId) {
       setLoading(true)
+      setLoadError(null)
       getCompany(companyId)
         .then((companyData) => {
           setCompany(mapApiCompany(companyData))
           setCompanyDivisions(companyData.divisions ?? [])
           return Promise.all([
-            listAccountMappings(companyId).catch(() => []),
+            listAccountMappings(companyId),
             listCompanies().catch(() => []),
             listCompanyLinkCodes(companyId, true).catch(() => []),
           ])
@@ -394,6 +438,9 @@ export default function CompanyMappingPage() {
         })
         .catch((e) => {
           console.error("Error loading company:", e)
+          setLoadError(
+            "Impossible de charger le mapping comptable. Vérifiez que le serveur est à jour (migration base de données) puis réessayez.",
+          )
         })
         .finally(() => setLoading(false))
     }
@@ -477,30 +524,47 @@ export default function CompanyMappingPage() {
         showsMappingCostTypeOptions(a.linkCode, linkCodeByCode),
     )
     const costTypeUnset = costTypeEligible.filter((a) => isMappingCostTypeUnset(a, linkCodeByCode))
+    const altAssetEligible = accounts.filter(
+      (a) =>
+        a.linkCode?.trim() &&
+        !isMappingLinkCodeIncomplete(a.linkCode, linkCodeByCode) &&
+        showsMappingAltAssetTypeOptions(a.linkCode),
+    )
+    const altAssetTypeUnset = altAssetEligible.filter((a) => isAccountAltAssetTypeUnset(a))
     const assignedCount = total - unassigned.length
     const validCount = total - unassigned.length - invalid.length
     const costTypeAssignedCount = costTypeEligible.length - costTypeUnset.length
+    const altAssetAssignedCount = altAssetEligible.length - altAssetTypeUnset.length
     const assignmentPercent = total === 0 ? 100 : Math.round((assignedCount / total) * 100)
     const validityPercent = total === 0 ? 100 : Math.round((validCount / total) * 100)
     const costTypePercent =
       costTypeEligible.length === 0
         ? 100
         : Math.round((costTypeAssignedCount / costTypeEligible.length) * 100)
+    const altAssetTypePercent =
+      altAssetEligible.length === 0
+        ? 100
+        : Math.round((altAssetAssignedCount / altAssetEligible.length) * 100)
     return {
       total,
       unassignedCount: unassigned.length,
       invalidCount: invalid.length,
       costTypeEligibleCount: costTypeEligible.length,
       costTypeUnsetCount: costTypeUnset.length,
+      altAssetEligibleCount: altAssetEligible.length,
+      altAssetTypeUnsetCount: altAssetTypeUnset.length,
       assignedCount,
       validCount,
       costTypeAssignedCount,
+      altAssetAssignedCount,
       assignmentPercent,
       validityPercent,
       costTypePercent,
+      altAssetTypePercent,
       isFullyAssigned: total > 0 && unassigned.length === 0,
       isFullyValid: total > 0 && unassigned.length === 0 && invalid.length === 0,
       isFullyCostTyped: costTypeEligible.length === 0 || costTypeUnset.length === 0,
+      isFullyAltAssetTyped: altAssetEligible.length === 0 || altAssetTypeUnset.length === 0,
     }
   }, [accounts, linkCodeByCode])
 
@@ -535,6 +599,9 @@ export default function CompanyMappingPage() {
     }
     if (diagnosticFilter === "costTypeUnset") {
       return filteredAccounts.filter((a) => isAccountCostTypeUnset(a, linkCodeByCode))
+    }
+    if (diagnosticFilter === "altAssetTypeUnset") {
+      return filteredAccounts.filter((a) => isAccountAltAssetTypeUnset(a))
     }
     return filteredAccounts
   }, [diagnosticFilter, filteredAccounts, linkCodeByCode])
@@ -641,8 +708,10 @@ export default function CompanyMappingPage() {
 
   const handleSaveAccountSettings = useCallback(
     async (draft: AccountMappingDraft) => {
-      const sanitized = sanitizeMappingLiabilityTermFields(
-        sanitizeMappingCostTypeFields(draft, linkCodeByCode),
+      const sanitized = sanitizeMappingAltAssetFields(
+        sanitizeMappingLiabilityTermFields(
+          sanitizeMappingCostTypeFields(draft, linkCodeByCode),
+        ),
       )
       const merged = buildAccountWithDerivedEf(sanitized as AccountMapping)
       setSettingsSaving(true)
@@ -672,8 +741,10 @@ export default function CompanyMappingPage() {
     const entries = accounts
       .filter((a) => selectedSet.has(a.accountNumber))
       .map((a) => {
-        const withCode = sanitizeMappingLiabilityTermFields(
-          sanitizeMappingCostTypeFields({ ...a, linkCode }, linkCodeByCode),
+        const withCode = sanitizeMappingAltAssetFields(
+          sanitizeMappingLiabilityTermFields(
+            sanitizeMappingCostTypeFields({ ...a, linkCode }, linkCodeByCode),
+          ),
         )
         return toApiMappingEntry(buildAccountWithDerivedEf(withCode as AccountMapping))
       })
@@ -898,11 +969,20 @@ export default function CompanyMappingPage() {
                 </div>
               </div>
 
+            {loadError ? (
+              <div className="border-b border-red-200/90 bg-red-50 px-4 py-4 text-sm text-red-950 sm:px-6">
+                <p className="font-semibold">Erreur de chargement</p>
+                <p className="mt-1">{loadError}</p>
+              </div>
+            ) : null}
+
             {accounts.length > 0 ? (
               <div
                 className={cn(
                   "border-b px-4 py-4 sm:px-6",
-                  mappingDiagnostic.isFullyValid && mappingDiagnostic.isFullyCostTyped
+                  mappingDiagnostic.isFullyValid &&
+                  mappingDiagnostic.isFullyCostTyped &&
+                  mappingDiagnostic.isFullyAltAssetTyped
                     ? "border-emerald-200/90 bg-emerald-50/70"
                     : "border-amber-200/90 bg-amber-50/70",
                 )}
@@ -910,7 +990,9 @@ export default function CompanyMappingPage() {
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0 flex-1 space-y-3">
                     <div className="flex items-center gap-2">
-                      {mappingDiagnostic.isFullyValid && mappingDiagnostic.isFullyCostTyped ? (
+                      {mappingDiagnostic.isFullyValid &&
+                      mappingDiagnostic.isFullyCostTyped &&
+                      mappingDiagnostic.isFullyAltAssetTyped ? (
                         <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" aria-hidden />
                       ) : (
                         <AlertTriangle className="h-5 w-5 shrink-0 text-amber-800" aria-hidden />
@@ -918,19 +1000,43 @@ export default function CompanyMappingPage() {
                       <p className="text-sm font-semibold text-slate-900">Diagnostic du mapping</p>
                     </div>
                     <p className="text-sm text-slate-700">
-                      {mappingDiagnostic.isFullyValid && mappingDiagnostic.isFullyCostTyped ? (
+                      {mappingDiagnostic.isFullyValid &&
+                      mappingDiagnostic.isFullyCostTyped &&
+                      mappingDiagnostic.isFullyAltAssetTyped ? (
                         <>
-                          Tous les comptes ({mappingDiagnostic.total}) ont un code de liaison valide et un type
-                          Variable ou Fixe lorsque requis.
+                          Tous les comptes ({mappingDiagnostic.total}) ont un code de liaison valide, un type
+                          Variable ou Fixe lorsque requis, et Coût ou Amortissement cumulé pour les immobilisations
+                          capex.
                         </>
-                      ) : mappingDiagnostic.isFullyValid && mappingDiagnostic.costTypeUnsetCount > 0 ? (
+                      ) : mappingDiagnostic.isFullyValid &&
+                        (mappingDiagnostic.costTypeUnsetCount > 0 ||
+                          mappingDiagnostic.altAssetTypeUnsetCount > 0) ? (
                         <>
                           Tous les codes de liaison sont valides, mais{" "}
-                          <span className="font-semibold text-amber-950">
-                            {mappingDiagnostic.costTypeUnsetCount}
-                          </span>{" "}
-                          compte{mappingDiagnostic.costTypeUnsetCount > 1 ? "s éligibles" : " éligible"}
-                          {mappingDiagnostic.costTypeUnsetCount > 1 ? " n’ont" : " n’a"} pas de type Variable ou Fixe.
+                          {mappingDiagnostic.costTypeUnsetCount > 0 ? (
+                            <>
+                              <span className="font-semibold text-amber-950">
+                                {mappingDiagnostic.costTypeUnsetCount}
+                              </span>{" "}
+                              compte
+                              {mappingDiagnostic.costTypeUnsetCount > 1 ? "s" : ""} sans type Variable ou Fixe
+                            </>
+                          ) : null}
+                          {mappingDiagnostic.costTypeUnsetCount > 0 &&
+                          mappingDiagnostic.altAssetTypeUnsetCount > 0
+                            ? " et "
+                            : null}
+                          {mappingDiagnostic.altAssetTypeUnsetCount > 0 ? (
+                            <>
+                              <span className="font-semibold text-amber-950">
+                                {mappingDiagnostic.altAssetTypeUnsetCount}
+                              </span>{" "}
+                              compte
+                              {mappingDiagnostic.altAssetTypeUnsetCount > 1 ? "s" : ""} sans Coût ou
+                              Amortissement cumulé (ALT-B/C/D)
+                            </>
+                          ) : null}
+                          .
                         </>
                       ) : mappingDiagnostic.unassignedCount > 0 ? (
                         <>
@@ -1006,11 +1112,33 @@ export default function CompanyMappingPage() {
                           </div>
                         </>
                       ) : null}
+                      {mappingDiagnostic.altAssetEligibleCount > 0 ? (
+                        <>
+                          <div className="flex items-center justify-between gap-3 text-xs text-slate-600">
+                            <span>Coût / Amortissement cumulé (ALT-B, ALT-C, ALT-D)</span>
+                            <span className="font-mono font-medium text-slate-800">
+                              {mappingDiagnostic.altAssetAssignedCount}/
+                              {mappingDiagnostic.altAssetEligibleCount} ({mappingDiagnostic.altAssetTypePercent}
+                              %)
+                            </span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded-full bg-white/80">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-all",
+                                mappingDiagnostic.isFullyAltAssetTyped ? "bg-emerald-500" : "bg-amber-500",
+                              )}
+                              style={{ width: `${mappingDiagnostic.altAssetTypePercent}%` }}
+                            />
+                          </div>
+                        </>
+                      ) : null}
                     </div>
                   </div>
                   {(mappingDiagnostic.unassignedCount > 0 ||
                     mappingDiagnostic.invalidCount > 0 ||
-                    mappingDiagnostic.costTypeUnsetCount > 0) && (
+                    mappingDiagnostic.costTypeUnsetCount > 0 ||
+                    mappingDiagnostic.altAssetTypeUnsetCount > 0) && (
                     <div className="flex shrink-0 flex-wrap items-center gap-2">
                       {mappingDiagnostic.unassignedCount > 0 ? (
                         <Button
@@ -1056,6 +1184,22 @@ export default function CompanyMappingPage() {
                             : "Sans type Variable / Fixe"}
                         </Button>
                       ) : null}
+                      {mappingDiagnostic.altAssetTypeUnsetCount > 0 ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={cn(
+                            "h-8 border-amber-300/90 bg-white text-xs font-medium text-amber-950 hover:bg-amber-50",
+                            diagnosticFilter === "altAssetTypeUnset" && "border-amber-500 bg-amber-100",
+                          )}
+                          onClick={() => toggleDiagnosticFilter("altAssetTypeUnset")}
+                        >
+                          {diagnosticFilter === "altAssetTypeUnset"
+                            ? "Tout afficher"
+                            : "Sans Coût / Amort. cumulé"}
+                        </Button>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -1082,6 +1226,17 @@ export default function CompanyMappingPage() {
                     ? "Un compte éligible (hors REV/IMP, ou FIN.1) n’a pas de type Variable ou Fixe."
                     : `${mappingDiagnostic.costTypeUnsetCount} comptes éligibles n’ont pas de type Variable ou Fixe.`}{" "}
                   Ouvrez les paramètres du compte (icône engrenage) pour cocher CV ou CF.
+                </p>
+              )}
+            {accounts.length > 0 &&
+              mappingDiagnostic.altAssetTypeUnsetCount > 0 &&
+              diagnosticFilter !== "altAssetTypeUnset" && (
+                <p className="rounded-lg border border-amber-200/90 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 sm:px-6">
+                  <span className="font-semibold">Immobilisations capex incomplètes.</span>{" "}
+                  {mappingDiagnostic.altAssetTypeUnsetCount === 1
+                    ? "Un compte ALT-B, ALT-C ou ALT-D n’a pas de type Coût ou Amortissement cumulé."
+                    : `${mappingDiagnostic.altAssetTypeUnsetCount} comptes ALT-B/C/D n’ont pas de type Coût ou Amortissement cumulé.`}{" "}
+                  Ouvrez les paramètres du compte (icône engrenage) pour cocher Coût ou Amortissement cumulé.
                 </p>
               )}
               {diagnosticFilter !== "none" && accounts.length > 0 && (

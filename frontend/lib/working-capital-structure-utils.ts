@@ -1,4 +1,4 @@
-import type { SeriesPeriod, SeriesRow } from "@/lib/api"
+import type { SeriesPeriod, SeriesRow, StandardLinkCode } from "@/lib/api"
 import {
   isCodeMappingEnabled,
   isStructureRowEmptyLabel,
@@ -11,6 +11,7 @@ import {
 } from "@/lib/income-statement-structure-utils"
 import {
   deriveLinkCodeFamily,
+  getDetailSubLineCodesFromStandardLinkCode,
   isBalanceSheetFamily,
   isIncomeStatementFamily,
 } from "@/lib/standard-link-code-utils"
@@ -25,6 +26,8 @@ const FORMULA_MODES: ReadonlySet<LiaisonMode> = new Set([
 
 /** Mois additionnels à charger pour les séries Résultat (TTM = 12 mois glissants). */
 export const WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS = 11
+
+const OPERAND_AMOUNT_EPSILON = 1e-6
 
 /** Montant d’un code de liaison dans une série (bilan ou CDR) pour un mois donné. */
 export function seriesAmountForLinkCode(
@@ -211,6 +214,145 @@ export function collectWorkingCapitalIncludedOperands(
   return []
 }
 
+function seriesRowLinkCode(row: SeriesRow): string {
+  const linkCode = String(row.linkCode ?? "").trim()
+  const id = String(row.id ?? "").trim()
+  return linkCode || id
+}
+
+function findSeriesRowForOperandCode(
+  code: string,
+  bsRows: SeriesRow[],
+  isRows: SeriesRow[],
+): SeriesRow | undefined {
+  const target = code.trim()
+  if (!target) return undefined
+  for (const row of [...bsRows, ...isRows]) {
+    if (seriesRowLinkCode(row) === target) return row
+  }
+  return undefined
+}
+
+function looksLikeLinkSubCode(id: string, parentCode: string): boolean {
+  const trimmed = id.trim()
+  if (!trimmed) return false
+  if (trimmed.startsWith(`${parentCode}.`)) return true
+  return /^[A-Z]{2,}([.-][A-Z0-9]+)+$/i.test(trimmed)
+}
+
+/** Sous-codes d'un parent (detailRows imbriqués, lignes série ALT-B → ALT-B.1, …, ou plan comptable). */
+export function collectChildLinkCodesForOperand(
+  parentCode: string,
+  bsRows: SeriesRow[],
+  isRows: SeriesRow[],
+  standardLinkCodes: StandardLinkCode[] = [],
+): string[] {
+  const parent = parentCode.trim()
+  if (!parent) return []
+
+  const parentRow = findSeriesRowForOperandCode(parent, bsRows, isRows)
+  if (parentRow?.detailRows?.length) {
+    const fromDetail = parentRow.detailRows
+      .map((detail) => String(detail.id ?? "").trim())
+      .filter((id) => looksLikeLinkSubCode(id, parent))
+    if (fromDetail.length) return fromDetail
+  }
+
+  const prefix = `${parent}.`
+  const fromSeries = [...bsRows, ...isRows]
+    .map(seriesRowLinkCode)
+    .filter((code) => code.startsWith(prefix))
+  if (fromSeries.length) {
+    return [...new Set(fromSeries)].sort()
+  }
+
+  if (standardLinkCodes.length > 0) {
+    return getDetailSubLineCodesFromStandardLinkCode(parent, standardLinkCodes).map((c) => c.code)
+  }
+
+  return []
+}
+
+/** Déplie un code parent vers ses sous-codes quand ils existent ; sinon conserve le code. */
+export function expandWorkingCapitalOperandCode(
+  code: string,
+  bsRows: SeriesRow[],
+  isRows: SeriesRow[],
+  standardLinkCodes: StandardLinkCode[] = [],
+): string[] {
+  const children = collectChildLinkCodesForOperand(code, bsRows, isRows, standardLinkCodes)
+  return children.length ? children : [code.trim()]
+}
+
+function rollupBalanceSheetOperandAmount(
+  code: string,
+  bsRows: SeriesRow[],
+  isRows: SeriesRow[],
+  bsPeriods: SeriesPeriod[],
+  periodIndex: number,
+): number {
+  const direct = seriesAmountForLinkCode(code, bsRows, bsPeriods, periodIndex)
+  if (Math.abs(direct) > OPERAND_AMOUNT_EPSILON) return direct
+
+  const children = collectChildLinkCodesForOperand(code, bsRows, isRows)
+  if (!children.length) return direct
+
+  return children.reduce(
+    (sum, childCode) =>
+      sum + seriesAmountForLinkCode(childCode, bsRows, bsPeriods, periodIndex),
+    0,
+  )
+}
+
+function rollupIncomeStatementOperandAmount(
+  code: string,
+  bsRows: SeriesRow[],
+  isRows: SeriesRow[],
+  isPeriods: SeriesPeriod[],
+  isPeriodIndex: number,
+): number {
+  const direct = seriesTrailingTwelveMonthAmountForLinkCode(code, isRows, isPeriods, isPeriodIndex)
+  if (Math.abs(direct) > OPERAND_AMOUNT_EPSILON) return direct
+
+  const children = collectChildLinkCodesForOperand(code, bsRows, isRows)
+  if (!children.length) return direct
+
+  return children.reduce(
+    (sum, childCode) =>
+      sum + seriesTrailingTwelveMonthAmountForLinkCode(childCode, isRows, isPeriods, isPeriodIndex),
+    0,
+  )
+}
+
+export type WorkingCapitalOperandDisplayContext = {
+  bsRows: SeriesRow[]
+  isRows: SeriesRow[]
+  standardLinkCodes?: StandardLinkCode[]
+}
+
+/**
+ * Comme {@link collectWorkingCapitalIncludedOperands}, mais déplie les codes parents
+ * (ex. ALT-B → ALT-B.1, ALT-B.2) pour l'affichage du détail dans les tableaux Capex / FDR.
+ */
+export function collectWorkingCapitalIncludedOperandsForDisplay(
+  row: Record<string, unknown>,
+  context?: WorkingCapitalOperandDisplayContext,
+): WorkingCapitalIncludedOperand[] {
+  const base = collectWorkingCapitalIncludedOperands(row)
+  if (!context) return base
+
+  const { bsRows, isRows, standardLinkCodes = [] } = context
+  return base.flatMap((operand) => {
+    const expanded = expandWorkingCapitalOperandCode(
+      operand.code,
+      bsRows,
+      isRows,
+      standardLinkCodes,
+    )
+    return expanded.map((childCode) => ({ ...operand, code: childCode }))
+  })
+}
+
 /**
  * Montant d’un opérande (code bilan / CDR / ref formule WC) à un index de période bilan.
  */
@@ -227,7 +369,8 @@ export function resolveWorkingCapitalOperandAmount(
   const target = code.trim()
   if (!target) return 0
 
-  if (structure.length > 0) {
+  // Évite la boucle code unique → ligne structure → même code (retourne 0) ; on lit la série.
+  if (structure.length > 0 && !visiting.has(target)) {
     const refRow = findWorkingCapitalRefRow(structure, target)
     if (refRow) {
       const nested = resolveWorkingCapitalStructureAmount(
@@ -240,7 +383,7 @@ export function resolveWorkingCapitalOperandAmount(
         structure,
         visiting,
       )
-      if (nested !== null) return nested
+      if (nested !== null && Math.abs(nested) > OPERAND_AMOUNT_EPSILON) return nested
     }
   }
 
@@ -248,14 +391,14 @@ export function resolveWorkingCapitalOperandAmount(
   const isIdx = alignSeriesPeriodIndex(isPeriods, bsPeriods, periodIndex)
 
   if (isIncomeStatementFamily(family)) {
-    return seriesTrailingTwelveMonthAmountForLinkCode(target, isRows, isPeriods, isIdx)
+    return rollupIncomeStatementOperandAmount(target, bsRows, isRows, isPeriods, isIdx)
   }
   if (isBalanceSheetFamily(family)) {
-    return seriesAmountForLinkCode(target, bsRows, bsPeriods, periodIndex)
+    return rollupBalanceSheetOperandAmount(target, bsRows, isRows, bsPeriods, periodIndex)
   }
 
-  const fromBs = seriesAmountForLinkCode(target, bsRows, bsPeriods, periodIndex)
-  const fromIs = seriesTrailingTwelveMonthAmountForLinkCode(target, isRows, isPeriods, isIdx)
+  const fromBs = rollupBalanceSheetOperandAmount(target, bsRows, isRows, bsPeriods, periodIndex)
+  const fromIs = rollupIncomeStatementOperandAmount(target, bsRows, isRows, isPeriods, isIdx)
   if (fromBs !== 0 && fromIs !== 0) return fromBs + fromIs
   return fromBs !== 0 ? fromBs : fromIs
 }

@@ -471,6 +471,8 @@ export interface AccountMappingData {
   variable_costs: boolean
   fixed_costs: boolean
   variable_cost_revenue_link_code: string | null
+  alt_asset_cost: boolean
+  alt_accumulated_amortization: boolean
   liability_remaining_years: number | null
   liability_interest_rate: number | null
   product: string | null
@@ -514,6 +516,8 @@ export async function upsertAccountMappings(
     variable_costs?: boolean
     fixed_costs?: boolean
     variable_cost_revenue_link_code?: string | null
+    alt_asset_cost?: boolean
+    alt_accumulated_amortization?: boolean
     liability_remaining_years?: number | null
     liability_interest_rate?: number | null
     product?: string | null
@@ -1483,6 +1487,8 @@ export interface FinancialStatementSeriesParams {
   sub_division_id?: string
   customer?: string
   supplier?: string
+  /** Capex : n'inclure que les comptes ALT-B/C/D mappés « Coût » (exclut Amortissement cumulé). */
+  alt_asset_cost_only?: boolean
   /** Client-only: invalidation cache après sauvegarde structure. L’API l’ignore. */
   structure_rev?: number
 }
@@ -1500,6 +1506,7 @@ export async function getFinancialStatementSeries(
   if (params.sub_division_id) query.set("sub_division_id", params.sub_division_id)
   if (params.customer) query.set("customer", params.customer)
   if (params.supplier) query.set("supplier", params.supplier)
+  if (params.alt_asset_cost_only) query.set("alt_asset_cost_only", "true")
   if (params.structure_rev != null && params.structure_rev > 0) {
     query.set("_sr", params.structure_rev.toString())
   }

@@ -1,18 +1,24 @@
 "use client"
 
-import { Fragment, useEffect, useMemo, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
 import { StatementStructureStudio } from "@/components/statement-structure-studio"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, aggregateToYears, findRow, reverseSeriesOrderForDisplay } from "@/lib/series-utils"
+import { getRowAmounts, findRow, reverseSeriesOrderForDisplay } from "@/lib/series-utils"
+import {
+  findPeriodIndexForCalendarMonth,
+  sliceAmountsAtReferenceMonthYears,
+  yearLabelsFromReference,
+  calendarYearSequenceFromReference,
+} from "@/lib/series-reference-columns"
 import { getStatementStructure } from "@/lib/api"
 import {
   resolveWorkingCapitalStructureAmount,
   resolveWorkingCapitalOperandAmount,
-  collectWorkingCapitalIncludedOperands,
+  collectWorkingCapitalIncludedOperandsForDisplay,
   workingCapitalOperandDisplayLabel,
   workingCapitalStructureViewRows,
   normalizeWorkingCapitalDisplayFormat,
@@ -23,6 +29,15 @@ import {
   type WorkingCapitalDisplayFormat,
   type WorkingCapitalIncludedOperand,
 } from "@/lib/working-capital-structure-utils"
+import { CONTRIBUTIVE_MARGIN_AMOUNT_EPSILON } from "@/lib/revenue-contributive-margin-evolution"
+import {
+  buildCapexOperandDisplayValues,
+  buildCapexRowDisplayValues,
+  readRowCapexCostDisplayMode,
+  structureRowUsesCapexCostCodes,
+  operandUsesCapexCostDisplay,
+  type CapexCostDisplayMode,
+} from "@/lib/capex-analysis-settings"
 import { ChevronDown, ChevronRight, LayoutList, Settings, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -132,6 +147,7 @@ export function CapexAnalysis({
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: !!companyId,
+    altAssetCostOnly: true,
   })
 
   const { rows: isRows, periods: isPeriods, loading: isLoading } = useFinancialStatementSeries({
@@ -228,10 +244,34 @@ export function CapexAnalysis({
       let finalEbitda: number[]
 
       if (view === "years") {
-        finalFixed = aggregateToYears(totalFixedAmounts, bsPeriods).amounts
-        finalDepreciation = aggregateToYears(depreciationForBsPeriods, bsPeriods, "last").amounts
-        finalRevenue = aggregateToYears(revenueTtmForBsPeriods, bsPeriods, "last").amounts
-        finalEbitda = aggregateToYears(ebitdaForBsPeriods, bsPeriods, "last").amounts
+        finalFixed = sliceAmountsAtReferenceMonthYears(
+          totalFixedAmounts,
+          bsPeriods,
+          resolvedMonth,
+          resolvedYear,
+          6,
+        )
+        finalDepreciation = sliceAmountsAtReferenceMonthYears(
+          depreciationForBsPeriods,
+          bsPeriods,
+          resolvedMonth,
+          resolvedYear,
+          6,
+        )
+        finalRevenue = sliceAmountsAtReferenceMonthYears(
+          revenueTtmForBsPeriods,
+          bsPeriods,
+          resolvedMonth,
+          resolvedYear,
+          6,
+        )
+        finalEbitda = sliceAmountsAtReferenceMonthYears(
+          ebitdaForBsPeriods,
+          bsPeriods,
+          resolvedMonth,
+          resolvedYear,
+          6,
+        )
       } else {
         finalFixed = totalFixedAmounts
         finalDepreciation = depreciationForBsPeriods
@@ -282,7 +322,7 @@ export function CapexAnalysis({
       priorEbitda: eLen > 1 ? ebitdaForBsPeriods[eLen - 2]! : 0,
       trendValues: undefined,
     }
-  }, [bsRows, isRows, bsPeriods, isPeriods, view])
+  }, [bsRows, isRows, bsPeriods, isPeriods, view, resolvedMonth, resolvedYear])
 
   const calculateCapexHeuristic = (isPrior: boolean, trendIndex?: number): number => {
     const idx = periodIndexFor(isPrior, trendIndex)
@@ -345,19 +385,106 @@ export function CapexAnalysis({
   const periodIndexFor = (isPrior: boolean, trendIndex?: number): number => {
     if (trendIndex !== undefined) {
       if (view === "years" && bsPeriods.length > 0) {
-        const years = [...new Set(bsPeriods.map((p) => p.fiscalYear))].sort((a, b) => a - b)
-        const fy = years[Math.max(0, Math.min(trendIndex, years.length - 1))]
-        let lastIdx = 0
-        for (let i = 0; i < bsPeriods.length; i++) {
-          if (bsPeriods[i]!.fiscalYear === fy) lastIdx = i
-        }
-        return lastIdx
+        const yearsChronological = [...calendarYearSequenceFromReference(resolvedYear, 6)].reverse()
+        const year = yearsChronological[Math.max(0, Math.min(trendIndex, yearsChronological.length - 1))]!
+        const idx = findPeriodIndexForCalendarMonth(bsPeriods, resolvedMonth, year)
+        return idx >= 0 ? idx : 0
       }
       return Math.max(0, Math.min(trendIndex, Math.max(0, bsPeriods.length - 1)))
     }
     const len = Math.max(bsPeriods.length, 1)
     return isPrior ? Math.max(0, len - 2) : len - 1
   }
+
+  const trendCount =
+    data.trendValues?.length ||
+    (view === "24months" ? 24 : view === "years" ? 6 : view === "12months" ? 12 : 0)
+
+  const operandDisplayContext = useMemo(
+    () => ({ bsRows, isRows }),
+    [bsRows, isRows],
+  )
+
+  const resolveStructureAmountAtPeriod = useCallback(
+    (row: Record<string, unknown>, periodIndex: number): number => {
+      const raw =
+        resolveWorkingCapitalStructureAmount(
+          row,
+          bsRows,
+          isRows,
+          bsPeriods,
+          isPeriods,
+          periodIndex,
+          structure,
+        ) ?? 0
+      const explicitFormat = normalizeWorkingCapitalDisplayFormat(row.displayFormat)
+      const displayFormat = explicitFormat ?? resolveWorkingCapitalDisplayFormat(row)
+      return displayFormat === "percent" ? raw * 100 : raw
+    },
+    [bsRows, isRows, bsPeriods, isPeriods, structure],
+  )
+
+  const resolveOperandAmountAtPeriod = useCallback(
+    (code: string, periodIndex: number): number =>
+      resolveWorkingCapitalOperandAmount(
+        code,
+        bsRows,
+        isRows,
+        bsPeriods,
+        isPeriods,
+        periodIndex,
+        structure,
+      ),
+    [bsRows, isRows, bsPeriods, isPeriods, structure],
+  )
+
+  const buildRowDisplaySeries = useCallback(
+    (row: Record<string, unknown>, mode: CapexCostDisplayMode): number[] =>
+      buildCapexRowDisplayValues(
+        row,
+        mode,
+        view,
+        trendCount,
+        bsPeriods.length,
+        resolveOperandAmountAtPeriod,
+        (structureRow, periodIndex) => resolveStructureAmountAtPeriod(structureRow, periodIndex),
+        bsPeriods,
+        resolvedMonth,
+        resolvedYear,
+      ),
+    [
+      bsPeriods,
+      resolvedMonth,
+      resolvedYear,
+      resolveOperandAmountAtPeriod,
+      resolveStructureAmountAtPeriod,
+      trendCount,
+      view,
+    ],
+  )
+
+  const buildOperandDisplaySeries = useCallback(
+    (code: string, mode: CapexCostDisplayMode): number[] =>
+      buildCapexOperandDisplayValues(
+        code,
+        mode,
+        view,
+        trendCount,
+        bsPeriods.length,
+        resolveOperandAmountAtPeriod,
+        bsPeriods,
+        resolvedMonth,
+        resolvedYear,
+      ),
+    [
+      bsPeriods,
+      resolvedMonth,
+      resolvedYear,
+      resolveOperandAmountAtPeriod,
+      trendCount,
+      view,
+    ],
+  )
 
   const heuristicMetric = (label: string): Omit<DisplayMetric, "showAmounts"> | null => {
     const key = normalizeMetricLabel(label)
@@ -437,6 +564,8 @@ export function CapexAnalysis({
       if (structured !== null) {
         const displayFormat = explicitFormat ?? resolveWorkingCapitalDisplayFormat(row)
         const metricFormat = displayFormatToMetricFormat(displayFormat)
+        const usesCapexCostMode = structureRowUsesCapexCostCodes(row, operandDisplayContext)
+        const rowCostMode = readRowCapexCostDisplayMode(row, structure)
         return {
           key: `struct-${idx}`,
           label,
@@ -444,17 +573,18 @@ export function CapexAnalysis({
           showAmounts: true,
           format: metricFormat,
           valueAt: (isPrior: boolean, trendIndex?: number) => {
-            const raw =
-              resolveWorkingCapitalStructureAmount(
-                row,
-                bsRows,
-                isRows,
-                bsPeriods,
-                isPeriods,
-                periodIndexFor(isPrior, trendIndex),
-                structure,
-              ) ?? 0
-            return displayFormat === "percent" ? raw * 100 : raw
+            if (usesCapexCostMode) {
+              const series = buildRowDisplaySeries(row, rowCostMode)
+              if (view === "current") {
+                return isPrior ? (series[1] ?? 0) : (series[0] ?? 0)
+              }
+              return series[trendIndex ?? 0] ?? 0
+            }
+            const raw = resolveStructureAmountAtPeriod(
+              row,
+              periodIndexFor(isPrior, trendIndex),
+            )
+            return raw
           },
         }
       }
@@ -478,7 +608,10 @@ export function CapexAnalysis({
           key: item.key,
           metric: buildMetricFromRow(item.row, item.index),
           structureRow: item.row,
-          operands: collectWorkingCapitalIncludedOperands(item.row),
+          operands: collectWorkingCapitalIncludedOperandsForDisplay(
+            item.row,
+            operandDisplayContext,
+          ),
         }
       })
     }
@@ -495,10 +628,21 @@ export function CapexAnalysis({
       key: `fallback-${idx}`,
       metric: buildMetricFromRow(row, idx),
       structureRow: row,
-      operands: collectWorkingCapitalIncludedOperands(row),
+      operands: collectWorkingCapitalIncludedOperandsForDisplay(row, operandDisplayContext),
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [structure, bsRows, isRows, bsPeriods, isPeriods, data, view])
+  }, [
+    structure,
+    bsRows,
+    isRows,
+    bsPeriods,
+    isPeriods,
+    data,
+    view,
+    operandDisplayContext,
+    buildRowDisplaySeries,
+    resolveStructureAmountAtPeriod,
+  ])
 
   const toggleRow = (rowKey: string) => {
     setExpandedRows((prev) => {
@@ -522,17 +666,13 @@ export function CapexAnalysis({
       }
       const chronological =
         view === "years"
-          ? aggregateToYears(
-              bsPeriods.map(() => 0),
-              bsPeriods,
-            ).labels
+          ? yearLabelsFromReference(resolvedYear, 6).reverse()
           : bsPeriods.map((p) => p.label)
       return reverseSeriesOrderForDisplay(chronological)
     }
     if (view === "current") return ["Courant", "Passé"]
     if (view === "years") {
-      const cy = new Date().getFullYear()
-      return Array.from({ length: 6 }, (_, i) => `${cy - i}`)
+      return yearLabelsFromReference(resolvedYear, 6)
     }
     const count = view === "24months" ? 24 : 12
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
@@ -554,10 +694,6 @@ export function CapexAnalysis({
     if (view === "years") return "5 ans"
     return "Courant"
   }
-
-  const trendCount =
-    data.trendValues?.length ||
-    (view === "24months" ? 24 : view === "years" ? 6 : view === "12months" ? 12 : 0)
 
   const tableColumnCount =
     2 + (view === "current" ? 2 : Math.max(trendCount, getPeriodColumnLabels().length, 1))
@@ -593,6 +729,7 @@ export function CapexAnalysis({
     rowKey: string,
     metric: DisplayMetric,
     operands: WorkingCapitalIncludedOperand[],
+    structureRow: Record<string, unknown>,
   ) => {
     const chronologicalValues =
       view === "current"
@@ -611,44 +748,26 @@ export function CapexAnalysis({
     const formatCell = (value: number) =>
       metric.showAmounts ? formatMetricValue(value, metric.format) : ""
 
-    const canExpand = operands.length > 0
-    const isExpanded = expandedRows.has(rowKey)
+    const rowCostMode = readRowCapexCostDisplayMode(structureRow, structure)
+
+    const operandHasReelBalance = (code: string): boolean =>
+      bsPeriods.some(
+        (_, periodIndex) =>
+          Math.abs(resolveOperandAmountAtPeriod(code, periodIndex)) >
+          CONTRIBUTIVE_MARGIN_AMOUNT_EPSILON,
+      )
 
     const operandChronologicalValues = (code: string): number[] => {
-      if (view === "current") {
-        return [
-          resolveWorkingCapitalOperandAmount(
-            code,
-            bsRows,
-            isRows,
-            bsPeriods,
-            isPeriods,
-            periodIndexFor(false),
-            structure,
-          ),
-          resolveWorkingCapitalOperandAmount(
-            code,
-            bsRows,
-            isRows,
-            bsPeriods,
-            isPeriods,
-            periodIndexFor(true),
-            structure,
-          ),
-        ]
-      }
-      return Array.from({ length: trendCount }, (_, idx) =>
-        resolveWorkingCapitalOperandAmount(
-          code,
-          bsRows,
-          isRows,
-          bsPeriods,
-          isPeriods,
-          periodIndexFor(false, idx),
-          structure,
-        ),
-      )
+      const mode = operandUsesCapexCostDisplay({ code, role: "term", sign: "" })
+        ? rowCostMode
+        : "actual"
+      return buildOperandDisplaySeries(code, mode)
     }
+
+    const visibleOperands = operands.filter((op) => operandHasReelBalance(op.code))
+
+    const canExpand = visibleOperands.length > 0
+    const isExpanded = expandedRows.has(rowKey)
 
     return (
       <Fragment key={rowKey}>
@@ -701,7 +820,7 @@ export function CapexAnalysis({
           )}
         </tr>
         {isExpanded &&
-          operands.map((op) => {
+          visibleOperands.map((op) => {
             const chronological = operandChronologicalValues(op.code)
             const displayValues =
               view === "current"
@@ -950,7 +1069,7 @@ export function CapexAnalysis({
                           </tr>
                         )
                       }
-                      return renderMetricRow(item.key, item.metric, item.operands)
+                      return renderMetricRow(item.key, item.metric, item.operands, item.structureRow)
                     })}
                   </tbody>
                 </table>

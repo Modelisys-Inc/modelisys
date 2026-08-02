@@ -589,6 +589,86 @@ export function compareCapexProjectionLinkCodes(a: string, b: string): number {
   return a.localeCompare(b, "fr", { numeric: true })
 }
 
+/** Immobilisations capex (ALT-B / ALT-C / ALT-D) : choix Coût vs Amortissement cumulé. */
+export function showsMappingAltAssetTypeOptions(linkCode: string | undefined): boolean {
+  const lc = linkCode?.trim()
+  if (!lc) return false
+  return isCapexProjectionLinkCode(lc)
+}
+
+export type MappingAltAssetTypeLabel = "cost" | "accumulated" | "unset" | "na"
+
+export function mappingAltAssetTypeLabel(account: {
+  linkCode?: string
+  altAssetCost?: boolean
+  altAccumulatedAmortization?: boolean
+}): MappingAltAssetTypeLabel {
+  if (!showsMappingAltAssetTypeOptions(account.linkCode)) return "na"
+  const cost = !!account.altAssetCost
+  const accumulated = !!account.altAccumulatedAmortization
+  if (cost && !accumulated) return "cost"
+  if (accumulated && !cost) return "accumulated"
+  return "unset"
+}
+
+export function mappingAltAssetTypeDisplayLabel(account: {
+  linkCode?: string
+  altAssetCost?: boolean
+  altAccumulatedAmortization?: boolean
+}): string {
+  switch (mappingAltAssetTypeLabel(account)) {
+    case "cost":
+      return "Coût"
+    case "accumulated":
+      return "Amort. cumulé"
+    case "unset":
+      return "—"
+    default:
+      return "N/A"
+  }
+}
+
+export function isMappingAltAssetTypeUnset(account: {
+  linkCode?: string
+  altAssetCost?: boolean
+  altAccumulatedAmortization?: boolean
+}): boolean {
+  return mappingAltAssetTypeLabel(account) === "unset"
+}
+
+export function sanitizeMappingAltAssetFields<
+  T extends {
+    linkCode?: string
+    altAssetCost?: boolean
+    altAccumulatedAmortization?: boolean
+  },
+>(draft: T): T {
+  if (!showsMappingAltAssetTypeOptions(draft.linkCode)) {
+    return {
+      ...draft,
+      altAssetCost: false,
+      altAccumulatedAmortization: false,
+    }
+  }
+  return draft
+}
+
+/** Libellé colonne Type : immobilisations capex ou CV/CF. */
+export function mappingAccountTypeDisplayLabel(
+  account: {
+    linkCode?: string
+    variableCosts?: boolean
+    fixedCosts?: boolean
+    altAssetCost?: boolean
+    altAccumulatedAmortization?: boolean
+  },
+  codeByCode: StandardLinkCodeLookup,
+): string {
+  const altLabel = mappingAltAssetTypeDisplayLabel(account)
+  if (altLabel !== "N/A") return altLabel
+  return mappingCostTypeDisplayLabel(account, codeByCode)
+}
+
 export function isMappableStandardLinkCode(code: StandardLinkCode): boolean {
   if (code.is_active === false) return false
   if (isCashFlowFamily(code.family)) return false

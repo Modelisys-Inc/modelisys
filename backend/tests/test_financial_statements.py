@@ -1517,3 +1517,70 @@ def test_summary_series_company_not_found(client, auth_headers):
         headers=auth_headers,
     )
     assert response.status_code == 404
+
+
+def test_sum_for_link_code_single_month_alt_asset_cost_only():
+    """ALT-B/C/D sums with alt_asset_cost_only include only Coût-mapped accounts."""
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.services.financial_statements import (
+        _account_included_for_alt_asset_cost_only,
+        _alt_asset_cost_only_ctx,
+        _sum_for_link_code_single_month,
+    )
+
+    mapping_cost = SimpleNamespace(
+        link_code="ALT-B.1",
+        alt_asset_cost=True,
+        alt_accumulated_amortization=False,
+    )
+    mapping_accum = SimpleNamespace(
+        link_code="ALT-B.1",
+        alt_asset_cost=False,
+        alt_accumulated_amortization=True,
+    )
+
+    token = _alt_asset_cost_only_ctx.set(True)
+    try:
+        assert _account_included_for_alt_asset_cost_only(mapping_cost, "ALT-B.1") is True
+        assert _account_included_for_alt_asset_cost_only(mapping_accum, "ALT-B.1") is False
+        assert _account_included_for_alt_asset_cost_only(None, "ALT-B.1") is False
+        assert _account_included_for_alt_asset_cost_only(mapping_cost, "ACT-A.1") is True
+    finally:
+        _alt_asset_cost_only_ctx.reset(token)
+
+    mappings_by_account = {
+        "1500": mapping_cost,
+        "1590": mapping_accum,
+    }
+    mapping_index = {"ALT-B.1": ["1500", "1590"]}
+    amount_index = {
+        "1500": {12: Decimal("100000")},
+        "1590": {12: Decimal("-40000")},
+    }
+
+    token = _alt_asset_cost_only_ctx.set(True)
+    try:
+        cost_only = _sum_for_link_code_single_month(
+            "ALT-B.1",
+            mapping_index,
+            amount_index,
+            12,
+            mappings_by_account=mappings_by_account,
+            statement_type="balance-sheet",
+        )
+    finally:
+        _alt_asset_cost_only_ctx.reset(token)
+
+    full = _sum_for_link_code_single_month(
+        "ALT-B.1",
+        mapping_index,
+        amount_index,
+        12,
+        mappings_by_account=mappings_by_account,
+        statement_type="balance-sheet",
+    )
+
+    assert cost_only == 100_000.0
+    assert full == 60_000.0
