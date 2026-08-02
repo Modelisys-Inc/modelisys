@@ -23,8 +23,13 @@ import {
   type WorkingCapitalDisplayFormat,
   type WorkingCapitalIncludedOperand,
 } from "@/lib/working-capital-structure-utils"
+import { CONTRIBUTIVE_MARGIN_AMOUNT_EPSILON } from "@/lib/revenue-contributive-margin-evolution"
 import { ChevronDown, ChevronRight, LayoutList, Settings, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { IncomePerformanceNarrativeSection } from "@/components/diagnostic/v2/income-performance-narrative-section"
+import { buildWorkingCapitalDiagnosticResult } from "@/lib/working-capital-diagnostic"
+import { buildWorkingCapitalCompositionResult } from "@/lib/working-capital-composition"
+import { buildWorkingCapitalDiagnosticNarrative } from "@/lib/working-capital-diagnostic-narrative"
 import {
   dashboardCardAccentClass,
   dashboardCardBodyMutedClass,
@@ -48,6 +53,9 @@ interface WorkingCapitalAnalysisProps {
   referenceMonth?: number
   structureVersion?: number
   showStructureSettings?: boolean
+  /** Mode contrôlé pour l’éditeur de structure (diagnostic). */
+  structureEditOpen?: boolean
+  onStructureEditOpenChange?: (open: boolean) => void
   onStructureSaved?: () => void
   /** En diagnostic : contenu seul, sans chrome « tableau de bord ». */
   appearance?: "dashboard" | "diagnostic"
@@ -116,14 +124,21 @@ export function WorkingCapitalAnalysis({
   showStructureSettings = true,
   onStructureSaved,
   appearance = "dashboard",
+  structureEditOpen,
+  onStructureEditOpenChange,
 }: WorkingCapitalAnalysisProps) {
   const resolvedYear = fiscalYear ?? new Date().getFullYear()
   const resolvedMonth = referenceMonth ?? new Date().getMonth() + 1
   const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
   /** CDR : fenêtre affichée + 11 mois pour calculer le TTM à chaque date de référence. */
   const isMonthsNeeded = monthsNeeded + WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS
-  const [structureEditMode, setStructureEditMode] = useState(false)
+  const [internalStructureEditMode, setInternalStructureEditMode] = useState(false)
+  const [narrativeStructureEditOpen, setNarrativeStructureEditOpen] = useState(false)
+  const [localStructureVersion, setLocalStructureVersion] = useState(0)
+  const structureEditMode = structureEditOpen ?? internalStructureEditMode
+  const setStructureEditMode = onStructureEditOpenChange ?? setInternalStructureEditMode
   const [structure, setStructure] = useState<Record<string, unknown>[]>([])
+  const [structureLoaded, setStructureLoaded] = useState(false)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
   const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
@@ -149,27 +164,36 @@ export function WorkingCapitalAnalysis({
   })
 
   const loading = bsLoading || isLoading
-  const canInlineStructureEdit = showStructureSettings && !!companyId
-  const isStructureStudio = structureEditMode && canInlineStructureEdit
   const isDiagnosticAppearance = appearance === "diagnostic"
+  const canInlineStructureEdit = showStructureSettings && !!companyId && !isDiagnosticAppearance
+  const canNarrativeStructureEdit = isDiagnosticAppearance && !!companyId
+  const isStructureStudio = structureEditMode && canInlineStructureEdit
 
   useEffect(() => {
     if (!companyId) {
       setStructure([])
+      setStructureLoaded(false)
       return
     }
     let cancelled = false
+    setStructureLoaded(false)
     getStatementStructure(companyId, "working-capital")
       .then((res) => {
-        if (!cancelled) setStructure(Array.isArray(res.structure) ? res.structure : [])
+        if (!cancelled) {
+          setStructure(Array.isArray(res.structure) ? res.structure : [])
+          setStructureLoaded(true)
+        }
       })
       .catch(() => {
-        if (!cancelled) setStructure([])
+        if (!cancelled) {
+          setStructure([])
+          setStructureLoaded(true)
+        }
       })
     return () => {
       cancelled = true
     }
-  }, [companyId, structureVersion])
+  }, [companyId, structureVersion, localStructureVersion])
 
   const data: AnalysisData = useMemo(() => {
     const empty: AnalysisData = {
@@ -626,6 +650,91 @@ export function WorkingCapitalAnalysis({
     ? "group-hover:from-slate-100 group-hover:to-slate-100/70"
     : "group-hover:from-[#FDF6F1] group-hover:to-[#FDF6F1]"
 
+  const companyCurrency = companies.find((c) => c.id === companyId)?.currency ?? "CAD"
+
+  const workingCapitalDiagnosticResult = useMemo(() => {
+    if (!isDiagnosticAppearance || !companyId || !structureLoaded || loading) return null
+    return buildWorkingCapitalDiagnosticResult({
+      bsRows,
+      bsPeriods,
+      isRows,
+      isPeriods,
+      structure,
+      view,
+      refMonth: resolvedMonth,
+      refYear: resolvedYear,
+      structureReady: true,
+    })
+  }, [
+    isDiagnosticAppearance,
+    companyId,
+    structureLoaded,
+    loading,
+    bsRows,
+    bsPeriods,
+    isRows,
+    isPeriods,
+    structure,
+    view,
+    resolvedMonth,
+    resolvedYear,
+  ])
+
+  const workingCapitalCompositionResult = useMemo(() => {
+    if (!isDiagnosticAppearance || !companyId || !structureLoaded || loading) return null
+    return buildWorkingCapitalCompositionResult({
+      bsRows,
+      bsPeriods,
+      isRows,
+      isPeriods,
+      structure,
+      view,
+      refMonth: resolvedMonth,
+      refYear: resolvedYear,
+      structureReady: true,
+    })
+  }, [
+    isDiagnosticAppearance,
+    companyId,
+    structureLoaded,
+    loading,
+    bsRows,
+    bsPeriods,
+    isRows,
+    isPeriods,
+    structure,
+    view,
+    resolvedMonth,
+    resolvedYear,
+  ])
+
+  const workingCapitalDiagnosticNarrative = useMemo(() => {
+    if (!workingCapitalDiagnosticResult?.points.length) return null
+    return buildWorkingCapitalDiagnosticNarrative({
+      fdrResult: workingCapitalDiagnosticResult,
+      compositionResult: workingCapitalCompositionResult,
+      view,
+      bsRows,
+      isRows,
+      bsPeriods,
+      isPeriods,
+      structure,
+      refMonth: resolvedMonth,
+      refYear: resolvedYear,
+    })
+  }, [
+    workingCapitalDiagnosticResult,
+    workingCapitalCompositionResult,
+    view,
+    bsRows,
+    isRows,
+    bsPeriods,
+    isPeriods,
+    structure,
+    resolvedMonth,
+    resolvedYear,
+  ])
+
   const renderMetricRow = (
     rowKey: string,
     metric: DisplayMetric,
@@ -647,9 +756,6 @@ export function WorkingCapitalAnalysis({
 
     const formatCell = (value: number) =>
       metric.showAmounts ? formatMetricValue(value, metric.format) : ""
-
-    const canExpand = operands.length > 0
-    const isExpanded = expandedRows.has(rowKey)
 
     const operandChronologicalValues = (code: string): number[] => {
       if (view === "current") {
@@ -686,6 +792,15 @@ export function WorkingCapitalAnalysis({
         ),
       )
     }
+
+    const visibleOperands = operands.filter((op) =>
+      operandChronologicalValues(op.code).some(
+        (value) => Math.abs(value) > CONTRIBUTIVE_MARGIN_AMOUNT_EPSILON,
+      ),
+    )
+
+    const canExpand = visibleOperands.length > 0
+    const isExpanded = expandedRows.has(rowKey)
 
     return (
       <Fragment key={rowKey}>
@@ -739,7 +854,7 @@ export function WorkingCapitalAnalysis({
           )}
         </tr>
         {isExpanded &&
-          operands.map((op) => {
+          visibleOperands.map((op) => {
             const chronological = operandChronologicalValues(op.code)
             const displayValues =
               view === "current"
@@ -923,7 +1038,62 @@ export function WorkingCapitalAnalysis({
   )
 
   if (isDiagnosticAppearance) {
-    return analysisBody
+    const narrativeForSection =
+      workingCapitalDiagnosticNarrative ??
+      (canNarrativeStructureEdit
+        ? {
+            title: "Lecture du fonds de roulement",
+            subtitle:
+              view === "years"
+                ? "Fonds de roulement, cycle de trésorerie et ratios de structure sur les cinq derniers exercices."
+                : "Fonds de roulement, cycle de trésorerie et ratios de structure sur les douze derniers mois.",
+            mode: view === "years" ? ("annual" as const) : ("monthly" as const),
+            paragraphs: [],
+          }
+        : null)
+
+    return (
+      <>
+        {analysisBody}
+        {narrativeForSection ? (
+          <IncomePerformanceNarrativeSection
+            testId="working-capital-narrative"
+            narrative={narrativeForSection}
+            headerActions={
+              canNarrativeStructureEdit && !narrativeStructureEditOpen ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={dashboardCardStructureSettingsButtonClass}
+                  onClick={() => setNarrativeStructureEditOpen(true)}
+                  data-testid="working-capital-narrative-settings"
+                >
+                  <Settings className={cn("h-4 w-4", dashboardCardAccentClass)} />
+                  Paramètres
+                </Button>
+              ) : null
+            }
+            settingsPanel={
+              narrativeStructureEditOpen && companyId ? (
+                <StatementStructureStudio
+                  embedded
+                  companyId={companyId}
+                  statementType="working-capital"
+                  hideAnnexColumns
+                  onSaved={() => {
+                    setLocalStructureVersion((v) => v + 1)
+                    onStructureSaved?.()
+                    setNarrativeStructureEditOpen(false)
+                  }}
+                  onClose={() => setNarrativeStructureEditOpen(false)}
+                />
+              ) : null
+            }
+          />
+        ) : null}
+      </>
+    )
   }
 
   return (

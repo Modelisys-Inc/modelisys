@@ -18,6 +18,8 @@ export type NarrativeParagraphSection =
   | "contributive-margin"
   | "division-profitability"
   | "revenue-mix"
+  | "financial-position"
+  | "working-capital"
 
 export type PerformanceNarrativeParagraph = {
   heading: string

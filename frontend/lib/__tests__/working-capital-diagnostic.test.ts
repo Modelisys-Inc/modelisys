@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest"
 import type { SeriesPeriod, SeriesRow } from "@/lib/api"
 import { buildWorkingCapitalDiagnosticResult } from "@/lib/working-capital-diagnostic"
 import { buildWorkingCapitalDiagnosticNarrative } from "@/lib/working-capital-diagnostic-narrative"
+import { buildWorkingCapitalCompositionResult } from "@/lib/working-capital-composition"
+import { buildWorkingCapitalCompositionBreakdownTables } from "@/lib/working-capital-composition-breakdown"
 import { buildWorkingCapitalDiagnosticBreakdownTables } from "@/lib/working-capital-diagnostic-breakdown"
+import { metricHeading } from "@/lib/working-capital-diagnostic"
 
 const periods: SeriesPeriod[] = [
   { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
@@ -99,6 +102,46 @@ const structure = [
   },
 ]
 
+const compositionStructure = [
+  ...structure.slice(0, 2),
+  {
+    label: "Comptes clients en % des revenus",
+    defineMapping: true,
+    liaisonMode: "quotient",
+    liaisonNumeratorCodes: ["ACT"],
+    liaisonDenominatorCodes: ["REV"],
+    liaisonFactor: 100,
+    displayFormat: "percent",
+  },
+  {
+    label: "Stocks en % des revenus",
+    defineMapping: true,
+    liaisonMode: "quotient",
+    liaisonNumeratorCodes: ["ACT"],
+    liaisonDenominatorCodes: ["REV"],
+    liaisonFactor: 100,
+    displayFormat: "percent",
+  },
+  {
+    label: "Créditeurs en % des revenus",
+    defineMapping: true,
+    liaisonMode: "quotient",
+    liaisonNumeratorCodes: ["PCT"],
+    liaisonDenominatorCodes: ["REV"],
+    liaisonFactor: 100,
+    displayFormat: "percent",
+  },
+  {
+    label: "Créditeurs en % des dépenses",
+    defineMapping: true,
+    liaisonMode: "quotient",
+    liaisonNumeratorCodes: ["PCT"],
+    liaisonDenominatorCodes: ["REV"],
+    liaisonFactor: 100,
+    displayFormat: "percent",
+  },
+]
+
 describe("buildWorkingCapitalDiagnosticResult", () => {
   it("builds FDR and cycle metrics from WC structure", () => {
     const result = buildWorkingCapitalDiagnosticResult({
@@ -159,27 +202,65 @@ describe("buildWorkingCapitalDiagnosticResult", () => {
   })
 })
 
-describe("buildWorkingCapitalDiagnosticNarrative", () => {
-  it("returns lecture du fonds de roulement title", () => {
+describe("buildWorkingCapitalDiagnosticResult with long structure labels", () => {
+  const longLabelStructure = structure.map((row) => ({
+    ...row,
+    label:
+      row.label === "DSO"
+        ? "DSO — Délai de recouvrement clients"
+        : row.label === "DIO"
+          ? "DIO — Rotation des stocks"
+          : row.label === "DPO"
+            ? "DPO — Délai de paiement fournisseurs"
+            : row.label === "CCC"
+              ? "CCC — Cycle de conversion de trésorerie"
+              : row.label,
+  }))
+
+  it("resolves DSO/DIO/DPO/CCC when labels include descriptive suffixes", () => {
     const result = buildWorkingCapitalDiagnosticResult({
       bsRows,
       bsPeriods: periods,
       isRows,
       isPeriods: periods,
-      structure,
+      structure: longLabelStructure.map((row) =>
+        row.label === "CCC — Cycle de conversion de trésorerie"
+          ? { ...row, liaisonMode: "na" }
+          : row,
+      ),
       view: "years",
       refMonth: 12,
       refYear: 2025,
     })
-    const narrative = buildWorkingCapitalDiagnosticNarrative(result!, "years")
-    expect(narrative?.title).toBe("Lecture du fonds de roulement")
-    expect(narrative?.paragraphs.some((p) => p.heading === "Fonds de roulement")).toBe(true)
+
+    expect(result?.points[0]?.dso).toBeGreaterThan(0)
+    expect(result?.points[0]?.dio).toBeGreaterThan(0)
+    expect(result?.points[0]?.dpo).toBeGreaterThan(0)
+    expect(Math.abs(result?.points[0]?.ccc ?? 0)).toBeGreaterThan(0)
   })
 })
 
-describe("buildWorkingCapitalDiagnosticBreakdownTables", () => {
-  it("builds indicator tables keyed by metric heading", () => {
-    const result = buildWorkingCapitalDiagnosticResult({
+describe("buildWorkingCapitalCompositionResult", () => {
+  it("builds composition ratios from structure", () => {
+    const result = buildWorkingCapitalCompositionResult({
+      bsRows,
+      bsPeriods: periods,
+      isRows,
+      isPeriods: periods,
+      structure: compositionStructure,
+      view: "years",
+      refMonth: 12,
+      refYear: 2025,
+    })
+
+    expect(result?.configuredMetrics).toContain("arRevPct")
+    expect(result?.points[0]?.arRevPct).toBeGreaterThan(0)
+  })
+})
+
+describe("buildWorkingCapitalDiagnosticNarrative", () => {
+  it("returns evolution-focused lecture for FDR, cycle metrics and revenue share ratios", () => {
+    const fdrResult = buildWorkingCapitalDiagnosticResult({
       bsRows,
       bsPeriods: periods,
       isRows,
@@ -189,18 +270,122 @@ describe("buildWorkingCapitalDiagnosticBreakdownTables", () => {
       refMonth: 12,
       refYear: 2025,
     })
+    const compositionResult = buildWorkingCapitalCompositionResult({
+      bsRows,
+      bsPeriods: periods,
+      isRows,
+      isPeriods: periods,
+      structure: compositionStructure,
+      view: "years",
+      refMonth: 12,
+      refYear: 2025,
+    })
+    const narrative = buildWorkingCapitalDiagnosticNarrative({
+      fdrResult: fdrResult!,
+      compositionResult,
+      view: "years",
+      bsRows,
+      isRows,
+      bsPeriods: periods,
+      isPeriods: periods,
+      structure: compositionStructure,
+      refMonth: 12,
+      refYear: 2025,
+    })
+    expect(narrative?.title).toBe("Lecture du fonds de roulement")
+    expect(narrative?.subtitle).toContain("cinq exercices")
+    expect(narrative?.paragraphs.some((p) => p.heading === "FDR / Revenus")).toBe(true)
+    expect(narrative?.paragraphs.some((p) => p.heading === "Délai de collection des clients")).toBe(
+      true,
+    )
+    expect(narrative?.paragraphs.some((p) => p.heading === "Structure en % des revenus")).toBe(true)
+    expect(narrative?.paragraphs.some((p) => p.heading === "Comptes clients en % des revenus")).toBe(
+      true,
+    )
+    expect(narrative?.paragraphs.every((p) => p.section === "working-capital")).toBe(true)
+    expect(narrative?.paragraphs.some((p) => p.statsLine?.includes("Moyenne"))).toBe(true)
+  })
+})
+
+describe("buildWorkingCapitalCompositionBreakdownTables", () => {
+  it("builds evolution tables keyed by composition metric heading", () => {
+    const compositionResult = buildWorkingCapitalCompositionResult({
+      bsRows,
+      bsPeriods: periods,
+      isRows,
+      isPeriods: periods,
+      structure: compositionStructure,
+      view: "years",
+      refMonth: 12,
+      refYear: 2025,
+    })
+    const tables = buildWorkingCapitalCompositionBreakdownTables({
+      result: compositionResult!,
+      bsRows,
+      isRows,
+      bsPeriods: periods,
+      isPeriods: periods,
+      structure: compositionStructure,
+      view: "years",
+      refMonth: 12,
+      refYear: 2025,
+    })
+    expect(tables?.has("Comptes clients en % des revenus")).toBe(true)
+    expect(
+      tables?.get("Comptes clients en % des revenus")?.metrics[0]?.detailRows?.length,
+    ).toBeGreaterThan(0)
+  })
+
+  it("masque les opérandes entièrement à zéro dans le détail", () => {
+    const structureWithZeroOperand = [
+      {
+        label: "FDR",
+        defineMapping: true,
+        liaisonMode: "sum",
+        liaisonSumCodes: ["ACT", "ALT"],
+        displayFormat: "currency",
+      },
+      ...structure.slice(1),
+    ]
+    const bsWithAlt: SeriesRow[] = [
+      ...bsRows,
+      {
+        id: "ALT",
+        linkCode: "ALT",
+        label: "Actif long terme",
+        amounts: { "2024-12": 0, "2025-12": 0 },
+        isBold: false,
+        isSection: true,
+        isResult: false,
+        detailRows: [],
+      },
+    ]
+    const diagnosticResult = buildWorkingCapitalDiagnosticResult({
+      bsRows: bsWithAlt,
+      bsPeriods: periods,
+      isRows,
+      isPeriods: periods,
+      structure: structureWithZeroOperand,
+      view: "years",
+      refMonth: 12,
+      refYear: 2025,
+    })
+    expect(diagnosticResult).not.toBeNull()
+
     const tables = buildWorkingCapitalDiagnosticBreakdownTables({
-      result: result!,
-      bsRows,
+      result: diagnosticResult!,
+      bsRows: bsWithAlt,
       isRows,
       bsPeriods: periods,
       isPeriods: periods,
-      structure,
+      structure: structureWithZeroOperand,
       view: "years",
       refMonth: 12,
       refYear: 2025,
     })
-    expect(tables?.has("Fonds de roulement")).toBe(true)
-    expect(tables?.get("Fonds de roulement")?.metrics[0]?.detailRows?.length).toBeGreaterThan(0)
+    const fdrTable = tables?.get(metricHeading("fdr"))
+    const operandIds = fdrTable?.metrics[0]?.detailRows?.map((row) => row.id) ?? []
+    expect(operandIds).toContain("fdr-ACT")
+    expect(operandIds).not.toContain("fdr-ALT")
   })
 })

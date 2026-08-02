@@ -10,6 +10,7 @@ import { useCompanyDiagnostic } from "@/hooks/use-company-diagnostic"
 import { DiagnosticSkeleton } from "@/components/diagnostic/diagnostic-skeleton"
 import { buildSignals } from "@/lib/diagnostic-derive"
 import { DiagnosticHero } from "@/components/diagnostic/v2/diagnostic-hero"
+import { DiagnosticReportViewButton } from "@/components/diagnostic/v2/diagnostic-report-pdf-export"
 import { DiagnosticKpiStrip } from "@/components/diagnostic/v2/diagnostic-kpi-strip"
 import {
   DiagnosticNavRail,
@@ -133,7 +134,17 @@ export function DiagnosticReportPage({
 
         {data && !loading && !error && (
           <div className="relative">
-            <DiagnosticHero diagnostic={data} />
+            <DiagnosticHero
+              diagnostic={data}
+              leadingAction={
+                <DiagnosticReportViewButton
+                  diagnosticId={diagnosticId}
+                  companyId={companyId}
+                  referenceYear={data.reference_period.calendar_year}
+                  referenceMonth={data.reference_period.calendar_month}
+                />
+              }
+            />
 
             <DiagnosticKpiStrip diagnostic={data} onDrillDown={setDrillDown} />
 

@@ -4,6 +4,34 @@ import { slugifyRevenueSourceId } from "@/lib/revenue-contributive-margin-table"
 const DATA_EPSILON = 1e-6
 const MONTHLY_EVOLUTION_COUNT = 12
 
+export const CONTRIBUTIVE_MARGIN_AMOUNT_EPSILON = DATA_EPSILON
+
+export function contributiveMarginRowHasVisibleAmounts(
+  values: (number | null)[],
+  windowSize?: number,
+): boolean {
+  const slice = windowSize != null ? values.slice(0, windowSize) : values
+  return slice.some((value) => value !== null && Math.abs(value) > DATA_EPSILON)
+}
+
+export function filterZeroContributiveMarginDetailRows(
+  rows: ContributiveMarginEvolutionDetailRow[],
+  windowSize?: number,
+): ContributiveMarginEvolutionDetailRow[] {
+  return rows
+    .map((row) => {
+      const detailRows = filterZeroContributiveMarginDetailRows(row.detailRows ?? [], windowSize)
+      if (!contributiveMarginRowHasVisibleAmounts(row.values, windowSize) && !detailRows.length) {
+        return null
+      }
+      return {
+        ...row,
+        detailRows: detailRows.length ? detailRows : undefined,
+      }
+    })
+    .filter((row): row is ContributiveMarginEvolutionDetailRow => row !== null)
+}
+
 export type ContributiveMarginEvolutionDetailRow = {
   id: string
   label: string

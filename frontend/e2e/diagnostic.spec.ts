@@ -9,6 +9,7 @@ const DIAGNOSTIC_PAGE_URL = `/modules/diagnostic/${DIAGNOSTIC_ID}?companyId=${CO
 const DIAGNOSTIC_PORTAL_URL = `/modules/diagnostic?companyId=${COMPANY_ID}`
 
 async function setupAuthAndCommonMocks(page: Page) {
+  const context = page.context()
   // Injecter le cookie de session + jetons avant tout script de page.
   await page.addInitScript(
     ({ key, record }) => {
@@ -38,7 +39,7 @@ async function setupAuthAndCommonMocks(page: Page) {
     },
   ])
 
-  await page.route("**/api/auth/me", (route) =>
+  await context.route("**/api/auth/me", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -56,7 +57,7 @@ async function setupAuthAndCommonMocks(page: Page) {
       }),
     }),
   )
-  await page.route("**/api/organizations", (route) =>
+  await context.route("**/api/organizations", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -65,7 +66,7 @@ async function setupAuthAndCommonMocks(page: Page) {
       ]),
     }),
   )
-  await page.route("**/api/companies", (route) =>
+  await context.route("**/api/companies", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -85,7 +86,7 @@ async function setupAuthAndCommonMocks(page: Page) {
     }),
   )
 
-  await page.route(`**/api/companies/${COMPANY_ID}/statement-chart-configs*`, (route) => {
+  await context.route(`**/api/companies/${COMPANY_ID}/statement-chart-configs*`, (route) => {
     if (route.request().method() === "GET") {
       const url = new URL(route.request().url())
       const statementType = url.searchParams.get("statement_type") ?? "income-statement"
@@ -393,7 +394,7 @@ async function setupAuthAndCommonMocks(page: Page) {
     return route.continue()
   })
 
-  await page.route(
+  await context.route(
     `**/api/companies/${COMPANY_ID}/financial-statements/income-statement/series*`,
     (route) =>
       route.fulfill({
@@ -577,7 +578,7 @@ function buildDiagnosticPayload(overrides: Record<string, unknown> = {}) {
 }
 
 async function mockDiagnostic(page: Page, payload: unknown, status = 200) {
-  await page.route(`**/api/companies/${COMPANY_ID}/diagnostic**`, (route) =>
+  await page.context().route(`**/api/companies/${COMPANY_ID}/diagnostic**`, (route) =>
     route.fulfill({
       status,
       contentType: "application/json",
@@ -605,6 +606,7 @@ test.describe("Page Diagnostic", () => {
   })
 
   test("rend le héros, les KPI et toutes les sections", async ({ page }) => {
+    test.setTimeout(90_000)
     await setupAuthAndCommonMocks(page)
     await mockDiagnostic(page, buildDiagnosticPayload())
 
@@ -622,6 +624,37 @@ test.describe("Page Diagnostic", () => {
     // Sommaire exécutif affiché par défaut.
     await expect(page.getByTestId("diagnostic-executive-summary")).toBeVisible()
     await expect(page.getByRole("heading", { name: "Sommaire exécutif" })).toBeVisible()
+    await expect(page.getByTestId("diagnostic-view-report")).toBeVisible()
+    await expect(page.getByTestId("diagnostic-view-report")).toHaveText(/Visualiser le Rapport/)
+
+    const [reportPage] = await Promise.all([
+      page.context().waitForEvent("page"),
+      page.getByTestId("diagnostic-view-report").click(),
+    ])
+    await expect(reportPage).toHaveURL(
+      new RegExp(
+        `/modules/diagnostic/report\\?.*diagnosticId=${DIAGNOSTIC_ID}.*companyId=${COMPANY_ID}`,
+      ),
+    )
+    await reportPage.waitForLoadState("domcontentloaded")
+    await expect(reportPage.getByTestId("diagnostic-report-print-toolbar")).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(reportPage.getByText(/Mode.*Éditoire/)).not.toBeVisible()
+    await expect(reportPage.getByTestId("diagnostic-report-print-button")).toHaveText(
+      /Imprimer en PDF/,
+    )
+    await expect(reportPage.getByTestId("diagnostic-report-print")).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(reportPage.getByTestId("diagnostic-report-cover")).toBeVisible()
+    await expect(reportPage.getByTestId("diagnostic-report-toc")).toBeVisible()
+    await expect(
+      reportPage.getByTestId("diagnostic-report-toc-link-executive-summary"),
+    ).toBeVisible()
+    await reportPage.getByTestId("diagnostic-report-toc-link-executive-summary").click()
+    await expect(reportPage.locator("#report-chapter-executive-global")).toBeVisible()
+    await reportPage.close()
 
     await page.getByRole("button", { name: "Performance financière", exact: true }).click()
 
@@ -1393,6 +1426,42 @@ test.describe("Page Diagnostic", () => {
               liaisonMode: "na",
               displayFormat: "days",
             },
+            {
+              label: "Comptes clients en % des revenus",
+              defineMapping: true,
+              liaisonMode: "quotient",
+              liaisonNumeratorCodes: ["ACT"],
+              liaisonDenominatorCodes: ["REV"],
+              liaisonFactor: 100,
+              displayFormat: "percent",
+            },
+            {
+              label: "Stocks en % des revenus",
+              defineMapping: true,
+              liaisonMode: "quotient",
+              liaisonNumeratorCodes: ["ACT"],
+              liaisonDenominatorCodes: ["REV"],
+              liaisonFactor: 100,
+              displayFormat: "percent",
+            },
+            {
+              label: "Créditeurs en % des revenus",
+              defineMapping: true,
+              liaisonMode: "quotient",
+              liaisonNumeratorCodes: ["PCT"],
+              liaisonDenominatorCodes: ["REV"],
+              liaisonFactor: 100,
+              displayFormat: "percent",
+            },
+            {
+              label: "Créditeurs en % des dépenses",
+              defineMapping: true,
+              liaisonMode: "quotient",
+              liaisonNumeratorCodes: ["PCT"],
+              liaisonDenominatorCodes: ["REV"],
+              liaisonFactor: 100,
+              displayFormat: "percent",
+            },
           ],
         }),
       }),
@@ -1475,13 +1544,21 @@ test.describe("Page Diagnostic", () => {
     await expect(wcNav).toHaveAttribute("aria-current", "true")
 
     await expect(page.getByTestId("working-capital-report")).toBeVisible({ timeout: 15000 })
-    await expect(page.getByRole("heading", { name: "Fonds de roulement" })).toBeVisible()
+    await expect(page.getByTestId("working-capital-report").locator("h2")).toHaveText("Fonds de roulement")
+    await expect(page.getByText("Structure fonds de roulement (bilan + TTM résultat)")).toBeVisible()
     await expect(page.getByTestId("wc-summary-table-scroll")).toBeVisible()
     await expect(page.getByText("FDR", { exact: true }).first()).toBeVisible()
     await expect(page.getByText("DSO", { exact: true }).first()).toBeVisible()
     await expect(
       page.getByTestId("working-capital-report").getByRole("link", { name: /Voir l'analyse détaillée/i }),
     ).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Lecture du fonds de roulement" })).toBeVisible()
+    await expect(page.getByText("FDR / Revenus").first()).toBeVisible()
+    await expect(page.getByText("Délai de collection des clients").first()).toBeVisible()
+    await expect(page.getByText("Structure en % des revenus").first()).toBeVisible()
+    await expect(page.getByText("Comptes clients en % des revenus").first()).toBeVisible()
+    await expect(page.getByTestId("working-capital-narrative")).toBeVisible()
+    await expect(page.getByTestId("working-capital-narrative-settings")).toBeVisible()
   })
 
   test("tiroir de détail : ouverture depuis une ligne de division, fermeture par Échap", async ({

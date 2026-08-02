@@ -5,13 +5,15 @@ import {
   resolveWorkingCapitalStructureAmount,
   workingCapitalOperandDisplayLabel,
 } from "@/lib/working-capital-structure-utils"
-import {
-  isCodeMappingEnabled,
-  isStructureRowEmptyLabel,
-  isStructureRowHidden,
-} from "@/lib/income-statement-structure-utils"
 import type { ContributiveMarginEvolutionTable } from "@/lib/revenue-contributive-margin-evolution"
 import {
+  contributiveMarginRowHasVisibleAmounts,
+  filterZeroContributiveMarginDetailRows,
+} from "@/lib/revenue-contributive-margin-evolution"
+import { buildWorkingCapitalCompositionBreakdownTables } from "@/lib/working-capital-composition-breakdown"
+import type { WorkingCapitalCompositionResult } from "@/lib/working-capital-composition"
+import {
+  findStructureRowForMetric,
   metricHeading,
   parseMetricFromHeading,
   workingCapitalPeriodAnchors,
@@ -21,34 +23,6 @@ import {
 import { WORKING_CAPITAL_METRIC_KEYS } from "@/lib/working-capital-diagnostic-config"
 
 const AMOUNT_EPSILON = 1e-6
-
-function normalizeMetricLabel(label: string): string {
-  return label
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-}
-
-function findStructureRowForMetric(
-  structure: Record<string, unknown>[],
-  metric: WorkingCapitalMetricKey,
-): Record<string, unknown> | null {
-  for (const row of structure) {
-    if (isStructureRowHidden(row) || isStructureRowEmptyLabel(row)) continue
-    if (!isCodeMappingEnabled(row)) continue
-    const key = normalizeMetricLabel(String(row.label ?? ""))
-    if (metric === "fdr" && (key === "fdr" || key === "fonds de roulement")) return row
-    if (metric === "fdrhc" && (key === "fdrhc" || key === "fonds de roulement hors caisse")) return row
-    if (metric === "dso" && key === "dso") return row
-    if (metric === "dio" && (key === "dio" || key === "rotation des stocks" || key === "rotation stocks"))
-      return row
-    if (metric === "dpo" && key === "dpo") return row
-    if (metric === "ccc" && key === "ccc") return row
-  }
-  return null
-}
 
 function metricFormat(metric: WorkingCapitalMetricKey): "currency" | "days" {
   return metric === "fdr" || metric === "fdrhc" ? "currency" : "days"
@@ -108,24 +82,27 @@ function buildMetricBreakdownTable(params: {
   const anchors = workingCapitalPeriodAnchors(bsPeriods, view, refMonth, refYear)
 
   const detailRows = structureRow
-    ? collectWorkingCapitalIncludedOperands(structureRow).map((operand) => {
-        const label = workingCapitalOperandDisplayLabel(operand.code, bsRows, isRows, structure)
-        const signPrefix = operand.sign ? `${operand.sign} ` : ""
-        return {
-          id: `${metric}-${operand.code}`,
-          label: `${signPrefix}${operand.code}${label && label !== operand.code ? ` — ${label}` : ""}`,
-          values: operandTrendValues(
-            operand.code,
-            bsRows,
-            isRows,
-            bsPeriods,
-            isPeriods,
-            structure,
-            anchors,
-          ),
-          displayKind: "link-code" as const,
-        }
-      })
+    ? filterZeroContributiveMarginDetailRows(
+        collectWorkingCapitalIncludedOperands(structureRow).map((operand) => {
+          const label = workingCapitalOperandDisplayLabel(operand.code, bsRows, isRows, structure)
+          const signPrefix = operand.sign ? `${operand.sign} ` : ""
+          return {
+            id: `${metric}-${operand.code}`,
+            label: `${signPrefix}${operand.code}${label && label !== operand.code ? ` — ${label}` : ""}`,
+            values: operandTrendValues(
+              operand.code,
+              bsRows,
+              isRows,
+              bsPeriods,
+              isPeriods,
+              structure,
+              anchors,
+            ),
+            displayKind: "link-code" as const,
+          }
+        }),
+        periods.length,
+      )
     : []
 
   if (metric === "ccc" && !structureRow) {
@@ -142,7 +119,7 @@ function buildMetricBreakdownTable(params: {
   }
 
   const hasVisibleDetail = detailRows.some((row) =>
-    row.values.some((v) => v !== null && Math.abs(v) > AMOUNT_EPSILON),
+    contributiveMarginRowHasVisibleAmounts(row.values, periods.length),
   )
   if (!hasVisibleDetail && metricValues.every((v) => Math.abs(v) < AMOUNT_EPSILON)) return null
 
@@ -160,6 +137,64 @@ function buildMetricBreakdownTable(params: {
       },
     ],
   }
+}
+
+export function buildWorkingCapitalNarrativeBreakdownTables(params: {
+  diagnosticResult: WorkingCapitalDiagnosticResult
+  compositionResult: WorkingCapitalCompositionResult | null
+  bsRows: SeriesRow[]
+  isRows: SeriesRow[]
+  bsPeriods: SeriesPeriod[]
+  isPeriods: SeriesPeriod[]
+  structure: Record<string, unknown>[]
+  view: string
+  refMonth: number
+  refYear: number
+}): Map<string, ContributiveMarginEvolutionTable> | null {
+  const {
+    diagnosticResult,
+    compositionResult,
+    bsRows,
+    isRows,
+    bsPeriods,
+    isPeriods,
+    structure,
+    view,
+    refMonth,
+    refYear,
+  } = params
+
+  const merged = new Map<string, ContributiveMarginEvolutionTable>()
+
+  const diagnosticTables = buildWorkingCapitalDiagnosticBreakdownTables({
+    result: diagnosticResult,
+    bsRows,
+    isRows,
+    bsPeriods,
+    isPeriods,
+    structure,
+    view,
+    refMonth,
+    refYear,
+  })
+  diagnosticTables?.forEach((table, heading) => merged.set(heading, table))
+
+  if (compositionResult?.points.length) {
+    const compositionTables = buildWorkingCapitalCompositionBreakdownTables({
+      result: compositionResult,
+      bsRows,
+      isRows,
+      bsPeriods,
+      isPeriods,
+      structure,
+      view,
+      refMonth,
+      refYear,
+    })
+    compositionTables?.forEach((table, heading) => merged.set(heading, table))
+  }
+
+  return merged.size ? merged : null
 }
 
 export function buildWorkingCapitalDiagnosticBreakdownTables(params: {

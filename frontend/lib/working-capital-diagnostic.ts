@@ -64,28 +64,56 @@ function normalizeMetricLabel(label: string): string {
     .trim()
 }
 
+const METRIC_LABEL_ALIASES: Record<WorkingCapitalMetricKey, string[]> = {
+  fdr: ["fdr", "fonds de roulement"],
+  fdrhc: ["fdrhc", "fonds de roulement hors caisse"],
+  dso: ["dso"],
+  dio: ["dio", "rotation des stocks", "rotation stocks"],
+  dpo: ["dpo"],
+  ccc: ["ccc", "cycle de conversion de tresorerie"],
+}
+
+/** Libellés courts (DSO, DPO, …) souvent suivis d’un tiret dans la structure WC. */
+const METRIC_PREFIX_MATCH: ReadonlySet<WorkingCapitalMetricKey> = new Set(["dso", "dio", "dpo", "ccc"])
+
+function matchesMetricLabel(key: string, metric: WorkingCapitalMetricKey): boolean {
+  const normalizedFull = normalizeMetricLabel(WORKING_CAPITAL_METRIC_LABELS[metric])
+  if (key === normalizedFull) return true
+
+  for (const alias of METRIC_LABEL_ALIASES[metric]) {
+    if (key === alias) return true
+    if (!METRIC_PREFIX_MATCH.has(metric)) continue
+    if (
+      key.startsWith(`${alias} —`) ||
+      key.startsWith(`${alias} -`) ||
+      key.startsWith(`${alias} `)
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
 function metricKeyFromLabel(label: string): WorkingCapitalMetricKey | null {
   const key = normalizeMetricLabel(label)
-  if (key === "fdr" || key === "fonds de roulement") return "fdr"
-  if (key === "fdrhc" || key === "fonds de roulement hors caisse") return "fdrhc"
-  if (key === "dso") return "dso"
-  if (key === "dio" || key === "rotation des stocks" || key === "rotation stocks") return "dio"
-  if (key === "dpo") return "dpo"
-  if (key === "ccc" || key === "cycle de conversion de tresorerie") return "ccc"
+  if (!key) return null
+  for (const metric of WORKING_CAPITAL_METRIC_KEYS) {
+    if (matchesMetricLabel(key, metric)) return metric
+  }
   return null
 }
 
-function findStructureRowForMetric(
+export function findStructureRowForMetric(
   structure: Record<string, unknown>[],
   metric: WorkingCapitalMetricKey,
 ): Record<string, unknown> | null {
   for (const row of structure) {
     if (isStructureRowHidden(row) || isStructureRowEmptyLabel(row)) continue
     if (!isCodeMappingEnabled(row)) continue
-    const fromLabel = metricKeyFromLabel(String(row.label ?? ""))
-    if (fromLabel === metric) return row
+    const labelKey = normalizeMetricLabel(String(row.label ?? ""))
+    if (matchesMetricLabel(labelKey, metric)) return row
     const ref = workingCapitalRowRefCode(row)
-    if (ref && metricKeyFromLabel(ref) === metric) return row
+    if (ref && matchesMetricLabel(normalizeMetricLabel(ref), metric)) return row
   }
   return null
 }
@@ -121,7 +149,12 @@ function periodAnchorsForView(
   refYear: number,
 ): { label: string; periodIndex: number }[] {
   if (!periods.length) return []
-  const count = view === "years" ? PERFORMANCE_CHART_YEAR_COUNT : PERFORMANCE_CHART_MONTH_COUNT_24
+  const count =
+    view === "years"
+      ? PERFORMANCE_CHART_YEAR_COUNT
+      : view === "12months"
+        ? 12
+        : PERFORMANCE_CHART_MONTH_COUNT_24
   if (view === "years") {
     const years = calendarYearSequenceFromReference(refYear, count)
     const labels = yearLabelsFromReference(refYear, count)

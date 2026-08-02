@@ -8,6 +8,7 @@ import type {
   ContributiveMarginEvolutionMetric,
   ContributiveMarginEvolutionTable,
 } from "@/lib/revenue-contributive-margin-evolution"
+import { filterZeroContributiveMarginDetailRows } from "@/lib/revenue-contributive-margin-evolution"
 import { formatGlAccountDisplayLabel } from "@/lib/gl-account-display-label"
 import { cn } from "@/lib/utils"
 
@@ -78,10 +79,15 @@ function DetailRows({
   expandedRows: Record<string, boolean>
   onToggle: (key: string) => void
 }): ReactNode {
-  return details.map((detail) => {
+  const visibleDetails = filterZeroContributiveMarginDetailRows(details, table.periods.length)
+
+  return visibleDetails.map((detail) => {
     const rowPath = [...path, detail.id]
     const key = detailRowKey(metricId, rowPath)
-    const canExpand = (detail.detailRows?.length ?? 0) > 0
+    const visibleChildRows = detail.detailRows
+      ? filterZeroContributiveMarginDetailRows(detail.detailRows, table.periods.length)
+      : undefined
+    const canExpand = (visibleChildRows?.length ?? 0) > 0
     const expanded = expandedRows[key] === true
 
     return (
@@ -99,6 +105,7 @@ function DetailRows({
         onToggle={() => onToggle(key)}
         expandedRows={expandedRows}
         onToggleRow={onToggle}
+        childDetails={visibleChildRows}
       />
     )
   })
@@ -117,6 +124,7 @@ function DetailRowBranch({
   onToggle,
   expandedRows,
   onToggleRow,
+  childDetails,
 }: {
   detail: ContributiveMarginEvolutionDetailRow
   metric: ContributiveMarginEvolutionMetric
@@ -130,6 +138,7 @@ function DetailRowBranch({
   onToggle: () => void
   expandedRows: Record<string, boolean>
   onToggleRow: (key: string) => void
+  childDetails?: ContributiveMarginEvolutionDetailRow[]
 }): ReactNode {
   const key = detailRowKey(metricId, rowPath)
   const testIdSuffix = rowPath.join("-")
@@ -165,9 +174,9 @@ function DetailRowBranch({
           </td>
         ))}
       </tr>
-      {canExpand && expanded ? (
+      {canExpand && expanded && childDetails ? (
         <DetailRows
-          details={detail.detailRows!}
+          details={childDetails}
           metric={metric}
           table={table}
           currency={currency}
@@ -199,7 +208,10 @@ function MetricRows({
   expandedRows: Record<string, boolean>
   onToggleDetailRow: (key: string) => void
 }) {
-  const canExpand = (metric.detailRows?.length ?? 0) > 0
+  const visibleDetailRows = metric.detailRows
+    ? filterZeroContributiveMarginDetailRows(metric.detailRows, table.periods.length)
+    : undefined
+  const canExpand = (visibleDetailRows?.length ?? 0) > 0
 
   return (
     <>
@@ -234,7 +246,7 @@ function MetricRows({
       </tr>
       {canExpand && expanded ? (
         <DetailRows
-          details={metric.detailRows!}
+          details={visibleDetailRows!}
           metric={metric}
           table={table}
           currency={currency}
@@ -292,7 +304,9 @@ export function RevenueContributiveMarginEvolutionTable({
               currency={currency}
               expanded={expandedMetrics[metric.id] === true}
               onToggleExpand={
-                metric.detailRows?.length ? () => toggleMetric(metric.id) : undefined
+                metric.detailRows?.length
+                  ? () => toggleMetric(metric.id)
+                  : undefined
               }
               expandedRows={expandedDetailRows}
               onToggleDetailRow={toggleDetailRow}

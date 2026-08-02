@@ -1,10 +1,13 @@
 "use client"
 
+import type { ReactNode } from "react"
 import type { CompanyDiagnostic } from "@/lib/api"
 import { formatDateFr, lifecycleLabel, formatReferencePeriod } from "@/components/diagnostic/diagnostic-format"
 
 interface DiagnosticHeroProps {
   diagnostic: CompanyDiagnostic
+  /** Bouton ou action affiché à gauche du nom de la société (ex. export PDF). */
+  leadingAction?: ReactNode
 }
 
 function lifecycleChipClass(stage: string): string {
@@ -15,7 +18,7 @@ function lifecycleChipClass(stage: string): string {
   return "border border-slate-200 bg-slate-100 text-slate-600"
 }
 
-export function DiagnosticHero({ diagnostic }: DiagnosticHeroProps) {
+export function DiagnosticHero({ diagnostic, leadingAction }: DiagnosticHeroProps) {
   return (
     <div className="relative overflow-hidden border-b border-slate-200 bg-gradient-to-b from-white to-slate-50">
       <div
@@ -41,6 +44,7 @@ export function DiagnosticHero({ diagnostic }: DiagnosticHeroProps) {
           </div>
 
           <div className="flex flex-wrap items-end gap-3.5">
+            {leadingAction}
             <h1 className="m-0 text-[34px] font-semibold leading-none tracking-[-.02em] text-[#2A2F3A]">
               {diagnostic.company_name}
             </h1>
