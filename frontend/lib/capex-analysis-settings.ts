@@ -32,23 +32,34 @@ export function readCapexCostDisplayMode(
   return raw === "variation" ? "variation" : "actual"
 }
 
-function collectStructureRowConfiguredCodes(row: Record<string, unknown>): string[] {
-  const codes: string[] = []
-  const linkCode = String(row.linkCode ?? "").trim()
-  if (linkCode) codes.push(linkCode)
-  for (const key of ["liaisonSumCodes", "liaisonNumeratorCodes", "liaisonDenominatorCodes"] as const) {
-    const raw = row[key]
-    if (!Array.isArray(raw)) continue
-    for (const code of raw) {
-      const trimmed = String(code ?? "").trim()
-      if (trimmed) codes.push(trimmed)
-    }
+/** Codes de liaison où le mode Réel / Variation s'applique (numérateur, pas le dénominateur). */
+export function collectCapexCostApplicableCodes(row: Record<string, unknown>): string[] {
+  const liaisonMode = normalizeLiaisonMode(row)
+  if (liaisonMode === "na") return []
+
+  if (liaisonMode === "single") {
+    const code = String(row.linkCode ?? "").trim()
+    return code ? [code] : []
   }
-  return codes
+  if (liaisonMode === "sum" || liaisonMode === "product") {
+    return normalizeCodeList(row.liaisonSumCodes)
+  }
+  if (liaisonMode === "difference" || liaisonMode === "quotient") {
+    return normalizeCodeList(row.liaisonNumeratorCodes)
+  }
+  return []
+}
+
+/** Affiche le sélecteur Coût ALT (Paramètres) : case Code cochée et codes ALT pertinents ou liaison à configurer. */
+export function structureRowShowsCapexCostDisplaySelector(row: Record<string, unknown>): boolean {
+  if (row.defineMapping !== true) return false
+  const applicable = collectCapexCostApplicableCodes(row)
+  if (applicable.length === 0) return true
+  return applicable.some(isCapexProjectionLinkCode)
 }
 
 export function structureRowConfigUsesCapexCostCodes(row: Record<string, unknown>): boolean {
-  return collectStructureRowConfiguredCodes(row).some(isCapexProjectionLinkCode)
+  return collectCapexCostApplicableCodes(row).some(isCapexProjectionLinkCode)
 }
 
 export function readRowCapexCostDisplayMode(
@@ -181,12 +192,17 @@ export function buildCapexRowDisplayValues(
   trendCount: number,
   periodCount: number,
   resolveOperandActual: ResolveCapexOperandAmount,
-  resolveStructureAtPeriod: (row: Record<string, unknown>, periodIndex: number) => number,
+  resolveCapexStructureAtPeriod: (
+    row: Record<string, unknown>,
+    periodIndex: number,
+    priorPeriodIndex?: number,
+  ) => number,
   periods: SeriesPeriod[],
   refMonth: number,
   refYear: number,
 ): number[] {
-  const effectiveMode = structureRowConfigUsesCapexCostCodes(row) ? mode : "actual"
+  const usesCapexCost = structureRowConfigUsesCapexCostCodes(row)
+  const effectiveMode = usesCapexCost ? mode : "actual"
   const indices = pickCapexDisplayIndices(
     periodCount,
     view,
@@ -198,11 +214,10 @@ export function buildCapexRowDisplayValues(
   return indices.map((periodIndex, displayIdx) => {
     if (periodIndex < 0) return 0
     if (effectiveMode === "actual") {
-      return resolveStructureAtPeriod(row, periodIndex)
+      return resolveCapexStructureAtPeriod(row, periodIndex)
     }
     const priorIndex = priorPeriodIndexForCapexVariation(indices, displayIdx, periodIndex, view)
-    if (priorIndex < 0) return 0
-    return resolveStructureAtPeriod(row, periodIndex) - resolveStructureAtPeriod(row, priorIndex)
+    return resolveCapexStructureAtPeriod(row, periodIndex, priorIndex)
   })
 }
 
@@ -232,6 +247,7 @@ export function structureRowUsesCapexCostCodes(
 }
 
 export function operandUsesCapexCostDisplay(operand: WorkingCapitalIncludedOperand): boolean {
+  if (operand.role === "denominator") return false
   return isCapexProjectionLinkCode(operand.code)
 }
 

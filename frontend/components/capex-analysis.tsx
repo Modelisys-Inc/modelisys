@@ -34,6 +34,8 @@ import {
   buildCapexOperandDisplayValues,
   buildCapexRowDisplayValues,
   readRowCapexCostDisplayMode,
+  resolveCapexStructureAmountAtPeriod,
+  structureRowConfigUsesCapexCostCodes,
   structureRowUsesCapexCostCodes,
   operandUsesCapexCostDisplay,
   type CapexCostDisplayMode,
@@ -424,6 +426,15 @@ export function CapexAnalysis({
     [bsRows, isRows, bsPeriods, isPeriods, structure],
   )
 
+  const applyRowDisplayFormat = useCallback(
+    (row: Record<string, unknown>, raw: number): number => {
+      const explicitFormat = normalizeWorkingCapitalDisplayFormat(row.displayFormat)
+      const displayFormat = explicitFormat ?? resolveWorkingCapitalDisplayFormat(row)
+      return displayFormat === "percent" ? raw * 100 : raw
+    },
+    [],
+  )
+
   const resolveOperandAmountAtPeriod = useCallback(
     (code: string, periodIndex: number): number =>
       resolveWorkingCapitalOperandAmount(
@@ -438,6 +449,34 @@ export function CapexAnalysis({
     [bsRows, isRows, bsPeriods, isPeriods, structure],
   )
 
+  const resolveCapexStructureAmountForDisplay = useCallback(
+    (
+      row: Record<string, unknown>,
+      periodIndex: number,
+      priorPeriodIndex?: number,
+    ): number => {
+      if (!structureRowConfigUsesCapexCostCodes(row)) {
+        return resolveStructureAmountAtPeriod(row, periodIndex)
+      }
+      const rowMode = readRowCapexCostDisplayMode(row, structure)
+      const raw =
+        resolveCapexStructureAmountAtPeriod(
+          row,
+          periodIndex,
+          rowMode,
+          resolveOperandAmountAtPeriod,
+          priorPeriodIndex,
+        ) ?? 0
+      return applyRowDisplayFormat(row, raw)
+    },
+    [
+      applyRowDisplayFormat,
+      resolveOperandAmountAtPeriod,
+      resolveStructureAmountAtPeriod,
+      structure,
+    ],
+  )
+
   const buildRowDisplaySeries = useCallback(
     (row: Record<string, unknown>, mode: CapexCostDisplayMode): number[] =>
       buildCapexRowDisplayValues(
@@ -447,7 +486,7 @@ export function CapexAnalysis({
         trendCount,
         bsPeriods.length,
         resolveOperandAmountAtPeriod,
-        (structureRow, periodIndex) => resolveStructureAmountAtPeriod(structureRow, periodIndex),
+        resolveCapexStructureAmountForDisplay,
         bsPeriods,
         resolvedMonth,
         resolvedYear,
@@ -456,8 +495,8 @@ export function CapexAnalysis({
       bsPeriods,
       resolvedMonth,
       resolvedYear,
+      resolveCapexStructureAmountForDisplay,
       resolveOperandAmountAtPeriod,
-      resolveStructureAmountAtPeriod,
       trendCount,
       view,
     ],
@@ -757,11 +796,9 @@ export function CapexAnalysis({
           CONTRIBUTIVE_MARGIN_AMOUNT_EPSILON,
       )
 
-    const operandChronologicalValues = (code: string): number[] => {
-      const mode = operandUsesCapexCostDisplay({ code, role: "term", sign: "" })
-        ? rowCostMode
-        : "actual"
-      return buildOperandDisplaySeries(code, mode)
+    const operandChronologicalValues = (op: WorkingCapitalIncludedOperand): number[] => {
+      const mode = operandUsesCapexCostDisplay(op) ? rowCostMode : "actual"
+      return buildOperandDisplaySeries(op.code, mode)
     }
 
     const visibleOperands = operands.filter((op) => operandHasReelBalance(op.code))
@@ -821,7 +858,7 @@ export function CapexAnalysis({
         </tr>
         {isExpanded &&
           visibleOperands.map((op) => {
-            const chronological = operandChronologicalValues(op.code)
+            const chronological = operandChronologicalValues(op)
             const displayValues =
               view === "current"
                 ? chronological

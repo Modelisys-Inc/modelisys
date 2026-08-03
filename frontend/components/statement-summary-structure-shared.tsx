@@ -22,7 +22,7 @@ import {
 import { cn } from "@/lib/utils"
 import {
   readRowCapexCostDisplayMode,
-  structureRowConfigUsesCapexCostCodes,
+  structureRowShowsCapexCostDisplaySelector,
   type CapexCostDisplayMode,
 } from "@/lib/capex-analysis-settings"
 import {
@@ -460,7 +460,7 @@ export function StatementSummaryStructureRowCells({
         <td className="box-border w-[9rem] px-2 py-2.5 align-middle">
           {isStructureRowEmptyLabel(structRow) ||
           isStructureRowHidden(structRow) ||
-          !structureRowConfigUsesCapexCostCodes(structRow) ? (
+          !structureRowShowsCapexCostDisplaySelector(structRow) ? (
             <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
               —
             </span>

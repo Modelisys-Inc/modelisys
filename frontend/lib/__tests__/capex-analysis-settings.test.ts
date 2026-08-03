@@ -2,12 +2,14 @@ import { describe, it, expect } from "vitest"
 import {
   applyCapexCostDisplayMode,
   buildCapexOperandDisplayValues,
+  buildCapexRowDisplayValues,
   capexOperandAmountAtPeriod,
   pickCapexDisplayValues,
   readCapexCostDisplayMode,
   readRowCapexCostDisplayMode,
   resolveCapexStructureAmountAtPeriod,
   structureRowConfigUsesCapexCostCodes,
+  structureRowShowsCapexCostDisplaySelector,
   priorPeriodIndexForCapexVariation,
   pickCapexDisplayIndices,
 } from "../capex-analysis-settings"
@@ -23,6 +25,48 @@ describe("capex analysis settings", () => {
     expect(readCapexCostDisplayMode(structure)).toBe("actual")
     expect(structureRowConfigUsesCapexCostCodes({ linkCode: "ALT-C" })).toBe(true)
     expect(structureRowConfigUsesCapexCostCodes({ linkCode: "REV" })).toBe(false)
+  })
+
+  it("shows Coût ALT selector when Code is enabled before liaison is configured", () => {
+    expect(
+      structureRowShowsCapexCostDisplaySelector({
+        defineMapping: true,
+        liaisonMode: "single",
+      }),
+    ).toBe(true)
+    expect(
+      structureRowShowsCapexCostDisplaySelector({
+        defineMapping: true,
+        linkCode: "REV",
+        liaisonMode: "single",
+      }),
+    ).toBe(false)
+  })
+
+  it("shows Coût ALT for quotient rows with ALT numerator and hides for REV-only rows", () => {
+    expect(
+      structureRowShowsCapexCostDisplaySelector({
+        defineMapping: true,
+        liaisonMode: "quotient",
+        liaisonNumeratorCodes: ["ALT-B", "ALT-C", "ALT-D"],
+        liaisonDenominatorCodes: ["REV"],
+      }),
+    ).toBe(true)
+    expect(
+      structureRowConfigUsesCapexCostCodes({
+        defineMapping: true,
+        liaisonMode: "quotient",
+        liaisonNumeratorCodes: ["ALT-B", "ALT-C", "ALT-D"],
+        liaisonDenominatorCodes: ["REV"],
+      }),
+    ).toBe(true)
+    expect(
+      structureRowShowsCapexCostDisplaySelector({
+        defineMapping: true,
+        liaisonMode: "single",
+        linkCode: "REV",
+      }),
+    ).toBe(false)
   })
 
   it("computes operand variation as real N minus real N-1", () => {
@@ -74,10 +118,82 @@ describe("capex analysis settings", () => {
       defineMapping: true,
       liaisonMode: "sum",
       liaisonSumCodes: ["ALT-B.1", "ALT-B.2"],
+      capexCostDisplayMode: "variation",
     }
     expect(
       resolveCapexStructureAmountAtPeriod(row, 2, "variation", actual, 1),
     ).toBe(-10)
+  })
+
+  it("computes Capex / Revenus as variation numerator over actual denominator", () => {
+    const actual = (code: string, index: number) => {
+      if (code === "ALT-B") return [1_000_000, 1_260_000][index] ?? 0
+      if (code === "REV") return 14_349_511
+      return 0
+    }
+    const row = {
+      label: "Capex / Revenus",
+      defineMapping: true,
+      liaisonMode: "quotient",
+      liaisonNumeratorCodes: ["ALT-B"],
+      liaisonDenominatorCodes: ["REV"],
+      capexCostDisplayMode: "variation",
+    }
+    const ratio = 260_000 / 14_349_511
+    expect(resolveCapexStructureAmountAtPeriod(row, 1, "variation", actual, 0)).toBeCloseTo(
+      ratio,
+      10,
+    )
+  })
+
+  it("builds row display from capex structure resolver not ratio delta", () => {
+    const actual = (code: string, index: number) => {
+      if (code === "ALT-B") return [1_000_000, 1_260_000, 1_200_000][index] ?? 0
+      if (code === "REV") return 14_349_511
+      return 0
+    }
+    const row = {
+      label: "Capex / Revenus",
+      defineMapping: true,
+      liaisonMode: "quotient",
+      liaisonNumeratorCodes: ["ALT-B"],
+      liaisonDenominatorCodes: ["REV"],
+      displayFormat: "percent",
+      capexCostDisplayMode: "variation",
+    }
+    const resolveAtPeriod = (
+      structureRow: Record<string, unknown>,
+      periodIndex: number,
+      priorPeriodIndex?: number,
+    ) => {
+      const raw =
+        resolveCapexStructureAmountAtPeriod(
+          structureRow,
+          periodIndex,
+          "variation",
+          actual,
+          priorPeriodIndex,
+        ) ?? 0
+      return raw * 100
+    }
+    const values = buildCapexRowDisplayValues(
+      row,
+      "variation",
+      "current",
+      0,
+      3,
+      actual,
+      resolveAtPeriod,
+      [
+        { fiscalYear: 2026, fiscalMonth: 6, label: "Juin" },
+        { fiscalYear: 2026, fiscalMonth: 7, label: "Juillet" },
+        { fiscalYear: 2026, fiscalMonth: 8, label: "Août" },
+      ],
+      8,
+      2026,
+    )
+    expect(values[0]).toBeCloseTo((-60_000 / 14_349_511) * 100, 2)
+    expect(values[1]).toBeCloseTo((260_000 / 14_349_511) * 100, 2)
   })
 
   it("computes variation as N minus N-1 on series", () => {
