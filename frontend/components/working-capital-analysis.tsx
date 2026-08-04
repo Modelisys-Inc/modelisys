@@ -27,6 +27,12 @@ import { CONTRIBUTIVE_MARGIN_AMOUNT_EPSILON } from "@/lib/revenue-contributive-m
 import { ChevronDown, ChevronRight, LayoutList, Settings, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { IncomePerformanceNarrativeSection } from "@/components/diagnostic/v2/income-performance-narrative-section"
+import { ReportNarrativePrint } from "@/components/diagnostic/report/report-narrative-print"
+import {
+  lecturePageCountFromPacked,
+  packNarrativeParagraphs,
+  paragraphsForPackedPage,
+} from "@/lib/report-narrative-pagination"
 import { buildWorkingCapitalDiagnosticResult } from "@/lib/working-capital-diagnostic"
 import { buildWorkingCapitalCompositionResult } from "@/lib/working-capital-composition"
 import { buildWorkingCapitalDiagnosticNarrative } from "@/lib/working-capital-diagnostic-narrative"
@@ -57,8 +63,11 @@ interface WorkingCapitalAnalysisProps {
   structureEditOpen?: boolean
   onStructureEditOpenChange?: (open: boolean) => void
   onStructureSaved?: () => void
-  /** En diagnostic : contenu seul, sans chrome « tableau de bord ». */
-  appearance?: "dashboard" | "diagnostic"
+  /** En diagnostic : contenu seul, sans chrome « tableau de bord ». En report : impression. */
+  appearance?: "dashboard" | "diagnostic" | "report"
+  printSegment?: "chart" | "narrative"
+  narrativePageIndex?: number
+  onNarrativePageCount?: (count: number) => void
 }
 
 interface AnalysisData {
@@ -124,6 +133,9 @@ export function WorkingCapitalAnalysis({
   showStructureSettings = true,
   onStructureSaved,
   appearance = "dashboard",
+  printSegment,
+  narrativePageIndex,
+  onNarrativePageCount,
   structureEditOpen,
   onStructureEditOpenChange,
 }: WorkingCapitalAnalysisProps) {
@@ -164,9 +176,10 @@ export function WorkingCapitalAnalysis({
   })
 
   const loading = bsLoading || isLoading
-  const isDiagnosticAppearance = appearance === "diagnostic"
+  const isDiagnosticAppearance = appearance === "diagnostic" || appearance === "report"
+  const isReportAppearance = appearance === "report"
   const canInlineStructureEdit = showStructureSettings && !!companyId && !isDiagnosticAppearance
-  const canNarrativeStructureEdit = isDiagnosticAppearance && !!companyId
+  const canNarrativeStructureEdit = appearance === "diagnostic" && !!companyId
   const isStructureStudio = structureEditMode && canInlineStructureEdit
 
   useEffect(() => {
@@ -743,6 +756,24 @@ export function WorkingCapitalAnalysis({
     resolvedYear,
   ])
 
+  const wcPackedPages = useMemo(
+    () => packNarrativeParagraphs(workingCapitalDiagnosticNarrative?.paragraphs),
+    [workingCapitalDiagnosticNarrative],
+  )
+
+  useEffect(() => {
+    if (printSegment !== "narrative" || !onNarrativePageCount) return
+    onNarrativePageCount(lecturePageCountFromPacked(wcPackedPages.length))
+  }, [printSegment, onNarrativePageCount, wcPackedPages.length])
+
+  const paginatedWorkingCapitalNarrative = useMemo(() => {
+    if (!workingCapitalDiagnosticNarrative) return null
+    if (narrativePageIndex === undefined) return workingCapitalDiagnosticNarrative
+    const pageParagraphs = paragraphsForPackedPage(wcPackedPages, narrativePageIndex)
+    if (!pageParagraphs.length) return null
+    return { ...workingCapitalDiagnosticNarrative, paragraphs: pageParagraphs }
+  }, [workingCapitalDiagnosticNarrative, narrativePageIndex, wcPackedPages])
+
   const renderMetricRow = (
     rowKey: string,
     metric: DisplayMetric,
@@ -950,9 +981,11 @@ export function WorkingCapitalAnalysis({
         <div
           className={cn(
             "min-w-0 bg-white",
-            isDiagnosticAppearance
-              ? "overflow-x-auto pb-2 pt-2"
-              : "max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
+            isReportAppearance && printSegment === "chart"
+              ? "report-chart-indicator-table-wrap overflow-x-auto pb-1 pt-1"
+              : isDiagnosticAppearance
+                ? "overflow-x-auto pb-2 pt-2"
+                : "max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
           )}
           data-testid="wc-summary-table-scroll"
         >
@@ -1047,8 +1080,8 @@ export function WorkingCapitalAnalysis({
 
   if (isDiagnosticAppearance) {
     const narrativeForSection =
-      workingCapitalDiagnosticNarrative ??
-      (canNarrativeStructureEdit
+      paginatedWorkingCapitalNarrative ??
+      (canNarrativeStructureEdit && !isReportAppearance && narrativePageIndex === undefined
         ? {
             title: "Lecture du fonds de roulement",
             subtitle:
@@ -1060,10 +1093,15 @@ export function WorkingCapitalAnalysis({
           }
         : null)
 
-    return (
-      <>
-        {analysisBody}
-        {narrativeForSection ? (
+    const narrativeBlock =
+      narrativeForSection != null ? (
+        isReportAppearance ? (
+          <ReportNarrativePrint
+            testId="working-capital-narrative"
+            narrative={narrativeForSection}
+            showHeader={narrativePageIndex === undefined || narrativePageIndex === 0}
+          />
+        ) : (
           <IncomePerformanceNarrativeSection
             testId="working-capital-narrative"
             narrative={narrativeForSection}
@@ -1099,7 +1137,23 @@ export function WorkingCapitalAnalysis({
               ) : null
             }
           />
-        ) : null}
+        )
+      ) : null
+
+    if (printSegment === "chart") {
+      return <div className="report-wc-chart-only">{analysisBody}</div>
+    }
+    if (printSegment === "narrative") {
+      if (!narrativeBlock && narrativePageIndex !== undefined && narrativePageIndex > 0) {
+        return null
+      }
+      return narrativeBlock
+    }
+
+    return (
+      <>
+        {analysisBody}
+        {narrativeBlock}
       </>
     )
   }

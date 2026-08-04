@@ -14,11 +14,34 @@ const MONTH_NAMES_FR = [
   "Décembre",
 ] as const
 
+/** Abrégés alignés sur les axes de graphiques (`series-reference-columns`). */
+const MONTH_ABBREVS_FR = [
+  "Jan",
+  "Fév",
+  "Mar",
+  "Avr",
+  "Mai",
+  "Jun",
+  "Jul",
+  "Aoû",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Déc",
+] as const
+
 /** Libellé « Mois année » pour la date de référence (ex. Avril 2025). */
 export function formatCalendarMonthYear(month: number, fiscalYear: number): string {
   if (!Number.isFinite(month) || month < 1 || month > 12) return "—"
   if (!Number.isFinite(fiscalYear)) return "—"
   return `${MONTH_NAMES_FR[month - 1]} ${fiscalYear}`
+}
+
+/** Libellé court « Oct 2026 » pour en-têtes de tableaux. */
+export function formatCalendarMonthYearShort(month: number, fiscalYear: number): string {
+  if (!Number.isFinite(month) || month < 1 || month > 12) return "—"
+  if (!Number.isFinite(fiscalYear)) return "—"
+  return `${MONTH_ABBREVS_FR[month - 1]} ${fiscalYear}`
 }
 
 function priorCalendarMonth(month: number, fiscalYear: number): { month: number; year: number } {

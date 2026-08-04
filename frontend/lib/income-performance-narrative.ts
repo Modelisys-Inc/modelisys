@@ -20,6 +20,7 @@ export type NarrativeParagraphSection =
   | "revenue-mix"
   | "financial-position"
   | "working-capital"
+  | "capex"
 
 export type PerformanceNarrativeParagraph = {
   heading: string

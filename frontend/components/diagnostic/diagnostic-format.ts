@@ -106,6 +106,28 @@ export function formatReferencePeriod(year: number, month: number): string {
   return `${label} ${year}`
 }
 
+/** Dernier jour du mois de référence (ex. « 31 décembre 2026 »). */
+export function formatReferenceDateEndOfMonth(year: number, month: number): string {
+  if (month < 1 || month > 12) return String(year)
+  const lastDay = new Date(year, month, 0).getDate()
+  const date = new Date(year, month - 1, lastDay)
+  return new Intl.DateTimeFormat("fr-CA", { dateStyle: "long" }).format(date)
+}
+
+/** Sous-titre d'en-tête des sections du rapport imprimé. */
+export function formatReportSectionMeta(
+  companyName: string,
+  year: number,
+  month: number,
+  currency: string,
+): string {
+  const label = REFERENCE_MONTH_LABELS[month - 1]
+  if (!label) return `${companyName} · Diagnostic financier · ${year} · ${currency}`
+  const lastDay = new Date(year, month, 0).getDate()
+  const monthCapitalized = label.charAt(0).toUpperCase() + label.slice(1)
+  return `${companyName} · Diagnostic financier · ${lastDay} ${monthCapitalized} ${year} · ${currency}`
+}
+
 export type LifecycleStage = "croissance" | "maturité" | "décroissance"
 
 export function lifecycleLabel(stage: string): string {

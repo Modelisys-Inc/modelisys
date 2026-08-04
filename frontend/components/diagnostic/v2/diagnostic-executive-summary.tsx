@@ -4,6 +4,7 @@ import { useMemo } from "react"
 import {
   ArrowRight,
   AlertTriangle,
+  Activity,
   BarChart3,
   Building2,
   Layers,
@@ -33,6 +34,7 @@ const BLOCK_ICONS: Record<string, typeof TrendingUp> = {
   "expenses-by-division": Layers,
   "financial-position": Building2,
   "working-capital": Wallet,
+  capex: Activity,
   saisonnalite: BarChart3,
   profil: Sparkles,
   ratios: Scale,

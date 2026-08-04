@@ -14,4 +14,5 @@ export const DIAGNOSTIC_REPORT_PDF_SECTIONS: DiagnosticReportPdfSection[] = [
   { kind: "chart", view: "expenses-by-division", title: "Divisions" },
   { kind: "chart", view: "financial-position", title: "Situation financière" },
   { kind: "chart", view: "working-capital", title: "Fonds de roulement" },
+  { kind: "chart", view: "capex", title: "Capex" },
 ]

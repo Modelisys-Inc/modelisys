@@ -28,6 +28,17 @@ import { buildRevenueContributiveMarginRows } from "@/lib/revenue-contributive-m
 import { RevenueContributiveMarginTable } from "@/components/diagnostic/v2/revenue-contributive-margin-table"
 import { RevenueContributiveMarginEvolutionTable } from "@/components/diagnostic/v2/revenue-contributive-margin-evolution-table"
 import { IncomePerformanceNarrativeSection } from "@/components/diagnostic/v2/income-performance-narrative-section"
+import { ReportNarrativePrint } from "@/components/diagnostic/report/report-narrative-print"
+import { EmptyState } from "@/components/diagnostic/report/report-components"
+import {
+  evolutionTableWeightFromHeading,
+  isStandaloneTableLecturePage,
+  isTextLecturePage,
+  lecturePageCountFromPacked,
+  packNarrativeParagraphs,
+  paragraphsForPackedPage,
+  type ReportPrintChartPart,
+} from "@/lib/report-narrative-pagination"
 import { ExpenseContributionBridgeChart } from "@/components/diagnostic/v2/expense-contribution-bridge-chart"
 import { ExpenseBreakevenChart } from "@/components/diagnostic/v2/expense-breakeven-chart"
 import { buildRevenueContributiveMarginEvolutionTables } from "@/lib/revenue-contributive-margin-evolution"
@@ -170,8 +181,18 @@ interface StatementChartProps {
   onRemoveChart?: () => void
   /** Toggle Annuel 5 ans / Mensuel intégré à l'en-tête (Diagnostic). */
   embeddedHorizon?: ChartHorizonToggleProps
-  /** Contour de carte : tableau de bord IS (défaut) ou rapport Diagnostic (bordure pâle). */
-  cardAppearance?: "dashboard" | "diagnostic"
+  /** Contour de carte : tableau de bord, diagnostic ou rapport imprimé (sans carte). */
+  cardAppearance?: "dashboard" | "diagnostic" | "report"
+  /** Rapport imprimé : segment graphique ou lecture seule. */
+  printSegment?: "chart" | "narrative"
+  /** Page de lecture (0 = première) — rapport imprimé uniquement. */
+  narrativePageIndex?: number
+  /** Nombre total de pages lecture (signalé par la page 0). */
+  onNarrativePageCount?: (count: number) => void
+  /** Rapport : segment graphique (pont / seuil de rentabilité). */
+  printChartPart?: ReportPrintChartPart
+  /** Rapport : nombre de pages graphiques (signalé par la page principale). */
+  onPrintChartPageCount?: (count: number) => void
   /** Portée de la lecture narrative sous le graphique. */
   narrativeScope?: "full" | "revenue-only" | "margin-by-revenue-only" | "expenses-only" | "expenses-by-division-only" | "financial-position-only" | "working-capital-only"
   /** Type de config persistée (ex. Marge par Revenus lit la config Revenus). */
@@ -220,7 +241,10 @@ const dashboardStyleCard = cn(dashboardCardFrameClass, "z-10 transition-all dura
 const dashboardStyleCardAccent = dashboardCardRingClass
 const diagnosticStyleCard = cn(CARD_CLASS, "relative z-10")
 
-function resolveStatementChartCardClasses(appearance: "dashboard" | "diagnostic") {
+function resolveStatementChartCardClasses(appearance: "dashboard" | "diagnostic" | "report") {
+  if (appearance === "report") {
+    return { card: "report-statement-chart-frame", showAccent: false }
+  }
   if (appearance === "diagnostic") {
     return { card: diagnosticStyleCard, showAccent: false }
   }
@@ -257,9 +281,17 @@ export function StatementChart({
   onRemoveChart,
   embeddedHorizon,
   cardAppearance = "dashboard",
+  printSegment,
+  narrativePageIndex,
+  onNarrativePageCount,
+  printChartPart = "main",
+  onPrintChartPageCount,
   narrativeScope = "full",
   chartConfigStatementType,
 }: StatementChartProps) {
+  const isReportAppearance = cardAppearance === "report"
+  const showChart = printSegment !== "narrative"
+  const showNarrative = printSegment !== "chart"
   const isContributiveMarginView = narrativeScope === "margin-by-revenue-only"
   const isDivisionContributiveMarginView = narrativeScope === "expenses-by-division-only"
   const isFinancialPositionView = narrativeScope === "financial-position-only"
@@ -778,6 +810,92 @@ export function StatementChart({
     narrativeScope,
   ])
 
+  const activeNarrativePackedPages = useMemo(() => {
+    if (narrativeScope === "expenses-only") {
+      return packNarrativeParagraphs(expensesBridgeNarrative?.paragraphs, (heading) =>
+        evolutionTableWeightFromHeading(expenseCostBreakdownTables, heading),
+      )
+    }
+    if (narrativeScope === "expenses-by-division-only") {
+      return packNarrativeParagraphs(divisionProfitabilityNarrative?.paragraphs, (heading) =>
+        evolutionTableWeightFromHeading(divisionProfitabilityEvolutionTables, heading),
+      )
+    }
+    if (narrativeScope === "financial-position-only") {
+      return packNarrativeParagraphs(financialPositionNarrative?.paragraphs, (heading) =>
+        evolutionTableWeightFromHeading(financialPositionBreakdownTables, heading),
+      )
+    }
+    if (narrativeScope === "margin-by-revenue-only") {
+      return packNarrativeParagraphs(contributiveMarginNarrative?.paragraphs, (heading) =>
+        evolutionTableWeightFromHeading(contributiveMarginEvolutionTables, heading),
+      )
+    }
+    return packNarrativeParagraphs(narrative?.paragraphs)
+  }, [
+    narrativeScope,
+    expensesBridgeNarrative,
+    expenseCostBreakdownTables,
+    divisionProfitabilityNarrative,
+    divisionProfitabilityEvolutionTables,
+    financialPositionNarrative,
+    financialPositionBreakdownTables,
+    contributiveMarginNarrative,
+    contributiveMarginEvolutionTables,
+    narrative,
+  ])
+
+  const packedTextPageCount = activeNarrativePackedPages.length
+
+  const hasStandaloneMarginTable =
+    narrativeScope === "margin-by-revenue-only" && Boolean(contributiveMarginRows?.length)
+
+  useEffect(() => {
+    if (printSegment !== "narrative" || !onNarrativePageCount) return
+    onNarrativePageCount(
+      lecturePageCountFromPacked(packedTextPageCount, {
+        hasStandaloneTable: hasStandaloneMarginTable,
+      }),
+    )
+  }, [
+    printSegment,
+    onNarrativePageCount,
+    packedTextPageCount,
+    hasStandaloneMarginTable,
+  ])
+
+  useEffect(() => {
+    if (printSegment !== "chart" || !onPrintChartPageCount || printChartPart !== "main") return
+    if (!isExpensesBridgeView) {
+      onPrintChartPageCount(1)
+      return
+    }
+    onPrintChartPageCount(expensesBreakevenAnalysis ? 2 : 1)
+  }, [
+    printSegment,
+    onPrintChartPageCount,
+    printChartPart,
+    isExpensesBridgeView,
+    expensesBreakevenAnalysis,
+  ])
+
+  const paginateForActiveScope = <T extends { paragraphs: unknown[] }>(
+    source: T | null,
+    isActiveScope: boolean,
+  ): T | null => {
+    if (!source || !isActiveScope) return null
+    if (narrativePageIndex === undefined) return source
+    const pageParagraphs = paragraphsForPackedPage(activeNarrativePackedPages, narrativePageIndex)
+    if (!pageParagraphs.length) return null
+    return { ...source, paragraphs: pageParagraphs } as T
+  }
+
+  const showStandaloneTablePage =
+    printSegment === "narrative" &&
+    narrativePageIndex !== undefined &&
+    isStandaloneTableLecturePage(packedTextPageCount, narrativePageIndex, hasStandaloneMarginTable)
+
+
   const settingsDialog = (
     <StatementChartSettingsDialog
       open={settingsOpen}
@@ -955,7 +1073,10 @@ export function StatementChart({
   }
 
   if (isExpensesBridgeView) {
-    if (!seriesRows.length || !seriesPeriods.length || !expenseContributionBridge?.points.length) {
+    if (
+      printChartPart !== "breakeven" &&
+      (!seriesRows.length || !seriesPeriods.length || !expenseContributionBridge?.points.length)
+    ) {
       const emptyMessage =
         "Impossible de construire le pont de rentabilité : vérifiez les revenus (codes REV) et le mapping comptable."
       const emptyHint =
@@ -1037,11 +1158,152 @@ export function StatementChart({
   /* ---------- Rendu dynamique (séries API + config v2) ---------- */
   const setVis = (id: string, v: boolean) => setVisibleSeriesIds((prev) => ({ ...prev, [id]: v }))
   const sideSeries = seriesMeta.filter((m) => m.showInSidePanel)
+  const isReportChartPrint = isReportAppearance && printSegment === "chart"
+  const chartHeightClass =
+    isReportChartPrint
+      ? "report-chart-canvas-height w-full"
+      : isReportAppearance
+        ? "h-[min(520px,68vh)]"
+        : "h-[400px]"
+  const showSidePanel = sideSeries.length > 0
+
+  const renderNarrative = (
+    narrative: NonNullable<import("@/lib/income-performance-narrative").PerformanceNarrativeResult>,
+    options?: {
+      testId?: string
+      renderAfterParagraph?: (paragraph: NonNullable<import("@/lib/income-performance-narrative").PerformanceNarrativeResult>["paragraphs"][number]) => ReactNode
+    },
+  ) => {
+    if (isReportAppearance) {
+      return (
+        <ReportNarrativePrint
+          narrative={narrative}
+          testId={options?.testId}
+          renderAfterParagraph={options?.renderAfterParagraph}
+          showHeader={false}
+        />
+      )
+    }
+    return (
+      <IncomePerformanceNarrativeSection
+        narrative={narrative}
+        testId={options?.testId}
+        renderAfterParagraph={options?.renderAfterParagraph}
+      />
+    )
+  }
+
+  if (printSegment === "narrative") {
+    if (showStandaloneTablePage && contributiveMarginRows?.length) {
+      return (
+        <div className="report-narrative-table-wrap report-page-break-avoid">
+          <RevenueContributiveMarginTable rows={contributiveMarginRows} currency={companyCurrency} />
+        </div>
+      )
+    }
+
+    if (
+      narrativePageIndex !== undefined &&
+      !isTextLecturePage(packedTextPageCount, narrativePageIndex, hasStandaloneMarginTable)
+    ) {
+      return null
+    }
+
+    const paginatedExpensesBridge = paginateForActiveScope(
+      expensesBridgeNarrative,
+      narrativeScope === "expenses-only",
+    )
+    const paginatedNarrative = paginateForActiveScope(
+      narrative,
+      narrativeScope === "full" || narrativeScope === "revenue-only",
+    )
+    const paginatedDivisionNarrative = paginateForActiveScope(
+      divisionProfitabilityNarrative,
+      narrativeScope === "expenses-by-division-only",
+    )
+    const paginatedFinancialNarrative = paginateForActiveScope(
+      financialPositionNarrative,
+      narrativeScope === "financial-position-only",
+    )
+    const paginatedContributiveNarrative = paginateForActiveScope(
+      contributiveMarginNarrative,
+      narrativeScope === "margin-by-revenue-only",
+    )
+
+    const hasNarrativeContent = Boolean(
+      paginatedExpensesBridge ||
+        paginatedNarrative ||
+        paginatedDivisionNarrative ||
+        paginatedFinancialNarrative ||
+        workingCapitalNarrative ||
+        paginatedContributiveNarrative,
+    )
+
+    if (!hasNarrativeContent) {
+      if (narrativePageIndex !== undefined && narrativePageIndex > 0) {
+        return null
+      }
+      return <EmptyState message="Analyse narrative non disponible pour cette section." />
+    }
+
+    return (
+      <>
+        {paginatedExpensesBridge
+          ? renderNarrative(paginatedExpensesBridge, {
+              renderAfterParagraph: (paragraph) => {
+                const breakdown = expenseCostBreakdownTables?.get(paragraph.heading)
+                if (!breakdown) return null
+                return (
+                  <RevenueContributiveMarginEvolutionTable table={breakdown} currency={companyCurrency} />
+                )
+              },
+            })
+          : null}
+        {paginatedNarrative ? renderNarrative(paginatedNarrative) : null}
+        {paginatedDivisionNarrative
+          ? renderNarrative(paginatedDivisionNarrative, {
+              renderAfterParagraph: (paragraph) => {
+                const evolution = divisionProfitabilityEvolutionTables?.get(paragraph.heading)
+                if (!evolution) return null
+                return (
+                  <RevenueContributiveMarginEvolutionTable table={evolution} currency={companyCurrency} />
+                )
+              },
+            })
+          : null}
+        {paginatedFinancialNarrative
+          ? renderNarrative(paginatedFinancialNarrative, {
+              renderAfterParagraph: (paragraph) => {
+                const breakdown = financialPositionBreakdownTables?.get(paragraph.heading)
+                if (!breakdown) return null
+                return (
+                  <RevenueContributiveMarginEvolutionTable table={breakdown} currency={companyCurrency} />
+                )
+              },
+            })
+          : null}
+        {workingCapitalNarrative ? renderNarrative(workingCapitalNarrative) : null}
+        {paginatedContributiveNarrative
+          ? renderNarrative(paginatedContributiveNarrative, {
+              renderAfterParagraph: (paragraph) => {
+                const evolution = contributiveMarginEvolutionTables?.get(paragraph.heading)
+                if (!evolution) return null
+                return (
+                  <RevenueContributiveMarginEvolutionTable table={evolution} currency={companyCurrency} />
+                )
+              },
+            })
+          : null}
+      </>
+    )
+  }
 
   return (
     <>
       <div
-        className={`group mb-6 ${cardFrameClass}`}
+        className={cn(
+          isReportChartPrint ? "report-statement-chart-with-panel" : `group mb-6 ${cardFrameClass}`,
+        )}
         data-testid={
           isContributiveMarginView
             ? "contributive-margin-report"
@@ -1056,7 +1318,8 @@ export function StatementChart({
                   : undefined
         }
       >
-        {showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
+        {!isReportChartPrint && showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
+        {!isReportChartPrint ? (
         <div className="relative border-b border-slate-200 bg-white/90 px-6 py-5 sm:px-7">
           <div className="flex items-center justify-between gap-4">
             <div className="flex min-w-0 flex-1 items-center gap-4">
@@ -1175,32 +1438,83 @@ export function StatementChart({
               </div>
             </div>
           </div>
+        ) : null}
 
-          {isExpensesBridgeView && expenseContributionBridge ? (
-            <ExpenseContributionBridgeChart
-              points={expenseContributionBridge.points}
-              currency={companyCurrency}
-              variableCostAccountCount={expenseContributionBridge.mappingStatus.variableCostAccountCount}
-              fixedCostAccountCount={expenseContributionBridge.mappingStatus.fixedCostAccountCount}
-            />
-          ) : isFinancialPositionView && financialPositionResult?.points.length ? (
+          {showChart &&
+          isExpensesBridgeView &&
+          expenseContributionBridge &&
+          (printSegment !== "chart" || printChartPart !== "breakeven") ? (
+            <div
+              className={cn(
+                "relative bg-white",
+                isReportChartPrint && "report-chart-body-full",
+              )}
+            >
+              <div className={cn(isReportChartPrint ? "px-0 py-0" : undefined)}>
+              <ExpenseContributionBridgeChart
+                points={expenseContributionBridge.points}
+                currency={companyCurrency}
+                variableCostAccountCount={expenseContributionBridge.mappingStatus.variableCostAccountCount}
+                fixedCostAccountCount={expenseContributionBridge.mappingStatus.fixedCostAccountCount}
+                printMode={isReportChartPrint}
+                chartHeightClass={chartHeightClass}
+              />
+              </div>
+            </div>
+          ) : showChart && isFinancialPositionView && financialPositionResult?.points.length ? (
             <FinancialPositionChart
               points={financialPositionResult.points}
               currency={companyCurrency}
               view={view}
-              canConfigure={Boolean(companyId)}
+              canConfigure={Boolean(companyId) && !isReportChartPrint}
               onOpenPanelSettings={setFinancialPositionSettingsPanel}
+              className={isReportChartPrint ? "report-financial-position-print" : undefined}
             />
-          ) : isWorkingCapitalView && workingCapitalResult?.points.length ? (
+          ) : showChart && isWorkingCapitalView && workingCapitalResult?.points.length ? (
             <WorkingCapitalDiagnosticChart
               points={workingCapitalResult.points}
               currency={companyCurrency}
             />
-          ) : !isContributiveMarginTableView && !isFinancialPositionView && !isWorkingCapitalView ? (
-          <div className="relative bg-white">
-            <div className="px-6 py-6 sm:px-7">
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-                <div className="lg:col-span-1 space-y-3">
+          ) : showChart && isContributiveMarginView && contributiveMarginRows?.length ? (
+            <div
+              className={cn(
+                "relative bg-white",
+                isReportChartPrint && "report-chart-body-full report-chart-table-fit",
+              )}
+            >
+              <div className={cn(isReportChartPrint ? "px-0 py-2" : "px-6 py-6 sm:px-7")}>
+                <RevenueContributiveMarginTable rows={contributiveMarginRows} currency={companyCurrency} />
+              </div>
+            </div>
+          ) : showChart && isDivisionContributiveMarginView && divisionProfitabilityRows?.length ? (
+            <div
+              className={cn(
+                "relative bg-white",
+                isReportChartPrint && "report-chart-body-full report-chart-table-fit",
+              )}
+            >
+              <div className={cn(isReportChartPrint ? "px-0 py-2" : "px-6 py-6 sm:px-7")}>
+                <DivisionProfitabilityTable rows={divisionProfitabilityRows} currency={companyCurrency} />
+              </div>
+            </div>
+          ) : !isContributiveMarginTableView &&
+            !isFinancialPositionView &&
+            !isWorkingCapitalView &&
+            !isExpensesBridgeView ? (
+          <div className={cn("relative bg-white", isReportChartPrint && "report-chart-body-full")}>
+            <div className={cn(isReportChartPrint ? "px-0 py-0" : "px-6 py-6 sm:px-7")}>
+              <div
+                className={cn(
+                  isReportChartPrint
+                    ? cn(
+                        "report-chart-print-grid",
+                        !showSidePanel && "report-chart-print-grid--solo",
+                      )
+                    : cn("grid grid-cols-1 gap-6", showSidePanel && "lg:grid-cols-5"),
+                )}
+              >
+                {showSidePanel ? (
+                <div className={isReportChartPrint ? "report-chart-print-side space-y-3" : "lg:col-span-1 space-y-3"}>
                   {sideSeries.map((m, blockIdx) => {
                     const key = m.dataKey
                     const vals = dynamicPoints.map((p) => (p as Record<string, number>)[key] ?? 0)
@@ -1239,9 +1553,18 @@ export function StatementChart({
                     )
                   })}
                 </div>
+                ) : null}
 
-                <div className="lg:col-span-4">
-                  <ChartContainer config={dynamicChartConfig} className="h-[400px] w-full">
+                <div
+                  className={
+                    isReportChartPrint
+                      ? "report-chart-print-canvas"
+                      : showSidePanel
+                        ? "lg:col-span-4"
+                        : "col-span-full"
+                  }
+                >
+                  <ChartContainer config={dynamicChartConfig} className={cn(chartHeightClass, "w-full")}>
                     <ComposedChart data={dynamicPoints} margin={{ top: 20, right: 50, left: 20, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                       <XAxis
@@ -1346,87 +1669,80 @@ export function StatementChart({
               </div>
             </div>
           </div>
+          ) : showChart && isReportAppearance && isContributiveMarginTableView ? (
+            <EmptyState message="Aucune donnée disponible pour ce tableau d'analyse." />
           ) : null}
-          {expensesBridgeNarrative ? (
-            <IncomePerformanceNarrativeSection
-              narrative={expensesBridgeNarrative}
-              renderAfterParagraph={(paragraph) => {
-                const breakdown = expenseCostBreakdownTables?.get(paragraph.heading)
-                if (!breakdown) return null
-                return (
-                  <RevenueContributiveMarginEvolutionTable
-                    table={breakdown}
-                    currency={companyCurrency}
-                  />
-                )
-              }}
-            />
+          {showChart &&
+          expensesBreakevenAnalysis &&
+          (printSegment !== "chart" || printChartPart === "breakeven") ? (
+            <div className="report-chart-exhibit report-page-break-avoid">
+              <ExpenseBreakevenChart
+                analysis={expensesBreakevenAnalysis}
+                currency={companyCurrency}
+                printMode={isReportChartPrint}
+                className={isReportAppearance ? "report-chart-compact border-t-0" : undefined}
+              />
+            </div>
           ) : null}
-          {expensesBreakevenAnalysis ? (
-            <ExpenseBreakevenChart
-              analysis={expensesBreakevenAnalysis}
-              currency={companyCurrency}
-            />
+          {printSegment === "chart" && printChartPart === "breakeven" && !expensesBreakevenAnalysis ? (
+            <EmptyState message="Seuil de rentabilité non disponible pour cette période." />
           ) : null}
-          {narrative ? <IncomePerformanceNarrativeSection narrative={narrative} /> : null}
-          {isDivisionContributiveMarginView && divisionProfitabilityRows?.length ? (
+          {showNarrative && expensesBridgeNarrative
+            ? renderNarrative(expensesBridgeNarrative, {
+                renderAfterParagraph: (paragraph) => {
+                  const breakdown = expenseCostBreakdownTables?.get(paragraph.heading)
+                  if (!breakdown) return null
+                  return (
+                    <RevenueContributiveMarginEvolutionTable table={breakdown} currency={companyCurrency} />
+                  )
+                },
+              })
+            : null}
+          {showNarrative && narrative ? renderNarrative(narrative) : null}
+          {showNarrative && isDivisionContributiveMarginView && divisionProfitabilityRows?.length ? (
             <div className="border-t border-slate-200 py-6">
               <DivisionProfitabilityTable rows={divisionProfitabilityRows} currency={companyCurrency} />
             </div>
           ) : null}
-          {divisionProfitabilityNarrative ? (
-            <IncomePerformanceNarrativeSection
-              narrative={divisionProfitabilityNarrative}
-              renderAfterParagraph={(paragraph) => {
-                const evolution = divisionProfitabilityEvolutionTables?.get(paragraph.heading)
-                if (!evolution) return null
-                return (
-                  <RevenueContributiveMarginEvolutionTable
-                    table={evolution}
-                    currency={companyCurrency}
-                  />
-                )
-              }}
-            />
-          ) : null}
-          {financialPositionNarrative ? (
-            <IncomePerformanceNarrativeSection
-              narrative={financialPositionNarrative}
-              renderAfterParagraph={(paragraph) => {
-                const breakdown = financialPositionBreakdownTables?.get(paragraph.heading)
-                if (!breakdown) return null
-                return (
-                  <RevenueContributiveMarginEvolutionTable
-                    table={breakdown}
-                    currency={companyCurrency}
-                  />
-                )
-              }}
-            />
-          ) : null}
-          {workingCapitalNarrative ? (
-            <IncomePerformanceNarrativeSection narrative={workingCapitalNarrative} />
-          ) : null}
-          {narrativeScope === "margin-by-revenue-only" && contributiveMarginRows?.length ? (
+          {showNarrative && divisionProfitabilityNarrative
+            ? renderNarrative(divisionProfitabilityNarrative, {
+                renderAfterParagraph: (paragraph) => {
+                  const evolution = divisionProfitabilityEvolutionTables?.get(paragraph.heading)
+                  if (!evolution) return null
+                  return (
+                    <RevenueContributiveMarginEvolutionTable table={evolution} currency={companyCurrency} />
+                  )
+                },
+              })
+            : null}
+          {showNarrative && financialPositionNarrative
+            ? renderNarrative(financialPositionNarrative, {
+                renderAfterParagraph: (paragraph) => {
+                  const breakdown = financialPositionBreakdownTables?.get(paragraph.heading)
+                  if (!breakdown) return null
+                  return (
+                    <RevenueContributiveMarginEvolutionTable table={breakdown} currency={companyCurrency} />
+                  )
+                },
+              })
+            : null}
+          {showNarrative && workingCapitalNarrative ? renderNarrative(workingCapitalNarrative) : null}
+          {showNarrative && narrativeScope === "margin-by-revenue-only" && contributiveMarginRows?.length ? (
             <div className="border-t border-slate-200 py-6">
               <RevenueContributiveMarginTable rows={contributiveMarginRows} currency={companyCurrency} />
             </div>
           ) : null}
-          {contributiveMarginNarrative ? (
-            <IncomePerformanceNarrativeSection
-              narrative={contributiveMarginNarrative}
-              renderAfterParagraph={(paragraph) => {
-                const evolution = contributiveMarginEvolutionTables?.get(paragraph.heading)
-                if (!evolution) return null
-                return (
-                  <RevenueContributiveMarginEvolutionTable
-                    table={evolution}
-                    currency={companyCurrency}
-                  />
-                )
-              }}
-            />
-          ) : null}
+          {showNarrative && contributiveMarginNarrative
+            ? renderNarrative(contributiveMarginNarrative, {
+                renderAfterParagraph: (paragraph) => {
+                  const evolution = contributiveMarginEvolutionTables?.get(paragraph.heading)
+                  if (!evolution) return null
+                  return (
+                    <RevenueContributiveMarginEvolutionTable table={evolution} currency={companyCurrency} />
+                  )
+                },
+              })
+            : null}
         </div>
         {settingsDialog}
         {financialPositionSettingsDialog}

@@ -100,12 +100,14 @@ function BreakevenScenarioPanel({
   currency,
   period,
   isHovering,
+  printMode = false,
 }: {
   scenario: BreakevenScenario
   analysis: BreakevenAnalysis
   currency: string
   period: string
   isHovering: boolean
+  printMode?: boolean
 }) {
   const badge = scenarioBadge(scenario)
   const profitPositive = scenario.operatingProfit >= 0
@@ -145,7 +147,10 @@ function BreakevenScenarioPanel({
   return (
     <div
       data-testid="breakeven-scenario-panel"
-      className="flex h-full min-h-[300px] flex-col rounded-xl border border-slate-200 bg-slate-50/60 lg:min-h-0"
+      className={cn(
+        "flex h-full flex-col rounded-xl border border-slate-200 bg-slate-50/60",
+        printMode ? "min-h-0" : "min-h-[300px] lg:min-h-0",
+      )}
     >
       <div className="border-b border-slate-200 bg-white px-4 py-3">
         <div className="flex items-start justify-between gap-2">
@@ -169,7 +174,7 @@ function BreakevenScenarioPanel({
         </div>
       </div>
 
-      <div className="flex-1 space-y-3 px-4 py-3">
+      <div className={cn("flex-1 space-y-3 overflow-hidden px-4 py-3", printMode && "space-y-2 py-2")}>
         <div className="grid grid-cols-2 gap-2">
           {metrics.map((m) => (
             <div
@@ -264,9 +269,15 @@ interface ExpenseBreakevenChartProps {
   analysis: BreakevenAnalysis
   currency: string
   className?: string
+  printMode?: boolean
 }
 
-export function ExpenseBreakevenChart({ analysis, currency, className }: ExpenseBreakevenChartProps) {
+export function ExpenseBreakevenChart({
+  analysis,
+  currency,
+  className,
+  printMode = false,
+}: ExpenseBreakevenChartProps) {
   const patternId = useId().replace(/:/g, "")
   const svgRef = useRef<SVGSVGElement>(null)
   const [hover, setHover] = useState<HoverState | null>(null)
@@ -369,18 +380,21 @@ export function ExpenseBreakevenChart({ analysis, currency, className }: Expense
   return (
     <div
       data-testid="expense-breakeven-chart"
-      className={cn("border-t border-slate-200 bg-white", className)}
+      className={cn(
+        "border-t border-slate-200 bg-white",
+        printMode && "h-full border-t-0",
+        className,
+      )}
     >
-      <div className="px-6 py-6 sm:px-7">
+      <div className={cn("px-6 py-6 sm:px-7", printMode && "flex h-full flex-col px-0 py-0")}>
+        {!printMode ? (
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h4 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-500">
               Seuil de rentabilité
             </h4>
             <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-500">
-              Analyse coût-volume-profit pour {analysis.period}. Survolez le graphique pour explorer
-              un niveau de chiffre d&apos;affaires — le détail s&apos;affiche dans le panneau à
-              droite.
+              Analyse coût-volume-profit pour {analysis.period}. Survolez le graphique pour explorer un niveau de chiffre d&apos;affaires — le détail s&apos;affiche dans le panneau à droite.
             </p>
           </div>
           <div className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-medium text-slate-500">
@@ -388,10 +402,17 @@ export function ExpenseBreakevenChart({ analysis, currency, className }: Expense
             Survol interactif
           </div>
         </div>
+        ) : null}
 
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-5">
-          <div className="min-w-0 flex-1">
-            <div className="w-full aspect-[720/380]">
+        <div
+          className={cn(
+            printMode
+              ? "report-chart-print-row min-h-0 flex-1"
+              : "flex flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-5",
+          )}
+        >
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className={cn("w-full aspect-[720/380]", printMode && "aspect-auto h-full")}>
             <svg
               ref={svgRef}
               viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
@@ -620,17 +641,19 @@ export function ExpenseBreakevenChart({ analysis, currency, className }: Expense
             </div>
           </div>
 
-          <div className="w-full shrink-0 lg:w-72 xl:w-80">
+          <div className={cn("w-full shrink-0 lg:w-72 xl:w-80", printMode && "flex min-h-0 w-auto flex-col")}>
             <BreakevenScenarioPanel
               scenario={activeScenario}
               analysis={analysis}
               currency={currency}
               period={analysis.period}
               isHovering={hover !== null}
+              printMode={printMode}
             />
           </div>
         </div>
 
+        {!printMode ? (
         <p
           data-testid="breakeven-methodology-note"
           className="mt-5 border-t border-slate-100 pt-4 text-[11px] leading-relaxed text-slate-500"
@@ -641,6 +664,7 @@ export function ExpenseBreakevenChart({ analysis, currency, className }: Expense
           d&apos;intérêts, les impôts sur le revenu, ainsi que tout produit ou charge non directement
           rattaché à l&apos;exploitation courante.
         </p>
+        ) : null}
       </div>
     </div>
   )

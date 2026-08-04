@@ -16,6 +16,7 @@ export type DiagnosticReportView =
   | "expenses-by-division"
   | "financial-position"
   | "working-capital"
+  | "capex"
 
 export interface DiagnosticReportViewOption {
   id: DiagnosticReportView

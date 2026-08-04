@@ -447,6 +447,28 @@ function summarizeWorkingCapital(
   }
 }
 
+function summarizeCapex(
+  summary: CompanyDiagnostic["summary"],
+  currency: string,
+): { paragraphs: string[]; subtitle: string } {
+  const capex = summary.capex_latest
+  const pct = summary.capex_revenue_pct
+
+  const p1 = `Investissements (capex) d'environ ${nfMoneyK(capex, currency)}${pct != null ? `, soit ${nfPct(pct)} des revenus` : ""}.`
+
+  const p2 =
+    pct != null && pct > 8
+      ? `Intensité capitalistique élevée (${nfPct(pct)} des revenus) — valider la cadence d'investissement et le retour attendu.`
+      : pct != null && pct < 2
+        ? `Intensité capitalistique modeste (${nfPct(pct)} des revenus) — confirmer si les investissements sont suffisants pour soutenir la croissance.`
+        : `Intensité capitalistique dans une fourchette raisonnable ; croiser avec les besoins de maintenance et de croissance.`
+
+  return {
+    subtitle: pct != null ? `Capex / revenus : ${nfPct(pct)}` : "Investissements",
+    paragraphs: [p1, p2],
+  }
+}
+
 function summarizeSeasonality(seasonality: CompanyDiagnostic["seasonality"]): {
   paragraphs: string[]
   subtitle: string
@@ -638,6 +660,7 @@ export function buildExecutiveSummary(diagnostic: CompanyDiagnostic): ExecutiveS
   const divs = summarizeDivisions(divisions, currency)
   const fin = summarizeFinancialPosition(latest, previous, currency, benchmark)
   const wc = summarizeWorkingCapital(latest, previous, currency, benchmark)
+  const capex = summarizeCapex(summary, currency)
   const seas = summarizeSeasonality(seasonality)
   const profil = summarizeProfil(diagnostic, benchmark)
   const ratios = summarizeRatios(latest, previous, benchmark)
@@ -705,6 +728,13 @@ export function buildExecutiveSummary(diagnostic: CompanyDiagnostic): ExecutiveS
       title: "Fonds de roulement",
       subtitle: wc.subtitle,
       paragraphs: wc.paragraphs,
+    },
+    {
+      id: "capex",
+      reportView: "capex",
+      title: "Capex",
+      subtitle: capex.subtitle,
+      paragraphs: capex.paragraphs,
     },
     {
       id: "saisonnalite",

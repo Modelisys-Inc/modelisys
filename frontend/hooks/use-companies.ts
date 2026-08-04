@@ -8,6 +8,7 @@ function mapApiCompany(c: ApiCompany): Company {
   return {
     id: c.id,
     name: c.name,
+    fiscalYearEnd: c.fiscal_year_end,
     divisions: (c.divisions || []).map((d) => ({
       id: d.id,
       name: d.name,

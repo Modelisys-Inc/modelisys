@@ -602,7 +602,7 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByText("Aciers Beauport inc. — test")).toBeVisible()
     await page.getByRole("button", { name: "Ouvrir le diagnostic" }).click()
     await expect(page).toHaveURL(new RegExp(`/modules/diagnostic/${DIAGNOSTIC_ID}\\?companyId=${COMPANY_ID}`))
-    await expect(page.getByRole("heading", { name: "Aciers Beauport inc." })).toBeVisible()
+    await expect(page.getByRole("heading", { name: /Diagnostic de Aciers Beauport inc\./ })).toBeVisible()
   })
 
   test("rend le héros, les KPI et toutes les sections", async ({ page }) => {
@@ -612,14 +612,10 @@ test.describe("Page Diagnostic", () => {
 
     await page.goto(DIAGNOSTIC_PAGE_URL)
 
-    // Héros : société + badge de stade de vie + méta du rapport.
     await expect(
-      page.getByRole("heading", { name: "Aciers Beauport inc." }),
+      page.getByRole("heading", { name: /Diagnostic de Aciers Beauport inc\. — 31 décembre 2025/ }),
     ).toBeVisible({ timeout: 15000 })
-    const badge = page.getByTestId("lifecycle-badge")
-    await expect(badge).toBeVisible()
-    await expect(badge).toHaveText("Croissance")
-    await expect(page.getByText(/Exercice 2025 · CAD · généré le/)).toBeVisible()
+    await expect(page.getByText(/Mise à jour : 26 juillet 2026/)).toBeVisible()
 
     // Sommaire exécutif affiché par défaut.
     await expect(page.getByTestId("diagnostic-executive-summary")).toBeVisible()
@@ -648,12 +644,13 @@ test.describe("Page Diagnostic", () => {
       timeout: 15000,
     })
     await expect(reportPage.getByTestId("diagnostic-report-cover")).toBeVisible()
+    await expect(reportPage.getByText("Indice de santé")).not.toBeVisible()
     await expect(reportPage.getByTestId("diagnostic-report-toc")).toBeVisible()
-    await expect(
-      reportPage.getByTestId("diagnostic-report-toc-link-executive-summary"),
-    ).toBeVisible()
-    await reportPage.getByTestId("diagnostic-report-toc-link-executive-summary").click()
-    await expect(reportPage.locator("#report-chapter-executive-global")).toBeVisible()
+    await expect(reportPage.getByTestId("diagnostic-report-toc-link-performance")).toBeVisible()
+    await reportPage.getByTestId("diagnostic-report-toc-link-performance").click()
+    await expect(reportPage.locator("#report-performance-intro")).toBeVisible()
+    await expect(reportPage.getByTestId("report-analysis-intro-performance")).toBeVisible()
+    await expect(reportPage.getByTestId("report-chart-page-performance")).toBeVisible()
     await reportPage.close()
 
     await page.getByRole("button", { name: "Performance financière", exact: true }).click()
@@ -909,6 +906,9 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByRole("button", { name: "Annuel - 5 ans" })).toBeVisible()
     await expect(page.getByTestId("expense-contribution-bridge-report")).toBeVisible()
     await expect(page.getByTestId("expense-contribution-bridge-chart")).toBeVisible()
+    const bridgeChart = page.getByTestId("expense-contribution-bridge-chart")
+    const chartBox = await bridgeChart.locator(".recharts-responsive-container").first().boundingBox()
+    expect(chartBox?.height ?? 0).toBeGreaterThan(100)
     await expect(page.getByText("Pont de rentabilité")).toBeVisible()
     await expect(page.getByText("Lecture des dépenses")).toBeVisible()
     await expect(page.getByText("Coûts variables", { exact: true }).first()).toBeVisible()
@@ -1561,6 +1561,121 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByTestId("working-capital-narrative-settings")).toBeVisible()
   })
 
+  test("vue Capex : tableau Analyse des Capex", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/capex`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          structure: [
+            {
+              label: "Investissements",
+              defineMapping: true,
+              linkCode: "ALT-B",
+              displayFormat: "currency",
+            },
+            {
+              label: "Capex / Revenus",
+              defineMapping: true,
+              liaisonMode: "quotient",
+              liaisonNumeratorCodes: ["ALT-B"],
+              liaisonDenominatorCodes: ["REV"],
+              liaisonFactor: 100,
+              displayFormat: "percent",
+            },
+          ],
+        }),
+      }),
+    )
+    await page.route(
+      `**/api/companies/${COMPANY_ID}/financial-statements/balance-sheet/series*`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            companyId: COMPANY_ID,
+            statementType: "balance-sheet",
+            fiscalYear: 2025,
+            periods: [
+              { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
+              { fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" },
+            ],
+            rows: [
+              {
+                id: "ALT-B",
+                linkCode: "ALT-B",
+                label: "Immobilisations corporelles",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: { "2024-12": 900_000, "2025-12": 1_100_000 },
+                detailRows: [],
+              },
+            ],
+          }),
+        }),
+    )
+    await page.route(
+      `**/api/companies/${COMPANY_ID}/financial-statements/income-statement/series*`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            companyId: COMPANY_ID,
+            statementType: "income-statement",
+            fiscalYear: 2025,
+            periods: [
+              { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
+              { fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" },
+            ],
+            rows: [
+              {
+                id: "REV",
+                linkCode: "REV",
+                label: "Revenus",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: { "2024-12": 4_800_000, "2025-12": 5_200_000 },
+                detailRows: [],
+              },
+            ],
+          }),
+        }),
+    )
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(DIAGNOSTIC_PAGE_URL)
+
+    await page.getByRole("button", { name: "Capex", exact: true }).click()
+
+    const capexNav = page.getByRole("button", { name: "Capex", exact: true })
+    await expect(capexNav).toHaveAttribute("aria-current", "true")
+
+    await expect(page.getByTestId("capex-report")).toBeVisible({ timeout: 15000 })
+    await expect(page.getByTestId("capex-report").locator("h2")).toHaveText("Capex")
+    await expect(page.getByText("Structure investissements (bilan + CDR)")).toBeVisible()
+    await expect(page.getByTestId("capex-summary-table-scroll")).toBeVisible()
+    await expect(page.getByText("Investissements", { exact: true }).first()).toBeVisible()
+    await expect(page.getByText("Capex / Revenus", { exact: true }).first()).toBeVisible()
+    await expect(
+      page.getByTestId("capex-report").getByRole("link", { name: /Voir l'analyse détaillée/i }),
+    ).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Lecture des Capex" })).toBeVisible()
+    await expect(page.getByTestId("capex-narrative")).toBeVisible()
+    await expect(page.getByTestId("capex-narrative-settings")).toBeVisible()
+
+    await page.getByRole("button", { name: "Mensuel", exact: true }).click()
+    await expect(page.getByTestId("capex-summary-table-scroll")).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole("button", { name: "Mensuel", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
+  })
+
   test("tiroir de détail : ouverture depuis une ligne de division, fermeture par Échap", async ({
     page,
   }) => {
@@ -1638,7 +1753,7 @@ test.describe("Page Diagnostic", () => {
     // Réessayer → le rapport se charge.
     await page.getByRole("button", { name: "Réessayer" }).click()
     await expect(
-      page.getByRole("heading", { name: "Aciers Beauport inc." }),
+      page.getByRole("heading", { name: /Diagnostic de Aciers Beauport inc\./ }),
     ).toBeVisible({ timeout: 15000 })
     await expect(page.getByTestId("diagnostic-error")).toHaveCount(0)
   })

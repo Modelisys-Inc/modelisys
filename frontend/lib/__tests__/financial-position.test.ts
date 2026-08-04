@@ -7,6 +7,10 @@ import {
 } from "@/lib/financial-position"
 import { buildFinancialPositionBreakdownTables } from "@/lib/financial-position-breakdown"
 import { buildFinancialPositionNarrative } from "@/lib/financial-position-narrative"
+import {
+  evolutionTableWeightFromHeading,
+  packNarrativeParagraphs,
+} from "@/lib/report-narrative-pagination"
 
 const PERIODS: SeriesPeriod[] = [
   { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
@@ -596,5 +600,36 @@ describe("buildFinancialPositionBreakdownTables", () => {
     })
     const actTable = tables.get(familyHeading("ACT"))
     expect(actTable?.metrics[0]?.detailRows?.map((row) => row.id)).toEqual(["ACT-A"])
+  })
+})
+
+describe("financial position report lecture pagination", () => {
+  it("regroupe plusieurs postes de bilan sur une même page rapport", () => {
+    const result = buildFinancialPositionResult({
+      rows: ROWS,
+      periods: PERIODS,
+      mappings: MAPPINGS,
+      view: "years",
+      refMonth: 12,
+      refYear: 2025,
+    })!
+    const narrative = buildFinancialPositionNarrative(result, "years")!
+    const tables = buildFinancialPositionBreakdownTables({
+      result,
+      rows: ROWS,
+      periods: PERIODS,
+      mappings: MAPPINGS,
+      standardLinkCodes: STANDARD_LINK_CODES,
+      view: "years",
+      refMonth: 12,
+      refYear: 2025,
+    })
+    const pages = packNarrativeParagraphs(narrative.paragraphs, (heading) =>
+      evolutionTableWeightFromHeading(tables, heading),
+    )
+
+    expect(narrative.paragraphs.length).toBeGreaterThan(4)
+    expect(pages.length).toBeLessThanOrEqual(3)
+    expect(Math.max(...pages.map((page) => page.length))).toBeGreaterThanOrEqual(2)
   })
 })

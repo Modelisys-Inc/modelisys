@@ -12,6 +12,12 @@ import {
 } from "@/lib/working-capital-structure-utils"
 import type { SeriesPeriod } from "@/lib/api"
 import { yearPeriodIndicesFromReference } from "@/lib/series-reference-columns"
+import {
+  capexYearPeriodIndicesFromReference,
+  parseFiscalYearEndMonth,
+} from "@/lib/capex-year-reference"
+
+export { parseFiscalYearEndMonth }
 
 export const CAPEX_SETTINGS_ROW_ID = "__capex_settings__"
 
@@ -169,6 +175,7 @@ export function buildCapexOperandDisplayValues(
   periods: SeriesPeriod[],
   refMonth: number,
   refYear: number,
+  fiscalYearEndMonth?: number,
 ): number[] {
   const indices = pickCapexDisplayIndices(
     periodCount,
@@ -177,6 +184,7 @@ export function buildCapexOperandDisplayValues(
     periods,
     refMonth,
     refYear,
+    fiscalYearEndMonth,
   )
   return indices.map((periodIndex, displayIdx) => {
     if (periodIndex < 0) return 0
@@ -200,6 +208,7 @@ export function buildCapexRowDisplayValues(
   periods: SeriesPeriod[],
   refMonth: number,
   refYear: number,
+  fiscalYearEndMonth?: number,
 ): number[] {
   const usesCapexCost = structureRowConfigUsesCapexCostCodes(row)
   const effectiveMode = usesCapexCost ? mode : "actual"
@@ -210,6 +219,7 @@ export function buildCapexRowDisplayValues(
     periods,
     refMonth,
     refYear,
+    fiscalYearEndMonth,
   )
   return indices.map((periodIndex, displayIdx) => {
     if (periodIndex < 0) return 0
@@ -258,6 +268,7 @@ export function pickCapexDisplayIndices(
   periods?: SeriesPeriod[],
   refMonth?: number,
   refYear?: number,
+  fiscalYearEndMonth?: number,
 ): number[] {
   if (periodCount <= 0) return []
   if (view === "current") {
@@ -274,6 +285,15 @@ export function pickCapexDisplayIndices(
     refYear != null
   ) {
     const count = Math.max(1, trendCount || 6)
+    if (fiscalYearEndMonth != null) {
+      return capexYearPeriodIndicesFromReference(
+        periods,
+        refMonth,
+        refYear,
+        fiscalYearEndMonth,
+        count,
+      )
+    }
     return yearPeriodIndicesFromReference(periods, refMonth, refYear, count)
   }
   const count = Math.max(1, Math.min(trendCount || periodCount, periodCount))

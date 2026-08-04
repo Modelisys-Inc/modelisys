@@ -1,8 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import Link from "next/link"
-import { AlertCircle, ArrowLeft, Building2 } from "lucide-react"
+import { AlertCircle, Building2 } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { useCompanies } from "@/hooks/use-companies"
@@ -10,7 +9,6 @@ import { useCompanyDiagnostic } from "@/hooks/use-company-diagnostic"
 import { DiagnosticSkeleton } from "@/components/diagnostic/diagnostic-skeleton"
 import { buildSignals } from "@/lib/diagnostic-derive"
 import { DiagnosticHero } from "@/components/diagnostic/v2/diagnostic-hero"
-import { DiagnosticReportViewButton } from "@/components/diagnostic/v2/diagnostic-report-pdf-export"
 import { DiagnosticKpiStrip } from "@/components/diagnostic/v2/diagnostic-kpi-strip"
 import {
   DiagnosticNavRail,
@@ -45,6 +43,7 @@ const REPORT_VIEWS = [
   { id: "expenses-by-division" as const, label: "Divisions" },
   { id: "financial-position" as const, label: "Situation financière" },
   { id: "working-capital" as const, label: "Fonds de roulement" },
+  { id: "capex" as const, label: "Capex" },
 ]
 
 const SCROLL_SECTIONS = [
@@ -98,15 +97,12 @@ export function DiagnosticReportPage({
       <DashboardHeader title="Modelisys" />
 
       <main className="relative">
-        <div className="border-b border-slate-200 bg-white px-6 py-2">
-          <Link
-            href={`/modules/diagnostic${companyId ? `?companyId=${companyId}` : ""}`}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 transition-colors hover:text-[#2A2F3A]"
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden />
-            Mes diagnostics
-          </Link>
-        </div>
+        <DiagnosticHero
+          companyId={companyId}
+          diagnosticId={diagnosticId}
+          diagnostic={data}
+          loading={companiesLoading || loading}
+        />
 
         {!companiesLoading && companies.length === 0 && (
           <EmptyState message="Aucune société disponible. Créez d'abord une société dans la configuration pour générer un diagnostic." />
@@ -134,18 +130,6 @@ export function DiagnosticReportPage({
 
         {data && !loading && !error && (
           <div className="relative">
-            <DiagnosticHero
-              diagnostic={data}
-              leadingAction={
-                <DiagnosticReportViewButton
-                  diagnosticId={diagnosticId}
-                  companyId={companyId}
-                  referenceYear={data.reference_period.calendar_year}
-                  referenceMonth={data.reference_period.calendar_month}
-                />
-              }
-            />
-
             <DiagnosticKpiStrip diagnostic={data} onDrillDown={setDrillDown} />
 
             <div className="grid items-start xl:grid-cols-[210px_1fr]">

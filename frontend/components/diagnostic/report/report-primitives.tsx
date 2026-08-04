@@ -119,28 +119,35 @@ export function ReportChartExhibit({
 
 /** Page d'introduction de chapitre */
 export function ReportChapterIntroPage({
+  id,
   number,
   title,
   subtitle,
   description,
   icon: Icon,
+  testId,
+  footerMeta,
 }: {
+  id?: string
   number: number
   title: string
   subtitle: string
   description: string
   icon: LucideIcon
+  testId?: string
+  footerMeta?: string
 }) {
   return (
     <section
+      id={id}
       className="print-sheet print-chapter-intro"
-      data-testid={`report-chapter-intro-${number}`}
+      data-testid={testId ?? `report-chapter-intro-${number}`}
       aria-label={`Introduction — ${title}`}
     >
-      <div className="flex min-h-[190mm] flex-col justify-between px-16 py-14">
+      <div className="print-page-inner flex flex-col justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-[#E0742D]">
-            Chapitre {String(number).padStart(2, "0")}
+            Analyse {String(number).padStart(2, "0")}
           </p>
           <div className="mt-8 flex items-start gap-5">
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-[#E0742D]/25 bg-[#E0742D]/8">
@@ -154,9 +161,16 @@ export function ReportChapterIntroPage({
           <div className="mt-10 h-px w-24 bg-[#E0742D]" aria-hidden />
           <p className="mt-10 max-w-3xl text-[15px] leading-[1.75] text-slate-600">{description}</p>
         </div>
-        <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
-          Analyse détaillée — page suivante
-        </p>
+        <div className="space-y-2">
+          {footerMeta ? (
+            <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">
+              {footerMeta}
+            </p>
+          ) : null}
+          <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
+            Graphique et lecture — pages suivantes
+          </p>
+        </div>
       </div>
     </section>
   )

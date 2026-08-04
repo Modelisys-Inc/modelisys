@@ -42,7 +42,18 @@ export const CARD_CLASS =
   "overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
 
 /** Fond de page du rapport. */
-export const PAGE_CLASS = "min-h-screen bg-gradient-to-b from-white via-slate-50 to-white"
+export const PAGE_CLASS = "min-h-screen bg-slate-50"
+
+/** Bandeau héro du portail / rapport (fond ardoise Modelisys). */
+export const PORTAL_HERO_CLASS =
+  "relative w-full overflow-hidden border-b border-[#1F2430] bg-[#2A2F3A]"
+
+export const PORTAL_HERO_TITLE_CLASS =
+  "text-2xl font-semibold tracking-tight text-[#E6D6C3] sm:text-3xl"
+
+export const PORTAL_HERO_SUBTITLE_CLASS = "text-sm text-[#C9B8A5]/90 sm:text-base"
+
+export const PORTAL_HERO_META_CLASS = "text-sm text-[#C9B8A5]/75"
 
 /** Sous-carte (stat, encadré) à l'intérieur d'une section. */
 export const SUBCARD_CLASS =

@@ -97,7 +97,7 @@ export function DiagnosticReportPrintPageContent({
   }
 
   return (
-    <div className="diagnostic-report-print-root min-h-screen bg-white">
+    <div className="min-h-screen bg-white">
       <header
         data-testid="diagnostic-report-print-toolbar"
         className="diagnostic-report-print-toolbar sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur-sm"

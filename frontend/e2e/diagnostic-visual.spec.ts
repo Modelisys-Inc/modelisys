@@ -420,7 +420,9 @@ test.describe("Diagnostic — rendu visuel", () => {
     await page.goto(URL)
 
     await expect(
-      page.getByRole("heading", { name: "Groupe Industriel Laurentien inc." }),
+      page.getByRole("heading", {
+        name: /Diagnostic de Groupe Industriel Laurentien inc\. — 31 décembre/,
+      }),
     ).toBeVisible({ timeout: 15000 })
     await expect(page.getByRole("heading", { name: "Valorisation indicative" })).toBeVisible()
 

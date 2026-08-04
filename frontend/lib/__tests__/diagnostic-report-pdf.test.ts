@@ -1,10 +1,23 @@
 import { describe, expect, it } from "vitest"
+import { formatReportSectionMeta } from "@/components/diagnostic/diagnostic-format"
 import {
   buildDiagnosticReportPrintUrl,
   diagnosticReportPdfFilename,
   diagnosticReportSectionAnchorId,
 } from "@/lib/diagnostic-report-print"
-import { DIAGNOSTIC_REPORT_CHAPTERS } from "@/lib/diagnostic-report-chapters"
+import {
+  DIAGNOSTIC_PRINT_ANALYSES,
+  DIAGNOSTIC_REPORT_CHAPTERS,
+  reportAnalysisAnchorId,
+} from "@/lib/diagnostic-report-chapters"
+
+describe("formatReportSectionMeta", () => {
+  it("formats the report section subtitle with reference date", () => {
+    expect(formatReportSectionMeta("ManuFAC", 2026, 12, "CAD")).toBe(
+      "ManuFAC · Diagnostic financier · 31 Décembre 2026 · CAD",
+    )
+  })
+})
 
 describe("diagnosticReportPdfFilename", () => {
   it("builds a sanitized filename", () => {
@@ -33,28 +46,44 @@ describe("buildDiagnosticReportPrintUrl", () => {
 
 describe("diagnosticReportSectionAnchorId", () => {
   it("builds stable chapter anchors for TOC links", () => {
-    expect(diagnosticReportSectionAnchorId("executive-summary")).toBe(
-      "report-chapter-executive-global",
-    )
+    expect(diagnosticReportSectionAnchorId("performance")).toBe("report-chapter-performance")
     expect(diagnosticReportSectionAnchorId("working-capital")).toBe(
       "report-chapter-working-capital",
     )
-    expect(diagnosticReportSectionAnchorId("valorisation")).toBe("report-chapter-valuation")
+    expect(diagnosticReportSectionAnchorId("capex")).toBe("report-chapter-capex")
+  })
+})
+
+describe("reportAnalysisAnchorId", () => {
+  it("builds stable intro and chart anchors", () => {
+    expect(reportAnalysisAnchorId("performance", "intro")).toBe("report-performance-intro")
+    expect(reportAnalysisAnchorId("performance", "chart")).toBe("report-performance-chart")
+    expect(reportAnalysisAnchorId("margin-by-revenue", "intro")).toBe("report-margin-by-revenue-intro")
+  })
+})
+
+describe("DIAGNOSTIC_PRINT_ANALYSES", () => {
+  it("defines an intro page for each printed analysis", () => {
+    expect(DIAGNOSTIC_PRINT_ANALYSES.length).toBeGreaterThanOrEqual(8)
+    for (const analysis of DIAGNOSTIC_PRINT_ANALYSES) {
+      expect(analysis.intro.title.length).toBeGreaterThan(0)
+      expect(analysis.intro.description.length).toBeGreaterThan(20)
+    }
   })
 })
 
 describe("DIAGNOSTIC_REPORT_CHAPTERS", () => {
-  it("covers major consulting chapters including capex, cashflow and valuation", () => {
+  it("covers performance through capex only (no valuation or cashflow)", () => {
     const ids = DIAGNOSTIC_REPORT_CHAPTERS.map((c) => c.id)
-    expect(ids).toContain("executive-global")
     expect(ids).toContain("performance")
     expect(ids).toContain("revenue")
     expect(ids).toContain("expenses")
     expect(ids).toContain("financial-position")
     expect(ids).toContain("working-capital")
     expect(ids).toContain("capex")
-    expect(ids).toContain("cashflow")
-    expect(ids).toContain("valuation")
-    expect(DIAGNOSTIC_REPORT_CHAPTERS.filter((c) => c.introPage).length).toBeGreaterThanOrEqual(8)
+    expect(ids).not.toContain("executive-global")
+    expect(ids).not.toContain("cashflow")
+    expect(ids).not.toContain("valuation")
+    expect(DIAGNOSTIC_REPORT_CHAPTERS.every((c) => !c.introPage)).toBe(true)
   })
 })

@@ -10,10 +10,14 @@ import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-ser
 import { getRowAmounts, findRow, reverseSeriesOrderForDisplay } from "@/lib/series-utils"
 import {
   findPeriodIndexForCalendarMonth,
-  sliceAmountsAtReferenceMonthYears,
-  yearLabelsFromReference,
   calendarYearSequenceFromReference,
 } from "@/lib/series-reference-columns"
+import {
+  capexYearLabelsChronological,
+  parseFiscalYearEndMonth,
+  sliceAmountsAtCapexReferenceYears,
+  capexYearCalendarMonth,
+} from "@/lib/capex-year-reference"
 import { getStatementStructure } from "@/lib/api"
 import {
   resolveWorkingCapitalStructureAmount,
@@ -42,6 +46,14 @@ import {
 } from "@/lib/capex-analysis-settings"
 import { ChevronDown, ChevronRight, LayoutList, Settings, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { IncomePerformanceNarrativeSection } from "@/components/diagnostic/v2/income-performance-narrative-section"
+import { ReportNarrativePrint } from "@/components/diagnostic/report/report-narrative-print"
+import {
+  lecturePageCountFromPacked,
+  packNarrativeParagraphs,
+  paragraphsForPackedPage,
+} from "@/lib/report-narrative-pagination"
+import { buildCapexDiagnosticNarrative } from "@/lib/capex-diagnostic-narrative"
 import {
   dashboardCardAccentClass,
   dashboardCardBodyMutedClass,
@@ -54,6 +66,10 @@ import {
 } from "@/lib/dashboard-card-style"
 
 interface CapexAnalysisProps {
+  appearance?: "dashboard" | "diagnostic" | "report"
+  printSegment?: "chart" | "narrative"
+  narrativePageIndex?: number
+  onNarrativePageCount?: (count: number) => void
   period: "monthly" | "quarterly" | "annual"
   view: "current" | "12months" | "24months" | "years"
   companyId?: string | null
@@ -119,6 +135,10 @@ function formatMetricValue(value: number, format: MetricFormat): string {
 }
 
 export function CapexAnalysis({
+  appearance = "dashboard",
+  printSegment,
+  narrativePageIndex,
+  onNarrativePageCount,
   period,
   view,
   companyId,
@@ -133,11 +153,17 @@ export function CapexAnalysis({
 }: CapexAnalysisProps) {
   const resolvedYear = fiscalYear ?? new Date().getFullYear()
   const resolvedMonth = referenceMonth ?? new Date().getMonth() + 1
+  const fiscalYearEndMonth = parseFiscalYearEndMonth(
+    companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
+  )
   const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
   /** CDR : fenêtre affichée + 11 mois pour calculer le TTM à chaque date de référence. */
   const isMonthsNeeded = monthsNeeded + WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS
   const [structureEditMode, setStructureEditMode] = useState(false)
+  const [narrativeStructureEditOpen, setNarrativeStructureEditOpen] = useState(false)
+  const [localStructureVersion, setLocalStructureVersion] = useState(0)
   const [structure, setStructure] = useState<Record<string, unknown>[]>([])
+  const [structureLoaded, setStructureLoaded] = useState(false)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
   const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
@@ -164,26 +190,37 @@ export function CapexAnalysis({
   })
 
   const loading = bsLoading || isLoading
-  const canInlineStructureEdit = showStructureSettings && !!companyId
+  const isDiagnosticAppearance = appearance === "diagnostic" || appearance === "report"
+  const isReportAppearance = appearance === "report"
+  const canInlineStructureEdit = showStructureSettings && !!companyId && appearance === "dashboard"
+  const canNarrativeStructureEdit = appearance === "diagnostic" && !!companyId
   const isStructureStudio = structureEditMode && canInlineStructureEdit
 
   useEffect(() => {
     if (!companyId) {
       setStructure([])
+      setStructureLoaded(false)
       return
     }
     let cancelled = false
+    setStructureLoaded(false)
     getStatementStructure(companyId, "capex")
       .then((res) => {
-        if (!cancelled) setStructure(Array.isArray(res.structure) ? res.structure : [])
+        if (!cancelled) {
+          setStructure(Array.isArray(res.structure) ? res.structure : [])
+          setStructureLoaded(true)
+        }
       })
       .catch(() => {
-        if (!cancelled) setStructure([])
+        if (!cancelled) {
+          setStructure([])
+          setStructureLoaded(true)
+        }
       })
     return () => {
       cancelled = true
     }
-  }, [companyId, structureVersion])
+  }, [companyId, structureVersion, localStructureVersion])
 
   const data: AnalysisData = useMemo(() => {
     const empty: AnalysisData = {
@@ -246,39 +283,44 @@ export function CapexAnalysis({
       let finalEbitda: number[]
 
       if (view === "years") {
-        finalFixed = sliceAmountsAtReferenceMonthYears(
+        finalFixed = sliceAmountsAtCapexReferenceYears(
           totalFixedAmounts,
           bsPeriods,
           resolvedMonth,
           resolvedYear,
+          fiscalYearEndMonth,
           6,
         )
-        finalDepreciation = sliceAmountsAtReferenceMonthYears(
+        finalDepreciation = sliceAmountsAtCapexReferenceYears(
           depreciationForBsPeriods,
           bsPeriods,
           resolvedMonth,
           resolvedYear,
+          fiscalYearEndMonth,
           6,
         )
-        finalRevenue = sliceAmountsAtReferenceMonthYears(
+        finalRevenue = sliceAmountsAtCapexReferenceYears(
           revenueTtmForBsPeriods,
           bsPeriods,
           resolvedMonth,
           resolvedYear,
+          fiscalYearEndMonth,
           6,
         )
-        finalEbitda = sliceAmountsAtReferenceMonthYears(
+        finalEbitda = sliceAmountsAtCapexReferenceYears(
           ebitdaForBsPeriods,
           bsPeriods,
           resolvedMonth,
           resolvedYear,
+          fiscalYearEndMonth,
           6,
         )
       } else {
-        finalFixed = totalFixedAmounts
-        finalDepreciation = depreciationForBsPeriods
-        finalRevenue = revenueTtmForBsPeriods
-        finalEbitda = ebitdaForBsPeriods
+        const windowSize = view === "24months" ? 24 : 12
+        finalFixed = totalFixedAmounts.slice(-windowSize)
+        finalDepreciation = depreciationForBsPeriods.slice(-windowSize)
+        finalRevenue = revenueTtmForBsPeriods.slice(-windowSize)
+        finalEbitda = ebitdaForBsPeriods.slice(-windowSize)
       }
 
       const len = Math.max(
@@ -324,7 +366,7 @@ export function CapexAnalysis({
       priorEbitda: eLen > 1 ? ebitdaForBsPeriods[eLen - 2]! : 0,
       trendValues: undefined,
     }
-  }, [bsRows, isRows, bsPeriods, isPeriods, view, resolvedMonth, resolvedYear])
+  }, [bsRows, isRows, bsPeriods, isPeriods, view, resolvedMonth, resolvedYear, fiscalYearEndMonth])
 
   const calculateCapexHeuristic = (isPrior: boolean, trendIndex?: number): number => {
     const idx = periodIndexFor(isPrior, trendIndex)
@@ -389,7 +431,8 @@ export function CapexAnalysis({
       if (view === "years" && bsPeriods.length > 0) {
         const yearsChronological = [...calendarYearSequenceFromReference(resolvedYear, 6)].reverse()
         const year = yearsChronological[Math.max(0, Math.min(trendIndex, yearsChronological.length - 1))]!
-        const idx = findPeriodIndexForCalendarMonth(bsPeriods, resolvedMonth, year)
+        const month = capexYearCalendarMonth(year, resolvedMonth, resolvedYear, fiscalYearEndMonth)
+        const idx = findPeriodIndexForCalendarMonth(bsPeriods, month, year)
         return idx >= 0 ? idx : 0
       }
       return Math.max(0, Math.min(trendIndex, Math.max(0, bsPeriods.length - 1)))
@@ -399,8 +442,7 @@ export function CapexAnalysis({
   }
 
   const trendCount =
-    data.trendValues?.length ||
-    (view === "24months" ? 24 : view === "years" ? 6 : view === "12months" ? 12 : 0)
+    view === "24months" ? 24 : view === "years" ? 6 : view === "12months" ? 12 : 0
 
   const operandDisplayContext = useMemo(
     () => ({ bsRows, isRows }),
@@ -490,11 +532,13 @@ export function CapexAnalysis({
         bsPeriods,
         resolvedMonth,
         resolvedYear,
+        fiscalYearEndMonth,
       ),
     [
       bsPeriods,
       resolvedMonth,
       resolvedYear,
+      fiscalYearEndMonth,
       resolveCapexStructureAmountForDisplay,
       resolveOperandAmountAtPeriod,
       trendCount,
@@ -514,11 +558,13 @@ export function CapexAnalysis({
         bsPeriods,
         resolvedMonth,
         resolvedYear,
+        fiscalYearEndMonth,
       ),
     [
       bsPeriods,
       resolvedMonth,
       resolvedYear,
+      fiscalYearEndMonth,
       resolveOperandAmountAtPeriod,
       trendCount,
       view,
@@ -703,15 +749,18 @@ export function CapexAnalysis({
             : "Passé"
         return [last, prior]
       }
+      const monthlyWindow = view === "24months" ? 24 : view === "12months" ? 12 : bsPeriods.length
       const chronological =
         view === "years"
-          ? yearLabelsFromReference(resolvedYear, 6).reverse()
-          : bsPeriods.map((p) => p.label)
+          ? capexYearLabelsChronological(resolvedMonth, resolvedYear, fiscalYearEndMonth, 6)
+          : bsPeriods.slice(-monthlyWindow).map((p) => p.label)
       return reverseSeriesOrderForDisplay(chronological)
     }
     if (view === "current") return ["Courant", "Passé"]
     if (view === "years") {
-      return yearLabelsFromReference(resolvedYear, 6)
+      return reverseSeriesOrderForDisplay(
+        capexYearLabelsChronological(resolvedMonth, resolvedYear, fiscalYearEndMonth, 6),
+      )
     }
     const count = view === "24months" ? 24 : 12
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
@@ -737,32 +786,136 @@ export function CapexAnalysis({
   const tableColumnCount =
     2 + (view === "current" ? 2 : Math.max(trendCount, getPeriodColumnLabels().length, 1))
 
+  const capexDiagnosticNarrative = useMemo(() => {
+    if (!isDiagnosticAppearance || !companyId || !structureLoaded || loading) return null
+
+    const displayLabels = getPeriodColumnLabels()
+    const chronologicalLabels =
+      view === "current"
+        ? displayLabels
+        : [...displayLabels].reverse()
+
+    const metrics = tableRows
+      .filter(
+        (item): item is Extract<typeof item, { kind: "metric" }> =>
+          item.kind === "metric" && item.metric.showAmounts,
+      )
+      .map((item) => {
+        const chronologicalValues =
+          view === "current"
+            ? [item.metric.valueAt(false), item.metric.valueAt(true)]
+            : Array.from({ length: trendCount }, (_, idx) => item.metric.valueAt(false, idx))
+        return {
+          key: item.key,
+          label: item.metric.label,
+          format: item.metric.format,
+          values: chronologicalValues,
+          periodLabels: chronologicalLabels,
+        }
+      })
+
+    return buildCapexDiagnosticNarrative({ metrics, view })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isDiagnosticAppearance,
+    companyId,
+    structureLoaded,
+    loading,
+    tableRows,
+    view,
+    trendCount,
+    bsPeriods,
+    structure,
+  ])
+
+  const capexPackedPages = useMemo(
+    () => packNarrativeParagraphs(capexDiagnosticNarrative?.paragraphs),
+    [capexDiagnosticNarrative],
+  )
+
+  useEffect(() => {
+    if (printSegment !== "narrative" || !onNarrativePageCount) return
+    onNarrativePageCount(lecturePageCountFromPacked(capexPackedPages.length))
+  }, [printSegment, onNarrativePageCount, capexPackedPages.length])
+
+  const paginatedCapexNarrative = useMemo(() => {
+    if (!capexDiagnosticNarrative) return null
+    if (narrativePageIndex === undefined) return capexDiagnosticNarrative
+    const pageParagraphs = paragraphsForPackedPage(capexPackedPages, narrativePageIndex)
+    if (!pageParagraphs.length) return null
+    return { ...capexDiagnosticNarrative, paragraphs: pageParagraphs }
+  }, [capexDiagnosticNarrative, narrativePageIndex, capexPackedPages])
+
   /** Style montants : Détail CDR (slate-500) ; postes gras → libellé + montants en gras. */
-  const metricColumnClass =
-    "box-border w-[18rem] min-w-[18rem] max-w-[18rem] sm:w-[20rem] sm:min-w-[20rem] sm:max-w-[20rem]"
+  const metricColumnClass = isDiagnosticAppearance
+    ? "box-border min-w-[9.5rem] max-w-[14rem]"
+    : "box-border w-[18rem] min-w-[18rem] max-w-[18rem] sm:w-[20rem] sm:min-w-[20rem] sm:max-w-[20rem]"
   const amountCellClass = (isBold?: boolean) =>
     cn(
-      "whitespace-nowrap px-6 py-3 text-right text-sm",
-      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
+      isDiagnosticAppearance
+        ? "whitespace-nowrap px-3 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums"
+        : "whitespace-nowrap px-6 py-3 text-right text-sm",
+      isBold
+        ? isDiagnosticAppearance
+          ? "text-[#2A2F3A]"
+          : "font-semibold font-bold text-slate-900"
+        : "text-slate-500",
     )
   const amountTrendCellClass = (isBold?: boolean) =>
     cn(
-      "min-w-[5.5rem] whitespace-nowrap px-4 py-3 text-right text-sm",
-      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
+      isDiagnosticAppearance
+        ? "min-w-[4.5rem] whitespace-nowrap px-2.5 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums"
+        : "min-w-[5.5rem] whitespace-nowrap px-4 py-3 text-right text-sm",
+      isBold
+        ? isDiagnosticAppearance
+          ? "text-[#2A2F3A]"
+          : "font-semibold font-bold text-slate-900"
+        : "text-slate-500",
     )
   const amountAverageCellClass = (isBold?: boolean) =>
     cn(
-      "min-w-[7.5rem] whitespace-nowrap bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3 text-right text-sm",
-      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
+      isDiagnosticAppearance
+        ? "min-w-[4.5rem] whitespace-nowrap bg-slate-50/90 px-2.5 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums"
+        : "min-w-[7.5rem] whitespace-nowrap bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3 text-right text-sm",
+      isBold
+        ? isDiagnosticAppearance
+          ? "text-[#2A2F3A]"
+          : "font-semibold font-bold text-slate-900"
+        : "text-slate-500",
     )
   const metricLabelCellClass = (isBold?: boolean, isChild?: boolean) =>
     cn(
       metricColumnClass,
-      "sticky left-0 z-10",
+      !isDiagnosticAppearance && "sticky left-0 z-10",
       isChild
-        ? "bg-slate-50 py-2.5 pl-14 pr-6 text-sm text-slate-600"
-        : cn("bg-white px-6 py-3 text-slate-900", isBold && "font-bold"),
+        ? isDiagnosticAppearance
+          ? "bg-slate-50/80 py-2 pl-10 pr-3 text-[11.5px] text-slate-600"
+          : "bg-slate-50 py-2.5 pl-14 pr-6 text-sm text-slate-600"
+        : isDiagnosticAppearance
+          ? cn("bg-white px-3 py-[9px] text-[11.5px] text-[#2A2F3A]", isBold && "font-semibold")
+          : cn("bg-white px-6 py-3 text-slate-900", isBold && "font-bold"),
     )
+  const tableHeaderClass = isDiagnosticAppearance
+    ? "px-3 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-slate-500"
+    : "px-6 py-4 text-sm font-semibold text-[#2A2F3A]"
+  const tableHeaderAverageClass = cn(
+    tableHeaderClass,
+    isDiagnosticAppearance ? "min-w-[4.5rem]" : "min-w-[7.5rem]",
+    "text-right",
+    !isDiagnosticAppearance && "bg-gradient-to-b from-slate-50 to-slate-100/50",
+  )
+  const tableHeaderPeriodClass = isDiagnosticAppearance
+    ? cn(tableHeaderClass, "min-w-[4.5rem] text-right")
+    : cn(
+        tableHeaderClass,
+        "text-right",
+        view === "current" ? "min-w-[7.5rem]" : "min-w-[5.5rem] px-4",
+      )
+  const rowHoverClass = isDiagnosticAppearance ? "hover:bg-slate-50" : "hover:bg-[#E0742D]/[0.04]"
+  const rowHoverCellClass = isDiagnosticAppearance ? "group-hover:bg-slate-50" : "group-hover:bg-[#FDF6F1]"
+  const averageRowHoverCellClass = isDiagnosticAppearance
+    ? "group-hover:from-slate-100 group-hover:to-slate-100/70"
+    : "group-hover:from-[#FDF6F1] group-hover:to-[#FDF6F1]"
 
   const renderMetricRow = (
     rowKey: string,
@@ -810,21 +963,22 @@ export function CapexAnalysis({
       <Fragment key={rowKey}>
         <tr
           className={cn(
-            "group transition-colors hover:bg-[#E0742D]/[0.04]",
+            "group transition-colors",
+            rowHoverClass,
             canExpand && "cursor-pointer",
           )}
           onClick={canExpand ? () => toggleRow(rowKey) : undefined}
           data-testid={canExpand ? `capex-metric-expand-${rowKey}` : undefined}
           aria-expanded={canExpand ? isExpanded : undefined}
         >
-          <td className={cn(metricLabelCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+          <td className={cn(metricLabelCellClass(metric.isBold), rowHoverCellClass)}>
             <div className="flex items-center gap-2">
               {canExpand ? (
                 <span className="flex-shrink-0" aria-hidden>
                   {isExpanded ? (
-                    <ChevronDown className="h-4 w-4 text-slate-500" />
+                    <ChevronDown className={cn(isDiagnosticAppearance ? "h-3 w-3" : "h-4 w-4", "text-slate-500")} />
                   ) : (
-                    <ChevronRight className="h-4 w-4 text-slate-500" />
+                    <ChevronRight className={cn(isDiagnosticAppearance ? "h-3 w-3" : "h-4 w-4", "text-slate-500")} />
                   )}
                 </span>
               ) : (
@@ -833,15 +987,15 @@ export function CapexAnalysis({
               <span className="min-w-0 truncate">{metric.label}</span>
             </div>
           </td>
-          <td className={cn(amountAverageCellClass(metric.isBold), "group-hover:from-[#FDF6F1] group-hover:to-[#FDF6F1]")}>
+          <td className={cn(amountAverageCellClass(metric.isBold), averageRowHoverCellClass)}>
             {formatCell(average)}
           </td>
           {view === "current" ? (
             <>
-              <td className={cn(amountCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+              <td className={cn(amountCellClass(metric.isBold), rowHoverCellClass)}>
                 {formatCell(values[0] ?? 0)}
               </td>
-              <td className={cn(amountCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+              <td className={cn(amountCellClass(metric.isBold), rowHoverCellClass)}>
                 {formatCell(values[1] ?? 0)}
               </td>
             </>
@@ -849,7 +1003,7 @@ export function CapexAnalysis({
             values.map((v, idx) => (
               <td
                 key={idx}
-                className={cn(amountTrendCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}
+                className={cn(amountTrendCellClass(metric.isBold), rowHoverCellClass)}
               >
                 {formatCell(v)}
               </td>
@@ -915,6 +1069,211 @@ export function CapexAnalysis({
     )
   }
 
+  const analysisBody = isStructureStudio ? (
+    <StatementStructureStudio
+      embedded
+      companyId={companyId!}
+      statementType="capex"
+      hideAnnexColumns
+      onSaved={() => {
+        onStructureSaved?.()
+        setStructureEditMode(false)
+      }}
+      onClose={() => setStructureEditMode(false)}
+    />
+  ) : (
+    <>
+      {loading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
+        </div>
+      )}
+
+      {!companyId && !loading && (
+        <div className="flex items-center justify-center py-12 text-sm text-slate-500">
+          Sélectionnez une société
+        </div>
+      )}
+
+      {!loading && companyId && (
+        <div
+          className={cn(
+            "min-w-0 bg-white",
+            isReportAppearance && printSegment === "chart"
+              ? "report-chart-indicator-table-wrap overflow-x-auto pb-1 pt-1"
+              : isDiagnosticAppearance
+                ? "overflow-x-auto pb-2 pt-2"
+                : "max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
+          )}
+          data-testid="capex-summary-table-scroll"
+        >
+          <table className="w-full min-w-max border-separate border-spacing-0">
+            <thead
+              className={cn(
+                !isDiagnosticAppearance && "[&_th]:sticky [&_th]:top-0 [&_th]:z-20",
+                isDiagnosticAppearance
+                  ? "[&_th]:border-b [&_th]:border-slate-200"
+                  : "[&_th]:border-b-2 [&_th]:border-slate-200 [&_th]:bg-gradient-to-b [&_th]:from-slate-50 [&_th]:to-slate-100/80 [&_th:first-child]:left-0 [&_th:first-child]:z-30",
+              )}
+            >
+              <tr>
+                <th className={cn(metricColumnClass, tableHeaderClass, "text-left")}>Métrique</th>
+                <th className={tableHeaderAverageClass}>Moyenne</th>
+                {getPeriodColumnLabels().map((label, idx) => (
+                  <th key={idx} className={tableHeaderPeriodClass}>
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody
+              className={cn(
+                isDiagnosticAppearance
+                  ? "[&_td]:border-t [&_td]:border-slate-200"
+                  : "[&_td]:border-b [&_td]:border-slate-200 [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+              )}
+            >
+              {tableRows.map((item) => {
+                if (item.kind === "separator") {
+                  return (
+                    <tr key={item.key} aria-hidden data-testid="capex-structure-separator">
+                      <td colSpan={tableColumnCount} className="border-0 p-0">
+                        <div className="my-1 border-t-2 border-slate-700" />
+                      </td>
+                    </tr>
+                  )
+                }
+                if (item.kind === "spacer") {
+                  const periodColCount =
+                    view === "current"
+                      ? 2
+                      : Math.max(trendCount, getPeriodColumnLabels().length, 1)
+                  return (
+                    <tr key={item.key} data-testid="capex-structure-spacer" className="h-2">
+                      <td
+                        className={cn(
+                          metricColumnClass,
+                          !isDiagnosticAppearance && "sticky left-0 z-10 bg-white",
+                          isDiagnosticAppearance ? "px-3 py-4" : "px-6 py-4",
+                          "text-transparent select-none",
+                        )}
+                      >
+                        {"\u00a0"}
+                      </td>
+                      <td
+                        className={cn(
+                          amountAverageCellClass(false),
+                          "py-4 text-transparent select-none",
+                        )}
+                        data-testid="capex-spacer-average-cell"
+                      >
+                        {"\u00a0"}
+                      </td>
+                      {Array.from({ length: periodColCount }, (_, idx) => (
+                        <td
+                          key={idx}
+                          className={cn(
+                            view === "current"
+                              ? amountCellClass(false)
+                              : amountTrendCellClass(false),
+                            "py-4 text-transparent select-none",
+                          )}
+                        >
+                          {"\u00a0"}
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                }
+                return renderMetricRow(item.key, item.metric, item.operands, item.structureRow)
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  )
+
+  if (isDiagnosticAppearance) {
+    const narrativeForSection =
+      paginatedCapexNarrative ??
+      (canNarrativeStructureEdit && !isReportAppearance && narrativePageIndex === undefined
+        ? {
+            title: "Lecture des Capex",
+            subtitle:
+              view === "years"
+                ? "Évolution des investissements et ratios d'intensité capitalistique sur les cinq derniers exercices."
+                : "Évolution des investissements et ratios d'intensité capitalistique sur les douze derniers mois.",
+            mode: view === "years" ? ("annual" as const) : ("monthly" as const),
+            paragraphs: [],
+          }
+        : null)
+
+    const narrativeBlock =
+      narrativeForSection != null ? (
+        isReportAppearance ? (
+          <ReportNarrativePrint
+            testId="capex-narrative"
+            narrative={narrativeForSection}
+            showHeader={narrativePageIndex === undefined || narrativePageIndex === 0}
+          />
+        ) : (
+          <IncomePerformanceNarrativeSection
+            testId="capex-narrative"
+            narrative={narrativeForSection}
+            headerActions={
+              canNarrativeStructureEdit && !narrativeStructureEditOpen ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={dashboardCardStructureSettingsButtonClass}
+                  onClick={() => setNarrativeStructureEditOpen(true)}
+                  data-testid="capex-narrative-settings"
+                >
+                  <Settings className={cn("h-4 w-4", dashboardCardAccentClass)} />
+                  Paramètres
+                </Button>
+              ) : null
+            }
+            settingsPanel={
+              narrativeStructureEditOpen && companyId ? (
+                <StatementStructureStudio
+                  embedded
+                  companyId={companyId}
+                  statementType="capex"
+                  hideAnnexColumns
+                  onSaved={() => {
+                    setLocalStructureVersion((v) => v + 1)
+                    onStructureSaved?.()
+                    setNarrativeStructureEditOpen(false)
+                  }}
+                  onClose={() => setNarrativeStructureEditOpen(false)}
+                />
+              ) : null
+            }
+          />
+        )
+      ) : null
+
+    if (printSegment === "chart") {
+      return <div className="report-capex-chart-only">{analysisBody}</div>
+    }
+    if (printSegment === "narrative") {
+      if (!narrativeBlock && narrativePageIndex !== undefined && narrativePageIndex > 0) {
+        return null
+      }
+      return narrativeBlock
+    }
+
+    return (
+      <>
+        {analysisBody}
+        {narrativeBlock}
+      </>
+    )
+  }
+
   return (
     <div className={cn("mb-6", dashboardCardFrameStaticClass)}>
       <div className={dashboardCardRingClass} aria-hidden />
@@ -977,143 +1336,7 @@ export function CapexAnalysis({
         </div>
       </div>
 
-      {isStructureStudio ? (
-        <StatementStructureStudio
-          embedded
-          companyId={companyId!}
-          statementType="capex"
-          hideAnnexColumns
-          onSaved={() => {
-            onStructureSaved?.()
-            setStructureEditMode(false)
-          }}
-          onClose={() => setStructureEditMode(false)}
-        />
-      ) : (
-        <>
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
-            </div>
-          )}
-
-          {!companyId && !loading && (
-            <div className="flex items-center justify-center py-12 text-sm text-slate-500">
-              Sélectionnez une société
-            </div>
-          )}
-
-          {!loading && companyId && (
-              <div
-                className="min-w-0 max-h-[min(72vh,56rem)] overflow-auto overscroll-contain bg-white"
-                data-testid="capex-summary-table-scroll"
-              >
-                <table className="w-full min-w-max border-separate border-spacing-0">
-                  <thead
-                    className={cn(
-                      "[&_th]:sticky [&_th]:top-0 [&_th]:z-20",
-                      "[&_th]:border-b-2 [&_th]:border-slate-200",
-                      "[&_th]:bg-gradient-to-b [&_th]:from-slate-50 [&_th]:to-slate-100/80",
-                      "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
-                    )}
-                  >
-                    <tr>
-                      <th
-                        className={cn(
-                          metricColumnClass,
-                          "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
-                        )}
-                      >
-                        Métrique
-                      </th>
-                      <th
-                        className={cn(
-                          "min-w-[7.5rem] whitespace-nowrap px-6 py-4 text-right text-sm font-semibold text-[#2A2F3A]",
-                          "bg-gradient-to-b from-slate-50 to-slate-100/50",
-                        )}
-                      >
-                        Moyenne
-                      </th>
-                      {getPeriodColumnLabels().map((label, idx) => (
-                        <th
-                          key={idx}
-                          className={cn(
-                            "whitespace-nowrap text-right text-sm font-semibold text-[#2A2F3A]",
-                            view === "current"
-                              ? "min-w-[7.5rem] px-6 py-4"
-                              : "min-w-[5.5rem] px-4 py-4",
-                          )}
-                        >
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody
-                    className={cn(
-                      // Même motif que CDR / Bilan : bordures sur les td (border-separate).
-                      "[&_td]:border-b [&_td]:border-slate-200",
-                      "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
-                    )}
-                  >
-                    {tableRows.map((item) => {
-                      if (item.kind === "separator") {
-                        return (
-                          <tr key={item.key} aria-hidden data-testid="capex-structure-separator">
-                            <td colSpan={tableColumnCount} className="border-0 p-0">
-                              <div className="my-1 border-t-2 border-slate-700" />
-                            </td>
-                          </tr>
-                        )
-                      }
-                      if (item.kind === "spacer") {
-                        const periodColCount =
-                          view === "current"
-                            ? 2
-                            : Math.max(trendCount, getPeriodColumnLabels().length, 1)
-                        return (
-                          <tr key={item.key} data-testid="capex-structure-spacer" className="h-2">
-                            <td
-                              className={cn(
-                                metricColumnClass,
-                                "sticky left-0 z-10 bg-white px-6 py-4 text-transparent select-none",
-                              )}
-                            >
-                              {"\u00a0"}
-                            </td>
-                            <td
-                              className={cn(
-                                amountAverageCellClass(false),
-                                "py-4 text-transparent select-none",
-                              )}
-                              data-testid="capex-spacer-average-cell"
-                            >
-                              {"\u00a0"}
-                            </td>
-                            {Array.from({ length: periodColCount }, (_, idx) => (
-                              <td
-                                key={idx}
-                                className={cn(
-                                  view === "current"
-                                    ? amountCellClass(false)
-                                    : amountTrendCellClass(false),
-                                  "py-4 text-transparent select-none",
-                                )}
-                              >
-                                {"\u00a0"}
-                              </td>
-                            ))}
-                          </tr>
-                        )
-                      }
-                      return renderMetricRow(item.key, item.metric, item.operands, item.structureRow)
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-        </>
-      )}
+      {analysisBody}
     </div>
   )
 }

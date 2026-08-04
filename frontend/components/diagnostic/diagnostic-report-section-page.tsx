@@ -6,9 +6,7 @@ interface DiagnosticReportSectionPageProps {
   sectionNumber: string
   sectionTitle: string
   companyName: string
-  referenceLabel: string
-  fiscalYear: number
-  currency: string
+  sectionMeta: string
   isFirstContentSection: boolean
   className?: string
   children: ReactNode
@@ -19,9 +17,7 @@ export function DiagnosticReportSectionPage({
   sectionNumber,
   sectionTitle,
   companyName,
-  referenceLabel,
-  fiscalYear,
-  currency,
+  sectionMeta,
   isFirstContentSection,
   className = "",
   children,
@@ -33,7 +29,7 @@ export function DiagnosticReportSectionPage({
       id={id}
       data-report-section
       data-testid={`diagnostic-report-section-${testIdSuffix}`}
-      className={`print-content-section print-chapter-content ${isFirstContentSection ? "" : "print-content-section-break"} ${className}`.trim()}
+      className={`print-content-section print-chapter-content flex flex-col ${isFirstContentSection ? "" : "print-content-section-break"} ${className}`.trim()}
     >
       <header className="print-section-header report-avoid-break">
         <div className="flex items-start justify-between gap-4">
@@ -45,18 +41,16 @@ export function DiagnosticReportSectionPage({
               <span className="h-3.5 w-px bg-slate-200" aria-hidden />
               <p className="text-[13px] font-semibold text-[#2A2F3A]">{sectionTitle}</p>
             </div>
-            <p className="mt-1 text-[10px] text-slate-500">
-              {companyName} · Réf. {referenceLabel} · Exercice {fiscalYear} · {currency}
-            </p>
+            <p className="mt-1 text-[10px] text-slate-500">{sectionMeta}</p>
           </div>
           <ModelisysWordmark variant="dark" size="sm" className="shrink-0 opacity-75" />
         </div>
         <div className="mt-2.5 h-0.5 w-14 bg-[#E0742D]" aria-hidden />
       </header>
 
-      {children}
+      <div className="print-section-body min-h-0 flex-1">{children}</div>
 
-      <footer className="print-section-footer report-avoid-break">
+      <footer className="print-section-footer report-avoid-break shrink-0">
         <ModelisysWordmark variant="dark" size="sm" className="!text-[9px] opacity-70" />
         <span className="text-center">
           {companyName} · Confidentiel · {sectionTitle}

@@ -6,7 +6,6 @@ import {
   sliceAmountsAtReferenceMonthYears,
 } from "../series-reference-columns"
 import { pickCapexDisplayIndices } from "../capex-analysis-settings"
-
 function makePeriods(): SeriesPeriod[] {
   const out: SeriesPeriod[] = []
   for (let year = 2021; year <= 2026; year++) {
@@ -74,5 +73,12 @@ describe("reference month year snapshots", () => {
     const indices = pickCapexDisplayIndices(periods.length, "years", 6, periods, 8, 2026)
     expect(periods[indices[indices.length - 1]!]?.label).toBe("Août 2026")
     expect(periods[indices[0]!]?.label).toBe("Août 2021")
+  })
+
+  it("pickCapexDisplayIndices uses fiscal year end for prior years when provided", () => {
+    const indices = pickCapexDisplayIndices(periods.length, "years", 6, periods, 8, 2026, 12)
+    expect(periods[indices[indices.length - 1]!]?.label).toBe("Août 2026")
+    expect(periods[indices[indices.length - 2]!]?.label).toBe("Décembre 2025")
+    expect(periods[indices[0]!]?.label).toBe("Décembre 2021")
   })
 })

@@ -34,6 +34,10 @@ const NARRATIVE_SECTION_META: Record<
     title: "Fonds de roulement",
     description: "Évolution des ratios FDR, cycle de trésorerie et structure en % des revenus.",
   },
+  capex: {
+    title: "Investissements",
+    description: "Évolution des dépenses d'investissement et ratios d'intensité capitalistique.",
+  },
 }
 
 function groupNarrativeParagraphs(paragraphs: PerformanceNarrativeResultNonNull["paragraphs"]) {
@@ -56,6 +60,7 @@ function groupNarrativeParagraphs(paragraphs: PerformanceNarrativeResultNonNull[
     "division-profitability",
     "financial-position",
     "working-capital",
+    "capex",
     "revenue-mix",
   ] as const
   const groups: Array<{
@@ -145,8 +150,8 @@ export function IncomePerformanceNarrativeSection({
                     </div>
                   ) : null}
                   <div className="space-y-6">
-                    {group.paragraphs.map((p) => (
-                      <div key={`${group.id}-${p.heading}`}>
+                    {group.paragraphs.map((p, paragraphIdx) => (
+                      <div key={`${group.id}-${paragraphIdx}-${p.heading}`}>
                         <p className="text-sm font-semibold text-[#2A2F3A]">{p.heading}</p>
                         <p className="mt-2 text-sm leading-relaxed text-[#5C5F66] text-pretty">{p.body}</p>
                         {p.secondaryBody ? (

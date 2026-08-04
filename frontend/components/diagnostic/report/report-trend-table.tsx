@@ -3,15 +3,26 @@ import {
   buildChapterTrendTable,
   formatTrendCell,
 } from "@/lib/diagnostic-report-trend-table"
+import { hideEmptyYears } from "@/lib/report-hide-empty-years"
 
 interface ReportTrendTableProps {
   diagnostic: CompanyDiagnostic
   chapterId: string
+  hideEmptyYears?: boolean
 }
 
 /** Tableau détaillé avec lignes alternées, année courante en évidence, variation et TCAC */
-export function ReportTrendTable({ diagnostic, chapterId }: ReportTrendTableProps) {
-  const { years, rows } = buildChapterTrendTable(diagnostic, chapterId)
+export function ReportTrendTable({
+  diagnostic,
+  chapterId,
+  hideEmptyYears: shouldHideEmptyYears = false,
+}: ReportTrendTableProps) {
+  let { years, rows } = buildChapterTrendTable(diagnostic, chapterId)
+  if (shouldHideEmptyYears && years.length) {
+    const filtered = hideEmptyYears(years, rows)
+    years = filtered.years
+    rows = filtered.rows
+  }
   if (!years.length || !rows.length) {
     return (
       <p className="text-sm text-slate-500">Données historiques insuffisantes pour ce tableau.</p>
