@@ -1113,6 +1113,13 @@ def _cash_flow_link_code_amounts(
             mappings_by_account, customer_filter, supplier_filter,
         )
 
+    # Un flux budgété demanderait des positions de bilan budgétées aux deux bornes
+    # de l'horizon, que les budgets ne portent pas. Plutôt que d'afficher l'exercice
+    # précédent sous une colonne « Budget » — un chiffre juste sous une mauvaise
+    # étiquette, sur lequel quelqu'un pourrait agir — la colonne reste vide.
+    if horizon.get("use_budget_as_prior"):
+        return amount_for(0), 0.0
+
     return amount_for(0), amount_for(-1)
 
 
@@ -1185,6 +1192,9 @@ def _cash_flow_cash_position(
     horizon = ctx.get("horizon")
     codes = ctx.get("cash_codes") or []
     if not horizon or not codes:
+        return 0.0
+    if shift != 0 and horizon.get("use_budget_as_prior"):
+        # Voir _cash_flow_link_code_amounts : pas de trésorerie budgétée à afficher.
         return 0.0
     open_index, open_fm, close_index, close_fm = _cash_flow_horizon_indices(horizon, shift)
     index, fiscal_month = (
@@ -3009,6 +3019,7 @@ def compute_financial_statement(
                 "is_cumulative_tb": bool(company.is_cumulative_tb),
                 "current_months": list(current_months),
                 "prior_months": list(prior_months),
+                "use_budget_as_prior": bool(use_budget_as_prior),
                 # décalage d'exercice → index des montants (0 = courant, −1, −2)
                 "amount_indices": {
                     -offset: cf_indices_by_year.get(fiscal_year - offset)

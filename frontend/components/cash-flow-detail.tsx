@@ -91,6 +91,8 @@ interface DetailRow {
   annexLetter?: string
   rowId?: string
   hasLiaisonCode?: boolean
+  hasComputedAmount?: boolean
+  isValidation?: boolean
   // For trend views (12months, quarters, years)
   trendValues?: number[]
   /** Comptes GL sous-jacents — visibles uniquement à l'expansion. */
@@ -367,6 +369,8 @@ export function CashFlowDetail({
       annexLetter: row.annexLetter,
       rowId: row.id,
       hasLiaisonCode: row.hasLiaisonCode,
+      hasComputedAmount: row.hasComputedAmount,
+      isValidation: row.isValidation,
       balanceAccounts: row.detailRows?.length
         ? pointInTimeDetailRowsToGlAccounts(row.detailRows)
         : undefined,
@@ -908,8 +912,13 @@ export function CashFlowDetail({
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const displayLabel = row.label
               const isSpacer = row.label === ""
+              // Le bas de l'état (variation nette, trésorerie début / fin, validation)
+              // est calculé par formule, sans code de liaison : sans cette exception
+              // il s'afficherait en blanc sur blanc.
               const shouldHideAmounts =
-                isSpacer || !!row.isSection || row.hasLiaisonCode === false
+                isSpacer
+                || !!row.isSection
+                || (row.hasLiaisonCode === false && !row.hasComputedAmount)
               const showSeparatorAbove = isTruthySeparatorAbove(row.separatorAbove)
               const isBoldRow = !!row.isBold
               const matchedStructureRow =

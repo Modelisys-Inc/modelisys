@@ -253,6 +253,41 @@ def test_cash_flow_validation_exposes_an_unattached_balance_sheet_account(
     assert rows["cf-validation"]["current"] == 150.0
 
 
+def test_cash_flow_budget_comparison_leaves_the_column_empty(client, auth_headers, su_headers):
+    """Comparer au budget ne doit pas afficher l'exercice précédent sous cette étiquette.
+
+    Un flux budgété exigerait des positions de bilan budgétées aux deux bornes de
+    l'horizon, que les budgets ne portent pas. Un chiffre juste sous une mauvaise
+    étiquette est pire qu'une colonne vide : quelqu'un pourrait agir dessus.
+    """
+    company_id = _seed_company(client, auth_headers, su_headers)
+    budget = client.post(
+        f"/api/companies/{company_id}/budgets",
+        json={"name": "Budget 2026", "fiscal_year": 2026},
+        headers=auth_headers,
+    )
+    assert budget.status_code in (200, 201), budget.text
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/cash-flow",
+        params={
+            "fiscal_year": 2026, "month": 12, "period": "annual",
+            "comparison_type": "budget", "budget_id": budget.json()["id"],
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 200, response.text
+    rows = {r["id"]: r for r in response.json()["rows"]}
+
+    # La colonne courante reste juste...
+    assert rows["cf-net-change"]["current"] == -200.0
+    assert rows["cf-validation"]["current"] == 0.0
+    # ...et la colonne comparative ne ment pas.
+    assert rows["cf-net-change"]["prior"] == 0.0
+    assert rows["cf-cash-opening"]["prior"] == 0.0
+    assert rows["TEX-NI"]["prior"] == 0.0
+
+
 def test_cash_flow_monthly_horizon_opens_at_the_previous_month(client, auth_headers, su_headers):
     """En « mois courant », l'ouverture est la fin du mois précédent, pas celle de l'exercice.
 

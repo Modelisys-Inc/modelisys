@@ -443,6 +443,10 @@ export function CashFlowSummary({
 
   // Ligne d'écart : l'état ne balance pas tant qu'elle ne vaut pas 0 $.
   const validationRow = data.find((row) => row.isValidation)
+  // L'identité comptable ne tient que sur l'entité entière : sous un filtre de
+  // division, un écart est attendu. Crier au loup à chaque vue filtrée apprendrait
+  // à ignorer l'alerte au moment où elle compte vraiment.
+  const isEntitySubset = Boolean(divisionId || subDivisionId)
 
   // Find total cash flow value for percentage calculations
   const totalCashFlowRow = data.find((row) => row.label.toLowerCase() === "flux net")
@@ -557,7 +561,7 @@ export function CashFlowSummary({
     <div className={cn("w-full", dashboardCardFrameStaticClass)}>
       <div className={dashboardCardRingClass} aria-hidden />
       <div className="relative w-full min-w-0">
-        {validationRow && !isCashFlowBalanced(validationRow.current) && (
+        {validationRow && !isCashFlowBalanced(validationRow.current) && !isEntitySubset && (
           <div
             role="alert"
             data-testid="cash-flow-imbalance-alert"
@@ -570,6 +574,15 @@ export function CashFlowSummary({
               {formatCurrency(Math.abs(validationRow.current))} de celle du bilan. Il reste un poste
               de bilan qui n’est rattaché à aucune section de l’état des flux.
             </p>
+          </div>
+        )}
+        {validationRow && isEntitySubset && (
+          <div
+            data-testid="cash-flow-subset-notice"
+            className="border-b border-slate-200 bg-slate-50 px-6 py-3 text-sm text-slate-600 sm:px-7"
+          >
+            Vue filtrée sur une division : l’équilibre ne se vérifie que sur l’entité
+            entière, la ligne Validation n’a donc pas à valoir 0 $ ici.
           </div>
         )}
         {renderCardHeader()}
