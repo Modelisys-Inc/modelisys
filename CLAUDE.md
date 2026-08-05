@@ -309,10 +309,21 @@ Without that copy the chart seed is impossible to run in production.
 Prod note (2026-08-01): the database was rebuilt from scratch — `alembic_version`
 said 008 while the schema had drifted both ahead (009's columns present) and behind
 (007's tables missing), so migrations could no longer advance. It is now clean at
-revision 022 with the chart seeded. Org / users / companies / divisions were
-preserved; the 124 old `account_mappings` were not — they referenced the legacy
-composite code format (`44-330`) rather than the standardized chart, so they must
-be redone before any statement can compute.
+revision 022 with the chart seeded. Org / users / companies / divisions preserved.
+
+The 124 `account_mappings` were then **translated** from the legacy composite code
+format (`44-330`, `G`, `A`) to the standardized chart and re-injected. Two regimes,
+because the two halves of the old chart aged differently: on the income statement
+the legacy code already carried the intent (`44-540` = Loyer) so it maps directly,
+while on the balance sheet it was too coarse (`G` covered every fixed asset, cost
+and accumulated amortization alike) and the **GL account name** decides. That name
+is what separates "Mobilier" (`ALT-B.6`) from "Amort. cumulé - Mobilier"
+(`ALT-B.12`) — the very distinction the new chart exists to make. 119 of 124 fell
+under an explicit rule; the 5 remaining are advances to named individuals parked on
+`ACT-I.7 (À définir)` until someone says whether each is a shareholder, a director
+or a related party. Note that `REV` has a single leaf (`REV.1 À définir`), so the
+client's four revenue streams all collapse onto it — restoring that granularity
+needs tenant-local custom codes (see "Link codes").
 
 ### Authorization (RBAC)
 
