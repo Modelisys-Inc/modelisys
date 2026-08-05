@@ -262,7 +262,22 @@ income-statement period months.
   **raw** sum is already Encaisse − Découvert).
 - **Validation must be 0 $**: `cf-cash-closing − cf-cash-closing-bs`. A non-zero
   écart means a balance-sheet poste is attached to no TEX/TIN/TFI code. Frontend
-  shows it green/amber plus a banner (`cash-flow-imbalance-alert`).
+  shows it green/amber plus a banner (`cash-flow-imbalance-alert`). It is suppressed
+  under a division filter — the accounting identity only holds for the whole entity,
+  and crying wolf on every filtered view teaches people to ignore the signal.
+- **Retained earnings must be attached to NO section.** Its balance moves each year
+  by the closing entry — last year's profit rolling into equity — while `CAP-C.1`
+  already reports profit in the period it was earned. Attaching the RE *balance*
+  anywhere therefore double-counts by exactly one year of net income, and the
+  écart equals the prior year's profit. That signature is the tell. Map the GL
+  retained-earnings account to `CAP-C.4`, which carries the exclusion marker.
+- **Exclusion convention**: an `ft_line_item` starting with `=` and *no*
+  `ft_category` means "this poste is not a cause of cash variation". MO.xlsx uses
+  it for `ACT-A` / `PCT-A` ("= lié à Encaisse de fin", they *are* the cash) and for
+  `CAP-C.4` ("= lié à Bénéfices non répartis"). Editing those cells with openpyxl
+  needs care: a string starting with `=` is stored as a **formula** unless you force
+  `cell.data_type = "s"`, and `ws.cell(row, col, value=None)` is a no-op — assign
+  `ws.cell(row, col).value = None` to actually clear a cell.
 - Structures are per-company snapshots, so `ensure_cash_flow_closing_structure`
   repairs the tail **on read** (compute service + `GET /statement-structures/…`),
   the same migrate-on-read pattern as `ensure_net_income_in_balance_structure`.
@@ -285,7 +300,15 @@ income-statement period months.
 ```bash
 python -m app.scripts.seed_standard_link_codes    # MO.xlsx → standard_link_codes
 python -m app.scripts.seed_cash_flow_link_codes   # colonnes FT → codes TEX/TIN/TFI
+python -m app.scripts.sync_statement_structures   # charte → structures des sociétés
 ```
+
+The third step matters because `CompanyStatementStructure` is a snapshot taken at
+company creation: a company created before the standardized chart keeps structures
+with no link code at all, so **none** of its statements compute — cash flow or
+otherwise — no matter how good its account mappings are. The script only
+regenerates companies whose structures reference no code (nothing of value to
+lose); `--force` also overwrites wired ones, discarding manual layout changes.
 
 The second step is what makes the cash flow statement work at all: MO.xlsx's
 `Comptes FT` / `Sous-comptes FT` columns describe which section and line each
