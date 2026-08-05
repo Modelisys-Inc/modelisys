@@ -4,12 +4,14 @@ import {
   computeMetricSeries,
   findSeriesRowByCode,
   PERFORMANCE_CHART_MONTH_COUNT_24,
+  PERFORMANCE_CHART_QUARTER_COUNT,
   PERFORMANCE_CHART_YEAR_COUNT,
 } from "@/lib/performance-chart-series"
 import { getRowAmounts } from "@/lib/series-utils"
 import {
   monthShortLabelsFromReference,
   monthTrendFromReference,
+  quarterTrendFromReference,
   yearLabelsFromReference,
   yearTrendFromReference,
 } from "@/lib/series-reference-columns"
@@ -89,6 +91,15 @@ function trendFromMonthlyAmounts(
   if (view === "years") {
     return yearTrendFromReference(synthetic, periods, refYear, PERFORMANCE_CHART_YEAR_COUNT)
   }
+  if (view === "quarters") {
+    return quarterTrendFromReference(
+      synthetic,
+      periods,
+      refMonth,
+      refYear,
+      PERFORMANCE_CHART_QUARTER_COUNT,
+    )
+  }
   if (view === "24months") {
     return monthTrendFromReference(
       synthetic,
@@ -97,6 +108,9 @@ function trendFromMonthlyAmounts(
       refYear,
       PERFORMANCE_CHART_MONTH_COUNT_24,
     )
+  }
+  if (view === "12months" || view === "months") {
+    return monthTrendFromReference(synthetic, periods, refMonth, refYear, MONTHLY_BRIDGE_COUNT)
   }
   return null
 }
@@ -161,6 +175,20 @@ function costTrendForAccounts(
   const mappingsByAccount = new Map(mappings.map((m) => [m.account_number, m]))
   const monthly = sumAccountAmounts(mappingsByAccount, accountNumbers, rows, periods, true)
   return trendFromMonthlyAmounts(monthly, periods, view, refMonth, refYear)
+}
+
+export function computeMappedVariableCostTrend(params: {
+  mappings: AccountMappingData[]
+  seriesRows: SeriesRow[]
+  periods: SeriesPeriod[]
+  view: string
+  refMonth: number
+  refYear: number
+}): number[] | null {
+  const { mappings, seriesRows, periods, view, refMonth, refYear } = params
+  const variableAccounts = collectAllVariableCostAccountNumbers(mappings)
+  if (!variableAccounts.length) return null
+  return costTrendForAccounts(mappings, variableAccounts, seriesRows, periods, view, refMonth, refYear)
 }
 
 export function buildExpenseContributionBridge(params: {

@@ -1478,6 +1478,23 @@
   color: #2a2f3a;
 }
 
+.report-consulting .report-division-narrative-block + .report-division-narrative-block {
+  margin-top: 1.5rem;
+}
+
+.report-consulting .report-division-narrative-sections > div + div {
+  margin-top: 1rem;
+}
+
+.report-consulting .report-narrative-subheading {
+  margin: 0.85rem 0 0.35rem;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
 .report-consulting .report-narrative-text {
   margin: 0;
   font-size: 14px;

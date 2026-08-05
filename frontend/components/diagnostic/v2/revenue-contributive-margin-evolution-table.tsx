@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { Fragment, useState, type ReactNode } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { formatMoney, formatPercent } from "@/components/diagnostic/diagnostic-format"
 import type {
@@ -26,6 +26,65 @@ function formatCell(
   if (value === null || !Number.isFinite(value)) return "—"
   if (format === "days") return `${value.toFixed(1).replace(".", ",")} j`
   return format === "currency" ? formatMoney(value, currency) : formatPercent(value)
+}
+
+function formatShareOfSourceRevenue(
+  value: number | null,
+  format: "currency" | "percent" | "days",
+  sourceRevenue: number | null | undefined,
+): string {
+  if (format !== "currency") return "—"
+  if (value === null || sourceRevenue === null || sourceRevenue === undefined) return "—"
+  if (!Number.isFinite(value) || !Number.isFinite(sourceRevenue) || Math.abs(sourceRevenue) < 1e-6) {
+    return "—"
+  }
+  return formatPercent((value / sourceRevenue) * 100)
+}
+
+function PeriodValueCells({
+  values,
+  format,
+  currency,
+  periods,
+  sourceRevenuesByPeriod,
+  valueCellClassName,
+}: {
+  values: (number | null)[]
+  format: "currency" | "percent" | "days"
+  currency: string
+  periods: string[]
+  sourceRevenuesByPeriod?: (number | null)[]
+  valueCellClassName: string
+}) {
+  const interleaveShare = sourceRevenuesByPeriod != null
+
+  return values.map((value, index) => (
+    <Fragment key={`${periods[index]}-${index}`}>
+      <td className={valueCellClassName}>{formatCell(value, format, currency)}</td>
+      {interleaveShare ? (
+        <td className={valueCellClassName}>
+          {formatShareOfSourceRevenue(value, format, sourceRevenuesByPeriod[index])}
+        </td>
+      ) : null}
+    </Fragment>
+  ))
+}
+
+function PeriodHeaderCells({
+  periods,
+  interleaveShare,
+  headerValueClassName,
+}: {
+  periods: string[]
+  interleaveShare: boolean
+  headerValueClassName: string
+}) {
+  return periods.map((period) => (
+    <Fragment key={period}>
+      <th className={headerValueClassName}>{period}</th>
+      {interleaveShare ? <th className={headerValueClassName}>% CA</th> : null}
+    </Fragment>
+  ))
 }
 
 function formatDetailLabel(detail: ContributiveMarginEvolutionDetailRow): string {
@@ -168,11 +227,14 @@ function DetailRowBranch({
             <span>{formatDetailLabel(detail)}</span>
           </span>
         </td>
-        {detail.values.map((value, index) => (
-          <td key={`${key}-${table.periods[index]}`} className={detailValueCellClass}>
-            {formatCell(value, metric.format, currency)}
-          </td>
-        ))}
+        <PeriodValueCells
+          values={detail.values}
+          format={metric.format}
+          currency={currency}
+          periods={table.periods}
+          sourceRevenuesByPeriod={table.sourceRevenuesByPeriod}
+          valueCellClassName={detailValueCellClass}
+        />
       </tr>
       {canExpand && expanded && childDetails ? (
         <DetailRows
@@ -238,11 +300,14 @@ function MetricRows({
             <span>{metric.label}</span>
           </span>
         </td>
-        {metric.values.map((value, index) => (
-          <td key={`${metric.id}-${table.periods[index]}`} className={valueCellClass}>
-            {formatCell(value, metric.format, currency)}
-          </td>
-        ))}
+        <PeriodValueCells
+          values={metric.values}
+          format={metric.format}
+          currency={currency}
+          periods={table.periods}
+          sourceRevenuesByPeriod={table.sourceRevenuesByPeriod}
+          valueCellClassName={valueCellClass}
+        />
       </tr>
       {canExpand && expanded ? (
         <DetailRows
@@ -271,6 +336,8 @@ export function RevenueContributiveMarginEvolutionTable({
 
   if (!table.periods.length) return null
 
+  const interleaveShare = table.sourceRevenuesByPeriod != null
+
   const toggleMetric = (metricId: string) => {
     setExpandedMetrics((current) => ({ ...current, [metricId]: !current[metricId] }))
   }
@@ -288,11 +355,11 @@ export function RevenueContributiveMarginEvolutionTable({
         <thead>
           <tr>
             <th className={headerCellClass}>Indicateur</th>
-            {table.periods.map((period) => (
-              <th key={period} className={headerValueClass}>
-                {period}
-              </th>
-            ))}
+            <PeriodHeaderCells
+              periods={table.periods}
+              interleaveShare={interleaveShare}
+              headerValueClassName={headerValueClass}
+            />
           </tr>
         </thead>
         <tbody>

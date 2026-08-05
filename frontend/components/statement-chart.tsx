@@ -36,6 +36,7 @@ import {
   isTextLecturePage,
   lecturePageCountFromPacked,
   packNarrativeParagraphs,
+  packRevenueSourceLecturePages,
   paragraphsForPackedPage,
   type ReportPrintChartPart,
 } from "@/lib/report-narrative-pagination"
@@ -80,6 +81,11 @@ import {
   mapDynamicChartToRevenueSeriesNarratives,
   type PerformanceNarrativeResult,
 } from "@/lib/income-performance-narrative"
+import {
+  buildIncomePerformanceChartFromBridge,
+  defaultFixedIncomePerformanceVisibility,
+  isFixedIncomePerformanceChart,
+} from "@/lib/income-performance-chart"
 import {
   defaultChartCardTitle,
   seriesStatementTypeForChart,
@@ -298,12 +304,21 @@ export function StatementChart({
   const isWorkingCapitalView = narrativeScope === "working-capital-only"
   const isContributiveMarginTableView = isContributiveMarginView || isDivisionContributiveMarginView
   const isExpensesBridgeView = narrativeScope === "expenses-only"
+  const isFixedIncomePerformance = isFixedIncomePerformanceChart(
+    statementType,
+    chartConfigStatementType ?? statementType,
+    narrativeScope,
+  )
   const needsMappingEnrichment =
-    isContributiveMarginView || isExpensesBridgeView || isDivisionContributiveMarginView || isFinancialPositionView
+    isContributiveMarginView ||
+    isExpensesBridgeView ||
+    isDivisionContributiveMarginView ||
+    isFinancialPositionView ||
+    isFixedIncomePerformance
   const configStatementType = chartConfigStatementType ?? statementType
+  const needsMappingData = needsMappingEnrichment
   const { card: cardFrameClass, showAccent: showCardAccent } = resolveStatementChartCardClasses(cardAppearance)
   const seriesStatementType = seriesStatementTypeForChart(statementType)
-  const perfConfig: StatementChartConfig = slot.config
   const [accountMappings, setAccountMappings] = useState<AccountMappingData[]>([])
   const [balanceSheetStructure, setBalanceSheetStructure] = useState<Record<string, unknown>[] | null>(null)
   const [workingCapitalStructure, setWorkingCapitalStructure] = useState<Record<string, unknown>[] | null>(null)
@@ -311,7 +326,9 @@ export function StatementChart({
   const [financialPositionSettingsPanel, setFinancialPositionSettingsPanel] =
     useState<FinancialPositionSettingsPanel | null>(null)
   const [visibleSeriesIds, setVisibleSeriesIds] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(slot.config.series.map((s) => [s.id, s.showOnChart])),
+    isFixedIncomePerformanceChart(statementType, chartConfigStatementType ?? statementType, narrativeScope)
+      ? defaultFixedIncomePerformanceVisibility()
+      : Object.fromEntries(slot.config.series.map((s) => [s.id, s.showOnChart])),
   )
 
   const refMonth = referenceMonth ?? new Date().getMonth() + 1
@@ -370,11 +387,15 @@ export function StatementChart({
   })
 
   useEffect(() => {
-    setVisibleSeriesIds(Object.fromEntries(slot.config.series.map((s) => [s.id, s.showOnChart])))
-  }, [slot.chartInstanceId, slot.version])
+    setVisibleSeriesIds(
+      isFixedIncomePerformance
+        ? defaultFixedIncomePerformanceVisibility()
+        : Object.fromEntries(slot.config.series.map((s) => [s.id, s.showOnChart])),
+    )
+  }, [slot.chartInstanceId, slot.version, isFixedIncomePerformance, slot.config.series])
 
   useEffect(() => {
-    if (!companyId || !needsMappingEnrichment) {
+    if (!companyId || !needsMappingData) {
       setAccountMappings([])
       return
     }
@@ -389,7 +410,7 @@ export function StatementChart({
     return () => {
       cancelled = true
     }
-  }, [companyId, needsMappingEnrichment, structureVersion])
+  }, [companyId, needsMappingData, structureVersion])
 
   useEffect(() => {
     if (!companyId || !isFinancialPositionView) {
@@ -619,7 +640,9 @@ export function StatementChart({
   ])
 
   const expenseContributionBridge = useMemo(() => {
-    if (!isExpensesBridgeView || !seriesRows.length || !seriesPeriods.length) return null
+    if ((!isExpensesBridgeView && !isFixedIncomePerformance) || !seriesRows.length || !seriesPeriods.length) {
+      return null
+    }
     return buildExpenseContributionBridge({
       mappings: accountMappings,
       seriesRows,
@@ -631,6 +654,7 @@ export function StatementChart({
     })
   }, [
     isExpensesBridgeView,
+    isFixedIncomePerformance,
     accountMappings,
     seriesRows,
     seriesPeriods,
@@ -707,9 +731,29 @@ export function StatementChart({
   }, [isExpensesBridgeView, expenseContributionBridge])
 
   const dynamicBuild = useMemo(() => {
+    if (isFixedIncomePerformance) {
+      if (!expenseContributionBridge) return null
+      return buildIncomePerformanceChartFromBridge(expenseContributionBridge)
+    }
     if (!seriesRows.length || !seriesPeriods.length) return null
-    return buildPerformanceChartData(perfConfig, seriesRows, seriesPeriods, view, refMonth, refYear)
-  }, [seriesRows, seriesPeriods, view, refMonth, refYear, perfConfig])
+    return buildPerformanceChartData(
+      slot.config,
+      seriesRows,
+      seriesPeriods,
+      view,
+      refMonth,
+      refYear,
+    )
+  }, [
+    isFixedIncomePerformance,
+    expenseContributionBridge,
+    seriesRows,
+    seriesPeriods,
+    view,
+    refMonth,
+    refYear,
+    slot.config,
+  ])
 
   const dynamicPoints = dynamicBuild?.points ?? null
   const seriesMeta = dynamicBuild?.series ?? []
@@ -736,7 +780,7 @@ export function StatementChart({
     return enrichRevenueSeriesForNarrative({
       slices,
       seriesMeta: narrativeSeriesMeta,
-      chartSeries: perfConfig.series,
+      chartSeries: slot.config.series,
       mappings: accountMappings,
       seriesRows,
       periods: seriesPeriods,
@@ -749,7 +793,7 @@ export function StatementChart({
     narrativeScope,
     dynamicPoints,
     narrativeSeriesMeta,
-    perfConfig.series,
+    slot.config.series,
     accountMappings,
     seriesRows,
     seriesPeriods,
@@ -812,24 +856,31 @@ export function StatementChart({
 
   const activeNarrativePackedPages = useMemo(() => {
     if (narrativeScope === "expenses-only") {
-      return packNarrativeParagraphs(expensesBridgeNarrative?.paragraphs, (heading) =>
-        evolutionTableWeightFromHeading(expenseCostBreakdownTables, heading),
+      return packNarrativeParagraphs(expensesBridgeNarrative?.paragraphs, (paragraph) =>
+        paragraph.showIndicatorTable === false
+          ? 0
+          : evolutionTableWeightFromHeading(expenseCostBreakdownTables, paragraph.heading),
       )
     }
     if (narrativeScope === "expenses-by-division-only") {
-      return packNarrativeParagraphs(divisionProfitabilityNarrative?.paragraphs, (heading) =>
-        evolutionTableWeightFromHeading(divisionProfitabilityEvolutionTables, heading),
+      return packNarrativeParagraphs(divisionProfitabilityNarrative?.paragraphs, (paragraph) =>
+        paragraph.showIndicatorTable === false
+          ? 0
+          : evolutionTableWeightFromHeading(divisionProfitabilityEvolutionTables, paragraph.heading),
       )
     }
     if (narrativeScope === "financial-position-only") {
-      return packNarrativeParagraphs(financialPositionNarrative?.paragraphs, (heading) =>
-        evolutionTableWeightFromHeading(financialPositionBreakdownTables, heading),
+      return packNarrativeParagraphs(financialPositionNarrative?.paragraphs, (paragraph) =>
+        evolutionTableWeightFromHeading(financialPositionBreakdownTables, paragraph.heading),
       )
     }
     if (narrativeScope === "margin-by-revenue-only") {
-      return packNarrativeParagraphs(contributiveMarginNarrative?.paragraphs, (heading) =>
-        evolutionTableWeightFromHeading(contributiveMarginEvolutionTables, heading),
+      return packNarrativeParagraphs(contributiveMarginNarrative?.paragraphs, (paragraph) =>
+        evolutionTableWeightFromHeading(contributiveMarginEvolutionTables, paragraph.heading),
       )
+    }
+    if (narrativeScope === "revenue-only") {
+      return packRevenueSourceLecturePages(narrative?.paragraphs)
     }
     return packNarrativeParagraphs(narrative?.paragraphs)
   }, [
@@ -898,7 +949,8 @@ export function StatementChart({
     isStandaloneTableLecturePage(packedTextPageCount, narrativePageIndex, hasStandaloneMarginTable)
 
 
-  const settingsDialog = (
+  const settingsDialog =
+    isFixedIncomePerformance ? null : (
     <StatementChartSettingsDialog
       open={settingsOpen}
       onOpenChange={setSettingsOpen}
@@ -938,12 +990,18 @@ export function StatementChart({
   const getHorizonText = (): string => getHorizonModeLabel(view, period)
 
   const defaultTitle = defaultChartCardTitle(statementType)
-  const storedChartTitle = perfConfig.chartTitle.trim()
+  const storedChartTitle = isFixedIncomePerformance ? "" : slot.config.chartTitle.trim()
+  const useCanonicalDiagnosticTitle =
+    statementType === "diagnostic-revenue" ||
+    statementType === "diagnostic-margin-by-revenue" ||
+    statementType === "diagnostic-expenses"
   const cardTitle = isContributiveMarginTableView || isFinancialPositionView || isWorkingCapitalView
     ? defaultTitle
-    : storedChartTitle && storedChartTitle !== defaultTitle
-      ? storedChartTitle
-      : defaultTitle
+    : useCanonicalDiagnosticTitle
+      ? defaultTitle
+      : storedChartTitle && storedChartTitle !== defaultTitle
+        ? storedChartTitle
+        : defaultTitle
 
   const dynamicChartConfig = useMemo(() => {
     const c: Record<string, { label: string; color: string }> = {}
@@ -1110,19 +1168,30 @@ export function StatementChart({
     !isWorkingCapitalView &&
     (!dynamicPoints || !dynamicPoints.length || !seriesMeta.length)
   ) {
-    const emptyMessage = isContributiveMarginView
-      ? "Aucune source de revenus configurée. Paramétrez les séries dans la vue Revenus du rapport."
-      : "Aucune donnée disponible pour ce graphique."
-    const emptyHint = isContributiveMarginView
-      ? "Les codes de liaison (ex. REV-A) doivent correspondre aux séries définies sous Revenus."
-      : "Vérifiez les séries et liaisons dans Paramètres. Les codes doivent correspondre à des lignes présentes dans les séries."
+    const emptyMessage = isFixedIncomePerformance
+      ? "Impossible de construire le graphique de performance : vérifiez les revenus (codes REV) et le mapping comptable."
+      : isContributiveMarginView
+        ? "Aucune source de revenus configurée. Paramétrez les séries dans la vue Revenus du rapport."
+        : "Aucune donnée disponible pour ce graphique."
+    const emptyHint = isFixedIncomePerformance
+      ? "Revenus = agrégat REV · BAIIA = revenus − coûts variables − coûts fixes (aligné sur le graphique Dépenses). Marquez les charges en coûts variables ou fixes dans le mapping comptable."
+      : isContributiveMarginView
+        ? "Les codes de liaison (ex. REV-A) doivent correspondre aux séries définies sous Revenus."
+        : "Vérifiez les séries et liaisons dans Paramètres. Les codes doivent correspondre à des lignes présentes dans les séries."
     const settingsLabel = isContributiveMarginView ? "Paramètres des revenus" : "Paramètres du graphique"
+    const showEmptySettings = companyId && !isFixedIncomePerformance
 
     return (
       <>
         <div
           className={`mb-6 flex min-h-64 flex-col items-center justify-center gap-3 px-4 py-8 ${cardFrameClass}`}
-          data-testid={isContributiveMarginView ? "contributive-margin-empty" : undefined}
+          data-testid={
+            isContributiveMarginView
+              ? "contributive-margin-empty"
+              : isFixedIncomePerformance
+                ? "income-performance-empty"
+                : undefined
+          }
         >
           {showCardAccent ? <div className={dashboardStyleCardAccent} aria-hidden /> : null}
           {embeddedHorizon ? (
@@ -1132,7 +1201,7 @@ export function StatementChart({
           ) : null}
           <p className="relative text-center text-sm text-[#5C5F66]">{emptyMessage}</p>
           {companyId ? <p className="max-w-md text-center text-xs text-slate-500">{emptyHint}</p> : null}
-          {companyId ? (
+          {showEmptySettings ? (
             <div className="flex flex-wrap items-center justify-center gap-2">
               <Button
                 type="button"
@@ -1147,7 +1216,7 @@ export function StatementChart({
                 <PerformanceChartRemoveButton onRemove={onRemoveChart} />
               ) : null}
             </div>
-          ) : onRemoveChart && !isContributiveMarginView ? (
+          ) : onRemoveChart && !isContributiveMarginView && !isFixedIncomePerformance ? (
             <PerformanceChartRemoveButton onRemove={onRemoveChart} />
           ) : null}
         </div>
@@ -1253,6 +1322,7 @@ export function StatementChart({
         {paginatedExpensesBridge
           ? renderNarrative(paginatedExpensesBridge, {
               renderAfterParagraph: (paragraph) => {
+                if (paragraph.showIndicatorTable === false) return null
                 const breakdown = expenseCostBreakdownTables?.get(paragraph.heading)
                 if (!breakdown) return null
                 return (
@@ -1265,6 +1335,7 @@ export function StatementChart({
         {paginatedDivisionNarrative
           ? renderNarrative(paginatedDivisionNarrative, {
               renderAfterParagraph: (paragraph) => {
+                if (paragraph.showIndicatorTable === false) return null
                 const evolution = divisionProfitabilityEvolutionTables?.get(paragraph.heading)
                 if (!evolution) return null
                 return (
@@ -1396,6 +1467,13 @@ export function StatementChart({
                         <span className="text-slate-300">•</span>
                         <span className="text-xs text-slate-500">Mapping comptable (CV / CF)</span>
                       </>
+                    ) : isFixedIncomePerformance ? (
+                      <>
+                        <span className="text-slate-300">•</span>
+                        <span className="text-xs text-slate-500">
+                          REV · BAIIA (REV − CV − CF) · contribution marginale %
+                        </span>
+                      </>
                     ) : null}
                   </div>
                 </div>
@@ -1417,7 +1495,12 @@ export function StatementChart({
                 </div>
                 ) : null}
                 <div className="flex shrink-0 items-center gap-1">
-                  {companyId && !isExpensesBridgeView && !isDivisionContributiveMarginView && !isFinancialPositionView && !isWorkingCapitalView ? (
+                  {companyId &&
+                  !isFixedIncomePerformance &&
+                  !isExpensesBridgeView &&
+                  !isDivisionContributiveMarginView &&
+                  !isFinancialPositionView &&
+                  !isWorkingCapitalView ? (
                     <Button
                       type="button"
                       variant="outline"
@@ -1692,6 +1775,7 @@ export function StatementChart({
           {showNarrative && expensesBridgeNarrative
             ? renderNarrative(expensesBridgeNarrative, {
                 renderAfterParagraph: (paragraph) => {
+                  if (paragraph.showIndicatorTable === false) return null
                   const breakdown = expenseCostBreakdownTables?.get(paragraph.heading)
                   if (!breakdown) return null
                   return (
@@ -1704,6 +1788,7 @@ export function StatementChart({
           {showNarrative && divisionProfitabilityNarrative
             ? renderNarrative(divisionProfitabilityNarrative, {
                 renderAfterParagraph: (paragraph) => {
+                  if (paragraph.showIndicatorTable === false) return null
                   const evolution = divisionProfitabilityEvolutionTables?.get(paragraph.heading)
                   if (!evolution) return null
                   return (

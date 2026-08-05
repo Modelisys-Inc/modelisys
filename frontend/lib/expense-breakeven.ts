@@ -1,3 +1,4 @@
+import { EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL } from "@/lib/expense-bridge-chart-theme"
 import type { ExpenseContributionBridgePoint } from "@/lib/expense-contribution-bridge"
 
 const DATA_EPSILON = 1e-6
@@ -96,9 +97,9 @@ export function projectBreakevenScenario(
   let interpretation: string
   if (isAtBreakeven) {
     interpretation =
-      "Point d'équilibre : les revenus couvrent exactement l'ensemble des coûts fixes et variables. Le bénéfice d'exploitation est nul."
+      `Point d'équilibre : les revenus couvrent exactement l'ensemble des coûts fixes et variables. Le ${EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL} est nul.`
   } else if (operatingProfit > DATA_EPSILON) {
-    interpretation = `À ce chiffre d'affaires, l'entreprise couvre ses charges et dégage un bénéfice d'exploitation de ${operatingMarginPct !== null ? `${fmtPctPlain(operatingMarginPct)} du CA, soit ` : ""}un excédent opérationnel positif.`
+    interpretation = `À ce chiffre d'affaires, l'entreprise couvre ses charges et dégage un ${EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL} de ${operatingMarginPct !== null ? `${fmtPctPlain(operatingMarginPct)} du CA, soit ` : ""}un excédent opérationnel positif.`
   } else if (operatingProfit < -DATA_EPSILON) {
     const gapText =
       gapToBreakeven !== null && gapToBreakeven < 0

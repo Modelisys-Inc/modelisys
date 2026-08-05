@@ -8,6 +8,138 @@ const DIAGNOSTIC_REGISTRY_KEY = "modelisys-diagnostic-registry"
 const DIAGNOSTIC_PAGE_URL = `/modules/diagnostic/${DIAGNOSTIC_ID}?companyId=${COMPANY_ID}`
 const DIAGNOSTIC_PORTAL_URL = `/modules/diagnostic?companyId=${COMPANY_ID}`
 
+const INCOME_BRIDGE_MAPPINGS = [
+  {
+    id: "m1",
+    account_number: "5010",
+    description: "Matières",
+    link_code: "CMV.1",
+    summary_ef: null,
+    detail_ef: null,
+    divisions: null,
+    sub_divisions: null,
+    fdrhc: false,
+    interests: false,
+    amortization: false,
+    variable_costs: true,
+    fixed_costs: false,
+    variable_cost_revenue_link_code: "REV-001",
+    liability_remaining_years: null,
+    liability_interest_rate: null,
+    product: null,
+    customer: null,
+    supplier: null,
+    interco_company_id: null,
+  },
+  {
+    id: "m2",
+    account_number: "6010",
+    description: "Salaires admin",
+    link_code: "ADM.1",
+    summary_ef: null,
+    detail_ef: null,
+    divisions: null,
+    sub_divisions: null,
+    fdrhc: false,
+    interests: false,
+    amortization: false,
+    variable_costs: false,
+    fixed_costs: true,
+    variable_cost_revenue_link_code: null,
+    liability_remaining_years: null,
+    liability_interest_rate: null,
+    product: null,
+    customer: null,
+    supplier: null,
+    interco_company_id: null,
+  },
+]
+
+const INCOME_BRIDGE_REV_LINK_CODE = {
+  code: "REV-001",
+  family: "REV",
+  parent_code: null,
+  is_leaf: true,
+  is_active: true,
+  label_sub_account: "Revenus",
+  label_account: "Revenus",
+  ft_category: null,
+  account_type: null,
+  coa_version: 1,
+  deprecated_at: null,
+}
+
+const INCOME_BRIDGE_SERIES_PAYLOAD = {
+  companyId: COMPANY_ID,
+  statementType: "income-statement",
+  fiscalYear: 2025,
+  periods: [
+    { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
+    { fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" },
+  ],
+  rows: [
+    {
+      id: "REV-001",
+      linkCode: "REV-001",
+      label: "Revenus",
+      isBold: false,
+      isSection: false,
+      isResult: false,
+      amounts: { "2024-12": 4_000_000, "2025-12": 5_200_000 },
+      detailRows: [],
+    },
+    {
+      id: "cmv",
+      linkCode: "CMV",
+      label: "CMV",
+      isBold: false,
+      isSection: false,
+      isResult: false,
+      amounts: {},
+      detailRows: [
+        {
+          id: "5010",
+          label: "Matières",
+          amounts: { "2024-12": 1_500_000, "2025-12": 1_800_000 },
+        },
+      ],
+    },
+    {
+      id: "adm",
+      linkCode: "ADM",
+      label: "Admin",
+      isBold: false,
+      isSection: false,
+      isResult: false,
+      amounts: {},
+      detailRows: [
+        {
+          id: "6010",
+          label: "Salaires admin",
+          amounts: { "2024-12": 900_000, "2025-12": 1_000_000 },
+        },
+      ],
+    },
+  ],
+}
+
+async function mockIncomePerformanceBridgeRoutes(context: Page["context"]) {
+  await context.route(`**/api/companies/${COMPANY_ID}/account-mappings`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ mappings: INCOME_BRIDGE_MAPPINGS }),
+    }),
+  )
+  await context.route("**/api/standard-link-codes/flat*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([INCOME_BRIDGE_REV_LINK_CODE]),
+    }),
+  )
+}
+
 async function setupAuthAndCommonMocks(page: Page) {
   const context = page.context()
   // Injecter le cookie de session + jetons avant tout script de page.
@@ -85,6 +217,8 @@ async function setupAuthAndCommonMocks(page: Page) {
       }),
     }),
   )
+
+  await mockIncomePerformanceBridgeRoutes(context)
 
   await context.route(`**/api/companies/${COMPANY_ID}/statement-chart-configs*`, (route) => {
     if (route.request().method() === "GET") {
@@ -185,11 +319,10 @@ async function setupAuthAndCommonMocks(page: Page) {
           {
             id: "m",
             kind: "line",
-            label: "Marge brute (%)",
+            label: "Contribution marginale (%)",
             spec: {
-              type: "derivedMargin",
+              type: "derivedContributiveMargin",
               revenueSeriesId: "r",
-              grossProfitFromSpec: { type: "single", code: "GP-001" },
             },
             yAxis: "right",
             valueFormat: "ratio",
@@ -400,24 +533,7 @@ async function setupAuthAndCommonMocks(page: Page) {
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          companyId: COMPANY_ID,
-          statementType: "income-statement",
-          fiscalYear: 2025,
-          periods: [{ fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" }],
-          rows: [
-            {
-              id: "REV-001",
-              linkCode: "REV-001",
-              label: "Revenus",
-              isBold: false,
-              isSection: false,
-              isResult: false,
-              amounts: { "2025-12": 5_200_000 },
-              detailRows: [],
-            },
-          ],
-        }),
+        body: JSON.stringify(INCOME_BRIDGE_SERIES_PAYLOAD),
       }),
   )
 }
@@ -578,6 +694,7 @@ function buildDiagnosticPayload(overrides: Record<string, unknown> = {}) {
 }
 
 async function mockDiagnostic(page: Page, payload: unknown, status = 200) {
+  await mockIncomePerformanceBridgeRoutes(page.context())
   await page.context().route(`**/api/companies/${COMPANY_ID}/diagnostic**`, (route) =>
     route.fulfill({
       status,
@@ -668,6 +785,8 @@ test.describe("Page Diagnostic", () => {
       "true",
     )
     await expect(page.getByRole("button", { name: "Mensuel" })).toHaveAttribute("aria-pressed", "false")
+    await expect(page.getByRole("button", { name: "Paramètres" })).toHaveCount(0)
+    await expect(page.getByText("Contribution marginale (%)", { exact: true })).toBeVisible()
 
     // Bandeau KPI (7 cartes cliquables avec sparkline).
     const kpis = page.getByTestId("kpi-cards")
@@ -734,9 +853,9 @@ test.describe("Page Diagnostic", () => {
       timeout: 15000,
     })
 
-    await page.getByRole("button", { name: "Revenus", exact: true }).click()
+    await page.getByRole("button", { name: "Analyse des revenus", exact: true }).click()
 
-    await expect(page.getByRole("heading", { name: "Revenus", exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Analyse des revenus", exact: true })).toBeVisible()
     await expect(page.getByRole("heading", { name: "Performance financière" })).toHaveCount(0)
     await expect(page.getByRole("button", { name: "Annuel - 5 ans" })).toBeVisible()
     await expect(page.getByRole("button", { name: "Paramètres" })).toBeVisible()
@@ -749,9 +868,9 @@ test.describe("Page Diagnostic", () => {
 
     await page.goto(DIAGNOSTIC_PAGE_URL)
 
-    await page.getByRole("button", { name: "Marge par Revenus", exact: true }).click()
+    await page.getByRole("button", { name: "Marge par revenus", exact: true }).click()
 
-    await expect(page.getByRole("heading", { name: "Marge par Revenus", exact: true })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Marge par revenus", exact: true })).toBeVisible({
       timeout: 15000,
     })
     await expect(page.getByRole("button", { name: "Annuel - 5 ans" })).toBeVisible()
@@ -904,9 +1023,9 @@ test.describe("Page Diagnostic", () => {
 
     await page.goto(DIAGNOSTIC_PAGE_URL)
 
-    await page.getByRole("button", { name: "Dépenses", exact: true }).click()
+    await page.getByRole("button", { name: "Analyse des dépenses", exact: true }).click()
 
-    await expect(page.getByRole("heading", { name: "Dépenses", exact: true })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Analyse des dépenses", exact: true })).toBeVisible({
       timeout: 15000,
     })
     await expect(page.getByRole("button", { name: "Annuel - 5 ans" })).toBeVisible()
@@ -1112,9 +1231,9 @@ test.describe("Page Diagnostic", () => {
 
     await page.goto(DIAGNOSTIC_PAGE_URL)
 
-    await page.getByRole("button", { name: "Divisions", exact: true }).click()
+    await page.getByRole("button", { name: "Analyse des divisions", exact: true }).click()
 
-    await expect(page.getByRole("heading", { name: "Divisions", exact: true })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Analyse des divisions", exact: true })).toBeVisible({
       timeout: 15000,
     })
     await expect(page.getByTestId("division-contributive-margin-report")).toBeVisible()
@@ -1124,8 +1243,8 @@ test.describe("Page Diagnostic", () => {
         name: "Rentabilité par division",
       }),
     ).toBeVisible()
-    await expect(page.getByRole("heading", { name: "Lecture de la rentabilité par division" })).toBeVisible()
-    await expect(page.getByTestId("division-profitability-table").getByText("Bén. expl.", { exact: true }).first()).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Lecture de la performance" })).toBeVisible()
+    await expect(page.getByTestId("division-profitability-table").getByText("BAIIA", { exact: true }).first()).toBeVisible()
   })
 
   test("vue Situation financière : bilan consolidé société", async ({ page }) => {

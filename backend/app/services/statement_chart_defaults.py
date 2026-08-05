@@ -66,11 +66,10 @@ def _income_statement_default() -> dict:
             {
                 "id": margin_id,
                 "kind": "line",
-                "label": "Marge brute (%)",
+                "label": "Contribution marginale (%)",
                 "spec": {
-                    "type": "derivedMargin",
+                    "type": "derivedContributiveMargin",
                     "revenueSeriesId": rev_id,
-                    "grossProfitFromSpec": {"type": "single", "code": ""},
                 },
                 "yAxis": "right",
                 "valueFormat": "ratio",

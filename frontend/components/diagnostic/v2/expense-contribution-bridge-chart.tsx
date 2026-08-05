@@ -2,21 +2,22 @@
 
 import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import { TrendingDown, TrendingUp } from "lucide-react"
-import { Bar, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, XAxis, YAxis } from "recharts"
+import { Bar, BarChart, CartesianGrid, Legend, ReferenceLine, XAxis, YAxis } from "recharts"
 import { ChartContainer, ChartTooltip } from "@/components/ui/chart"
 import { formatMoney } from "@/components/diagnostic/diagnostic-format"
 import { DIAG } from "@/lib/diagnostic-theme"
-import { EXPENSE_BRIDGE_CHART_COLORS } from "@/lib/expense-bridge-chart-theme"
+import { EXPENSE_BRIDGE_CHART_COLORS, EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL } from "@/lib/expense-bridge-chart-theme"
 import type { ExpenseContributionBridgePoint } from "@/lib/expense-contribution-bridge"
-import { formatCurrency } from "@/lib/financial-utils"
+import {
+  buildExpenseBridgeStackPercentSeries,
+  formatBridgePercent,
+  toExpenseBridgeStackPercentPoint,
+  type ExpenseBridgeStackPercentPoint,
+} from "@/lib/expense-bridge-stack-percent"
 import { cn } from "@/lib/utils"
 
 const BRIDGE_COLORS = EXPENSE_BRIDGE_CHART_COLORS
 const DEFAULT_CHART_HEIGHT_PX = 400
-
-function safeNumber(value: number): number {
-  return Number.isFinite(value) ? value : 0
-}
 
 interface ExpenseContributionBridgeChartProps {
   points: ExpenseContributionBridgePoint[]
@@ -30,9 +31,65 @@ interface ExpenseContributionBridgeChartProps {
   chartHeightPx?: number
 }
 
-function pctOfRevenue(value: number, revenue: number): string | null {
-  if (Math.abs(revenue) <= 1e-6) return null
-  return `${((value / revenue) * 100).toFixed(1).replace(".", ",")} % du CA`
+function stackedTotal(row: ExpenseBridgeStackPercentPoint): number {
+  return row.variableCostsStackPct + row.fixedCostsStackPct + row.operatingProfitStackPct
+}
+
+type BridgeSideSegment = {
+  label: string
+  pct: number
+  stackPct: number
+  amount: number
+  color: string
+}
+
+function buildSideSegments(row: ExpenseBridgeStackPercentPoint): BridgeSideSegment[] {
+  return [
+    {
+      label: "Coûts variables",
+      pct: row.variableCostsPct,
+      stackPct: row.variableCostsStackPct,
+      amount: row.variableCosts,
+      color: BRIDGE_COLORS.variableCosts,
+    },
+    {
+      label: "Coûts fixes",
+      pct: row.fixedCostsPct,
+      stackPct: row.fixedCostsStackPct,
+      amount: row.fixedCosts,
+      color: BRIDGE_COLORS.fixedCosts,
+    },
+    {
+      label: EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL,
+      pct: row.operatingProfitPct,
+      stackPct: row.operatingProfitStackPct,
+      amount: row.operatingProfit,
+      color: BRIDGE_COLORS.operatingProfit,
+    },
+  ]
+}
+
+function BridgeStackMiniBar({ segments }: { segments: BridgeSideSegment[] }) {
+  const total = segments.reduce((sum, s) => sum + s.stackPct, 0)
+  if (total <= 0) return null
+  return (
+    <div
+      className="flex h-2.5 w-full overflow-hidden rounded-full bg-slate-100"
+      aria-hidden
+    >
+      {segments.map((segment) =>
+        segment.stackPct > 0 ? (
+          <div
+            key={segment.label}
+            style={{
+              width: `${(segment.stackPct / total) * 100}%`,
+              backgroundColor: segment.color,
+            }}
+          />
+        ) : null,
+      )}
+    </div>
+  )
 }
 
 export function ExpenseContributionBridgeChart({
@@ -63,54 +120,29 @@ export function ExpenseContributionBridgeChart({
     return () => observer.disconnect()
   }, [printMode, chartHeightPx])
 
-  const chartData = useMemo(
-    () =>
-      points.map((p) => ({
-        ...p,
-        revenue: safeNumber(p.revenue),
-        variableCosts: safeNumber(p.variableCosts),
-        contributiveMargin: safeNumber(p.contributiveMargin),
-        fixedCosts: safeNumber(p.fixedCosts),
-        operatingProfit: safeNumber(p.operatingProfit),
-        operatingProfitStack: safeNumber(p.operatingProfit),
-        fixedCostsStack: safeNumber(p.fixedCosts),
-        variableCostsStack: safeNumber(p.variableCosts),
-      })),
-    [points],
-  )
+  const chartData = useMemo(() => buildExpenseBridgeStackPercentSeries(points), [points])
+
+  const yMax = useMemo(() => {
+    if (!chartData.length) return 100
+    const peak = Math.max(...chartData.map((row) => stackedTotal(row)))
+    return Math.max(100, Math.ceil(peak / 5) * 5)
+  }, [chartData])
 
   const latest = points[0]
   const prior = points[1]
-  const variationPct =
-    prior && Math.abs(prior.operatingProfit) > 1e-6
-      ? ((latest!.operatingProfit - prior.operatingProfit) / Math.abs(prior.operatingProfit)) * 100
+  const latestStack = latest ? toExpenseBridgeStackPercentPoint(latest) : null
+  const priorStack = prior ? toExpenseBridgeStackPercentPoint(prior) : null
+  const sideSegments = latestStack ? buildSideSegments(latestStack) : []
+  const baiiaPtsDelta =
+    latestStack && priorStack
+      ? latestStack.operatingProfitPct - priorStack.operatingProfitPct
       : null
 
   const chartConfig = {
-    variableCostsStack: { label: "Coûts variables", color: BRIDGE_COLORS.variableCosts },
-    fixedCostsStack: { label: "Coûts fixes", color: BRIDGE_COLORS.fixedCosts },
-    operatingProfitStack: { label: "Bénéfice d'exploitation", color: BRIDGE_COLORS.operatingProfit },
-    revenue: { label: "Revenus", color: BRIDGE_COLORS.revenue },
-    contributiveMargin: { label: "Contribution marginale", color: BRIDGE_COLORS.contributiveMargin },
+    variableCostsStackPct: { label: "Coûts variables", color: BRIDGE_COLORS.variableCosts },
+    fixedCostsStackPct: { label: "Coûts fixes", color: BRIDGE_COLORS.fixedCosts },
+    operatingProfitStackPct: { label: EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL, color: BRIDGE_COLORS.operatingProfit },
   }
-
-  const kpis = latest
-    ? [
-        { label: "Revenus", value: latest.revenue, color: BRIDGE_COLORS.revenue },
-        { label: "Coûts variables", value: latest.variableCosts, color: BRIDGE_COLORS.variableCosts },
-        {
-          label: "Contr. marginale",
-          value: latest.contributiveMargin,
-          color: BRIDGE_COLORS.contributiveMargin,
-        },
-        { label: "Coûts fixes", value: latest.fixedCosts, color: BRIDGE_COLORS.fixedCosts },
-        {
-          label: "Bénéfice d'exploitation",
-          value: latest.operatingProfit,
-          color: BRIDGE_COLORS.operatingProfit,
-        },
-      ]
-    : []
 
   const chartMargins = printMode
     ? { top: 20, right: 50, left: 20, bottom: 5 }
@@ -125,9 +157,8 @@ export function ExpenseContributionBridgeChart({
         {!printMode ? (
           <div className="mb-4">
             <p className="text-xs leading-relaxed text-slate-500">
-              Pont de rentabilité : chaque barre décompose le chiffre d&apos;affaires en coûts variables,
-              coûts fixes et bénéfice d&apos;exploitation (contribution marginale − coûts fixes). Les
-              montants proviennent du mapping comptable (
+              Répartition du chiffre d&apos;affaires en % : chaque barre totalise 100 % du CA, ventilé entre
+              coûts variables, coûts fixes et {EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL} (
               {variableCostAccountCount} compte{variableCostAccountCount > 1 ? "s" : ""} en coûts variables,{" "}
               {fixedCostAccountCount} compte{fixedCostAccountCount > 1 ? "s" : ""} en coûts fixes).
             </p>
@@ -146,41 +177,72 @@ export function ExpenseContributionBridgeChart({
               printMode ? "report-chart-print-side space-y-3" : "space-y-3 lg:col-span-1"
             }
           >
-            {kpis.map((kpi, index) => (
-              <div
-                key={kpi.label}
-                className={index > 0 ? "border-t border-slate-200 pt-3" : printMode ? "pb-1" : ""}
-              >
-                <div className="mb-1 text-xs font-medium text-[#5C5F66]">{kpi.label}</div>
-                <div className="mb-1.5 text-xl font-semibold text-[#2A2F3A]">
-                  {formatMoney(kpi.value, currency)}
+            {latestStack ? (
+              <>
+                <div className={printMode ? "pb-1" : ""}>
+                  <div className="mb-1 text-xs font-medium text-[#5C5F66]">Chiffre d&apos;affaires</div>
+                  <div className="mb-1 text-xl font-semibold text-[#2A2F3A]">
+                    {formatMoney(latestStack.revenue, currency)}
+                  </div>
+                  <div className="text-[10px] text-slate-400">Base 100 % · {latestStack.period}</div>
                 </div>
-                {kpi.label === "Bénéfice d'exploitation" && variationPct !== null ? (
-                  <div className="flex items-center gap-1.5 text-xs">
-                    {variationPct >= 0 ? (
-                      <TrendingUp className="h-3 w-3 text-emerald-600" />
-                    ) : (
-                      <TrendingDown className="h-3 w-3 text-red-600" />
-                    )}
-                    <span
-                      className={cn(
-                        "font-medium",
-                        variationPct >= 0 ? "text-emerald-600" : "text-red-600",
-                      )}
+
+                <div className="border-t border-slate-200 pt-3">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    Répartition du CA
+                  </div>
+                  <BridgeStackMiniBar segments={sideSegments} />
+                </div>
+
+                {sideSegments.map((segment, index) => {
+                  const isBaiia = segment.label === EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL
+                  const negativePct = segment.pct < 0
+                  return (
+                    <div
+                      key={segment.label}
+                      className={index === 0 ? "pt-3" : "border-t border-slate-200 pt-3"}
                     >
-                      {variationPct >= 0 ? "+" : ""}
-                      {variationPct.toFixed(1)}%
-                    </span>
-                    <span className="text-slate-500">vs période précédente</span>
-                  </div>
-                ) : null}
-                {!printMode && kpi.label !== "Revenus" && latest ? (
-                  <div className="text-[10px] text-slate-400">
-                    {pctOfRevenue(kpi.value, latest.revenue) ?? "—"}
-                  </div>
-                ) : null}
-              </div>
-            ))}
+                      <div className="mb-1 flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                          style={{ backgroundColor: segment.color }}
+                          aria-hidden
+                        />
+                        <span className="text-xs font-medium text-[#5C5F66]">{segment.label}</span>
+                      </div>
+                      <div
+                        className={cn(
+                          "mb-1 text-xl font-semibold tabular-nums",
+                          negativePct ? "text-red-700" : "text-[#2A2F3A]",
+                        )}
+                      >
+                        {formatBridgePercent(segment.pct)}
+                      </div>
+                      <div className="text-xs text-slate-500">{formatMoney(segment.amount, currency)}</div>
+                      {isBaiia && baiiaPtsDelta !== null && Math.abs(baiiaPtsDelta) >= 0.05 ? (
+                        <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+                          {baiiaPtsDelta >= 0 ? (
+                            <TrendingUp className="h-3 w-3 text-emerald-600" />
+                          ) : (
+                            <TrendingDown className="h-3 w-3 text-red-600" />
+                          )}
+                          <span
+                            className={cn(
+                              "font-medium",
+                              baiiaPtsDelta >= 0 ? "text-emerald-600" : "text-red-600",
+                            )}
+                          >
+                            {baiiaPtsDelta >= 0 ? "+" : ""}
+                            {baiiaPtsDelta.toFixed(1).replace(".", ",")} pt
+                          </span>
+                          <span className="text-slate-500">vs période précédente</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </>
+            ) : null}
           </div>
 
           <div
@@ -200,12 +262,12 @@ export function ExpenseContributionBridgeChart({
                 config={chartConfig}
                 className={cn(printMode ? chartHeightClass : "h-full w-full", "w-full")}
               >
-                <ComposedChart
+                <BarChart
                   data={chartData}
                   margin={chartMargins}
-                  barCategoryGap="32%"
+                  barCategoryGap="24%"
                   barGap={2}
-                  maxBarSize={36}
+                  maxBarSize={56}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke={DIAG.gridLine} />
                   <XAxis
@@ -215,43 +277,42 @@ export function ExpenseContributionBridgeChart({
                     axisLine={{ stroke: DIAG.gridLine }}
                   />
                   <YAxis
+                    domain={[0, yMax]}
                     tick={{ fill: DIAG.axisText, fontSize: 12 }}
                     tickLine={{ stroke: DIAG.gridLine }}
                     axisLine={{ stroke: DIAG.gridLine }}
                     tickFormatter={(value) =>
-                      Number.isFinite(value) ? formatCurrency(value) : ""
+                      Number.isFinite(value) ? formatBridgePercent(value, 0) : ""
                     }
                   />
-                  <ReferenceLine y={0} stroke={DIAG.gridLine} strokeDasharray="3 3" />
+                  <ReferenceLine y={100} stroke={DIAG.gridLine} strokeDasharray="4 4" />
                   {!printMode ? (
                     <ChartTooltip
                       content={({ active, payload }) => {
                         if (!active || !payload?.length) return null
-                        const row = payload[0]?.payload as ExpenseContributionBridgePoint
+                        const row = payload[0]?.payload as ExpenseBridgeStackPercentPoint
                         if (!row) return null
                         return (
                           <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
                             <p className="mb-2 text-sm font-semibold text-slate-900">{row.period}</p>
                             {[
-                              { label: "Revenus", value: row.revenue, color: BRIDGE_COLORS.revenue },
+                              { label: "Revenus", value: row.revenue, pct: 100, color: BRIDGE_COLORS.revenue },
                               {
                                 label: "Coûts variables",
                                 value: row.variableCosts,
+                                pct: row.variableCostsPct,
                                 color: BRIDGE_COLORS.variableCosts,
-                              },
-                              {
-                                label: "Contribution marginale",
-                                value: row.contributiveMargin,
-                                color: BRIDGE_COLORS.contributiveMargin,
                               },
                               {
                                 label: "Coûts fixes",
                                 value: row.fixedCosts,
+                                pct: row.fixedCostsPct,
                                 color: BRIDGE_COLORS.fixedCosts,
                               },
                               {
-                                label: "Bénéfice d'exploitation",
+                                label: EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL,
                                 value: row.operatingProfit,
+                                pct: row.operatingProfitPct,
                                 color: BRIDGE_COLORS.operatingProfit,
                               },
                             ].map((item) => (
@@ -267,9 +328,14 @@ export function ExpenseContributionBridgeChart({
                                   />
                                   <span className="text-sm text-slate-600">{item.label}</span>
                                 </div>
-                                <span className="text-sm font-semibold text-slate-900">
-                                  {formatMoney(item.value, currency)}
-                                </span>
+                                <div className="text-right">
+                                  <div className="text-sm font-semibold text-slate-900">
+                                    {formatMoney(item.value, currency)}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">
+                                    {formatBridgePercent(item.pct)}
+                                  </div>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -284,15 +350,15 @@ export function ExpenseContributionBridgeChart({
                     )}
                   />
                   <Bar
-                    dataKey="operatingProfitStack"
-                    name="Bénéfice d'exploitation"
+                    dataKey="operatingProfitStackPct"
+                    name={EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL}
                     stackId="bridge"
                     fill={BRIDGE_COLORS.operatingProfit}
                     stroke="#047857"
                     strokeWidth={1}
                   />
                   <Bar
-                    dataKey="fixedCostsStack"
+                    dataKey="fixedCostsStackPct"
                     name="Coûts fixes"
                     stackId="bridge"
                     fill={BRIDGE_COLORS.fixedCosts}
@@ -300,7 +366,7 @@ export function ExpenseContributionBridgeChart({
                     strokeWidth={1}
                   />
                   <Bar
-                    dataKey="variableCostsStack"
+                    dataKey="variableCostsStackPct"
                     name="Coûts variables"
                     stackId="bridge"
                     fill={BRIDGE_COLORS.variableCosts}
@@ -308,24 +374,7 @@ export function ExpenseContributionBridgeChart({
                     strokeWidth={1}
                     radius={[4, 4, 0, 0]}
                   />
-                  <Line
-                    type="monotone"
-                    dataKey="revenue"
-                    name="Revenus (total)"
-                    stroke={BRIDGE_COLORS.revenue}
-                    strokeWidth={2.5}
-                    dot={{ r: 4, fill: BRIDGE_COLORS.revenue, strokeWidth: 0 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="contributiveMargin"
-                    name="Contribution marginale"
-                    stroke={BRIDGE_COLORS.contributiveMargin}
-                    strokeWidth={2}
-                    strokeDasharray="6 4"
-                    dot={{ r: 3, fill: BRIDGE_COLORS.contributiveMargin }}
-                  />
-                </ComposedChart>
+                </BarChart>
               </ChartContainer>
             ) : null}
           </div>

@@ -206,11 +206,6 @@ function resolveAccountLabel(
   return accountNumber
 }
 
-function pctOfRevenue(cost: number, revenue: number): number | null {
-  if (Math.abs(revenue) <= DATA_EPSILON) return null
-  return (cost / revenue) * 100
-}
-
 function buildCostSectionTable(params: {
   sectionId: string
   heading: string
@@ -260,14 +255,15 @@ function buildCostSectionTable(params: {
     codeByCode,
   })
 
-  const shareValues = totalValues.map((cost, index) =>
-    pctOfRevenue(cost, revenueValues[index] ?? 0),
+  const sourceRevenuesByPeriod = revenueValues.map((revenue) =>
+    Math.abs(revenue) > DATA_EPSILON ? revenue : null,
   )
 
   return {
     sourceId: sectionId,
     sourceLabel: heading,
     periods,
+    sourceRevenuesByPeriod,
     metrics: [
       {
         id: "total",
@@ -275,12 +271,6 @@ function buildCostSectionTable(params: {
         format: "currency",
         values: totalValues,
         detailRows: detailRows.length ? detailRows : undefined,
-      },
-      {
-        id: "share-of-revenue",
-        label: "% du CA",
-        format: "percent",
-        values: shareValues,
       },
     ],
   }

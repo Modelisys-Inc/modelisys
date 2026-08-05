@@ -38,33 +38,31 @@ describe("buildRevenueContributiveMarginEvolutionTable", () => {
     )
 
     expect(table?.periods).toEqual(["2025", "2024", "2023"])
+    expect(table?.sourceRevenuesByPeriod).toEqual([1200, 1000, 900])
     expect(table?.metrics.find((m) => m.id === "revenue")?.values).toEqual([1200, 1000, 900])
     expect(table?.metrics.find((m) => m.id === "contributive-margin")?.values).toEqual([700, 550, 500])
-    expect(table?.metrics.find((m) => m.id === "margin-pct")?.values[0]).toBeCloseTo((700 / 1200) * 100)
-    expect(table?.metrics.find((m) => m.id === "margin-pct")?.values[1]).toBeCloseTo(55)
-    expect(table?.metrics.find((m) => m.id === "margin-pct")?.values[2]).toBeCloseTo((500 / 900) * 100)
+    expect(table?.sourceRevenuesByPeriod?.[0]).toBe(1200)
+    // % CA = montant / revenus de la source (ex. marge contributive → taux de marge)
+    expect((700 / 1200) * 100).toBeCloseTo(58.33, 1)
+    expect(table?.metrics.find((m) => m.id === "margin-pct")).toBeUndefined()
     expect(table?.metrics.find((m) => m.id === "revenue-share")?.values).toEqual([
       60,
       (1000 / 1700) * 100,
       60,
     ])
+    expect(table?.metrics).toHaveLength(5)
   })
 
-  it("expose la ventilation des coûts variables par compte GL", () => {
+  it("expose la ventilation des coûts variables par poste regroupé", () => {
     const electroniques = slice("Électroniques", [
       { period: "2025", revenue: 1200, variableCost: 500 },
       { period: "2024", revenue: 1000, variableCost: 450 },
     ])
-    electroniques.variableCostAccounts = [
+    electroniques.variableCostGroups = [
       {
-        accountNumber: "5010",
-        label: "Matières",
-        amounts: [300, 280],
-      },
-      {
-        accountNumber: "5020",
-        label: "Main-d'œuvre directe",
-        amounts: [200, 170],
+        id: "CMV-A",
+        label: "Achats",
+        amounts: [500, 450],
       },
     ]
 
@@ -76,13 +74,14 @@ describe("buildRevenueContributiveMarginEvolutionTable", () => {
     )
     const variableCost = table?.metrics.find((m) => m.id === "variable-cost")
 
-    expect(variableCost?.detailRows).toHaveLength(2)
+    expect(variableCost?.detailRows).toHaveLength(1)
     expect(variableCost?.detailRows?.[0]).toMatchObject({
-      id: "5010",
-      label: "Matières",
-      values: [300, 280],
+      id: "CMV-A",
+      label: "Achats",
+      displayKind: "link-code",
+      values: [500, 450],
     })
-    expect(variableCost?.detailRows?.[1]?.values).toEqual([200, 170])
+    expect(variableCost?.detailRows?.[0]?.detailRows).toBeUndefined()
   })
 
   it("expose la ventilation des revenus par sous-code REV", () => {

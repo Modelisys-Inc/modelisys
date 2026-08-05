@@ -1,4 +1,5 @@
-import type { SeriesPeriod, SeriesRow } from "@/lib/api"
+import type { AccountMappingData, SeriesPeriod, SeriesRow } from "@/lib/api"
+import { computeMappedVariableCostTrend } from "@/lib/expense-contribution-bridge"
 import { getRowAmounts } from "@/lib/series-utils"
 import type {
   ChartMetricSpec,
@@ -72,6 +73,9 @@ export function isChartMetricSpecConfigured(spec: ChartMetricSpec): boolean {
   }
   if (spec.type === "derivedMargin") {
     return isChartMetricSpecConfigured(spec.grossProfitFromSpec)
+  }
+  if (spec.type === "derivedContributiveMargin") {
+    return Boolean(spec.revenueSeriesId.trim())
   }
   return false
 }
@@ -175,6 +179,7 @@ export function trendFromMetricSpec(
   count: number
 ): number[] | null {
   if (spec.type === "derivedMargin") return null
+  if (spec.type === "derivedContributiveMargin") return null
 
   if (spec.type === "ratio" && view !== "months") {
     return ratioTrendAggregatedByCalendarView(
@@ -206,6 +211,7 @@ export function computeMetricSeries(
   periods: SeriesPeriod[]
 ): number[] | null {
   if (spec.type === "derivedMargin") return null
+  if (spec.type === "derivedContributiveMargin") return null
 
   if (spec.type === "single") {
     const row = findSeriesRowByCode(rows, spec.code)
@@ -267,6 +273,29 @@ export function computeDerivedGrossMarginPercent(revenue: number[], grossProfit:
   return out
 }
 
+/** Contribution marginale % = ((revenus − coûts variables) ÷ revenus) × 100. */
+export function computeDerivedContributiveMarginPercent(
+  revenue: number[],
+  variableCosts: number[],
+): number[] {
+  const n = Math.max(revenue.length, variableCosts.length)
+  const out: number[] = []
+  for (let i = 0; i < n; i++) {
+    const r = revenue[i] ?? 0
+    const variableCost = variableCosts[i] ?? 0
+    if (Math.abs(r) < REF_EPS) {
+      out.push(0)
+      continue
+    }
+    out.push(((r - variableCost) / r) * 100)
+  }
+  return out
+}
+
+export type PerformanceChartMappingContext = {
+  mappings: AccountMappingData[]
+}
+
 function applyRatioScaleIfNeeded(
   trend: number[] | null,
   spec: ChartMetricSpec,
@@ -290,6 +319,7 @@ function resolveSeriesTrend(
 ): number[] | null {
   const spec = s.spec
   if (spec.type === "derivedMargin") return null
+  if (spec.type === "derivedContributiveMargin") return null
   const t = trendFromMetricSpec(spec, rows, periods, view, refMonth, refYear, count)
   return applyRatioScaleIfNeeded(t, spec, s.valueFormat)
 }
@@ -342,10 +372,11 @@ export function buildPerformanceChartData(
   periods: SeriesPeriod[],
   view: string,
   refMonth: number,
-  refYear: number
+  refYear: number,
+  mappingContext?: PerformanceChartMappingContext,
 ): { points: DynamicChartPoint[]; series: BuiltSeriesMeta[] } | null {
   const activeSeries = config.series.filter((s) => {
-    if (s.spec.type === "derivedMargin") return true
+    if (s.spec.type === "derivedMargin" || s.spec.type === "derivedContributiveMargin") return true
     return isChartMetricSpecConfigured(s.spec)
   })
   if (!activeSeries.length) return null
@@ -368,8 +399,12 @@ export function buildPerformanceChartData(
   }
 
   const trends = new Map<string, number[]>()
-  const pass1 = activeSeries.filter((s) => s.spec.type !== "derivedMargin")
-  const pass2 = activeSeries.filter((s) => s.spec.type === "derivedMargin")
+  const pass1 = activeSeries.filter(
+    (s) => s.spec.type !== "derivedMargin" && s.spec.type !== "derivedContributiveMargin",
+  )
+  const pass2 = activeSeries.filter(
+    (s) => s.spec.type === "derivedMargin" || s.spec.type === "derivedContributiveMargin",
+  )
 
   for (const s of pass1) {
     const t = resolveSeriesTrend(s, rows, periods, v, refMonth, refYear, count)
@@ -379,9 +414,27 @@ export function buildPerformanceChartData(
 
   for (const s of pass2) {
     const spec = s.spec
-    if (spec.type !== "derivedMargin") continue
     const rev = trends.get(spec.revenueSeriesId)
     if (!rev) continue
+
+    if (spec.type === "derivedContributiveMargin") {
+      if (!mappingContext?.mappings.length) continue
+      const variableTrend = computeMappedVariableCostTrend({
+        mappings: mappingContext.mappings,
+        seriesRows: rows,
+        periods,
+        view,
+        refMonth,
+        refYear,
+      })
+      if (!variableTrend || variableTrend.length !== labels.length) continue
+      const margin = computeDerivedContributiveMarginPercent(rev, variableTrend)
+      if (margin.length !== labels.length) continue
+      trends.set(s.id, margin)
+      continue
+    }
+
+    if (spec.type !== "derivedMargin") continue
     const gpT = trendFromMetricSpec(spec.grossProfitFromSpec, rows, periods, v, refMonth, refYear, count)
     if (!gpT || gpT.length !== labels.length) continue
     const margin = computeDerivedGrossMarginPercent(rev, gpT)

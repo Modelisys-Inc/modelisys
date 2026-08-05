@@ -219,6 +219,32 @@ export type ReportPrintAnalysisView = Exclude<
   "sommaire" | "company-overview"
 >
 
+/** Libellés du menu Rapport et de la table des matières (source unique). */
+export const DIAGNOSTIC_REPORT_VIEW_LABELS: Record<
+  Exclude<DiagnosticReportView, "sommaire">,
+  string
+> = {
+  "company-overview": "Aperçu de l'entreprise",
+  performance: "Performance financière",
+  revenue: "Analyse des revenus",
+  "margin-by-revenue": "Marge par revenus",
+  expenses: "Analyse des dépenses",
+  "expenses-by-division": "Analyse des divisions",
+  "financial-position": "Situation financière",
+  "working-capital": "Fonds de roulement",
+  capex: "Capex",
+}
+
+export function diagnosticReportViewLabel(
+  view: Exclude<DiagnosticReportView, "sommaire">,
+): string {
+  return DIAGNOSTIC_REPORT_VIEW_LABELS[view]
+}
+
+export function reportAnalysisViewLabel(viewId: ReportPrintAnalysisView): string {
+  return diagnosticReportViewLabel(viewId)
+}
+
 
 
 export interface ReportPrintAnalysis {
@@ -255,7 +281,7 @@ export const DIAGNOSTIC_PRINT_ANALYSES: ReportPrintAnalysis[] = [
     sectionNumber: 2,
     sectionTitle: "Revenus",
     intro: {
-      title: "Revenus",
+      title: "Analyse des revenus",
       subtitle: "Dynamique commerciale et niveau d'activité",
       description:
         "Cette section examine la croissance du chiffre d'affaires, la composition des sources de revenus et leur évolution dans le temps. Elle pose le contexte avant l'analyse de marge par ligne de revenus.",
@@ -278,7 +304,7 @@ export const DIAGNOSTIC_PRINT_ANALYSES: ReportPrintAnalysis[] = [
     sectionNumber: 3,
     sectionTitle: "Dépenses",
     intro: {
-      title: "Dépenses",
+      title: "Analyse des dépenses",
       subtitle: "Structure de coûts et pont de rentabilité",
       description:
         "Pont entre marge brute et EBITDA, ventilation des coûts variables et fixes, et seuil de rentabilité. Cette analyse éclaire la structure des charges d'exploitation de la société.",
@@ -288,9 +314,9 @@ export const DIAGNOSTIC_PRINT_ANALYSES: ReportPrintAnalysis[] = [
     viewId: "expenses-by-division",
     sectionNumber: 3,
     sectionTitle: "Dépenses",
-    viewSubtitle: "Rentabilité par division",
+    viewSubtitle: "Analyse des divisions",
     intro: {
-      title: "Rentabilité par division",
+      title: "Analyse des divisions",
       subtitle: "Dépenses — Performance par centre d'activité",
       description:
         "Revenus, coûts variables et fixes, marge contributive et bénéfice d'exploitation par division. Permet de comparer la rentabilité relative des centres d'activité de la société.",
@@ -343,7 +369,7 @@ const LECTURE_TITLES: Record<ReportPrintAnalysisView, string> = {
 
   expenses: "Lecture de la performance",
 
-  "expenses-by-division": "Lecture de la rentabilité par division",
+  "expenses-by-division": "Lecture de la performance",
 
   "financial-position": "Lecture de la situation financière",
 
@@ -366,15 +392,7 @@ export function reportAnalysisLectureTitle(viewId: ReportPrintAnalysisView): str
 /** Titre affiché dans la TdM et les pages d'introduction (Section - Sous-titre). */
 
 export function reportAnalysisDisplayTitle(analysis: ReportPrintAnalysis): string {
-
-  if (analysis.viewSubtitle) {
-
-    return `${analysis.sectionTitle} - ${analysis.viewSubtitle}`
-
-  }
-
-  return analysis.intro.title
-
+  return reportAnalysisViewLabel(analysis.viewId)
 }
 
 

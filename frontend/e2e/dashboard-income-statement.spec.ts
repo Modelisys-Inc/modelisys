@@ -126,11 +126,10 @@ function defaultIncomeSlot() {
         {
           id: "m",
           kind: "line",
-          label: "Marge brute (%)",
+          label: "Contribution marginale (%)",
           spec: {
-            type: "derivedMargin",
+            type: "derivedContributiveMargin",
             revenueSeriesId: "r",
-            grossProfitFromSpec: { type: "single", code: "" },
           },
           yAxis: "right",
           valueFormat: "ratio",
@@ -178,11 +177,11 @@ test.describe("Income statement dashboard", () => {
       page.getByRole("button", { name: /ajouter un graphique/i }),
     ).toBeVisible({ timeout: 15000 })
 
-    // The default chart slot is mounted (its settings button is exposed
-    // independently of data availability).
-    await expect(
-      page.getByRole("button", { name: /paramètres du graphique/i }).first(),
-    ).toBeVisible({ timeout: 10000 })
+    // The default chart slot is mounted without a settings button (séries imposées).
+    await expect(page.getByRole("heading", { name: "Performance financière" })).toBeVisible({
+      timeout: 10000,
+    })
+    await expect(page.getByRole("button", { name: /paramètres du graphique/i })).toHaveCount(0)
   })
 
   test("add chart triggers POST and re-fetches slots", async ({ page }) => {

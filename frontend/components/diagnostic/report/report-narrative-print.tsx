@@ -2,6 +2,8 @@
 
 import type { ReactNode } from "react"
 import type { PerformanceNarrativeResult } from "@/lib/income-performance-narrative"
+import { groupDivisionNarrativeBlocks } from "@/lib/income-performance-narrative"
+import { DivisionNarrativeBlockList } from "@/components/diagnostic/division-narrative-block-list"
 
 type Narrative = NonNullable<PerformanceNarrativeResult>
 
@@ -13,6 +15,12 @@ const NARRATIVE_SECTION_META: Record<string, { title?: string; description?: str
     showHeader: false,
   },
   "contributive-margin": {
+    showHeader: false,
+  },
+  "division-revenue": {
+    showHeader: false,
+  },
+  "division-rentability": {
     showHeader: false,
   },
   "division-profitability": {
@@ -39,6 +47,8 @@ function groupParagraphs(paragraphs: Narrative["paragraphs"]) {
   const order = [
     "revenue-performance",
     "contributive-margin",
+    "division-revenue",
+    "division-rentability",
     "division-profitability",
     "financial-position",
     "working-capital",
@@ -86,7 +96,8 @@ export function ReportNarrativePrint({
   /** Faux sur les pages de suite (pagination). */
   showHeader?: boolean
 }) {
-  const groups = groupParagraphs(narrative.paragraphs)
+  const divisionBlocks = groupDivisionNarrativeBlocks(narrative.paragraphs)
+  const groups = divisionBlocks ? null : groupParagraphs(narrative.paragraphs)
   const subtitle =
     narrative.mode === "annual" || narrative.mode === "monthly"
       ? narrative.subtitle
@@ -106,7 +117,14 @@ export function ReportNarrativePrint({
       ) : null}
 
       <div className="report-narrative-body">
-        {groups.map((group) => (
+        {divisionBlocks ? (
+          <DivisionNarrativeBlockList
+            blocks={divisionBlocks}
+            renderAfterParagraph={renderAfterParagraph}
+            variant="print"
+          />
+        ) : (
+          groups?.map((group) => (
           <section key={group.id} className="report-narrative-group">
             {group.title ? (
               <div className="report-narrative-group-head">
@@ -118,10 +136,15 @@ export function ReportNarrativePrint({
             ) : null}
             {group.paragraphs.map((p, paragraphIdx) => (
               <div
-                key={`${group.id}-${paragraphIdx}-${p.heading}`}
+                key={`${group.id}-${paragraphIdx}-${p.heading}-${p.subsection ?? "main"}`}
                 className="report-narrative-paragraph report-page-break-avoid"
               >
-                <h4 className="report-narrative-heading">{p.heading}</h4>
+                {!p.hideMainHeading ? (
+                  <h4 className="report-narrative-heading">{p.heading}</h4>
+                ) : null}
+                {p.subsection ? (
+                  <p className="report-narrative-subheading">{p.subsection}</p>
+                ) : null}
                 <p className="report-narrative-text">{p.body}</p>
                 {p.secondaryBody ? <p className="report-narrative-text">{p.secondaryBody}</p> : null}
                 {p.seasonalityBody ? (
@@ -135,7 +158,8 @@ export function ReportNarrativePrint({
               </div>
             ))}
           </section>
-        ))}
+        ))
+        )}
       </div>
     </article>
   )

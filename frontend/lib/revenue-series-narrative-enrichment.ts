@@ -3,6 +3,7 @@ import type {
   RevenueSeriesNarrativeSlice,
   RevenueComponentBreakdown,
   VariableCostAccountBreakdown,
+  VariableCostGroupBreakdown,
 } from "@/lib/income-performance-narrative"
 import {
   buildSyntheticSeriesRow,
@@ -23,7 +24,9 @@ import {
 import {
   getDetailSubLineCodesFromStandardLinkCode,
   getLeafDescendantsOfStandardLinkCode,
+  resolveExpenseCostGroupingFromLinkCode,
   standardLinkCodeDisplayLabel,
+  type StandardLinkCodeLookup,
 } from "@/lib/standard-link-code-utils"
 
 const DATA_EPSILON = 1e-6
@@ -223,7 +226,7 @@ export function resolveRevenueBreakdownTargets(
   seriesRows: SeriesRow[],
   standardLinkCodes?: StandardLinkCode[],
 ): RevenueBreakdownTarget[] {
-  if (spec.type === "difference" || spec.type === "ratio" || spec.type === "derivedMargin") {
+  if (spec.type === "difference" || spec.type === "ratio" || spec.type === "derivedMargin" || spec.type === "derivedContributiveMargin") {
     return []
   }
 
@@ -373,6 +376,76 @@ function buildVariableCostAccountBreakdowns(
   if (!breakdowns.length) return undefined
 
   return breakdowns.sort((a, b) => (b.amounts[0] ?? 0) - (a.amounts[0] ?? 0))
+}
+
+function buildStandardLinkCodeLookup(codes: StandardLinkCode[] | undefined): StandardLinkCodeLookup {
+  return new Map((codes ?? []).map((code) => [code.code, code]))
+}
+
+function resolveVariableCostGroupForAccount(
+  accountNumber: string,
+  mappingsByAccount: Map<string, AccountMappingData>,
+  codeByCode: StandardLinkCodeLookup,
+  seriesRows: SeriesRow[],
+): { id: string; label: string } {
+  const mapping = mappingsByAccount.get(accountNumber)
+  const linkCode = mapping?.link_code?.trim()
+  if (!linkCode) {
+    return {
+      id: accountNumber,
+      label: resolveVariableCostAccountLabel(accountNumber, mappingsByAccount, seriesRows),
+    }
+  }
+
+  const group = resolveExpenseCostGroupingFromLinkCode(linkCode, codeByCode)
+  if (group) return group
+
+  const row = codeByCode.get(linkCode)
+  return {
+    id: linkCode,
+    label: row ? standardLinkCodeDisplayLabel(row) : linkCode,
+  }
+}
+
+function buildVariableCostGroupBreakdowns(
+  mappings: AccountMappingData[],
+  accountNumbers: string[],
+  accountBreakdowns: VariableCostAccountBreakdown[],
+  seriesRows: SeriesRow[],
+  standardLinkCodes?: StandardLinkCode[],
+): VariableCostGroupBreakdown[] | undefined {
+  if (!accountBreakdowns.length) return undefined
+
+  const mappingsByAccount = new Map(mappings.map((m) => [m.account_number, m]))
+  const codeByCode = buildStandardLinkCodeLookup(standardLinkCodes)
+  const breakdownByAccount = new Map(accountBreakdowns.map((row) => [row.accountNumber, row]))
+  const groups = new Map<string, VariableCostGroupBreakdown>()
+
+  for (const accountNumber of accountNumbers) {
+    const account = breakdownByAccount.get(accountNumber)
+    if (!account) continue
+
+    const group = resolveVariableCostGroupForAccount(
+      accountNumber,
+      mappingsByAccount,
+      codeByCode,
+      seriesRows,
+    )
+    const existing = groups.get(group.id)
+    if (existing) {
+      existing.amounts = existing.amounts.map((value, index) => value + (account.amounts[index] ?? 0))
+      continue
+    }
+    groups.set(group.id, {
+      id: group.id,
+      label: group.label,
+      amounts: [...account.amounts],
+    })
+  }
+
+  if (!groups.size) return undefined
+
+  return [...groups.values()].sort((a, b) => (b.amounts[0] ?? 0) - (a.amounts[0] ?? 0))
 }
 
 export type RevenueSeriesEnrichmentMeta = {
@@ -534,6 +607,15 @@ export function enrichRevenueSeriesForNarrative(params: {
       refYear,
       points,
     )
+    const variableCostGroups = variableCostAccounts
+      ? buildVariableCostGroupBreakdowns(
+          mappings,
+          meta.variableCostAccountNumbers,
+          variableCostAccounts,
+          seriesRows,
+          standardLinkCodes,
+        )
+      : undefined
 
     return {
       ...baseSlice,
@@ -541,6 +623,7 @@ export function enrichRevenueSeriesForNarrative(params: {
       variableCostMapped: true,
       variableCostAccountCount: meta.variableCostAccountNumbers.length,
       variableCostAccounts,
+      variableCostGroups,
       matchedRevenueLinkCodes: meta.matchedRevenueLinkCodes,
     }
   })

@@ -1,6 +1,7 @@
 import { formatCurrency } from "@/lib/financial-utils"
 import type { BuiltSeriesMeta, DynamicChartPoint } from "@/lib/performance-chart-series"
 import { PERFORMANCE_CHART_MONTH_COUNT_24, PERFORMANCE_CHART_QUARTER_COUNT, PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
+import { PERFORMANCE_WINDOW_PAGE_GROUP } from "@/lib/report-narrative-pagination"
 
 /** Points alignés sur le graphique Performance financière (revenus, marge, BAIIA). */
 export type PerformanceNarrativePoint = {
@@ -16,6 +17,8 @@ export type PerformanceNarrativePoint = {
 export type NarrativeParagraphSection =
   | "revenue-performance"
   | "contributive-margin"
+  | "division-revenue"
+  | "division-rentability"
   | "division-profitability"
   | "revenue-mix"
   | "financial-position"
@@ -27,6 +30,18 @@ export type PerformanceNarrativeParagraph = {
   body: string
   /** Regroupement visuel sous « Lecture de la performance ». */
   section?: NarrativeParagraphSection
+  /** Sous-titre dans un bloc division (ex. « Revenus », « Rentabilité »). */
+  subsection?: string
+  /** Masque le titre principal lorsque le bloc est la suite d'une même division. */
+  hideMainHeading?: boolean
+  /** Affiche le tableau indicateur après ce paragraphe (défaut : oui). */
+  showIndicatorTable?: boolean
+  /** Regroupe des paragraphes sur la même page de lecture rapport. */
+  narrativePageGroup?: string
+  /** Regroupe les paragraphes d'une même division (lecture Divisions). */
+  divisionBlockId?: string
+  /** Titre affiché une fois par bloc division. */
+  divisionTitle?: string
   /** Paragraphe complémentaire (ex. trajectoire BAIIA vs revenus). */
   secondaryBody?: string
   /** Lecture saisonnière (horizon mensuel 24 mois). */
@@ -56,9 +71,40 @@ export type PerformanceNarrativeResult =
       paragraphs: PerformanceNarrativeParagraph[]
     }
 
+export type DivisionNarrativeBlock = {
+  id: string
+  title: string
+  paragraphs: PerformanceNarrativeParagraph[]
+}
+
+/** Regroupe les paragraphes division par ordre documentaire (Revenus → Rentabilité par division). */
+export function groupDivisionNarrativeBlocks(
+  paragraphs: PerformanceNarrativeParagraph[],
+): DivisionNarrativeBlock[] | null {
+  if (!paragraphs.some((p) => p.divisionBlockId)) return null
+
+  const blocks: DivisionNarrativeBlock[] = []
+  for (const paragraph of paragraphs) {
+    const id = paragraph.divisionBlockId
+    if (!id) continue
+    const existing = blocks.find((block) => block.id === id)
+    if (existing) {
+      existing.paragraphs.push(paragraph)
+      continue
+    }
+    blocks.push({
+      id,
+      title: paragraph.divisionTitle ?? paragraph.heading,
+      paragraphs: [paragraph],
+    })
+  }
+
+  return blocks.length ? blocks : null
+}
+
 type WindowCagrMode = "calendar-years" | "months-annualized"
 
-type WindowNarrativeCopy = {
+export type WindowNarrativeCopy = {
   periodUnit: string
   periodUnitPlural: string
   referenceForPeriod: (period: string) => string
@@ -419,7 +465,36 @@ function formatMetricValue(value: number, format: "currency" | "percent"): strin
   return formatCurrency(value)
 }
 
-function scopeSentence(
+function frenchCountWord(count: number): string {
+  const words = [
+    "zéro",
+    "un",
+    "deux",
+    "trois",
+    "quatre",
+    "cinq",
+    "six",
+    "sept",
+    "huit",
+    "neuf",
+    "dix",
+    "onze",
+    "douze",
+  ]
+  if (count >= 0 && count < words.length) return words[count]!
+  return String(count)
+}
+
+function fmtPctUnsigned(p: number, digits = 1): string {
+  return `${Math.abs(p).toFixed(digits).replace(".", ",")} %`
+}
+
+function fmtPctSigned(p: number, digits = 1): string {
+  const sign = p > 0 ? "+" : p < 0 ? "−" : ""
+  return `${sign}${Math.abs(p).toFixed(digits).replace(".", ",")} %`
+}
+
+function evolutionScopeSentence(
   observationCount: number,
   periods: string[],
   excludedPeriods: string[],
@@ -428,11 +503,22 @@ function scopeSentence(
   const from = periods[periods.length - 1]
   const to = periods[0]
   if (!from || !to) return "Sur la période analysée"
-  const unit =
-    observationCount > 1 && copy.periodUnitPlural !== copy.periodUnit
-      ? copy.periodUnitPlural
-      : copy.periodUnit
-  const base = `Sur ${observationCount} ${unit} disposant de données (${from} à ${to})`
+
+  let base: string
+  if (copy.periodUnitPlural === "exercices") {
+    base =
+      observationCount === 1
+        ? `Sur l'exercice ${to}`
+        : `Sur les ${frenchCountWord(observationCount)} derniers exercices (${from} à ${to})`
+  } else if (copy.periodUnitPlural === "mois") {
+    base =
+      observationCount === 1
+        ? `Sur le mois de ${to}`
+        : `Sur les ${observationCount} derniers mois (${from} à ${to})`
+  } else {
+    base = `Sur ${observationCount} ${copy.periodUnitPlural} (${from} à ${to})`
+  }
+
   if (!excludedPeriods.length) return base
   const excluded =
     excludedPeriods.length <= 4
@@ -441,32 +527,176 @@ function scopeSentence(
   return `${base}; les ${copy.periodUnitPlural} ${excluded} sont exclus de l'analyse faute de données exploitables`
 }
 
-function positionVsMeanSentence(latest: number, mean: number, format: "currency" | "percent"): string {
-  const delta = latest - mean
-  if (format === "percent") {
-    if (Math.abs(delta) <= 0.05) return "Le niveau actuel est aligné sur la moyenne historique."
-    if (delta > 0) return `Le niveau actuel dépasse la moyenne historique de ${fmtPts(delta)}.`
-    return `Le niveau actuel se situe ${fmtPts(Math.abs(delta))} sous la moyenne historique.`
+function isMonotonicIncrease(values: number[]): boolean {
+  const chronological = [...values].reverse()
+  for (let index = 1; index < chronological.length; index++) {
+    if (chronological[index]! < chronological[index - 1]! - DATA_EPSILON) return false
   }
-  const rel = pctChange(latest, mean)
-  if (rel === null || Math.abs(rel) <= 0.5) return "Le niveau actuel est proche de la moyenne historique."
-  if (rel > 0) return `Le niveau actuel se situe ${fmtPct(rel)} au-dessus de la moyenne historique.`
-  return `Le niveau actuel se situe ${fmtPct(Math.abs(rel))} sous la moyenne historique.`
+  return true
 }
 
-function cagrSentence(cagr: CagrResult | null, format: "currency" | "percent"): string {
-  if (!cagr) return ""
-  if (format === "currency" && cagr.cagr !== null) {
-    const dir = trendWord(cagr.cagr)
-    const qualifier =
-      dir === "progression"
-        ? "une trajectoire de croissance"
-        : dir === "recul"
-          ? "une trajectoire de contraction"
-          : "une évolution modérée"
-    return `Le taux de croissance annualisé composé (TCAC) entre ${cagr.fromPeriod} et ${cagr.toPeriod} s'établit à ${fmtPct(cagr.cagr)}, traduisant ${qualifier} sur la période retenue.`
+function isMonotonicDecrease(values: number[]): boolean {
+  const chronological = [...values].reverse()
+  for (let index = 1; index < chronological.length; index++) {
+    if (chronological[index]! > chronological[index - 1]! + DATA_EPSILON) return false
   }
-  return ""
+  return true
+}
+
+function buildTrajectoryMeaningSentence(
+  values: number[],
+  cagr: CagrResult | null,
+  format: "currency" | "percent",
+): string {
+  const cagrValue = cagr?.cagr ?? null
+  const rising = isMonotonicIncrease(values)
+  const falling = isMonotonicDecrease(values)
+
+  if (format === "currency") {
+    if (cagrValue !== null && cagrValue > 0.5 && rising) {
+      return "Cette évolution témoigne d'une trajectoire de croissance soutenue au cours des dernières années, sans recul observé sur la période."
+    }
+    if (cagrValue !== null && cagrValue < -0.5 && falling) {
+      return "Cette évolution traduit une trajectoire de contraction progressive, sans rebond marqué sur la période."
+    }
+    if (cagrValue !== null && Math.abs(cagrValue) <= 0.5) {
+      return "Cette évolution traduit une relative stabilité du niveau d'activité sur la période analysée."
+    }
+    return "Cette évolution reflète une dynamique mixte sur la période, avec des phases de progression et de correction."
+  }
+
+  if (cagrValue !== null && cagrValue > 0.5 && rising) {
+    return "Cette évolution traduit une amélioration progressive de la contribution marginale, sans dégradation observée sur la période."
+  }
+  if (cagrValue !== null && cagrValue < -0.5 && falling) {
+    return "Cette évolution signale une pression persistante sur la contribution marginale au cours de la période analysée."
+  }
+  if (values.length >= 2 && Math.abs(values[0]! - values[values.length - 1]!) <= 0.05) {
+    return "Cette évolution traduit une relative stabilité de la contribution marginale sur la période analysée."
+  }
+  return "Cette évolution reflète une dynamique de contribution marginale contrastée, avec des phases d'amélioration et de correction."
+}
+
+type CurrencyComparisonNoun = "revenus" | "BAIIA" | "montants"
+
+function buildCurrencyComparisonClauses(
+  latest: number,
+  prior: number | null,
+  priorPeriod: string | null,
+  mean: number,
+  comparisonNoun: CurrencyComparisonNoun,
+): string[] {
+  const clauses: string[] = []
+  if (prior !== null && priorPeriod) {
+    const yoy = pctChange(latest, prior)
+    if (yoy !== null && Math.abs(yoy) > 0.05) {
+      const direction = yoy > 0 ? "supérieur" : "inférieur"
+      const plural = comparisonNoun === "revenus" ? `${direction}s` : direction
+      const anchor =
+        comparisonNoun === "revenus"
+          ? `à ceux de ${priorPeriod}`
+          : comparisonNoun === "BAIIA"
+            ? `à celui de ${priorPeriod}`
+            : `à celui de ${priorPeriod}`
+      clauses.push(`${plural} de ${fmtPctUnsigned(yoy)} ${anchor}`)
+    }
+  }
+
+  const vsMean = pctChange(latest, mean)
+  if (vsMean !== null && Math.abs(vsMean) > 0.05) {
+    const direction = vsMean > 0 ? "supérieur" : "inférieur"
+    const plural = comparisonNoun === "revenus" ? `${direction}s` : direction
+    clauses.push(
+      `${plural} de ${fmtPctUnsigned(vsMean)} à la moyenne historique (${formatMetricValue(mean, "currency")})`,
+    )
+  }
+
+  return clauses
+}
+
+function buildCurrencyPositionSentence(
+  latest: number,
+  stats: WindowStats,
+  periods: string[],
+  copy: WindowNarrativeCopy,
+  label: string,
+  format: "currency",
+  comparisonNoun: CurrencyComparisonNoun,
+  prior: number | null,
+  priorPeriod: string | null,
+): string {
+  const reference = copy.referenceForPeriod(periods[0]!)
+  const isBest = nearlyEqual(latest, stats.max)
+  const isWorst = nearlyEqual(latest, stats.min)
+  const opener = isBest
+    ? `${reference} constitue la meilleure performance de la période analysée`
+    : isWorst
+      ? `${reference} correspond au niveau le plus bas de la période analysée`
+      : `À la date de référence, ${label} s'établit à ${formatMetricValue(latest, format)}`
+
+  const comparisons = buildCurrencyComparisonClauses(latest, prior, priorPeriod, stats.mean, comparisonNoun)
+  if (!comparisons.length) return `${opener}.`
+
+  if (comparisonNoun === "revenus") {
+    return `${opener}, avec des revenus ${comparisons.join(" et ")}.`
+  }
+  if (comparisonNoun === "BAIIA") {
+    return `${opener}, avec un BAIIA ${comparisons.join(" et ")}.`
+  }
+  return `${opener}, avec des montants ${comparisons.join(" et ")}.`
+}
+
+function buildMarginComparisonClauses(
+  latest: number,
+  prior: number | null,
+  priorPeriod: string | null,
+  mean: number,
+): string[] {
+  const clauses: string[] = []
+  if (prior !== null && priorPeriod) {
+    const delta = latest - prior
+    if (Math.abs(delta) > 0.05) {
+      clauses.push(
+        `${delta > 0 ? "supérieure" : "inférieure"} de ${Math.abs(delta).toFixed(1).replace(".", ",")} % à celle de ${priorPeriod}`,
+      )
+    }
+  }
+  const meanDelta = latest - mean
+  if (Math.abs(meanDelta) > 0.05) {
+    clauses.push(
+      `${meanDelta > 0 ? "supérieure" : "inférieure"} de ${Math.abs(meanDelta).toFixed(1).replace(".", ",")} % à la moyenne historique (${mean.toFixed(1).replace(".", ",")} %)`,
+    )
+  }
+  return clauses
+}
+
+function buildMarginPositionSentence(
+  latest: number,
+  stats: WindowStats,
+  periods: string[],
+  copy: WindowNarrativeCopy,
+  metricLabel: string,
+  prior: number | null,
+  priorPeriod: string | null,
+): string {
+  const reference = copy.referenceForPeriod(periods[0]!)
+  const isBest = nearlyEqual(latest, stats.max, 0.05)
+  const isWorst = nearlyEqual(latest, stats.min, 0.05)
+  const opener = isBest
+    ? `${reference} affiche la contribution marginale la plus élevée de la période analysée`
+    : isWorst
+      ? `${reference} affiche la contribution marginale la plus faible de la période analysée`
+      : `À la date de référence, ${metricLabel} s'affiche à ${latest.toFixed(1).replace(".", ",")} %`
+
+  const comparisons = buildMarginComparisonClauses(latest, prior, priorPeriod, stats.mean)
+  if (!comparisons.length) return `${opener}.`
+  return `${opener}, avec une marge ${comparisons.join(" et ")}.`
+}
+
+function pastParticiplePhrase(label: string): string {
+  if (/^les /i.test(label)) return "sont passés"
+  if (/^la /i.test(label)) return "est passée"
+  return "est passé"
 }
 
 function buildStatsLine(
@@ -477,12 +707,14 @@ function buildStatsLine(
   marginTrendSuffix = "/an",
 ): string {
   const parts = [
-    `Fourchette : ${formatMetricValue(stats.min, format)} (${stats.minPeriod}) – ${formatMetricValue(stats.max, format)} (${stats.maxPeriod})`,
+    `Fourchette observée : ${formatMetricValue(stats.min, format)} (${stats.minPeriod}) à ${formatMetricValue(stats.max, format)} (${stats.maxPeriod})`,
     `Moyenne : ${formatMetricValue(stats.mean, format)}`,
   ]
-  if (cagr?.cagr !== null && cagr) parts.push(`TCAC : ${fmtPct(cagr.cagr)}`)
+  if (cagr?.cagr !== null && cagr) parts.push(`TCAC : ${fmtPctSigned(cagr.cagr)}`)
   if (marginAnnualizedPts !== null)
-    parts.push(`Évol. annualisée : ${fmtPts(marginAnnualizedPts)}${marginTrendSuffix}`)
+    parts.push(
+      `Évol. annualisée : ${marginAnnualizedPts.toFixed(1).replace(".", ",")} %${marginTrendSuffix}`,
+    )
   return parts.join(" · ")
 }
 
@@ -494,54 +726,45 @@ function buildCurrencyWindowParagraph(
   pickValue: (p: PerformanceNarrativePoint) => number,
   copy: WindowNarrativeCopy,
   withSeasonality = true,
+  comparisonNoun: CurrencyComparisonNoun = "montants",
 ): PerformanceNarrativeParagraph | null {
   const { values, periods, excludedPeriods } = filterPresentSeries(points, pickValue)
   const stats = windowStats(values, periods)
   if (!stats || !values.length) return null
 
   const latest = values[0]!
+  const oldest = values[values.length - 1]!
   const prior = values.length > 1 ? values[1]! : null
   const priorPeriod = values.length > 1 ? periods[1]! : null
   const cagr = computeCagrFromPresentSeries(values, periods, copy.cagrMode)
-  const scope = scopeSentence(values.length, periods, excludedPeriods, copy)
-  const retainedLabel = copy.periodUnitPlural === "mois" ? "les mois retenus" : "les exercices retenus"
+  const scope = evolutionScopeSentence(values.length, periods, excludedPeriods, copy)
 
-  const sentences: string[] = [
-    `${scope}, ${label} s'établit à ${formatMetricValue(latest, format)} pour ${copy.referenceForPeriod(periods[0]!)}.`,
-    `La fourchette observée s'étend de ${formatMetricValue(stats.min, format)} en ${stats.minPeriod} (fourchette basse) à ${formatMetricValue(stats.max, format)} en ${stats.maxPeriod} (fourchette haute), pour une moyenne de ${formatMetricValue(stats.mean, format)} sur ${retainedLabel}.`,
-    positionVsMeanSentence(latest, stats.mean, format),
+  const evolutionParts = [
+    `${scope}, ${label} ${pastParticiplePhrase(label)} de ${formatMetricValue(oldest, format)} à ${formatMetricValue(latest, format)}`,
   ]
-
-  if (cagr) {
-    const cagrText = cagrSentence(cagr, format)
-    if (cagrText) sentences.push(cagrText)
-  } else if (values.length >= 2) {
-    sentences.push(
-      "Le TCAC n'a pas été calculé : les valeurs de début ou de fin de période ne permettent pas une croissance annualisée composée significative.",
+  if (cagr?.cagr !== null && cagr) {
+    evolutionParts.push(
+      `ce qui représente un taux de croissance annualisé composé (TCAC) de ${fmtPctUnsigned(cagr.cagr)}`,
     )
   }
+  const evolutionSentence = `${evolutionParts.join(", ")}.`
 
-  if (prior !== null && priorPeriod) {
-    const yoy = pctChange(latest, prior)
-    if (yoy !== null) {
-      const dir = trendWord(yoy)
-      sentences.push(
-        dir === "stabilité"
-          ? `${copy.priorComparisonLabel}, ${label} est stable par rapport à ${priorPeriod} (${formatMetricValue(prior, format)}).`
-          : `${copy.priorComparisonLabel}, ${label} affiche une ${dir} de ${fmtPct(Math.abs(yoy))} par rapport à ${priorPeriod} (${formatMetricValue(prior, format)}).`,
-      )
-    }
-  }
-
-  if (nearlyEqual(latest, stats.max)) {
-    sentences.push(`À la date de référence, ${label} atteint le plus haut niveau de la période analysée.`)
-  } else if (nearlyEqual(latest, stats.min)) {
-    sentences.push(`À la date de référence, ${label} se situe au plus bas de la période analysée.`)
-  }
+  const positionSentence = buildCurrencyPositionSentence(
+    latest,
+    stats,
+    periods,
+    copy,
+    label,
+    format,
+    comparisonNoun,
+    prior,
+    priorPeriod,
+  )
+  const meaningSentence = buildTrajectoryMeaningSentence(values, cagr, format)
 
   const paragraph: PerformanceNarrativeParagraph = {
     heading,
-    body: sentences.join(" "),
+    body: [evolutionSentence, positionSentence, meaningSentence].join(" "),
     statsLine: buildStatsLine(stats, format, cagr, null),
   }
   return withSeasonality
@@ -575,6 +798,7 @@ function buildMarginWindowParagraphForSeries(
   metricLabel: string,
   points: PerformanceNarrativePoint[],
   copy: WindowNarrativeCopy,
+  absoluteAmountNoun = "contribution marginale",
 ): PerformanceNarrativeParagraph | null {
   const { values, periods, excludedPeriods } = filterPresentMarginSeries(points, (p) => p.grossMarginPercent)
   const grossProfits = filterPresentMarginSeries(points, (p) => p.grossProfit)
@@ -590,8 +814,7 @@ function buildMarginWindowParagraphForSeries(
   const gpCagr = hasGrossProfit
     ? computeCagrFromPresentSeries(grossProfits.values, grossProfits.periods, copy.cagrMode)
     : null
-  const scope = scopeSentence(values.length, periods, excludedPeriods, copy)
-  const retainedLabel = copy.periodUnitPlural === "mois" ? "les mois retenus" : "les exercices retenus"
+  const scope = evolutionScopeSentence(values.length, periods, excludedPeriods, copy)
 
   const marginAnnualizedPts =
     gpCagr && gpCagr.intervalCount > 0
@@ -604,50 +827,33 @@ function buildMarginWindowParagraphForSeries(
           : (latest - oldest) / (values.length - 1)
         : null
 
-  const sentences: string[] = [
-    hasGrossProfit
-      ? `${scope}, ${metricLabel} s'affiche à ${latest.toFixed(1)} % pour ${copy.referenceForPeriod(periods[0]!)}, soit un bénéfice brut de ${formatCurrency(latestGp)}.`
-      : `${scope}, ${metricLabel} s'affiche à ${latest.toFixed(1)} % pour ${copy.referenceForPeriod(periods[0]!)}.`,
-    `Sur ${retainedLabel}, la marge évolue entre ${stats.min.toFixed(1)} % en ${stats.minPeriod} (fourchette basse) et ${stats.max.toFixed(1)} % en ${stats.maxPeriod} (fourchette haute), pour une moyenne de ${stats.mean.toFixed(1)} %.`,
-    positionVsMeanSentence(latest, stats.mean, "percent"),
+  const evolutionParts = [
+    `${scope}, ${metricLabel} ${pastParticiplePhrase(metricLabel)} de ${oldest.toFixed(1).replace(".", ",")} % à ${latest.toFixed(1).replace(".", ",")} %`,
   ]
-
   if (hasGrossProfit && gpCagr?.cagr !== null && gpCagr) {
-    sentences.push(
-      `Le bénéfice brut progresse à un TCAC de ${fmtPct(gpCagr.cagr!)} entre ${gpCagr.fromPeriod} et ${gpCagr.toPeriod}, indicateur de la dynamique sous-jacente du volume et de la marge.`,
+    evolutionParts.push(
+      `ce qui s'accompagne d'une ${absoluteAmountNoun} de ${formatCurrency(latestGp)} à la date de référence et d'un TCAC de la ${absoluteAmountNoun} de ${fmtPctUnsigned(gpCagr.cagr)}`,
     )
+  } else if (hasGrossProfit) {
+    evolutionParts.push(`pour une ${absoluteAmountNoun} de ${formatCurrency(latestGp)} à la date de référence`)
   }
+  const evolutionSentence = `${evolutionParts.join(", ")}.`
 
-  if (marginAnnualizedPts !== null && Math.abs(marginAnnualizedPts) > 0.05) {
-    const dir = trendWord(marginAnnualizedPts)
-    sentences.push(
-      dir === "stabilité"
-        ? `La marge demeure stable en moyenne (${fmtPts(marginAnnualizedPts)}${copy.marginTrendLabel}) sur la période retenue.`
-        : `La marge affiche une ${dir} moyenne de ${fmtPts(Math.abs(marginAnnualizedPts))}${copy.marginTrendLabel} sur la période retenue.`,
-    )
-  }
-
-  if (prior !== null && priorPeriod) {
-    const delta = latest - prior
-    if (Math.abs(delta) > 0.05) {
-      sentences.push(
-        `Par rapport à ${priorPeriod}, la marge ${delta > 0 ? "s'améliore" : "se détériore"} de ${fmtPts(Math.abs(delta))}.`,
-      )
-    } else {
-      sentences.push(`Par rapport à ${priorPeriod}, la marge demeure stable.`)
-    }
-  }
-
-  if (nearlyEqual(latest, stats.max, 0.05)) {
-    sentences.push(`À la date de référence, ${metricLabel} constitue le niveau le plus élevé de la fenêtre analysée.`)
-  } else if (nearlyEqual(latest, stats.min, 0.05)) {
-    sentences.push(`À la date de référence, ${metricLabel} se situe à son niveau le plus bas sur la période retenue.`)
-  }
+  const positionSentence = buildMarginPositionSentence(
+    latest,
+    stats,
+    periods,
+    copy,
+    metricLabel,
+    prior,
+    priorPeriod,
+  )
+  const meaningSentence = buildTrajectoryMeaningSentence(values, null, "percent")
 
   return attachSeasonalityBody(
     {
       heading,
-      body: sentences.join(" "),
+      body: [evolutionSentence, positionSentence, meaningSentence].join(" "),
       statsLine: buildStatsLine(stats, "percent", gpCagr, marginAnnualizedPts, copy.marginTrendLabel),
     },
     points,
@@ -662,7 +868,12 @@ function buildMarginWindowParagraph(
   points: PerformanceNarrativePoint[],
   copy: WindowNarrativeCopy,
 ): PerformanceNarrativeParagraph | null {
-  return buildMarginWindowParagraphForSeries("Marge brute", "la marge brute rapportée aux revenus", points, copy)
+  return buildMarginWindowParagraphForSeries(
+    "Contribution marginale",
+    "la contribution marginale rapportée aux revenus",
+    points,
+    copy,
+  )
 }
 
 /** Compare la trajectoire du BAIIA à celle des revenus (TCAC, ratio opérationnel, glissement annuel). */
@@ -770,12 +981,14 @@ function buildBaiiaWindowParagraph(
     (p) => p.ebita,
     copy,
     false,
+    "BAIIA",
   )
   if (!base) return null
   const secondaryBody = buildBaiiaVsRevenueTrajectoryParagraph(points, copy)
   const withSecondary = secondaryBody ? { ...base, secondaryBody } : base
   return attachSeasonalityBody(withSecondary, points, (p) => p.ebita, "currency", "le BAIIA", copy)
 }
+
 
 function buildWindowPerformanceNarrative(
   data: PerformanceNarrativePoint[],
@@ -793,10 +1006,17 @@ function buildWindowPerformanceNarrative(
       data,
       (p) => p.revenue,
       copy,
+      true,
+      "revenus",
     ),
     buildMarginWindowParagraph(data, copy),
     buildBaiiaWindowParagraph(data, copy),
-  ].filter((p): p is PerformanceNarrativeParagraph => p !== null)
+  ]
+    .filter((p): p is PerformanceNarrativeParagraph => p !== null)
+    .map((paragraph) => ({
+      ...paragraph,
+      narrativePageGroup: PERFORMANCE_WINDOW_PAGE_GROUP,
+    }))
 
   return {
     mode,
@@ -809,6 +1029,13 @@ function buildWindowPerformanceNarrative(
 
 export type VariableCostAccountBreakdown = {
   accountNumber: string
+  label: string
+  /** Montants par période, alignés sur `points` de la tranche. */
+  amounts: number[]
+}
+
+export type VariableCostGroupBreakdown = {
+  id: string
   label: string
   /** Montants par période, alignés sur `points` de la tranche. */
   amounts: number[]
@@ -831,6 +1058,8 @@ export type RevenueSeriesNarrativeSlice = {
   variableCostAccountCount?: number
   /** Ventilation GL des coûts variables (mapping comptable). */
   variableCostAccounts?: VariableCostAccountBreakdown[]
+  /** Ventilation regroupée par poste de coût (code de liaison parent). */
+  variableCostGroups?: VariableCostGroupBreakdown[]
   /** Ventilation des revenus (sous-codes REV ou comptes GL). */
   revenueComponents?: RevenueComponentBreakdown[]
   /** Codes feuilles REV effectivement rattachés via le mapping (ex. REV-A.1, REV-A.2). */
@@ -892,12 +1121,11 @@ function buildRevenueShareSentence(
     const priorShare = (priorRevenue / totalPrior) * 100
     const deltaPts = share - priorShare
     if (Math.abs(deltaPts) > 0.05) {
-      const dir = deltaPts > 0 ? "une hausse" : "une baisse"
       parts.push(
-        `La pondération ${dir} de ${fmtPts(Math.abs(deltaPts))} par rapport à la période précédente (${priorShare.toFixed(1).replace(".", ",")} % → ${share.toFixed(1).replace(".", ",")} %) traduit un rééquilibrement de la structure ${dimension === "division" ? "entre divisions" : "des revenus"}.`,
+        `Sa part du chiffre d'affaires total est passée de ${priorShare.toFixed(1).replace(".", ",")} % à ${share.toFixed(1).replace(".", ",")} %, ce qui traduit un rééquilibrement de la structure ${dimension === "division" ? "entre divisions" : "des revenus"}.`,
       )
     } else {
-      parts.push("La pondération relative demeure stable par rapport à la période précédente.")
+      parts.push("Sa part du chiffre d'affaires total demeure stable par rapport à la période précédente.")
     }
   }
 
@@ -907,13 +1135,102 @@ function buildRevenueShareSentence(
     )
     const secondShare = ((sortedByRevenue[1]?.points[0]?.revenue ?? 0) / totalLatest) * 100
     if (secondShare > 0) {
+      const gap = Math.abs(share - secondShare)
       parts.push(
-        `L'écart avec la ${dimension === "division" ? "deuxième division" : "deuxième source"} (${Math.abs(share - secondShare).toFixed(1).replace(".", ",")} pt${Math.abs(share - secondShare) >= 2 ? "s" : ""} de pondération) confirme le poids prépondérant de cette ${dimension === "division" ? "division" : "activité"} dans le profil de revenus.`,
+        dimension === "division"
+          ? `Elle devance la deuxième division de ${gap.toFixed(1).replace(".", ",")} % du chiffre d'affaires total, ce qui confirme le poids prépondérant de cette division dans le profil de revenus.`
+          : `Elle devance la deuxième source de revenus de ${gap.toFixed(1).replace(".", ",")} % du chiffre d'affaires total, ce qui confirme le poids prépondérant de cette activité dans le profil de revenus.`,
       )
     }
   }
 
   return parts.join(" ")
+}
+
+function filterPresentTotalRevenueSeries(series: RevenueSeriesNarrativeSlice[]): PresentSeries {
+  const pointCount = Math.max(...series.map((s) => s.points.length), 0)
+  const values: number[] = []
+  const periods: string[] = []
+  const excludedPeriods: string[] = []
+
+  for (let i = 0; i < pointCount; i++) {
+    const period =
+      series[0]?.points[i]?.period ??
+      series.map((s) => s.points[i]?.period).find((p): p is string => Boolean(p))
+    if (!period) continue
+
+    const hasAnyPresent = series.some((s) => {
+      const point = s.points[i]
+      return point && isAnnualExercisePresent(point)
+    })
+    const total = totalRevenueAtPoint(series, i)
+    if (!hasAnyPresent || !Number.isFinite(total) || Math.abs(total) < DATA_EPSILON) {
+      excludedPeriods.push(period)
+      continue
+    }
+    values.push(total)
+    periods.push(period)
+  }
+
+  return { values, periods, excludedPeriods }
+}
+
+function revenueGrowthVsTotalClause(metricLabel: string, sourceRate: number, totalRate: number): string {
+  const spread = sourceRate - totalRate
+  if (Math.abs(spread) <= 0.5) {
+    return `la croissance de ${metricLabel} (${fmtPctSigned(sourceRate)}) est alignée sur celle du chiffre d'affaires total (${fmtPctSigned(totalRate)})`
+  }
+  if (spread > 0) {
+    return `${metricLabel} croît plus vite que le chiffre d'affaires global (${fmtPctSigned(sourceRate)} vs ${fmtPctSigned(totalRate)}), ce qui renforce sa contribution à la composition des revenus`
+  }
+  return `${metricLabel} croît moins vite que le chiffre d'affaires global (${fmtPctSigned(sourceRate)} vs ${fmtPctSigned(totalRate)}), ce qui tend à réduire sa pondération relative`
+}
+
+/** Compare la croissance d'une source de revenus à celle du chiffre d'affaires total (glissement et TCAC). */
+export function buildRevenueGrowthVsTotalParagraph(
+  slice: RevenueSeriesNarrativeSlice,
+  series: RevenueSeriesNarrativeSlice[],
+  copy: WindowNarrativeCopy,
+): string | null {
+  if (series.length <= 1) return null
+
+  const source = filterPresentSeries(slice.points, (p) => p.revenue)
+  const total = filterPresentTotalRevenueSeries(series)
+  if (source.values.length < 2 || total.values.length < 2) return null
+
+  const sentences: string[] = []
+
+  const sourceYoy = pctChange(source.values[0]!, source.values[1]!)
+  const totalYoy = pctChange(total.values[0]!, total.values[1]!)
+  if (sourceYoy !== null && totalYoy !== null) {
+    sentences.push(
+      `En glissement annuel (${source.periods[0]} vs ${source.periods[1]}), ${revenueGrowthVsTotalClause(slice.metricLabel, sourceYoy, totalYoy)}.`,
+    )
+  }
+
+  const sourceCagr = computeCagrFromPresentSeries(source.values, source.periods, copy.cagrMode)
+  const totalCagr = computeCagrFromPresentSeries(total.values, total.periods, copy.cagrMode)
+  if (sourceCagr?.cagr !== null && totalCagr?.cagr !== null) {
+    const sourceC = sourceCagr.cagr!
+    const totalC = totalCagr.cagr!
+    const spread = sourceC - totalC
+    const periodLabel = `Sur la période ${sourceCagr.fromPeriod} à ${sourceCagr.toPeriod}`
+    if (Math.abs(spread) <= 0.5) {
+      sentences.push(
+        `${periodLabel}, le TCAC de ${slice.metricLabel} (${fmtPctSigned(sourceC)}) est aligné sur celui du chiffre d'affaires total (${fmtPctSigned(totalC)}).`,
+      )
+    } else if (spread > 0) {
+      sentences.push(
+        `${periodLabel}, le TCAC de ${slice.metricLabel} (${fmtPctSigned(sourceC)}) dépasse celui du chiffre d'affaires global (${fmtPctSigned(totalC)}), traduisant une contribution croissante de cette source à la trajectoire des revenus.`,
+      )
+    } else {
+      sentences.push(
+        `${periodLabel}, le TCAC de ${slice.metricLabel} (${fmtPctSigned(sourceC)}) reste en deçà de celui du chiffre d'affaires global (${fmtPctSigned(totalC)}), ce qui indique une croissance relative plus modeste de cette activité.`,
+      )
+    }
+  }
+
+  return sentences.length ? sentences.join(" ") : null
 }
 
 function buildContributiveMarginParagraph(
@@ -1069,44 +1386,237 @@ function metricLabelForRevenueSeries(heading: string): string {
   return `les ${h.charAt(0).toLowerCase()}${h.slice(1)}`
 }
 
+function buildRevenueAnalysisParagraph(
+  slice: RevenueSeriesNarrativeSlice,
+  series: RevenueSeriesNarrativeSlice[],
+  index: number,
+  copy: WindowNarrativeCopy,
+  dimension: ContributiveMarginDimension,
+  section: NarrativeParagraphSection,
+  rankByIndex: Map<number, number>,
+): PerformanceNarrativeParagraph | null {
+  const base = buildCurrencyWindowParagraph(
+    slice.heading,
+    slice.metricLabel,
+    "currency",
+    slice.points,
+    (p) => p.revenue,
+    copy,
+    true,
+    "revenus",
+  )
+  if (!base) return null
+
+  const shareSentence = buildRevenueShareSentence(
+    slice,
+    series,
+    rankByIndex.get(index) ?? index + 1,
+    dimension,
+  )
+  const growthVsTotalParagraph = buildRevenueGrowthVsTotalParagraph(slice, series, copy)
+  const bodyParts = [base.body]
+  if (shareSentence) bodyParts.push(shareSentence)
+
+  return {
+    ...base,
+    section,
+    body: bodyParts.join(" "),
+    secondaryBody: growthVsTotalParagraph ?? undefined,
+  }
+}
+
+function buildRevenueSeriesRankMap(series: RevenueSeriesNarrativeSlice[]): Map<number, number> {
+  const rankedIndices = series
+    .map((s, i) => ({ i, revenue: s.points[0]?.revenue ?? 0 }))
+    .sort((a, b) => b.revenue - a.revenue)
+  const rankByIndex = new Map<number, number>()
+  rankedIndices.forEach((item, rank) => rankByIndex.set(item.i, rank + 1))
+  return rankByIndex
+}
+
+function buildContributiveMarginRankMap(series: RevenueSeriesNarrativeSlice[]): Map<number, number> {
+  const rankedIndices = series
+    .map((s, i) => ({
+      i,
+      margin: s.points[0]?.grossMarginPercent ?? null,
+      revenue: s.points[0]?.revenue ?? 0,
+    }))
+    .filter((r) => r.margin !== null && Math.abs(r.revenue) > DATA_EPSILON)
+    .sort((a, b) => (b.margin ?? 0) - (a.margin ?? 0))
+  const rankByIndex = new Map<number, number>()
+  rankedIndices.forEach((item, rank) => rankByIndex.set(item.i, rank + 1))
+  return rankByIndex
+}
+
+export function resolveWindowNarrativeCopy(view: string): {
+  copy: WindowNarrativeCopy
+  mode: "annual" | "monthly"
+} | null {
+  if (view === "years") return { copy: ANNUAL_COPY, mode: "annual" }
+  if (view === "24months") return { copy: MONTHLY_COPY, mode: "monthly" }
+  return null
+}
+
+export function buildRevenueAnalysisParagraphForSlice(
+  slice: RevenueSeriesNarrativeSlice,
+  series: RevenueSeriesNarrativeSlice[],
+  index: number,
+  copy: WindowNarrativeCopy,
+  dimension: ContributiveMarginDimension = "revenue",
+  section: NarrativeParagraphSection = "revenue-performance",
+): PerformanceNarrativeParagraph | null {
+  const rankByIndex = buildRevenueSeriesRankMap(series)
+  return buildRevenueAnalysisParagraph(slice, series, index, copy, dimension, section, rankByIndex)
+}
+
+export function buildMarginAnalysisWindowParagraph(
+  displayHeading: string,
+  metricLabel: string,
+  points: PerformanceNarrativePoint[],
+  copy: WindowNarrativeCopy,
+): PerformanceNarrativeParagraph | null {
+  return buildMarginWindowParagraphForSeries(displayHeading, metricLabel, points, copy)
+}
+
+export function buildBaiiaAnalysisWindowParagraph(
+  points: PerformanceNarrativePoint[],
+  copy: WindowNarrativeCopy,
+): PerformanceNarrativeParagraph | null {
+  return buildBaiiaWindowParagraph(points, copy)
+}
+
+export function buildDivisionRentabilityAnalysisParagraph(
+  slice: RevenueSeriesNarrativeSlice,
+  series: RevenueSeriesNarrativeSlice[],
+  index: number,
+  copy: WindowNarrativeCopy,
+  mappingStatus: {
+    variableCostAccountCount: number
+    fixedCostAccountCount: number
+  },
+): PerformanceNarrativeParagraph {
+  const heading = slice.heading
+  const displayName = slice.heading.replace(/^Rentabilité — /, "")
+  const latest = slice.points[0]
+  const hasRevenue = Boolean(latest && Math.abs(latest.revenue) > DATA_EPSILON)
+  const { variableCostAccountCount, fixedCostAccountCount } = mappingStatus
+  const marginRankMap = buildContributiveMarginRankMap(series)
+  const marginRank = marginRankMap.get(index) ?? index + 1
+  const rankNote =
+    series.length > 1 && variableCostAccountCount > 0 && hasRevenue
+      ? ` À la date de référence, cette division affiche la ${marginRank === 1 ? "meilleure" : marginRank === series.length ? "plus faible" : `${ordinalFr(marginRank)} plus élevée`} contribution marginale du portefeuille analysé.`
+      : ""
+
+  if (!hasRevenue) {
+    return {
+      heading,
+      subsection: "Rentabilité",
+      hideMainHeading: true,
+      showIndicatorTable: true,
+      section: "division-rentability",
+      body: `Sans revenus affectés à ${slice.metricLabel}, la contribution marginale et le BAIIA ne peuvent pas être interprétés sur l'horizon analysé.`,
+    }
+  }
+
+  const bodyParts: string[] = []
+  const secondaryParts: string[] = []
+  let seasonalityBody: string | undefined
+  let statsLine: string | undefined
+
+  if (variableCostAccountCount === 0) {
+    bodyParts.push(
+      "Aucun compte de coût variable n'est affecté à cette division dans le mapping comptable. Paramétrez le type « Variable » sur les charges directement liées à l'activité de la division afin d'obtenir la contribution marginale.",
+    )
+  } else {
+    const marginParagraph = buildMarginWindowParagraphForSeries(
+      displayName,
+      `la contribution marginale de ${slice.metricLabel.replace(/^la /, "")}`,
+      slice.points,
+      copy,
+    )
+    if (marginParagraph) {
+      bodyParts.push(`${marginParagraph.body}${rankNote}`)
+      seasonalityBody = marginParagraph.seasonalityBody
+      statsLine = marginParagraph.statsLine
+    } else {
+      bodyParts.push("La contribution marginale n'est pas calculable sur l'horizon analysé.")
+    }
+  }
+
+  if (fixedCostAccountCount === 0) {
+    bodyParts.push(
+      "Aucun coût fixe n'est affecté à cette division : le BAIIA ne peut être isolé. Affectez les charges de structure (salaires admin, loyers, etc.) à la division pour conclure sur la rentabilité complète.",
+    )
+  } else if (variableCostAccountCount > 0) {
+    const baiiaParagraph = buildBaiiaWindowParagraph(slice.points, copy)
+    if (baiiaParagraph) {
+      bodyParts.push(baiiaParagraph.body)
+      if (baiiaParagraph.secondaryBody) secondaryParts.push(baiiaParagraph.secondaryBody)
+      seasonalityBody = seasonalityBody ?? baiiaParagraph.seasonalityBody
+      statsLine = statsLine ?? baiiaParagraph.statsLine
+    }
+  }
+
+  return {
+    heading,
+    subsection: "Rentabilité",
+    hideMainHeading: true,
+    showIndicatorTable: true,
+    section: "division-rentability",
+    body: bodyParts.join(" "),
+    secondaryBody: secondaryParts.length ? secondaryParts.join(" ") : undefined,
+    seasonalityBody,
+    statsLine,
+  }
+}
+
 function buildRevenueSeriesWindowNarrative(
   series: RevenueSeriesNarrativeSlice[],
   copy: WindowNarrativeCopy,
   mode: "annual" | "monthly",
-  options?: { revenueAnalysis?: boolean },
+  options?: {
+    revenueAnalysis?: boolean
+    dimension?: ContributiveMarginDimension
+    section?: NarrativeParagraphSection
+    buildFallbackParagraph?: (
+      slice: RevenueSeriesNarrativeSlice,
+      index: number,
+    ) => PerformanceNarrativeParagraph | null
+  },
 ): PerformanceNarrativeResult | null {
   const revenueAnalysis = options?.revenueAnalysis === true
-  const rankedIndices = revenueAnalysis
-    ? series
-        .map((s, i) => ({ i, revenue: s.points[0]?.revenue ?? 0 }))
-        .sort((a, b) => b.revenue - a.revenue)
-    : []
-  const rankByIndex = new Map<number, number>()
-  rankedIndices.forEach((item, rank) => rankByIndex.set(item.i, rank + 1))
+  const dimension = options?.dimension ?? "revenue"
+  const section = options?.section ?? (revenueAnalysis ? "revenue-performance" : undefined)
+  const rankByIndex = revenueAnalysis ? buildRevenueSeriesRankMap(series) : new Map<number, number>()
 
   const paragraphs = series
     .map((s, index) => {
-      const base = buildCurrencyWindowParagraph(
-        s.heading,
-        s.metricLabel,
-        "currency",
-        s.points,
-        (p) => p.revenue,
-        copy,
-      )
-      if (!base) return null
-
-      if (!revenueAnalysis) return base
-
-      const shareSentence = buildRevenueShareSentence(s, series, rankByIndex.get(index) ?? index + 1)
-      const bodyParts = [base.body]
-      if (shareSentence) bodyParts.push(shareSentence)
-
-      return {
-        ...base,
-        section: "revenue-performance" as const,
-        body: bodyParts.join(" "),
+      if (!revenueAnalysis) {
+        const base = buildCurrencyWindowParagraph(
+          s.heading,
+          s.metricLabel,
+          "currency",
+          s.points,
+          (p) => p.revenue,
+          copy,
+          true,
+          "revenus",
+        )
+        if (!base) return options?.buildFallbackParagraph?.(s, index) ?? null
+        return base
       }
+
+      const paragraph = buildRevenueAnalysisParagraph(
+        s,
+        series,
+        index,
+        copy,
+        dimension,
+        section ?? "revenue-performance",
+        rankByIndex,
+      )
+      if (paragraph) return paragraph
+      return options?.buildFallbackParagraph?.(s, index) ?? null
     })
     .filter((p): p is PerformanceNarrativeParagraph => p !== null)
 
@@ -1339,12 +1849,36 @@ export function buildRevenueOnlyPerformanceNarrative(
   series: RevenueSeriesNarrativeSlice[],
   view: string,
 ): PerformanceNarrativeResult | null {
+  return buildRevenueAnalysisPerformanceNarrative(series, view, { dimension: "revenue" })
+}
+
+export type RevenueAnalysisPerformanceOptions = {
+  dimension?: ContributiveMarginDimension
+  section?: NarrativeParagraphSection
+  buildFallbackParagraph?: (
+    slice: RevenueSeriesNarrativeSlice,
+    index: number,
+  ) => PerformanceNarrativeParagraph | null
+}
+
+/** Lecture fenêtre + pondération + croissance vs total (Revenus, Divisions, etc.). */
+export function buildRevenueAnalysisPerformanceNarrative(
+  series: RevenueSeriesNarrativeSlice[],
+  view: string,
+  options: RevenueAnalysisPerformanceOptions = {},
+): PerformanceNarrativeResult | null {
   if (!series.length) return null
+  const narrativeOptions = {
+    revenueAnalysis: true,
+    dimension: options.dimension ?? "revenue",
+    section: options.section ?? (options.dimension === "division" ? "division-profitability" : "revenue-performance"),
+    buildFallbackParagraph: options.buildFallbackParagraph,
+  }
   if (view === "years") {
-    return buildRevenueSeriesWindowNarrative(series, ANNUAL_COPY, "annual", { revenueAnalysis: true })
+    return buildRevenueSeriesWindowNarrative(series, ANNUAL_COPY, "annual", narrativeOptions)
   }
   if (view === "24months") {
-    return buildRevenueSeriesWindowNarrative(series, MONTHLY_COPY, "monthly", { revenueAnalysis: true })
+    return buildRevenueSeriesWindowNarrative(series, MONTHLY_COPY, "monthly", narrativeOptions)
   }
   return null
 }

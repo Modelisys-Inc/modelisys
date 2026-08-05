@@ -12,6 +12,48 @@ import {
   revenueLinkMatchesChartCodes,
 } from "@/lib/revenue-series-narrative-enrichment"
 
+const CMV_CHART: StandardLinkCode[] = [
+  {
+    code: "CMV-A",
+    family: "CMV",
+    parent_code: "CMV",
+    is_leaf: false,
+    is_active: true,
+    label_sub_account: "Achats",
+    label_account: "Achats",
+    ft_category: null,
+    account_type: null,
+    coa_version: 1,
+    deprecated_at: null,
+  },
+  {
+    code: "CMV-A.1",
+    family: "CMV",
+    parent_code: "CMV-A",
+    is_leaf: true,
+    is_active: true,
+    label_sub_account: "Matières",
+    label_account: "Matières",
+    ft_category: null,
+    account_type: null,
+    coa_version: 1,
+    deprecated_at: null,
+  },
+  {
+    code: "CMV-A.2",
+    family: "CMV",
+    parent_code: "CMV-A",
+    is_leaf: true,
+    is_active: true,
+    label_sub_account: "Sous-traitance",
+    label_account: "Sous-traitance",
+    ft_category: null,
+    account_type: null,
+    coa_version: 1,
+    deprecated_at: null,
+  },
+]
+
 const REV_CHART: StandardLinkCode[] = [
   {
     code: "REV-A",
@@ -269,8 +311,18 @@ describe("revenue-series-narrative-enrichment", () => {
       },
     ]
     const mappings = [
-      mapping({ account_number: "5010", variable_cost_revenue_link_code: "REV-A.1" }),
-      mapping({ account_number: "5020", variable_cost_revenue_link_code: "REV-A.1" }),
+      mapping({
+        account_number: "5010",
+        description: "Matières",
+        link_code: "CMV-A.1",
+        variable_cost_revenue_link_code: "REV-A.1",
+      }),
+      mapping({
+        account_number: "5020",
+        description: "MOD",
+        link_code: "CMV-A.2",
+        variable_cost_revenue_link_code: "REV-A.1",
+      }),
     ]
 
     const enriched = enrichRevenueSeriesForNarrative({
@@ -283,7 +335,7 @@ describe("revenue-series-narrative-enrichment", () => {
       view: "years",
       refMonth: 12,
       refYear: 2025,
-      standardLinkCodes: REV_CHART,
+      standardLinkCodes: [...REV_CHART, ...CMV_CHART],
     })
 
     expect(enriched[0]!.variableCostMapped).toBe(true)
@@ -295,6 +347,13 @@ describe("revenue-series-narrative-enrichment", () => {
     expect(enriched[0]!.variableCostAccounts).toEqual([
       expect.objectContaining({ accountNumber: "5010", label: "Matières", amounts: [40_000, 30_000] }),
       expect.objectContaining({ accountNumber: "5020", label: "MOD", amounts: [10_000, 10_000] }),
+    ])
+    expect(enriched[0]!.variableCostGroups).toEqual([
+      expect.objectContaining({
+        id: "CMV-A",
+        label: "Achats",
+        amounts: [50_000, 40_000],
+      }),
     ])
     expect(enriched[0]!.revenueComponents?.map((c) => c.id)).toEqual(["REV-A.1", "REV-A.2"])
     expect(enriched[0]!.revenueComponents?.[0]?.amounts).toEqual([60_000, 50_000])

@@ -54,6 +54,8 @@ export type ContributiveMarginEvolutionTable = {
   sourceLabel: string
   periods: string[]
   metrics: ContributiveMarginEvolutionMetric[]
+  /** Revenus de la source par période — dénominateur des colonnes « % CA » intercalées. */
+  sourceRevenuesByPeriod?: (number | null)[]
 }
 
 function totalRevenueAtPoint(series: RevenueSeriesNarrativeSlice[], pointIndex: number): number {
@@ -97,11 +99,9 @@ export function buildRevenueContributiveMarginEvolutionTable(
     if (cost === null) return null
     return slice.points[i]!.revenue - cost
   })
-  const marginPcts = orderedIndices.map((_, col) => {
-    const margin = contributiveMargins[col]
-    const revenue = revenues[col]!
-    if (margin === null || Math.abs(revenue) <= DATA_EPSILON) return null
-    return (margin / revenue) * 100
+  const sourceRevenuesByPeriod = orderedIndices.map((i) => {
+    const revenue = slice.points[i]!.revenue
+    return Math.abs(revenue) > DATA_EPSILON ? revenue : null
   })
   const revenueShares = orderedIndices.map((i) => {
     const revenue = slice.points[i]!.revenue
@@ -126,17 +126,25 @@ export function buildRevenueContributiveMarginEvolutionTable(
     })) ?? undefined
 
   const variableCostDetailRows =
+    slice.variableCostGroups?.map((group) => ({
+      id: group.id,
+      label: group.label,
+      displayKind: "link-code" as const,
+      values: orderedIndices.map((pointIndex) => group.amounts[pointIndex] ?? null),
+    })) ??
     slice.variableCostAccounts?.map((account) => ({
       id: account.accountNumber,
       label: account.label,
       displayKind: "gl-account" as const,
       values: orderedIndices.map((pointIndex) => account.amounts[pointIndex] ?? null),
-    })) ?? undefined
+    })) ??
+    undefined
 
   return {
     sourceId: slugifyRevenueSourceId(slice.heading, sliceIndex),
     sourceLabel: slice.heading,
     periods,
+    sourceRevenuesByPeriod,
     metrics: [
       {
         id: "revenue",
@@ -158,7 +166,6 @@ export function buildRevenueContributiveMarginEvolutionTable(
         format: "currency",
         values: contributiveMargins,
       },
-      { id: "margin-pct", label: "Marge", format: "percent", values: marginPcts },
       { id: "revenue-share", label: "Part CA", format: "percent", values: revenueShares },
       {
         id: "contributive-share",

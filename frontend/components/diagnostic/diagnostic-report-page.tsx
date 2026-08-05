@@ -34,19 +34,25 @@ import { DiagnosticDrilldownDrawer } from "@/components/diagnostic/v2/diagnostic
 import type { DrillDownRequest } from "@/components/diagnostic/v2/types"
 import { PAGE_CLASS } from "@/lib/diagnostic-theme"
 import { touchDiagnostic } from "@/lib/diagnostic-registry"
+import { diagnosticReportViewLabel } from "@/lib/diagnostic-report-chapters"
 
-const REPORT_VIEWS = [
-  { id: "sommaire" as const, label: "Sommaire" },
-  { id: "company-overview" as const, label: "Aperçu de l'entreprise" },
-  { id: "performance" as const, label: "Performance financière" },
-  { id: "revenue" as const, label: "Revenus" },
-  { id: "margin-by-revenue" as const, label: "Marge par Revenus" },
-  { id: "expenses" as const, label: "Dépenses" },
-  { id: "expenses-by-division" as const, label: "Divisions" },
-  { id: "financial-position" as const, label: "Situation financière" },
-  { id: "working-capital" as const, label: "Fonds de roulement" },
-  { id: "capex" as const, label: "Capex" },
-]
+const REPORT_VIEW_IDS = [
+  "sommaire",
+  "company-overview",
+  "performance",
+  "revenue",
+  "margin-by-revenue",
+  "expenses",
+  "expenses-by-division",
+  "financial-position",
+  "working-capital",
+  "capex",
+] as const satisfies readonly DiagnosticReportView[]
+
+const REPORT_VIEWS = REPORT_VIEW_IDS.map((id) => ({
+  id,
+  label: id === "sommaire" ? "Sommaire" : diagnosticReportViewLabel(id),
+}))
 
 const SCROLL_SECTIONS = [
   { id: "diag-saisonnalite", label: "Saisonnalité" },
@@ -155,6 +161,8 @@ export function DiagnosticReportPage({
                 {reportView === "sommaire" ? (
                   <DiagnosticExecutiveSummary
                     diagnostic={data}
+                    companyId={companyId}
+                    companies={companies}
                     onNavigateToView={(view) => {
                       setReportView(view)
                       requestAnimationFrame(() => {

@@ -15,12 +15,14 @@ import {
   TrendingUp,
   Wallet,
 } from "lucide-react"
+import type { Company } from "@/components/entity-selector"
 import type { CompanyDiagnostic } from "@/lib/api"
 import {
   buildExecutiveSummary,
   type ExecutiveSummaryBlock,
 } from "@/lib/diagnostic-executive-summary"
 import type { DiagnosticReportView } from "@/components/diagnostic/v2/diagnostic-nav-rail"
+import { useExecutiveSummaryNarratives } from "@/hooks/use-executive-summary-narratives"
 import { CARD_CLASS, MONO_CLASS, signalClass } from "@/lib/diagnostic-theme"
 import { cn } from "@/lib/utils"
 
@@ -96,7 +98,7 @@ function SummaryBlockCard({
         </div>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold tracking-tight text-[#2A2F3A]">{block.title}</h3>
-          <p className="mt-0.5 text-[11px] text-slate-500">{block.subtitle}</p>
+          <p className="mt-1 text-[11.5px] font-medium leading-snug text-[#5C5F66]">{block.subtitle}</p>
         </div>
         {isClickable ? (
           <ArrowRight
@@ -142,14 +144,22 @@ function SummaryBlockCard({
 
 interface DiagnosticExecutiveSummaryProps {
   diagnostic: CompanyDiagnostic
+  companyId: string
+  companies: Company[]
   onNavigateToView: (view: DiagnosticReportView) => void
 }
 
 export function DiagnosticExecutiveSummary({
   diagnostic,
+  companyId,
+  companies,
   onNavigateToView,
 }: DiagnosticExecutiveSummaryProps) {
-  const model = useMemo(() => buildExecutiveSummary(diagnostic), [diagnostic])
+  const { bundle } = useExecutiveSummaryNarratives(companyId, diagnostic, companies)
+  const model = useMemo(
+    () => buildExecutiveSummary(diagnostic, bundle),
+    [diagnostic, bundle],
+  )
 
   return (
     <section

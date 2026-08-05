@@ -3,6 +3,9 @@
 import type { ReactNode } from "react"
 import { FileText } from "lucide-react"
 import type { PerformanceNarrativeResult } from "@/lib/income-performance-narrative"
+import { groupDivisionNarrativeBlocks } from "@/lib/income-performance-narrative"
+import { DivisionNarrativeBlockList } from "@/components/diagnostic/division-narrative-block-list"
+import { cn } from "@/lib/utils"
 type PerformanceNarrativeResultNonNull = NonNullable<PerformanceNarrativeResult>
 
 const NARRATIVE_SECTION_META: Record<
@@ -16,6 +19,12 @@ const NARRATIVE_SECTION_META: Record<
     showHeader: false,
   },
   "contributive-margin": {
+    showHeader: false,
+  },
+  "division-revenue": {
+    showHeader: false,
+  },
+  "division-rentability": {
     showHeader: false,
   },
   "division-profitability": {
@@ -50,6 +59,8 @@ function groupNarrativeParagraphs(paragraphs: PerformanceNarrativeResultNonNull[
   const order = [
     "revenue-performance",
     "contributive-margin",
+    "division-revenue",
+    "division-rentability",
     "division-profitability",
     "financial-position",
     "working-capital",
@@ -100,7 +111,8 @@ export function IncomePerformanceNarrativeSection({
   /** Remplace le corps narratif (ex. éditeur de structure). */
   settingsPanel?: ReactNode | null
 }) {
-  const groups = groupNarrativeParagraphs(narrative.paragraphs)
+  const divisionBlocks = groupDivisionNarrativeBlocks(narrative.paragraphs)
+  const groups = divisionBlocks ? null : groupNarrativeParagraphs(narrative.paragraphs)
 
   return (
     <div
@@ -129,7 +141,13 @@ export function IncomePerformanceNarrativeSection({
             <div className="mt-5">{settingsPanel}</div>
           ) : (
             <div className="mt-5 space-y-8">
-              {groups.map((group) => (
+              {divisionBlocks ? (
+                <DivisionNarrativeBlockList
+                  blocks={divisionBlocks}
+                  renderAfterParagraph={renderAfterParagraph}
+                />
+              ) : (
+                groups?.map((group) => (
               <div key={group.id}>
                 <div className={group.className}>
                   {group.title ? (
@@ -144,9 +162,28 @@ export function IncomePerformanceNarrativeSection({
                   ) : null}
                   <div className="space-y-6">
                     {group.paragraphs.map((p, paragraphIdx) => (
-                      <div key={`${group.id}-${paragraphIdx}-${p.heading}`}>
-                        <p className="text-sm font-semibold text-[#2A2F3A]">{p.heading}</p>
-                        <p className="mt-2 text-sm leading-relaxed text-[#5C5F66] text-pretty">{p.body}</p>
+                      <div key={`${group.id}-${paragraphIdx}-${p.heading}-${p.subsection ?? "main"}`}>
+                        {!p.hideMainHeading ? (
+                          <p className="text-sm font-semibold text-[#2A2F3A]">{p.heading}</p>
+                        ) : null}
+                        {p.subsection ? (
+                          <p
+                            className={cn(
+                              "text-xs font-semibold uppercase tracking-[0.12em] text-slate-500",
+                              p.hideMainHeading ? "mt-0" : "mt-4",
+                            )}
+                          >
+                            {p.subsection}
+                          </p>
+                        ) : null}
+                        <p
+                          className={cn(
+                            "text-sm leading-relaxed text-[#5C5F66] text-pretty",
+                            p.subsection || !p.hideMainHeading ? "mt-2" : "",
+                          )}
+                        >
+                          {p.body}
+                        </p>
                         {p.secondaryBody ? (
                           <p className="mt-3 text-sm leading-relaxed text-[#5C5F66] text-pretty">
                             {p.secondaryBody}
@@ -169,7 +206,8 @@ export function IncomePerformanceNarrativeSection({
                   </div>
                 </div>
               </div>
-              ))}
+              ))
+              )}
             </div>
           )}
         </div>

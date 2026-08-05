@@ -6,6 +6,7 @@ import {
   type DivisionProfitabilityRow,
 } from "@/lib/division-profitability"
 import { cn } from "@/lib/utils"
+import { EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL } from "@/lib/expense-bridge-chart-theme"
 
 interface DivisionProfitabilityTableProps {
   rows: DivisionProfitabilityRow[]
@@ -42,7 +43,7 @@ export function DivisionProfitabilityTable({
         </h5>
         <p className="mt-1 text-xs leading-relaxed text-slate-500">
           Pont de rentabilité par division (comptes affectés dans le mapping) : revenus, coûts
-          variables, contribution marginale, coûts fixes et bénéfice d'exploitation à la date de
+          variables, contribution marginale, coûts fixes et {EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL} à la date de
           référence. Les divisions en déficit sont mises en évidence.
         </p>
       </div>
@@ -61,8 +62,8 @@ export function DivisionProfitabilityTable({
             <span className="text-right">Contr. marginale</span>
             <span className="text-right">Marge contrib.</span>
             <span className="text-right">Coûts fixes</span>
-            <span className="text-right">Bén. expl.</span>
-            <span className="text-right">Marge expl.</span>
+            <span className="text-right">{EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL}</span>
+            <span className="text-right">Marge BAIIA</span>
             <span className="text-right">Part CA</span>
             <span className="text-right">TCAC</span>
           </div>

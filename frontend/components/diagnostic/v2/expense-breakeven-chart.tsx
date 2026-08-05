@@ -3,6 +3,7 @@
 import { useCallback, useId, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { MousePointer2, TrendingDown, TrendingUp } from "lucide-react"
 import { formatMoney } from "@/components/diagnostic/diagnostic-format"
+import { EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL } from "@/lib/expense-bridge-chart-theme"
 import { DIAG } from "@/lib/diagnostic-theme"
 import {
   projectBreakevenScenario,
@@ -202,7 +203,7 @@ function BreakevenScenarioPanel({
           )}
         >
           <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Bénéfice d&apos;exploitation
+            {EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL}
           </p>
           <p
             className={cn(

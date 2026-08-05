@@ -61,11 +61,13 @@ describe("buildExpensesBridgeNarrative", () => {
   it("produit la section Lecture des dépenses avec CV et CF", () => {
     const result = buildExpensesBridgeNarrative(bridge(), "years")
     expect(result.title).toBe("Lecture des dépenses")
-    expect(result.paragraphs).toHaveLength(2)
+    expect(result.paragraphs.length).toBeGreaterThanOrEqual(2)
     expect(result.paragraphs[0]!.heading).toBe("Coûts variables")
-    expect(result.paragraphs[1]!.heading).toBe("Coûts fixes")
+    expect(result.paragraphs.some((p) => p.heading === "Coûts fixes")).toBe(true)
     expect(result.paragraphs[0]!.body).toContain("contribution marginale")
-    expect(result.paragraphs[1]!.body).toContain("bénéfice d'exploitation")
+    expect(result.paragraphs[0]!.body).toContain("bénéfice d'exploitation")
+    const fixed = result.paragraphs.find((p) => p.heading === "Coûts fixes")
+    expect(fixed?.body).toContain("bénéfice avant intérêts")
   })
 
   it("intègre les principaux postes et la détérioration du ratio CV/CA", () => {
@@ -215,12 +217,26 @@ describe("buildExpensesBridgeNarrative", () => {
     })
 
     const result = buildExpensesBridgeNarrative(cfBridge, "years", context)
-    expect(result.paragraphs[0]!.body).toMatch(/poste le plus significatif|principaux postes/)
-    expect(result.paragraphs[0]!.body).toContain("Achats")
-    expect(result.paragraphs[0]!.body).toMatch(/ratio coûts variables \/ chiffre d'affaires progresse/i)
-    expect(result.paragraphs[0]!.body).toMatch(/marge contributive recule/i)
-    expect(result.paragraphs[1]!.body).toMatch(/coûts fixes progressent plus vite/i)
-    expect(result.paragraphs[1]!.body).toContain("levier opérationnel")
+    const variableParagraphs = result.paragraphs.filter((p) => p.heading === "Coûts variables")
+    expect(variableParagraphs.length).toBeGreaterThanOrEqual(3)
+    expect(variableParagraphs.slice(0, -1).every((p) => p.showIndicatorTable === false)).toBe(true)
+    expect(variableParagraphs.at(-1)?.showIndicatorTable).toBe(true)
+    expect(variableParagraphs[0]!.body).toContain("En 2025")
+    expect(variableParagraphs[0]!.body).toContain("mapping comptable")
+    expect(variableParagraphs[1]!.body).toMatch(/principalement composés/i)
+    expect(variableParagraphs[1]!.body).toMatch(/achats/i)
+    expect(variableParagraphs[2]!.body).toMatch(/Comparativement à 2024/i)
+    expect(variableParagraphs[2]!.body).toMatch(/ratio des coûts variables progresse/i)
+    const fixedParagraphs = result.paragraphs.filter((p) => p.heading === "Coûts fixes")
+    expect(fixedParagraphs.length).toBeGreaterThanOrEqual(3)
+    expect(fixedParagraphs.slice(0, -1).every((p) => p.showIndicatorTable === false)).toBe(true)
+    expect(fixedParagraphs.at(-1)?.showIndicatorTable).toBe(true)
+    expect(fixedParagraphs[0]!.body).toContain("En 2025")
+    expect(fixedParagraphs[0]!.body).toContain("mapping comptable")
+    expect(fixedParagraphs[1]!.body).toMatch(/principaux postes de coûts fixes/i)
+    expect(fixedParagraphs[2]!.body).toMatch(/Comparativement à 2024/i)
+    expect(fixedParagraphs[2]!.body).toMatch(/effet de levier opérationnel défavorable/i)
+    expect(fixedParagraphs.some((p) => /contribution marginale/i.test(p.body))).toBe(true)
   })
 
   it("signale l'absence de mapping CV ou CF", () => {
@@ -240,6 +256,6 @@ describe("buildExpensesBridgeNarrative", () => {
       },
       "years",
     )
-    expect(noCf.paragraphs[1]!.body).toContain("Aucun compte")
+    expect(noCf.paragraphs.find((p) => p.heading === "Coûts fixes")?.body).toContain("Aucun compte")
   })
 })

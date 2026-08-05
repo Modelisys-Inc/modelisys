@@ -111,7 +111,7 @@ export function PerformanceComboChart({ years }: { years: DiagnosticTrendYear[] 
           <i className="report-legend-swatch" style={{ background: SUCCESS }} /> EBITDA
         </span>
         <span>
-          <i className="report-legend-swatch" style={{ background: "#E9C46A" }} /> Marge brute %
+          <i className="report-legend-swatch" style={{ background: "#E9C46A" }} /> Contribution marginale %
         </span>
       </div>
     </div>

@@ -197,6 +197,8 @@ describe("buildExpenseCostBreakdownTables", () => {
     })
 
     const variable = tables.get(EXPENSE_VARIABLE_COSTS_HEADING)
+    expect(variable?.sourceRevenuesByPeriod).toEqual([1_000_000, 800_000])
+    expect(variable?.metrics).toHaveLength(1)
     expect(variable?.metrics[0]?.detailRows).toHaveLength(1)
     expect(variable?.metrics[0]?.detailRows?.[0]?.id).toBe("CMV-A")
     expect(variable?.metrics[0]?.detailRows?.[0]?.displayKind).toBe("link-code")

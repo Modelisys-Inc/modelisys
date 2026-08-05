@@ -33,8 +33,11 @@ import {
   type FinancialPositionSettingsPanel,
 } from "@/lib/financial-position-config"
 import {
+  CONTRIBUTIVE_MARGIN_SERIES_LABEL,
   DEFAULT_COLORS,
   defaultChartCardTitle,
+  ensureIncomeStatementPerformanceConfig,
+  isContributiveMarginSeriesSpec,
   newSeriesId,
   structureStatementTypeForChart,
   structureTypesForChartSettings,
@@ -112,6 +115,9 @@ function summarizeMetricSpec(
   if (spec.type === "derivedMargin") {
     return "Marge % (bénéfice brut ÷ revenus)"
   }
+  if (spec.type === "derivedContributiveMargin") {
+    return "Contribution marginale % (revenus − coûts variables mappés)"
+  }
   return "Source non définie"
 }
 
@@ -172,6 +178,7 @@ export function ChartMetricSpecEditor({
   summaryRowSources = [],
   linkCodeLabels,
   allowDerivedMargin,
+  allowDerivedContributiveMargin,
   barSeriesOptions,
   currentSeriesId,
   embedded,
@@ -184,12 +191,18 @@ export function ChartMetricSpecEditor({
   summaryRowSources?: Array<{ id: string; label: string }>
   linkCodeLabels?: Map<string, string>
   allowDerivedMargin?: boolean
+  allowDerivedContributiveMargin?: boolean
   barSeriesOptions?: { id: string; label: string }[]
   currentSeriesId?: string
   embedded?: boolean
   structureHintLabel?: string
 }) {
-  const mode = spec.type === "derivedMargin" ? "derivedMargin" : spec.type
+  const mode =
+    spec.type === "derivedMargin"
+      ? "derivedMargin"
+      : spec.type === "derivedContributiveMargin"
+        ? "derivedContributiveMargin"
+        : spec.type
   const codeOptions = allLinkCodes
   const firstBarId = barSeriesOptions?.find((b) => b.id !== currentSeriesId)?.id ?? ""
 
@@ -228,6 +241,16 @@ export function ChartMetricSpecEditor({
                   revenueSeriesId: "",
                   grossProfitFromSpec: { type: "single", code: "" },
                 })
+              } else if (v === "derivedContributiveMargin" && allowDerivedContributiveMargin && firstBarId) {
+                onChange({
+                  type: "derivedContributiveMargin",
+                  revenueSeriesId: firstBarId,
+                })
+              } else if (v === "derivedContributiveMargin" && allowDerivedContributiveMargin) {
+                onChange({
+                  type: "derivedContributiveMargin",
+                  revenueSeriesId: "",
+                })
               }
             }}
           >
@@ -239,7 +262,11 @@ export function ChartMetricSpecEditor({
               <SelectItem value="sum">Somme de codes</SelectItem>
               <SelectItem value="difference">Différence (numérateur − dénominateur)</SelectItem>
               <SelectItem value="ratio">Rapport (numérateur ÷ dénominateur)</SelectItem>
-              {allowDerivedMargin ? (
+              {allowDerivedContributiveMargin ? (
+                <SelectItem value="derivedContributiveMargin">
+                  Contribution marginale % (mapping coûts variables)
+                </SelectItem>
+              ) : allowDerivedMargin ? (
                 <SelectItem value="derivedMargin">Marge % (bénéfice brut ÷ revenus d&apos;un histogramme)</SelectItem>
               ) : null}
             </SelectContent>
@@ -296,6 +323,47 @@ export function ChartMetricSpecEditor({
           </div>
         ) : null}
       </div>
+
+      {spec.type === "derivedContributiveMargin" && (
+        <div className="space-y-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+          <p className="text-xs leading-relaxed text-slate-600">
+            La courbe affiche ((revenus de l&apos;histogramme − coûts variables du mapping comptable) ÷ revenus) × 100
+            pour chaque période, comme dans la vue Dépenses.
+          </p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Histogramme (revenus)
+              </Label>
+              <Select
+                value={spec.revenueSeriesId || EMPTY_SELECT}
+                onValueChange={(rid) =>
+                  onChange({
+                    ...spec,
+                    revenueSeriesId: rid === EMPTY_SELECT ? "" : rid,
+                  })
+                }
+              >
+                <SelectTrigger className="h-10 rounded-xl border-slate-200/90 bg-white text-sm">
+                  <SelectValue placeholder="Choisir une série barres" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={EMPTY_SELECT} className="text-slate-500">
+                    — Choisir —
+                  </SelectItem>
+                  {(barSeriesOptions ?? [])
+                    .filter((b) => b.id !== currentSeriesId)
+                    .map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.label}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {spec.type === "derivedMargin" && (
         <div className="space-y-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
@@ -424,13 +492,13 @@ function patchSeriesAfterRemove(
   return series
     .filter((s) => s.id !== removedId)
     .map((s) => {
-      if (s.spec.type !== "derivedMargin") return s
+      if (s.spec.type !== "derivedMargin" && s.spec.type !== "derivedContributiveMargin") return s
       if (s.spec.revenueSeriesId === removedId) {
         return {
           ...s,
           spec: {
             ...s.spec,
-            revenueSeriesId: s.spec.revenueSeriesId === removedId ? fallback : s.spec.revenueSeriesId,
+            revenueSeriesId: fallback,
           },
         }
       }
@@ -599,23 +667,37 @@ export function StatementChartSettingsDialog({
   const [loadingCodes, setLoadingCodes] = useState(false)
 
   useEffect(() => {
-    setLocalConfig(slot.config)
+    const normalized = ensureIncomeStatementPerformanceConfig(slot.config, statementType)
+    setLocalConfig(normalized)
     const panelFilter = financialPositionPanel
     if (panelFilter) {
-      const firstInPanel = slot.config.series.find((s) => s.stackGroup === panelFilter)
-      setSelectedSeriesId(firstInPanel?.id ?? slot.config.series[0]?.id ?? null)
+      const firstInPanel = normalized.series.find((s) => s.stackGroup === panelFilter)
+      setSelectedSeriesId(firstInPanel?.id ?? normalized.series[0]?.id ?? null)
     } else {
-      setSelectedSeriesId(slot.config.series[0]?.id ?? null)
+      const firstEditable =
+        statementType === "income-statement"
+          ? normalized.series.find((s) => !isContributiveMarginSeriesSpec(s.spec))
+          : normalized.series[0]
+      setSelectedSeriesId(firstEditable?.id ?? null)
     }
     setStaleConflict(null)
     setSaveError(null)
-  }, [slot.chartInstanceId, slot.version, open, financialPositionPanel])
+  }, [slot.chartInstanceId, slot.version, open, financialPositionPanel, statementType, slot.config])
 
   const panelSeriesEntries = useMemo(() => {
     const entries = localConfig.series.map((series, index) => ({ series, index }))
-    if (!financialPositionPanel) return entries
-    return entries.filter(({ series }) => series.stackGroup === financialPositionPanel)
-  }, [localConfig.series, financialPositionPanel])
+    const filtered =
+      statementType === "income-statement"
+        ? entries.filter(({ series }) => !isContributiveMarginSeriesSpec(series.spec))
+        : entries
+    if (!financialPositionPanel) return filtered
+    return filtered.filter(({ series }) => series.stackGroup === financialPositionPanel)
+  }, [localConfig.series, financialPositionPanel, statementType])
+
+  const fixedContributiveMarginSeries = useMemo(() => {
+    if (statementType !== "income-statement") return null
+    return localConfig.series.find((s) => isContributiveMarginSeriesSpec(s.spec)) ?? null
+  }, [localConfig.series, statementType])
 
   const isPanelMode = Boolean(financialPositionPanel)
 
@@ -705,10 +787,11 @@ export function StatementChartSettingsDialog({
     setSaving(true)
     setStaleConflict(null)
     setSaveError(null)
+    const configToSave = ensureIncomeStatementPerformanceConfig(localConfig, statementType)
     try {
       await saveStatementChartSlot(companyId, statementType, slot.chartInstanceId, {
         version: slot.version,
-        config: localConfig,
+        config: configToSave,
       })
       onSaved()
       onOpenChange(false)
@@ -737,7 +820,7 @@ export function StatementChartSettingsDialog({
       label: kind === "bar" ? `Histogramme ${barCount + 1}` : `Courbe ${lineCount + 1}`,
       spec:
         kind === "line"
-          ? localConfig.series.some((s) => s.kind === "bar")
+          ? localConfig.series.some((s) => s.kind === "bar") && statementType !== "income-statement"
             ? {
                 type: "derivedMargin",
                 revenueSeriesId: localConfig.series.find((s) => s.kind === "bar")!.id,
@@ -768,10 +851,23 @@ export function StatementChartSettingsDialog({
   const removeSeries = (index: number) => {
     const id = localConfig.series[index]?.id
     if (!id) return
-    setLocalConfig((d) => ({ ...d, series: patchSeriesAfterRemove(d.series, id) }))
+    if (statementType === "income-statement") {
+      const target = localConfig.series[index]
+      if (target && isContributiveMarginSeriesSpec(target.spec)) return
+    }
+    setLocalConfig((d) =>
+      ensureIncomeStatementPerformanceConfig(
+        { ...d, series: patchSeriesAfterRemove(d.series, id) },
+        statementType,
+      ),
+    )
     if (selectedSeriesId === id) {
       const remaining = patchSeriesAfterRemove(localConfig.series, id)
-      setSelectedSeriesId(remaining[Math.min(index, remaining.length - 1)]?.id ?? null)
+      const next =
+        statementType === "income-statement"
+          ? remaining.find((s) => !isContributiveMarginSeriesSpec(s.spec))
+          : remaining[Math.min(index, remaining.length - 1)]
+      setSelectedSeriesId(next?.id ?? null)
     }
   }
 
@@ -954,6 +1050,15 @@ export function StatementChartSettingsDialog({
                   />
                 ))
               )}
+              {fixedContributiveMarginSeries ? (
+                <div className="rounded-xl border border-slate-200/90 bg-white px-3 py-3 text-xs text-slate-600">
+                  <p className="font-semibold text-slate-800">{CONTRIBUTIVE_MARGIN_SERIES_LABEL}</p>
+                  <p className="mt-1 leading-snug text-slate-500">
+                    Calculée automatiquement à partir du mapping comptable (coûts variables), alignée sur le
+                    graphique Dépenses. Non modifiable ici.
+                  </p>
+                </div>
+              ) : null}
             </div>
           </aside>
 
@@ -1017,7 +1122,7 @@ export function StatementChartSettingsDialog({
                             yAxis: k === "line" ? "right" : "left",
                             valueFormat: k === "line" ? "ratio" : "currency",
                             spec:
-                              k === "line" && barOptions.length
+                              k === "line" && barOptions.length && statementType !== "income-statement"
                                 ? {
                                     type: "derivedMargin",
                                     revenueSeriesId: barOptions[0]!.id,
@@ -1105,7 +1210,8 @@ export function StatementChartSettingsDialog({
                     allLinkCodes={sortedCodes}
                     summaryRowSources={summaryRowSources}
                     linkCodeLabels={linkCodeLabels}
-                    allowDerivedMargin={selectedSeries.kind === "line"}
+                    allowDerivedMargin={selectedSeries.kind === "line" && statementType !== "income-statement"}
+                    allowDerivedContributiveMargin={selectedSeries.kind === "line" && statementType === "income-statement"}
                     barSeriesOptions={barOptions.length ? barOptions : undefined}
                     currentSeriesId={selectedSeries.id}
                     structureHintLabel={structureHintLabel(statementType)}

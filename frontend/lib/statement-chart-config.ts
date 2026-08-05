@@ -1,3 +1,5 @@
+import { reportAnalysisViewLabel } from "@/lib/diagnostic-report-chapters"
+
 /**
  * Statement-agnostic chart config types (V2).
  *
@@ -34,6 +36,11 @@ export type ChartMetricSpec =
       type: "derivedMargin"
       revenueSeriesId: string
       grossProfitFromSpec: ChartMetricSpec
+    }
+  /** ((revenus − coûts variables mappés) ÷ revenus de la série) × 100 — aligné sur Dépenses. */
+  | {
+      type: "derivedContributiveMargin"
+      revenueSeriesId: string
     }
 
 export type ChartValueFormat = "currency" | "ratio"
@@ -86,10 +93,14 @@ export function newSeriesId(): string {
 
 export function defaultChartCardTitle(statementType: StatementType): string {
   if (statementType === "income-statement") return "Performance financière"
-  if (statementType === "diagnostic-revenue") return "Revenus"
-  if (statementType === "diagnostic-margin-by-revenue") return "Marge par Revenus"
-  if (statementType === "diagnostic-expenses") return "Dépenses"
-  if (statementType === "diagnostic-expenses-by-division") return "Divisions"
+  if (statementType === "diagnostic-revenue") return reportAnalysisViewLabel("revenue")
+  if (statementType === "diagnostic-margin-by-revenue") {
+    return reportAnalysisViewLabel("margin-by-revenue")
+  }
+  if (statementType === "diagnostic-expenses") return reportAnalysisViewLabel("expenses")
+  if (statementType === "diagnostic-expenses-by-division") {
+    return reportAnalysisViewLabel("expenses-by-division")
+  }
   if (statementType === "diagnostic-financial-position") return "Situation financière"
   if (statementType === "diagnostic-working-capital") return "Fonds de roulement"
   if (statementType === "balance-sheet") return "Bilan"
@@ -157,7 +168,75 @@ export function normalizeMetricSpec(raw: unknown): ChartMetricSpec {
       grossProfitFromSpec: normalizeMetricSpec(x.grossProfitFromSpec),
     }
   }
+  if (t === "derivedContributiveMargin") {
+    return {
+      type: "derivedContributiveMargin",
+      revenueSeriesId: String(x.revenueSeriesId ?? ""),
+    }
+  }
   return { type: "single", code: "" }
+}
+
+export const CONTRIBUTIVE_MARGIN_SERIES_LABEL = "Contribution marginale (%)"
+
+export function isContributiveMarginSeriesSpec(spec: ChartMetricSpec): boolean {
+  return spec.type === "derivedContributiveMargin" || spec.type === "derivedMargin"
+}
+
+function buildFixedContributiveMarginSeries(
+  revenueSeriesId: string,
+  existing?: StatementChartSeries,
+): StatementChartSeries {
+  return {
+    id: existing?.id ?? newSeriesId(),
+    kind: "line",
+    label: CONTRIBUTIVE_MARGIN_SERIES_LABEL,
+    spec: {
+      type: "derivedContributiveMargin",
+      revenueSeriesId,
+    },
+    yAxis: "right",
+    valueFormat: "ratio",
+    showOnChart: existing?.showOnChart ?? true,
+    showInSidePanel: existing?.showInSidePanel ?? true,
+    color: existing?.color ?? DEFAULT_COLORS[2],
+  }
+}
+
+/**
+ * Performance financière : impose la courbe Contribution marginale % (mapping CV),
+ * non modifiable dans les paramètres. Revenus / BAIIA restent configurables.
+ */
+export function ensureIncomeStatementPerformanceConfig(
+  config: StatementChartConfig,
+  statementType: StatementType,
+): StatementChartConfig {
+  if (statementType !== "income-statement") return config
+
+  const revenueSeriesId =
+    config.series.find((s) => s.kind === "bar")?.id ?? config.series[0]?.id ?? ""
+
+  const marginCandidates = config.series.filter((s) => isContributiveMarginSeriesSpec(s.spec))
+  const otherSeries = config.series.filter((s) => !isContributiveMarginSeriesSpec(s.spec))
+  const normalizedMargin = buildFixedContributiveMarginSeries(revenueSeriesId, marginCandidates[0])
+
+  const series = [...otherSeries, normalizedMargin]
+
+  if (
+    series.length === config.series.length &&
+    series.every((s, i) => JSON.stringify(s) === JSON.stringify(config.series[i]))
+  ) {
+    return config
+  }
+  return { ...config, series }
+}
+
+/** @deprecated Utiliser ensureIncomeStatementPerformanceConfig */
+export function migrateIncomeStatementPerformanceConfig(
+  config: StatementChartConfig,
+  statementType: StatementType,
+): StatementChartConfig {
+  return ensureIncomeStatementPerformanceConfig(config, statementType)
 }
 
 export function normalizeChartConfig(raw: unknown): StatementChartConfig {

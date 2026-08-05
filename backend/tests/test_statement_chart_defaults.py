@@ -9,14 +9,14 @@ def test_income_statement_default_has_three_series():
     assert cfg["chartTitle"] == "Performance financière"
     assert len(cfg["series"]) == 3
     labels = [s["label"] for s in cfg["series"]]
-    assert labels == ["Revenus", "BAIIA", "Marge brute (%)"]
+    assert labels == ["Revenus", "BAIIA", "Contribution marginale (%)"]
 
 
 def test_income_statement_default_margin_references_revenue_series():
     cfg = seed_default_chart_config("income-statement")
     rev_id = cfg["series"][0]["id"]
     margin_spec = cfg["series"][2]["spec"]
-    assert margin_spec["type"] == "derivedMargin"
+    assert margin_spec["type"] == "derivedContributiveMargin"
     assert margin_spec["revenueSeriesId"] == rev_id
 
 

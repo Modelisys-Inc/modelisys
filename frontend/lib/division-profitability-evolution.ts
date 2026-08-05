@@ -13,6 +13,7 @@ import {
   resolveExpenseCostGroupingFromLinkCode,
   type StandardLinkCodeLookup,
 } from "@/lib/standard-link-code-utils"
+import { EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL } from "@/lib/expense-bridge-chart-theme"
 
 const DATA_EPSILON = 1e-6
 const MONTHLY_EVOLUTION_COUNT = 12
@@ -29,11 +30,6 @@ function evolutionPointIndices(pointCount: number, view: string): number[] {
 
 function totalRevenueAtPoint(slices: DivisionProfitabilitySlice[], pointIndex: number): number {
   return slices.reduce((sum, slice) => sum + (slice.points[pointIndex]?.revenue ?? 0), 0)
-}
-
-function ratioPct(numerator: number, denominator: number): number | null {
-  if (Math.abs(denominator) < DATA_EPSILON) return null
-  return (numerator / denominator) * 100
 }
 
 function collectRevenueAccountNumbers(
@@ -89,13 +85,10 @@ export function buildDivisionProfitabilityEvolutionTable(params: {
   const revenues = orderedIndices.map((i) => slice.points[i]!.revenue)
   const variableCosts = orderedIndices.map((i) => slice.points[i]!.variableCosts)
   const contributiveMargins = orderedIndices.map((i) => slice.points[i]!.contributiveMargin)
-  const contributiveMarginPcts = orderedIndices.map((i) =>
-    ratioPct(slice.points[i]!.contributiveMargin, slice.points[i]!.revenue),
-  )
   const fixedCosts = orderedIndices.map((i) => slice.points[i]!.fixedCosts)
   const operatingProfits = orderedIndices.map((i) => slice.points[i]!.operatingProfit)
-  const operatingMarginPcts = orderedIndices.map((i) =>
-    ratioPct(slice.points[i]!.operatingProfit, slice.points[i]!.revenue),
+  const sourceRevenuesByPeriod = revenues.map((revenue) =>
+    Math.abs(revenue) > DATA_EPSILON ? revenue : null,
   )
   const revenueShares = orderedIndices.map((i) => {
     const revenue = slice.points[i]!.revenue
@@ -155,6 +148,7 @@ export function buildDivisionProfitabilityEvolutionTable(params: {
     sourceId: slice.divisionId,
     sourceLabel: slice.heading,
     periods,
+    sourceRevenuesByPeriod,
     metrics: [
       {
         id: "revenue",
@@ -177,12 +171,6 @@ export function buildDivisionProfitabilityEvolutionTable(params: {
         values: contributiveMargins,
       },
       {
-        id: "contributive-margin-pct",
-        label: "Marge contrib.",
-        format: "percent",
-        values: contributiveMarginPcts,
-      },
-      {
         id: "fixed-cost",
         label: "Coûts fixes",
         format: "currency",
@@ -191,15 +179,9 @@ export function buildDivisionProfitabilityEvolutionTable(params: {
       },
       {
         id: "operating-profit",
-        label: "Bén. expl.",
+        label: EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL,
         format: "currency",
         values: operatingProfits,
-      },
-      {
-        id: "operating-margin-pct",
-        label: "Marge expl.",
-        format: "percent",
-        values: operatingMarginPcts,
       },
       { id: "revenue-share", label: "Part CA", format: "percent", values: revenueShares },
     ],

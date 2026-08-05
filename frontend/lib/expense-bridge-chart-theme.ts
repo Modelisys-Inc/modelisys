@@ -1,4 +1,6 @@
 /** Palette du pont de rentabilité (Dépenses) — contrastes marqués entre postes. */
+export const EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL = "BAIIA"
+
 export const EXPENSE_BRIDGE_CHART_COLORS = {
   /** Ligne — total CA */
   revenue: "#2563EB",

@@ -7,6 +7,9 @@ import {
   isTextLecturePage,
   lecturePageCountFromPacked,
   packNarrativeParagraphs,
+  packRevenueSourceLecturePages,
+  PERFORMANCE_WINDOW_PAGE_GROUP,
+  REVENUE_SOURCES_PER_LECTURE_PAGE,
 } from "@/lib/report-narrative-pagination"
 
 function smallEvolutionTable(metricCount = 2): ContributiveMarginEvolutionTable {
@@ -82,8 +85,8 @@ describe("report-narrative-pagination", () => {
       { heading: "Actifs", body: "Résumé des actifs." },
       { heading: "Passifs", body: "Résumé des passifs." },
     ]
-    const pages = packNarrativeParagraphs(paragraphs, (heading) =>
-      heading === "Passifs" ? 13 : 0,
+    const pages = packNarrativeParagraphs(paragraphs, (paragraph) =>
+      paragraph.heading === "Passifs" ? 13 : 0,
     )
     expect(pages).toHaveLength(2)
     expect(pages[0]?.map((p) => p.heading)).toEqual(["Actifs"])
@@ -107,5 +110,54 @@ describe("report-narrative-pagination", () => {
   it("splits expenses into bridge and breakeven chart parts", () => {
     expect(chartPartsForAnalysis("expenses")).toEqual(["main", "breakeven"])
     expect(chartPartsForAnalysis("performance")).toEqual(["main"])
+  })
+
+  it("packs two revenue sources per lecture page", () => {
+    const paragraphs = [
+      { heading: "Produits", body: "Analyse produits." },
+      { heading: "Services", body: "Analyse services." },
+      { heading: "Location", body: "Analyse location." },
+      { heading: "Autre", body: "Analyse autre." },
+      { heading: "Export", body: "Analyse export." },
+    ]
+    const pages = packRevenueSourceLecturePages(paragraphs)
+    expect(pages).toHaveLength(3)
+    expect(pages[0]?.map((paragraph) => paragraph.heading)).toEqual(["Produits", "Services"])
+    expect(pages[1]?.map((paragraph) => paragraph.heading)).toEqual(["Location", "Autre"])
+    expect(pages[2]?.map((paragraph) => paragraph.heading)).toEqual(["Export"])
+    expect(REVENUE_SOURCES_PER_LECTURE_PAGE).toBe(2)
+  })
+
+  it("garde Revenus, contribution marginale et BAIIA sur une même page", () => {
+    const longBody = "Analyse détaillée. ".repeat(40)
+    const paragraphs = [
+      {
+        heading: "Revenus",
+        body: longBody,
+        statsLine: "TCAC : +8 %",
+        narrativePageGroup: PERFORMANCE_WINDOW_PAGE_GROUP,
+      },
+      {
+        heading: "Contribution marginale",
+        body: longBody,
+        statsLine: "Moyenne : 42 %",
+        narrativePageGroup: PERFORMANCE_WINDOW_PAGE_GROUP,
+      },
+      {
+        heading: "BAIIA",
+        body: longBody,
+        secondaryBody: "Comparativement au chiffre d'affaires, le TCAC du BAIIA progresse.",
+        statsLine: "TCAC : +6 %",
+        narrativePageGroup: PERFORMANCE_WINDOW_PAGE_GROUP,
+      },
+    ]
+
+    const pages = packNarrativeParagraphs(paragraphs)
+    expect(pages).toHaveLength(1)
+    expect(pages[0]?.map((paragraph) => paragraph.heading)).toEqual([
+      "Revenus",
+      "Contribution marginale",
+      "BAIIA",
+    ])
   })
 })

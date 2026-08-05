@@ -624,8 +624,8 @@ describe("financial position report lecture pagination", () => {
       refMonth: 12,
       refYear: 2025,
     })
-    const pages = packNarrativeParagraphs(narrative.paragraphs, (heading) =>
-      evolutionTableWeightFromHeading(tables, heading),
+    const pages = packNarrativeParagraphs(narrative.paragraphs, (paragraph) =>
+      evolutionTableWeightFromHeading(tables, paragraph.heading),
     )
 
     expect(narrative.paragraphs.length).toBeGreaterThan(4)

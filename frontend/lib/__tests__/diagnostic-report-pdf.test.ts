@@ -9,6 +9,8 @@ import {
   DIAGNOSTIC_PRINT_ANALYSES,
   DIAGNOSTIC_REPORT_CHAPTERS,
   reportAnalysisAnchorId,
+  reportAnalysisDisplayTitle,
+  reportAnalysisViewLabel,
 } from "@/lib/diagnostic-report-chapters"
 
 describe("formatReportSectionMeta", () => {
@@ -59,6 +61,23 @@ describe("reportAnalysisAnchorId", () => {
     expect(reportAnalysisAnchorId("performance", "intro")).toBe("report-performance-intro")
     expect(reportAnalysisAnchorId("performance", "chart")).toBe("report-performance-chart")
     expect(reportAnalysisAnchorId("margin-by-revenue", "intro")).toBe("report-margin-by-revenue-intro")
+  })
+})
+
+describe("reportAnalysisViewLabel", () => {
+  it("uses analysis titles aligned with the report menu and table of contents", () => {
+    expect(reportAnalysisViewLabel("revenue")).toBe("Analyse des revenus")
+    expect(reportAnalysisViewLabel("margin-by-revenue")).toBe("Marge par revenus")
+    expect(reportAnalysisViewLabel("expenses")).toBe("Analyse des dépenses")
+    expect(reportAnalysisViewLabel("expenses-by-division")).toBe("Analyse des divisions")
+  })
+})
+
+describe("reportAnalysisDisplayTitle", () => {
+  it("matches the view label for printed analyses", () => {
+    for (const analysis of DIAGNOSTIC_PRINT_ANALYSES) {
+      expect(reportAnalysisDisplayTitle(analysis)).toBe(reportAnalysisViewLabel(analysis.viewId))
+    }
   })
 })
 

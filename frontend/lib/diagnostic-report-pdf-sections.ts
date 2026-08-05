@@ -1,18 +1,27 @@
 import type { DiagnosticReportView } from "@/components/diagnostic/v2/diagnostic-nav-rail"
+import { diagnosticReportViewLabel } from "@/lib/diagnostic-report-chapters"
 
 export type DiagnosticReportPdfSection =
   | { kind: "executive-summary"; title: "Sommaire exécutif" }
   | { kind: "chart"; view: DiagnosticReportView; title: string }
 
+const CHART_VIEWS = [
+  "performance",
+  "revenue",
+  "margin-by-revenue",
+  "expenses",
+  "expenses-by-division",
+  "financial-position",
+  "working-capital",
+  "capex",
+] as const satisfies readonly Exclude<DiagnosticReportView, "sommaire" | "company-overview">[]
+
 /** Sections du menu Rapport (Sommaire exécutif → Fonds de roulement). */
 export const DIAGNOSTIC_REPORT_PDF_SECTIONS: DiagnosticReportPdfSection[] = [
   { kind: "executive-summary", title: "Sommaire exécutif" },
-  { kind: "chart", view: "performance", title: "Performance financière" },
-  { kind: "chart", view: "revenue", title: "Revenus" },
-  { kind: "chart", view: "margin-by-revenue", title: "Marge par Revenus" },
-  { kind: "chart", view: "expenses", title: "Dépenses" },
-  { kind: "chart", view: "expenses-by-division", title: "Divisions" },
-  { kind: "chart", view: "financial-position", title: "Situation financière" },
-  { kind: "chart", view: "working-capital", title: "Fonds de roulement" },
-  { kind: "chart", view: "capex", title: "Capex" },
+  ...CHART_VIEWS.map((view) => ({
+    kind: "chart" as const,
+    view,
+    title: diagnosticReportViewLabel(view),
+  })),
 ]

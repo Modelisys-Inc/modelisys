@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { buildExecutiveSummary } from "@/lib/diagnostic-executive-summary"
+import { EXECUTIVE_SUMMARY_QUESTIONS } from "@/lib/diagnostic-executive-summary-compress"
 import type { CompanyDiagnostic } from "@/lib/api"
 
 function minimalDiagnostic(): CompanyDiagnostic {
@@ -100,23 +101,30 @@ function minimalDiagnostic(): CompanyDiagnostic {
 }
 
 describe("buildExecutiveSummary", () => {
-  it("produces intro, blocks for each report section and health score", () => {
+  it("produces five question-driven analysis blocks", () => {
     const model = buildExecutiveSummary(minimalDiagnostic())
 
     expect(model.headline).toBe("Sommaire exécutif")
     expect(model.introParagraphs.length).toBeGreaterThan(0)
-    expect(model.blocks.some((b) => b.reportView === "performance")).toBe(true)
-    expect(model.blocks.some((b) => b.reportView === "revenue")).toBe(true)
-    expect(model.blocks.some((b) => b.scrollTargetId === "diag-valorisation")).toBe(true)
+    expect(model.blocks).toHaveLength(5)
+    expect(model.blocks.map((b) => b.id)).toEqual([
+      "performance",
+      "revenue",
+      "margin-by-revenue",
+      "expenses",
+      "expenses-by-division",
+    ])
+    expect(model.blocks[0]?.subtitle).toBe(EXECUTIVE_SUMMARY_QUESTIONS.performance)
+    expect(model.blocks[1]?.subtitle).toBe(EXECUTIVE_SUMMARY_QUESTIONS.revenue)
     expect(model.conclusionParagraph).toContain("Test Co")
     expect(model.blocks.find((b) => b.id === "performance")?.paragraphs.join(" ")).toMatch(
-      /EBITDA|chiffre d'affaires/i,
+      /Revenus|Contribution marginale|BAIIA/i,
     )
     expect(model.blocks.find((b) => b.id === "performance")?.paragraphs.join(" ")).not.toMatch(
       /Cette section|La vue|Ouvrez la section|dans la section|permettra d'identifier|À creuser/i,
     )
     expect(model.blocks.find((b) => b.id === "expenses")?.paragraphs.join(" ")).toMatch(
-      /charges d'exploitation|EBITDA/i,
+      /variables|fixes|mapping|charges/i,
     )
   })
 })

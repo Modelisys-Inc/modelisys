@@ -92,13 +92,16 @@ describe("buildIncomePerformanceNarrative — vue annuelle", () => {
     if (result!.mode !== "annual") return
 
     expect(result.paragraphs).toHaveLength(3)
+    expect(result.paragraphs.every((paragraph) => paragraph.narrativePageGroup === "performance-window")).toBe(
+      true,
+    )
     const revenue = result.paragraphs[0]!
     expect(revenue.heading).toBe("Revenus")
-    expect(revenue.body).toContain("fourchette basse")
-    expect(revenue.body).toContain("fourchette haute")
+    expect(revenue.body).toContain("derniers exercices")
+    expect(revenue.body).toContain("est passé de")
     expect(revenue.body).toContain("TCAC")
-    expect(revenue.body).toContain("moyenne")
-    expect(revenue.statsLine).toContain("Fourchette")
+    expect(revenue.body).toContain("meilleure performance")
+    expect(revenue.statsLine).toContain("Fourchette observée")
     expect(revenue.statsLine).toContain("TCAC")
 
     const baiia = result.paragraphs[2]!
@@ -118,7 +121,7 @@ describe("buildIncomePerformanceNarrative — vue annuelle", () => {
     const revenue = result.paragraphs[0]!
     expect(revenue.body).toContain("2021 sont exclus")
     expect(revenue.body).toContain("2022 à 2025")
-    expect(revenue.body).toContain("4 exercices disposant de données")
+    expect(revenue.body).toContain("quatre derniers exercices")
   })
 })
 
@@ -129,7 +132,7 @@ describe("buildIncomePerformanceNarrative — vue mensuelle (24 mois)", () => {
     expect(result?.mode).toBe("monthly")
     if (result?.mode !== "monthly") return
     expect(result.paragraphs).toHaveLength(3)
-    expect(result.paragraphs[0]!.body).toContain("fourchette basse")
+    expect(result.paragraphs[0]!.body).toContain("derniers mois")
     expect(result.paragraphs[0]!.body).toContain("TCAC")
     expect(result.paragraphs[2]!.secondaryBody).toContain("chiffre d'affaires")
   })
@@ -342,6 +345,25 @@ describe("buildRevenueOnlyPerformanceNarrative", () => {
     )
     expect(result?.paragraphs[0]!.body).toContain("% du total")
     expect(result?.paragraphs.some((p) => p.heading === "Structure du chiffre d'affaires")).toBe(false)
+  })
+
+  it("compare la croissance de chaque source à celle du chiffre d'affaires total", () => {
+    const data = sampleAnnualData()
+    const fasterServices = data.map((p) => ({
+      ...p,
+      revenue: p.revenue * (p.period === "2025" ? 0.3 : 0.5),
+    }))
+    const result = buildRevenueOnlyPerformanceNarrative(
+      [revenueSlice("Ventes produits", data), revenueSlice("Services", fasterServices)],
+      "years",
+    )
+    expect(result?.paragraphs).toHaveLength(2)
+    for (const paragraph of result?.paragraphs ?? []) {
+      expect(paragraph.secondaryBody).toBeTruthy()
+      expect(paragraph.secondaryBody).toContain("glissement annuel")
+      expect(paragraph.secondaryBody).toContain("chiffre d'affaires")
+      expect(paragraph.secondaryBody).toContain("TCAC")
+    }
   })
 
   it("ne génère pas de paragraphe de marge contributive", () => {

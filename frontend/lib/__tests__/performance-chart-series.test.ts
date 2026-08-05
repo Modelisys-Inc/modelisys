@@ -156,4 +156,75 @@ describe("buildPerformanceChartData", () => {
     }
     expect(buildPerformanceChartData(config, rows, periods, "12months", 2, 2024)).toBeNull()
   })
+
+  it("calcule la contribution marginale % à partir du mapping des coûts variables", () => {
+    const variableRow = row("5010", "CMV-001", { "2024-1": 400, "2024-2": 480 })
+    const config: StatementChartConfig = {
+      version: 2,
+      chartTitle: "Performance",
+      series: [
+        {
+          id: "rev",
+          kind: "bar",
+          label: "Revenus",
+          spec: { type: "single", code: "REV-001" },
+          yAxis: "left",
+          valueFormat: "currency",
+          showOnChart: true,
+          showInSidePanel: true,
+          color: "#3b82f6",
+        },
+        {
+          id: "cm",
+          kind: "line",
+          label: "Contribution marginale (%)",
+          spec: { type: "derivedContributiveMargin", revenueSeriesId: "rev" },
+          yAxis: "right",
+          valueFormat: "ratio",
+          showOnChart: true,
+          showInSidePanel: true,
+          color: "#f59e0b",
+        },
+      ],
+    }
+    const mappings = [
+      {
+        id: "5010",
+        account_number: "5010",
+        description: "Matières",
+        link_code: "CMV-001",
+        summary_ef: null,
+        detail_ef: null,
+        divisions: null,
+        sub_divisions: null,
+        fdrhc: false,
+        interests: false,
+        amortization: false,
+        variable_costs: true,
+        fixed_costs: false,
+        variable_cost_revenue_link_code: null,
+        liability_remaining_years: null,
+        liability_interest_rate: null,
+        product: null,
+        customer: null,
+        supplier: null,
+        interco_company_id: null,
+      },
+    ]
+
+    const built = buildPerformanceChartData(
+      config,
+      [rows[0]!, variableRow],
+      periods,
+      "12months",
+      2,
+      2024,
+      { mappings },
+    )
+    expect(built).not.toBeNull()
+    expect(built!.series).toHaveLength(2)
+    const marginKey = built!.series.find((s) => s.id === "cm")!.dataKey
+    const firstPoint = built!.points[0] as Record<string, number>
+    expect(firstPoint[marginKey]).toBeCloseTo(60, 1)
+  })
 })
