@@ -13,6 +13,7 @@ import {
   yearLabelsFromReference,
   yearTrendFromReference,
 } from "@/lib/series-reference-columns"
+import { filterLabeledHorizonPoints } from "@/lib/horizon-column-visibility"
 import { filterRevenueLeafLinkCodes } from "@/lib/standard-link-code-utils"
 
 const DATA_EPSILON = 1e-6
@@ -217,8 +218,19 @@ export function buildExpenseContributionBridge(params: {
   const hasRevenue = points.some((p) => Math.abs(p.revenue) > DATA_EPSILON)
   if (!hasRevenue) return null
 
+  const filteredPoints =
+    view === "years"
+      ? filterLabeledHorizonPoints(points, [
+          "revenue",
+          "variableCosts",
+          "contributiveMargin",
+          "fixedCosts",
+          "operatingProfit",
+        ])
+      : points
+
   return {
-    points,
+    points: filteredPoints,
     mappingStatus: {
       variableCostAccountCount: variableAccounts.length,
       fixedCostAccountCount: fixedAccounts.length,

@@ -2,7 +2,6 @@ import type { CompanyDiagnostic } from "@/lib/api"
 import {
   formatDateFr,
   formatReferenceDateEndOfMonth,
-  formatReferencePeriod,
   lifecycleLabel,
 } from "@/components/diagnostic/diagnostic-format"
 import { ModelisysWordmark } from "@/components/diagnostic/modelisys-wordmark"
@@ -12,10 +11,6 @@ interface DiagnosticReportCoverPageProps {
 }
 
 export function DiagnosticReportCoverPage({ diagnostic }: DiagnosticReportCoverPageProps) {
-  const referenceLabel = formatReferencePeriod(
-    diagnostic.reference_period.calendar_year,
-    diagnostic.reference_period.calendar_month,
-  )
   const referenceDateLabel = formatReferenceDateEndOfMonth(
     diagnostic.reference_period.calendar_year,
     diagnostic.reference_period.calendar_month,
@@ -25,8 +20,8 @@ export function DiagnosticReportCoverPage({ diagnostic }: DiagnosticReportCoverP
     { label: "Préparé pour", value: diagnostic.company_name },
     { label: "Date de référence", value: referenceDateLabel },
     {
-      label: "Exercice · Devise",
-      value: `${diagnostic.latest_fiscal_year} · ${diagnostic.currency}`,
+      label: "Devise",
+      value: diagnostic.currency,
     },
   ]
 
@@ -50,7 +45,7 @@ export function DiagnosticReportCoverPage({ diagnostic }: DiagnosticReportCoverP
           <div>
             <ModelisysWordmark variant="light" size="xl" />
             <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.34em] text-[#C9B8A5]/70">
-              Diagnostic financier
+              Système d&apos;exploitation financier
             </p>
           </div>
           <div className="rounded border border-[#E0742D]/35 bg-[#E0742D]/10 px-4 py-2.5 text-right">
@@ -71,8 +66,9 @@ export function DiagnosticReportCoverPage({ diagnostic }: DiagnosticReportCoverP
             {diagnostic.company_name}
           </h1>
           <p className="mt-5 max-w-2xl text-lg leading-relaxed text-[#C9B8A5]/90">
-            Analyse intégrée de performance, structure financière, investissements et valeur —
-            préparée à la date de référence du {referenceLabel}.
+            Diagnostic stratégique offrant une analyse intégrée de la performance financière, de la
+            rentabilité, de la structure financière, de la capacité de création de liquidités et de la
+            valeur de l&apos;entreprise.
           </p>
           <p className="mt-4 text-sm text-[#C9B8A5]/70">
             Cycle de vie : {lifecycleLabel(diagnostic.summary.lifecycle_stage)}

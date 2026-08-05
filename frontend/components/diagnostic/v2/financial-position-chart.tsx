@@ -163,7 +163,8 @@ export function FinancialPositionChart({
         <div className="mb-5">
           <p className="text-xs leading-relaxed text-slate-500">
             Montants des familles ACT, ALT, PCT, PLT et CAP du bilan (même source que le Sommaire), à la date de
-            clôture de chaque période. Utilisez Paramètres sur chaque graphique pour choisir les codes de liaison.
+            clôture de chaque période — permet de valider l&apos;équilibre Actif = Passif + Capitaux propres.
+            Utilisez Paramètres sur chaque graphique pour choisir les codes de liaison.
           </p>
         </div>
 

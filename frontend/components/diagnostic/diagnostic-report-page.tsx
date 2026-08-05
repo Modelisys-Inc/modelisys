@@ -23,6 +23,7 @@ import {
   DiagnosticExecutiveSummary,
   DIAGNOSTIC_SUMMARY_ANCHOR_ID,
 } from "@/components/diagnostic/v2/diagnostic-executive-summary"
+import { DiagnosticCompanyOverviewSection } from "@/components/diagnostic/v2/diagnostic-company-overview-section"
 import { DiagnosticSeasonalityHeatmap } from "@/components/diagnostic/v2/diagnostic-seasonality-heatmap"
 import { DiagnosticDivisionsQuadrant } from "@/components/diagnostic/v2/diagnostic-divisions-quadrant"
 import { DiagnosticBenchmarkRadar } from "@/components/diagnostic/v2/diagnostic-benchmark-radar"
@@ -36,6 +37,7 @@ import { touchDiagnostic } from "@/lib/diagnostic-registry"
 
 const REPORT_VIEWS = [
   { id: "sommaire" as const, label: "Sommaire" },
+  { id: "company-overview" as const, label: "Aperçu de l'entreprise" },
   { id: "performance" as const, label: "Performance financière" },
   { id: "revenue" as const, label: "Revenus" },
   { id: "margin-by-revenue" as const, label: "Marge par Revenus" },
@@ -161,6 +163,11 @@ export function DiagnosticReportPage({
                           ?.scrollIntoView({ behavior: "smooth", block: "start" })
                       })
                     }}
+                  />
+                ) : reportView === "company-overview" ? (
+                  <DiagnosticCompanyOverviewSection
+                    diagnosticId={diagnosticId}
+                    companyName={data.company_name}
                   />
                 ) : (
                   <DiagnosticReportChartSection

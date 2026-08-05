@@ -298,7 +298,7 @@ describe("buildWorkingCapitalDiagnosticNarrative", () => {
     expect(narrative?.paragraphs.some((p) => p.heading === "Délai de collection des clients")).toBe(
       true,
     )
-    expect(narrative?.paragraphs.some((p) => p.heading === "Structure en % des revenus")).toBe(true)
+    expect(narrative?.paragraphs.some((p) => p.heading === "Structure en % des revenus")).toBe(false)
     expect(narrative?.paragraphs.some((p) => p.heading === "Comptes clients en % des revenus")).toBe(
       true,
     )

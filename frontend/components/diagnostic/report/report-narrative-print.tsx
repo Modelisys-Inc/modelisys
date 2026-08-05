@@ -5,31 +5,24 @@ import type { PerformanceNarrativeResult } from "@/lib/income-performance-narrat
 
 type Narrative = NonNullable<PerformanceNarrativeResult>
 
-const NARRATIVE_SECTION_META: Record<string, { title: string; description?: string }> = {
+const NARRATIVE_SECTION_META: Record<string, { title?: string; description?: string; showHeader?: boolean }> = {
   "revenue-performance": {
-    title: "Performance des revenus",
-    description: "Niveau, variation et pondération de chaque source de chiffre d'affaires.",
+    showHeader: false,
   },
   "revenue-mix": {
-    title: "Structure du chiffre d'affaires",
-    description: "Répartition et concentration des sources de revenus.",
+    showHeader: false,
   },
   "contributive-margin": {
-    title: "Analyse par source de revenus",
-    description: "Coûts variables, marge contributive et positionnement relatif.",
+    showHeader: false,
   },
   "division-profitability": {
-    title: "Analyse par divisions",
-    description:
-      "Revenus, coûts variables et fixes, marge contributive et bénéfice d'exploitation par division.",
+    showHeader: false,
   },
   "financial-position": {
-    title: "Situation financière",
-    description: "Actifs, passifs et capitaux propres de la société de référence.",
+    showHeader: false,
   },
   "working-capital": {
-    title: "Fonds de roulement",
-    description: "Évolution des ratios FDR, cycle de trésorerie et structure en % des revenus.",
+    showHeader: false,
   },
   capex: {
     title: "Investissements",
@@ -66,8 +59,8 @@ function groupParagraphs(paragraphs: Narrative["paragraphs"]) {
     const meta = NARRATIVE_SECTION_META[sectionId]
     groups.push({
       id: sectionId,
-      title: meta?.title ?? sectionId,
-      description: meta?.description ?? null,
+      title: meta?.showHeader === false ? null : (meta?.title ?? sectionId),
+      description: meta?.showHeader === false ? null : (meta?.description ?? null),
       paragraphs: items,
     })
   }

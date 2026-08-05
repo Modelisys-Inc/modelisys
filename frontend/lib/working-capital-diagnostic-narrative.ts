@@ -7,18 +7,11 @@ import {
   WORKING_CAPITAL_NARRATIVE_METRIC_ORDER,
   buildWorkingCapitalNarrativeMetricSeries,
   type WorkingCapitalNarrativeMetricFormat,
-  type WorkingCapitalNarrativeMetricKey,
   type WorkingCapitalNarrativeMetricSeries,
 } from "@/lib/working-capital-narrative-series"
 
 const DATA_EPSILON = 1e-6
 const SECTION = "working-capital" as const
-
-const REVENUE_SHARE_METRICS = new Set<WorkingCapitalNarrativeMetricKey>([
-  "arRevPct",
-  "inventoryRevPct",
-  "payablesRevPct",
-])
 
 function fmtPct(value: number): string {
   return `${value.toFixed(1).replace(".", ",")} %`
@@ -202,14 +195,6 @@ function buildMetricParagraph(
   }
 }
 
-function buildRevenueShareIntro(): PerformanceNarrativeParagraph {
-  return {
-    section: SECTION,
-    heading: "Structure en % des revenus",
-    body: "Les ratios ci-dessous mesurent le poids des comptes clients, stocks et créditeurs par rapport aux revenus (base TTM). Ils reprennent les mêmes libellés que le tableau de structure et complètent la lecture des délais et du fonds de roulement rapporté aux ventes.",
-  }
-}
-
 export function buildWorkingCapitalDiagnosticNarrative(params: {
   fdrResult: WorkingCapitalDiagnosticResult
   compositionResult: WorkingCapitalCompositionResult | null
@@ -235,16 +220,10 @@ export function buildWorkingCapitalDiagnosticNarrative(params: {
   if (!metricSeries.length) return null
 
   const paragraphs: PerformanceNarrativeParagraph[] = []
-  let revenueShareIntroAdded = false
 
   for (const key of WORKING_CAPITAL_NARRATIVE_METRIC_ORDER) {
     const series = metricSeries.find((item) => item.key === key)
     if (!series) continue
-
-    if (REVENUE_SHARE_METRICS.has(key) && !revenueShareIntroAdded) {
-      paragraphs.push(buildRevenueShareIntro())
-      revenueShareIntroAdded = true
-    }
 
     const paragraph = buildMetricParagraph(series, view)
     if (paragraph) paragraphs.push(paragraph)

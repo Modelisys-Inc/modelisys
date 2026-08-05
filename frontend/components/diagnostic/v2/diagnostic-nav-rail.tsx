@@ -9,6 +9,7 @@ export interface RailSection {
 
 export type DiagnosticReportView =
   | "sommaire"
+  | "company-overview"
   | "performance"
   | "revenue"
   | "margin-by-revenue"

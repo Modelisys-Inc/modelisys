@@ -4,10 +4,17 @@ import { ModelisysWordmark } from "@/components/diagnostic/modelisys-wordmark"
 import {
   DIAGNOSTIC_PRINT_ANALYSES,
   reportAnalysisAnchorId,
+  reportAnalysisDisplayTitle,
+  type ReportPrintAnalysis,
 } from "@/lib/diagnostic-report-chapters"
+import { COMPANY_OVERVIEW_PRINT_INTRO_ID } from "@/lib/diagnostic-company-overview"
 
 interface DiagnosticReportTableOfContentsProps {
   diagnostic: CompanyDiagnostic
+}
+
+function tocEntryTitle(analysis: ReportPrintAnalysis): string {
+  return reportAnalysisDisplayTitle(analysis)
 }
 
 function TocEntry({
@@ -46,6 +53,31 @@ export function DiagnosticReportTableOfContents({
     diagnostic.currency,
   )
 
+  const analysisEntries = DIAGNOSTIC_PRINT_ANALYSES.map((analysis, index) => ({
+    key: analysis.viewId,
+    href: `#${reportAnalysisAnchorId(analysis.viewId, "intro")}`,
+    number: String(index + 2),
+    title: tocEntryTitle(analysis),
+    subtitle: analysis.intro.subtitle,
+    testId: `diagnostic-report-toc-link-${analysis.viewId}`,
+  }))
+
+  const entries = [
+    {
+      key: "company-overview",
+      href: `#${COMPANY_OVERVIEW_PRINT_INTRO_ID}`,
+      number: "1",
+      title: "Aperçu de l'entreprise",
+      subtitle: "Informations générales et structure organisationnelle",
+      testId: "diagnostic-report-toc-link-company-overview",
+    },
+    ...analysisEntries,
+  ]
+
+  const splitAt = Math.ceil(entries.length / 2)
+  const leftColumn = entries.slice(0, splitAt)
+  const rightColumn = entries.slice(splitAt)
+
   return (
     <section
       data-testid="diagnostic-report-toc"
@@ -62,25 +94,32 @@ export function DiagnosticReportTableOfContents({
         </header>
 
         <nav aria-label="Analyses du rapport" className="report-toc-nav mt-6 flex-1">
-          <ol className="report-toc-grid">
-            {DIAGNOSTIC_PRINT_ANALYSES.map((analysis) => {
-              const label =
-                analysis.viewSubtitle != null
-                  ? `${analysis.sectionTitle} — ${analysis.viewSubtitle}`
-                  : analysis.sectionTitle
-
-              return (
+          <div className="report-toc-columns">
+            <ol className="report-toc-column">
+              {leftColumn.map((entry) => (
                 <TocEntry
-                  key={analysis.viewId}
-                  href={`#${reportAnalysisAnchorId(analysis.viewId, "intro")}`}
-                  number={String(analysis.sectionNumber).padStart(2, "0")}
-                  title={label}
-                  subtitle={analysis.intro.subtitle}
-                  testId={`diagnostic-report-toc-link-${analysis.viewId}`}
+                  key={entry.key}
+                  href={entry.href}
+                  number={entry.number}
+                  title={entry.title}
+                  subtitle={entry.subtitle}
+                  testId={entry.testId}
                 />
-              )
-            })}
-          </ol>
+              ))}
+            </ol>
+            <ol className="report-toc-column">
+              {rightColumn.map((entry) => (
+                <TocEntry
+                  key={entry.key}
+                  href={entry.href}
+                  number={entry.number}
+                  title={entry.title}
+                  subtitle={entry.subtitle}
+                  testId={entry.testId}
+                />
+              ))}
+            </ol>
+          </div>
         </nav>
       </div>
     </section>

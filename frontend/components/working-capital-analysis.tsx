@@ -24,6 +24,8 @@ import {
   type WorkingCapitalIncludedOperand,
 } from "@/lib/working-capital-structure-utils"
 import { CONTRIBUTIVE_MARGIN_AMOUNT_EPSILON } from "@/lib/revenue-contributive-margin-evolution"
+import { emptyHorizonColumnMask, pickHorizonColumns } from "@/lib/horizon-column-visibility"
+import { IndicatorAnalysisTableColGroup } from "@/components/indicator-analysis-table-colgroup"
 import { ChevronDown, ChevronRight, LayoutList, Settings, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { IncomePerformanceNarrativeSection } from "@/components/diagnostic/v2/income-performance-narrative-section"
@@ -595,12 +597,42 @@ export function WorkingCapitalAnalysis({
     data.trendValues?.length ||
     (view === "24months" ? 24 : view === "years" ? 6 : view === "12months" ? 12 : 0)
 
+  const annualYearsColumnMask = useMemo(() => {
+    if (view !== "years" || bsPeriods.length === 0) return null
+
+    const chronologicalLabels = aggregateToYears(
+      bsPeriods.map(() => 0),
+      bsPeriods,
+    ).labels
+    const displayLabels = reverseSeriesOrderForDisplay(chronologicalLabels)
+    const metricRows = tableRows
+      .filter((item): item is Extract<typeof item, { kind: "metric" }> => item.kind === "metric")
+      .filter((item) => item.metric.showAmounts)
+      .map((item) => {
+        const chronologicalValues = Array.from({ length: trendCount }, (_, idx) =>
+          item.metric.valueAt(false, idx),
+        )
+        return reverseSeriesOrderForDisplay(chronologicalValues)
+      })
+
+    if (!metricRows.length || !displayLabels.length) return null
+    return emptyHorizonColumnMask(displayLabels.length, metricRows)
+  }, [view, tableRows, trendCount, bsPeriods])
+
+  const filterAnnualDisplayColumns = <T,>(items: T[]): T[] => {
+    if (view !== "years" || !annualYearsColumnMask) return items
+    return pickHorizonColumns(items, annualYearsColumnMask)
+  }
+
+  const getVisiblePeriodColumnLabels = (): string[] =>
+    filterAnnualDisplayColumns(getPeriodColumnLabels())
+
   const tableColumnCount =
-    2 + (view === "current" ? 2 : Math.max(trendCount, getPeriodColumnLabels().length, 1))
+    2 + (view === "current" ? 2 : Math.max(trendCount, getVisiblePeriodColumnLabels().length, 1))
 
   /** Style montants : Détail CDR (slate-500) ; postes gras → libellé + montants en gras. */
   const metricColumnClass = isDiagnosticAppearance
-    ? "box-border min-w-[9.5rem] max-w-[14rem]"
+    ? "box-border w-full"
     : "box-border w-[18rem] min-w-[18rem] max-w-[18rem] sm:w-[20rem] sm:min-w-[20rem] sm:max-w-[20rem]"
   const amountCellClass = (isBold?: boolean) =>
     cn(
@@ -616,7 +648,7 @@ export function WorkingCapitalAnalysis({
   const amountTrendCellClass = (isBold?: boolean) =>
     cn(
       isDiagnosticAppearance
-        ? "min-w-[4.5rem] whitespace-nowrap px-2.5 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums"
+        ? "whitespace-nowrap px-2.5 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums"
         : "min-w-[5.5rem] whitespace-nowrap px-4 py-3 text-right text-sm",
       isBold
         ? isDiagnosticAppearance
@@ -654,12 +686,16 @@ export function WorkingCapitalAnalysis({
     : "px-6 py-4 text-sm font-semibold text-[#2A2F3A]"
   const tableHeaderAverageClass = cn(
     tableHeaderClass,
-    isDiagnosticAppearance ? "min-w-[5.5rem]" : "min-w-[7.5rem]",
+    !isDiagnosticAppearance && "min-w-[7.5rem]",
     "text-right",
     averageColumnBgClass,
   )
   const tableHeaderPeriodClass = isDiagnosticAppearance
-    ? cn(tableHeaderClass, "text-right", view === "current" ? "min-w-[5.5rem]" : "min-w-[4.5rem] px-2.5")
+    ? cn(
+        tableHeaderClass,
+        "text-right",
+        view === "current" ? "min-w-[5.5rem]" : "px-2.5",
+      )
     : cn(
         tableHeaderClass,
         "text-right",
@@ -787,7 +823,7 @@ export function WorkingCapitalAnalysis({
     const values =
       view === "current"
         ? chronologicalValues
-        : reverseSeriesOrderForDisplay(chronologicalValues)
+        : filterAnnualDisplayColumns(reverseSeriesOrderForDisplay(chronologicalValues))
     const average =
       chronologicalValues.length > 0
         ? chronologicalValues.reduce((sum, v) => sum + v, 0) / chronologicalValues.length
@@ -895,10 +931,11 @@ export function WorkingCapitalAnalysis({
         {isExpanded &&
           visibleOperands.map((op) => {
             const chronological = operandChronologicalValues(op.code)
-            const displayValues =
+            const displayValues = filterAnnualDisplayColumns(
               view === "current"
                 ? chronological
-                : reverseSeriesOrderForDisplay(chronological)
+                : reverseSeriesOrderForDisplay(chronological),
+            )
             const opAverage =
               chronological.length > 0
                 ? chronological.reduce((sum, v) => sum + v, 0) / chronological.length
@@ -980,16 +1017,28 @@ export function WorkingCapitalAnalysis({
       {!loading && companyId && (
         <div
           className={cn(
-            "min-w-0 bg-white",
+            "min-w-0 w-full bg-white",
             isReportAppearance && printSegment === "chart"
               ? "report-chart-indicator-table-wrap overflow-x-auto pb-1 pt-1"
               : isDiagnosticAppearance
-                ? "overflow-x-auto pb-2 pt-2"
+                ? "w-full overflow-x-auto px-6 pb-2 pt-2 sm:px-7"
                 : "max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
           )}
           data-testid="wc-summary-table-scroll"
         >
-          <table className="w-full min-w-max border-separate border-spacing-0">
+          <table
+            className={cn(
+              "w-full border-separate border-spacing-0",
+              isDiagnosticAppearance ? "table-fixed" : "min-w-max",
+            )}
+          >
+            {isDiagnosticAppearance ? (
+              <IndicatorAnalysisTableColGroup
+                periodCount={
+                  view === "current" ? 2 : getVisiblePeriodColumnLabels().length
+                }
+              />
+            ) : null}
             <thead
               className={cn(
                 !isDiagnosticAppearance && "[&_th]:sticky [&_th]:top-0 [&_th]:z-20",
@@ -1003,7 +1052,7 @@ export function WorkingCapitalAnalysis({
                   Métrique
                 </th>
                 <th className={tableHeaderAverageClass}>Moyenne</th>
-                {getPeriodColumnLabels().map((label, idx) => (
+                {getVisiblePeriodColumnLabels().map((label, idx) => (
                   <th key={idx} className={tableHeaderPeriodClass}>
                     {label}
                   </th>
@@ -1031,7 +1080,7 @@ export function WorkingCapitalAnalysis({
                   const periodColCount =
                     view === "current"
                       ? 2
-                      : Math.max(trendCount, getPeriodColumnLabels().length, 1)
+                      : Math.max(trendCount, getVisiblePeriodColumnLabels().length, 1)
                   return (
                     <tr key={item.key} data-testid="wc-structure-spacer" className="h-2">
                       <td

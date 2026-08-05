@@ -645,7 +645,13 @@ test.describe("Page Diagnostic", () => {
     })
     await expect(reportPage.getByTestId("diagnostic-report-cover")).toBeVisible()
     await expect(reportPage.getByText("Indice de santé")).not.toBeVisible()
+    await expect(reportPage.getByTestId("diagnostic-report-mandate-scope")).toBeVisible()
     await expect(reportPage.getByTestId("diagnostic-report-toc")).toBeVisible()
+    await expect(reportPage.getByTestId("diagnostic-report-toc-link-company-overview")).toBeVisible()
+    await reportPage.getByTestId("diagnostic-report-toc-link-company-overview").click()
+    await expect(reportPage.locator("#report-company-overview-intro")).toBeVisible()
+    await expect(reportPage.getByTestId("report-analysis-intro-company-overview")).toBeVisible()
+    await expect(reportPage.getByTestId("diagnostic-report-section-report-company-overview-general")).toBeVisible()
     await expect(reportPage.getByTestId("diagnostic-report-toc-link-performance")).toBeVisible()
     await reportPage.getByTestId("diagnostic-report-toc-link-performance").click()
     await expect(reportPage.locator("#report-performance-intro")).toBeVisible()
@@ -1119,7 +1125,6 @@ test.describe("Page Diagnostic", () => {
       }),
     ).toBeVisible()
     await expect(page.getByRole("heading", { name: "Lecture de la rentabilité par division" })).toBeVisible()
-    await expect(page.getByRole("heading", { name: "Analyse par divisions" })).toBeVisible()
     await expect(page.getByTestId("division-profitability-table").getByText("Bén. expl.", { exact: true }).first()).toBeVisible()
   })
 
@@ -1369,6 +1374,21 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByTestId("financial-position-chart")).toBeVisible()
   })
 
+  test("vue Aperçu de l'entreprise : champs éditables", async ({ page }) => {
+    await setupAuthAndCommonMocks(page)
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(DIAGNOSTIC_PAGE_URL)
+
+    await page.getByRole("button", { name: "Aperçu de l'entreprise", exact: true }).click()
+    await expect(page.getByTestId("company-overview-section")).toBeVisible({ timeout: 15000 })
+
+    const sectorInput = page.getByTestId("company-overview-general-sector")
+    await sectorInput.fill("Fabrication de composantes métalliques")
+    await expect(sectorInput).toHaveValue("Fabrication de composantes métalliques")
+    await expect(page.getByTestId("company-overview-main-activities")).toBeVisible()
+  })
+
   test("vue Fonds de roulement : tableau Analyse du fonds de roulement", async ({ page }) => {
     await setupAuthAndCommonMocks(page)
     await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/working-capital`, (route) =>
@@ -1555,7 +1575,6 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByRole("heading", { name: "Lecture du fonds de roulement" })).toBeVisible()
     await expect(page.getByText("FDR / Revenus").first()).toBeVisible()
     await expect(page.getByText("Délai de collection des clients").first()).toBeVisible()
-    await expect(page.getByText("Structure en % des revenus").first()).toBeVisible()
     await expect(page.getByText("Comptes clients en % des revenus").first()).toBeVisible()
     await expect(page.getByTestId("working-capital-narrative")).toBeVisible()
     await expect(page.getByTestId("working-capital-narrative-settings")).toBeVisible()

@@ -53,6 +53,6 @@ describe("buildDivisionProfitabilityNarrative", () => {
     expect(result?.paragraphs[0]!.body).toContain("bénéfice d'exploitation")
     expect(result?.paragraphs[1]!.body).toMatch(/n'est pas rentable/i)
     expect(result?.paragraphs[1]!.body).toMatch(/structurel/i)
-    expect(result?.paragraphs.some((p) => p.heading === "Synthèse comparative des divisions")).toBe(true)
+    expect(result?.paragraphs.some((p) => p.heading === "Synthèse comparative des divisions")).toBe(false)
   })
 })

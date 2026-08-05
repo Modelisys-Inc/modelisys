@@ -136,50 +136,6 @@ function buildDivisionParagraph(
   }
 }
 
-function buildComparativeSummary(slices: DivisionProfitabilitySlice[]): PerformanceNarrativeParagraph | null {
-  const ranked = slices
-    .map((slice) => ({
-      heading: slice.heading,
-      operatingProfit: slice.points[0]?.operatingProfit ?? null,
-      revenue: slice.points[0]?.revenue ?? 0,
-      operatingMarginPct:
-        slice.points[0] && Math.abs(slice.points[0].revenue) > DATA_EPSILON
-          ? (slice.points[0].operatingProfit / slice.points[0].revenue) * 100
-          : null,
-    }))
-    .filter((row) => row.operatingProfit !== null && Math.abs(row.revenue) > DATA_EPSILON)
-    .sort((a, b) => (b.operatingProfit ?? 0) - (a.operatingProfit ?? 0))
-
-  if (ranked.length < 2) return null
-
-  const profitable = ranked.filter((row) => (row.operatingProfit ?? 0) > DATA_EPSILON)
-  const unprofitable = ranked.filter((row) => (row.operatingProfit ?? 0) <= DATA_EPSILON)
-
-  const parts = [
-    `Classement par bénéfice d'exploitation à la date de référence : ${ranked.map((row) => `${row.heading} (${formatCurrency(row.operatingProfit!)})`).join(", ")}.`,
-  ]
-
-  if (profitable.length && unprofitable.length) {
-    parts.push(
-      `${profitable.length} division${profitable.length > 1 ? "s" : ""} rentable${profitable.length > 1 ? "s" : ""} et ${unprofitable.length} en déficit : les divisions déficitaires méritent une revue distincte des coûts variables (marge contributive) et des coûts fixes (structure).`,
-    )
-  }
-
-  const spread =
-    (ranked[0]!.operatingMarginPct ?? 0) - (ranked[ranked.length - 1]!.operatingMarginPct ?? 0)
-  if (Math.abs(spread) > 0.5) {
-    parts.push(
-      `L'écart de marge d'exploitation entre la division la plus performante (${ranked[0]!.heading}, ${fmtPctPlain(ranked[0]!.operatingMarginPct ?? 0)}) et la moins performante (${ranked[ranked.length - 1]!.heading}, ${fmtPctPlain(ranked[ranked.length - 1]!.operatingMarginPct ?? 0)}) atteint ${fmtPctPlain(Math.abs(spread))} — un signal de dispersion opérationnelle à creuser.`,
-    )
-  }
-
-  return {
-    heading: "Synthèse comparative des divisions",
-    section: SECTION,
-    body: parts.join(" "),
-  }
-}
-
 export function buildDivisionProfitabilityNarrative(
   slices: DivisionProfitabilitySlice[],
   view: string,
@@ -190,9 +146,6 @@ export function buildDivisionProfitabilityNarrative(
   const paragraphs = slices
     .map((slice) => buildDivisionParagraph(slice, view))
     .filter((paragraph) => paragraph.body.trim().length > 0)
-
-  const summary = buildComparativeSummary(slices)
-  if (summary) paragraphs.push(summary)
 
   if (!paragraphs.length) return null
 

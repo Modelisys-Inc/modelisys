@@ -313,8 +313,8 @@ describe("buildRevenueOnlyPerformanceNarrative", () => {
       ],
       "years",
     )
-    expect(result?.paragraphs).toHaveLength(5)
-    expect(result?.paragraphs.slice(0, 4).map((p) => p.heading)).toEqual([
+    expect(result?.paragraphs).toHaveLength(4)
+    expect(result?.paragraphs.map((p) => p.heading)).toEqual([
       "Ventes produits",
       "Services",
       "Location",
@@ -340,9 +340,8 @@ describe("buildRevenueOnlyPerformanceNarrative", () => {
       ],
       "years",
     )
-    expect(result?.paragraphs.length).toBeGreaterThanOrEqual(3)
     expect(result?.paragraphs[0]!.body).toContain("% du total")
-    expect(result?.paragraphs.some((p) => p.heading === "Structure du chiffre d'affaires")).toBe(true)
+    expect(result?.paragraphs.some((p) => p.heading === "Structure du chiffre d'affaires")).toBe(false)
   })
 
   it("ne génère pas de paragraphe de marge contributive", () => {

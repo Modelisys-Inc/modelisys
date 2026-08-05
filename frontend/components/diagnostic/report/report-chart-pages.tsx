@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import type { Company } from "@/components/entity-selector"
 import type { CompanyDiagnostic } from "@/lib/api"
 import type { ReportPrintAnalysis } from "@/lib/diagnostic-report-chapters"
-import { reportAnalysisAnchorId } from "@/lib/diagnostic-report-chapters"
+import { reportAnalysisAnchorId, reportAnalysisDisplayTitle } from "@/lib/diagnostic-report-chapters"
 import { DiagnosticReportChartSection } from "@/components/diagnostic/v2/diagnostic-trajectory-statement-chart"
 import { DiagnosticReportSectionPage } from "@/components/diagnostic/diagnostic-report-section-page"
 import type { DiagnosticReportSlotBundle } from "@/hooks/use-diagnostic-report-slot-bundles"
@@ -49,15 +49,12 @@ export function ReportChartPages({
     setPageCount(configuredParts.length)
   }, [analysis.viewId, configuredParts.length])
 
-  const pageLabel =
-    analysis.viewSubtitle != null
-      ? `${analysis.sectionTitle} — ${analysis.viewSubtitle}`
-      : analysis.sectionTitle
+  const analysisTitle = reportAnalysisDisplayTitle(analysis)
 
   return (
     <>
       {configuredParts.slice(0, pageCount).map((part, partIndex) => {
-        const title = `${pageLabel}${chartPartTitleSuffix(part)}`
+        const chartTitle = `${analysisTitle}${chartPartTitleSuffix(part)}`
         const pageId = chartPartAnchorId(analysis.viewId, part, partIndex)
 
         return (
@@ -65,7 +62,7 @@ export function ReportChartPages({
             key={`${analysis.viewId}-chart-${part}`}
             id={pageId}
             sectionNumber={sectionNumber}
-            sectionTitle={title}
+            sectionTitle={analysisTitle}
             companyName={diagnostic.company_name}
             sectionMeta={sectionMeta}
             isFirstContentSection={isFirstAnalysis && partIndex === 0}
@@ -86,7 +83,7 @@ export function ReportChartPages({
             >
               <div className="report-chart-intro report-avoid-break">
                 <p className="report-chart-intro-kicker">Graphique</p>
-                <h2 className="report-chart-intro-title">{title}</h2>
+                <h2 className="report-chart-intro-title">{chartTitle}</h2>
                 <p className="report-chart-intro-desc">{analysis.intro.subtitle}</p>
               </div>
               <div className="report-chart-content">

@@ -2,7 +2,7 @@
 
 import type { Company } from "@/components/entity-selector"
 import type { CompanyDiagnostic } from "@/lib/api"
-import { DIAGNOSTIC_PRINT_ANALYSES } from "@/lib/diagnostic-report-chapters"
+import { DIAGNOSTIC_PRINT_ANALYSES, reportAnalysisSectionNumber } from "@/lib/diagnostic-report-chapters"
 import { useDiagnosticReportSlotBundles } from "@/hooks/use-diagnostic-report-slot-bundles"
 import { ReportLecturePages } from "@/components/diagnostic/report/report-lecture-pages"
 import { ReportChartPages } from "@/components/diagnostic/report/report-chart-pages"
@@ -30,14 +30,14 @@ export function ReportAnalysisPrint({
     <>
       {DIAGNOSTIC_PRINT_ANALYSES.map((analysis, analysisIndex) => {
         const slotBundle = bundleForView(analysis.viewId)
-        const sectionNumber = String(analysis.sectionNumber).padStart(2, "0")
+        const sectionNumber = reportAnalysisSectionNumber(analysisIndex)
 
         return (
           <div key={`${analysis.viewId}-${analysisIndex}`} className="report-analysis-group">
             <ReportAnalysisIntroPage
               analysis={analysis}
-              diagnostic={diagnostic}
-              referenceLabel={referenceLabel}
+              analysisNumber={analysisIndex + 2}
+              companyName={diagnostic.company_name}
             />
 
             <ReportChartPages

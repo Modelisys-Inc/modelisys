@@ -215,11 +215,8 @@ export const DIAGNOSTIC_REPORT_CHAPTERS: ReportChapterDefinition[] = [
 
 
 export type ReportPrintAnalysisView = Exclude<
-
   DiagnosticReportView,
-
-  "sommaire"
-
+  "sommaire" | "company-overview"
 >
 
 
@@ -362,6 +359,30 @@ export function reportAnalysisLectureTitle(viewId: ReportPrintAnalysisView): str
 
   return LECTURE_TITLES[viewId]
 
+}
+
+
+
+/** Titre affiché dans la TdM et les pages d'introduction (Section - Sous-titre). */
+
+export function reportAnalysisDisplayTitle(analysis: ReportPrintAnalysis): string {
+
+  if (analysis.viewSubtitle) {
+
+    return `${analysis.sectionTitle} - ${analysis.viewSubtitle}`
+
+  }
+
+  return analysis.intro.title
+
+}
+
+
+
+/** Numéro de section aligné sur la table des matières (01…n). */
+
+export function reportAnalysisSectionNumber(analysisIndex: number): string {
+  return String(analysisIndex + 2).padStart(2, "0")
 }
 
 

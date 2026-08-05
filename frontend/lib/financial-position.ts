@@ -20,6 +20,7 @@ import {
   monthTrendFromReference,
   yearLabelsFromReference,
 } from "@/lib/series-reference-columns"
+import { filterLabeledHorizonPoints } from "@/lib/horizon-column-visibility"
 import {
   PERFORMANCE_CHART_MONTH_COUNT_24,
   PERFORMANCE_CHART_YEAR_COUNT,
@@ -396,8 +397,13 @@ export function buildFinancialPositionResult(params: {
     return { points: [], mappedAccountCount: countMappedBalanceAccounts(rows, structure) }
   }
 
+  const filteredPoints =
+    view === "years"
+      ? filterLabeledHorizonPoints(points, ["act", "alt", "pct", "plt", "cap"])
+      : points
+
   return {
-    points,
+    points: filteredPoints,
     mappedAccountCount: countMappedBalanceAccounts(rows, structure),
   }
 }

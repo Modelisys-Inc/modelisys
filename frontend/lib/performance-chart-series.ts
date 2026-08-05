@@ -19,6 +19,7 @@ import {
   yearLabelsFromReference,
   yearTrendFromReference,
 } from "@/lib/series-reference-columns"
+import { filterLabeledHorizonPoints } from "@/lib/horizon-column-visibility"
 
 /** Repère une ligne par id technique, par code de liaison Sommaire (`linkCode`) ou par id de compte détail. */
 function flattenSeriesRows(rows: SeriesRow[]): SeriesRow[] {
@@ -413,7 +414,15 @@ export function buildPerformanceChartData(
     return row
   })
 
-  return { points, series: seriesMeta }
+  const filteredPoints =
+    view === "years"
+      ? filterLabeledHorizonPoints(
+          points,
+          resolvedSeries.map((s) => sanitizeSeriesDataKey(s.id)),
+        )
+      : points
+
+  return { points: filteredPoints, series: seriesMeta }
 }
 
 /** @deprecated Ancienne forme fixe — conservée pour compat narrative / vues legacy */

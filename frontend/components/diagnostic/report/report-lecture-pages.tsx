@@ -7,7 +7,7 @@ import type { ReportPrintAnalysis } from "@/lib/diagnostic-report-chapters"
 import { DiagnosticReportChartSection } from "@/components/diagnostic/v2/diagnostic-trajectory-statement-chart"
 import {
   reportAnalysisAnchorId,
-  reportAnalysisLectureTitle,
+  reportAnalysisDisplayTitle,
 } from "@/lib/diagnostic-report-chapters"
 import { DiagnosticReportSectionPage } from "@/components/diagnostic/diagnostic-report-section-page"
 import type { DiagnosticReportSlotBundle } from "@/hooks/use-diagnostic-report-slot-bundles"
@@ -38,13 +38,13 @@ export function ReportLecturePages({
     setPageCount(1)
   }, [analysis.viewId])
 
-  const lectureTitle = reportAnalysisLectureTitle(analysis.viewId)
+  const analysisTitle = reportAnalysisDisplayTitle(analysis)
 
   return (
     <>
       {Array.from({ length: pageCount }, (_, pageIdx) => {
         const isFirstPage = pageIdx === 0
-        const pageTitle = isFirstPage ? lectureTitle : `${lectureTitle} (suite)`
+        const pageTitle = analysisTitle
         const pageId = isFirstPage
           ? reportAnalysisAnchorId(analysis.viewId, "lecture")
           : `${reportAnalysisAnchorId(analysis.viewId, "lecture")}-${pageIdx + 1}`

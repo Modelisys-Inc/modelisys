@@ -985,43 +985,6 @@ function buildContributiveMarginParagraph(
   }
 }
 
-function buildContributiveMarginRankingParagraph(
-  series: RevenueSeriesNarrativeSlice[],
-  copy: WindowNarrativeCopy,
-  dimension: ContributiveMarginDimension = "revenue",
-): PerformanceNarrativeParagraph | null {
-  const ranked = series
-    .map((s) => ({
-      heading: s.heading,
-      margin: s.points[0]?.grossMarginPercent ?? null,
-      revenue: s.points[0]?.revenue ?? 0,
-      contributiveProfit: s.points[0]?.grossProfit ?? 0,
-    }))
-    .filter((r) => r.margin !== null && Number.isFinite(r.margin) && Math.abs(r.revenue) > DATA_EPSILON)
-    .sort((a, b) => (b.margin ?? 0) - (a.margin ?? 0))
-
-  if (ranked.length < 2) return null
-
-  const breakdown = ranked
-    .map((r) => `${r.heading} (${(r.margin ?? 0).toFixed(1).replace(".", ",")} %)`)
-    .join(", ")
-  const spread = (ranked[0]!.margin ?? 0) - (ranked[ranked.length - 1]!.margin ?? 0)
-
-  const entityLabel = dimension === "division" ? "division" : "source"
-
-  return {
-    heading: "Synthèse comparative des marges",
-    section: "contributive-margin",
-    body: `Classement des marges contributives à la date de référence : ${breakdown}. L'écart entre la ${entityLabel} la plus rentable et la moins rentable atteint ${spread.toFixed(1).replace(".", ",")} points de marge, à interpréter conjointement avec la pondération de chaque ${dimension === "division" ? "division" : "activité"} dans le chiffre d'affaires.`,
-    statsLine: ranked
-      .map(
-        (r) =>
-          `${r.heading} : ${(r.margin ?? 0).toFixed(1).replace(".", ",")} % (${formatMetricValue(r.contributiveProfit, "currency")})`,
-      )
-      .join(" · "),
-  }
-}
-
 function buildVariableCostAnalysisBody(
   slice: RevenueSeriesNarrativeSlice,
   copy: WindowNarrativeCopy,
@@ -1099,42 +1062,6 @@ function buildVariableCostAnalysisBody(
   return sentences.join(" ")
 }
 
-function buildRevenueMixSummaryParagraph(series: RevenueSeriesNarrativeSlice[]): PerformanceNarrativeParagraph | null {
-  if (series.length <= 1) return null
-  const total = totalRevenueAtPoint(series, 0)
-  if (Math.abs(total) < DATA_EPSILON) return null
-
-  const ranked = series
-    .map((s) => ({
-      heading: s.heading,
-      revenue: s.points[0]?.revenue ?? 0,
-      share: ((s.points[0]?.revenue ?? 0) / total) * 100,
-    }))
-    .sort((a, b) => b.share - a.share)
-
-  const breakdown = ranked
-    .map((r) => `${r.heading} (${r.share.toFixed(1).replace(".", ",")} %)`)
-    .join(", ")
-
-  const topTwo = ranked.slice(0, 2).reduce((sum, r) => sum + r.share, 0)
-  const concentration =
-    ranked.length >= 2
-      ? `Les deux principales sources totalisent ${topTwo.toFixed(1).replace(".", ",")} % du chiffre d'affaires${
-          topTwo >= 70
-            ? ", ce qui traduit une concentration notable et un risque de dépendance commerciale à surveiller."
-            : topTwo >= 50
-              ? ", ce qui reflète une structure de revenus relativement diversifiée."
-              : ", ce qui témoigne d'une diversification marquée entre les activités."
-        }`
-      : ""
-
-  return {
-    heading: "Structure du chiffre d'affaires",
-    section: "revenue-mix",
-    body: `À la date de référence, la répartition du chiffre d'affaires par source est la suivante : ${breakdown}. ${concentration}`.trim(),
-  }
-}
-
 function metricLabelForRevenueSeries(heading: string): string {
   const h = heading.trim()
   if (!h) return "cette source de revenus"
@@ -1182,11 +1109,6 @@ function buildRevenueSeriesWindowNarrative(
       }
     })
     .filter((p): p is PerformanceNarrativeParagraph => p !== null)
-
-  if (revenueAnalysis) {
-    const mixParagraph = buildRevenueMixSummaryParagraph(series)
-    if (mixParagraph) paragraphs.push(mixParagraph)
-  }
 
   if (!paragraphs.length) return null
 
@@ -1455,9 +1377,6 @@ function buildContributiveMarginSeriesWindowNarrative(
       ),
     )
     .filter((p): p is PerformanceNarrativeParagraph => p !== null)
-
-  const ranking = buildContributiveMarginRankingParagraph(series, copy, dimension)
-  if (ranking) paragraphs.push(ranking)
 
   if (!paragraphs.length) return null
 

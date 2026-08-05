@@ -7,6 +7,7 @@ import {
   monthShortLabelsFromReference,
   yearLabelsFromReference,
 } from "@/lib/series-reference-columns"
+import { filterLabeledHorizonPoints } from "@/lib/horizon-column-visibility"
 import { findRow, getRowAmounts } from "@/lib/series-utils"
 import {
   resolveWorkingCapitalStructureAmount,
@@ -341,8 +342,13 @@ export function buildWorkingCapitalDiagnosticResult(params: {
     return { points: [], configuredMetricCount: countConfiguredMetrics(structure) }
   }
 
+  const filteredPoints =
+    view === "years"
+      ? filterLabeledHorizonPoints(points, WORKING_CAPITAL_METRIC_KEYS)
+      : points
+
   return {
-    points,
+    points: filteredPoints,
     configuredMetricCount: countConfiguredMetrics(structure),
   }
 }

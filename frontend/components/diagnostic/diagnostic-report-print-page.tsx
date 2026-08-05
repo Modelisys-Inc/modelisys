@@ -141,6 +141,7 @@ export function DiagnosticReportPrintPageContent({
             diagnostic={data}
             companyId={companyId}
             companies={companies}
+            diagnosticId={diagnosticId}
           />
         ) : null}
       </main>

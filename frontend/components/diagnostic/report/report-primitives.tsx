@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Lightbulb, Target } from "lucide-react"
+import { ArrowRight, Lightbulb, Target } from "lucide-react"
+import { ModelisysWordmark } from "@/components/diagnostic/modelisys-wordmark"
 import {
   reportToneClasses,
   type ReportChapterTone,
@@ -117,60 +118,79 @@ export function ReportChartExhibit({
   )
 }
 
-/** Page d'introduction de chapitre */
+/** Page d'introduction de chapitre — alignée sur la couverture du rapport. */
 export function ReportChapterIntroPage({
   id,
-  number,
+  analysisNumber,
   title,
   subtitle,
   description,
-  icon: Icon,
+  companyName,
   testId,
-  footerMeta,
 }: {
   id?: string
-  number: number
+  analysisNumber: number
   title: string
   subtitle: string
   description: string
-  icon: LucideIcon
+  companyName: string
   testId?: string
-  footerMeta?: string
 }) {
+  const analysisLabel = String(analysisNumber).padStart(2, "0")
+
   return (
     <section
       id={id}
-      className="print-sheet print-chapter-intro"
-      data-testid={testId ?? `report-chapter-intro-${number}`}
+      className="print-sheet print-chapter-intro print-sheet-analysis-intro relative overflow-hidden bg-[#2A2F3A] text-[#E6D6C3]"
+      data-testid={testId ?? `report-chapter-intro-${analysisLabel}`}
       aria-label={`Introduction — ${title}`}
     >
-      <div className="print-page-inner flex flex-col justify-between">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-[#E0742D]">
-            Analyse {String(number).padStart(2, "0")}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-20 -right-24 h-[360px] w-[360px] rounded-full bg-white/5 blur-3xl"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_rgba(224,116,45,0.12),_transparent_55%)]"
+      />
+
+      <div className="print-page-inner relative flex flex-col">
+        <header>
+          <p className="report-analysis-intro-company text-xl font-semibold tracking-tight text-[#E6D6C3] md:text-2xl">
+            {companyName}
           </p>
-          <div className="mt-8 flex items-start gap-5">
-            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-[#E0742D]/25 bg-[#E0742D]/8">
-              <Icon className="h-7 w-7 text-[#E0742D]" strokeWidth={1.5} aria-hidden />
-            </div>
-            <div>
-              <h2 className="text-3xl font-semibold tracking-[-0.02em] text-[#2A2F3A]">{title}</h2>
-              <p className="mt-2 text-base text-slate-500">{subtitle}</p>
-            </div>
-          </div>
-          <div className="mt-10 h-px w-24 bg-[#E0742D]" aria-hidden />
-          <p className="mt-10 max-w-3xl text-[15px] leading-[1.75] text-slate-600">{description}</p>
+          <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.34em] text-[#C9B8A5]/70">
+            Diagnostic financier
+          </p>
+        </header>
+
+        <div
+          className="my-6 h-px w-full bg-gradient-to-r from-[#E0742D] via-[#E0742D]/25 to-transparent"
+          aria-hidden
+        />
+
+        <div className="flex flex-1 flex-col justify-center py-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.38em] text-[#E0742D]">
+            Analyse {analysisLabel}
+          </p>
+          <h2 className="report-analysis-intro-title mt-5 max-w-3xl font-semibold leading-[1.08] tracking-[-0.03em] text-[#E6D6C3]">
+            {title}
+          </h2>
+          <p className="mt-4 max-w-2xl text-lg leading-relaxed text-[#C9B8A5]/90">{subtitle}</p>
+          <p className="report-analysis-intro-description mt-8 max-w-3xl text-[15px] leading-[1.8] text-[#C9B8A5]/75">
+            {description}
+          </p>
         </div>
-        <div className="space-y-2">
-          {footerMeta ? (
-            <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">
-              {footerMeta}
+
+        <footer className="report-analysis-intro-footer mt-auto border-t border-white/10 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.18em] text-[#C9B8A5]/55">
+              <ArrowRight className="h-3.5 w-3.5 text-[#E0742D]" strokeWidth={2} aria-hidden />
+              Graphiques et lecture détaillée — pages suivantes
             </p>
-          ) : null}
-          <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400">
-            Graphique et lecture — pages suivantes
-          </p>
-        </div>
+            <ModelisysWordmark variant="light" size="sm" className="shrink-0" />
+          </div>
+        </footer>
       </div>
     </section>
   )

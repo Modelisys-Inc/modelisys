@@ -848,7 +848,9 @@ export function StatementChart({
   const packedTextPageCount = activeNarrativePackedPages.length
 
   const hasStandaloneMarginTable =
-    narrativeScope === "margin-by-revenue-only" && Boolean(contributiveMarginRows?.length)
+    !isReportAppearance &&
+    narrativeScope === "margin-by-revenue-only" &&
+    Boolean(contributiveMarginRows?.length)
 
   useEffect(() => {
     if (printSegment !== "narrative" || !onNarrativePageCount) return
@@ -1699,11 +1701,6 @@ export function StatementChart({
               })
             : null}
           {showNarrative && narrative ? renderNarrative(narrative) : null}
-          {showNarrative && isDivisionContributiveMarginView && divisionProfitabilityRows?.length ? (
-            <div className="border-t border-slate-200 py-6">
-              <DivisionProfitabilityTable rows={divisionProfitabilityRows} currency={companyCurrency} />
-            </div>
-          ) : null}
           {showNarrative && divisionProfitabilityNarrative
             ? renderNarrative(divisionProfitabilityNarrative, {
                 renderAfterParagraph: (paragraph) => {
@@ -1727,11 +1724,6 @@ export function StatementChart({
               })
             : null}
           {showNarrative && workingCapitalNarrative ? renderNarrative(workingCapitalNarrative) : null}
-          {showNarrative && narrativeScope === "margin-by-revenue-only" && contributiveMarginRows?.length ? (
-            <div className="border-t border-slate-200 py-6">
-              <RevenueContributiveMarginTable rows={contributiveMarginRows} currency={companyCurrency} />
-            </div>
-          ) : null}
           {showNarrative && contributiveMarginNarrative
             ? renderNarrative(contributiveMarginNarrative, {
                 renderAfterParagraph: (paragraph) => {

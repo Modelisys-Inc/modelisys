@@ -433,7 +433,7 @@ describe("buildFinancialPositionNarrative", () => {
     const narrative = buildFinancialPositionNarrative(result, "years")
     expect(narrative?.title).toBe("Lecture de la situation financière")
     expect(narrative?.paragraphs.some((p) => p.heading === familyHeading("ACT"))).toBe(true)
-    expect(narrative?.paragraphs.some((p) => p.heading === "Vue d'ensemble")).toBe(true)
+    expect(narrative?.paragraphs.some((p) => p.heading === "Vue d'ensemble")).toBe(false)
   })
 })
 

@@ -79,6 +79,10 @@
   background: #2a2f3a;
 }
 
+.diagnostic-report-print-root .print-chapter-intro {
+  background: #2a2f3a;
+}
+
 @media screen {
   .diagnostic-report-print-root.report-consulting {
     background: #e8edf3;
@@ -97,6 +101,10 @@
     border-color: #2a2f3a;
   }
 
+  .diagnostic-report-print-root .print-chapter-intro {
+    border-color: #2a2f3a;
+  }
+
   .diagnostic-report-print-root .print-content-section {
     box-shadow: 0 8px 24px rgba(42, 47, 58, 0.06);
     scroll-margin-top: 4.5rem;
@@ -107,6 +115,7 @@
   }
 
   .diagnostic-report-print-root .print-sheet-cover,
+  .diagnostic-report-print-root .print-sheet-mandate,
   .diagnostic-report-print-root .print-sheet-toc,
   .diagnostic-report-print-root .print-chapter-intro,
   .diagnostic-report-print-root .print-content-section {
@@ -353,6 +362,7 @@
   }
 
   .diagnostic-report-print-root .print-sheet-cover,
+  .diagnostic-report-print-root .print-sheet-mandate,
   .diagnostic-report-print-root .print-sheet-toc,
   .diagnostic-report-print-root .print-chapter-intro {
     break-after: page;
@@ -444,6 +454,20 @@
 .report-consulting .report-cover-title {
   font-size: var(--report-h1-size, 28px);
   font-weight: 700;
+}
+
+.report-consulting .report-analysis-intro-title {
+  font-size: clamp(1.75rem, 3.2vw, 2.35rem);
+  font-weight: 600;
+}
+
+.report-consulting .report-analysis-intro-description {
+  max-width: 42rem;
+}
+
+.report-consulting .report-analysis-intro-footer {
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .report-consulting h2,
@@ -825,6 +849,49 @@
   gap: 1rem;
 }
 
+/* ── Mandat et portée ── */
+.report-consulting .print-sheet-mandate .print-page-inner {
+  width: 100%;
+  min-height: 100%;
+}
+
+.report-consulting .report-mandate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem 1.25rem;
+}
+
+.report-consulting .report-mandate-section {
+  border-left: 2px solid #e0742d;
+  padding: 0.55rem 0 0.55rem 0.75rem;
+  background: linear-gradient(90deg, #fffaf5 0%, #ffffff 55%);
+}
+
+.report-consulting .report-mandate-section-title {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #e0742d;
+}
+
+.report-consulting .report-mandate-section-body {
+  margin: 0.35rem 0 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: #475569;
+}
+
+.report-consulting .report-mandate-lead {
+  border-left: 3px solid #e2e8f0;
+  padding-left: 0.85rem;
+}
+
+.report-consulting .report-mandate-footer {
+  margin-top: 0.75rem;
+}
+
 /* ── TOC grid ── */
 .report-consulting .print-sheet-toc .print-page-inner {
   width: 100%;
@@ -833,6 +900,20 @@
 .report-consulting .report-toc-nav {
   width: 100%;
   min-height: 0;
+}
+
+.report-consulting .report-toc-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 2.5rem;
+  width: 100%;
+}
+
+.report-consulting .report-toc-column {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  width: 100%;
 }
 
 .report-consulting .report-toc-grid {
@@ -1103,20 +1184,91 @@
   font-size: 0.95rem;
 }
 
-/* Tableaux indicateurs (WC, Capex) sur page graphique */
+.report-consulting .print-company-overview-content .report-overview-page-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.report-consulting .print-company-overview-content .report-overview-section-title {
+  margin: 0 0 1.15rem;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.report-consulting .print-company-overview-content .report-overview-section--history .report-overview-section-title {
+  margin-bottom: 1.85rem;
+}
+
+.report-consulting .print-company-overview-content .report-overview-table {
+  table-layout: fixed;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.report-consulting .print-company-overview-content .report-overview-table th {
+  font-size: 11px;
+}
+
+.report-consulting .print-company-overview-content .report-overview-table th:first-child,
+.report-consulting .print-company-overview-content .report-overview-table td:first-child {
+  width: 34%;
+}
+
+.report-consulting .print-company-overview-content .report-overview-history,
+.report-consulting .print-company-overview-content .report-overview-prose {
+  font-size: 13px;
+  line-height: 1.65;
+  color: #2a2f3a;
+}
+
+.report-consulting .print-company-overview-content .report-overview-history-row {
+  border-bottom: 1px solid #f1f5f9;
+  padding: 0.5rem 0;
+}
+
+.report-consulting .print-company-overview-content .report-overview-history-row:first-child {
+  border-top: 1px solid #e2e8f0;
+}
+
+.report-consulting .report-company-overview-group .print-company-overview-content .print-section-body {
+  overflow: hidden;
+}
+
+.report-consulting .print-chapter-chart .report-chart-indicator-table-wrap,
+.report-consulting .print-chapter-chart .report-capex-chart-only,
+.report-consulting .print-chapter-chart .report-wc-chart-only {
+  width: 100%;
+}
+
 .report-consulting .print-chapter-chart .report-chart-indicator-table-wrap {
   height: var(--report-chart-body-height);
   max-height: var(--report-chart-body-height);
   overflow: hidden;
 }
 
-.report-consulting .print-chapter-chart .report-chart-indicator-table-wrap table {
+.report-consulting .print-chapter-chart .report-chart-indicator-table-wrap table,
+.report-consulting .print-chapter-chart .report-capex-chart-only table,
+.report-consulting .print-chapter-chart .report-wc-chart-only table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.report-consulting .print-chapter-chart .report-chart-indicator-table-wrap table,
+.report-consulting .print-chapter-chart .report-capex-chart-only table,
+.report-consulting .print-chapter-chart .report-wc-chart-only table {
   font-size: 8px;
   line-height: 1.25;
 }
-
 .report-consulting .print-chapter-chart .report-chart-indicator-table-wrap th,
-.report-consulting .print-chapter-chart .report-chart-indicator-table-wrap td {
+.report-consulting .print-chapter-chart .report-chart-indicator-table-wrap td,
+.report-consulting .print-chapter-chart .report-capex-chart-only th,
+.report-consulting .print-chapter-chart .report-capex-chart-only td,
+.report-consulting .print-chapter-chart .report-wc-chart-only th,
+.report-consulting .print-chapter-chart .report-wc-chart-only td {
   padding-top: 0.2rem !important;
   padding-bottom: 0.2rem !important;
 }

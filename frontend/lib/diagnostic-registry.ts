@@ -16,6 +16,8 @@ export type DiagnosticRecord = {
   lastOpenedAt: string
 }
 
+import { removeCompanyOverview } from "@/lib/diagnostic-company-overview"
+
 const STORAGE_KEY = "modelisys-diagnostic-registry"
 
 function readAll(): DiagnosticRecord[] {
@@ -135,6 +137,7 @@ export function touchDiagnostic(id: string): DiagnosticRecord | null {
 
 export function removeDiagnostic(id: string): void {
   writeAll(readAll().filter((row) => row.id !== id))
+  removeCompanyOverview(id)
 }
 
 export function syncDiagnosticCompanyName(companyId: string, companyName: string): void {

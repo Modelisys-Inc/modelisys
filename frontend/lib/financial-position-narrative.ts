@@ -64,32 +64,6 @@ function describeFamilyTrend(
   return `${priorComparisonLabel(view)}, le ${label} évolue de ${change >= 0 ? "+" : ""}${change.toFixed(1).replace(".", ",")} % (${formatCurrency(priorVal)} → ${formatCurrency(latestVal)}).`
 }
 
-function buildOverviewParagraph(
-  result: FinancialPositionResult,
-  view: string,
-): PerformanceNarrativeParagraph | null {
-  const latest = result.points[0]
-  if (!latest) return null
-
-  const balanceGap = latest.totalAssets - latest.totalLiabilitiesEquity
-  const balanced = Math.abs(balanceGap) < DATA_EPSILON * Math.max(latest.totalAssets, 1)
-
-  let balanceNote: string
-  if (balanced) {
-    balanceNote = "L'actif et le passif (incluant les capitaux propres) sont en équilibre."
-  } else if (balanceGap > 0) {
-    balanceNote = `Un écart de ${formatCurrency(balanceGap)} subsiste entre l'actif et le passif + capitaux propres — à valider au niveau du mapping comptable.`
-  } else {
-    balanceNote = `Le passif et les capitaux propres excèdent l'actif de ${formatCurrency(Math.abs(balanceGap))} — vérifier la cohérence du bilan.`
-  }
-
-  return {
-    section: SECTION,
-    heading: "Vue d'ensemble",
-    body: `Pour ${referenceForPeriod(view, latest.period)}, la société détient un actif de ${formatCurrency(latest.totalAssets)} (dont ${formatCurrency(latest.act)} à court terme et ${formatCurrency(latest.alt)} à long terme) et un passif + capitaux propres de ${formatCurrency(latest.totalLiabilitiesEquity)}. ${balanceNote}`,
-  }
-}
-
 export function buildFinancialPositionNarrative(
   result: FinancialPositionResult,
   view: string,
@@ -97,9 +71,6 @@ export function buildFinancialPositionNarrative(
   if (!result.points.length) return null
 
   const paragraphs: PerformanceNarrativeParagraph[] = []
-
-  const overview = buildOverviewParagraph(result, view)
-  if (overview) paragraphs.push(overview)
 
   for (const family of BALANCE_POSITION_FAMILIES) {
     const latest = result.points[0]
