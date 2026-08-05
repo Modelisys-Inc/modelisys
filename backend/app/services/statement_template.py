@@ -267,13 +267,152 @@ def build_balance_sheet(db: "Session") -> list[dict]:
     return rows
 
 
+# En-tête de section : le vocabulaire de MO.xlsx (colonne « Comptes FT »).
 _FT_CATEGORY_SECTION_LABELS: dict[str, str] = {
+    "TEX": "Activités d'exploitation",
+    "TIN": "Activités d'investissement",
+    "TFI": "Activités de financement",
+}
+
+# Sous-total de section, sous les postes qui le composent.
+_FT_CATEGORY_TOTAL_LABELS: dict[str, str] = {
     "TEX": "Flux de trésorerie liés à l'exploitation",
     "TIN": "Flux de trésorerie liés aux activités d'investissement",
     "TFI": "Flux de trésorerie liés aux activités de financement",
 }
 
 _CASH_FLOW_FAMILY_ORDER = ["TEX", "TIN", "TFI"]
+
+# Lignes de clôture : identifiants stables, référencés par les formules et par le
+# frontend. Elles ne somment pas des codes Trésorerie — elles lisent le bilan.
+CASH_FLOW_NET_CHANGE_ROW_ID = "cf-net-change"
+CASH_FLOW_OPENING_ROW_ID = "cf-cash-opening"
+CASH_FLOW_CLOSING_ROW_ID = "cf-cash-closing"
+CASH_FLOW_CLOSING_BS_ROW_ID = "cf-cash-closing-bs"
+CASH_FLOW_VALIDATION_ROW_ID = "cf-validation"
+_CASH_FLOW_CLOSING_ROW_IDS = frozenset({
+    CASH_FLOW_NET_CHANGE_ROW_ID,
+    CASH_FLOW_OPENING_ROW_ID,
+    CASH_FLOW_CLOSING_ROW_ID,
+    CASH_FLOW_CLOSING_BS_ROW_ID,
+    CASH_FLOW_VALIDATION_ROW_ID,
+})
+
+
+def _normalize_cash_flow_label(label: str) -> str:
+    return (
+        str(label or "")
+        .strip()
+        .lower()
+        .replace("’", "'")
+        .translate(str.maketrans("àâäéèêëîïôöùûüç", "aaaeeeeiioouuuc"))
+    )
+
+
+_LEGACY_CLOSING_LABELS: dict[str, str] = {
+    "variation nette de la tresorerie": CASH_FLOW_NET_CHANGE_ROW_ID,
+    "tresorerie au debut de l'exercice": CASH_FLOW_OPENING_ROW_ID,
+    "tresorerie a la fin de l'exercice": CASH_FLOW_CLOSING_ROW_ID,
+    "validation": CASH_FLOW_VALIDATION_ROW_ID,
+}
+
+
+def _cash_flow_closing_row_id(row: dict) -> str | None:
+    """Identifiant de clôture d'une ligne, par id explicite ou par libellé hérité."""
+    row_id = str(row.get("id") or "").strip()
+    if row_id in _CASH_FLOW_CLOSING_ROW_IDS:
+        return row_id
+    return _LEGACY_CLOSING_LABELS.get(_normalize_cash_flow_label(row.get("label", "")))
+
+
+def _cash_flow_closing_rows(link_code_row_ids: list[str]) -> list[dict]:
+    """Bas de l'état : variation nette, trésorerie début / fin, validation.
+
+    La variation nette somme **toutes** les lignes portant un code Trésorerie plutôt
+    que des sous-totaux de section : c'est vrai quelle que soit la mise en page, y
+    compris sur une structure personnalisée par le client.
+    """
+    return [
+        {
+            "id": CASH_FLOW_NET_CHANGE_ROW_ID,
+            "label": "Variation nette de la trésorerie",
+            "isBold": True,
+            "isResult": True,
+            "formula": [f"+{rid}" for rid in link_code_row_ids],
+        },
+        {"label": ""},
+        {
+            "id": CASH_FLOW_OPENING_ROW_ID,
+            "label": "Trésorerie au début de l'exercice",
+            "cashFlowRole": "openingCash",
+        },
+        {
+            "id": CASH_FLOW_CLOSING_ROW_ID,
+            "label": "Trésorerie à la fin de l'exercice",
+            "isBold": True,
+            "isResult": True,
+            "formula": [f"+{CASH_FLOW_OPENING_ROW_ID}", f"+{CASH_FLOW_NET_CHANGE_ROW_ID}"],
+        },
+        {
+            # Même trésorerie, lue directement au bilan : c'est la contrepartie
+            # indépendante qui rend la validation probante.
+            "id": CASH_FLOW_CLOSING_BS_ROW_ID,
+            "label": "Trésorerie à la fin — Bilan",
+            "cashFlowRole": "closingCashBalanceSheet",
+            "hidden": True,
+        },
+        {
+            "id": CASH_FLOW_VALIDATION_ROW_ID,
+            "label": "Validation",
+            "isValidation": True,
+            "isBold": True,
+            "isResult": True,
+            "formula": [f"+{CASH_FLOW_CLOSING_ROW_ID}", f"-{CASH_FLOW_CLOSING_BS_ROW_ID}"],
+        },
+    ]
+
+
+def ensure_cash_flow_closing_structure(structure: list[dict]) -> list[dict]:
+    """Garantit un bas d'état correct sur une structure Trésorerie déjà enregistrée.
+
+    Les structures sont un instantané par entreprise : sans cette réparation à la
+    lecture, les entreprises créées avant l'ajout des formules garderaient un bas
+    d'état à 0 $. Même intention que ``ensure_net_income_in_balance_structure``.
+    """
+    rows = list(structure or [])
+    if not rows:
+        return rows
+
+    kept: list[dict] = []
+    # (id de ligne, code, famille) des lignes portant un code Trésorerie
+    coded_rows: list[tuple[str, str, str]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if _cash_flow_closing_row_id(row) is not None:
+            continue  # remplacée par la version reconstruite
+        kept.append(row)
+        code = str(row.get("linkCode") or "").strip()
+        family = code.split("-")[0].split(".")[0].upper()
+        if code and family in _CASH_FLOW_FAMILY_ORDER:
+            coded_rows.append((str(row.get("id") or "").strip() or code, code, family))
+
+    while kept and not str(kept[-1].get("label") or "").strip():
+        kept.pop()
+
+    # Les structures anciennes agrègent une section entière sous le code de famille
+    # nu (« TEX »). Le sommer avec les postes détaillés de la même famille doublerait
+    # la section : on garde le détail dès qu'il existe.
+    families_with_detail = {family for _rid, code, family in coded_rows if code != family}
+    link_code_row_ids = [
+        rid for rid, code, family in coded_rows
+        if code != family or family not in families_with_detail
+    ]
+
+    if not link_code_row_ids:
+        return rows
+
+    return [*kept, {"label": ""}, *_cash_flow_closing_rows(link_code_row_ids)]
 
 
 def _cash_flow_codes_by_family(db: "Session") -> dict[str, list]:
@@ -300,27 +439,36 @@ def build_cash_flow(db: "Session") -> list[dict]:
         return DEFAULT_CASH_FLOW
 
     rows: list[dict] = []
+    link_code_row_ids: list[str] = []
     for family in _CASH_FLOW_FAMILY_ORDER:
         codes = by_family.get(family, [])
         if not codes:
             continue
         rows.append({
+            "id": f"cf-section-{family}",
             "label": _FT_CATEGORY_SECTION_LABELS[family],
             "isBold": True,
             "isSection": True,
         })
+        section_row_ids: list[str] = []
         for code in sort_codes_hierarchically(codes):
             rows.append({
+                "id": code.code,
                 "label": standard_link_code_display_label(code),
                 "linkCode": code.code,
                 "indent": True,
             })
+            section_row_ids.append(code.code)
+        rows.append({
+            "id": f"cf-total-{family}",
+            "label": _FT_CATEGORY_TOTAL_LABELS[family],
+            "isBold": True,
+            "formula": [f"+{rid}" for rid in section_row_ids],
+        })
+        link_code_row_ids.extend(section_row_ids)
         rows.append({"label": ""})
 
-    rows.append({"label": "Variation nette de la trésorerie", "isBold": True, "isResult": True})
-    rows.append({"label": ""})
-    rows.append({"label": "Trésorerie au début de l'exercice"})
-    rows.append({"label": "Trésorerie à la fin de l'exercice", "isBold": True, "isResult": True})
+    rows.extend(_cash_flow_closing_rows(link_code_row_ids))
     return rows
 
 

@@ -16,11 +16,16 @@ from app.schemas.statement_structure import (
     StatementStructureResponse,
     StatementStructureUpsert,
 )
-from app.services.statement_template import get_default_structure
+from app.services.statement_template import (
+    ensure_cash_flow_closing_structure,
+    get_default_structure,
+)
 from app.services.standard_link_code_utils import ensure_net_income_in_balance_structure
 from app.utils.income_statement_structure_clean import strip_obsolete_income_statement_structure_rows
 
 router = APIRouter(prefix="/api/companies/{company_id}", tags=["statement-structures"])
+
+CASH_FLOW_STATEMENT_TYPES = {"cash-flow", "cash-flow-detail"}
 
 VALID_STATEMENT_TYPES = {
     "income-statement",
@@ -111,6 +116,13 @@ def get_statement_structure(
             company_id=structure.company_id,
             statement_type=structure.statement_type,
             structure=ensured,
+        )
+    if statement_type in CASH_FLOW_STATEMENT_TYPES and structure.structure:
+        return StatementStructureResponse(
+            id=structure.id,
+            company_id=structure.company_id,
+            statement_type=structure.statement_type,
+            structure=ensure_cash_flow_closing_structure(list(structure.structure)),
         )
     return structure
 

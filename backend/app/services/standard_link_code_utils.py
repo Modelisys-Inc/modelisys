@@ -314,6 +314,55 @@ def build_cash_flow_link_code_attachments(db: "Session") -> dict[str, list[str]]
     return index
 
 
+def split_cash_flow_sources_by_nature(codes: list[str]) -> tuple[list[str], list[str]]:
+    """Sépare les sources d'un code Trésorerie en (soldes de bilan, flux de la période).
+
+    Les postes de bilan portent un solde : leur apport à la trésorerie est une
+    **variation** (ouverture − fermeture). Les postes du CDR (et CAP-C.1, le
+    bénéfice net calculé) sont déjà des flux de la période — on les prend tels quels.
+    """
+    balances: list[str] = []
+    flows: list[str] = []
+    for raw in codes:
+        code = str(raw or "").strip()
+        if not code:
+            continue
+        if is_computed_net_income_link_code(code) or is_income_statement_family(
+            derive_link_code_family(code)
+        ):
+            flows.append(code)
+        else:
+            balances.append(code)
+    return balances, flows
+
+
+# Marqueur MO.xlsx (colonne « Sous-comptes FT ») des postes qui *sont* la trésorerie
+# — Encaisse et Découvert bancaire — plutôt qu'une de ses causes de variation.
+CASH_POSITION_FT_MARKER = "encaisse de fin"
+DEFAULT_CASH_POSITION_LINK_CODES = ("ACT-A", "PCT-A")
+
+
+def cash_position_link_codes(db: "Session") -> list[str]:
+    """Codes feuilles formant la trésorerie elle-même (Encaisse − Découvert bancaire).
+
+    Dérivé de la charte : MO.xlsx marque ces postes « = lié à Encaisse de fin ».
+    En sommant leurs soldes **bruts** (actif positif, passif négatif), on obtient
+    directement Encaisse − Découvert bancaire.
+    """
+    from app.models.standard_link_code import StandardLinkCode
+
+    rows = (
+        db.query(StandardLinkCode)
+        .filter(StandardLinkCode.ft_line_item.ilike(f"%{CASH_POSITION_FT_MARKER}%"))
+        .order_by(StandardLinkCode.sort_order)
+        .all()
+    )
+    codes = [r.code for r in rows if is_balance_sheet_family(r.family)]
+    if not codes:
+        codes = list(DEFAULT_CASH_POSITION_LINK_CODES)
+    return expand_attached_link_codes_for_mapping(db, codes)
+
+
 def build_cash_flow_virtual_family_link_codes(db: "Session") -> dict[str, list[str]]:
     """Backward-compatible alias: TEX/TIN/TFI aggregate keys for legacy structures."""
     from app.models.standard_link_code import StandardLinkCode

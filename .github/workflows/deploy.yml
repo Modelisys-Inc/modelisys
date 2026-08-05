@@ -86,6 +86,13 @@ jobs:
 
       - name: Build and push backend image
         run: |
+          # La charte de comptes (MO.xlsx) vit à la racine du dépôt, hors du contexte
+          # de build. Sans cette copie, `python -m app.scripts.seed_standard_link_codes`
+          # est inexécutable en production : le fichier n'est pas dans l'image.
+          # rm -rf d'abord : sinon une seconde exécution imbriquerait backend/data/data.
+          rm -rf backend/data
+          cp -r data backend/data
+          test -f backend/data/MO.xlsx  # échoue tôt plutôt que de livrer une image muette
           docker build \
             -f backend/Dockerfile \
             -t "${{ env.BACKEND_IMAGE }}:${{ github.sha }}" \
@@ -133,18 +140,67 @@ jobs:
             --resource-group "${{ env.RESOURCE_GROUP }}" \
             --image "${{ env.FRONTEND_IMAGE }}:${{ github.sha }}"
 
+      # Une image poussée n'est pas une image qui tourne. Quand une révision
+      # échoue au démarrage, Container Apps garde silencieusement la précédente :
+      # sans ce garde-fou, le pipeline est vert et la production reste figée sur
+      # du vieux code. C'est arrivé du 2026-07-26 au 2026-08-01 (variable
+      # QBO_TOKEN_ENCRYPTION_KEY absente : le conteneur mourait avant uvicorn).
       - name: Verify deployments
         run: |
-          echo "Backend:"
-          az containerapp show \
-            --name "${{ env.BACKEND_APP }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            --query "{status:properties.runningStatus, fqdn:properties.configuration.ingress.fqdn, latestRevision:properties.latestRevisionName}" \
-            -o table
-          echo ""
-          echo "Frontend:"
-          az containerapp show \
-            --name "${{ env.FRONTEND_APP }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            --query "{status:properties.runningStatus, fqdn:properties.configuration.ingress.fqdn, latestRevision:properties.latestRevisionName}" \
-            -o table
+          set -uo pipefail
+
+          # Attend qu'une révision devienne saine. Échoue vite si elle a planté,
+          # et crache ses logs pour que la cause soit lisible dans le build.
+          wait_healthy() {
+            app="$1"
+            revision=$(az containerapp show -n "$app" -g "$RESOURCE_GROUP" \
+              --query "properties.latestRevisionName" -o tsv)
+            if [ -z "$revision" ]; then
+              echo "::error::$app : impossible de lire la révision déployée."
+              return 1
+            fi
+
+            echo "$app → $revision"
+            attempt=0
+            while [ "$attempt" -lt 40 ]; do
+              state=$(az containerapp revision show -n "$app" -g "$RESOURCE_GROUP" \
+                --revision "$revision" \
+                --query "join(' ', [properties.runningState, properties.healthState])" \
+                -o tsv 2>/dev/null || echo "Unknown Unknown")
+              running=${state%% *}
+              health=${state##* }
+              echo "  [$attempt] runningState=$running healthState=$health"
+
+              case "$running" in
+                # « Healthy » quand des sondes existent, « None » quand il n'y en a pas :
+                # seul « Unhealthy » est un échec avéré.
+                Running)
+                  if [ "$health" != "Unhealthy" ]; then
+                    echo "$app : révision $revision en service."
+                    return 0
+                  fi
+                  ;;
+                Failed|Degraded)
+                  break
+                  ;;
+              esac
+
+              attempt=$((attempt + 1))
+              sleep 15
+            done
+
+            echo "::error::$app : la révision $revision n'est pas entrée en service. \
+          L'ancienne révision continue de servir le trafic — la production n'a PAS été mise à jour. \
+          Cause la plus fréquente : une variable d'environnement requise manquante \
+          (voir app/config.py). Logs du conteneur ci-dessous."
+            # `logs show` reste connecté au conteneur : sur une révision qui
+            # redémarre en boucle, il ne rend jamais la main. On le borne.
+            timeout 60 az containerapp logs show -n "$app" -g "$RESOURCE_GROUP" \
+              --revision "$revision" --tail 60 --format text || true
+            return 1
+          }
+
+          failed=0
+          wait_healthy "$BACKEND_APP" || failed=1
+          wait_healthy "$FRONTEND_APP" || failed=1
+          exit "$failed"

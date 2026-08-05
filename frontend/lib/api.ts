@@ -666,6 +666,12 @@ export interface FinancialStatementRow {
   separatorAbove?: boolean
   /** Présence d'un code de liaison ou d'une formule de liaison dans la structure. */
   hasLiaisonCode?: boolean
+  /** Montant calculé sans code de liaison (formule, ou trésorerie lue au bilan). */
+  hasComputedAmount?: boolean
+  /** Flux de trésorerie : ligne lue au bilan plutôt que sommée. */
+  cashFlowRole?: "openingCash" | "closingCashBalanceSheet"
+  /** Flux de trésorerie : ligne d'écart, qui doit valoir 0 $. */
+  isValidation?: boolean
 }
 
 export interface FinancialStatementParams {

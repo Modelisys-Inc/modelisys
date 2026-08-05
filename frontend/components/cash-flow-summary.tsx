@@ -18,7 +18,7 @@ import { yearTrendFromReference } from "@/lib/series-reference-columns"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { LayoutList, Settings, Sparkles } from "lucide-react"
+import { AlertTriangle, LayoutList, Settings, Sparkles } from "lucide-react"
 import { StatementStructureStudio } from "@/components/statement-structure-studio"
 import {
   indentForSummaryRow,
@@ -70,8 +70,16 @@ interface SummaryRow {
   indent?: boolean
   separatorAbove?: boolean
   hasLiaisonCode?: boolean
+  hasComputedAmount?: boolean
+  isValidation?: boolean
   // For trend views (12months, quarters, years)
   trendValues?: number[]
+}
+
+/** Un écart sous 1 $ est de l'arrondi, pas un trou de rattachement. */
+function isCashFlowBalanced(ecart: number | null | undefined, tolerance = 1): boolean {
+  if (ecart === null || ecart === undefined) return true
+  return Math.abs(ecart) < tolerance
 }
 
 export function CashFlowSummary({
@@ -168,6 +176,8 @@ export function CashFlowSummary({
       }),
       separatorAbove: isTruthySeparatorAbove(row.separatorAbove),
       hasLiaisonCode: row.hasLiaisonCode,
+      hasComputedAmount: row.hasComputedAmount,
+      isValidation: row.isValidation,
     }))
   }
 
@@ -431,6 +441,9 @@ export function CashFlowSummary({
     return () => { cancelled = true }
   }, [isComparisonMode, companies, companyId, divisionId, isCompanyComparison, isDivisionComparison, isSubDivisionComparison, currentYear, structureVersion])
 
+  // Ligne d'écart : l'état ne balance pas tant qu'elle ne vaut pas 0 $.
+  const validationRow = data.find((row) => row.isValidation)
+
   // Find total cash flow value for percentage calculations
   const totalCashFlowRow = data.find((row) => row.label.toLowerCase() === "flux net")
   const totalCashFlowCurrent = totalCashFlowRow?.current || 1
@@ -544,6 +557,21 @@ export function CashFlowSummary({
     <div className={cn("w-full", dashboardCardFrameStaticClass)}>
       <div className={dashboardCardRingClass} aria-hidden />
       <div className="relative w-full min-w-0">
+        {validationRow && !isCashFlowBalanced(validationRow.current) && (
+          <div
+            role="alert"
+            data-testid="cash-flow-imbalance-alert"
+            className="flex items-start gap-2.5 border-b border-amber-200 bg-amber-50 px-6 py-3 text-sm text-amber-900 sm:px-7"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+            <p className="leading-snug">
+              <span className="font-semibold">L’état des flux ne balance pas.</span>{" "}
+              La trésorerie à la fin calculée s’écarte de{" "}
+              {formatCurrency(Math.abs(validationRow.current))} de celle du bilan. Il reste un poste
+              de bilan qui n’est rattaché à aucune section de l’état des flux.
+            </p>
+          </div>
+        )}
         {renderCardHeader()}
 
         {isStructureStudio ? (
@@ -667,7 +695,12 @@ export function CashFlowSummary({
               const displayLabel = row.label ? capitalizeFirst(row.label) : ""
               const isSpacer = row.label === ""
               const hasLiaisonCode = row.hasLiaisonCode !== undefined ? row.hasLiaisonCode : true
-              const shouldHideAmounts = isSpacer || !hasLiaisonCode || !!row.isSection
+              // Le bas de l'état (variation nette, trésorerie début / fin, validation)
+              // n'a pas de code de liaison mais porte bien un montant.
+              const shouldHideAmounts =
+                isSpacer || !!row.isSection || (!hasLiaisonCode && !row.hasComputedAmount)
+              const validationEcart = row.isValidation ? row.current : null
+              const validationBalanced = isCashFlowBalanced(validationEcart)
               const showSeparatorAbove = isTruthySeparatorAbove(row.separatorAbove)
 
               const nextRow = idx < data.length - 1 ? data[idx + 1] : null
@@ -684,10 +717,12 @@ export function CashFlowSummary({
                     </tr>
                   )}
                   <tr
+                    data-testid={row.isValidation ? "cash-flow-validation-row" : undefined}
                     className={cn(
                       "border-b",
                       isSpacer ? "h-2 border-b border-b-slate-200" : "border-b border-b-slate-200",
                       !isSpacer && "hover:bg-slate-50/90",
+                      row.isValidation && (validationBalanced ? "bg-emerald-50/70" : "bg-amber-50"),
                       nextRowIsKeyResult && "border-slate-900 border-b-2"
                     )}
                   >
@@ -695,25 +730,48 @@ export function CashFlowSummary({
                     className={cn(
                       "px-6 py-3 whitespace-nowrap",
                       isBoldRow ? "font-bold text-slate-900" : "text-slate-700",
+                      row.isValidation && (validationBalanced ? "text-emerald-800" : "text-amber-900"),
                       row.indent ? "pl-12" : ""
                     )}
+                    title={
+                      row.isValidation
+                        ? validationBalanced
+                          ? "L'état des flux balance avec l'encaisse du bilan."
+                          : `L'état des flux ne balance pas : écart de ${formatCurrency(Math.abs(row.current))}. Un poste de bilan n'est rattaché à aucune section.`
+                        : undefined
+                    }
                   >
                     {displayLabel}
                   </td>
 
                   {view === "current" && (
-                    <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
-                      {row.current !== 0 ? formatCurrency(row.current) : "-"}
+                    <td className={cn(
+                      "px-6 py-3 text-right tabular-nums",
+                      isBoldRow ? "font-semibold font-bold" : "text-slate-500",
+                      row.isValidation && (validationBalanced ? "text-emerald-700" : "text-amber-700"),
+                      shouldHideAmounts && "text-white",
+                    )}>
+                      {row.isValidation || row.current !== 0 ? formatCurrency(row.current) : "-"}
                     </td>
                   )}
 
                   {view === "comparison" && !isComparisonMode && (
                     <>
-                      <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
-                        {row.current !== 0 ? formatCurrency(row.current) : "-"}
+                      <td className={cn(
+                        "px-6 py-3 text-right tabular-nums",
+                        isBoldRow ? "font-semibold font-bold" : "text-slate-500",
+                        row.isValidation && (validationBalanced ? "text-emerald-700" : "text-amber-700"),
+                        shouldHideAmounts && "text-white",
+                      )}>
+                        {row.isValidation || row.current !== 0 ? formatCurrency(row.current) : "-"}
                       </td>
-                      <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
-                        {row.prior !== 0 ? formatCurrency(row.prior) : "-"}
+                      <td className={cn(
+                        "px-6 py-3 text-right tabular-nums",
+                        isBoldRow ? "font-semibold font-bold text-slate-600" : "text-slate-500",
+                        row.isValidation && (isCashFlowBalanced(row.prior) ? "text-emerald-700" : "text-amber-700"),
+                        shouldHideAmounts && "text-white",
+                      )}>
+                        {row.isValidation || row.prior !== 0 ? formatCurrency(row.prior) : "-"}
                       </td>
                       {columnMode === "variations" ? (
                         <>

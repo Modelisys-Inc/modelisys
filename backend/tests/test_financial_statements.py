@@ -816,7 +816,11 @@ def test_cash_flow_annex_row_includes_gl_detail_rows(client, auth_headers):
 
 
 def test_cash_flow_custom_tex_code_aggregates_attached_codes(client, auth_headers, su_headers):
-    """A TEX family code sums accounts mapped to its attached Bilan/CDR codes."""
+    """A TEX code attaching a CDR code contributes that code's effect on profit.
+
+    Revenue carries a credit (negative) trial-balance amount; on the cash-flow
+    statement it must surface as a positive contribution to cash.
+    """
     company_id = _create_company(client, auth_headers, name="CF TEX Co")
 
     leaf = client.post(
@@ -851,12 +855,12 @@ def test_cash_flow_custom_tex_code_aggregates_attached_codes(client, auth_header
         {
             "account_number": "4100",
             "description": "Revenue A",
-            "monthly_amounts": {"Janvier": 100.0},
+            "monthly_amounts": {"Janvier": -100.0},
         },
         {
             "account_number": "4101",
             "description": "Revenue B",
-            "monthly_amounts": {"Janvier": 50.0},
+            "monthly_amounts": {"Janvier": -50.0},
         },
     ], fiscal_year=2026)
     _upsert_structure(client, auth_headers, company_id, "cash-flow", [
@@ -879,7 +883,7 @@ def test_cash_flow_custom_tex_code_aggregates_attached_codes(client, auth_header
 
 
 def test_cash_flow_detail_custom_tex_code_aggregates_attached_codes(client, auth_headers, su_headers):
-    """Detail structure link codes sum accounts via attached Bilan/CDR codes (same as summary)."""
+    """Detail structure link codes resolve attached Bilan/CDR codes (same as summary)."""
     company_id = _create_company(client, auth_headers, name="CF Detail TEX Co")
 
     leaf = client.post(
@@ -914,12 +918,12 @@ def test_cash_flow_detail_custom_tex_code_aggregates_attached_codes(client, auth
         {
             "account_number": "4200",
             "description": "Revenue A",
-            "monthly_amounts": {"Janvier": 80.0},
+            "monthly_amounts": {"Janvier": -80.0},
         },
         {
             "account_number": "4201",
             "description": "Revenue B",
-            "monthly_amounts": {"Janvier": 40.0},
+            "monthly_amounts": {"Janvier": -40.0},
         },
     ], fiscal_year=2026)
     _upsert_structure(client, auth_headers, company_id, "cash-flow-detail", [

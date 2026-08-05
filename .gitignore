@@ -53,3 +53,10 @@ ENV/
 # Playwright test output
 frontend/playwright-report/
 frontend/test-results/
+
+# Copie de la charte injectée dans le contexte de build backend par la CI
+# (voir .github/workflows/deploy.yml) — jamais versionnée.
+backend/data/
+
+# Sauvegardes de la charte prises avant modification (binaires, hors dépôt).
+data/*.bak-*

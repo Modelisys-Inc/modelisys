@@ -222,9 +222,16 @@ def apply_records(session, records: list[dict], source: str = "MO.xlsx") -> dict
         obj.coa_version = version
         upserted += 1
 
+    from app.services.standard_link_code_utils import is_cash_flow_family
+
     tombstoned = 0
     now = datetime.now(timezone.utc)
     for code, obj in existing.items():
+        if is_cash_flow_family(obj.family):
+            # Les codes Trésorerie ne figurent pas dans MO.xlsx — ils sont dérivés
+            # de ses colonnes FT par seed_cash_flow_link_codes. Leur absence du
+            # fichier est normale, pas une suppression.
+            continue
         if code not in file_codes and obj.is_active:
             obj.is_active = False
             obj.deprecated_at = now
