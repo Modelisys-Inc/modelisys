@@ -6,6 +6,12 @@ import {
   reportToneClasses,
   type ReportChapterTone,
 } from "@/lib/diagnostic-report-chapters"
+import type { CompanyReportModuleId } from "@/lib/company-report-module"
+import {
+  getCompanyReportBranding,
+  type CompanyReportCoverTheme,
+} from "@/lib/company-report-branding"
+import { cn } from "@/lib/utils"
 
 /** Résumé exécutif court (2–3 lignes) en tête de chapitre */
 export function ReportExecutiveBrief({ children }: { children: ReactNode }) {
@@ -118,6 +124,47 @@ export function ReportChartExhibit({
   )
 }
 
+/** Fond gris à cadrillage (aligné sur la section Fonctionnalités de la landing). */
+export function ReportLightGridBackdrop() {
+  return (
+    <>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white via-slate-50 to-slate-100/90"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: `
+            linear-gradient(to right, rgb(148 163 184 / 0.12) 1px, transparent 1px),
+            linear-gradient(to bottom, rgb(148 163 184 / 0.12) 1px, transparent 1px)
+          `,
+          backgroundSize: "44px 44px",
+          maskImage: "radial-gradient(ellipse 85% 75% at 50% 40%, black 20%, transparent 78%)",
+          WebkitMaskImage:
+            "radial-gradient(ellipse 85% 75% at 50% 40%, black 20%, transparent 78%)",
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute top-1/4 left-1/4 h-96 w-96 rounded-full bg-slate-200/25 blur-3xl"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute bottom-1/4 right-1/4 h-96 w-96 rounded-full bg-slate-300/15 blur-3xl"
+      />
+    </>
+  )
+}
+
+function reportThemeSheetClass(theme: CompanyReportCoverTheme, base: string): string {
+  return cn(
+    base,
+    theme === "light-grid" ? "print-sheet-light-grid bg-slate-50 text-[#2A2F3A]" : "bg-[#2A2F3A] text-[#E6D6C3]",
+  )
+}
+
 /** Page d'introduction de chapitre — alignée sur la couverture du rapport. */
 export function ReportChapterIntroPage({
   id,
@@ -127,6 +174,7 @@ export function ReportChapterIntroPage({
   description,
   companyName,
   testId,
+  moduleId = "diagnostic",
 }: {
   id?: string
   analysisNumber: number
@@ -135,37 +183,62 @@ export function ReportChapterIntroPage({
   description: string
   companyName: string
   testId?: string
+  moduleId?: CompanyReportModuleId
 }) {
   const analysisLabel = String(analysisNumber).padStart(2, "0")
+  const branding = getCompanyReportBranding(moduleId)
+  const isLight = branding.introTheme === "light-grid"
 
   return (
     <section
       id={id}
-      className="print-sheet print-chapter-intro print-sheet-analysis-intro relative overflow-hidden bg-[#2A2F3A] text-[#E6D6C3]"
+      className={reportThemeSheetClass(
+        branding.introTheme,
+        "print-sheet print-chapter-intro print-sheet-analysis-intro relative overflow-hidden",
+      )}
       data-testid={testId ?? `report-chapter-intro-${analysisLabel}`}
       aria-label={`Introduction — ${title}`}
     >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-20 -right-24 h-[360px] w-[360px] rounded-full bg-white/5 blur-3xl"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_rgba(224,116,45,0.12),_transparent_55%)]"
-      />
+      {isLight ? (
+        <ReportLightGridBackdrop />
+      ) : (
+        <>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -top-20 -right-24 h-[360px] w-[360px] rounded-full bg-white/5 blur-3xl"
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_rgba(224,116,45,0.12),_transparent_55%)]"
+          />
+        </>
+      )}
 
       <div className="print-page-inner relative flex flex-col">
         <header>
-          <p className="report-analysis-intro-company text-xl font-semibold tracking-tight text-[#E6D6C3] md:text-2xl">
+          <p
+            className={cn(
+              "report-analysis-intro-company text-xl font-semibold tracking-tight md:text-2xl",
+              isLight ? "text-[#2A2F3A]" : "text-[#E6D6C3]",
+            )}
+          >
             {companyName}
           </p>
-          <p className="mt-3 text-[10px] font-semibold uppercase tracking-[0.34em] text-[#C9B8A5]/70">
-            Diagnostic financier
+          <p
+            className={cn(
+              "mt-3 text-[10px] font-semibold uppercase tracking-[0.34em]",
+              isLight ? "text-slate-500" : "text-[#C9B8A5]/70",
+            )}
+          >
+            {branding.sectionMetaLabel}
           </p>
         </header>
 
         <div
-          className="my-6 h-px w-full bg-gradient-to-r from-[#E0742D] via-[#E0742D]/25 to-transparent"
+          className={cn(
+            "my-6 h-px w-full bg-gradient-to-r from-[#E0742D] to-transparent",
+            isLight ? "via-slate-300/60" : "via-[#E0742D]/25",
+          )}
           aria-hidden
         />
 
@@ -173,22 +246,49 @@ export function ReportChapterIntroPage({
           <p className="text-[11px] font-semibold uppercase tracking-[0.38em] text-[#E0742D]">
             Analyse {analysisLabel}
           </p>
-          <h2 className="report-analysis-intro-title mt-5 max-w-3xl font-semibold leading-[1.08] tracking-[-0.03em] text-[#E6D6C3]">
+          <h2
+            className={cn(
+              "report-analysis-intro-title mt-5 max-w-3xl font-semibold leading-[1.08] tracking-[-0.03em]",
+              isLight ? "text-[#2A2F3A]" : "text-[#E6D6C3]",
+            )}
+          >
             {title}
           </h2>
-          <p className="mt-4 max-w-2xl text-lg leading-relaxed text-[#C9B8A5]/90">{subtitle}</p>
-          <p className="report-analysis-intro-description mt-8 max-w-3xl text-[15px] leading-[1.8] text-[#C9B8A5]/75">
+          <p
+            className={cn(
+              "mt-4 max-w-2xl text-lg leading-relaxed",
+              isLight ? "text-[#5C5F66]" : "text-[#C9B8A5]/90",
+            )}
+          >
+            {subtitle}
+          </p>
+          <p
+            className={cn(
+              "report-analysis-intro-description mt-8 max-w-3xl text-[15px] leading-[1.8]",
+              isLight ? "text-slate-600" : "text-[#C9B8A5]/75",
+            )}
+          >
             {description}
           </p>
         </div>
 
-        <footer className="report-analysis-intro-footer mt-auto border-t border-white/10 pt-4">
+        <footer
+          className={cn(
+            "report-analysis-intro-footer mt-auto border-t pt-4",
+            isLight ? "border-slate-200" : "border-white/10",
+          )}
+        >
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.18em] text-[#C9B8A5]/55">
+            <p
+              className={cn(
+                "flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.18em]",
+                isLight ? "text-slate-500" : "text-[#C9B8A5]/55",
+              )}
+            >
               <ArrowRight className="h-3.5 w-3.5 text-[#E0742D]" strokeWidth={2} aria-hidden />
               Graphiques et lecture détaillée — pages suivantes
             </p>
-            <ModelisysWordmark variant="light" size="sm" className="shrink-0" />
+            <ModelisysWordmark variant={isLight ? "dark" : "light"} size="sm" className="shrink-0" />
           </div>
         </footer>
       </div>

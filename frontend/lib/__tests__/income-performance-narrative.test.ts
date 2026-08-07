@@ -5,6 +5,7 @@ import {
   buildMarginByRevenueOnlyPerformanceNarrative,
   buildContributiveMarginByRevenueNarrative,
   buildRevenueOnlyPerformanceNarrative,
+  buildRevenueAnalysisSeasonalityBody,
   buildSeasonalityParagraph,
   computeCagr,
   isAnnualExercisePresent,
@@ -175,6 +176,23 @@ describe("buildSeasonalityParagraph", () => {
   })
 })
 
+describe("buildRevenueAnalysisSeasonalityBody", () => {
+  it("décrit la moyenne, les extrêmes et la position du mois de référence sur 13 mois", () => {
+    const data = sampleMonthly24Data().slice(0, 13)
+    const text = buildRevenueAnalysisSeasonalityBody(data, "les électroniques", 13)
+    expect(text).toBeTruthy()
+    expect(text).toContain("13 derniers mois")
+    expect(text).toContain("moyenne mensuelle")
+    expect(text).toContain("meilleur mois")
+    expect(text).toContain("plus faible")
+    expect(text).toContain("À la date de référence, les électroniques")
+    expect(text).not.toContain("le niveau observé")
+    expect(text).toMatch(/(sous|au-dessus de) la moyenne/)
+    expect(text!.indexOf("moyenne mensuelle")).toBeLessThan(text!.indexOf("date de référence"))
+    expect(text!.indexOf("date de référence")).toBeLessThan(text!.indexOf("meilleur mois"))
+  })
+})
+
 describe("mapDynamicChartToRevenueSeriesNarratives", () => {
   it("produit une tranche par histogramme monétaire", () => {
     const points: DynamicChartPoint[] = [
@@ -222,6 +240,41 @@ describe("mapDynamicChartToRevenueSeriesNarratives", () => {
     expect(slices.map((s) => s.heading)).toEqual(["Ventes", "Services"])
     expect(slices[0]!.points[0]!.revenue).toBe(100)
     expect(slices[1]!.points[0]!.revenue).toBe(40)
+  })
+
+  it("produit une tranche par courbe monétaire (rendu courbe)", () => {
+    const points: DynamicChartPoint[] = [
+      { period: "2025", v_a: 100, v_b: 40 },
+      { period: "2024", v_a: 90, v_b: 35 },
+    ]
+    const meta: BuiltSeriesMeta[] = [
+      {
+        id: "a",
+        dataKey: "v_a",
+        kind: "line",
+        label: "Ventes",
+        color: "#3b82f6",
+        yAxis: "left",
+        valueFormat: "currency",
+        showOnChart: true,
+        showInSidePanel: true,
+      },
+      {
+        id: "b",
+        dataKey: "v_b",
+        kind: "line",
+        label: "Services",
+        color: "#10b981",
+        yAxis: "left",
+        valueFormat: "currency",
+        showOnChart: true,
+        showInSidePanel: true,
+      },
+    ]
+
+    const slices = mapDynamicChartToRevenueSeriesNarratives(points, meta)
+    expect(slices).toHaveLength(2)
+    expect(slices.map((s) => s.heading)).toEqual(["Ventes", "Services"])
   })
 })
 
@@ -325,13 +378,41 @@ describe("buildRevenueOnlyPerformanceNarrative", () => {
     ])
   })
 
-  it("inclut la saisonnalité en vue mensuelle 24 mois", () => {
+  it("utilise la lecture mensuelle en 4 sections par source (Performance + Saisonnalité)", () => {
     const data = sampleMonthly24Data()
-    const result = buildRevenueOnlyPerformanceNarrative([revenueSlice("Revenus", data)], "24months")
+    const result = buildRevenueOnlyPerformanceNarrative([revenueSlice("Électroniques", data)], "24months", {
+      fiscalYearEnd: "12-31",
+    })
     expect(result?.mode).toBe("monthly")
     if (result?.mode !== "monthly") return
-    expect(result.paragraphs).toHaveLength(1)
-    expect(result.paragraphs[0]!.seasonalityBody).toContain("saisonnalité")
+    expect(result.paragraphs).toHaveLength(4)
+    expect(result.paragraphs[0]?.divisionTitle).toBe("Électroniques")
+    expect(result.paragraphs[0]?.subsection).toBe("Performance actuelle")
+    expect(result.paragraphs[0]?.body).toContain("électroniques")
+    expect(result.paragraphs[1]?.subsection).toBe("Performance de l'exercice (YTD)")
+    expect(result.paragraphs[2]?.subsection).toBe("Tendance des 12 derniers mois")
+    expect(result.paragraphs[3]?.subsection).toBe("Saisonnalité")
+    expect(result.paragraphs[3]?.body).toContain("moyenne mensuelle")
+    expect(result.paragraphs[0]?.seasonalityBody).toBeUndefined()
+    expect(result.paragraphs[0]?.statsLine).toBeUndefined()
+  })
+
+  it("produit 4 sections par source de revenus en vue mensuelle", () => {
+    const data = sampleMonthly24Data()
+    const result = buildRevenueOnlyPerformanceNarrative(
+      [
+        revenueSlice("Électroniques", data),
+        revenueSlice("Services", data.map((p) => ({ ...p, revenue: p.revenue * 0.6 }))),
+      ],
+      "24months",
+      { fiscalYearEnd: "12-31" },
+    )
+    expect(result?.paragraphs).toHaveLength(8)
+    expect(result?.paragraphs[0]?.divisionTitle).toBe("Électroniques")
+    expect(result?.paragraphs[3]?.divisionTitle).toBe("Électroniques")
+    expect(result?.paragraphs[3]?.subsection).toBe("Saisonnalité")
+    expect(result?.paragraphs[4]?.divisionTitle).toBe("Services")
+    expect(result?.paragraphs[7]?.subsection).toBe("Saisonnalité")
   })
 
   it("ajoute la pondération et la structure du CA pour plusieurs sources", () => {

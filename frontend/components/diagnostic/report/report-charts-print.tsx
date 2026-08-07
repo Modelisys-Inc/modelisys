@@ -108,10 +108,10 @@ export function PerformanceComboChart({ years }: { years: DiagnosticTrendYear[] 
           <i className="report-legend-swatch" style={{ background: PRIMARY }} /> Revenus
         </span>
         <span>
-          <i className="report-legend-swatch" style={{ background: SUCCESS }} /> EBITDA
+          <i className="report-legend-swatch" style={{ background: "#E9C46A" }} /> Contribution marginale %
         </span>
         <span>
-          <i className="report-legend-swatch" style={{ background: "#E9C46A" }} /> Contribution marginale %
+          <i className="report-legend-swatch" style={{ background: SUCCESS }} /> EBITDA
         </span>
       </div>
     </div>

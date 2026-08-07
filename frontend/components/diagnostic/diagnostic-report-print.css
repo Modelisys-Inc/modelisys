@@ -83,6 +83,15 @@
   background: #2a2f3a;
 }
 
+.diagnostic-report-print-root .print-sheet-light-grid {
+  background: #f8fafc;
+}
+
+.diagnostic-report-print-root .print-sheet-cover.print-sheet-light-grid,
+.diagnostic-report-print-root .print-chapter-intro.print-sheet-light-grid {
+  background: #f8fafc;
+}
+
 @media screen {
   .diagnostic-report-print-root.report-consulting {
     background: #e8edf3;
@@ -99,6 +108,11 @@
 
   .diagnostic-report-print-root .print-sheet-cover {
     border-color: #2a2f3a;
+  }
+
+  .diagnostic-report-print-root .print-sheet-cover.print-sheet-light-grid,
+  .diagnostic-report-print-root .print-chapter-intro.print-sheet-light-grid {
+    border-color: #e2e8f0;
   }
 
   .diagnostic-report-print-root .print-chapter-intro {
@@ -1302,7 +1316,8 @@
   padding-right: 0 !important;
 }
 
-.report-consulting .print-chapter-chart .report-chart-table-fit .min-w-\[960px\] {
+.report-consulting .print-chapter-chart .report-chart-table-fit .min-w-\[960px\],
+.report-consulting .print-chapter-chart .report-chart-table-fit .min-w-\[48rem\] {
   min-width: 0;
 }
 

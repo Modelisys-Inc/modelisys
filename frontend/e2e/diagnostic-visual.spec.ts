@@ -424,7 +424,6 @@ test.describe("Diagnostic — rendu visuel", () => {
         name: /Diagnostic de Groupe Industriel Laurentien inc\. — 31 décembre/,
       }),
     ).toBeVisible({ timeout: 15000 })
-    await expect(page.getByRole("heading", { name: "Valorisation indicative" })).toBeVisible()
 
     // Trajectoire = carte Performance financière (Recharts).
     await expect(page.getByRole("heading", { name: "Performance financière" })).toBeVisible()
@@ -433,10 +432,6 @@ test.describe("Diagnostic — rendu visuel", () => {
         timeout: 15000,
       })
       .toBeGreaterThanOrEqual(1)
-    await expect(page.locator("#diag-divisions svg circle")).toHaveCount(3)
-    await expect
-      .poll(async () => page.locator("#diag-profil svg polygon").count())
-      .toBeGreaterThanOrEqual(2)
     // Laisser finir les animations de compteurs et de croissance des barres.
     await page.waitForTimeout(2000)
 

@@ -237,6 +237,59 @@ export function paragraphsForPackedPage<T>(
   return packedPages[pageIndex] ?? []
 }
 
+/** Regroupe les paragraphes d'un même bloc division (ex. une source de revenus pilotage). */
+export function packPilotageDivisionBlockPages<T extends NarrativeParagraphLike & { divisionBlockId?: string }>(
+  paragraphs: T[] | undefined,
+): T[][] {
+  if (!paragraphs?.length) return []
+
+  const pages: T[][] = []
+  let current: T[] = []
+  let currentBlockId: string | undefined
+
+  for (const paragraph of paragraphs) {
+    const blockId = paragraph.divisionBlockId ?? paragraph.heading
+    if (current.length > 0 && blockId !== currentBlockId) {
+      pages.push(current)
+      current = []
+    }
+    current.push(paragraph)
+    currentBlockId = blockId
+  }
+
+  if (current.length) pages.push(current)
+  return pages
+}
+
+/** Performance financière pilotage — Revenus, contribution marginale et BAIIA chacun sur une page. */
+export function packPilotagePerformanceLecturePages<T extends NarrativeParagraphLike & { divisionBlockId?: string }>(
+  paragraphs: T[] | undefined,
+): T[][] {
+  return packPilotageDivisionBlockPages(paragraphs)
+}
+
+/** Analyse des revenus pilotage — toutes les sous-sections d'une source sur la même page. */
+export function packPilotageRevenueAnalysisLecturePages<
+  T extends NarrativeParagraphLike & { divisionBlockId?: string },
+>(paragraphs: T[] | undefined): T[][] {
+  return packPilotageDivisionBlockPages(paragraphs)
+}
+
+/** Dépenses pilotage — coûts variables et fixes, chacun avec actuelle / YTD / TTM sur une page. */
+export function packPilotageExpensesLecturePages<T extends NarrativeParagraphLike & { divisionBlockId?: string }>(
+  paragraphs: T[] | undefined,
+): T[][] {
+  return packPilotageDivisionBlockPages(paragraphs)
+}
+
+/** Marge par revenus pilotage — une sous-section (actuelle / YTD / TTM) par page. */
+export function packPilotageMarginByRevenueLecturePages<T extends NarrativeParagraphLike>(
+  paragraphs: T[] | undefined,
+): T[][] {
+  if (!paragraphs?.length) return []
+  return paragraphs.map((paragraph) => [paragraph])
+}
+
 /** Regroupe les sources de revenus par paires pour la lecture rapport. */
 export function packRevenueSourceLecturePages<T>(
   paragraphs: T[] | undefined,

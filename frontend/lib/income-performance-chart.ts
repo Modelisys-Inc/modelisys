@@ -2,6 +2,7 @@ import type { ExpenseContributionBridgeResult } from "@/lib/expense-contribution
 import {
   type BuiltSeriesMeta,
   type DynamicChartPoint,
+  isCurrencyAmountSeriesMeta,
   sanitizeSeriesDataKey,
 } from "@/lib/performance-chart-series"
 import {
@@ -33,7 +34,7 @@ export function isFixedIncomePerformanceChart(
 
 /**
  * Construit le graphique Performance à partir du pont Dépenses :
- * Revenus (REV) · BAIIA (= bénéfice d'exploitation) · Contribution marginale %.
+ * Revenus (REV) · Contribution marginale % · BAIIA (= bénéfice d'exploitation).
  */
 export function buildIncomePerformanceChartFromBridge(
   bridge: ExpenseContributionBridgeResult,
@@ -71,17 +72,6 @@ export function buildIncomePerformanceChartFromBridge(
       showInSidePanel: true,
     },
     {
-      id: INCOME_PERFORMANCE_SERIES_IDS.operatingProfit,
-      dataKey: opKey,
-      kind: "bar",
-      label: "BAIIA",
-      color: DEFAULT_COLORS[1]!,
-      yAxis: "left",
-      valueFormat: "currency",
-      showOnChart: true,
-      showInSidePanel: true,
-    },
-    {
       id: INCOME_PERFORMANCE_SERIES_IDS.contributiveMargin,
       dataKey: cmKey,
       kind: "line",
@@ -92,11 +82,48 @@ export function buildIncomePerformanceChartFromBridge(
       showOnChart: true,
       showInSidePanel: true,
     },
+    {
+      id: INCOME_PERFORMANCE_SERIES_IDS.operatingProfit,
+      dataKey: opKey,
+      kind: "bar",
+      label: "BAIIA",
+      color: DEFAULT_COLORS[1]!,
+      yAxis: "left",
+      valueFormat: "currency",
+      showOnChart: true,
+      showInSidePanel: true,
+    },
   ]
 
   return { points: chartPoints, series }
 }
 
+/** Résout les clés de données pour la narration Performance (indépendant de l'ordre d'affichage). */
+export function resolveIncomePerformanceSeriesKeys(
+  seriesMeta: BuiltSeriesMeta[],
+): { kRev: string; kEbita: string; kMargin: string } | null {
+  const marginLine = seriesMeta.find((s) => s.valueFormat === "ratio")
+  const currencySeries = seriesMeta.filter(isCurrencyAmountSeriesMeta)
+  if (currencySeries.length < 2 || !marginLine) return null
+
+  const revenueSeries =
+    seriesMeta.find((s) => s.id === INCOME_PERFORMANCE_SERIES_IDS.revenue) ??
+    currencySeries.find((s) => /revenu/i.test(s.label)) ??
+    currencySeries[0]!
+
+  const ebitaSeries =
+    seriesMeta.find((s) => s.id === INCOME_PERFORMANCE_SERIES_IDS.operatingProfit) ??
+    currencySeries.find((s) => s !== revenueSeries && /baiia|ebita|ebitda/i.test(s.label)) ??
+    currencySeries.find((s) => s !== revenueSeries)
+
+  if (!ebitaSeries) return null
+
+  return {
+    kRev: revenueSeries.dataKey,
+    kEbita: ebitaSeries.dataKey,
+    kMargin: marginLine.dataKey,
+  }
+}
 export function defaultFixedIncomePerformanceVisibility(): Record<string, boolean> {
   return Object.fromEntries(
     Object.values(INCOME_PERFORMANCE_SERIES_IDS).map((id) => [id, true]),

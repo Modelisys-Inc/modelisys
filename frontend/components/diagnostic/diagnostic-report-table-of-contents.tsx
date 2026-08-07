@@ -2,15 +2,21 @@ import type { CompanyDiagnostic } from "@/lib/api"
 import { formatReportSectionMeta } from "@/components/diagnostic/diagnostic-format"
 import { ModelisysWordmark } from "@/components/diagnostic/modelisys-wordmark"
 import {
-  DIAGNOSTIC_PRINT_ANALYSES,
   reportAnalysisAnchorId,
   reportAnalysisDisplayTitle,
   type ReportPrintAnalysis,
 } from "@/lib/diagnostic-report-chapters"
 import { COMPANY_OVERVIEW_PRINT_INTRO_ID } from "@/lib/diagnostic-company-overview"
 
+import {
+  companyReportIncludesCompanyOverview,
+  companyReportPrintAnalyses,
+  type CompanyReportModuleId,
+} from "@/lib/company-report-module"
+
 interface DiagnosticReportTableOfContentsProps {
   diagnostic: CompanyDiagnostic
+  moduleId?: CompanyReportModuleId
 }
 
 function tocEntryTitle(analysis: ReportPrintAnalysis): string {
@@ -45,32 +51,40 @@ function TocEntry({
 
 export function DiagnosticReportTableOfContents({
   diagnostic,
+  moduleId = "diagnostic",
 }: DiagnosticReportTableOfContentsProps) {
   const sectionMeta = formatReportSectionMeta(
     diagnostic.company_name,
     diagnostic.reference_period.calendar_year,
     diagnostic.reference_period.calendar_month,
     diagnostic.currency,
+    moduleId,
   )
+  const showCompanyOverview = companyReportIncludesCompanyOverview(moduleId)
+  const printAnalyses = companyReportPrintAnalyses(moduleId)
 
-  const analysisEntries = DIAGNOSTIC_PRINT_ANALYSES.map((analysis, index) => ({
+  const analysisEntries = printAnalyses.map((analysis, index) => ({
     key: analysis.viewId,
     href: `#${reportAnalysisAnchorId(analysis.viewId, "intro")}`,
-    number: String(index + 2),
+    number: String(showCompanyOverview ? index + 2 : index + 1),
     title: tocEntryTitle(analysis),
     subtitle: analysis.intro.subtitle,
     testId: `diagnostic-report-toc-link-${analysis.viewId}`,
   }))
 
   const entries = [
-    {
-      key: "company-overview",
-      href: `#${COMPANY_OVERVIEW_PRINT_INTRO_ID}`,
-      number: "1",
-      title: "Aperçu de l'entreprise",
-      subtitle: "Informations générales et structure organisationnelle",
-      testId: "diagnostic-report-toc-link-company-overview",
-    },
+    ...(showCompanyOverview
+      ? [
+          {
+            key: "company-overview",
+            href: `#${COMPANY_OVERVIEW_PRINT_INTRO_ID}`,
+            number: "1",
+            title: "Aperçu de l'entreprise",
+            subtitle: "Informations générales et structure organisationnelle",
+            testId: "diagnostic-report-toc-link-company-overview",
+          },
+        ]
+      : []),
     ...analysisEntries,
   ]
 

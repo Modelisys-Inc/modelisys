@@ -5,8 +5,11 @@ const DIAGNOSTIC_ID = "diag1111-1111-1111-1111-111111111111"
 const DIVISION_OK = "d1111111-1111-1111-1111-111111111111"
 const DIVISION_KO = "d2222222-2222-2222-2222-222222222222"
 const DIAGNOSTIC_REGISTRY_KEY = "modelisys-diagnostic-registry"
+const PILOTAGE_ID = "pilot1111-1111-1111-1111-111111111111"
+const PILOTAGE_REGISTRY_KEY = "modelisys-pilotage-registry"
 const DIAGNOSTIC_PAGE_URL = `/modules/diagnostic/${DIAGNOSTIC_ID}?companyId=${COMPANY_ID}`
 const DIAGNOSTIC_PORTAL_URL = `/modules/diagnostic?companyId=${COMPANY_ID}`
+const PILOTAGE_REPORT_URL = `/modules/pilotage/report?pilotageId=${PILOTAGE_ID}&companyId=${COMPANY_ID}`
 
 const INCOME_BRIDGE_MAPPINGS = [
   {
@@ -140,8 +143,21 @@ async function mockIncomePerformanceBridgeRoutes(context: Page["context"]) {
   )
 }
 
-async function setupAuthAndCommonMocks(page: Page) {
+async function setupAuthAndCommonMocks(page: Page, registry?: { key: string; record: Record<string, unknown> }) {
   const context = page.context()
+  const registryConfig = registry ?? {
+    key: DIAGNOSTIC_REGISTRY_KEY,
+    record: {
+      id: DIAGNOSTIC_ID,
+      companyId: COMPANY_ID,
+      companyName: "Aciers Beauport inc.",
+      title: "Aciers Beauport inc. — test",
+      referenceYear: 2025,
+      referenceMonth: 12,
+      createdAt: "2026-05-18T00:00:00.000Z",
+      lastOpenedAt: "2026-05-18T00:00:00.000Z",
+    },
+  }
   // Injecter le cookie de session + jetons avant tout script de page.
   await page.addInitScript(
     ({ key, record }) => {
@@ -149,19 +165,7 @@ async function setupAuthAndCommonMocks(page: Page) {
       localStorage.setItem("refresh_token", "fake-refresh-token")
       localStorage.setItem(key, JSON.stringify([record]))
     },
-    {
-      key: DIAGNOSTIC_REGISTRY_KEY,
-      record: {
-        id: DIAGNOSTIC_ID,
-        companyId: COMPANY_ID,
-        companyName: "Aciers Beauport inc.",
-        title: "Aciers Beauport inc. — test",
-        referenceYear: 2025,
-        referenceMonth: 12,
-        createdAt: "2026-05-18T00:00:00.000Z",
-        lastOpenedAt: "2026-05-18T00:00:00.000Z",
-      },
-    },
+    registryConfig,
   )
   await page.context().addCookies([
     {
@@ -306,17 +310,6 @@ async function setupAuthAndCommonMocks(page: Page) {
             color: "#3b82f6",
           },
           {
-            id: "e",
-            kind: "bar",
-            label: "BAIIA",
-            spec: { type: "single", code: "EBIT-001" },
-            yAxis: "left",
-            valueFormat: "currency",
-            showOnChart: true,
-            showInSidePanel: true,
-            color: "#10b981",
-          },
-          {
             id: "m",
             kind: "line",
             label: "Contribution marginale (%)",
@@ -329,6 +322,17 @@ async function setupAuthAndCommonMocks(page: Page) {
             showOnChart: true,
             showInSidePanel: true,
             color: "#f59e0b",
+          },
+          {
+            id: "e",
+            kind: "bar",
+            label: "BAIIA",
+            spec: { type: "single", code: "EBIT-001" },
+            yAxis: "left",
+            valueFormat: "currency",
+            showOnChart: true,
+            showInSidePanel: true,
+            color: "#10b981",
           },
         ],
       }
@@ -734,9 +738,9 @@ test.describe("Page Diagnostic", () => {
     ).toBeVisible({ timeout: 15000 })
     await expect(page.getByText(/Mise à jour : 26 juillet 2026/)).toBeVisible()
 
-    // Sommaire exécutif affiché par défaut.
-    await expect(page.getByTestId("diagnostic-executive-summary")).toBeVisible()
-    await expect(page.getByRole("heading", { name: "Sommaire exécutif" })).toBeVisible()
+    // Performance financière affichée par défaut.
+    await expect(page.getByText("Lecture de la performance")).toBeVisible({ timeout: 15000 })
+    await expect(page.getByTestId("diagnostic-executive-summary")).toHaveCount(0)
     await expect(page.getByTestId("diagnostic-view-report")).toBeVisible()
     await expect(page.getByTestId("diagnostic-view-report")).toHaveText(/Visualiser le Rapport/)
 
@@ -797,48 +801,6 @@ test.describe("Page Diagnostic", () => {
     await expect(kpis.getByText("Dette / capitaux propres", { exact: true })).toBeVisible()
     await expect(kpis.getByText("Ratio de liquidité", { exact: true })).toBeVisible()
     await expect(kpis.getByText("Valeur d'entreprise", { exact: true })).toBeVisible()
-
-    // Titres de toutes les sections.
-    for (const heading of [
-      "Performance financière",
-      "Saisonnalité",
-      "Profil vs secteur",
-      "Rentabilité par division",
-      "Ratios financiers",
-      "Revenus et marges par produits / services",
-      "Valorisation indicative",
-    ]) {
-      await expect(page.getByRole("heading", { name: heading })).toBeVisible()
-    }
-
-    // Liens « Voir l'analyse détaillée » (saisonnalité, ratios, produits, valorisation).
-    await expect(
-      page.getByRole("link", { name: /Voir l'analyse détaillée/ }),
-    ).toHaveCount(4)
-
-    // Division non rentable : ligne marquée + étiquette « Déficitaire ».
-    const koRow = page.getByTestId(`division-row-${DIVISION_KO}`)
-    await expect(koRow).toBeVisible()
-    await expect(koRow).toHaveAttribute("data-profitable", "false")
-    await expect(koRow.getByText("Déficitaire")).toBeVisible()
-    const okRow = page.getByTestId(`division-row-${DIVISION_OK}`)
-    await expect(okRow).toHaveAttribute("data-profitable", "true")
-    await expect(okRow.getByText("Déficitaire")).toHaveCount(0)
-
-    // Signaux typés attachés aux graphiques (remplacent les narrations).
-    const signals = page.getByTestId("diagnostic-signal")
-    await expect(signals).toHaveCount(3)
-    await expect(signals.filter({ hasText: /Division Ouest est déficitaire/ })).toBeVisible()
-    await expect(signals.filter({ hasText: /Acier structural pèse/ })).toBeVisible()
-    await expect(signals.filter({ hasText: /Ratio de liquidité de/ })).toBeVisible()
-
-    // Valorisation : justification + note d'avertissement.
-    await expect(
-      page.getByText(/Multiple sectoriel pour la fabrication métallique/),
-    ).toBeVisible()
-    await expect(
-      page.getByTestId("valuation-notes").getByText(/Valorisation indicative seulement/),
-    ).toBeVisible()
   })
 
   test("vue Revenus : remplace la carte Performance financière", async ({ page }) => {
@@ -1039,6 +1001,9 @@ test.describe("Page Diagnostic", () => {
     await expect(page.getByText("Coûts variables", { exact: true }).first()).toBeVisible()
     await expect(page.getByText("Coûts fixes", { exact: true }).first()).toBeVisible()
     await expect(page.getByTestId("expense-breakeven-chart")).toBeVisible()
+    await expect(page.getByTestId("breakeven-chart-legend")).toBeVisible()
+    await expect(page.getByTestId("breakeven-chart-legend").getByText("Revenus")).toBeVisible()
+    await expect(page.getByTestId("breakeven-chart-legend").getByText("Coûts totaux")).toBeVisible()
     await expect(page.getByText("Seuil de rentabilité").first()).toBeVisible()
     await expect(page.getByText("Survol interactif")).toBeVisible()
     await expect(page.getByTestId("breakeven-methodology-note")).toBeVisible()
@@ -1814,7 +1779,7 @@ test.describe("Page Diagnostic", () => {
     )
   })
 
-  test("tiroir de détail : ouverture depuis une ligne de division, fermeture par Échap", async ({
+  test("tiroir de détail : ouverture depuis une carte KPI, fermeture par Échap", async ({
     page,
   }) => {
     await setupAuthAndCommonMocks(page)
@@ -1822,43 +1787,10 @@ test.describe("Page Diagnostic", () => {
 
     await page.goto(DIAGNOSTIC_PAGE_URL)
 
-    const koRow = page.getByTestId(`division-row-${DIVISION_KO}`)
-    await expect(koRow).toBeVisible({ timeout: 15000 })
-    await koRow.click()
-
-    // Le tiroir s'ouvre avec les statistiques de la division.
-    const drawer = page.getByRole("dialog", { name: "Division Ouest" })
-    await expect(drawer).toBeVisible()
-    await expect(drawer.getByText("Chiffre d'affaires", { exact: true })).toBeVisible()
-    await expect(drawer.getByText(/À restructurer ou à sortir/)).toBeVisible()
-
-    // Fermeture par le bouton ×.
-    await drawer.getByRole("button", { name: "Fermer le détail" }).click()
-    await expect(drawer).toHaveCount(0)
-
-    // Ouverture depuis une carte KPI, fermeture par Échap.
     await page.getByTestId("kpi-cards").getByText("EBITDA", { exact: true }).click()
-    await expect(page.getByRole("dialog", { name: "EBITDA" })).toBeVisible()
+    await expect(page.getByRole("dialog", { name: "EBITDA" })).toBeVisible({ timeout: 15000 })
     await page.keyboard.press("Escape")
     await expect(page.getByRole("dialog", { name: "EBITDA" })).toHaveCount(0)
-  })
-
-  test("état vide des produits lorsque products est vide", async ({ page }) => {
-    await setupAuthAndCommonMocks(page)
-    await mockDiagnostic(
-      page,
-      buildDiagnosticPayload({ products: [], division_products: [] }),
-    )
-
-    await page.goto(DIAGNOSTIC_PAGE_URL)
-
-    await expect(
-      page.getByRole("heading", { name: "Revenus et marges par produits / services" }),
-    ).toBeVisible({ timeout: 15000 })
-    await expect(page.getByTestId("products-empty-state")).toBeVisible()
-    await expect(
-      page.getByText("Aucun produit ou service configuré pour cette société."),
-    ).toBeVisible()
   })
 
   test("état d'erreur avec bouton Réessayer, puis rechargement réussi", async ({ page }) => {
@@ -1894,5 +1826,46 @@ test.describe("Page Diagnostic", () => {
       page.getByRole("heading", { name: /Diagnostic de Aciers Beauport inc\./ }),
     ).toBeVisible({ timeout: 15000 })
     await expect(page.getByTestId("diagnostic-error")).toHaveCount(0)
+  })
+})
+
+test.describe("Rapport Pilotage", () => {
+  test("aperçu : Rapport de performance avec fond clair à cadrillage", async ({ page }) => {
+    await setupAuthAndCommonMocks(page, {
+      key: PILOTAGE_REGISTRY_KEY,
+      record: {
+        id: PILOTAGE_ID,
+        companyId: COMPANY_ID,
+        companyName: "Aciers Beauport inc.",
+        title: "Aciers Beauport inc. — pilotage",
+        referenceYear: 2025,
+        referenceMonth: 12,
+        createdAt: "2026-05-18T00:00:00.000Z",
+        lastOpenedAt: "2026-05-18T00:00:00.000Z",
+      },
+    })
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(PILOTAGE_REPORT_URL)
+
+    const cover = page.getByTestId("diagnostic-report-cover")
+    await expect(cover).toBeVisible({ timeout: 15000 })
+    await expect(cover).toHaveClass(/print-sheet-light-grid/)
+    await expect(cover.getByText("Rapport de performance", { exact: true })).toBeVisible()
+    await expect(
+      cover.getByText(/Rapport de pilotage structuré autour de la performance actuelle/),
+    ).toBeVisible()
+    await expect(cover.getByText("Rapport de diagnostic financier")).toHaveCount(0)
+
+    const performanceIntro = page.getByTestId("report-analysis-intro-performance")
+    await expect(performanceIntro).toBeVisible()
+    await expect(performanceIntro).toHaveClass(/print-sheet-light-grid/)
+
+    await expect(page.getByTestId("diagnostic-report-toc-link-company-overview")).toHaveCount(0)
+    await expect(page.getByTestId("diagnostic-report-toc-link-financial-position")).toHaveCount(0)
+    await expect(page.getByTestId("diagnostic-report-toc-link-working-capital")).toBeVisible()
+    await expect(page.getByTestId("diagnostic-report-mandate-scope")).toContainText(
+      /rapport de performance préparé pour Aciers Beauport inc\./,
+    )
   })
 })

@@ -7,6 +7,9 @@ import {
   isTextLecturePage,
   lecturePageCountFromPacked,
   packNarrativeParagraphs,
+  packPilotageMarginByRevenueLecturePages,
+  packPilotagePerformanceLecturePages,
+  packPilotageRevenueAnalysisLecturePages,
   packRevenueSourceLecturePages,
   PERFORMANCE_WINDOW_PAGE_GROUP,
   REVENUE_SOURCES_PER_LECTURE_PAGE,
@@ -126,6 +129,45 @@ describe("report-narrative-pagination", () => {
     expect(pages[1]?.map((paragraph) => paragraph.heading)).toEqual(["Location", "Autre"])
     expect(pages[2]?.map((paragraph) => paragraph.heading)).toEqual(["Export"])
     expect(REVENUE_SOURCES_PER_LECTURE_PAGE).toBe(2)
+  })
+
+  it("pilotage performance : une page par indicateur (Revenus, CM, BAIIA)", () => {
+    const paragraphs = [
+      { heading: "Revenus", body: "Actuelle.", divisionBlockId: "pilotage-revenue" },
+      { heading: "Revenus", body: "YTD.", divisionBlockId: "pilotage-revenue", subsection: "YTD" },
+      { heading: "Contribution marginale", body: "Actuelle.", divisionBlockId: "pilotage-contributive-margin" },
+      { heading: "BAIIA", body: "Actuelle.", divisionBlockId: "pilotage-ebita" },
+    ]
+    const pages = packPilotagePerformanceLecturePages(paragraphs)
+    expect(pages).toHaveLength(3)
+    expect(pages[0]?.map((p) => p.divisionBlockId)).toEqual(["pilotage-revenue", "pilotage-revenue"])
+    expect(pages[1]?.[0]?.divisionBlockId).toBe("pilotage-contributive-margin")
+    expect(pages[2]?.[0]?.divisionBlockId).toBe("pilotage-ebita")
+  })
+
+  it("pilotage analyse revenus : une page par source avec toutes les sous-sections", () => {
+    const paragraphs = [
+      { heading: "Électroniques", body: "Actuelle.", divisionBlockId: "revenue-source-0-electroniques" },
+      { heading: "Électroniques", body: "YTD.", divisionBlockId: "revenue-source-0-electroniques", subsection: "YTD" },
+      { heading: "Électroniques", body: "TTM.", divisionBlockId: "revenue-source-0-electroniques", subsection: "TTM" },
+      { heading: "Électroniques", body: "Saison.", divisionBlockId: "revenue-source-0-electroniques", subsection: "Saisonnalité" },
+      { heading: "Services", body: "Actuelle.", divisionBlockId: "revenue-source-1-services" },
+    ]
+    const pages = packPilotageRevenueAnalysisLecturePages(paragraphs)
+    expect(pages).toHaveLength(2)
+    expect(pages[0]).toHaveLength(4)
+    expect(pages[1]).toHaveLength(1)
+  })
+
+  it("pilotage marge par revenus : une page par sous-section", () => {
+    const paragraphs = [
+      { heading: "Marge contributive — Électroniques", body: "Actuelle.", subsection: "Performance actuelle" },
+      { heading: "Marge contributive — Électroniques", body: "YTD.", subsection: "Performance de l'exercice (YTD)" },
+      { heading: "Marge contributive — Électroniques", body: "TTM.", subsection: "Tendance des 12 derniers mois" },
+    ]
+    const pages = packPilotageMarginByRevenueLecturePages(paragraphs)
+    expect(pages).toHaveLength(3)
+    expect(pages.every((page) => page.length === 1)).toBe(true)
   })
 
   it("garde Revenus, contribution marginale et BAIIA sur une même page", () => {

@@ -112,7 +112,10 @@ export function IncomePerformanceNarrativeSection({
   settingsPanel?: ReactNode | null
 }) {
   const divisionBlocks = groupDivisionNarrativeBlocks(narrative.paragraphs)
-  const groups = divisionBlocks ? null : groupNarrativeParagraphs(narrative.paragraphs)
+  const standardParagraphs = divisionBlocks
+    ? narrative.paragraphs.filter((paragraph) => !paragraph.divisionBlockId)
+    : narrative.paragraphs
+  const groups = groupNarrativeParagraphs(standardParagraphs)
 
   return (
     <div
@@ -141,13 +144,14 @@ export function IncomePerformanceNarrativeSection({
             <div className="mt-5">{settingsPanel}</div>
           ) : (
             <div className="mt-5 space-y-8">
-              {divisionBlocks ? (
+              {divisionBlocks?.length ? (
                 <DivisionNarrativeBlockList
                   blocks={divisionBlocks}
                   renderAfterParagraph={renderAfterParagraph}
                 />
-              ) : (
-                groups?.map((group) => (
+              ) : null}
+              {standardParagraphs.length > 0
+                ? groups?.map((group) => (
               <div key={group.id}>
                 <div className={group.className}>
                   {group.title ? (
@@ -207,7 +211,7 @@ export function IncomePerformanceNarrativeSection({
                 </div>
               </div>
               ))
-              )}
+                : null}
             </div>
           )}
         </div>

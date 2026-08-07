@@ -7,37 +7,28 @@ import { Button } from "@/components/ui/button"
 import { useCompanies } from "@/hooks/use-companies"
 import { useCompanyDiagnostic } from "@/hooks/use-company-diagnostic"
 import { DiagnosticSkeleton } from "@/components/diagnostic/diagnostic-skeleton"
-import { buildSignals } from "@/lib/diagnostic-derive"
 import { DiagnosticHero } from "@/components/diagnostic/v2/diagnostic-hero"
 import { DiagnosticKpiStrip } from "@/components/diagnostic/v2/diagnostic-kpi-strip"
 import {
   DiagnosticNavRail,
   type DiagnosticReportView,
 } from "@/components/diagnostic/v2/diagnostic-nav-rail"
-import { DiagnosticCard } from "@/components/diagnostic/v2/diagnostic-card"
 import {
   DiagnosticReportChartSection,
   DIAGNOSTIC_REPORT_ANCHOR_ID,
 } from "@/components/diagnostic/v2/diagnostic-trajectory-statement-chart"
-import {
-  DiagnosticExecutiveSummary,
-  DIAGNOSTIC_SUMMARY_ANCHOR_ID,
-} from "@/components/diagnostic/v2/diagnostic-executive-summary"
 import { DiagnosticCompanyOverviewSection } from "@/components/diagnostic/v2/diagnostic-company-overview-section"
-import { DiagnosticSeasonalityHeatmap } from "@/components/diagnostic/v2/diagnostic-seasonality-heatmap"
-import { DiagnosticDivisionsQuadrant } from "@/components/diagnostic/v2/diagnostic-divisions-quadrant"
-import { DiagnosticBenchmarkRadar } from "@/components/diagnostic/v2/diagnostic-benchmark-radar"
-import { DiagnosticRatiosGrid } from "@/components/diagnostic/v2/diagnostic-ratios-grid"
-import { DiagnosticProductsSection } from "@/components/diagnostic/v2/diagnostic-products-section"
-import { DiagnosticValuationSection } from "@/components/diagnostic/v2/diagnostic-valuation-section"
 import { DiagnosticDrilldownDrawer } from "@/components/diagnostic/v2/diagnostic-drilldown-drawer"
 import type { DrillDownRequest } from "@/components/diagnostic/v2/types"
 import { PAGE_CLASS } from "@/lib/diagnostic-theme"
-import { touchDiagnostic } from "@/lib/diagnostic-registry"
+import { touchCompanyReport } from "@/lib/company-report-registry"
+import {
+  companyReportExcludedViewIds,
+  type CompanyReportModuleId,
+} from "@/lib/company-report-module"
 import { diagnosticReportViewLabel } from "@/lib/diagnostic-report-chapters"
 
 const REPORT_VIEW_IDS = [
-  "sommaire",
   "company-overview",
   "performance",
   "revenue",
@@ -49,56 +40,42 @@ const REPORT_VIEW_IDS = [
   "capex",
 ] as const satisfies readonly DiagnosticReportView[]
 
-const REPORT_VIEWS = REPORT_VIEW_IDS.map((id) => ({
-  id,
-  label: id === "sommaire" ? "Sommaire" : diagnosticReportViewLabel(id),
-}))
-
-const SCROLL_SECTIONS = [
-  { id: "diag-saisonnalite", label: "Saisonnalité" },
-  { id: "diag-divisions", label: "Divisions" },
-  { id: "diag-profil", label: "Profil vs secteur" },
-  { id: "diag-ratios", label: "Ratios financiers" },
-  { id: "diag-produits", label: "Offre" },
-  { id: "diag-valorisation", label: "Valorisation" },
-]
+function buildReportViews(moduleId: CompanyReportModuleId) {
+  const excluded = new Set(companyReportExcludedViewIds(moduleId))
+  return REPORT_VIEW_IDS.filter((id) => !excluded.has(id)).map((id) => ({
+    id,
+    label: diagnosticReportViewLabel(id),
+  }))
+}
 
 interface DiagnosticReportPageProps {
-  diagnosticId: string
+  reportId: string
   companyId: string
   referenceYear: number
   referenceMonth: number
+  moduleId?: CompanyReportModuleId
 }
 
 export function DiagnosticReportPage({
-  diagnosticId,
+  reportId,
   companyId,
   referenceYear,
   referenceMonth,
+  moduleId = "diagnostic",
 }: DiagnosticReportPageProps) {
   const { companies, loading: companiesLoading } = useCompanies()
   const [drillDown, setDrillDown] = useState<DrillDownRequest | null>(null)
-  const [reportView, setReportView] = useState<DiagnosticReportView>("sommaire")
+  const [reportView, setReportView] = useState<DiagnosticReportView>("performance")
 
   const { data, loading, error, reload } = useCompanyDiagnostic(companyId, {
     referenceYear,
     referenceMonth,
   })
+  const reportViews = useMemo(() => buildReportViews(moduleId), [moduleId])
 
   useEffect(() => {
-    touchDiagnostic(diagnosticId)
-  }, [diagnosticId])
-
-  const signals = useMemo(() => (data ? buildSignals(data) : []), [data])
-  const signalFor = (section: string) => {
-    const s = signals.find((x) => x.section === section)
-    return s ? { tone: s.tone, text: s.text } : null
-  }
-
-  const trends = useMemo(() => {
-    if (!data) return []
-    return [...data.trends].sort((a, b) => a.fiscal_year - b.fiscal_year)
-  }, [data])
+    touchCompanyReport(moduleId, reportId)
+  }, [moduleId, reportId])
 
   return (
     <div className={PAGE_CLASS}>
@@ -107,7 +84,8 @@ export function DiagnosticReportPage({
       <main className="relative">
         <DiagnosticHero
           companyId={companyId}
-          diagnosticId={diagnosticId}
+          reportId={reportId}
+          moduleId={moduleId}
           diagnostic={data}
           loading={companiesLoading || loading}
         />
@@ -143,130 +121,31 @@ export function DiagnosticReportPage({
             <div className="grid items-start xl:grid-cols-[210px_1fr]">
               <div className="hidden xl:block">
                 <DiagnosticNavRail
-                  reportViews={REPORT_VIEWS}
+                  reportViews={reportViews}
                   activeReportView={reportView}
                   onReportViewChange={setReportView}
                   reportAnchorId={DIAGNOSTIC_REPORT_ANCHOR_ID}
-                  summaryAnchorId={DIAGNOSTIC_SUMMARY_ANCHOR_ID}
-                  sections={SCROLL_SECTIONS}
-                  signalCount={signals.filter((s) => s.tone !== "ok").length}
-                  signalSummary={signals
-                    .filter((s) => s.tone !== "ok")
-                    .map((s) => s.section)
-                    .join(", ")}
+                  sections={[]}
                 />
               </div>
 
               <div className="flex min-w-0 flex-col gap-4 px-6 pb-10 pt-5">
-                {reportView === "sommaire" ? (
-                  <DiagnosticExecutiveSummary
-                    diagnostic={data}
-                    companyId={companyId}
-                    companies={companies}
-                    onNavigateToView={(view) => {
-                      setReportView(view)
-                      requestAnimationFrame(() => {
-                        document
-                          .getElementById(DIAGNOSTIC_REPORT_ANCHOR_ID)
-                          ?.scrollIntoView({ behavior: "smooth", block: "start" })
-                      })
-                    }}
-                  />
-                ) : reportView === "company-overview" ? (
+                {reportView === "company-overview" ? (
                   <DiagnosticCompanyOverviewSection
-                    diagnosticId={diagnosticId}
+                    diagnosticId={reportId}
                     companyName={data.company_name}
                   />
                 ) : (
                   <DiagnosticReportChartSection
+                    moduleId={moduleId}
                     reportView={reportView}
                     companyId={companyId}
                     companies={companies}
                     currency={data.currency}
                     referenceYear={data.reference_period.calendar_year}
                     referenceMonth={data.reference_period.calendar_month}
-                    signal={signalFor("trajectoire")}
                   />
                 )}
-
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <DiagnosticCard
-                    id="diag-saisonnalite"
-                    title="Saisonnalité"
-                    subtitle="Part du chiffre d'affaires annuel par mois"
-                    detailHref="/analysis/seasonality"
-                    signal={signalFor("saisonnalite")}
-                    bodyClassName="px-[18px] py-4"
-                  >
-                    <DiagnosticSeasonalityHeatmap
-                      seasonality={data.seasonality}
-                      currency={data.currency}
-                    />
-                  </DiagnosticCard>
-
-                  <DiagnosticCard
-                    id="diag-profil"
-                    title="Profil vs secteur"
-                    subtitle="Les cinq piliers de l'indice de santé, comparés à la médiane"
-                    bodyClassName="p-0"
-                  >
-                    <DiagnosticBenchmarkRadar diagnostic={data} />
-                  </DiagnosticCard>
-                </div>
-
-                <DiagnosticCard
-                  id="diag-divisions"
-                  title="Rentabilité par division"
-                  subtitle="Croissance × marge × poids — cliquez une bulle ou une ligne pour ouvrir le détail"
-                  signal={signalFor("divisions")}
-                  bodyClassName="p-0"
-                >
-                  <DiagnosticDivisionsQuadrant
-                    divisions={data.divisions}
-                    currency={data.currency}
-                    onDrillDown={setDrillDown}
-                  />
-                </DiagnosticCard>
-
-                <DiagnosticCard
-                  id="diag-ratios"
-                  title="Ratios financiers"
-                  subtitle="Pastille verte = au-dessus du repère sectoriel"
-                  detailHref="/analysis/ratios"
-                  signal={signalFor("ratios")}
-                  bodyClassName="p-0 pt-1"
-                >
-                  <DiagnosticRatiosGrid trends={trends} />
-                </DiagnosticCard>
-
-                <DiagnosticCard
-                  id="diag-produits"
-                  title="Revenus et marges par produits / services"
-                  subtitle="Mix de revenus — les lignes rouges détruisent de la marge"
-                  detailHref="/analysis/product-margin"
-                  signal={signalFor("produits")}
-                  bodyClassName="p-0"
-                >
-                  <DiagnosticProductsSection
-                    products={data.products}
-                    currency={data.currency}
-                    onDrillDown={setDrillDown}
-                  />
-                </DiagnosticCard>
-
-                <DiagnosticCard
-                  id="diag-valorisation"
-                  title="Valorisation indicative"
-                  subtitle="Approche par multiple d'EBITDA"
-                  detailHref="/evaluation/ebitda-multiple"
-                  bodyClassName="p-0"
-                >
-                  <DiagnosticValuationSection
-                    valuation={data.valuation}
-                    notes={data.notes}
-                    currency={data.currency}
-                  />
-                </DiagnosticCard>
               </div>
             </div>
 

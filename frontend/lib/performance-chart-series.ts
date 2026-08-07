@@ -346,6 +346,20 @@ export type BuiltSeriesMeta = {
   showInSidePanel: boolean
 }
 
+/** Série monétaire (histogramme ou courbe), indépendamment du rendu graphique. */
+export function isCurrencyAmountSeriesMeta(meta: BuiltSeriesMeta): boolean {
+  return meta.valueFormat === "currency"
+}
+
+/** Série de revenus pour la narration (exclut BAIIA / ratios). */
+export function isRevenueCurrencySeriesMeta(meta: BuiltSeriesMeta): boolean {
+  return isCurrencyAmountSeriesMeta(meta) && !/baiia|ebita|ebitda/i.test(meta.label)
+}
+
+export function filterRevenueCurrencySeriesMeta(seriesMeta: BuiltSeriesMeta[]): BuiltSeriesMeta[] {
+  return seriesMeta.filter(isRevenueCurrencySeriesMeta)
+}
+
 /** Aligné sur l’horizon « Trimestriel - 2 ans » (8 trimestres civils). */
 export const PERFORMANCE_CHART_QUARTER_COUNT = 8
 /** Aligné sur l’horizon « Annuel - 5 ans » (année de référence + 4 années précédentes). */

@@ -9,15 +9,23 @@ import { DiagnosticSkeleton } from "@/components/diagnostic/diagnostic-skeleton"
 import { DiagnosticReportPrintView } from "@/components/diagnostic/diagnostic-report-print-view"
 import { useCompanies } from "@/hooks/use-companies"
 import { useCompanyDiagnostic } from "@/hooks/use-company-diagnostic"
-import { getDiagnostic } from "@/lib/diagnostic-registry"
-import { diagnosticReportPdfFilename } from "@/lib/diagnostic-report-print"
+import { getCompanyReport } from "@/lib/company-report-registry"
+import { companyReportPdfFilename } from "@/lib/diagnostic-report-print"
+import {
+  companyReportPortalPath,
+  getCompanyReportModule,
+  type CompanyReportModuleId,
+} from "@/lib/company-report-module"
 import "@/components/diagnostic/diagnostic-report-print.css"
 
 export function DiagnosticReportPrintPageContent({
-  diagnosticId,
+  reportId,
+  moduleId = "diagnostic",
 }: {
-  diagnosticId: string
+  reportId: string
+  moduleId?: CompanyReportModuleId
 }) {
+  const module = getCompanyReportModule(moduleId)
   const searchParams = useSearchParams()
 
   const [companyId, setCompanyId] = useState<string | null>(null)
@@ -31,7 +39,7 @@ export function DiagnosticReportPrintPageContent({
   }, [])
 
   useEffect(() => {
-    const record = getDiagnostic(diagnosticId)
+    const record = getCompanyReport(moduleId, reportId)
     const qCompany = searchParams.get("companyId")
     const qYear = searchParams.get("refYear")
     const qMonth = searchParams.get("refMonth")
@@ -46,7 +54,7 @@ export function DiagnosticReportPrintPageContent({
       setReferenceMonth(Number(qMonth))
     }
     setResolved(true)
-  }, [diagnosticId, searchParams])
+  }, [moduleId, reportId, searchParams])
 
   const { companies } = useCompanies()
   const { data, loading, error } = useCompanyDiagnostic(
@@ -58,20 +66,22 @@ export function DiagnosticReportPrintPageContent({
 
   useEffect(() => {
     if (!data) return
-    const suggested = diagnosticReportPdfFilename({
+    const suggested = companyReportPdfFilename(moduleId, {
       companyName: data.company_name,
       referenceYear: data.reference_period.calendar_year,
       referenceMonth: data.reference_period.calendar_month,
     })
     document.title = suggested.replace(/\.pdf$/i, "")
-  }, [data])
+  }, [data, moduleId])
 
-  if (!diagnosticId) {
+  const portalHref = companyReportPortalPath(module, companyId)
+
+  if (!reportId) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-white px-6 text-center">
-        <p className="text-sm text-slate-600">Identifiant de diagnostic manquant.</p>
+        <p className="text-sm text-slate-600">{module.missingIdMessage}</p>
         <Button asChild className="bg-[#E0742D] text-white hover:bg-[#c96526]">
-          <Link href="/modules/diagnostic">Retour aux diagnostics</Link>
+          <Link href={portalHref}>{module.notFoundBackLabel}</Link>
         </Button>
       </div>
     )
@@ -88,9 +98,9 @@ export function DiagnosticReportPrintPageContent({
   if (!companyId || referenceYear == null || referenceMonth == null) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-white px-6 text-center">
-        <p className="text-sm text-slate-600">Ce rapport est introuvable ou a été supprimé.</p>
+        <p className="text-sm text-slate-600">{module.notFoundMessage}</p>
         <Button asChild className="bg-[#E0742D] text-white hover:bg-[#c96526]">
-          <Link href="/modules/diagnostic">Retour aux diagnostics</Link>
+          <Link href={portalHref}>{module.notFoundBackLabel}</Link>
         </Button>
       </div>
     )
@@ -104,7 +114,7 @@ export function DiagnosticReportPrintPageContent({
       >
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold text-[#2A2F3A]">Aperçu du rapport diagnostic</p>
+            <p className="text-sm font-semibold text-[#2A2F3A]">{module.printPreviewTitle}</p>
             <p className="mt-0.5 text-xs text-slate-500">
               Format <span className="font-medium">A4 paysage</span> — utilisez{" "}
               <span className="font-medium">Imprimer en PDF</span> puis « Enregistrer au format PDF ».
@@ -141,7 +151,8 @@ export function DiagnosticReportPrintPageContent({
             diagnostic={data}
             companyId={companyId}
             companies={companies}
-            diagnosticId={diagnosticId}
+            diagnosticId={reportId}
+            moduleId={moduleId}
           />
         ) : null}
       </main>
@@ -150,9 +161,11 @@ export function DiagnosticReportPrintPageContent({
 }
 
 export function DiagnosticReportPrintPageShell({
-  diagnosticId,
+  reportId,
+  moduleId = "diagnostic",
 }: {
-  diagnosticId: string
+  reportId: string
+  moduleId?: CompanyReportModuleId
 }) {
   return (
     <Suspense
@@ -162,7 +175,38 @@ export function DiagnosticReportPrintPageShell({
         </div>
       }
     >
-      <DiagnosticReportPrintPageContent diagnosticId={diagnosticId} />
+      <DiagnosticReportPrintPageContent reportId={reportId} moduleId={moduleId} />
     </Suspense>
   )
+}
+
+export function CompanyReportPrintPageShell({
+  moduleId,
+}: {
+  moduleId: CompanyReportModuleId
+}) {
+  const module = getCompanyReportModule(moduleId)
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-white text-sm text-slate-600">
+          Chargement…
+        </div>
+      }
+    >
+      <CompanyReportPrintRouteInner moduleId={moduleId} reportIdParam={module.reportIdParam} />
+    </Suspense>
+  )
+}
+
+function CompanyReportPrintRouteInner({
+  moduleId,
+  reportIdParam,
+}: {
+  moduleId: CompanyReportModuleId
+  reportIdParam: string
+}) {
+  const searchParams = useSearchParams()
+  const reportId = searchParams.get(reportIdParam) ?? ""
+  return <DiagnosticReportPrintPageContent reportId={reportId} moduleId={moduleId} />
 }

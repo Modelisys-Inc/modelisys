@@ -7,7 +7,7 @@ type PageProps = {
 }
 
 /** Modules disposant d'une vraie page statique (app/modules/{id}/page.tsx) — exclus du placeholder. */
-const MODULES_WITH_DEDICATED_PAGE = new Set<string>(["diagnostic"])
+const MODULES_WITH_DEDICATED_PAGE = new Set<string>(["diagnostic", "pilotage"])
 
 export function generateStaticParams() {
   return COMPANY_MODULES.filter((module) => !MODULES_WITH_DEDICATED_PAGE.has(module.id)).map(

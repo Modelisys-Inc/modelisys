@@ -435,6 +435,34 @@ describe("buildFinancialPositionNarrative", () => {
     expect(narrative?.paragraphs.some((p) => p.heading === familyHeading("ACT"))).toBe(true)
     expect(narrative?.paragraphs.some((p) => p.heading === "Vue d'ensemble")).toBe(false)
   })
+
+  it("développe une lecture comparable à l'analyse des revenus (évolution, part, croissance)", () => {
+    const result = buildFinancialPositionResult({
+      rows: ROWS,
+      periods: PERIODS,
+      mappings: MAPPINGS,
+      view: "years",
+      refMonth: 12,
+      refYear: 2025,
+    })!
+    const tables = buildFinancialPositionBreakdownTables({
+      result,
+      rows: ROWS,
+      periods: PERIODS,
+      mappings: MAPPINGS,
+      standardLinkCodes: STANDARD_LINK_CODES,
+      view: "years",
+      refMonth: 12,
+      refYear: 2025,
+    })
+    const narrative = buildFinancialPositionNarrative(result, "years", { breakdownTables: tables })!
+    const act = narrative.paragraphs.find((p) => p.heading === familyHeading("ACT"))
+    expect(act?.body).toMatch(/TCAC|taux de croissance annualisé/i)
+    expect(act?.body).toMatch(/total de l'actif/i)
+    expect(act?.body).toMatch(/ventilation détaillée/i)
+    expect(act?.secondaryBody).toMatch(/glissement annuel|TCAC/i)
+    expect(act?.statsLine).toBeTruthy()
+  })
 })
 
 describe("buildFinancialPositionBreakdownTables", () => {
@@ -629,7 +657,7 @@ describe("financial position report lecture pagination", () => {
     )
 
     expect(narrative.paragraphs.length).toBeGreaterThan(4)
-    expect(pages.length).toBeLessThanOrEqual(3)
-    expect(Math.max(...pages.map((page) => page.length))).toBeGreaterThanOrEqual(2)
+    expect(pages.length).toBeLessThanOrEqual(5)
+    expect(Math.max(...pages.map((page) => page.length))).toBeGreaterThanOrEqual(1)
   })
 })

@@ -4,7 +4,9 @@ import {
   buildIncomePerformanceChartFromBridge,
   INCOME_PERFORMANCE_SERIES_IDS,
   isFixedIncomePerformanceChart,
+  resolveIncomePerformanceSeriesKeys,
 } from "@/lib/income-performance-chart"
+import type { BuiltSeriesMeta } from "@/lib/performance-chart-series"
 import { CONTRIBUTIVE_MARGIN_SERIES_LABEL } from "@/lib/statement-chart-config"
 
 function bridge(points: ExpenseContributionBridgeResult["points"]): ExpenseContributionBridgeResult {
@@ -48,8 +50,8 @@ describe("buildIncomePerformanceChartFromBridge", () => {
     expect(built).not.toBeNull()
     expect(built!.series.map((s) => s.label)).toEqual([
       "Revenus",
-      "BAIIA",
       CONTRIBUTIVE_MARGIN_SERIES_LABEL,
+      "BAIIA",
     ])
 
     const revKey = built!.series.find((s) => s.id === INCOME_PERFORMANCE_SERIES_IDS.revenue)!.dataKey
@@ -62,5 +64,48 @@ describe("buildIncomePerformanceChartFromBridge", () => {
     expect(point[revKey]).toBe(1_000_000)
     expect(point[opKey]).toBe(380_000)
     expect(point[cmKey]).toBeCloseTo(60, 1)
+  })
+})
+
+describe("resolveIncomePerformanceSeriesKeys", () => {
+  it("résout les clés lorsque Revenus et BAIIA sont en courbes", () => {
+    const meta: BuiltSeriesMeta[] = [
+      {
+        id: "rev",
+        dataKey: "v_rev",
+        kind: "line",
+        label: "Revenus",
+        color: "#3b82f6",
+        yAxis: "left",
+        valueFormat: "currency",
+        showOnChart: true,
+        showInSidePanel: true,
+      },
+      {
+        id: "cm",
+        dataKey: "v_cm",
+        kind: "line",
+        label: CONTRIBUTIVE_MARGIN_SERIES_LABEL,
+        color: "#f59e0b",
+        yAxis: "right",
+        valueFormat: "ratio",
+        showOnChart: true,
+        showInSidePanel: true,
+      },
+      {
+        id: "op",
+        dataKey: "v_op",
+        kind: "line",
+        label: "BAIIA",
+        color: "#10b981",
+        yAxis: "left",
+        valueFormat: "currency",
+        showOnChart: true,
+        showInSidePanel: true,
+      },
+    ]
+
+    const keys = resolveIncomePerformanceSeriesKeys(meta)
+    expect(keys).toEqual({ kRev: "v_rev", kEbita: "v_op", kMargin: "v_cm" })
   })
 })

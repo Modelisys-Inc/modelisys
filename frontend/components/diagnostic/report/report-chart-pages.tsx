@@ -15,6 +15,8 @@ import {
 } from "@/lib/report-narrative-pagination"
 import { cn } from "@/lib/utils"
 
+import type { CompanyReportModuleId } from "@/lib/company-report-module"
+
 interface ReportChartPagesProps {
   analysis: ReportPrintAnalysis
   sectionNumber: string
@@ -24,6 +26,7 @@ interface ReportChartPagesProps {
   sectionMeta: string
   slotBundle: DiagnosticReportSlotBundle | null
   isFirstAnalysis: boolean
+  moduleId?: CompanyReportModuleId
 }
 
 function chartPartAnchorId(viewId: string, part: ReportPrintChartPart, partIndex: number): string {
@@ -41,6 +44,7 @@ export function ReportChartPages({
   sectionMeta,
   slotBundle,
   isFirstAnalysis,
+  moduleId = "diagnostic",
 }: ReportChartPagesProps) {
   const configuredParts = chartPartsForAnalysis(analysis.viewId)
   const [pageCount, setPageCount] = useState(configuredParts.length)
@@ -88,6 +92,7 @@ export function ReportChartPages({
               </div>
               <div className="report-chart-content">
                 <DiagnosticReportChartSection
+                moduleId={moduleId}
                 reportView={analysis.viewId}
                 companyId={companyId}
                 companies={companies}

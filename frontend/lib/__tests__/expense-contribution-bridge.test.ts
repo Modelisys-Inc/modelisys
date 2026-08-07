@@ -144,4 +144,54 @@ describe("expense-contribution-bridge", () => {
       operatingProfit: 300_000,
     })
   })
+
+  it("affiche 13 mois sur l'horizon mensuel quand monthlyPointCount vaut 13", () => {
+    const periodDefs = [
+      { fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" },
+      { fiscalYear: 2025, fiscalMonth: 11, label: "Nov 2025" },
+      { fiscalYear: 2025, fiscalMonth: 10, label: "Oct 2025" },
+      { fiscalYear: 2025, fiscalMonth: 9, label: "Sep 2025" },
+      { fiscalYear: 2025, fiscalMonth: 8, label: "Aoû 2025" },
+      { fiscalYear: 2025, fiscalMonth: 7, label: "Jul 2025" },
+      { fiscalYear: 2025, fiscalMonth: 6, label: "Jun 2025" },
+      { fiscalYear: 2025, fiscalMonth: 5, label: "Mai 2025" },
+      { fiscalYear: 2025, fiscalMonth: 4, label: "Avr 2025" },
+      { fiscalYear: 2025, fiscalMonth: 3, label: "Mar 2025" },
+      { fiscalYear: 2025, fiscalMonth: 2, label: "Fév 2025" },
+      { fiscalYear: 2025, fiscalMonth: 1, label: "Jan 2025" },
+      { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
+      { fiscalYear: 2024, fiscalMonth: 11, label: "Nov 2024" },
+    ] satisfies SeriesPeriod[]
+    const periods: SeriesPeriod[] = periodDefs
+    const amounts: Record<string, number> = Object.fromEntries(
+      periodDefs.map((p) => [`${p.fiscalYear}-${p.fiscalMonth}`, 100_000]),
+    )
+    const rows: SeriesRow[] = [
+      {
+        id: "rev-a-1",
+        label: "Charpentes",
+        linkCode: "REV-A.1",
+        isBold: false,
+        isSection: false,
+        isResult: false,
+        amounts,
+        detailRows: [],
+      },
+    ]
+
+    const bridge = buildExpenseContributionBridge({
+      mappings: [],
+      seriesRows: rows,
+      periods,
+      view: "24months",
+      refMonth: 12,
+      refYear: 2025,
+      standardLinkCodes: REV_CHART,
+      monthlyPointCount: 13,
+    })
+
+    expect(bridge?.points).toHaveLength(13)
+    expect(bridge?.points[0]?.period).toBe("Déc 2025")
+    expect(bridge?.points[12]?.period).toBe("Déc 2024")
+  })
 })

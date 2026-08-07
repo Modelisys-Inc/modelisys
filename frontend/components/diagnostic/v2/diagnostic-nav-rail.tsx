@@ -8,7 +8,6 @@ export interface RailSection {
 }
 
 export type DiagnosticReportView =
-  | "sommaire"
   | "company-overview"
   | "performance"
   | "revenue"
@@ -31,8 +30,6 @@ interface DiagnosticNavRailProps {
   activeReportView: DiagnosticReportView
   onReportViewChange: (view: DiagnosticReportView) => void
   reportAnchorId: string
-  /** Ancre du sommaire exécutif (première entrée du rapport). */
-  summaryAnchorId?: string
   sections: RailSection[]
   signalCount?: number
   signalSummary?: string
@@ -49,7 +46,6 @@ export function DiagnosticNavRail({
   activeReportView,
   onReportViewChange,
   reportAnchorId,
-  summaryAnchorId,
   sections,
   signalCount,
   signalSummary,
@@ -58,11 +54,7 @@ export function DiagnosticNavRail({
 
   useEffect(() => {
     if (typeof IntersectionObserver === "undefined") return
-    const observedIds = [
-      ...(summaryAnchorId ? [summaryAnchorId] : []),
-      reportAnchorId,
-      ...sections.map((s) => s.id),
-    ]
+    const observedIds = [reportAnchorId, ...sections.map((s) => s.id)]
     const observer = new IntersectionObserver(
       (entries) => {
         const visible = entries
@@ -77,7 +69,7 @@ export function DiagnosticNavRail({
       if (el) observer.observe(el)
     })
     return () => observer.disconnect()
-  }, [sections, reportAnchorId, summaryAnchorId])
+  }, [sections, reportAnchorId])
 
   return (
     <aside className="sticky top-0 flex flex-col gap-0.5 self-start border-r border-slate-200 px-3.5 pb-7 pt-5">
@@ -93,9 +85,7 @@ export function DiagnosticNavRail({
             type="button"
             onClick={() => {
               onReportViewChange(view.id)
-              const anchor =
-                view.id === "sommaire" && summaryAnchorId ? summaryAnchorId : reportAnchorId
-              document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" })
+              document.getElementById(reportAnchorId)?.scrollIntoView({ behavior: "smooth", block: "start" })
             }}
             aria-current={isActive ? "true" : undefined}
             className={[
@@ -114,29 +104,33 @@ export function DiagnosticNavRail({
         )
       })}
 
-      <div className="my-2 border-t border-slate-100" aria-hidden />
+      {sections.length > 0 ? (
+        <>
+          <div className="my-2 border-t border-slate-100" aria-hidden />
 
-      {sections.map((s) => {
-        const isActive = activeSection === s.id
-        return (
-          <a
-            key={s.id}
-            href={`#${s.id}`}
-            aria-current={isActive ? "true" : undefined}
-            className={[
-              "flex items-center gap-[9px] rounded-md px-2.5 py-[7px] text-xs font-medium leading-snug transition-colors",
-              isActive ? "bg-slate-100 text-[#2A2F3A]" : "text-slate-500 hover:text-[#2A2F3A]",
-            ].join(" ")}
-          >
-            <span
-              aria-hidden
-              className="h-[5px] w-[5px] flex-none rounded-full"
-              style={{ background: isActive ? "#E0742D" : "#cbd5e1" }}
-            />
-            {s.label}
-          </a>
-        )
-      })}
+          {sections.map((s) => {
+            const isActive = activeSection === s.id
+            return (
+              <a
+                key={s.id}
+                href={`#${s.id}`}
+                aria-current={isActive ? "true" : undefined}
+                className={[
+                  "flex items-center gap-[9px] rounded-md px-2.5 py-[7px] text-xs font-medium leading-snug transition-colors",
+                  isActive ? "bg-slate-100 text-[#2A2F3A]" : "text-slate-500 hover:text-[#2A2F3A]",
+                ].join(" ")}
+              >
+                <span
+                  aria-hidden
+                  className="h-[5px] w-[5px] flex-none rounded-full"
+                  style={{ background: isActive ? "#E0742D" : "#cbd5e1" }}
+                />
+                {s.label}
+              </a>
+            )
+          })}
+        </>
+      ) : null}
 
       {signalCount ? (
         <div className="mt-4 rounded-[10px] border border-orange-200 bg-orange-50 p-3">

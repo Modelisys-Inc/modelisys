@@ -7,7 +7,7 @@ import { DiagnosticReportPrintPageShell } from "@/components/diagnostic/diagnost
 function DiagnosticReportRoutePageInner() {
   const searchParams = useSearchParams()
   const diagnosticId = searchParams.get("diagnosticId") ?? ""
-  return <DiagnosticReportPrintPageShell diagnosticId={diagnosticId} />
+  return <DiagnosticReportPrintPageShell reportId={diagnosticId} moduleId="diagnostic" />
 }
 
 /**

@@ -1,5 +1,24 @@
+import type { CompanyReportModuleId } from "@/lib/company-report-module"
+import {
+  getCompanyReportPerformanceNarrativeSubtitle,
+  getCompanyReportRevenueAnalysisMonthlyCount,
+} from "@/lib/company-report-module"
+import { resolveIncomePerformanceSeriesKeys } from "@/lib/income-performance-chart"
+import type { PilotagePerformanceBudgetSnapshot } from "@/lib/pilotage-revenue-budget"
+import {
+  buildPilotagePerformanceParagraphs,
+  buildRevenueSourceBlockId,
+  buildRevenueSourceMarginPerformanceParagraphs,
+  buildRevenueSourcePerformanceParagraphs,
+} from "@/lib/pilotage-revenue-performance-narrative"
+import {
+  computePilotageMarginMetricsFromRevenueSlice,
+  computePilotageScalarMetricsFromRevenueSlice,
+  type PilotagePerformanceMetricsBundle,
+} from "@/lib/pilotage-revenue-metrics"
 import { formatCurrency } from "@/lib/financial-utils"
 import type { BuiltSeriesMeta, DynamicChartPoint } from "@/lib/performance-chart-series"
+import { filterRevenueCurrencySeriesMeta, isCurrencyAmountSeriesMeta } from "@/lib/performance-chart-series"
 import { PERFORMANCE_CHART_MONTH_COUNT_24, PERFORMANCE_CHART_QUARTER_COUNT, PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
 import { PERFORMANCE_WINDOW_PAGE_GROUP } from "@/lib/report-narrative-pagination"
 
@@ -320,6 +339,89 @@ export function buildSeasonalityParagraph(
   }
 
   return sentences.length ? sentences.join(" ") : null
+}
+
+/**
+ * Saisonnalité Analyse des revenus : moyenne, position du mois de référence, extrêmes sur la fenêtre.
+ */
+export function buildRevenueAnalysisSeasonalityBody(
+  points: PerformanceNarrativePoint[],
+  metricLabel: string,
+  monthCount = 13,
+): string | null {
+  const window = points.slice(0, monthCount)
+  if (window.length < 3) return null
+
+  const parsed = window
+    .map((point) => {
+      const meta = parseChartMonthPeriod(point.period)
+      if (!meta) return null
+      return { ...meta, value: point.revenue, period: point.period }
+    })
+    .filter((point): point is NonNullable<typeof point> => point !== null)
+
+  if (parsed.length < 3) return null
+
+  const mean = parsed.reduce((sum, point) => sum + point.value, 0) / parsed.length
+
+  let best = parsed[0]!
+  let worst = parsed[0]!
+  for (const point of parsed) {
+    if (point.value > best.value) best = point
+    if (point.value < worst.value) worst = point
+  }
+
+  const ref = parsed[0]!
+  const vsMean = pctChange(ref.value, mean)
+  const monthLabel = parsed.length
+  const sitVerb = /^les /i.test(metricLabel.trim()) ? "se situent" : "se situe"
+  const alignedVerb = /^les /i.test(metricLabel.trim()) ? "sont alignés" : "est aligné"
+
+  const sentences: string[] = [
+    `Sur les ${monthLabel} derniers mois, la moyenne mensuelle de ${metricLabel} s'établit à ${formatCurrency(mean)}.`,
+  ]
+
+  if (vsMean !== null && Math.abs(vsMean) > 0.5) {
+    const pct = Math.abs(vsMean).toFixed(1).replace(".", ",")
+    sentences.push(
+      vsMean > 0
+        ? `À la date de référence, ${metricLabel} ${sitVerb} à ${pct} % au-dessus de la moyenne des ${monthLabel} derniers mois.`
+        : `À la date de référence, ${metricLabel} ${sitVerb} à ${pct} % sous la moyenne des ${monthLabel} derniers mois.`,
+    )
+  } else {
+    sentences.push(
+      `À la date de référence, ${metricLabel} ${alignedVerb} sur la moyenne des ${monthLabel} derniers mois.`,
+    )
+  }
+
+  sentences.push(
+    `Le meilleur mois observé est ${best.period} (${formatCurrency(best.value)}) et le plus faible ${worst.period} (${formatCurrency(worst.value)}).`,
+  )
+
+  return sentences.join(" ")
+}
+
+export function buildRevenueAnalysisSeasonalityParagraph(
+  points: PerformanceNarrativePoint[],
+  metricLabel: string,
+  blockId: string,
+  divisionTitle: string,
+  monthCount = 13,
+): PerformanceNarrativeParagraph | null {
+  const body = buildRevenueAnalysisSeasonalityBody(points, metricLabel, monthCount)
+  if (!body) return null
+
+  return {
+    divisionBlockId: blockId,
+    divisionTitle,
+    heading: divisionTitle,
+    hideMainHeading: true,
+    section: "revenue-performance",
+    narrativePageGroup: blockId,
+    showIndicatorTable: false,
+    subsection: "Saisonnalité",
+    body,
+  }
 }
 
 function attachSeasonalityBody(
@@ -716,6 +818,33 @@ function buildStatsLine(
       `Évol. annualisée : ${marginAnnualizedPts.toFixed(1).replace(".", ",")} %${marginTrendSuffix}`,
     )
   return parts.join(" · ")
+}
+
+/** Paragraphe fenêtre (évolution + position) pour une série monétaire — réutilisé hors Performance. */
+export function buildCurrencySeriesWindowParagraph(
+  heading: string,
+  label: string,
+  points: PerformanceNarrativePoint[],
+  pickValue: (p: PerformanceNarrativePoint) => number,
+  copy: WindowNarrativeCopy,
+  options?: {
+    withSeasonality?: boolean
+    comparisonNoun?: CurrencyComparisonNoun
+    section?: NarrativeParagraphSection
+  },
+): PerformanceNarrativeParagraph | null {
+  const paragraph = buildCurrencyWindowParagraph(
+    heading,
+    label,
+    "currency",
+    points,
+    pickValue,
+    copy,
+    options?.withSeasonality ?? true,
+    options?.comparisonNoun ?? "montants",
+  )
+  if (!paragraph || !options?.section) return paragraph
+  return { ...paragraph, section: options.section }
 }
 
 function buildCurrencyWindowParagraph(
@@ -1646,22 +1775,48 @@ function buildMonthlyPerformanceNarrative(data: PerformanceNarrativePoint[]): Pe
   return buildWindowPerformanceNarrative(data, MONTHLY_COPY, "monthly")
 }
 
+export type IncomePerformanceNarrativeOptions = {
+  moduleId?: CompanyReportModuleId
+  pilotagePerformanceMetrics?: PilotagePerformanceMetricsBundle | null
+  pilotagePerformanceBudget?: PilotagePerformanceBudgetSnapshot | null
+}
+
+function buildPilotageMonthlyPerformanceNarrative(
+  data: PerformanceNarrativePoint[],
+  options: IncomePerformanceNarrativeOptions,
+): PerformanceNarrativeResult | null {
+  const metrics = options.pilotagePerformanceMetrics
+  if (!metrics) return buildMonthlyPerformanceNarrative(data)
+
+  const standard = buildMonthlyPerformanceNarrative(data)
+  const paragraphs = buildPilotagePerformanceParagraphs(
+    metrics,
+    options.pilotagePerformanceBudget ?? null,
+  )
+  const pilotageSubtitle = getCompanyReportPerformanceNarrativeSubtitle("pilotage")
+
+  return {
+    ...standard,
+    subtitle: pilotageSubtitle ?? standard.subtitle,
+    paragraphs,
+  }
+}
+
 export function mapDynamicChartToRevenueSeriesNarratives(
   points: DynamicChartPoint[],
   seriesMeta: BuiltSeriesMeta[],
 ): RevenueSeriesNarrativeSlice[] {
   if (!points.length || !seriesMeta.length) return []
 
-  return seriesMeta
-    .filter((s) => s.kind === "bar" && s.valueFormat === "currency")
-    .map((bar) => {
-      const heading = bar.label.trim() || "Revenus"
+  return filterRevenueCurrencySeriesMeta(seriesMeta)
+    .map((series) => {
+      const heading = series.label.trim() || "Revenus"
       return {
         heading,
         metricLabel: metricLabelForRevenueSeries(heading),
         points: points.map((p) => {
           const row = p as Record<string, string | number>
-          const revenue = Number(row[bar.dataKey] ?? 0)
+          const revenue = Number(row[series.dataKey] ?? 0)
           return {
             period: String(row.period ?? ""),
             revenue,
@@ -1684,22 +1839,17 @@ export function mapDynamicChartToRevenueNarrativePoints(
 }
 
 /**
- * Heuristique pour réutiliser la synthèse textuelle : 1er histogramme = revenus, 2e = BAIIA,
- * 1re courbe au format ratio = marge % — aligné sur la config par défaut.
+ * Heuristique pour réutiliser la synthèse textuelle : séries monétaires Revenus / BAIIA,
+ * courbe ratio = marge % — indépendant du rendu histogramme ou courbe.
  */
 export function mapDynamicChartToNarrativePoints(
   points: DynamicChartPoint[],
   seriesMeta: BuiltSeriesMeta[],
 ): PerformanceNarrativePoint[] | null {
   if (!points.length || !seriesMeta.length) return null
-  const bars = seriesMeta.filter((s) => s.kind === "bar")
-  const marginLine = seriesMeta.find((s) => s.kind === "line" && s.valueFormat === "ratio")
-
-  if (bars.length < 2 || !marginLine) return null
-
-  const kRev = bars[0]!.dataKey
-  const kEbita = bars[1]!.dataKey
-  const kMargin = marginLine.dataKey
+  const keys = resolveIncomePerformanceSeriesKeys(seriesMeta)
+  if (!keys) return null
+  const { kRev, kEbita, kMargin } = keys
 
   return points.map((p) => {
     const row = p as Record<string, string | number>
@@ -1837,10 +1987,16 @@ function buildSequentialPerformanceNarrative(
 export function buildIncomePerformanceNarrative(
   data: PerformanceNarrativePoint[],
   view: string,
+  options?: IncomePerformanceNarrativeOptions,
 ): PerformanceNarrativeResult | null {
   if (!data.length) return null
   if (view === "years") return buildAnnualPerformanceNarrative(data)
-  if (view === "24months") return buildMonthlyPerformanceNarrative(data)
+  if (view === "24months") {
+    if (options?.moduleId === "pilotage" && options.pilotagePerformanceMetrics) {
+      return buildPilotageMonthlyPerformanceNarrative(data, options)
+    }
+    return buildMonthlyPerformanceNarrative(data)
+  }
   return buildSequentialPerformanceNarrative(data, view)
 }
 
@@ -1848,8 +2004,12 @@ export function buildIncomePerformanceNarrative(
 export function buildRevenueOnlyPerformanceNarrative(
   series: RevenueSeriesNarrativeSlice[],
   view: string,
+  options?: RevenueAnalysisNarrativeContext,
 ): PerformanceNarrativeResult | null {
-  return buildRevenueAnalysisPerformanceNarrative(series, view, { dimension: "revenue" })
+  return buildRevenueAnalysisPerformanceNarrative(series, view, {
+    dimension: "revenue",
+    ...options,
+  })
 }
 
 export type RevenueAnalysisPerformanceOptions = {
@@ -1861,13 +2021,71 @@ export type RevenueAnalysisPerformanceOptions = {
   ) => PerformanceNarrativeParagraph | null
 }
 
+export type RevenueAnalysisNarrativeContext = RevenueAnalysisPerformanceOptions & {
+  fiscalYearEnd?: string
+  moduleId?: CompanyReportModuleId
+}
+
+function buildRevenueSeriesMonthlyPerformanceNarrative(
+  series: RevenueSeriesNarrativeSlice[],
+  fiscalYearEnd: string,
+  moduleId?: CompanyReportModuleId,
+): PerformanceNarrativeResult | null {
+  const paragraphs: PerformanceNarrativeParagraph[] = []
+  const seasonalityMonthCount = moduleId ? getCompanyReportRevenueAnalysisMonthlyCount(moduleId) : 13
+
+  for (let index = 0; index < series.length; index++) {
+    const slice = series[index]!
+    const blockId = buildRevenueSourceBlockId(index, slice.heading)
+    const metrics = computePilotageScalarMetricsFromRevenueSlice(slice, fiscalYearEnd)
+    if (!metrics) continue
+    paragraphs.push(
+      ...buildRevenueSourcePerformanceParagraphs(
+        slice.heading,
+        slice.metricLabel,
+        blockId,
+        metrics,
+      ),
+    )
+    const seasonality = buildRevenueAnalysisSeasonalityParagraph(
+      slice.points,
+      slice.metricLabel,
+      blockId,
+      slice.heading,
+      seasonalityMonthCount,
+    )
+    if (seasonality) paragraphs.push(seasonality)
+  }
+
+  if (!paragraphs.length) return null
+
+  const subtitle = moduleId
+    ? getCompanyReportPerformanceNarrativeSubtitle(moduleId) ?? MONTHLY_COPY.subtitle
+    : MONTHLY_COPY.subtitle
+
+  return {
+    mode: "monthly",
+    title: "Lecture de la performance",
+    subtitle,
+    referencePeriod: series[0]?.points[0]?.period ?? "",
+    paragraphs,
+  }
+}
+
 /** Lecture fenêtre + pondération + croissance vs total (Revenus, Divisions, etc.). */
 export function buildRevenueAnalysisPerformanceNarrative(
   series: RevenueSeriesNarrativeSlice[],
   view: string,
-  options: RevenueAnalysisPerformanceOptions = {},
+  options: RevenueAnalysisNarrativeContext = {},
 ): PerformanceNarrativeResult | null {
   if (!series.length) return null
+  if (view === "24months" && options.fiscalYearEnd) {
+    return buildRevenueSeriesMonthlyPerformanceNarrative(
+      series,
+      options.fiscalYearEnd,
+      options.moduleId,
+    )
+  }
   const narrativeOptions = {
     revenueAnalysis: true,
     dimension: options.dimension ?? "revenue",
@@ -1946,6 +2164,59 @@ export function buildContributiveMarginByRevenueNarrative(
     return buildContributiveMarginSeriesWindowNarrative(series, MONTHLY_COPY, "monthly", "revenue")
   }
   return null
+}
+
+/** Pilotage — lecture contribution marginale par source (actuelle / YTD / TTM + tableaux). */
+export function buildPilotageMarginByRevenueNarrative(
+  series: RevenueSeriesNarrativeSlice[],
+  fiscalYearEnd: string,
+): PerformanceNarrativeResult | null {
+  const paragraphs: PerformanceNarrativeParagraph[] = []
+
+  for (let index = 0; index < series.length; index++) {
+    const slice = series[index]!
+    if (!slice.variableCostMapped) {
+      paragraphs.push({
+        heading: `Marge contributive — ${slice.heading}`,
+        section: "contributive-margin",
+        divisionBlockId: buildRevenueSourceBlockId(index, slice.heading),
+        divisionTitle: `Marge contributive — ${slice.heading}`,
+        body:
+          "Aucun rattachement de coûts variables n'a été configuré dans le mapping comptable pour cette source. Paramétrez le type « Variable » et le compte de revenu associé (ex. REV-A.1) sur chaque compte de charge afin d'obtenir la marge contributive.",
+        showIndicatorTable: false,
+      })
+      continue
+    }
+
+    const metrics = computePilotageMarginMetricsFromRevenueSlice(slice, fiscalYearEnd)
+    if (!metrics) continue
+
+    paragraphs.push(
+      ...buildRevenueSourceMarginPerformanceParagraphs(
+        slice.heading,
+        slice.metricLabel,
+        buildRevenueSourceBlockId(index, slice.heading),
+        metrics,
+      ),
+    )
+  }
+
+  if (!paragraphs.length) return null
+
+  const referencePeriod =
+    series
+      .flatMap((s) => s.points)
+      .find((p) => p.variableCost !== undefined && Math.abs(p.revenue) > DATA_EPSILON)?.period ??
+    series[0]?.points[0]?.period ??
+    ""
+
+  return {
+    mode: "monthly",
+    title: "Lecture de la contribution marginale par revenus",
+    subtitle: "Analyse mensuelle — marge contributive par source à la date de référence",
+    referencePeriod,
+    paragraphs,
+  }
 }
 
 /** Synthèse contribution marginale par division (carte Diagnostic « Divisions » sous Dépenses). */
@@ -2058,15 +2329,15 @@ export function mapDynamicChartToExpenseSeriesNarratives(
   if (!points.length || !seriesMeta.length) return []
 
   return seriesMeta
-    .filter((s) => s.kind === "bar" && s.valueFormat === "currency")
-    .map((bar) => {
-      const heading = bar.label.trim() || "Dépenses"
+    .filter(isCurrencyAmountSeriesMeta)
+    .map((series) => {
+      const heading = series.label.trim() || "Dépenses"
       return {
         heading,
         metricLabel: metricLabelForExpenseSeries(heading),
         points: points.map((p) => {
           const row = p as Record<string, string | number>
-          const revenue = Number(row[bar.dataKey] ?? 0)
+          const revenue = Number(row[series.dataKey] ?? 0)
           return {
             period: String(row.period ?? ""),
             revenue,

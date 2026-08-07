@@ -2,11 +2,16 @@
 
 import type { Company } from "@/components/entity-selector"
 import type { CompanyDiagnostic } from "@/lib/api"
-import { DIAGNOSTIC_PRINT_ANALYSES, reportAnalysisSectionNumber } from "@/lib/diagnostic-report-chapters"
+import { reportAnalysisSectionNumber } from "@/lib/diagnostic-report-chapters"
 import { useDiagnosticReportSlotBundles } from "@/hooks/use-diagnostic-report-slot-bundles"
 import { ReportLecturePages } from "@/components/diagnostic/report/report-lecture-pages"
 import { ReportChartPages } from "@/components/diagnostic/report/report-chart-pages"
 import { ReportAnalysisIntroPage } from "@/components/diagnostic/report/report-analysis-intro-page"
+import {
+  companyReportAnalysisNumberOffset,
+  companyReportPrintAnalyses,
+  type CompanyReportModuleId,
+} from "@/lib/company-report-module"
 
 interface ReportAnalysisPrintProps {
   diagnostic: CompanyDiagnostic
@@ -14,6 +19,7 @@ interface ReportAnalysisPrintProps {
   companies: Company[]
   referenceLabel: string
   sectionMeta: string
+  moduleId?: CompanyReportModuleId
 }
 
 /** Pages introduction + graphique + lecture pour chaque analyse (Performance → Capex). */
@@ -23,21 +29,25 @@ export function ReportAnalysisPrint({
   companies,
   referenceLabel,
   sectionMeta,
+  moduleId = "diagnostic",
 }: ReportAnalysisPrintProps) {
   const { bundleForView } = useDiagnosticReportSlotBundles(companyId)
+  const analysisNumberOffset = companyReportAnalysisNumberOffset(moduleId)
+  const printAnalyses = companyReportPrintAnalyses(moduleId)
 
   return (
     <>
-      {DIAGNOSTIC_PRINT_ANALYSES.map((analysis, analysisIndex) => {
+      {printAnalyses.map((analysis, analysisIndex) => {
         const slotBundle = bundleForView(analysis.viewId)
-        const sectionNumber = reportAnalysisSectionNumber(analysisIndex)
+        const sectionNumber = reportAnalysisSectionNumber(analysisIndex, analysisNumberOffset)
 
         return (
           <div key={`${analysis.viewId}-${analysisIndex}`} className="report-analysis-group">
             <ReportAnalysisIntroPage
               analysis={analysis}
-              analysisNumber={analysisIndex + 2}
+              analysisNumber={analysisIndex + analysisNumberOffset}
               companyName={diagnostic.company_name}
+              moduleId={moduleId}
             />
 
             <ReportChartPages
@@ -49,6 +59,7 @@ export function ReportAnalysisPrint({
               sectionMeta={sectionMeta}
               slotBundle={slotBundle}
               isFirstAnalysis={false}
+              moduleId={moduleId}
             />
 
             <ReportLecturePages
@@ -59,6 +70,7 @@ export function ReportAnalysisPrint({
               companies={companies}
               sectionMeta={sectionMeta}
               slotBundle={slotBundle}
+              moduleId={moduleId}
             />
           </div>
         )

@@ -19,6 +19,12 @@ describe("formatReportSectionMeta", () => {
       "ManuFAC · Diagnostic financier · 31 Décembre 2026 · CAD",
     )
   })
+
+  it("utilise le libellé Rapport de performance pour le pilotage", () => {
+    expect(formatReportSectionMeta("ManuFAC", 2026, 12, "CAD", "pilotage")).toBe(
+      "ManuFAC · Rapport de performance · 31 Décembre 2026 · CAD",
+    )
+  })
 })
 
 describe("diagnosticReportPdfFilename", () => {

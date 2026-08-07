@@ -1,5 +1,8 @@
 /** Aides de formatage propres au rapport Diagnostic (devise de la société, pourcentages, ratios). */
 
+import type { CompanyReportModuleId } from "@/lib/company-report-module"
+import { getCompanyReportBranding } from "@/lib/company-report-branding"
+
 /** Montant monétaire dans la devise de la société (fr-CA, sans décimales). */
 export function formatMoney(value: number, currency: string): string {
   try {
@@ -120,12 +123,14 @@ export function formatReportSectionMeta(
   year: number,
   month: number,
   currency: string,
+  moduleId: CompanyReportModuleId = "diagnostic",
 ): string {
+  const { sectionMetaLabel } = getCompanyReportBranding(moduleId)
   const label = REFERENCE_MONTH_LABELS[month - 1]
-  if (!label) return `${companyName} · Diagnostic financier · ${year} · ${currency}`
+  if (!label) return `${companyName} · ${sectionMetaLabel} · ${year} · ${currency}`
   const lastDay = new Date(year, month, 0).getDate()
   const monthCapitalized = label.charAt(0).toUpperCase() + label.slice(1)
-  return `${companyName} · Diagnostic financier · ${lastDay} ${monthCapitalized} ${year} · ${currency}`
+  return `${companyName} · ${sectionMetaLabel} · ${lastDay} ${monthCapitalized} ${year} · ${currency}`
 }
 
 export type LifecycleStage = "croissance" | "maturité" | "décroissance"

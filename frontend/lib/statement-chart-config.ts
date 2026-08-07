@@ -183,6 +183,28 @@ export function isContributiveMarginSeriesSpec(spec: ChartMetricSpec): boolean {
   return spec.type === "derivedContributiveMargin" || spec.type === "derivedMargin"
 }
 
+export function isAmountChartMetricSpec(spec: ChartMetricSpec): boolean {
+  return !isContributiveMarginSeriesSpec(spec)
+}
+
+/** Format par défaut selon la métrique (pas selon barres vs courbe). */
+export function defaultValueFormatForChartSeries(series: Pick<StatementChartSeries, "spec">): ChartValueFormat {
+  return isContributiveMarginSeriesSpec(series.spec) ? "ratio" : "currency"
+}
+
+function repairMislabeledAmountSeries(series: StatementChartSeries[]): StatementChartSeries[] {
+  return series.map((s) => {
+    if (
+      s.valueFormat === "ratio" &&
+      isAmountChartMetricSpec(s.spec) &&
+      !/baiia|ebita|ebitda/i.test(s.label)
+    ) {
+      return { ...s, valueFormat: "currency" as const }
+    }
+    return s
+  })
+}
+
 function buildFixedContributiveMarginSeries(
   revenueSeriesId: string,
   existing?: StatementChartSeries,
@@ -213,14 +235,32 @@ export function ensureIncomeStatementPerformanceConfig(
 ): StatementChartConfig {
   if (statementType !== "income-statement") return config
 
-  const revenueSeriesId =
-    config.series.find((s) => s.kind === "bar")?.id ?? config.series[0]?.id ?? ""
+  const isRevenueLikeSeries = (s: StatementChartSeries) =>
+    s.valueFormat === "currency" &&
+    !isContributiveMarginSeriesSpec(s.spec) &&
+    !/baiia|ebita|ebitda/i.test(s.label)
+
+  const revenueSeries =
+    config.series.find((s) => isRevenueLikeSeries(s) && /revenu/i.test(s.label)) ??
+    config.series.find(isRevenueLikeSeries)
+  const revenueSeriesId = revenueSeries?.id ?? config.series[0]?.id ?? ""
 
   const marginCandidates = config.series.filter((s) => isContributiveMarginSeriesSpec(s.spec))
-  const otherSeries = config.series.filter((s) => !isContributiveMarginSeriesSpec(s.spec))
   const normalizedMargin = buildFixedContributiveMarginSeries(revenueSeriesId, marginCandidates[0])
 
-  const series = [...otherSeries, normalizedMargin]
+  const remaining = config.series.filter(
+    (s) => !isContributiveMarginSeriesSpec(s.spec) && s !== revenueSeries,
+  )
+  const ebitaSeries =
+    remaining.find((s) => s.valueFormat === "currency" && /baiia|ebita|ebitda/i.test(s.label)) ??
+    remaining.find((s) => s.valueFormat === "currency")
+  const others = remaining.filter((s) => s !== ebitaSeries)
+
+  const series: StatementChartSeries[] = []
+  if (revenueSeries) series.push(revenueSeries)
+  series.push(normalizedMargin)
+  if (ebitaSeries) series.push(ebitaSeries)
+  series.push(...others)
 
   if (
     series.length === config.series.length &&
@@ -263,6 +303,6 @@ export function normalizeChartConfig(raw: unknown): StatementChartConfig {
   return {
     version: 2,
     chartTitle: typeof r.chartTitle === "string" ? r.chartTitle : "",
-    series,
+    series: repairMislabeledAmountSeries(series),
   }
 }

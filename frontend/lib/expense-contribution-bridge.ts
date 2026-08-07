@@ -19,7 +19,8 @@ import { filterLabeledHorizonPoints } from "@/lib/horizon-column-visibility"
 import { filterRevenueLeafLinkCodes } from "@/lib/standard-link-code-utils"
 
 const DATA_EPSILON = 1e-6
-const MONTHLY_BRIDGE_COUNT = 12
+export const DEFAULT_MONTHLY_BRIDGE_COUNT = 12
+const MONTHLY_BRIDGE_COUNT = DEFAULT_MONTHLY_BRIDGE_COUNT
 
 export type ExpenseContributionBridgePoint = {
   period: string
@@ -123,9 +124,9 @@ function chartPeriodLabelsForView(view: string, refMonth: number, refYear: numbe
   return []
 }
 
-function bridgeWindowSize(pointCount: number, view: string): number {
+function bridgeWindowSize(pointCount: number, view: string, monthlyPointCount: number): number {
   if (view === "years") return pointCount
-  return Math.min(MONTHLY_BRIDGE_COUNT, pointCount)
+  return Math.min(monthlyPointCount, pointCount)
 }
 
 export function resolveRevenueLeafCodes(
@@ -191,6 +192,92 @@ export function computeMappedVariableCostTrend(params: {
   return costTrendForAccounts(mappings, variableAccounts, seriesRows, periods, view, refMonth, refYear)
 }
 
+/** Série mensuelle REV → CV → CM → CF → BE (pour narration Pilotage, jusqu'à 36 mois). */
+export function buildMonthlyBridgeSeries(params: {
+  mappings: AccountMappingData[]
+  seriesRows: SeriesRow[]
+  periods: SeriesPeriod[]
+  refMonth: number
+  refYear: number
+  standardLinkCodes?: StandardLinkCode[]
+  monthCount?: number
+}): ExpenseContributionBridgePoint[] | null {
+  const {
+    mappings,
+    seriesRows,
+    periods,
+    refMonth,
+    refYear,
+    standardLinkCodes,
+    monthCount = 36,
+  } = params
+  if (!seriesRows.length || !periods.length || monthCount < 1) return null
+
+  const labels = monthShortLabelsFromReference(refMonth, refYear, monthCount)
+
+  const leafCodes = resolveRevenueLeafCodes(standardLinkCodes, seriesRows)
+  if (!leafCodes.length) return null
+
+  const revSpec =
+    leafCodes.length === 1
+      ? ({ type: "single", code: leafCodes[0]! } as const)
+      : ({ type: "sum", codes: leafCodes } as const)
+  const revMonthly = computeMetricSeries(revSpec, seriesRows, periods)
+  if (!revMonthly) return null
+  const revSynthetic = buildSyntheticSeriesRow(periods, revMonthly)
+  const revenueSeriesTrend = monthTrendFromReference(
+    revSynthetic,
+    periods,
+    refMonth,
+    refYear,
+    monthCount,
+  )
+
+  const variableAccounts = collectAllVariableCostAccountNumbers(mappings)
+  const fixedAccounts = collectAllFixedCostAccountNumbers(mappings)
+  const mappingsByAccount = new Map(mappings.map((m) => [m.account_number, m]))
+
+  const variableMonthly =
+    variableAccounts.length > 0
+      ? sumAccountAmounts(mappingsByAccount, variableAccounts, seriesRows, periods, true)
+      : periods.map(() => 0)
+  const fixedMonthly =
+    fixedAccounts.length > 0
+      ? sumAccountAmounts(mappingsByAccount, fixedAccounts, seriesRows, periods, true)
+      : periods.map(() => 0)
+
+  const variableSynthetic = buildSyntheticSeriesRow(periods, variableMonthly)
+  const fixedSynthetic = buildSyntheticSeriesRow(periods, fixedMonthly)
+  const variableTrend = monthTrendFromReference(
+    variableSynthetic,
+    periods,
+    refMonth,
+    refYear,
+    monthCount,
+  )
+  const fixedTrend = monthTrendFromReference(fixedSynthetic, periods, refMonth, refYear, monthCount)
+
+  const points: ExpenseContributionBridgePoint[] = []
+  for (let i = 0; i < monthCount; i++) {
+    const revenue = revenueSeriesTrend[i] ?? 0
+    const variableCosts = variableTrend[i] ?? 0
+    const fixedCosts = fixedTrend[i] ?? 0
+    const contributiveMargin = revenue - variableCosts
+    const operatingProfit = contributiveMargin - fixedCosts
+    points.push({
+      period: labels[i]!,
+      revenue,
+      variableCosts,
+      contributiveMargin,
+      fixedCosts,
+      operatingProfit,
+    })
+  }
+
+  const hasRevenue = points.some((p) => Math.abs(p.revenue) > DATA_EPSILON)
+  return hasRevenue ? points : null
+}
+
 export function buildExpenseContributionBridge(params: {
   mappings: AccountMappingData[]
   seriesRows: SeriesRow[]
@@ -199,8 +286,11 @@ export function buildExpenseContributionBridge(params: {
   refMonth: number
   refYear: number
   standardLinkCodes?: StandardLinkCode[]
+  /** Nombre de mois affichés (horizon mensuel) — défaut 12. */
+  monthlyPointCount?: number
 }): ExpenseContributionBridgeResult | null {
   const { mappings, seriesRows, periods, view, refMonth, refYear, standardLinkCodes } = params
+  const monthlyPointCount = params.monthlyPointCount ?? MONTHLY_BRIDGE_COUNT
   if (!seriesRows.length || !periods.length) return null
 
   const labels = chartPeriodLabelsForView(view, refMonth, refYear)
@@ -224,7 +314,7 @@ export function buildExpenseContributionBridge(params: {
   if (!variableTrend || !fixedTrend) return null
   if (variableTrend.length !== labels.length || fixedTrend.length !== labels.length) return null
 
-  const windowSize = bridgeWindowSize(labels.length, view)
+  const windowSize = bridgeWindowSize(labels.length, view, monthlyPointCount)
   const points: ExpenseContributionBridgePoint[] = []
 
   for (let i = 0; i < windowSize; i++) {

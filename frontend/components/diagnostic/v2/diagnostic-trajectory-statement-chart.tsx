@@ -17,6 +17,10 @@ import { EmptyState } from "@/components/diagnostic/report/report-components"
 import type { DiagnosticReportView } from "@/components/diagnostic/v2/diagnostic-nav-rail"
 import { defaultChartCardTitle, type StatementType } from "@/lib/statement-chart-config"
 import { CARD_CLASS, signalClass, type SignalTone } from "@/lib/diagnostic-theme"
+import {
+  getCompanyReportChartHorizon,
+  type CompanyReportModuleId,
+} from "@/lib/company-report-module"
 
 export const DIAGNOSTIC_REPORT_ANCHOR_ID = "diag-rapport"
 
@@ -77,6 +81,7 @@ interface DiagnosticReportChartSectionProps {
   referenceYear: number
   referenceMonth: number
   currency?: string
+  moduleId?: CompanyReportModuleId
   signal?: { tone: SignalTone; text: string } | null
   /** Rapport imprimé : graphique seul ou lecture seule. */
   printSegment?: "chart" | "narrative"
@@ -103,6 +108,7 @@ export function DiagnosticReportChartSection({
   referenceYear,
   referenceMonth,
   currency,
+  moduleId = "diagnostic",
   signal,
   printSegment,
   slotBundle,
@@ -111,7 +117,18 @@ export function DiagnosticReportChartSection({
   printChartPart,
   onPrintChartPageCount,
 }: DiagnosticReportChartSectionProps) {
-  const [horizonView, setHorizonView] = useState<ChartHorizonToggleValue>("years")
+  const chartHorizon = getCompanyReportChartHorizon(moduleId)
+  const [horizonView, setHorizonView] = useState<ChartHorizonToggleValue>(
+    chartHorizon.defaultHorizon,
+  )
+  const horizonToggleProps = {
+    value: horizonView,
+    onChange: setHorizonView,
+    variant: "diagnostic" as const,
+    allowedValues:
+      chartHorizon.allowedHorizons.length < 2 ? chartHorizon.allowedHorizons : undefined,
+  }
+  const showHorizonToggle = chartHorizon.allowedHorizons.length > 1
   const isWorkingCapitalView = reportView === "working-capital"
   const isCapexView = reportView === "capex"
   const isReportPrint = printSegment != null
@@ -194,14 +211,12 @@ export function DiagnosticReportChartSection({
                   Fonds de roulement
                 </h2>
                 <div className="flex flex-wrap items-center gap-3 text-sm text-[#5C5F66]">
-                  <EmbeddedHorizonToggle
-                    value={horizonView}
-                    onChange={setHorizonView}
-                    variant="diagnostic"
-                  />
-                  <span className="text-slate-300" aria-hidden>
-                    •
-                  </span>
+                  {showHorizonToggle ? <EmbeddedHorizonToggle {...horizonToggleProps} /> : null}
+                  {showHorizonToggle ? (
+                    <span className="text-slate-300" aria-hidden>
+                      •
+                    </span>
+                  ) : null}
                   <span className="font-semibold text-[#2A2F3A]">{companyName}</span>
                   <span className="text-slate-300" aria-hidden>
                     •
@@ -274,14 +289,12 @@ export function DiagnosticReportChartSection({
                   Capex
                 </h2>
                 <div className="flex flex-wrap items-center gap-3 text-sm text-[#5C5F66]">
-                  <EmbeddedHorizonToggle
-                    value={horizonView}
-                    onChange={setHorizonView}
-                    variant="diagnostic"
-                  />
-                  <span className="text-slate-300" aria-hidden>
-                    •
-                  </span>
+                  {showHorizonToggle ? <EmbeddedHorizonToggle {...horizonToggleProps} /> : null}
+                  {showHorizonToggle ? (
+                    <span className="text-slate-300" aria-hidden>
+                      •
+                    </span>
+                  ) : null}
                   <span className="font-semibold text-[#2A2F3A]">{companyName}</span>
                   <span className="text-slate-300" aria-hidden>
                     •
@@ -337,6 +350,7 @@ export function DiagnosticReportChartSection({
     return (
       <StatementChart
         key={`${reportView}-narrative-${chartView}`}
+        moduleId={moduleId}
         statementType={statementType}
         chartConfigStatementType={
           reportView === "margin-by-revenue"
@@ -409,6 +423,7 @@ export function DiagnosticReportChartSection({
     return (
       <StatementChart
         key={`${reportView}-chart-${activeSlot!.chartInstanceId}-${chartView}-${printChartPart ?? "main"}`}
+        moduleId={moduleId}
         {...statementChartCommon}
         cardAppearance="report"
         printSegment="chart"
@@ -427,6 +442,7 @@ export function DiagnosticReportChartSection({
       ) : activeSlot ? (
         <StatementChart
           key={`${reportView}-${activeSlot.chartInstanceId}-${chartView}`}
+          moduleId={moduleId}
           statementType={statementType}
           chartConfigStatementType={
             reportView === "margin-by-revenue"
@@ -450,7 +466,7 @@ export function DiagnosticReportChartSection({
           referenceMonth={referenceMonth}
           structureVersion={0}
           loading={loading}
-          embeddedHorizon={{ value: horizonView, onChange: setHorizonView, variant: "diagnostic" }}
+          embeddedHorizon={showHorizonToggle ? horizonToggleProps : undefined}
           cardAppearance="diagnostic"
           narrativeScope={narrativeScope}
         />

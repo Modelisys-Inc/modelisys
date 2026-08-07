@@ -37,6 +37,7 @@ import {
   DEFAULT_COLORS,
   defaultChartCardTitle,
   ensureIncomeStatementPerformanceConfig,
+  defaultValueFormatForChartSeries,
   isContributiveMarginSeriesSpec,
   newSeriesId,
   structureStatementTypeForChart,
@@ -829,7 +830,12 @@ export function StatementChartSettingsDialog({
             : { type: "single", code: "" }
           : { type: "single", code: "" },
       yAxis: kind === "line" ? "right" : "left",
-      valueFormat: kind === "line" ? "ratio" : "currency",
+      valueFormat:
+        kind === "line" &&
+        localConfig.series.some((s) => s.kind === "bar") &&
+        statementType !== "income-statement"
+          ? "ratio"
+          : "currency",
       showOnChart: true,
       showInSidePanel: true,
       color: DEFAULT_COLORS[i % DEFAULT_COLORS.length],
@@ -1117,18 +1123,20 @@ export function StatementChartSettingsDialog({
                         value={selectedSeries.kind}
                         onValueChange={(v) => {
                           const k = v as "bar" | "line"
+                          const isMargin = isContributiveMarginSeriesSpec(selectedSeries.spec)
+                          if (isMargin) {
+                            updateSeries(selectedIndex, {
+                              kind: k,
+                              yAxis: "right",
+                              valueFormat: "ratio",
+                            })
+                            return
+                          }
                           updateSeries(selectedIndex, {
                             kind: k,
-                            yAxis: k === "line" ? "right" : "left",
-                            valueFormat: k === "line" ? "ratio" : "currency",
-                            spec:
-                              k === "line" && barOptions.length && statementType !== "income-statement"
-                                ? {
-                                    type: "derivedMargin",
-                                    revenueSeriesId: barOptions[0]!.id,
-                                    grossProfitFromSpec: { type: "single", code: "" },
-                                  }
-                                : { type: "single", code: "" },
+                            yAxis: selectedSeries.yAxis,
+                            valueFormat: defaultValueFormatForChartSeries(selectedSeries),
+                            spec: selectedSeries.spec,
                           })
                         }}
                       >

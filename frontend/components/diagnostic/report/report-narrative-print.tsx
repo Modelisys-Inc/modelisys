@@ -97,7 +97,10 @@ export function ReportNarrativePrint({
   showHeader?: boolean
 }) {
   const divisionBlocks = groupDivisionNarrativeBlocks(narrative.paragraphs)
-  const groups = divisionBlocks ? null : groupParagraphs(narrative.paragraphs)
+  const standardParagraphs = divisionBlocks
+    ? narrative.paragraphs.filter((paragraph) => !paragraph.divisionBlockId)
+    : narrative.paragraphs
+  const groups = groupParagraphs(standardParagraphs)
   const subtitle =
     narrative.mode === "annual" || narrative.mode === "monthly"
       ? narrative.subtitle
@@ -117,14 +120,15 @@ export function ReportNarrativePrint({
       ) : null}
 
       <div className="report-narrative-body">
-        {divisionBlocks ? (
+        {divisionBlocks?.length ? (
           <DivisionNarrativeBlockList
             blocks={divisionBlocks}
             renderAfterParagraph={renderAfterParagraph}
             variant="print"
           />
-        ) : (
-          groups?.map((group) => (
+        ) : null}
+        {standardParagraphs.length > 0
+          ? groups?.map((group) => (
           <section key={group.id} className="report-narrative-group">
             {group.title ? (
               <div className="report-narrative-group-head">
@@ -159,7 +163,7 @@ export function ReportNarrativePrint({
             ))}
           </section>
         ))
-        )}
+          : null}
       </div>
     </article>
   )

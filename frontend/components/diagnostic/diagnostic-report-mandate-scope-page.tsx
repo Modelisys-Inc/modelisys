@@ -5,6 +5,8 @@ import {
   formatReportSectionMeta,
 } from "@/components/diagnostic/diagnostic-format"
 import { ModelisysWordmark } from "@/components/diagnostic/modelisys-wordmark"
+import type { CompanyReportModuleId } from "@/lib/company-report-module"
+import { getCompanyReportBranding } from "@/lib/company-report-branding"
 
 export const DIAGNOSTIC_REPORT_MANDATE_SCOPE_ID = "diagnostic-report-mandate-scope"
 
@@ -15,9 +17,13 @@ interface MandateSection {
 
 interface DiagnosticReportMandateScopePageProps {
   diagnostic: CompanyDiagnostic
+  moduleId?: CompanyReportModuleId
 }
 
-export function DiagnosticReportMandateScopePage({ diagnostic }: DiagnosticReportMandateScopePageProps) {
+export function DiagnosticReportMandateScopePage({
+  diagnostic,
+  moduleId = "diagnostic",
+}: DiagnosticReportMandateScopePageProps) {
   const referencePeriodLabel = formatReferencePeriod(
     diagnostic.reference_period.calendar_year,
     diagnostic.reference_period.calendar_month,
@@ -26,17 +32,19 @@ export function DiagnosticReportMandateScopePage({ diagnostic }: DiagnosticRepor
     diagnostic.reference_period.calendar_year,
     diagnostic.reference_period.calendar_month,
   )
+  const branding = getCompanyReportBranding(moduleId)
   const sectionMeta = formatReportSectionMeta(
     diagnostic.company_name,
     diagnostic.reference_period.calendar_year,
     diagnostic.reference_period.calendar_month,
     diagnostic.currency,
+    moduleId,
   )
 
   const sections: MandateSection[] = [
     {
       title: "Objet du rapport",
-      body: `Présenter un diagnostic stratégique de la situation financière de ${diagnostic.company_name}, en synthétisant la performance, la rentabilité, la structure financière, la capacité de création de liquidités, les investissements et une lecture indicative de la valeur de l'entreprise, à partir des données comptables disponibles à la date de référence.`,
+      body: branding.mandatePurposeBody(diagnostic.company_name),
     },
     {
       title: "Destinataires visés",
@@ -85,9 +93,9 @@ export function DiagnosticReportMandateScopePage({ diagnostic }: DiagnosticRepor
         </header>
 
         <p className="report-mandate-lead mt-5 max-w-4xl text-[13px] leading-relaxed text-slate-600">
-          Le présent document encadre la portée, les sources et les limites du diagnostic financier
-          préparé pour {diagnostic.company_name}. Sa lecture doit précéder toute interprétation des
-          analyses et tableaux qui suivent.
+          Le présent document encadre la portée, les sources et les limites du{" "}
+          {branding.mandateLeadDocumentLabel} préparé pour {diagnostic.company_name}. Sa lecture doit
+          précéder toute interprétation des analyses et tableaux qui suivent.
         </p>
 
         <div className="report-mandate-grid mt-5 flex-1">

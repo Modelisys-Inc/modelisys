@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react"
 import { AlertTriangle } from "lucide-react"
-import type { RadarAxisScore } from "@/lib/report-radar-scores"
 import { REPORT_THEME } from "@/lib/report-theme"
 
 export type KpiStatus = "positive" | "neutral" | "warning" | "negative"
@@ -77,87 +76,6 @@ export function HealthGauge({ score, size = 120 }: { score: number; size?: numbe
         <span className="report-health-gauge-score">{score}</span>
         <span className="report-health-gauge-max">/100</span>
       </div>
-    </div>
-  )
-}
-
-export function RadarScore({
-  axes,
-  overall,
-  size = 200,
-}: {
-  axes: RadarAxisScore[]
-  overall: number
-  size?: number
-}) {
-  const cx = size / 2
-  const cy = size / 2
-  const maxR = size * 0.38
-  const angleStep = (2 * Math.PI) / axes.length
-  const startAngle = -Math.PI / 2
-
-  const pointAt = (axisIndex: number, score: number) => {
-    const angle = startAngle + axisIndex * angleStep
-    const r = (score / 100) * maxR
-    return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
-  }
-
-  const gridLevels = [0.25, 0.5, 0.75, 1]
-  const dataPoints = axes.map((a, i) => pointAt(i, a.score))
-  const polygon = dataPoints.map((p) => `${p.x},${p.y}`).join(" ")
-
-  return (
-    <div className="report-radar-score" data-testid="report-radar-score">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
-        {gridLevels.map((level) => {
-          const pts = axes
-            .map((_, i) => {
-              const angle = startAngle + i * angleStep
-              const r = maxR * level
-              return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`
-            })
-            .join(" ")
-          return (
-            <polygon
-              key={level}
-              points={pts}
-              fill="none"
-              stroke="#E5E7EB"
-              strokeWidth={1}
-            />
-          )
-        })}
-        {axes.map((_, i) => {
-          const end = pointAt(i, 100)
-          return (
-            <line
-              key={i}
-              x1={cx}
-              y1={cy}
-              x2={end.x}
-              y2={end.y}
-              stroke="#E5E7EB"
-              strokeWidth={1}
-            />
-          )
-        })}
-        <polygon points={polygon} fill="rgba(232,93,4,0.15)" stroke="#E85D04" strokeWidth={2} />
-        {dataPoints.map((p, i) => (
-          <circle key={i} cx={p.x} cy={p.y} r={3} fill="#E85D04" />
-        ))}
-      </svg>
-      <div className="report-radar-center">
-        <span className="report-radar-overall">{overall}</span>
-        <span className="report-radar-overall-label">Indice</span>
-      </div>
-      <ul className="report-radar-legend">
-        {axes.map((a) => (
-          <li key={a.key}>
-            <span>{a.label}</span>
-            <span className="tabular-nums">{a.score}</span>
-          </li>
-        ))}
-      </ul>
     </div>
   )
 }

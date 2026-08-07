@@ -214,16 +214,10 @@ export const DIAGNOSTIC_REPORT_CHAPTERS: ReportChapterDefinition[] = [
 
 
 
-export type ReportPrintAnalysisView = Exclude<
-  DiagnosticReportView,
-  "sommaire" | "company-overview"
->
+export type ReportPrintAnalysisView = Exclude<DiagnosticReportView, "company-overview">
 
 /** Libellés du menu Rapport et de la table des matières (source unique). */
-export const DIAGNOSTIC_REPORT_VIEW_LABELS: Record<
-  Exclude<DiagnosticReportView, "sommaire">,
-  string
-> = {
+export const DIAGNOSTIC_REPORT_VIEW_LABELS: Record<DiagnosticReportView, string> = {
   "company-overview": "Aperçu de l'entreprise",
   performance: "Performance financière",
   revenue: "Analyse des revenus",
@@ -235,9 +229,7 @@ export const DIAGNOSTIC_REPORT_VIEW_LABELS: Record<
   capex: "Capex",
 }
 
-export function diagnosticReportViewLabel(
-  view: Exclude<DiagnosticReportView, "sommaire">,
-): string {
+export function diagnosticReportViewLabel(view: DiagnosticReportView): string {
   return DIAGNOSTIC_REPORT_VIEW_LABELS[view]
 }
 
@@ -399,8 +391,8 @@ export function reportAnalysisDisplayTitle(analysis: ReportPrintAnalysis): strin
 
 /** Numéro de section aligné sur la table des matières (01…n). */
 
-export function reportAnalysisSectionNumber(analysisIndex: number): string {
-  return String(analysisIndex + 2).padStart(2, "0")
+export function reportAnalysisSectionNumber(analysisIndex: number, numberOffset = 2): string {
+  return String(analysisIndex + numberOffset).padStart(2, "0")
 }
 
 

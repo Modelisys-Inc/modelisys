@@ -27,6 +27,7 @@ import { enrichRevenueSeriesForNarrative } from "@/lib/revenue-series-narrative-
 import { buildRevenueContributiveMarginRows } from "@/lib/revenue-contributive-margin-table"
 import { RevenueContributiveMarginTable } from "@/components/diagnostic/v2/revenue-contributive-margin-table"
 import { RevenueContributiveMarginEvolutionTable } from "@/components/diagnostic/v2/revenue-contributive-margin-evolution-table"
+import { PilotageMarginByRevenueIndicatorTable } from "@/components/diagnostic/v2/pilotage-margin-by-revenue-indicator-table"
 import { IncomePerformanceNarrativeSection } from "@/components/diagnostic/v2/income-performance-narrative-section"
 import { ReportNarrativePrint } from "@/components/diagnostic/report/report-narrative-print"
 import { EmptyState } from "@/components/diagnostic/report/report-components"
@@ -36,6 +37,10 @@ import {
   isTextLecturePage,
   lecturePageCountFromPacked,
   packNarrativeParagraphs,
+  packPilotageExpensesLecturePages,
+  packPilotageMarginByRevenueLecturePages,
+  packPilotagePerformanceLecturePages,
+  packPilotageRevenueAnalysisLecturePages,
   packRevenueSourceLecturePages,
   paragraphsForPackedPage,
   type ReportPrintChartPart,
@@ -77,10 +82,20 @@ import {
   buildIncomePerformanceNarrative,
   buildRevenueOnlyPerformanceNarrative,
   buildContributiveMarginByRevenueNarrative,
+  buildPilotageMarginByRevenueNarrative,
   mapDynamicChartToNarrativePoints,
   mapDynamicChartToRevenueSeriesNarratives,
   type PerformanceNarrativeResult,
 } from "@/lib/income-performance-narrative"
+import {
+  buildPilotageExpenseIndicatorTables,
+  pilotageExpenseIndicatorTableKey,
+} from "@/lib/pilotage-expense-indicator"
+import { buildPilotageExpensesBridgeNarrative } from "@/lib/pilotage-expense-performance-narrative"
+import {
+  buildPilotageMarginByRevenueIndicatorTables,
+  pilotageMarginIndicatorTableKey,
+} from "@/lib/pilotage-margin-by-revenue-indicator"
 import {
   buildIncomePerformanceChartFromBridge,
   defaultFixedIncomePerformanceVisibility,
@@ -100,6 +115,23 @@ import {
 } from "@/lib/performance-chart-series"
 import { StatementChartSettingsDialog } from "@/components/statement-chart-settings-dialog"
 import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
+import {
+  formatPerformanceSidePanelComparisonLabel,
+  getCompanyReportPerformanceHorizonLabel,
+  getCompanyReportRevenueAnalysisHorizonLabel,
+  getCompanyReportPerformanceMonthlyCount,
+  getCompanyReportPerformanceSidePanelComparison,
+  getCompanyReportRevenueAnalysisChartXAxis,
+  getCompanyReportRevenueAnalysisMonthlyCount,
+  getCompanyReportRevenueAnalysisSidePanelComparison,
+  plotRevenueAnalysisChartPoints,
+  type CompanyReportModuleId,
+} from "@/lib/company-report-module"
+import {
+  computePilotagePerformanceMetrics,
+  extractMonthlyPerformanceSeries,
+} from "@/lib/pilotage-revenue-metrics"
+import { resolvePilotagePerformanceBudget } from "@/lib/pilotage-revenue-budget"
 
 export type ChartHorizonToggleValue = "years" | "12months"
 
@@ -107,17 +139,23 @@ export type ChartHorizonToggleProps = {
   value: ChartHorizonToggleValue
   onChange: (value: ChartHorizonToggleValue) => void
   variant?: "default" | "diagnostic"
+  /** Limite les choix affichés ; masque le sélecteur s'il ne reste qu'une option. */
+  allowedValues?: ChartHorizonToggleValue[]
 }
 
 export function EmbeddedHorizonToggle({
   value,
   onChange,
   variant = "default",
+  allowedValues,
 }: ChartHorizonToggleProps) {
-  const options: { id: ChartHorizonToggleValue; label: string }[] = [
+  const allOptions: { id: ChartHorizonToggleValue; label: string }[] = [
     { id: "years", label: HORIZON_LABEL.annuel5Ans },
     { id: "12months", label: HORIZON_LABEL.mensuel },
   ]
+  const allowed = allowedValues ?? allOptions.map((opt) => opt.id)
+  const options = allOptions.filter((opt) => allowed.includes(opt.id))
+  if (options.length <= 1) return null
   const isDiagnostic = variant === "diagnostic"
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -203,6 +241,8 @@ interface StatementChartProps {
   narrativeScope?: "full" | "revenue-only" | "margin-by-revenue-only" | "expenses-only" | "expenses-by-division-only" | "financial-position-only" | "working-capital-only"
   /** Type de config persistée (ex. Marge par Revenus lit la config Revenus). */
   chartConfigStatementType?: StatementType
+  /** Module rapport (diagnostic / pilotage) — ajuste la fenêtre Performance financière. */
+  moduleId?: CompanyReportModuleId
 }
 
 function PerformanceChartRemoveButton({ onRemove }: { onRemove: () => void }) {
@@ -294,6 +334,7 @@ export function StatementChart({
   onPrintChartPageCount,
   narrativeScope = "full",
   chartConfigStatementType,
+  moduleId = "diagnostic",
 }: StatementChartProps) {
   const isReportAppearance = cardAppearance === "report"
   const showChart = printSegment !== "narrative"
@@ -304,11 +345,21 @@ export function StatementChart({
   const isWorkingCapitalView = narrativeScope === "working-capital-only"
   const isContributiveMarginTableView = isContributiveMarginView || isDivisionContributiveMarginView
   const isExpensesBridgeView = narrativeScope === "expenses-only"
+  const isRevenueAnalysisView = narrativeScope === "revenue-only"
   const isFixedIncomePerformance = isFixedIncomePerformanceChart(
     statementType,
     chartConfigStatementType ?? statementType,
     narrativeScope,
   )
+  const performanceMonthlyPointCount = getCompanyReportPerformanceMonthlyCount(moduleId)
+  const revenueAnalysisMonthlyCount = isRevenueAnalysisView
+    ? getCompanyReportRevenueAnalysisMonthlyCount(moduleId)
+    : null
+  const performanceSidePanelComparison = isFixedIncomePerformance
+    ? getCompanyReportPerformanceSidePanelComparison(moduleId, performanceMonthlyPointCount)
+    : isRevenueAnalysisView && revenueAnalysisMonthlyCount
+      ? getCompanyReportRevenueAnalysisSidePanelComparison(revenueAnalysisMonthlyCount)
+      : null
   const needsMappingEnrichment =
     isContributiveMarginView ||
     isExpensesBridgeView ||
@@ -526,11 +577,6 @@ export function StatementChart({
     refYear,
   ])
 
-  const financialPositionNarrative = useMemo(() => {
-    if (!isFinancialPositionView || !financialPositionResult?.points.length) return null
-    return buildFinancialPositionNarrative(financialPositionResult, view)
-  }, [isFinancialPositionView, financialPositionResult, view])
-
   const financialPositionBreakdownTables = useMemo(() => {
     if (!isFinancialPositionView || !financialPositionResult?.points.length) return null
     return buildFinancialPositionBreakdownTables({
@@ -557,6 +603,18 @@ export function StatementChart({
     refMonth,
     refYear,
     standardLinkCodes,
+  ])
+
+  const financialPositionNarrative = useMemo(() => {
+    if (!isFinancialPositionView || !financialPositionResult?.points.length) return null
+    return buildFinancialPositionNarrative(financialPositionResult, view, {
+      breakdownTables: financialPositionBreakdownTables ?? undefined,
+    })
+  }, [
+    isFinancialPositionView,
+    financialPositionResult,
+    view,
+    financialPositionBreakdownTables,
   ])
 
   const workingCapitalResult = useMemo(() => {
@@ -651,10 +709,12 @@ export function StatementChart({
       refMonth,
       refYear,
       standardLinkCodes,
+      monthlyPointCount: isFixedIncomePerformance ? performanceMonthlyPointCount : undefined,
     })
   }, [
     isExpensesBridgeView,
     isFixedIncomePerformance,
+    performanceMonthlyPointCount,
     accountMappings,
     seriesRows,
     seriesPeriods,
@@ -692,17 +752,79 @@ export function StatementChart({
 
   const expensesBridgeNarrative = useMemo(() => {
     if (!isExpensesBridgeView || !expenseContributionBridge) return null
+    if (moduleId === "pilotage" && view === "24months") {
+      if (!seriesRows.length || !seriesPeriods.length) return null
+      const company = companies.find((c) => c.id === companyId)
+      return buildPilotageExpensesBridgeNarrative({
+        mappings: accountMappings,
+        seriesRows,
+        periods: seriesPeriods,
+        refMonth,
+        refYear,
+        fiscalYearEnd: company?.fiscalYearEnd ?? "12-31",
+        standardLinkCodes,
+      })
+    }
     return buildExpensesBridgeNarrative(
       expenseContributionBridge,
       view,
       expensesBridgeNarrativeContext,
     )
-  }, [isExpensesBridgeView, expenseContributionBridge, view, expensesBridgeNarrativeContext])
+  }, [
+    isExpensesBridgeView,
+    expenseContributionBridge,
+    view,
+    expensesBridgeNarrativeContext,
+    moduleId,
+    seriesRows,
+    seriesPeriods,
+    accountMappings,
+    refMonth,
+    refYear,
+    companies,
+    companyId,
+    standardLinkCodes,
+  ])
+
+  const pilotageExpenseIndicatorTables = useMemo(() => {
+    if (
+      moduleId !== "pilotage" ||
+      !isExpensesBridgeView ||
+      view !== "24months" ||
+      !seriesRows.length ||
+      !seriesPeriods.length
+    ) {
+      return null
+    }
+    const company = companies.find((c) => c.id === companyId)
+    return buildPilotageExpenseIndicatorTables({
+      mappings: accountMappings,
+      seriesRows,
+      periods: seriesPeriods,
+      refMonth,
+      refYear,
+      fiscalYearEnd: company?.fiscalYearEnd ?? "12-31",
+      standardLinkCodes,
+    })
+  }, [
+    moduleId,
+    isExpensesBridgeView,
+    view,
+    seriesRows,
+    seriesPeriods,
+    accountMappings,
+    refMonth,
+    refYear,
+    companies,
+    companyId,
+    standardLinkCodes,
+  ])
 
   const expenseCostBreakdownTables = useMemo(() => {
     if (!isExpensesBridgeView || !expenseContributionBridge || !seriesRows.length || !seriesPeriods.length) {
       return null
     }
+    if (moduleId === "pilotage" && view === "24months") return null
     return buildExpenseCostBreakdownTables({
       mappings: accountMappings,
       seriesRows,
@@ -723,6 +845,7 @@ export function StatementChart({
     refMonth,
     refYear,
     standardLinkCodes,
+    moduleId,
   ])
 
   const expensesBreakevenAnalysis = useMemo(() => {
@@ -757,6 +880,37 @@ export function StatementChart({
 
   const dynamicPoints = dynamicBuild?.points ?? null
   const seriesMeta = dynamicBuild?.series ?? []
+
+  const chartDisplayPoints = useMemo(() => {
+    if (!dynamicPoints?.length) return null
+    const isMonthlyChartView = view === "24months" || view === "12months"
+    if (isRevenueAnalysisView && revenueAnalysisMonthlyCount && isMonthlyChartView) {
+      return dynamicPoints.slice(0, revenueAnalysisMonthlyCount)
+    }
+    if (isFixedIncomePerformance && performanceMonthlyPointCount && isMonthlyChartView) {
+      return dynamicPoints.slice(0, performanceMonthlyPointCount)
+    }
+    return dynamicPoints
+  }, [
+    dynamicPoints,
+    isRevenueAnalysisView,
+    revenueAnalysisMonthlyCount,
+    isFixedIncomePerformance,
+    performanceMonthlyPointCount,
+    view,
+  ])
+
+  const revenueAnalysisChartXAxis = isRevenueAnalysisView
+    ? getCompanyReportRevenueAnalysisChartXAxis(moduleId)
+    : null
+
+  const chartPlotPoints = useMemo(() => {
+    if (!chartDisplayPoints?.length) return null
+    if (isRevenueAnalysisView) {
+      return plotRevenueAnalysisChartPoints(chartDisplayPoints, moduleId)
+    }
+    return chartDisplayPoints
+  }, [chartDisplayPoints, isRevenueAnalysisView, moduleId])
 
   const effectiveLoading =
     loading ||
@@ -810,17 +964,120 @@ export function StatementChart({
 
   const contributiveMarginNarrative = useMemo(() => {
     if (narrativeScope !== "margin-by-revenue-only" || !enrichedRevenueSlices?.length) return null
+    if (moduleId === "pilotage" && view === "24months") {
+      const company = companies.find((c) => c.id === companyId)
+      return buildPilotageMarginByRevenueNarrative(
+        enrichedRevenueSlices,
+        company?.fiscalYearEnd ?? "12-31",
+      )
+    }
     return buildContributiveMarginByRevenueNarrative(enrichedRevenueSlices, view)
-  }, [narrativeScope, enrichedRevenueSlices, view])
+  }, [narrativeScope, enrichedRevenueSlices, view, moduleId, companies, companyId])
 
   const contributiveMarginEvolutionTables = useMemo(() => {
     if (narrativeScope !== "margin-by-revenue-only" || !enrichedRevenueSlices?.length) {
       return null
     }
+    if (moduleId === "pilotage") return null
     return buildRevenueContributiveMarginEvolutionTables(enrichedRevenueSlices, view)
-  }, [narrativeScope, enrichedRevenueSlices, view])
+  }, [narrativeScope, enrichedRevenueSlices, view, moduleId])
+
+  const pilotageMarginIndicatorTables = useMemo(() => {
+    if (moduleId !== "pilotage" || narrativeScope !== "margin-by-revenue-only" || !enrichedRevenueSlices?.length) {
+      return null
+    }
+    const company = companies.find((c) => c.id === companyId)
+    return buildPilotageMarginByRevenueIndicatorTables(
+      enrichedRevenueSlices,
+      company?.fiscalYearEnd ?? "12-31",
+    )
+  }, [moduleId, narrativeScope, enrichedRevenueSlices, companies, companyId])
 
   const companyCurrency = currency
+
+  const renderContributiveMarginIndicatorTable = (paragraph: {
+    heading: string
+    subsection?: string
+    showIndicatorTable?: boolean
+  }) => {
+    if (paragraph.showIndicatorTable === false) return null
+    const pilotageTable = pilotageMarginIndicatorTables?.get(
+      pilotageMarginIndicatorTableKey(paragraph.heading, paragraph.subsection),
+    )
+    if (pilotageTable) {
+      return (
+        <PilotageMarginByRevenueIndicatorTable table={pilotageTable} currency={companyCurrency} />
+      )
+    }
+    const evolution = contributiveMarginEvolutionTables?.get(paragraph.heading)
+    if (!evolution) return null
+    return <RevenueContributiveMarginEvolutionTable table={evolution} currency={companyCurrency} />
+  }
+
+  const renderExpenseIndicatorTable = (paragraph: {
+    heading: string
+    subsection?: string
+    showIndicatorTable?: boolean
+  }) => {
+    if (paragraph.showIndicatorTable === false) return null
+    const pilotageTable = pilotageExpenseIndicatorTables?.get(
+      pilotageExpenseIndicatorTableKey(paragraph.heading, paragraph.subsection),
+    )
+    if (pilotageTable) {
+      return (
+        <PilotageMarginByRevenueIndicatorTable table={pilotageTable} currency={companyCurrency} />
+      )
+    }
+    const breakdown = expenseCostBreakdownTables?.get(paragraph.heading)
+    if (!breakdown) return null
+    return <RevenueContributiveMarginEvolutionTable table={breakdown} currency={companyCurrency} />
+  }
+
+  const pilotagePerformanceNarrativeContext = useMemo(() => {
+    if (moduleId !== "pilotage" || !isFixedIncomePerformance || narrativeScope !== "full") {
+      return null
+    }
+    if (!seriesRows.length || !seriesPeriods.length) return null
+
+    const company = companies.find((c) => c.id === companyId)
+    const monthlySeries = extractMonthlyPerformanceSeries({
+      mappings: accountMappings,
+      seriesRows,
+      periods: seriesPeriods,
+      refMonth,
+      refYear,
+      standardLinkCodes,
+      monthCount: 36,
+    })
+    const metrics = computePilotagePerformanceMetrics(
+      monthlySeries,
+      company?.fiscalYearEnd ?? "12-31",
+    )
+    if (!metrics) return null
+
+    const budget = companyId
+      ? resolvePilotagePerformanceBudget({
+          companyId,
+          refMonth,
+          refYear,
+          fiscalYear: refYear,
+        })
+      : null
+
+    return { metrics, budget }
+  }, [
+    moduleId,
+    isFixedIncomePerformance,
+    narrativeScope,
+    seriesRows,
+    seriesPeriods,
+    accountMappings,
+    refMonth,
+    refYear,
+    standardLinkCodes,
+    companies,
+    companyId,
+  ])
 
   const narrative = useMemo(() => {
     const diagnosticTypes = new Set([
@@ -835,7 +1092,11 @@ export function StatementChart({
     if (narrativeScope === "revenue-only") {
       const slices = mapDynamicChartToRevenueSeriesNarratives(dynamicPoints, narrativeSeriesMeta)
       if (!slices.length) return null
-      return buildRevenueOnlyPerformanceNarrative(slices, view)
+      const company = companies.find((c) => c.id === companyId)
+      return buildRevenueOnlyPerformanceNarrative(slices, view, {
+        fiscalYearEnd: company?.fiscalYearEnd ?? "12-31",
+        moduleId,
+      })
     }
     if (narrativeScope === "margin-by-revenue-only") {
       return null
@@ -845,17 +1106,28 @@ export function StatementChart({
     }
     const mapped = mapDynamicChartToNarrativePoints(dynamicPoints, narrativeSeriesMeta)
     if (!mapped) return null
-    return buildIncomePerformanceNarrative(mapped, view)
+    return buildIncomePerformanceNarrative(mapped, view, {
+      moduleId,
+      pilotagePerformanceMetrics: pilotagePerformanceNarrativeContext?.metrics ?? null,
+      pilotagePerformanceBudget: pilotagePerformanceNarrativeContext?.budget ?? null,
+    })
   }, [
     statementType,
     dynamicPoints,
     narrativeSeriesMeta,
     view,
     narrativeScope,
+    moduleId,
+    pilotagePerformanceNarrativeContext,
+    companies,
+    companyId,
   ])
 
   const activeNarrativePackedPages = useMemo(() => {
     if (narrativeScope === "expenses-only") {
+      if (moduleId === "pilotage") {
+        return packPilotageExpensesLecturePages(expensesBridgeNarrative?.paragraphs)
+      }
       return packNarrativeParagraphs(expensesBridgeNarrative?.paragraphs, (paragraph) =>
         paragraph.showIndicatorTable === false
           ? 0
@@ -875,16 +1147,27 @@ export function StatementChart({
       )
     }
     if (narrativeScope === "margin-by-revenue-only") {
-      return packNarrativeParagraphs(contributiveMarginNarrative?.paragraphs, (paragraph) =>
-        evolutionTableWeightFromHeading(contributiveMarginEvolutionTables, paragraph.heading),
-      )
+      if (moduleId === "pilotage") {
+        return packPilotageMarginByRevenueLecturePages(contributiveMarginNarrative?.paragraphs)
+      }
+      return packNarrativeParagraphs(contributiveMarginNarrative?.paragraphs, (paragraph) => {
+        if (paragraph.showIndicatorTable === false) return 0
+        return evolutionTableWeightFromHeading(contributiveMarginEvolutionTables, paragraph.heading)
+      })
     }
     if (narrativeScope === "revenue-only") {
+      if (moduleId === "pilotage") {
+        return packPilotageRevenueAnalysisLecturePages(narrative?.paragraphs)
+      }
       return packRevenueSourceLecturePages(narrative?.paragraphs)
+    }
+    if (moduleId === "pilotage" && narrativeScope === "full") {
+      return packPilotagePerformanceLecturePages(narrative?.paragraphs)
     }
     return packNarrativeParagraphs(narrative?.paragraphs)
   }, [
     narrativeScope,
+    moduleId,
     expensesBridgeNarrative,
     expenseCostBreakdownTables,
     divisionProfitabilityNarrative,
@@ -893,6 +1176,7 @@ export function StatementChart({
     financialPositionBreakdownTables,
     contributiveMarginNarrative,
     contributiveMarginEvolutionTables,
+    pilotageMarginIndicatorTables,
     narrative,
   ])
 
@@ -987,7 +1271,16 @@ export function StatementChart({
       </span>
     ) : null
 
-  const getHorizonText = (): string => getHorizonModeLabel(view, period)
+  const getHorizonText = (): string => {
+    if (isFixedIncomePerformance) {
+      const pilotageLabel = getCompanyReportPerformanceHorizonLabel(moduleId)
+      if (pilotageLabel) return pilotageLabel
+    }
+    if (isRevenueAnalysisView) {
+      return getCompanyReportRevenueAnalysisHorizonLabel(moduleId)
+    }
+    return getHorizonModeLabel(view, period)
+  }
 
   const defaultTitle = defaultChartCardTitle(statementType)
   const storedChartTitle = isFixedIncomePerformance ? "" : slot.config.chartTitle.trim()
@@ -1237,6 +1530,11 @@ export function StatementChart({
         ? "h-[min(520px,68vh)]"
         : "h-[400px]"
   const showSidePanel = sideSeries.length > 0
+  const sidePanelPriorIndex = performanceSidePanelComparison?.priorIndex ?? 1
+  const sidePanelComparisonLabel = formatPerformanceSidePanelComparisonLabel(
+    performanceSidePanelComparison ?? { useComparisonPeriodLabel: false },
+    chartDisplayPoints?.[sidePanelPriorIndex]?.period,
+  )
 
   const renderNarrative = (
     narrative: NonNullable<import("@/lib/income-performance-narrative").PerformanceNarrativeResult>,
@@ -1321,14 +1619,7 @@ export function StatementChart({
       <>
         {paginatedExpensesBridge
           ? renderNarrative(paginatedExpensesBridge, {
-              renderAfterParagraph: (paragraph) => {
-                if (paragraph.showIndicatorTable === false) return null
-                const breakdown = expenseCostBreakdownTables?.get(paragraph.heading)
-                if (!breakdown) return null
-                return (
-                  <RevenueContributiveMarginEvolutionTable table={breakdown} currency={companyCurrency} />
-                )
-              },
+              renderAfterParagraph: (paragraph) => renderExpenseIndicatorTable(paragraph),
             })
           : null}
         {paginatedNarrative ? renderNarrative(paginatedNarrative) : null}
@@ -1358,13 +1649,7 @@ export function StatementChart({
         {workingCapitalNarrative ? renderNarrative(workingCapitalNarrative) : null}
         {paginatedContributiveNarrative
           ? renderNarrative(paginatedContributiveNarrative, {
-              renderAfterParagraph: (paragraph) => {
-                const evolution = contributiveMarginEvolutionTables?.get(paragraph.heading)
-                if (!evolution) return null
-                return (
-                  <RevenueContributiveMarginEvolutionTable table={evolution} currency={companyCurrency} />
-                )
-              },
+              renderAfterParagraph: (paragraph) => renderContributiveMarginIndicatorTable(paragraph),
             })
           : null}
       </>
@@ -1479,7 +1764,7 @@ export function StatementChart({
                 </div>
               </div>
               <div className="flex min-w-0 max-w-full shrink flex-wrap items-center justify-end gap-3">
-                {!isContributiveMarginTableView && !isExpensesBridgeView && !isFinancialPositionView && !isWorkingCapitalView ? (
+                {!isContributiveMarginTableView && !isExpensesBridgeView && !isFinancialPositionView && !isWorkingCapitalView && !isFixedIncomePerformance ? (
                 <div className="flex min-w-0 max-w-[min(100%,28rem)] flex-wrap items-center justify-end gap-x-4 gap-y-2">
                   {seriesMeta.map((m) => (
                     <label key={m.id} className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
@@ -1602,9 +1887,12 @@ export function StatementChart({
                 <div className={isReportChartPrint ? "report-chart-print-side space-y-3" : "lg:col-span-1 space-y-3"}>
                   {sideSeries.map((m, blockIdx) => {
                     const key = m.dataKey
-                    const vals = dynamicPoints.map((p) => (p as Record<string, number>)[key] ?? 0)
+                    const vals = (chartDisplayPoints ?? dynamicPoints ?? []).map(
+                      (p) => (p as Record<string, number>)[key] ?? 0,
+                    )
                     const last = vals[0] ?? 0
-                    const prior = vals.length > 1 ? vals[1]! : undefined
+                    const prior = vals.length > sidePanelPriorIndex ? vals[sidePanelPriorIndex]! : undefined
+                    const comparisonLabel = sidePanelComparisonLabel
                     const variationPct =
                       prior !== undefined && Math.abs(prior) > 1e-9
                         ? ((last - prior) / Math.abs(prior)) * 100
@@ -1631,7 +1919,7 @@ export function StatementChart({
                               {variationPct >= 0 ? "+" : ""}
                               {variationPct.toFixed(1)}%
                             </span>
-                            <span className="text-slate-500">vs période précédente</span>
+                            <span className="text-slate-500">{comparisonLabel}</span>
                           </div>
                         ) : null}
                       </div>
@@ -1650,13 +1938,31 @@ export function StatementChart({
                   }
                 >
                   <ChartContainer config={dynamicChartConfig} className={cn(chartHeightClass, "w-full")}>
-                    <ComposedChart data={dynamicPoints} margin={{ top: 20, right: 50, left: 20, bottom: 5 }}>
+                    <ComposedChart
+                      data={chartPlotPoints ?? dynamicPoints}
+                      margin={{
+                        top: 20,
+                        right: 50,
+                        left: 20,
+                        bottom: revenueAnalysisChartXAxis?.bottomMargin ?? 5,
+                      }}
+                    >
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                       <XAxis
                         dataKey="period"
-                        tick={{ fill: "#64748b", fontSize: 12 }}
                         tickLine={{ stroke: "#cbd5e1" }}
                         axisLine={{ stroke: "#cbd5e1" }}
+                        {...(revenueAnalysisChartXAxis
+                          ? {
+                              tick: revenueAnalysisChartXAxis.tick,
+                              interval: revenueAnalysisChartXAxis.interval,
+                              angle: revenueAnalysisChartXAxis.angle,
+                              textAnchor: revenueAnalysisChartXAxis.textAnchor,
+                              height: revenueAnalysisChartXAxis.height,
+                            }
+                          : {
+                              tick: { fill: "#64748b", fontSize: 12 },
+                            })}
                       />
                       <YAxis
                         yAxisId="left"
@@ -1774,14 +2080,7 @@ export function StatementChart({
           ) : null}
           {showNarrative && expensesBridgeNarrative
             ? renderNarrative(expensesBridgeNarrative, {
-                renderAfterParagraph: (paragraph) => {
-                  if (paragraph.showIndicatorTable === false) return null
-                  const breakdown = expenseCostBreakdownTables?.get(paragraph.heading)
-                  if (!breakdown) return null
-                  return (
-                    <RevenueContributiveMarginEvolutionTable table={breakdown} currency={companyCurrency} />
-                  )
-                },
+                renderAfterParagraph: (paragraph) => renderExpenseIndicatorTable(paragraph),
               })
             : null}
           {showNarrative && narrative ? renderNarrative(narrative) : null}
@@ -1811,13 +2110,7 @@ export function StatementChart({
           {showNarrative && workingCapitalNarrative ? renderNarrative(workingCapitalNarrative) : null}
           {showNarrative && contributiveMarginNarrative
             ? renderNarrative(contributiveMarginNarrative, {
-                renderAfterParagraph: (paragraph) => {
-                  const evolution = contributiveMarginEvolutionTables?.get(paragraph.heading)
-                  if (!evolution) return null
-                  return (
-                    <RevenueContributiveMarginEvolutionTable table={evolution} currency={companyCurrency} />
-                  )
-                },
+                renderAfterParagraph: (paragraph) => renderContributiveMarginIndicatorTable(paragraph),
               })
             : null}
         </div>

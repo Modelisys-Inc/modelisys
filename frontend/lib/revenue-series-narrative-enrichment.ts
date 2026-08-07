@@ -12,6 +12,8 @@ import {
   PERFORMANCE_CHART_MONTH_COUNT_24,
   PERFORMANCE_CHART_YEAR_COUNT,
   type BuiltSeriesMeta,
+  filterRevenueCurrencySeriesMeta,
+  isRevenueCurrencySeriesMeta,
 } from "@/lib/performance-chart-series"
 import type { ChartMetricSpec, StatementChartSeries } from "@/lib/statement-chart-config"
 import { getRowAmounts } from "@/lib/series-utils"
@@ -463,7 +465,7 @@ export function buildRevenueSeriesEnrichmentMeta(
 ): Map<string, RevenueSeriesEnrichmentMeta> {
   const out = new Map<string, RevenueSeriesEnrichmentMeta>()
   for (const meta of seriesMeta) {
-    if (meta.kind !== "bar" || meta.valueFormat !== "currency") continue
+    if (!isRevenueCurrencySeriesMeta(meta)) continue
     const config = chartSeries.find((s) => s.id === meta.id)
     if (!config) continue
     const revenueLinkCodes = extractLinkCodesFromMetricSpec(config.spec)
@@ -514,13 +516,13 @@ export function enrichRevenueSeriesForNarrative(params: {
     mappings,
     standardLinkCodes,
   )
-  const currencyBars = seriesMeta.filter((m) => m.kind === "bar" && m.valueFormat === "currency")
+  const revenueSeriesMeta = filterRevenueCurrencySeriesMeta(seriesMeta)
 
   return slices.map((slice, index) => {
-    const bar = currencyBars[index]
-    if (!bar) return slice
-    const config = chartSeries.find((s) => s.id === bar.id)
-    const meta = enrichmentMeta.get(bar.id)
+    const seriesEntry = revenueSeriesMeta[index]
+    if (!seriesEntry) return slice
+    const config = chartSeries.find((s) => s.id === seriesEntry.id)
+    const meta = enrichmentMeta.get(seriesEntry.id)
     const revenueComponents =
       config && slice.points.length
         ? buildRevenueComponentBreakdowns(

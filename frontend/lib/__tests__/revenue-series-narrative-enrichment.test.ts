@@ -359,4 +359,107 @@ describe("revenue-series-narrative-enrichment", () => {
     expect(enriched[0]!.revenueComponents?.[0]?.amounts).toEqual([60_000, 50_000])
     expect(enriched[0]!.revenueComponents?.[1]?.amounts).toEqual([40_000, 30_000])
   })
+
+  it("enrichit une série de revenus affichée en courbe", () => {
+    const periods: SeriesPeriod[] = [
+      { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
+      { fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" },
+    ]
+    const rows: SeriesRow[] = [
+      {
+        id: "rev-a",
+        label: "Produits",
+        linkCode: "REV-A",
+        isBold: false,
+        isSection: false,
+        isResult: false,
+        amounts: { "2024-12": 80_000, "2025-12": 100_000 },
+        detailRows: [],
+      },
+      {
+        id: "rev-a-1",
+        label: "Charpentes",
+        linkCode: "REV-A.1",
+        isBold: false,
+        isSection: false,
+        isResult: false,
+        amounts: { "2024-12": 50_000, "2025-12": 60_000 },
+        detailRows: [],
+      },
+      {
+        id: "cmv",
+        label: "CMV",
+        linkCode: "CMV",
+        isBold: false,
+        isSection: false,
+        isResult: false,
+        amounts: {},
+        detailRows: [
+          {
+            id: "5010",
+            label: "Matières",
+            amounts: { "2024-12": 30_000, "2025-12": 40_000 },
+          },
+        ],
+      },
+    ]
+    const chartSeries: StatementChartSeries[] = [
+      {
+        id: "rev-a",
+        kind: "line",
+        label: "Produits",
+        spec: { type: "single", code: "REV-A" },
+        yAxis: "left",
+        valueFormat: "currency",
+        showOnChart: true,
+        showInSidePanel: true,
+      },
+    ]
+    const seriesMeta: BuiltSeriesMeta[] = [
+      {
+        id: "rev-a",
+        dataKey: "v_rev_a",
+        kind: "line",
+        label: "Produits",
+        color: "#3b82f6",
+        yAxis: "left",
+        valueFormat: "currency",
+        showOnChart: true,
+        showInSidePanel: true,
+      },
+    ]
+    const slices: RevenueSeriesNarrativeSlice[] = [
+      {
+        heading: "Produits",
+        metricLabel: "les produits",
+        points: [
+          { period: "2025", revenue: 100_000, grossProfit: 0, ebita: 0, grossMarginPercent: 0 },
+          { period: "2024", revenue: 80_000, grossProfit: 0, ebita: 0, grossMarginPercent: 0 },
+        ],
+      },
+    ]
+
+    const enriched = enrichRevenueSeriesForNarrative({
+      slices,
+      seriesMeta,
+      chartSeries,
+      mappings: [
+        mapping({
+          account_number: "5010",
+          description: "Matières",
+          link_code: "CMV-A.1",
+          variable_cost_revenue_link_code: "REV-A.1",
+        }),
+      ],
+      seriesRows: rows,
+      periods,
+      view: "years",
+      refMonth: 12,
+      refYear: 2025,
+      standardLinkCodes: [...REV_CHART, ...CMV_CHART],
+    })
+
+    expect(enriched[0]!.variableCostMapped).toBe(true)
+    expect(enriched[0]!.points[0]!.grossMarginPercent).toBeGreaterThan(0)
+  })
 })

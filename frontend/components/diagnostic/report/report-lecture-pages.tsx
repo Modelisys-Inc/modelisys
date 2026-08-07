@@ -12,6 +12,8 @@ import {
 import { DiagnosticReportSectionPage } from "@/components/diagnostic/diagnostic-report-section-page"
 import type { DiagnosticReportSlotBundle } from "@/hooks/use-diagnostic-report-slot-bundles"
 
+import type { CompanyReportModuleId } from "@/lib/company-report-module"
+
 interface ReportLecturePagesProps {
   analysis: ReportPrintAnalysis
   sectionNumber: string
@@ -20,6 +22,7 @@ interface ReportLecturePagesProps {
   companies: Company[]
   sectionMeta: string
   slotBundle: DiagnosticReportSlotBundle | null
+  moduleId?: CompanyReportModuleId
 }
 
 /** Une ou plusieurs pages « Lecture » (pagination alignée aperçu / impression). */
@@ -31,6 +34,7 @@ export function ReportLecturePages({
   companies,
   sectionMeta,
   slotBundle,
+  moduleId = "diagnostic",
 }: ReportLecturePagesProps) {
   const [pageCount, setPageCount] = useState(1)
 
@@ -69,6 +73,7 @@ export function ReportLecturePages({
               }
             >
               <DiagnosticReportChartSection
+                moduleId={moduleId}
                 reportView={analysis.viewId}
                 companyId={companyId}
                 companies={companies}

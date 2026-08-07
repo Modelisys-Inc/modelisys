@@ -38,12 +38,17 @@ import { useCompanyDiagnostic } from "@/hooks/use-company-diagnostic"
 import { formatDateFr, formatMoney, formatPercent, formatReferencePeriod } from "@/components/diagnostic/diagnostic-format"
 import { lifecycleLabel } from "@/components/diagnostic/diagnostic-format"
 import {
-  createDiagnostic,
-  listDiagnosticsForCompany,
-  removeDiagnostic,
-  syncDiagnosticCompanyName,
-  type DiagnosticRecord,
-} from "@/lib/diagnostic-registry"
+  createCompanyReport,
+  listCompanyReportsForCompany,
+  removeCompanyReport,
+  syncCompanyReportCompanyName,
+  type CompanyReportRecord,
+} from "@/lib/company-report-registry"
+import {
+  companyReportDetailPath,
+  getCompanyReportModule,
+  type CompanyReportModuleId,
+} from "@/lib/company-report-module"
 import { cn } from "@/lib/utils"
 import {
   AlertDialog,
@@ -56,9 +61,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
-interface DiagnosticPortalPageProps {
+interface CompanyReportPortalPageProps {
   /** Société courante (query `companyId`) — même principe que Projections. */
   lockedCompanyId?: string | null
+  moduleId: CompanyReportModuleId
 }
 
 function formatShortDateTime(iso: string) {
@@ -71,19 +77,15 @@ function formatShortDateTime(iso: string) {
   })
 }
 
-function MesDiagnosticsCard({ children }: { children: React.ReactNode }) {
+function MesReportsCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
   return (
     <div className="mb-6 w-full overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
       <div className="border-b border-slate-200/90 bg-gradient-to-r from-white to-slate-50/80 px-6 py-4 sm:px-8">
         <div className="flex min-w-0 items-start gap-3">
           <div className="mt-0.5 h-10 w-1 shrink-0 rounded-full bg-[#E0742D]" aria-hidden />
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold tracking-tight text-[#2A2F3A] sm:text-xl">
-              Mes diagnostics
-            </h2>
-            <p className="mt-0.5 text-sm leading-relaxed text-slate-600">
-              Créez un rapport ou rouvrez un diagnostic déjà généré.
-            </p>
+            <h2 className="text-lg font-semibold tracking-tight text-[#2A2F3A] sm:text-xl">{title}</h2>
+            <p className="mt-0.5 text-sm leading-relaxed text-slate-600">{subtitle}</p>
           </div>
         </div>
       </div>
@@ -92,10 +94,18 @@ function MesDiagnosticsCard({ children }: { children: React.ReactNode }) {
   )
 }
 
-export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPortalPageProps) {
+export function DiagnosticPortalPage({
+  lockedCompanyId = null,
+  moduleId = "diagnostic",
+}: Omit<CompanyReportPortalPageProps, "moduleId"> & { moduleId?: CompanyReportModuleId }) {
+  return <CompanyReportPortalPage lockedCompanyId={lockedCompanyId} moduleId={moduleId} />
+}
+
+export function CompanyReportPortalPage({ lockedCompanyId = null, moduleId }: CompanyReportPortalPageProps) {
+  const module = getCompanyReportModule(moduleId)
   const router = useRouter()
   const { companies, loading: companiesLoading } = useCompanies()
-  const [diagnostics, setDiagnostics] = useState<DiagnosticRecord[]>([])
+  const [diagnostics, setDiagnostics] = useState<CompanyReportRecord[]>([])
   const [selectedDiagnosticId, setSelectedDiagnosticId] = useState<string | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -127,8 +137,8 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
     : null
 
   const refreshDiagnostics = useCallback(() => {
-    setDiagnostics(listDiagnosticsForCompany(lockedCompanyId))
-  }, [lockedCompanyId])
+    setDiagnostics(listCompanyReportsForCompany(moduleId, lockedCompanyId))
+  }, [lockedCompanyId, moduleId])
 
   useEffect(() => {
     refreshDiagnostics()
@@ -136,10 +146,10 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
 
   useEffect(() => {
     for (const company of companies) {
-      syncDiagnosticCompanyName(company.id, company.name)
+      syncCompanyReportCompanyName(moduleId, company.id, company.name)
     }
     refreshDiagnostics()
-  }, [companies, refreshDiagnostics])
+  }, [companies, refreshDiagnostics, moduleId])
 
   useEffect(() => {
     if (!newCompanyId && companies.length > 0) {
@@ -174,11 +184,8 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
   const canDelete =
     !!selectedDiagnostic && deleteConfirmText.trim() === selectedDiagnostic.title.trim()
 
-  const openDiagnostic = (diag: DiagnosticRecord) => {
-    const params = new URLSearchParams()
-    if (diag.companyId) params.set("companyId", diag.companyId)
-    const qs = params.toString()
-    router.push(`/modules/diagnostic/${diag.id}${qs ? `?${qs}` : ""}`)
+  const openDiagnostic = (diag: CompanyReportRecord) => {
+    router.push(companyReportDetailPath(module, diag.id, diag.companyId))
   }
 
   const handleCreateDiagnostic = () => {
@@ -187,7 +194,7 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
     if (!company || creating) return
     setCreating(true)
     try {
-      const record = createDiagnostic({
+      const record = createCompanyReport(moduleId, {
         companyId: company.id,
         companyName: company.name,
         title: newTitle.trim() || undefined,
@@ -205,7 +212,7 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
 
   const handleDeleteDiagnostic = () => {
     if (!selectedDiagnostic || !canDelete) return
-    removeDiagnostic(selectedDiagnostic.id)
+    removeCompanyReport(moduleId, selectedDiagnostic.id)
     refreshDiagnostics()
     setDeleteOpen(false)
     setDeleteConfirmText("")
@@ -230,14 +237,12 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
           <div className="mb-8 flex items-start gap-3">
             <div className="w-2" />
             <div className="flex-1">
-              <h2 className="mb-2 text-4xl font-semibold tracking-tight text-[#E6D6C3]">Diagnostic</h2>
-              <p className="mb-6 text-base text-[#C9B8A5]/90">
-                Créez et consultez vos rapports de diagnostic d&apos;entreprise.
-              </p>
+              <h2 className="mb-2 text-4xl font-semibold tracking-tight text-[#E6D6C3]">{module.portalHeroTitle}</h2>
+              <p className="mb-6 text-base text-[#C9B8A5]/90">{module.portalHeroDescription}</p>
               <p className="mb-6 max-w-4xl text-base leading-relaxed text-[#C9B8A5]/80">
                 {lockedCompany
-                  ? `Créez un diagnostic ou sélectionnez un rapport existant pour ${lockedCompany.name}.`
-                  : "Créez un rapport ou sélectionnez un diagnostic existant pour continuer l'analyse."}
+                  ? module.portalHeroLockedHint(lockedCompany.name)
+                  : module.portalHeroDefaultHint}
               </p>
               <Button
                 onClick={() => {
@@ -248,7 +253,7 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
                 className="bg-[#E0742D] text-white hover:bg-[#c96526]"
               >
                 <Plus className="mr-2 h-4 w-4" />
-                Nouveau diagnostic
+                {module.newReportLabel}
               </Button>
             </div>
           </div>
@@ -258,13 +263,13 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
       <main className="relative -mt-32 mb-12">
         <div className="mx-auto max-w-[1920px] px-6">
           {companiesLoading ? (
-            <MesDiagnosticsCard>
+            <MesReportsCard title={module.listTitle} subtitle={module.listSubtitle}>
               <div className="px-6 py-8">
                 <p className="text-sm text-slate-600">Chargement…</p>
               </div>
-            </MesDiagnosticsCard>
+            </MesReportsCard>
           ) : companies.length === 0 ? (
-            <MesDiagnosticsCard>
+            <MesReportsCard title={module.listTitle} subtitle={module.listSubtitle}>
               <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
                 <FolderOpen className="mb-4 h-14 w-14 text-slate-300" aria-hidden />
                 <h3 className="text-lg font-semibold text-[#2A2F3A]">Aucune société disponible</h3>
@@ -277,16 +282,16 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
                   </Button>
                 </Link>
               </div>
-            </MesDiagnosticsCard>
+            </MesReportsCard>
           ) : diagnostics.length === 0 ? (
-            <MesDiagnosticsCard>
+            <MesReportsCard title={module.listTitle} subtitle={module.listSubtitle}>
               <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
                 <ClipboardList className="mb-4 h-14 w-14 text-slate-300" aria-hidden />
-                <h3 className="text-lg font-semibold text-[#2A2F3A]">Aucun diagnostic créé</h3>
+                <h3 className="text-lg font-semibold text-[#2A2F3A]">{module.emptyListTitle}</h3>
                 <p className="mt-2 max-w-md text-sm text-slate-600">
                   {lockedCompany
-                    ? `Lancez votre premier rapport de diagnostic pour ${lockedCompany.name}.`
-                    : "Lancez votre premier rapport de diagnostic pour une société de votre espace."}
+                    ? module.emptyListDescriptionLocked(lockedCompany.name)
+                    : module.emptyListDescriptionDefault}
                 </p>
                 <Button
                   className="mt-6 bg-[#E0742D] text-white hover:bg-[#c96526]"
@@ -296,12 +301,12 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
                   }}
                 >
                   <Plus className="mr-2 h-4 w-4" />
-                  Créer un diagnostic
+                  {module.newReportLabel}
                 </Button>
               </div>
-            </MesDiagnosticsCard>
+            </MesReportsCard>
           ) : (
-            <MesDiagnosticsCard>
+            <MesReportsCard title={module.listTitle} subtitle={module.listSubtitle}>
               <div className="grid min-h-[min(70vh,600px)] grid-cols-1 lg:grid-cols-[minmax(260px,340px)_minmax(0,1fr)]">
                 <aside
                   className={cn(
@@ -311,7 +316,7 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
                 >
                   <div className="border-b border-slate-200/90 px-4 py-3">
                     <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                      Diagnostics ({diagnostics.length})
+                      {module.label} ({diagnostics.length})
                     </p>
                   </div>
                   <ScrollArea className="h-[min(45vh,380px)] lg:h-[min(70vh,600px)]">
@@ -367,7 +372,7 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
                       <div className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-5">
                         <div className="min-w-0 flex-1">
                           <p className="text-[11px] font-semibold uppercase tracking-wider text-[#E0742D]">
-                            Aperçu du diagnostic
+                            Aperçu — {module.label}
                           </p>
                           <h3 className="mt-1 text-xl font-semibold leading-snug text-[#2A2F3A] sm:text-2xl">
                             {selectedDiagnostic.title}
@@ -454,19 +459,19 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
                           className="bg-[#E0742D] text-white shadow-sm hover:bg-[#c96526]"
                           onClick={() => openDiagnostic(selectedDiagnostic)}
                         >
-                          Ouvrir le diagnostic
+                          Ouvrir {module.label.toLowerCase()}
                           <ArrowRight className="ml-2 h-4 w-4" />
                         </Button>
                       </div>
                     </div>
                   ) : selectedDiagnostic ? (
                     <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center text-sm text-slate-600">
-                      Impossible de charger l&apos;aperçu pour ce diagnostic.
+                      Impossible de charger l&apos;aperçu pour ce rapport.
                     </div>
                   ) : null}
                 </section>
               </div>
-            </MesDiagnosticsCard>
+            </MesReportsCard>
           )}
         </div>
       </main>
@@ -474,11 +479,11 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Nouveau diagnostic</DialogTitle>
+            <DialogTitle>{module.createDialogTitle}</DialogTitle>
             <DialogDescription>
               {lockedCompany
-                ? `Le diagnostic sera créé pour ${lockedCompany.name}. Vous pourrez le rouvrir depuis cette page.`
-                : "Choisissez l'entité à analyser. Vous pourrez rouvrir ce diagnostic depuis cette page."}
+                ? `Le rapport sera créé pour ${lockedCompany.name}. Vous pourrez le rouvrir depuis cette page.`
+                : module.createDialogDescription}
             </DialogDescription>
           </DialogHeader>
 
@@ -499,7 +504,7 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
             ) : null}
             <div>
               <label className="mb-2 block text-sm font-semibold text-slate-700">
-                Titre du diagnostic <span className="font-normal text-slate-400">(optionnel)</span>
+                Titre du rapport <span className="font-normal text-slate-400">(optionnel)</span>
               </label>
               <Input
                 placeholder="Ex. Diagnostic annuel 2025"
@@ -569,7 +574,7 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
               className="bg-[#E0742D] text-white hover:bg-[#c96526]"
             >
               <Check className="mr-2 h-4 w-4" />
-              Créer le diagnostic
+              Créer le rapport
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -578,9 +583,9 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
       <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer ce diagnostic ?</AlertDialogTitle>
+            <AlertDialogTitle>Supprimer ce rapport ?</AlertDialogTitle>
             <AlertDialogDescription>
-              Cette action retire le diagnostic de votre liste locale. Le rapport calculé n&apos;est pas
+              Cette action retire le rapport de votre liste locale. Les données comptables ne sont pas
               supprimé côté serveur. Tapez{" "}
               <span className="font-semibold text-slate-900">{selectedDiagnostic?.title}</span> pour confirmer.
             </AlertDialogDescription>
@@ -588,7 +593,7 @@ export function DiagnosticPortalPage({ lockedCompanyId = null }: DiagnosticPorta
           <Input
             value={deleteConfirmText}
             onChange={(e) => setDeleteConfirmText(e.target.value)}
-            placeholder="Titre du diagnostic"
+            placeholder="Titre du rapport"
             className="mt-2"
           />
           <AlertDialogFooter>

@@ -2,10 +2,14 @@
 
 import { FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { buildDiagnosticReportPrintUrl } from "@/lib/diagnostic-report-print"
+import { buildCompanyReportPrintUrl } from "@/lib/diagnostic-report-print"
+import type { CompanyReportModuleId } from "@/lib/company-report-module"
 
 interface DiagnosticReportViewButtonProps {
-  diagnosticId: string
+  reportId: string
+  /** @deprecated Utiliser reportId */
+  diagnosticId?: string
+  moduleId?: CompanyReportModuleId
   companyId: string
   referenceYear: number
   referenceMonth: number
@@ -13,15 +17,18 @@ interface DiagnosticReportViewButtonProps {
 }
 
 export function DiagnosticReportViewButton({
+  reportId,
   diagnosticId,
+  moduleId = "diagnostic",
   companyId,
   referenceYear,
   referenceMonth,
   variant = "default",
 }: DiagnosticReportViewButtonProps) {
+  const resolvedReportId = reportId || diagnosticId || ""
   const handleOpen = () => {
-    const url = buildDiagnosticReportPrintUrl({
-      diagnosticId,
+    const url = buildCompanyReportPrintUrl(moduleId, {
+      reportId: resolvedReportId,
       companyId,
       referenceYear,
       referenceMonth,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   CONTRIBUTIVE_MARGIN_SERIES_LABEL,
   ensureIncomeStatementPerformanceConfig,
+  normalizeChartConfig,
   type StatementChartConfig,
 } from "@/lib/statement-chart-config"
 
@@ -88,7 +89,29 @@ describe("ensureIncomeStatementPerformanceConfig", () => {
 
     const ensured = ensureIncomeStatementPerformanceConfig(config, "income-statement")
     expect(ensured.series).toHaveLength(3)
-    expect(ensured.series[2]?.spec.type).toBe("derivedContributiveMargin")
-    expect(ensured.series[2]?.label).toBe(CONTRIBUTIVE_MARGIN_SERIES_LABEL)
+    expect(ensured.series[1]?.spec.type).toBe("derivedContributiveMargin")
+    expect(ensured.series[1]?.label).toBe(CONTRIBUTIVE_MARGIN_SERIES_LABEL)
+  })
+})
+
+describe("normalizeChartConfig", () => {
+  it("répare une courbe de revenus mal étiquetée en ratio", () => {
+    const normalized = normalizeChartConfig({
+      version: 2,
+      series: [
+        {
+          id: "rev-a",
+          kind: "line",
+          label: "Produits",
+          spec: { type: "single", code: "REV-A" },
+          yAxis: "right",
+          valueFormat: "ratio",
+          showOnChart: true,
+          showInSidePanel: true,
+        },
+      ],
+    })
+
+    expect(normalized.series[0]?.valueFormat).toBe("currency")
   })
 })

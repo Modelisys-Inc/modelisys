@@ -14,9 +14,7 @@ import { cn } from "@/lib/utils"
 
 const COLORS = {
   revenue: "#059669",
-  revenueStroke: "#047857",
   totalCosts: "#DC2626",
-  totalCostsStroke: "#B91C1C",
   fixedCosts: "#94A3B8",
   fixedFill: "#F1F5F9",
   variableFill: "#FEE2E2",
@@ -93,6 +91,85 @@ function scenarioBadge(scenario: BreakevenScenario): { label: string; className:
     return { label: "Point mort", className: "bg-slate-100 text-slate-700" }
   }
   return { label: "Simulation", className: "bg-amber-50 text-amber-800" }
+}
+
+function BreakevenChartLegend({ printMode = false }: { printMode?: boolean }) {
+  const items = [
+    {
+      key: "revenue",
+      label: "Revenus",
+      swatch: (
+        <span
+          className="inline-block h-[3px] w-7 rounded-full"
+          style={{ background: COLORS.revenue }}
+          aria-hidden
+        />
+      ),
+    },
+    {
+      key: "total-costs",
+      label: "Coûts totaux",
+      swatch: (
+        <span
+          className="inline-block h-[3px] w-7 rounded-full"
+          style={{ background: COLORS.totalCosts }}
+          aria-hidden
+        />
+      ),
+    },
+    {
+      key: "variable-costs",
+      label: "Coûts variables",
+      swatch: (
+        <span
+          className="inline-block h-3.5 w-7 rounded-sm border border-red-200"
+          style={{ background: COLORS.variableFill }}
+          aria-hidden
+        />
+      ),
+    },
+    {
+      key: "fixed-costs",
+      label: "Coûts fixes",
+      swatch: (
+        <span
+          className="inline-block h-3.5 w-7 rounded-sm border border-dashed border-slate-300"
+          style={{ background: COLORS.fixedFill }}
+          aria-hidden
+        />
+      ),
+    },
+  ] as const
+
+  return (
+    <div
+      data-testid="breakeven-chart-legend"
+      className={cn(
+        "border-t border-slate-100",
+        printMode ? "mt-2 pt-2" : "mt-3 pt-3",
+      )}
+      role="list"
+      aria-label="Légende du graphique"
+    >
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-center gap-x-6 gap-y-2 sm:gap-x-8",
+          printMode ? "px-0" : "px-2",
+        )}
+      >
+        {items.map((item) => (
+          <div
+            key={item.key}
+            role="listitem"
+            className="flex shrink-0 items-center gap-2.5 whitespace-nowrap"
+          >
+            <span className="flex w-7 shrink-0 items-center justify-center">{item.swatch}</span>
+            <span className="text-[11px] font-medium leading-none text-slate-600">{item.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function BreakevenScenarioPanel({
@@ -320,11 +397,6 @@ export function ExpenseBreakevenChart({
 
     const currentRevenueX = xScale(Math.min(analysis.revenue, maxX))
 
-    const labelX = xScale(maxX * 0.52)
-    const revenueLabelY = yScale(maxX * 0.52)
-    const totalCostLabelY = yScale(totalCostsAt(maxX * 0.52))
-    const fixedLabelY = fixedY
-
     return {
       revenuePts,
       totalCostPts,
@@ -335,10 +407,6 @@ export function ExpenseBreakevenChart({
       xTicks,
       breakeven,
       currentRevenueX,
-      labelX,
-      revenueLabelY,
-      totalCostLabelY,
-      fixedLabelY,
       xScale,
       yScale,
       revenueAt,
@@ -604,29 +672,6 @@ export function ExpenseBreakevenChart({
                 Chiffre d&apos;affaires
               </text>
 
-              {!hover ? (
-                <>
-                  <g transform={`translate(${plot.labelX}, ${plot.revenueLabelY - 14})`}>
-                    <rect x={-42} y={-11} width={84} height={20} rx={10} fill="white" stroke={COLORS.revenueStroke} strokeWidth={1} />
-                    <text x={0} y={3} textAnchor="middle" fontSize={9} fontWeight={600} fill={COLORS.revenueStroke}>
-                      REVENUS
-                    </text>
-                  </g>
-                  <g transform={`translate(${plot.labelX}, ${plot.totalCostLabelY - 14})`}>
-                    <rect x={-52} y={-11} width={104} height={20} rx={10} fill="white" stroke={COLORS.totalCostsStroke} strokeWidth={1} />
-                    <text x={0} y={3} textAnchor="middle" fontSize={9} fontWeight={600} fill={COLORS.totalCostsStroke}>
-                      COÛTS VARIABLES
-                    </text>
-                  </g>
-                  <g transform={`translate(${plot.labelX}, ${plot.fixedLabelY + 18})`}>
-                    <rect x={-42} y={-11} width={84} height={20} rx={10} fill="white" stroke={COLORS.fixedCosts} strokeWidth={1} />
-                    <text x={0} y={3} textAnchor="middle" fontSize={9} fontWeight={600} fill="#64748B">
-                      COÛTS FIXES
-                    </text>
-                  </g>
-                </>
-              ) : null}
-
               <rect
                 x={MARGIN.left}
                 y={MARGIN.top}
@@ -640,6 +685,7 @@ export function ExpenseBreakevenChart({
               />
             </svg>
             </div>
+            <BreakevenChartLegend printMode={printMode} />
           </div>
 
           <div className={cn("w-full shrink-0 lg:w-72 xl:w-80", printMode && "flex min-h-0 w-auto flex-col")}>
