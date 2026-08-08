@@ -1,7 +1,12 @@
 import { EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL } from "@/lib/expense-bridge-chart-theme"
+import { EXPENSE_CONTRIBUTIVE_MARGIN_HEADING } from "@/lib/expense-cost-breakdown-tables"
 import type { PerformanceNarrativeParagraph, PerformanceNarrativeResult } from "@/lib/income-performance-narrative"
 import type { ExpenseContributionBridgeResult } from "@/lib/expense-contribution-bridge"
 import type { ExpenseBridgeNarrativeContext, ExpenseCostDriver } from "@/lib/expense-bridge-narrative-context"
+import {
+  formatTopVariableDriversByRevenueShare,
+  formatTopVariableDriversByRevenueShift,
+} from "@/lib/expense-variable-cost-driver-analysis"
 import { formatCurrency } from "@/lib/financial-utils"
 
 const DATA_EPSILON = 1e-6
@@ -36,41 +41,8 @@ function periodIntroLabel(view: string, period: string): string {
   return view === "years" ? `En ${period}` : `Pour le mois de ${period}`
 }
 
-function formatVariableDriverEntry(
-  driver: ExpenseCostDriver,
-  options: { includeCategoryShareLabel: boolean },
-): string {
-  const share = options.includeCategoryShareLabel
-    ? `soit ${fmtPctPlain(driver.shareOfCategoryPct)} des coûts variables`
-    : `soit ${fmtPctPlain(driver.shareOfCategoryPct)}`
-  const label = driver.label.trim()
-  const lowerFirst = label.charAt(0).toLowerCase() + label.slice(1)
-  return `${lowerFirst} (${formatCurrency(driver.amount)}, ${share})`
-}
-
 function formatVariableDriversBreakdown(drivers: ExpenseCostDriver[]): string | null {
-  if (!drivers.length) return null
-
-  if (drivers.length === 1) {
-    const driver = drivers[0]!
-    return `Les coûts variables sont principalement composés de ${formatVariableDriverEntry(driver, { includeCategoryShareLabel: true })}.`
-  }
-
-  const top = drivers.slice(0, 3)
-  const parts = top.map((driver, index) => {
-    const entry = formatVariableDriverEntry(driver, { includeCategoryShareLabel: index === 0 })
-    if (index === 0) return `des ${entry}`
-    if (index === top.length - 1) return `ainsi que de ${entry}`
-    return `de ${entry}`
-  })
-
-  const combinedShare = top.reduce((sum, driver) => sum + driver.shareOfCategoryPct, 0)
-  const leverageSentence =
-    top.length >= 3 && combinedShare >= 90
-      ? ` À eux seuls, ces trois postes représentent plus de ${Math.floor(combinedShare)} % des coûts variables et constituent les principaux leviers influençant la marge contributive.`
-      : " Ces postes constituent les principaux leviers influençant la marge contributive."
-
-  return `Les coûts variables sont principalement composés ${parts.join(", ")}.${leverageSentence}`
+  return formatTopVariableDriversByRevenueShare(drivers)
 }
 
 function finalizeExpenseSectionParagraphs(
@@ -196,12 +168,13 @@ function buildVariableCostParagraphs(
   const latest = bridge.points[0]
   const prior = bridge.points[1]
   const { variableCostAccountCount } = bridge.mappingStatus
+  const sectionHeading = EXPENSE_CONTRIBUTIVE_MARGIN_HEADING
 
   if (!latest) {
     return finalizeExpenseSectionParagraphs([
       {
-        heading: "Coûts variables",
-        body: "Les coûts variables ne sont pas disponibles sur l'horizon analysé.",
+        heading: sectionHeading,
+        body: "La contribution marginale n'est pas disponible sur l'horizon analysé.",
       },
     ])
   }
@@ -209,7 +182,7 @@ function buildVariableCostParagraphs(
   if (variableCostAccountCount === 0) {
     return finalizeExpenseSectionParagraphs([
       {
-        heading: "Coûts variables",
+        heading: sectionHeading,
         body: "Aucun compte n'est marqué comme coût variable dans le mapping comptable. Paramétrez le type « Variable » sur les comptes de charges directement liées à l'activité afin de quantifier la contribution marginale.",
       },
     ])
@@ -218,12 +191,13 @@ function buildVariableCostParagraphs(
   const costShare = ratioOf(latest.variableCosts, latest.revenue)
   const marginPct = ratioOf(latest.contributiveMargin, latest.revenue)
   const priorCostShare = prior ? ratioOf(prior.variableCosts, prior.revenue) : null
+  const priorMarginPct = prior ? ratioOf(prior.contributiveMargin, prior.revenue) : null
 
-  const intro = `${periodIntroLabel(view, latest.period)}, les coûts variables totalisent ${formatCurrency(latest.variableCosts)}${costShare !== null ? `, soit ${fmtPctPlain(costShare)} du chiffre d'affaires` : ""}, et proviennent de ${variableCostAccountCount} compte${variableCostAccountCount > 1 ? "s" : ""} du mapping comptable.${marginPct !== null ? ` Chaque dollar de revenu génère ainsi une contribution marginale de ${fmtPctPlain(marginPct)}, représentant ${formatCurrency(latest.contributiveMargin)} disponibles pour couvrir les coûts fixes de l'entreprise et générer un bénéfice d'exploitation (${EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL}).` : ""}`
+  const intro = `${periodIntroLabel(view, latest.period)}, la contribution marginale s'établit à ${formatCurrency(latest.contributiveMargin)}${marginPct !== null ? `, soit ${fmtPctPlain(marginPct)} du chiffre d'affaires de ${formatCurrency(latest.revenue)}` : ""}. Les coûts variables associés totalisent ${formatCurrency(latest.variableCosts)}${costShare !== null ? ` (${fmtPctPlain(costShare)} du CA)` : ""} et proviennent de ${variableCostAccountCount} compte${variableCostAccountCount > 1 ? "s" : ""} du mapping comptable. Cette richesse contributive est disponible pour absorber les charges fixes et générer un ${EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL}.`
 
   const paragraphs: PerformanceNarrativeParagraph[] = [
     {
-      heading: "Coûts variables",
+      heading: sectionHeading,
       body: intro,
       narrativePageGroup: "expense-variable-costs",
     },
@@ -232,14 +206,61 @@ function buildVariableCostParagraphs(
   const driversParagraph = context ? formatVariableDriversBreakdown(context.topVariableDrivers) : null
   if (driversParagraph) {
     paragraphs.push({
-      heading: "Coûts variables",
+      heading: sectionHeading,
       body: driversParagraph,
       hideMainHeading: true,
       narrativePageGroup: "expense-variable-costs",
     })
   }
 
-  if (costShare !== null && priorCostShare !== null && marginPct !== null && prior) {
+  if (context?.topVariableDriversByRevenueShift.length && prior) {
+    const priorLabel = view === "years" ? prior.period : `le mois de ${prior.period}`
+    const shiftParagraph = formatTopVariableDriversByRevenueShift(
+      context.topVariableDriversByRevenueShift,
+      priorLabel,
+    )
+    if (shiftParagraph) {
+      paragraphs.push({
+        heading: sectionHeading,
+        body: shiftParagraph,
+        hideMainHeading: true,
+        narrativePageGroup: "expense-variable-costs",
+      })
+    }
+  }
+
+  if (marginPct !== null && priorMarginPct !== null && prior) {
+    const marginDelta = marginPct - priorMarginPct
+    const priorLabel = view === "years" ? prior.period : `le mois de ${prior.period}`
+    if (Math.abs(marginDelta) >= RATIO_POINT_THRESHOLD) {
+      const trendParagraph =
+        marginDelta > 0
+          ? `Comparativement à ${priorLabel}, la contribution marginale s'améliore de ${fmtPoints(marginDelta)}, passant de ${fmtPctPlain(priorMarginPct)} à ${fmtPctPlain(marginPct)} du chiffre d'affaires. Cette évolution renforce la capacité de l'entreprise à couvrir sa structure fixe et à générer un ${EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL} positif.`
+          : `Comparativement à ${priorLabel}, la contribution marginale recule de ${fmtPoints(Math.abs(marginDelta))}, passant de ${fmtPctPlain(priorMarginPct)} à ${fmtPctPlain(marginPct)} du chiffre d'affaires. Cette compression réduit la marge disponible pour absorber les coûts fixes et tend à peser sur le ${EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL}.`
+      paragraphs.push({
+        heading: sectionHeading,
+        body: trendParagraph,
+        hideMainHeading: true,
+        narrativePageGroup: "expense-variable-costs",
+      })
+    } else if (costShare !== null && priorCostShare !== null) {
+      const trendParagraph = describeVariableRatioTrend(
+        prior.period,
+        costShare,
+        priorCostShare,
+        marginPct,
+        view,
+      )
+      if (trendParagraph) {
+        paragraphs.push({
+          heading: sectionHeading,
+          body: trendParagraph,
+          hideMainHeading: true,
+          narrativePageGroup: "expense-variable-costs",
+        })
+      }
+    }
+  } else if (costShare !== null && priorCostShare !== null && marginPct !== null && prior) {
     const trendParagraph = describeVariableRatioTrend(
       prior.period,
       costShare,
@@ -249,7 +270,7 @@ function buildVariableCostParagraphs(
     )
     if (trendParagraph) {
       paragraphs.push({
-        heading: "Coûts variables",
+        heading: sectionHeading,
         body: trendParagraph,
         hideMainHeading: true,
         narrativePageGroup: "expense-variable-costs",
@@ -260,11 +281,11 @@ function buildVariableCostParagraphs(
     const revChange = pctChange(latest.revenue, prior.revenue)
     if (costChange !== null && revChange !== null && Math.abs(costChange - revChange) > GROWTH_GAP_THRESHOLD) {
       paragraphs.push({
-        heading: "Coûts variables",
+        heading: sectionHeading,
         body:
           costChange > revChange
-            ? `Comparativement à ${view === "years" ? prior.period : `le mois de ${prior.period}`}, les coûts variables progressent plus vite (${fmtPct(costChange)}) que le chiffre d'affaires (${fmtPct(revChange)}), ce qui tend à comprimer la marge contributive.`
-            : `Comparativement à ${view === "years" ? prior.period : `le mois de ${prior.period}`}, les coûts variables évoluent moins vite (${fmtPct(costChange)}) que le chiffre d'affaires (${fmtPct(revChange)}), ce qui soutient la marge contributive.`,
+            ? `Comparativement à ${view === "years" ? prior.period : `le mois de ${prior.period}`}, les coûts variables progressent plus vite (${fmtPct(costChange)}) que le chiffre d'affaires (${fmtPct(revChange)}), ce qui tend à comprimer la contribution marginale.`
+            : `Comparativement à ${view === "years" ? prior.period : `le mois de ${prior.period}`}, les coûts variables évoluent moins vite (${fmtPct(costChange)}) que le chiffre d'affaires (${fmtPct(revChange)}), ce qui soutient la contribution marginale.`,
         hideMainHeading: true,
         narrativePageGroup: "expense-variable-costs",
       })

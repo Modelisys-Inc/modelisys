@@ -39,11 +39,13 @@ function renderParagraphBody(
 export function DivisionNarrativeBlockList({
   blocks,
   renderAfterParagraph,
+  renderAfterBlock,
   variant = "screen",
   blockClassName,
 }: {
   blocks: DivisionNarrativeBlock[]
   renderAfterParagraph?: (paragraph: PerformanceNarrativeParagraph) => ReactNode
+  renderAfterBlock?: (block: DivisionNarrativeBlock) => ReactNode
   variant?: "screen" | "print"
   blockClassName?: string
 }) {
@@ -87,6 +89,7 @@ export function DivisionNarrativeBlockList({
               }),
             )}
           </div>
+          {renderAfterBlock?.(block)}
         </div>
       ))}
     </div>

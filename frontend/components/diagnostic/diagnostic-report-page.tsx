@@ -138,6 +138,7 @@ export function DiagnosticReportPage({
                 ) : (
                   <DiagnosticReportChartSection
                     moduleId={moduleId}
+                    reportId={reportId}
                     reportView={reportView}
                     companyId={companyId}
                     companies={companies}

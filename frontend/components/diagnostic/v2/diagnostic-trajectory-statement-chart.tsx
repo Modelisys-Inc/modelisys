@@ -82,6 +82,7 @@ interface DiagnosticReportChartSectionProps {
   referenceMonth: number
   currency?: string
   moduleId?: CompanyReportModuleId
+  reportId?: string
   signal?: { tone: SignalTone; text: string } | null
   /** Rapport imprimé : graphique seul ou lecture seule. */
   printSegment?: "chart" | "narrative"
@@ -109,6 +110,7 @@ export function DiagnosticReportChartSection({
   referenceMonth,
   currency,
   moduleId = "diagnostic",
+  reportId,
   signal,
   printSegment,
   slotBundle,
@@ -351,6 +353,7 @@ export function DiagnosticReportChartSection({
       <StatementChart
         key={`${reportView}-narrative-${chartView}`}
         moduleId={moduleId}
+        reportId={reportId}
         statementType={statementType}
         chartConfigStatementType={
           reportView === "margin-by-revenue"
@@ -424,6 +427,7 @@ export function DiagnosticReportChartSection({
       <StatementChart
         key={`${reportView}-chart-${activeSlot!.chartInstanceId}-${chartView}-${printChartPart ?? "main"}`}
         moduleId={moduleId}
+        reportId={reportId}
         {...statementChartCommon}
         cardAppearance="report"
         printSegment="chart"
@@ -443,6 +447,7 @@ export function DiagnosticReportChartSection({
         <StatementChart
           key={`${reportView}-${activeSlot.chartInstanceId}-${chartView}`}
           moduleId={moduleId}
+          reportId={reportId}
           statementType={statementType}
           chartConfigStatementType={
             reportView === "margin-by-revenue"

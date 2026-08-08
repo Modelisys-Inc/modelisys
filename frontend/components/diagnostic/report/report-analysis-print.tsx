@@ -20,6 +20,7 @@ interface ReportAnalysisPrintProps {
   referenceLabel: string
   sectionMeta: string
   moduleId?: CompanyReportModuleId
+  reportId?: string
 }
 
 /** Pages introduction + graphique + lecture pour chaque analyse (Performance → Capex). */
@@ -30,6 +31,7 @@ export function ReportAnalysisPrint({
   referenceLabel,
   sectionMeta,
   moduleId = "diagnostic",
+  reportId,
 }: ReportAnalysisPrintProps) {
   const { bundleForView } = useDiagnosticReportSlotBundles(companyId)
   const analysisNumberOffset = companyReportAnalysisNumberOffset(moduleId)
@@ -71,6 +73,7 @@ export function ReportAnalysisPrint({
               sectionMeta={sectionMeta}
               slotBundle={slotBundle}
               moduleId={moduleId}
+              reportId={reportId}
             />
           </div>
         )

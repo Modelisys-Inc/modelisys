@@ -23,6 +23,7 @@ interface ReportLecturePagesProps {
   sectionMeta: string
   slotBundle: DiagnosticReportSlotBundle | null
   moduleId?: CompanyReportModuleId
+  reportId?: string
 }
 
 /** Une ou plusieurs pages « Lecture » (pagination alignée aperçu / impression). */
@@ -35,6 +36,7 @@ export function ReportLecturePages({
   sectionMeta,
   slotBundle,
   moduleId = "diagnostic",
+  reportId,
 }: ReportLecturePagesProps) {
   const [pageCount, setPageCount] = useState(1)
 
@@ -74,6 +76,7 @@ export function ReportLecturePages({
             >
               <DiagnosticReportChartSection
                 moduleId={moduleId}
+                reportId={reportId}
                 reportView={analysis.viewId}
                 companyId={companyId}
                 companies={companies}

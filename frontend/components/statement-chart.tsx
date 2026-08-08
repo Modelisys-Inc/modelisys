@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect, type ReactNode } from "react"
+import { useState, useMemo, useEffect, useCallback, Fragment, type ReactNode } from "react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { Company } from "@/components/entity-selector"
 import { ChartContainer, ChartTooltip, ChartLegend } from "@/components/ui/chart"
@@ -29,6 +29,7 @@ import { RevenueContributiveMarginTable } from "@/components/diagnostic/v2/reven
 import { RevenueContributiveMarginEvolutionTable } from "@/components/diagnostic/v2/revenue-contributive-margin-evolution-table"
 import { PilotageMarginByRevenueIndicatorTable } from "@/components/diagnostic/v2/pilotage-margin-by-revenue-indicator-table"
 import { IncomePerformanceNarrativeSection } from "@/components/diagnostic/v2/income-performance-narrative-section"
+import { PilotageSectionCommentField } from "@/components/diagnostic/v2/pilotage-section-comment-field"
 import { ReportNarrativePrint } from "@/components/diagnostic/report/report-narrative-print"
 import { EmptyState } from "@/components/diagnostic/report/report-components"
 import {
@@ -38,6 +39,7 @@ import {
   lecturePageCountFromPacked,
   packNarrativeParagraphs,
   packPilotageExpensesLecturePages,
+  packPilotageDivisionProfitabilityLecturePages,
   packPilotageMarginByRevenueLecturePages,
   packPilotagePerformanceLecturePages,
   packPilotageRevenueAnalysisLecturePages,
@@ -59,6 +61,10 @@ import {
 } from "@/lib/division-profitability"
 import { buildDivisionProfitabilityEvolutionTables } from "@/lib/division-profitability-evolution"
 import { buildDivisionProfitabilityNarrative } from "@/lib/division-profitability-narrative"
+import {
+  buildPilotageDivisionExpenseIndicatorTables,
+  buildPilotageDivisionProfitabilityNarrative,
+} from "@/lib/pilotage-division-profitability-narrative"
 import { DivisionProfitabilityTable } from "@/components/diagnostic/v2/division-profitability-table"
 import { FinancialPositionChart } from "@/components/diagnostic/v2/financial-position-chart"
 import { WorkingCapitalDiagnosticChart } from "@/components/diagnostic/v2/working-capital-diagnostic-chart"
@@ -85,8 +91,20 @@ import {
   buildPilotageMarginByRevenueNarrative,
   mapDynamicChartToNarrativePoints,
   mapDynamicChartToRevenueSeriesNarratives,
+  type DivisionNarrativeBlock,
   type PerformanceNarrativeResult,
 } from "@/lib/income-performance-narrative"
+import {
+  getPilotageSectionComments,
+  isPilotagePerformanceCommentBlockId,
+  isRevenueSourceCommentBlockId,
+  PILOTAGE_EXPENSE_BRIDGE_COMMENT_BLOCK_ID,
+  pilotageDivisionProfitabilityCommentBlockId,
+  pilotageMarginByRevenueCommentBlockId,
+} from "@/lib/pilotage-section-comments"
+import { PILOTAGE_SUBSECTION_CURRENT_PERFORMANCE } from "@/lib/pilotage-revenue-performance-narrative"
+import { usePilotageSectionComments } from "@/hooks/use-pilotage-section-comments"
+import { usePermissions } from "@/hooks/use-permissions"
 import {
   buildPilotageExpenseIndicatorTables,
   pilotageExpenseIndicatorTableKey,
@@ -243,6 +261,8 @@ interface StatementChartProps {
   chartConfigStatementType?: StatementType
   /** Module rapport (diagnostic / pilotage) — ajuste la fenêtre Performance financière. */
   moduleId?: CompanyReportModuleId
+  /** Identifiant du rapport (diagnostic / pilotage) — commentaires et contenus qualitatifs. */
+  reportId?: string
 }
 
 function PerformanceChartRemoveButton({ onRemove }: { onRemove: () => void }) {
@@ -335,6 +355,7 @@ export function StatementChart({
   narrativeScope = "full",
   chartConfigStatementType,
   moduleId = "diagnostic",
+  reportId,
 }: StatementChartProps) {
   const isReportAppearance = cardAppearance === "report"
   const showChart = printSegment !== "narrative"
@@ -351,6 +372,20 @@ export function StatementChart({
     chartConfigStatementType ?? statementType,
     narrativeScope,
   )
+  const showSummaryTableCagrColumn = moduleId !== "pilotage"
+  const showPilotagePerformanceComments =
+    moduleId === "pilotage" && narrativeScope === "full" && Boolean(reportId)
+  const showPilotageRevenueAnalysisComments =
+    moduleId === "pilotage" && narrativeScope === "revenue-only" && Boolean(reportId)
+  const showPilotageMarginByRevenueComments =
+    moduleId === "pilotage" && narrativeScope === "margin-by-revenue-only" && Boolean(reportId)
+  const showPilotageExpensesBridgeComments =
+    moduleId === "pilotage" && narrativeScope === "expenses-only" && Boolean(reportId)
+  const showPilotageDivisionProfitabilityComments =
+    moduleId === "pilotage" && narrativeScope === "expenses-by-division-only" && Boolean(reportId)
+  const pilotageSectionComments = usePilotageSectionComments(reportId ?? "")
+  const { getComment, setComment } = pilotageSectionComments
+  const { canEdit } = usePermissions()
   const performanceMonthlyPointCount = getCompanyReportPerformanceMonthlyCount(moduleId)
   const revenueAnalysisMonthlyCount = isRevenueAnalysisView
     ? getCompanyReportRevenueAnalysisMonthlyCount(moduleId)
@@ -528,8 +563,65 @@ export function StatementChart({
 
   const divisionProfitabilityNarrative = useMemo(() => {
     if (!isDivisionContributiveMarginView || !divisionProfitabilitySlices?.length) return null
+    if (moduleId === "pilotage" && view === "24months") {
+      const company = companies.find((c) => c.id === companyId)
+      return buildPilotageDivisionProfitabilityNarrative({
+        slices: divisionProfitabilitySlices,
+        divisionSeries: divisionSeriesBundles,
+        mappings: accountMappings,
+        refMonth,
+        refYear,
+        fiscalYearEnd: company?.fiscalYearEnd ?? "12-31",
+        standardLinkCodes,
+      })
+    }
     return buildDivisionProfitabilityNarrative(divisionProfitabilitySlices, view)
-  }, [isDivisionContributiveMarginView, divisionProfitabilitySlices, view])
+  }, [
+    isDivisionContributiveMarginView,
+    divisionProfitabilitySlices,
+    moduleId,
+    view,
+    divisionSeriesBundles,
+    accountMappings,
+    refMonth,
+    refYear,
+    companies,
+    companyId,
+    standardLinkCodes,
+  ])
+
+  const pilotageDivisionExpenseIndicatorTables = useMemo(() => {
+    if (
+      moduleId !== "pilotage" ||
+      !isDivisionContributiveMarginView ||
+      view !== "24months" ||
+      !divisionProfitabilitySlices?.length
+    ) {
+      return null
+    }
+    const company = companies.find((c) => c.id === companyId)
+    return buildPilotageDivisionExpenseIndicatorTables({
+      slices: divisionProfitabilitySlices,
+      divisionSeries: divisionSeriesBundles,
+      mappings: accountMappings,
+      refMonth,
+      refYear,
+      fiscalYearEnd: company?.fiscalYearEnd ?? "12-31",
+      standardLinkCodes,
+    })
+  }, [
+    moduleId,
+    isDivisionContributiveMarginView,
+    view,
+    divisionProfitabilitySlices,
+    divisionSeriesBundles,
+    accountMappings,
+    refMonth,
+    refYear,
+    companies,
+    companyId,
+    standardLinkCodes,
+  ])
 
   const divisionProfitabilityEvolutionTables = useMemo(() => {
     if (!isDivisionContributiveMarginView || !divisionProfitabilitySlices?.length) return null
@@ -995,42 +1087,75 @@ export function StatementChart({
 
   const companyCurrency = currency
 
-  const renderContributiveMarginIndicatorTable = (paragraph: {
-    heading: string
-    subsection?: string
-    showIndicatorTable?: boolean
-  }) => {
-    if (paragraph.showIndicatorTable === false) return null
-    const pilotageTable = pilotageMarginIndicatorTables?.get(
-      pilotageMarginIndicatorTableKey(paragraph.heading, paragraph.subsection),
-    )
-    if (pilotageTable) {
-      return (
-        <PilotageMarginByRevenueIndicatorTable table={pilotageTable} currency={companyCurrency} />
-      )
-    }
-    const evolution = contributiveMarginEvolutionTables?.get(paragraph.heading)
-    if (!evolution) return null
-    return <RevenueContributiveMarginEvolutionTable table={evolution} currency={companyCurrency} />
-  }
+  const pilotageIndicatorTableDensity =
+    isReportAppearance && (isDivisionContributiveMarginView || isExpensesBridgeView)
+      ? "compact"
+      : "default"
 
-  const renderExpenseIndicatorTable = (paragraph: {
-    heading: string
-    subsection?: string
-    showIndicatorTable?: boolean
-  }) => {
+  const renderContributiveMarginIndicatorTable = useCallback(
+    (paragraph: {
+      heading: string
+      subsection?: string
+      showIndicatorTable?: boolean
+    }) => {
+      if (paragraph.showIndicatorTable === false) return null
+      const pilotageTable = pilotageMarginIndicatorTables?.get(
+        pilotageMarginIndicatorTableKey(paragraph.heading, paragraph.subsection),
+      )
+      if (pilotageTable) {
+        return (
+          <PilotageMarginByRevenueIndicatorTable
+            table={pilotageTable}
+            currency={companyCurrency}
+            density={pilotageIndicatorTableDensity}
+          />
+        )
+      }
+      const evolution = contributiveMarginEvolutionTables?.get(paragraph.heading)
+      if (!evolution) return null
+      return <RevenueContributiveMarginEvolutionTable table={evolution} currency={companyCurrency} />
+    },
+    [pilotageMarginIndicatorTables, contributiveMarginEvolutionTables, companyCurrency, pilotageIndicatorTableDensity],
+  )
+
+  const renderExpenseIndicatorTable = (
+    paragraph: {
+      heading: string
+      subsection?: string
+      showIndicatorTable?: boolean
+    },
+    indicatorTables = pilotageExpenseIndicatorTables,
+  ) => {
     if (paragraph.showIndicatorTable === false) return null
-    const pilotageTable = pilotageExpenseIndicatorTables?.get(
+    const pilotageTable = indicatorTables?.get(
       pilotageExpenseIndicatorTableKey(paragraph.heading, paragraph.subsection),
     )
     if (pilotageTable) {
       return (
-        <PilotageMarginByRevenueIndicatorTable table={pilotageTable} currency={companyCurrency} />
+        <PilotageMarginByRevenueIndicatorTable
+          table={pilotageTable}
+          currency={companyCurrency}
+          density={pilotageIndicatorTableDensity}
+        />
       )
     }
     const breakdown = expenseCostBreakdownTables?.get(paragraph.heading)
     if (!breakdown) return null
     return <RevenueContributiveMarginEvolutionTable table={breakdown} currency={companyCurrency} />
+  }
+
+  const renderDivisionIndicatorTable = (paragraph: {
+    heading: string
+    subsection?: string
+    showIndicatorTable?: boolean
+  }) => {
+    if (moduleId === "pilotage") {
+      return renderExpenseIndicatorTable(paragraph, pilotageDivisionExpenseIndicatorTables)
+    }
+    if (paragraph.showIndicatorTable === false) return null
+    const evolution = divisionProfitabilityEvolutionTables?.get(paragraph.heading)
+    if (!evolution) return null
+    return <RevenueContributiveMarginEvolutionTable table={evolution} currency={companyCurrency} />
   }
 
   const pilotagePerformanceNarrativeContext = useMemo(() => {
@@ -1135,6 +1260,9 @@ export function StatementChart({
       )
     }
     if (narrativeScope === "expenses-by-division-only") {
+      if (moduleId === "pilotage") {
+        return packPilotageDivisionProfitabilityLecturePages(divisionProfitabilityNarrative?.paragraphs)
+      }
       return packNarrativeParagraphs(divisionProfitabilityNarrative?.paragraphs, (paragraph) =>
         paragraph.showIndicatorTable === false
           ? 0
@@ -1171,6 +1299,7 @@ export function StatementChart({
     expensesBridgeNarrative,
     expenseCostBreakdownTables,
     divisionProfitabilityNarrative,
+    pilotageDivisionExpenseIndicatorTables,
     divisionProfitabilityEvolutionTables,
     financialPositionNarrative,
     financialPositionBreakdownTables,
@@ -1215,6 +1344,169 @@ export function StatementChart({
     isExpensesBridgeView,
     expensesBreakevenAnalysis,
   ])
+
+  const renderPilotageCommentField = useCallback(
+    (blockId: string) => {
+      const commentValue =
+        isReportAppearance && reportId
+          ? (getPilotageSectionComments(reportId).comments[blockId] ?? "")
+          : getComment(blockId)
+      return (
+        <PilotageSectionCommentField
+          blockId={blockId}
+          value={commentValue}
+          onChange={(text) => setComment(blockId, text)}
+          variant={isReportAppearance ? "print" : "screen"}
+          readOnly={!canEdit || isReportAppearance}
+        />
+      )
+    },
+    [canEdit, getComment, isReportAppearance, reportId, setComment],
+  )
+
+  const renderPilotagePerformanceAfterBlock = useCallback(
+    (block: DivisionNarrativeBlock) => {
+      if (!showPilotagePerformanceComments || !isPilotagePerformanceCommentBlockId(block.id)) {
+        return null
+      }
+      return renderPilotageCommentField(block.id)
+    },
+    [renderPilotageCommentField, showPilotagePerformanceComments],
+  )
+
+  const renderPilotageRevenueAnalysisAfterBlock = useCallback(
+    (block: DivisionNarrativeBlock) => {
+      if (!showPilotageRevenueAnalysisComments || !isRevenueSourceCommentBlockId(block.id)) {
+        return null
+      }
+      return renderPilotageCommentField(block.id)
+    },
+    [renderPilotageCommentField, showPilotageRevenueAnalysisComments],
+  )
+
+  const renderPilotageMarginByRevenueCommentAfterParagraph = useCallback(
+    (paragraph: { subsection?: string; divisionBlockId?: string }) => {
+      if (!showPilotageMarginByRevenueComments) return null
+      if (paragraph.subsection !== PILOTAGE_SUBSECTION_CURRENT_PERFORMANCE) return null
+      if (!paragraph.divisionBlockId || !isRevenueSourceCommentBlockId(paragraph.divisionBlockId)) {
+        return null
+      }
+      return renderPilotageCommentField(
+        pilotageMarginByRevenueCommentBlockId(paragraph.divisionBlockId),
+      )
+    },
+    [renderPilotageCommentField, showPilotageMarginByRevenueComments],
+  )
+
+  const renderPilotageExpensesBridgeCommentAfterParagraph = useCallback(
+    (paragraph: { subsection?: string }) => {
+      if (!showPilotageExpensesBridgeComments) return null
+      if (paragraph.subsection !== PILOTAGE_SUBSECTION_CURRENT_PERFORMANCE) return null
+      return renderPilotageCommentField(PILOTAGE_EXPENSE_BRIDGE_COMMENT_BLOCK_ID)
+    },
+    [renderPilotageCommentField, showPilotageExpensesBridgeComments],
+  )
+
+  const renderPilotageDivisionProfitabilityCommentAfterParagraph = useCallback(
+    (paragraph: { subsection?: string; divisionBlockId?: string }) => {
+      if (!showPilotageDivisionProfitabilityComments) return null
+      if (paragraph.subsection !== PILOTAGE_SUBSECTION_CURRENT_PERFORMANCE) return null
+      if (!paragraph.divisionBlockId) return null
+      return renderPilotageCommentField(
+        pilotageDivisionProfitabilityCommentBlockId(paragraph.divisionBlockId),
+      )
+    },
+    [renderPilotageCommentField, showPilotageDivisionProfitabilityComments],
+  )
+
+  const performanceNarrativeRenderOptions = useMemo(
+    () =>
+      showPilotagePerformanceComments
+        ? { renderAfterBlock: renderPilotagePerformanceAfterBlock }
+        : undefined,
+    [renderPilotagePerformanceAfterBlock, showPilotagePerformanceComments],
+  )
+
+  const revenueAnalysisNarrativeRenderOptions = useMemo(
+    () =>
+      showPilotageRevenueAnalysisComments
+        ? { renderAfterBlock: renderPilotageRevenueAnalysisAfterBlock }
+        : undefined,
+    [renderPilotageRevenueAnalysisAfterBlock, showPilotageRevenueAnalysisComments],
+  )
+
+  const renderContributiveMarginAfterParagraph = useCallback(
+    (paragraph: {
+      heading: string
+      subsection?: string
+      showIndicatorTable?: boolean
+      divisionBlockId?: string
+    }) => (
+      <Fragment>
+        {renderContributiveMarginIndicatorTable(paragraph)}
+        {renderPilotageMarginByRevenueCommentAfterParagraph(paragraph)}
+      </Fragment>
+    ),
+    [renderContributiveMarginIndicatorTable, renderPilotageMarginByRevenueCommentAfterParagraph],
+  )
+
+  const renderExpensesBridgeAfterParagraph = useCallback(
+    (paragraph: {
+      heading: string
+      subsection?: string
+      showIndicatorTable?: boolean
+      divisionBlockId?: string
+    }) => (
+      <Fragment>
+        {renderExpenseIndicatorTable(paragraph)}
+        {renderPilotageExpensesBridgeCommentAfterParagraph(paragraph)}
+      </Fragment>
+    ),
+    [renderExpenseIndicatorTable, renderPilotageExpensesBridgeCommentAfterParagraph],
+  )
+
+  const renderDivisionProfitabilityAfterParagraph = useCallback(
+    (paragraph: {
+      heading: string
+      subsection?: string
+      showIndicatorTable?: boolean
+      divisionBlockId?: string
+    }) => (
+      <Fragment>
+        {renderDivisionIndicatorTable(paragraph)}
+        {renderPilotageDivisionProfitabilityCommentAfterParagraph(paragraph)}
+      </Fragment>
+    ),
+    [
+      renderDivisionIndicatorTable,
+      renderPilotageDivisionProfitabilityCommentAfterParagraph,
+    ],
+  )
+
+  const expensesBridgeNarrativeRenderOptions = useMemo(
+    () => ({ renderAfterParagraph: renderExpensesBridgeAfterParagraph }),
+    [renderExpensesBridgeAfterParagraph],
+  )
+
+  const divisionProfitabilityNarrativeRenderOptions = useMemo(
+    () => ({ renderAfterParagraph: renderDivisionProfitabilityAfterParagraph }),
+    [renderDivisionProfitabilityAfterParagraph],
+  )
+
+  const narrativeRenderOptions = useMemo(
+    () =>
+      narrativeScope === "full"
+        ? performanceNarrativeRenderOptions
+        : narrativeScope === "revenue-only"
+          ? revenueAnalysisNarrativeRenderOptions
+          : undefined,
+    [narrativeScope, performanceNarrativeRenderOptions, revenueAnalysisNarrativeRenderOptions],
+  )
+
+  const contributiveMarginNarrativeRenderOptions = useMemo(
+    () => ({ renderAfterParagraph: renderContributiveMarginAfterParagraph }),
+    [renderContributiveMarginAfterParagraph],
+  )
 
   const paginateForActiveScope = <T extends { paragraphs: unknown[] }>(
     source: T | null,
@@ -1541,6 +1833,7 @@ export function StatementChart({
     options?: {
       testId?: string
       renderAfterParagraph?: (paragraph: NonNullable<import("@/lib/income-performance-narrative").PerformanceNarrativeResult>["paragraphs"][number]) => ReactNode
+      renderAfterBlock?: (block: DivisionNarrativeBlock) => ReactNode
     },
   ) => {
     if (isReportAppearance) {
@@ -1549,6 +1842,7 @@ export function StatementChart({
           narrative={narrative}
           testId={options?.testId}
           renderAfterParagraph={options?.renderAfterParagraph}
+          renderAfterBlock={options?.renderAfterBlock}
           showHeader={false}
         />
       )
@@ -1558,6 +1852,7 @@ export function StatementChart({
         narrative={narrative}
         testId={options?.testId}
         renderAfterParagraph={options?.renderAfterParagraph}
+        renderAfterBlock={options?.renderAfterBlock}
       />
     )
   }
@@ -1566,7 +1861,11 @@ export function StatementChart({
     if (showStandaloneTablePage && contributiveMarginRows?.length) {
       return (
         <div className="report-narrative-table-wrap report-page-break-avoid">
-          <RevenueContributiveMarginTable rows={contributiveMarginRows} currency={companyCurrency} />
+          <RevenueContributiveMarginTable
+            rows={contributiveMarginRows}
+            currency={companyCurrency}
+            showCagrColumn={showSummaryTableCagrColumn}
+          />
         </div>
       )
     }
@@ -1618,22 +1917,11 @@ export function StatementChart({
     return (
       <>
         {paginatedExpensesBridge
-          ? renderNarrative(paginatedExpensesBridge, {
-              renderAfterParagraph: (paragraph) => renderExpenseIndicatorTable(paragraph),
-            })
+          ? renderNarrative(paginatedExpensesBridge, expensesBridgeNarrativeRenderOptions)
           : null}
-        {paginatedNarrative ? renderNarrative(paginatedNarrative) : null}
+        {paginatedNarrative ? renderNarrative(paginatedNarrative, narrativeRenderOptions) : null}
         {paginatedDivisionNarrative
-          ? renderNarrative(paginatedDivisionNarrative, {
-              renderAfterParagraph: (paragraph) => {
-                if (paragraph.showIndicatorTable === false) return null
-                const evolution = divisionProfitabilityEvolutionTables?.get(paragraph.heading)
-                if (!evolution) return null
-                return (
-                  <RevenueContributiveMarginEvolutionTable table={evolution} currency={companyCurrency} />
-                )
-              },
-            })
+          ? renderNarrative(paginatedDivisionNarrative, divisionProfitabilityNarrativeRenderOptions)
           : null}
         {paginatedFinancialNarrative
           ? renderNarrative(paginatedFinancialNarrative, {
@@ -1648,9 +1936,7 @@ export function StatementChart({
           : null}
         {workingCapitalNarrative ? renderNarrative(workingCapitalNarrative) : null}
         {paginatedContributiveNarrative
-          ? renderNarrative(paginatedContributiveNarrative, {
-              renderAfterParagraph: (paragraph) => renderContributiveMarginIndicatorTable(paragraph),
-            })
+          ? renderNarrative(paginatedContributiveNarrative, contributiveMarginNarrativeRenderOptions)
           : null}
       </>
     )
@@ -1853,7 +2139,11 @@ export function StatementChart({
               )}
             >
               <div className={cn(isReportChartPrint ? "px-0 py-2" : "px-6 py-6 sm:px-7")}>
-                <RevenueContributiveMarginTable rows={contributiveMarginRows} currency={companyCurrency} />
+                <RevenueContributiveMarginTable
+                  rows={contributiveMarginRows}
+                  currency={companyCurrency}
+                  showCagrColumn={showSummaryTableCagrColumn}
+                />
               </div>
             </div>
           ) : showChart && isDivisionContributiveMarginView && divisionProfitabilityRows?.length ? (
@@ -1864,7 +2154,11 @@ export function StatementChart({
               )}
             >
               <div className={cn(isReportChartPrint ? "px-0 py-2" : "px-6 py-6 sm:px-7")}>
-                <DivisionProfitabilityTable rows={divisionProfitabilityRows} currency={companyCurrency} />
+                <DivisionProfitabilityTable
+                  rows={divisionProfitabilityRows}
+                  currency={companyCurrency}
+                  showCagrColumn={showSummaryTableCagrColumn}
+                />
               </div>
             </div>
           ) : !isContributiveMarginTableView &&
@@ -2079,22 +2373,11 @@ export function StatementChart({
             <EmptyState message="Seuil de rentabilité non disponible pour cette période." />
           ) : null}
           {showNarrative && expensesBridgeNarrative
-            ? renderNarrative(expensesBridgeNarrative, {
-                renderAfterParagraph: (paragraph) => renderExpenseIndicatorTable(paragraph),
-              })
+            ? renderNarrative(expensesBridgeNarrative, expensesBridgeNarrativeRenderOptions)
             : null}
-          {showNarrative && narrative ? renderNarrative(narrative) : null}
+          {showNarrative && narrative ? renderNarrative(narrative, narrativeRenderOptions) : null}
           {showNarrative && divisionProfitabilityNarrative
-            ? renderNarrative(divisionProfitabilityNarrative, {
-                renderAfterParagraph: (paragraph) => {
-                  if (paragraph.showIndicatorTable === false) return null
-                  const evolution = divisionProfitabilityEvolutionTables?.get(paragraph.heading)
-                  if (!evolution) return null
-                  return (
-                    <RevenueContributiveMarginEvolutionTable table={evolution} currency={companyCurrency} />
-                  )
-                },
-              })
+            ? renderNarrative(divisionProfitabilityNarrative, divisionProfitabilityNarrativeRenderOptions)
             : null}
           {showNarrative && financialPositionNarrative
             ? renderNarrative(financialPositionNarrative, {
@@ -2109,9 +2392,7 @@ export function StatementChart({
             : null}
           {showNarrative && workingCapitalNarrative ? renderNarrative(workingCapitalNarrative) : null}
           {showNarrative && contributiveMarginNarrative
-            ? renderNarrative(contributiveMarginNarrative, {
-                renderAfterParagraph: (paragraph) => renderContributiveMarginIndicatorTable(paragraph),
-              })
+            ? renderNarrative(contributiveMarginNarrative, contributiveMarginNarrativeRenderOptions)
             : null}
         </div>
         {settingsDialog}

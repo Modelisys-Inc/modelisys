@@ -74,8 +74,8 @@ describe("reportAnalysisViewLabel", () => {
   it("uses analysis titles aligned with the report menu and table of contents", () => {
     expect(reportAnalysisViewLabel("revenue")).toBe("Analyse des revenus")
     expect(reportAnalysisViewLabel("margin-by-revenue")).toBe("Marge par revenus")
-    expect(reportAnalysisViewLabel("expenses")).toBe("Analyse des dépenses")
-    expect(reportAnalysisViewLabel("expenses-by-division")).toBe("Analyse des divisions")
+    expect(reportAnalysisViewLabel("expenses")).toBe("Analyse de rentabilité")
+    expect(reportAnalysisViewLabel("expenses-by-division")).toBe("Rentabilité par division")
   })
 })
 

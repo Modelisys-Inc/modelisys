@@ -1,6 +1,11 @@
 /** Pagination lecture rapport — regroupe les blocs courts sur une même page A4 paysage. */
 
 import type { ContributiveMarginEvolutionTable } from "@/lib/revenue-contributive-margin-evolution"
+import {
+  PILOTAGE_SUBSECTION_CURRENT_PERFORMANCE,
+  PILOTAGE_SUBSECTION_TTM_PERFORMANCE,
+  PILOTAGE_SUBSECTION_YTD_PERFORMANCE,
+} from "@/lib/pilotage-revenue-performance-narrative"
 
 /** Regroupe Revenus + contribution marginale + BAIIA sur une même page de lecture. */
 export const PERFORMANCE_WINDOW_PAGE_GROUP = "performance-window"
@@ -275,19 +280,69 @@ export function packPilotageRevenueAnalysisLecturePages<
   return packPilotageDivisionBlockPages(paragraphs)
 }
 
-/** Dépenses pilotage — coûts variables et fixes, chacun avec actuelle / YTD / TTM sur une page. */
-export function packPilotageExpensesLecturePages<T extends NarrativeParagraphLike & { divisionBlockId?: string }>(
-  paragraphs: T[] | undefined,
-): T[][] {
-  return packPilotageDivisionBlockPages(paragraphs)
+/** Analyse de rentabilité pilotage — Performance actuelle seule, puis YTD + TTM sur la même page. */
+export function packPilotageExpensesLecturePages<
+  T extends NarrativeParagraphLike & { divisionBlockId?: string },
+>(paragraphs: T[] | undefined): T[][] {
+  return packPilotageCurrentThenYtdTtmBlockPages(paragraphs)
 }
 
-/** Marge par revenus pilotage — une sous-section (actuelle / YTD / TTM) par page. */
-export function packPilotageMarginByRevenueLecturePages<T extends NarrativeParagraphLike>(
-  paragraphs: T[] | undefined,
-): T[][] {
+/** Marge par revenus pilotage — Performance actuelle seule, puis YTD + TTM sur la même page. */
+export function packPilotageMarginByRevenueLecturePages<
+  T extends NarrativeParagraphLike & { divisionBlockId?: string },
+>(paragraphs: T[] | undefined): T[][] {
+  return packPilotageCurrentThenYtdTtmBlockPages(paragraphs)
+}
+
+/** Rentabilité par division pilotage — Performance actuelle seule, puis YTD + TTM par division. */
+export function packPilotageDivisionProfitabilityLecturePages<
+  T extends NarrativeParagraphLike & { divisionBlockId?: string },
+>(paragraphs: T[] | undefined): T[][] {
+  return packPilotageCurrentThenYtdTtmBlockPages(paragraphs)
+}
+
+function packPilotageCurrentThenYtdTtmBlockPages<
+  T extends NarrativeParagraphLike & { divisionBlockId?: string },
+>(paragraphs: T[] | undefined): T[][] {
   if (!paragraphs?.length) return []
-  return paragraphs.map((paragraph) => [paragraph])
+
+  const pages: T[][] = []
+  let blockParagraphs: T[] = []
+  let currentBlockId: string | undefined
+
+  const flushBlock = () => {
+    if (!blockParagraphs.length) return
+
+    const currentPerformance = blockParagraphs.filter(
+      (paragraph) => paragraph.subsection === PILOTAGE_SUBSECTION_CURRENT_PERFORMANCE,
+    )
+    const ytdAndTtm = blockParagraphs.filter(
+      (paragraph) =>
+        paragraph.subsection === PILOTAGE_SUBSECTION_YTD_PERFORMANCE ||
+        paragraph.subsection === PILOTAGE_SUBSECTION_TTM_PERFORMANCE,
+    )
+    const other = blockParagraphs.filter(
+      (paragraph) => !currentPerformance.includes(paragraph) && !ytdAndTtm.includes(paragraph),
+    )
+
+    if (currentPerformance.length) pages.push(currentPerformance)
+    if (ytdAndTtm.length) pages.push(ytdAndTtm)
+    if (other.length) pages.push(other)
+
+    blockParagraphs = []
+  }
+
+  for (const paragraph of paragraphs) {
+    const blockId = paragraph.divisionBlockId ?? paragraph.heading
+    if (blockParagraphs.length > 0 && blockId !== currentBlockId) {
+      flushBlock()
+    }
+    blockParagraphs.push(paragraph)
+    currentBlockId = blockId
+  }
+
+  flushBlock()
+  return pages
 }
 
 /** Regroupe les sources de revenus par paires pour la lecture rapport. */

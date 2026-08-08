@@ -7,6 +7,8 @@ import {
   isTextLecturePage,
   lecturePageCountFromPacked,
   packNarrativeParagraphs,
+  packPilotageExpensesLecturePages,
+  packPilotageDivisionProfitabilityLecturePages,
   packPilotageMarginByRevenueLecturePages,
   packPilotagePerformanceLecturePages,
   packPilotageRevenueAnalysisLecturePages,
@@ -159,15 +161,86 @@ describe("report-narrative-pagination", () => {
     expect(pages[1]).toHaveLength(1)
   })
 
-  it("pilotage marge par revenus : une page par sous-section", () => {
+  it("pilotage marge par revenus : Performance actuelle seule, puis YTD + TTM", () => {
     const paragraphs = [
-      { heading: "Marge contributive — Électroniques", body: "Actuelle.", subsection: "Performance actuelle" },
-      { heading: "Marge contributive — Électroniques", body: "YTD.", subsection: "Performance de l'exercice (YTD)" },
-      { heading: "Marge contributive — Électroniques", body: "TTM.", subsection: "Tendance des 12 derniers mois" },
+      {
+        heading: "Marge contributive — Électroniques",
+        body: "Actuelle.",
+        divisionBlockId: "revenue-source-0-electroniques",
+        subsection: "Performance actuelle",
+      },
+      {
+        heading: "Marge contributive — Électroniques",
+        body: "YTD.",
+        divisionBlockId: "revenue-source-0-electroniques",
+        subsection: "Performance de l'exercice (YTD)",
+      },
+      {
+        heading: "Marge contributive — Électroniques",
+        body: "TTM.",
+        divisionBlockId: "revenue-source-0-electroniques",
+        subsection: "Tendance des 12 derniers mois",
+      },
+      {
+        heading: "Marge contributive — Services",
+        body: "Actuelle.",
+        divisionBlockId: "revenue-source-1-services",
+        subsection: "Performance actuelle",
+      },
     ]
     const pages = packPilotageMarginByRevenueLecturePages(paragraphs)
     expect(pages).toHaveLength(3)
-    expect(pages.every((page) => page.length === 1)).toBe(true)
+    expect(pages[0]?.map((paragraph) => paragraph.subsection)).toEqual(["Performance actuelle"])
+    expect(pages[1]?.map((paragraph) => paragraph.subsection)).toEqual([
+      "Performance de l'exercice (YTD)",
+      "Tendance des 12 derniers mois",
+    ])
+    expect(pages[2]?.map((paragraph) => paragraph.subsection)).toEqual(["Performance actuelle"])
+  })
+
+  it("pilotage rentabilité par division : actuelle seule puis YTD + TTM par division", () => {
+    const paragraphs = [
+      {
+        heading: "Rentabilité — Division Est",
+        body: "Actuelle.",
+        divisionBlockId: "div-est",
+        subsection: "Performance actuelle",
+      },
+      {
+        heading: "Rentabilité — Division Est",
+        body: "YTD.",
+        divisionBlockId: "div-est",
+        subsection: "Performance de l'exercice (YTD)",
+      },
+      {
+        heading: "Rentabilité — Division Est",
+        body: "TTM.",
+        divisionBlockId: "div-est",
+        subsection: "Tendance des 12 derniers mois",
+      },
+    ]
+    const pages = packPilotageDivisionProfitabilityLecturePages(paragraphs)
+    expect(pages).toHaveLength(2)
+    expect(pages[0]?.map((paragraph) => paragraph.subsection)).toEqual(["Performance actuelle"])
+    expect(pages[1]?.map((paragraph) => paragraph.subsection)).toEqual([
+      "Performance de l'exercice (YTD)",
+      "Tendance des 12 derniers mois",
+    ])
+  })
+
+  it("pilotage analyse de rentabilité : actuelle seule puis YTD + TTM", () => {
+    const paragraphs = [
+      { heading: "Contribution marginale et BAIIA", body: "Actuelle.", subsection: "Performance actuelle" },
+      { heading: "Contribution marginale et BAIIA", body: "YTD.", subsection: "Performance de l'exercice (YTD)" },
+      { heading: "Contribution marginale et BAIIA", body: "TTM.", subsection: "Tendance des 12 derniers mois" },
+    ]
+    const pages = packPilotageExpensesLecturePages(paragraphs)
+    expect(pages).toHaveLength(2)
+    expect(pages[0]?.map((paragraph) => paragraph.subsection)).toEqual(["Performance actuelle"])
+    expect(pages[1]?.map((paragraph) => paragraph.subsection)).toEqual([
+      "Performance de l'exercice (YTD)",
+      "Tendance des 12 derniers mois",
+    ])
   })
 
   it("garde Revenus, contribution marginale et BAIIA sur une même page", () => {

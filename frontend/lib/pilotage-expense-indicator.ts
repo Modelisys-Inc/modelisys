@@ -4,9 +4,10 @@ import {
   collectAllFixedCostAccountNumbers,
   collectAllVariableCostAccountNumbers,
 } from "@/lib/expense-contribution-bridge"
+import { EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL } from "@/lib/expense-bridge-chart-theme"
 import {
-  EXPENSE_FIXED_COSTS_HEADING,
-  EXPENSE_VARIABLE_COSTS_HEADING,
+  PILOTAGE_MARGIN_AND_BAIIA_HEADING,
+  PILOTAGE_MARGIN_AND_BAIIA_SECTION_ID,
 } from "@/lib/expense-cost-breakdown-tables"
 import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
 import {
@@ -230,118 +231,149 @@ function buildColumnGroups(
   }))
 }
 
-function buildIndicatorMetrics(
-  snapshots: ExpenseCostSnapshot[],
-  costLabel: string,
-  detailRows?: ContributiveMarginEvolutionDetailRow[],
+function buildCombinedBridgeMetrics(
+  bridgeSnapshots: Array<{ revenue: number; variableCosts: number; fixedCosts: number }>,
+  variableDetailRows?: ContributiveMarginEvolutionDetailRow[],
+  fixedDetailRows?: ContributiveMarginEvolutionDetailRow[],
 ): PilotageMarginIndicatorMetric[] {
-  const ref = snapshots[0]
-  if (!ref) return []
+  const revenueValues = bridgeSnapshots.map((snapshot) => snapshot.revenue)
+  const variableCostValues = bridgeSnapshots.map((snapshot) => snapshot.variableCosts)
+  const contributiveMarginValues = bridgeSnapshots.map(
+    (snapshot) => snapshot.revenue - snapshot.variableCosts,
+  )
+  const fixedCostValues = bridgeSnapshots.map((snapshot) => snapshot.fixedCosts)
+  const operatingProfitValues = bridgeSnapshots.map(
+    (snapshot) => snapshot.revenue - snapshot.variableCosts - snapshot.fixedCosts,
+  )
 
-  const values = snapshots.map((snapshot) => snapshot.cost)
-  const shares = snapshots.map((snapshot) => snapshot.costShare)
-  const refValue = ref.cost
-  const gaps = snapshots.map((snapshot, index) => {
-    if (index === 0) return null
-    return refValue - snapshot.cost
+  const shareOfRevenue = (values: number[]) =>
+    values.map((value, index) => {
+      const revenue = revenueValues[index]
+      if (revenue === undefined || Math.abs(revenue) < DATA_EPSILON) return null
+      return (value / revenue) * 100
+    })
+
+  const gapsFromReference = (values: (number | null)[]) =>
+    values.map((value, index) => {
+      if (index === 0 || value === null) return null
+      const reference = values[0]
+      if (reference === null) return null
+      return reference - value
+    })
+
+  const buildMetric = (
+    id: string,
+    label: string,
+    values: number[],
+    detailRows?: ContributiveMarginEvolutionDetailRow[],
+  ): PilotageMarginIndicatorMetric => ({
+    id,
+    label,
+    format: "currency",
+    values,
+    shares: shareOfRevenue(values),
+    gaps: gapsFromReference(values),
+    detailRows,
   })
 
   return [
-    {
-      id: "total",
-      label: costLabel,
-      format: "currency",
-      values,
-      shares,
-      gaps,
-      detailRows,
-    },
+    buildMetric("revenue", "Revenus", revenueValues),
+    buildMetric("variable-costs", "Coûts variables", variableCostValues, variableDetailRows),
+    buildMetric("contributive-margin", "Contribution marginale", contributiveMarginValues),
+    buildMetric("fixed-costs", "Coûts fixes", fixedCostValues, fixedDetailRows),
+    buildMetric("baiia", EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL, operatingProfitValues),
   ]
 }
 
-function buildTableFromSpecs(
-  heading: string,
-  sectionId: string,
-  costLabel: string,
+function bridgeSnapshotsFromSpecs(
+  specs: SnapshotSpec[],
+  points: MonthlyExpenseBridgePoint[],
+): Array<{ revenue: number; variableCosts: number; fixedCosts: number }> | null {
+  const snapshots = specs.map((spec) => {
+    const revenueSnapshot = resolveSnapshot(spec, points, (point) => point.revenue)
+    const variableSnapshot = resolveSnapshot(spec, points, (point) => point.variableCosts)
+    const fixedSnapshot = resolveSnapshot(spec, points, (point) => point.fixedCosts)
+    if (!revenueSnapshot) return null
+    return {
+      revenue: revenueSnapshot.revenue,
+      variableCosts: variableSnapshot?.cost ?? 0,
+      fixedCosts: fixedSnapshot?.cost ?? 0,
+    }
+  })
+  if (!snapshots.length || snapshots.some((snapshot) => snapshot === null)) return null
+  return snapshots as Array<{ revenue: number; variableCosts: number; fixedCosts: number }>
+}
+
+type PilotageBridgeTableMeta = {
+  sourceId: string
+  sourceLabel: string
+}
+
+function buildCombinedTableFromSpecs(
   subsection: string,
   specs: SnapshotSpec[],
   columnLabels: string[],
   withGaps: boolean[],
   points: MonthlyExpenseBridgePoint[],
-  pickCost: (point: MonthlyExpenseBridgePoint) => number,
-  detailRows?: ContributiveMarginEvolutionDetailRow[],
+  tableMeta: PilotageBridgeTableMeta,
+  variableDetailRows?: ContributiveMarginEvolutionDetailRow[],
+  fixedDetailRows?: ContributiveMarginEvolutionDetailRow[],
 ): PilotageMarginIndicatorTable | null {
-  const snapshots = specs
-    .map((spec) => resolveSnapshot(spec, points, pickCost))
-    .filter((snapshot): snapshot is ExpenseCostSnapshot => snapshot !== null)
-  if (!snapshots.length) return null
+  const bridgeSnapshots = bridgeSnapshotsFromSpecs(specs, points)
+  if (!bridgeSnapshots?.length) return null
 
   return {
-    sourceId: sectionId,
-    sourceLabel: heading,
+    sourceId: tableMeta.sourceId,
+    sourceLabel: tableMeta.sourceLabel,
     subsection,
     columnGroups: buildColumnGroups(columnLabels, withGaps),
-    sourceRevenuesByColumn: snapshots.map((snapshot) =>
+    sourceRevenuesByColumn: bridgeSnapshots.map((snapshot) =>
       Math.abs(snapshot.revenue) > DATA_EPSILON ? snapshot.revenue : null,
     ),
-    metrics: buildIndicatorMetrics(snapshots, costLabel, detailRows),
+    metrics: buildCombinedBridgeMetrics(bridgeSnapshots, variableDetailRows, fixedDetailRows),
   }
 }
 
-function buildCurrentPerformanceTable(
-  heading: string,
-  sectionId: string,
-  costLabel: string,
-  points: MonthlyExpenseBridgePoint[],
-  pickCost: (point: MonthlyExpenseBridgePoint) => number,
-  detailRows?: ContributiveMarginEvolutionDetailRow[],
-): PilotageMarginIndicatorTable | null {
-  const refPoint = points[0]
-  if (!refPoint) return null
-
-  const specs: SnapshotSpec[] = [{ kind: "point", index: 0 }]
-  const labels = [refPoint.period]
-  const withGaps = [false]
-
-  const yoyPoint = points[12]
-  if (yoyPoint) {
-    specs.push({ kind: "point", index: 12 })
-    labels.push(yoyPoint.period)
-    withGaps.push(true)
-  }
-
-  const priorPoint = points[1]
-  if (priorPoint) {
-    specs.push({ kind: "point", index: 1 })
-    labels.push(priorPoint.period)
-    withGaps.push(true)
-  }
-
-  return buildTableFromSpecs(
-    heading,
-    sectionId,
-    costLabel,
-    "Performance actuelle",
-    specs,
-    labels,
-    withGaps,
-    points,
-    pickCost,
-    detailRows,
-  )
-}
-
-function buildYtdPerformanceTable(
-  heading: string,
-  sectionId: string,
-  costLabel: string,
+function buildCombinedSectionTables(
+  variableAccounts: string[],
+  fixedAccounts: string[],
   points: MonthlyExpenseBridgePoint[],
   fiscalYearEnd: string,
-  pickCost: (point: MonthlyExpenseBridgePoint) => number,
-  detailRows?: ContributiveMarginEvolutionDetailRow[],
-): PilotageMarginIndicatorTable | null {
-  const refPoint = points[0]
-  if (!refPoint) return null
+  mappingsByAccount: Map<string, AccountMappingData>,
+  rows: SeriesRow[],
+  periodsRaw: SeriesPeriod[],
+  codeByCode: StandardLinkCodeLookup,
+  tableMeta: PilotageBridgeTableMeta,
+): PilotageMarginIndicatorTable[] {
+  if (!points.length) return []
+
+  const buildDetailRows = (accountNumbers: string[], specs: SnapshotSpec[]) =>
+    accountNumbers.length
+      ? buildCostDetailRowsForSpecs(
+          accountNumbers,
+          specs,
+          points,
+          mappingsByAccount,
+          rows,
+          periodsRaw,
+          codeByCode,
+        )
+      : undefined
+
+  const refPoint = points[0]!
+  const currentSpecs: SnapshotSpec[] = [{ kind: "point", index: 0 }]
+  const currentLabels = [refPoint.period]
+  const currentGaps = [false]
+  if (points[12]) {
+    currentSpecs.push({ kind: "point", index: 12 })
+    currentLabels.push(points[12]!.period)
+    currentGaps.push(true)
+  }
+  if (points[1]) {
+    currentSpecs.push({ kind: "point", index: 1 })
+    currentLabels.push(points[1]!.period)
+    currentGaps.push(true)
+  }
 
   const fiscalYearEndMonth = parseFiscalYearEndMonth(fiscalYearEnd)
   const fyStart = fiscalYearStartForReference(refPoint.month, refPoint.year, fiscalYearEndMonth)
@@ -354,121 +386,16 @@ function buildYtdPerformanceTable(
     refPoint.year,
     fiscalYearEndMonth,
   )
-
-  const specs: SnapshotSpec[] = [{ kind: "months", months: ytdMonths }]
-  const labels = [`YTD ${fiscalYearLabel}`]
-  const withGaps = [false]
-
-  if (ytdMonths.length) {
-    specs.push({
-      kind: "months",
-      months: ytdMonths.map((m) => ({ month: m.month, year: m.year - 1 })),
-    })
-    labels.push(`YTD ${fiscalYearLabel - 1}`)
-    withGaps.push(true)
-  }
-
-  return buildTableFromSpecs(
-    heading,
-    sectionId,
-    costLabel,
-    "Performance de l'exercice (YTD)",
-    specs,
-    labels,
-    withGaps,
-    points,
-    pickCost,
-    detailRows,
-  )
-}
-
-function buildTtmPerformanceTable(
-  heading: string,
-  sectionId: string,
-  costLabel: string,
-  points: MonthlyExpenseBridgePoint[],
-  pickCost: (point: MonthlyExpenseBridgePoint) => number,
-  detailRows?: ContributiveMarginEvolutionDetailRow[],
-): PilotageMarginIndicatorTable | null {
-  const currentMonths = points.slice(0, 12)
-  const priorMonths = points.slice(12, 24)
-  if (currentMonths.length < 12) return null
-
-  const specs: SnapshotSpec[] = [
-    {
-      kind: "months",
-      months: currentMonths.map((point) => ({ month: point.month, year: point.year })),
-    },
-  ]
-  const labels = ["TTM 12 mois"]
-  const withGaps = [false]
-
-  if (priorMonths.length >= 12) {
-    specs.push({
-      kind: "months",
-      months: priorMonths.map((point) => ({ month: point.month, year: point.year })),
-    })
-    labels.push("TTM 12 mois préc.")
-    withGaps.push(true)
-  }
-
-  return buildTableFromSpecs(
-    heading,
-    sectionId,
-    costLabel,
-    "Tendance des 12 derniers mois",
-    specs,
-    labels,
-    withGaps,
-    points,
-    pickCost,
-    detailRows,
-  )
-}
-
-function buildSectionTables(
-  heading: string,
-  sectionId: string,
-  costLabel: string,
-  accountNumbers: string[],
-  points: MonthlyExpenseBridgePoint[],
-  fiscalYearEnd: string,
-  pickCost: (point: MonthlyExpenseBridgePoint) => number,
-  mappingsByAccount: Map<string, AccountMappingData>,
-  rows: SeriesRow[],
-  periodsRaw: SeriesPeriod[],
-  codeByCode: StandardLinkCodeLookup,
-): PilotageMarginIndicatorTable[] {
-  if (!accountNumbers.length || !points.length) return []
-
-  const buildDetailRows = (specs: SnapshotSpec[]) =>
-    buildCostDetailRowsForSpecs(
-      accountNumbers,
-      specs,
-      points,
-      mappingsByAccount,
-      rows,
-      periodsRaw,
-      codeByCode,
-    )
-
-  const refPoint = points[0]!
-  const currentSpecs: SnapshotSpec[] = [{ kind: "point", index: 0 }]
-  if (points[12]) currentSpecs.push({ kind: "point", index: 12 })
-  if (points[1]) currentSpecs.push({ kind: "point", index: 1 })
-
-  const fiscalYearEndMonth = parseFiscalYearEndMonth(fiscalYearEnd)
-  const fyStart = fiscalYearStartForReference(refPoint.month, refPoint.year, fiscalYearEndMonth)
-  const ytdMonths = enumerateMonthsForward(fyStart, {
-    month: refPoint.month,
-    year: refPoint.year,
-  })
   const ytdSpecs: SnapshotSpec[] = [{ kind: "months", months: ytdMonths }]
+  const ytdLabels = [`YTD ${fiscalYearLabel}`]
+  const ytdGaps = [false]
   if (ytdMonths.length) {
     ytdSpecs.push({
       kind: "months",
-      months: ytdMonths.map((m) => ({ month: m.month, year: m.year - 1 })),
+      months: ytdMonths.map((month) => ({ month: month.month, year: month.year - 1 })),
     })
+    ytdLabels.push(`YTD ${fiscalYearLabel - 1}`)
+    ytdGaps.push(true)
   }
 
   const ttmSpecs: SnapshotSpec[] = [
@@ -477,42 +404,52 @@ function buildSectionTables(
       months: points.slice(0, 12).map((point) => ({ month: point.month, year: point.year })),
     },
   ]
+  const ttmLabels = ["TTM 12 mois"]
+  const ttmGaps = [false]
   if (points.length >= 24) {
     ttmSpecs.push({
       kind: "months",
       months: points.slice(12, 24).map((point) => ({ month: point.month, year: point.year })),
     })
+    ttmLabels.push("TTM 12 mois préc.")
+    ttmGaps.push(true)
   }
 
   const tables: PilotageMarginIndicatorTable[] = []
-  const current = buildCurrentPerformanceTable(
-    heading,
-    sectionId,
-    costLabel,
+
+  const current = buildCombinedTableFromSpecs(
+    "Performance actuelle",
+    currentSpecs,
+    currentLabels,
+    currentGaps,
     points,
-    pickCost,
-    buildDetailRows(currentSpecs),
+    tableMeta,
+    buildDetailRows(variableAccounts, currentSpecs),
+    buildDetailRows(fixedAccounts, currentSpecs),
   )
   if (current) tables.push(current)
 
-  const ytd = buildYtdPerformanceTable(
-    heading,
-    sectionId,
-    costLabel,
+  const ytd = buildCombinedTableFromSpecs(
+    "Performance de l'exercice (YTD)",
+    ytdSpecs,
+    ytdLabels,
+    ytdGaps,
     points,
-    fiscalYearEnd,
-    pickCost,
-    buildDetailRows(ytdSpecs),
+    tableMeta,
+    buildDetailRows(variableAccounts, ytdSpecs),
+    buildDetailRows(fixedAccounts, ytdSpecs),
   )
   if (ytd) tables.push(ytd)
 
-  const ttm = buildTtmPerformanceTable(
-    heading,
-    sectionId,
-    costLabel,
+  const ttm = buildCombinedTableFromSpecs(
+    "Tendance des 12 derniers mois",
+    ttmSpecs,
+    ttmLabels,
+    ttmGaps,
     points,
-    pickCost,
-    buildDetailRows(ttmSpecs),
+    tableMeta,
+    buildDetailRows(variableAccounts, ttmSpecs),
+    buildDetailRows(fixedAccounts, ttmSpecs),
   )
   if (ttm) tables.push(ttm)
 
@@ -526,7 +463,7 @@ export function pilotageExpenseIndicatorTableKey(
   return `${heading}::${subsection ?? ""}`
 }
 
-export function buildPilotageExpenseIndicatorTables(params: {
+export function buildPilotageBridgeIndicatorTables(params: {
   mappings: AccountMappingData[]
   seriesRows: SeriesRow[]
   periods: SeriesPeriod[]
@@ -534,6 +471,8 @@ export function buildPilotageExpenseIndicatorTables(params: {
   refYear: number
   fiscalYearEnd: string
   standardLinkCodes?: StandardLinkCode[]
+  tableHeading: string
+  tableSectionId: string
 }): Map<string, PilotageMarginIndicatorTable> {
   const tables = new Map<string, PilotageMarginIndicatorTable>()
   const points = extractMonthlyExpenseBridgeSeries({
@@ -551,42 +490,41 @@ export function buildPilotageExpenseIndicatorTables(params: {
   const codeByCode = buildStandardLinkCodeLookup(params.standardLinkCodes)
   const variableAccounts = collectAllVariableCostAccountNumbers(params.mappings)
   const fixedAccounts = collectAllFixedCostAccountNumbers(params.mappings)
+  const tableMeta = {
+    sourceId: params.tableSectionId,
+    sourceLabel: params.tableHeading,
+  }
 
-  const sections = [
-    {
-      heading: EXPENSE_VARIABLE_COSTS_HEADING,
-      sectionId: "expense-variable-costs",
-      costLabel: "Coûts variables",
-      accountNumbers: variableAccounts,
-      pickCost: (point: MonthlyExpenseBridgePoint) => point.variableCosts,
-    },
-    {
-      heading: EXPENSE_FIXED_COSTS_HEADING,
-      sectionId: "expense-fixed-costs",
-      costLabel: "Coûts fixes",
-      accountNumbers: fixedAccounts,
-      pickCost: (point: MonthlyExpenseBridgePoint) => point.fixedCosts,
-    },
-  ] as const
-
-  for (const section of sections) {
-    const sectionTables = buildSectionTables(
-      section.heading,
-      section.sectionId,
-      section.costLabel,
-      section.accountNumbers,
-      points,
-      params.fiscalYearEnd,
-      section.pickCost,
-      mappingsByAccount,
-      params.seriesRows,
-      params.periods,
-      codeByCode,
-    )
-    for (const table of sectionTables) {
-      tables.set(pilotageExpenseIndicatorTableKey(section.heading, table.subsection), table)
-    }
+  const sectionTables = buildCombinedSectionTables(
+    variableAccounts,
+    fixedAccounts,
+    points,
+    params.fiscalYearEnd,
+    mappingsByAccount,
+    params.seriesRows,
+    params.periods,
+    codeByCode,
+    tableMeta,
+  )
+  for (const table of sectionTables) {
+    tables.set(pilotageExpenseIndicatorTableKey(params.tableHeading, table.subsection), table)
   }
 
   return tables
+}
+
+export function buildPilotageExpenseIndicatorTables(params: {
+  mappings: AccountMappingData[]
+  seriesRows: SeriesRow[]
+  periods: SeriesPeriod[]
+  refMonth: number
+  refYear: number
+  fiscalYearEnd: string
+  standardLinkCodes?: StandardLinkCode[]
+}): Map<string, PilotageMarginIndicatorTable> {
+  return buildPilotageBridgeIndicatorTables({
+    ...params,
+    tableHeading: PILOTAGE_MARGIN_AND_BAIIA_HEADING,
+    tableSectionId: PILOTAGE_MARGIN_AND_BAIIA_SECTION_ID,
+  })
 }

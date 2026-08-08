@@ -985,9 +985,9 @@ test.describe("Page Diagnostic", () => {
 
     await page.goto(DIAGNOSTIC_PAGE_URL)
 
-    await page.getByRole("button", { name: "Analyse des dépenses", exact: true }).click()
+    await page.getByRole("button", { name: "Analyse de rentabilité", exact: true }).click()
 
-    await expect(page.getByRole("heading", { name: "Analyse des dépenses", exact: true })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Analyse de rentabilité", exact: true })).toBeVisible({
       timeout: 15000,
     })
     await expect(page.getByRole("button", { name: "Annuel - 5 ans" })).toBeVisible()
@@ -998,7 +998,7 @@ test.describe("Page Diagnostic", () => {
     expect(chartBox?.height ?? 0).toBeGreaterThan(100)
     await expect(page.getByText("Pont de rentabilité")).toBeVisible()
     await expect(page.getByText("Lecture des dépenses")).toBeVisible()
-    await expect(page.getByText("Coûts variables", { exact: true }).first()).toBeVisible()
+    await expect(page.getByText("Contribution marginale", { exact: true }).first()).toBeVisible()
     await expect(page.getByText("Coûts fixes", { exact: true }).first()).toBeVisible()
     await expect(page.getByTestId("expense-breakeven-chart")).toBeVisible()
     await expect(page.getByTestId("breakeven-chart-legend")).toBeVisible()
@@ -1196,9 +1196,9 @@ test.describe("Page Diagnostic", () => {
 
     await page.goto(DIAGNOSTIC_PAGE_URL)
 
-    await page.getByRole("button", { name: "Analyse des divisions", exact: true }).click()
+    await page.getByRole("button", { name: "Rentabilité par division", exact: true }).click()
 
-    await expect(page.getByRole("heading", { name: "Analyse des divisions", exact: true })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Rentabilité par division", exact: true })).toBeVisible({
       timeout: 15000,
     })
     await expect(page.getByTestId("division-contributive-margin-report")).toBeVisible()
@@ -1867,5 +1867,289 @@ test.describe("Rapport Pilotage", () => {
     await expect(page.getByTestId("diagnostic-report-mandate-scope")).toContainText(
       /rapport de performance préparé pour Aciers Beauport inc\./,
     )
+  })
+
+  test("Performance financière : commentaires par section (Revenus, CM, BAIIA)", async ({ page }) => {
+    test.setTimeout(90_000)
+    await setupAuthAndCommonMocks(page, {
+      key: PILOTAGE_REGISTRY_KEY,
+      record: {
+        id: PILOTAGE_ID,
+        companyId: COMPANY_ID,
+        companyName: "Aciers Beauport inc.",
+        title: "Aciers Beauport inc. — pilotage",
+        referenceYear: 2025,
+        referenceMonth: 12,
+        createdAt: "2026-05-18T00:00:00.000Z",
+        lastOpenedAt: "2026-05-18T00:00:00.000Z",
+      },
+    })
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(`/modules/pilotage/${PILOTAGE_ID}?companyId=${COMPANY_ID}`)
+
+    await expect(page.getByText("Lecture de la performance")).toBeVisible({ timeout: 15000 })
+    const revenueComment = page.getByTestId("pilotage-section-comment-pilotage-revenue")
+    await expect(revenueComment).toBeVisible()
+    await revenueComment.getByLabel("Commentaires").fill("Précision sur la hausse des revenus.")
+
+    await page.reload()
+    await expect(page.getByText("Lecture de la performance")).toBeVisible({ timeout: 15000 })
+    await expect(page.getByTestId("pilotage-section-comment-pilotage-revenue").getByLabel("Commentaires")).toHaveValue(
+      "Précision sur la hausse des revenus.",
+    )
+    await expect(page.getByTestId("pilotage-section-comment-pilotage-contributive-margin")).toBeVisible()
+    await expect(page.getByTestId("pilotage-section-comment-pilotage-ebita")).toBeVisible()
+  })
+
+  test("rapport imprimé : commentaires Performance financière visibles", async ({ page }) => {
+    test.setTimeout(120_000)
+    const commentText = "Note de pilotage visible dans le rapport imprimé."
+
+    await setupAuthAndCommonMocks(page, {
+      key: PILOTAGE_REGISTRY_KEY,
+      record: {
+        id: PILOTAGE_ID,
+        companyId: COMPANY_ID,
+        companyName: "Aciers Beauport inc.",
+        title: "Aciers Beauport inc. — pilotage",
+        referenceYear: 2025,
+        referenceMonth: 12,
+        createdAt: "2026-05-18T00:00:00.000Z",
+        lastOpenedAt: "2026-05-18T00:00:00.000Z",
+      },
+    })
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(`/modules/pilotage/${PILOTAGE_ID}?companyId=${COMPANY_ID}`)
+    await expect(page.getByText("Lecture de la performance")).toBeVisible({ timeout: 15000 })
+    await page
+      .getByTestId("pilotage-section-comment-pilotage-revenue")
+      .getByLabel("Commentaires")
+      .fill(commentText)
+
+    await page.goto(PILOTAGE_REPORT_URL)
+    await expect(page.getByTestId("diagnostic-report-print")).toBeVisible({ timeout: 15000 })
+
+    const lecturePage = page.getByTestId("report-lecture-page-performance")
+    await expect(lecturePage).toBeVisible({ timeout: 15000 })
+    await expect(lecturePage.getByTestId("pilotage-section-comment-pilotage-revenue")).toBeVisible()
+    await expect(
+      lecturePage.getByTestId("pilotage-section-comment-pilotage-revenue").getByRole("heading", {
+        name: "Commentaires",
+      }),
+    ).toBeVisible()
+    await expect(lecturePage.getByText(commentText)).toBeVisible()
+  })
+
+  test("Analyse de rentabilité : commentaire uniquement sous Performance actuelle", async ({ page }) => {
+    test.setTimeout(90_000)
+    await setupAuthAndCommonMocks(page, {
+      key: PILOTAGE_REGISTRY_KEY,
+      record: {
+        id: PILOTAGE_ID,
+        companyId: COMPANY_ID,
+        companyName: "Aciers Beauport inc.",
+        title: "Aciers Beauport inc. — pilotage",
+        referenceYear: 2025,
+        referenceMonth: 12,
+        createdAt: "2026-05-18T00:00:00.000Z",
+        lastOpenedAt: "2026-05-18T00:00:00.000Z",
+      },
+    })
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(`/modules/pilotage/${PILOTAGE_ID}?companyId=${COMPANY_ID}`)
+    await expect(page.getByText("Lecture de la performance")).toBeVisible({ timeout: 15000 })
+    await page.getByRole("button", { name: "Analyse de rentabilité", exact: true }).click()
+    await expect(page.getByTestId("expense-contribution-bridge-report")).toBeVisible({ timeout: 15000 })
+
+    const expenseComment = page.getByTestId("pilotage-section-comment-pilotage-margin-and-baiia")
+    await expect(expenseComment).toHaveCount(1)
+    await expenseComment.getByLabel("Commentaires").fill("Note sur la rentabilité globale.")
+    await expect(expenseComment.getByLabel("Commentaires")).toHaveValue("Note sur la rentabilité globale.")
+  })
+
+  test("Rentabilité par division : commentaire uniquement sous Performance actuelle", async ({ page }) => {
+    test.setTimeout(90_000)
+    await setupAuthAndCommonMocks(page, {
+      key: PILOTAGE_REGISTRY_KEY,
+      record: {
+        id: PILOTAGE_ID,
+        companyId: COMPANY_ID,
+        companyName: "Aciers Beauport inc.",
+        title: "Aciers Beauport inc. — pilotage",
+        referenceYear: 2025,
+        referenceMonth: 12,
+        createdAt: "2026-05-18T00:00:00.000Z",
+        lastOpenedAt: "2026-05-18T00:00:00.000Z",
+      },
+    })
+    await page.route("**/api/companies", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          companies: [
+            {
+              id: COMPANY_ID,
+              name: "Aciers Beauport inc.",
+              fiscal_year_end: "12-31",
+              currency: "CAD",
+              divisions: [
+                { id: DIVISION_OK, name: "Division Est", sub_divisions: [] },
+                { id: DIVISION_KO, name: "Division Ouest", sub_divisions: [] },
+              ],
+              created_at: "2020-01-01T00:00:00Z",
+              updated_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }),
+      }),
+    )
+    await page.route(`**/api/companies/${COMPANY_ID}/account-mappings`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          mappings: [
+            {
+              id: "m1",
+              account_number: "5010",
+              description: "Matières Est",
+              link_code: "CMV.1",
+              summary_ef: null,
+              detail_ef: null,
+              divisions: "Division Est",
+              sub_divisions: null,
+              fdrhc: false,
+              interests: false,
+              amortization: false,
+              variable_costs: true,
+              fixed_costs: false,
+              variable_cost_revenue_link_code: null,
+              liability_remaining_years: null,
+              liability_interest_rate: null,
+              product: null,
+              customer: null,
+              supplier: null,
+              interco_company_id: null,
+            },
+            {
+              id: "m2",
+              account_number: "6010",
+              description: "Salaires Est",
+              link_code: "ADM.1",
+              summary_ef: null,
+              detail_ef: null,
+              divisions: "Division Est",
+              sub_divisions: null,
+              fdrhc: false,
+              interests: false,
+              amortization: false,
+              variable_costs: false,
+              fixed_costs: true,
+              variable_cost_revenue_link_code: null,
+              liability_remaining_years: null,
+              liability_interest_rate: null,
+              product: null,
+              customer: null,
+              supplier: null,
+              interco_company_id: null,
+            },
+          ],
+        }),
+      }),
+    )
+    await page.route(
+      `**/api/companies/${COMPANY_ID}/financial-statements/income-statement/series*`,
+      (route) => {
+        const url = new URL(route.request().url())
+        const divisionId = url.searchParams.get("division_id")
+        const revenue =
+          divisionId === DIVISION_OK ? 5_200_000 : divisionId === DIVISION_KO ? 1_800_000 : 7_000_000
+        const variableCost =
+          divisionId === DIVISION_OK ? 1_800_000 : divisionId === DIVISION_KO ? 900_000 : 2_700_000
+        const fixedCost =
+          divisionId === DIVISION_OK ? 1_000_000 : divisionId === DIVISION_KO ? 1_100_000 : 2_100_000
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            companyId: COMPANY_ID,
+            statementType: "income-statement",
+            fiscalYear: 2025,
+            periods: [
+              { fiscalYear: 2024, fiscalMonth: 12, label: "Déc 2024" },
+              { fiscalYear: 2025, fiscalMonth: 12, label: "Déc 2025" },
+            ],
+            rows: [
+              {
+                id: "REV-001",
+                linkCode: "REV-001",
+                label: "Revenus",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: {
+                  "2024-12": Math.round(revenue * 0.85),
+                  "2025-12": revenue,
+                },
+                detailRows: [],
+              },
+              {
+                id: "cmv",
+                linkCode: "CMV",
+                label: "CMV",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: {},
+                detailRows: [
+                  {
+                    id: "5010",
+                    label: "Matières",
+                    amounts: {
+                      "2024-12": Math.round(variableCost * 0.9),
+                      "2025-12": variableCost,
+                    },
+                  },
+                ],
+              },
+              {
+                id: "adm",
+                linkCode: "ADM",
+                label: "Admin",
+                isBold: false,
+                isSection: false,
+                isResult: false,
+                amounts: {},
+                detailRows: [
+                  {
+                    id: "6010",
+                    label: "Salaires",
+                    amounts: {
+                      "2024-12": Math.round(fixedCost * 0.95),
+                      "2025-12": fixedCost,
+                    },
+                  },
+                ],
+              },
+            ],
+          }),
+        })
+      },
+    )
+    await mockDiagnostic(page, buildDiagnosticPayload())
+
+    await page.goto(`/modules/pilotage/${PILOTAGE_ID}?companyId=${COMPANY_ID}`)
+    await expect(page.getByText("Lecture de la performance")).toBeVisible({ timeout: 15000 })
+    await page.getByRole("button", { name: "Rentabilité par division", exact: true }).click()
+    await expect(page.getByTestId("division-contributive-margin-report")).toBeVisible({ timeout: 15000 })
+
+    const divisionComment = page.getByTestId(`pilotage-section-comment-division-profitability:${DIVISION_OK}`)
+    await expect(divisionComment).toHaveCount(1)
+    await divisionComment.getByLabel("Commentaires").fill("Note Division Est.")
+    await expect(divisionComment.getByLabel("Commentaires")).toHaveValue("Note Division Est.")
   })
 })

@@ -11,14 +11,64 @@ import type {
   PilotageMarginIndicatorTable,
 } from "@/lib/pilotage-margin-by-revenue-indicator"
 import { cn } from "@/lib/utils"
+import { SUMMARY_TABLE_HIGHLIGHT_COLUMN_CLASS } from "@/lib/summary-performance-table-styles"
 
 interface PilotageMarginByRevenueIndicatorTableProps {
   table: PilotageMarginIndicatorTable
   currency: string
   className?: string
+  density?: "default" | "compact"
 }
 
-const GAP_COLUMN_CLASS = "bg-slate-50/95"
+type IndicatorTableCellClasses = {
+  headerCellClass: string
+  headerValueClass: string
+  labelCellClass: string
+  valueCellClass: string
+  detailValueCellClass: string
+  detailLabelClass: (depth: number) => string
+  wrapperClassName: string
+}
+
+function indicatorTableCellClasses(density: "default" | "compact"): IndicatorTableCellClasses {
+  const compact = density === "compact"
+  const headerCellClass = cn(
+    "px-2 text-left font-semibold uppercase leading-tight tracking-[.08em] text-slate-400 first:pl-1 last:pr-1",
+    compact ? "pb-1.5 text-[9px]" : "pb-2 text-[9.5px]",
+  )
+  const labelCellClass = cn(
+    "px-2 text-left font-medium text-[#2A2F3A] first:pl-1",
+    compact ? "py-[6px] text-[11px]" : "py-[9px] text-xs",
+  )
+  const valueCellClass = cn(
+    "px-2 text-right font-mono font-medium tabular-nums text-slate-600 last:pr-1",
+    compact ? "py-[6px] text-[11px]" : "py-[9px] text-[11.5px]",
+  )
+  const detailValueCellClass = cn(
+    "px-2 text-right font-mono font-normal tabular-nums text-slate-500 last:pr-1",
+    compact ? "py-[5px] text-[10.5px]" : "py-[7px] text-[11px]",
+  )
+
+  return {
+    headerCellClass,
+    headerValueClass: cn(headerCellClass, "text-right"),
+    labelCellClass,
+    valueCellClass,
+    detailValueCellClass,
+    detailLabelClass: (depth: number) => {
+      const pad = depth <= 1 ? "pl-7" : depth === 2 ? "pl-12" : "pl-16"
+      return cn(
+        "px-2 text-left text-slate-500 first:pl-1",
+        pad,
+        depth === 1 && "font-medium text-slate-600",
+        compact ? "py-[5px] text-[11px]" : "py-[7px] text-[11.5px]",
+      )
+    },
+    wrapperClassName: compact ? "mt-3 w-full overflow-x-auto" : "mt-4 w-full overflow-x-auto",
+  }
+}
+
+const GAP_COLUMN_CLASS = SUMMARY_TABLE_HIGHLIGHT_COLUMN_CLASS
 
 function formatCell(
   value: number | null,
@@ -66,25 +116,6 @@ function formatDetailLabel(detail: ContributiveMarginEvolutionDetailRow): string
   }
   return formatGlAccountDisplayLabel(detail.id, detail.label)
 }
-
-const headerCellClass =
-  "px-2 pb-2 text-left text-[9.5px] font-semibold uppercase leading-tight tracking-[.08em] text-slate-400 first:pl-1 last:pr-1"
-const headerValueClass = cn(headerCellClass, "text-right")
-const labelCellClass = "px-2 py-[9px] text-left text-xs font-medium text-[#2A2F3A] first:pl-1"
-const valueCellClass =
-  "px-2 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums text-slate-600 last:pr-1"
-
-function detailLabelClass(depth: number): string {
-  const pad = depth <= 1 ? "pl-7" : depth === 2 ? "pl-12" : "pl-16"
-  return cn(
-    "px-2 py-[7px] text-left text-[11.5px] text-slate-500 first:pl-1",
-    pad,
-    depth === 1 && "font-medium text-slate-600",
-  )
-}
-
-const detailValueCellClass =
-  "px-2 py-[7px] text-right font-mono text-[11px] font-normal tabular-nums text-slate-500 last:pr-1"
 
 function detailRowKey(metricId: string, path: string[]): string {
   return [metricId, ...path].join("/")
@@ -135,6 +166,7 @@ function DetailRows({
   depth,
   expandedRows,
   onToggle,
+  cellClasses,
 }: {
   details: ContributiveMarginEvolutionDetailRow[]
   metric: PilotageMarginIndicatorMetric
@@ -145,6 +177,7 @@ function DetailRows({
   depth: number
   expandedRows: Record<string, boolean>
   onToggle: (key: string) => void
+  cellClasses: IndicatorTableCellClasses
 }): ReactNode {
   const visibleDetails = filterZeroContributiveMarginDetailRows(details, table.columnGroups.length)
 
@@ -168,7 +201,7 @@ function DetailRows({
           data-testid={`contributive-margin-${metric.id}-detail-${rowPath.join("-")}`}
           aria-expanded={canExpand ? expanded : undefined}
         >
-          <td className={detailLabelClass(depth)}>
+          <td className={cellClasses.detailLabelClass(depth)}>
             <span className="inline-flex items-center gap-1.5">
               {canExpand ? (
                 <span className="flex-shrink-0" aria-hidden>
@@ -200,7 +233,7 @@ function DetailRows({
             }}
             table={table}
             currency={currency}
-            valueCellClassName={detailValueCellClass}
+            valueCellClassName={cellClasses.detailValueCellClass}
           />
         </tr>
         {canExpand && expanded && visibleChildRows ? (
@@ -214,6 +247,7 @@ function DetailRows({
             depth={depth + 1}
             expandedRows={expandedRows}
             onToggle={onToggle}
+            cellClasses={cellClasses}
           />
         ) : null}
       </Fragment>
@@ -229,6 +263,7 @@ function MetricRows({
   onToggleExpand,
   expandedRows,
   onToggleDetailRow,
+  cellClasses,
 }: {
   metric: PilotageMarginIndicatorMetric
   table: PilotageMarginIndicatorTable
@@ -237,6 +272,7 @@ function MetricRows({
   onToggleExpand?: () => void
   expandedRows: Record<string, boolean>
   onToggleDetailRow: (key: string) => void
+  cellClasses: IndicatorTableCellClasses
 }) {
   const visibleDetailRows = metric.detailRows
     ? filterZeroContributiveMarginDetailRows(metric.detailRows, table.columnGroups.length)
@@ -254,7 +290,7 @@ function MetricRows({
         data-testid={canExpand ? `contributive-margin-${metric.id}-row` : undefined}
         aria-expanded={canExpand ? expanded : undefined}
       >
-        <td className={labelCellClass}>
+        <td className={cellClasses.labelCellClass}>
           <span className="inline-flex items-center gap-1.5">
             {canExpand ? (
               <span className="flex-shrink-0" aria-hidden>
@@ -272,7 +308,7 @@ function MetricRows({
           metric={metric}
           table={table}
           currency={currency}
-          valueCellClassName={valueCellClass}
+          valueCellClassName={cellClasses.valueCellClass}
         />
       </tr>
       {canExpand && expanded ? (
@@ -286,6 +322,7 @@ function MetricRows({
           depth={1}
           expandedRows={expandedRows}
           onToggle={onToggleDetailRow}
+          cellClasses={cellClasses}
         />
       ) : null}
     </>
@@ -296,9 +333,11 @@ export function PilotageMarginByRevenueIndicatorTable({
   table,
   currency,
   className,
+  density = "default",
 }: PilotageMarginByRevenueIndicatorTableProps) {
   const [expandedMetrics, setExpandedMetrics] = useState<Record<string, boolean>>({})
   const [expandedDetailRows, setExpandedDetailRows] = useState<Record<string, boolean>>({})
+  const cellClasses = indicatorTableCellClasses(density)
 
   if (!table.columnGroups.length) return null
 
@@ -313,18 +352,18 @@ export function PilotageMarginByRevenueIndicatorTable({
   return (
     <div
       data-testid={`contributive-margin-evolution-${table.sourceId}`}
-      className={cn("mt-4 w-full overflow-x-auto", className)}
+      className={cn(cellClasses.wrapperClassName, className)}
     >
       <table className="w-full min-w-[32rem] border-collapse">
         <thead>
           <tr>
-            <th className={headerCellClass}>Indicateur</th>
+            <th className={cellClasses.headerCellClass}>Indicateur</th>
             {table.columnGroups.map((group) => (
               <Fragment key={group.label}>
-                <th className={headerValueClass}>{group.label}</th>
-                {group.includeShare ? <th className={headerValueClass}>% CA</th> : null}
+                <th className={cellClasses.headerValueClass}>{group.label}</th>
+                {group.includeShare ? <th className={cellClasses.headerValueClass}>% CA</th> : null}
                 {group.includeGap ? (
-                  <th className={cn(headerValueClass, gapColumnClass())}>Écart</th>
+                  <th className={cn(cellClasses.headerValueClass, gapColumnClass())}>Écart</th>
                 ) : null}
               </Fragment>
             ))}
@@ -343,6 +382,7 @@ export function PilotageMarginByRevenueIndicatorTable({
               }
               expandedRows={expandedDetailRows}
               onToggleDetailRow={toggleDetailRow}
+              cellClasses={cellClasses}
             />
           ))}
         </tbody>

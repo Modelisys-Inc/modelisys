@@ -68,6 +68,7 @@ export function DiagnosticReportPrintView({
           referenceLabel={referenceLabel}
           sectionMeta={sectionMeta}
           moduleId={moduleId}
+          reportId={diagnosticId}
         />
       </div>
     </ReportLayout>

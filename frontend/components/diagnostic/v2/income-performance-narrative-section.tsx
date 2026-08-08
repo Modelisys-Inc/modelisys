@@ -99,12 +99,14 @@ function groupNarrativeParagraphs(paragraphs: PerformanceNarrativeResultNonNull[
 export function IncomePerformanceNarrativeSection({
   narrative,
   renderAfterParagraph,
+  renderAfterBlock,
   testId,
   headerActions,
   settingsPanel,
 }: {
   narrative: PerformanceNarrativeResultNonNull
   renderAfterParagraph?: (paragraph: PerformanceNarrativeResultNonNull["paragraphs"][number]) => ReactNode
+  renderAfterBlock?: (block: NonNullable<ReturnType<typeof groupDivisionNarrativeBlocks>>[number]) => ReactNode
   testId?: string
   /** Actions à droite du titre (ex. Paramètres). */
   headerActions?: ReactNode
@@ -148,6 +150,7 @@ export function IncomePerformanceNarrativeSection({
                 <DivisionNarrativeBlockList
                   blocks={divisionBlocks}
                   renderAfterParagraph={renderAfterParagraph}
+                  renderAfterBlock={renderAfterBlock}
                 />
               ) : null}
               {standardParagraphs.length > 0

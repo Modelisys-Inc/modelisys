@@ -16,6 +16,10 @@ import {
 } from "@/lib/standard-link-code-utils"
 import { getRowAmounts } from "@/lib/series-utils"
 import {
+  analyzeVariableCostDrivers,
+  type VariableCostDriverShift,
+} from "@/lib/expense-variable-cost-driver-analysis"
+import {
   monthTrendFromReference,
   yearTrendFromReference,
 } from "@/lib/series-reference-columns"
@@ -34,6 +38,7 @@ export type ExpenseCostDriver = {
 
 export type ExpenseBridgeNarrativeContext = {
   topVariableDrivers: ExpenseCostDriver[]
+  topVariableDriversByRevenueShift: VariableCostDriverShift[]
   topFixedDrivers: ExpenseCostDriver[]
 }
 
@@ -194,8 +199,30 @@ export function buildExpenseBridgeNarrativeContext(params: {
   const variableAccounts = collectAllVariableCostAccountNumbers(mappings)
   const fixedAccounts = collectAllFixedCostAccountNumbers(mappings)
 
+  const prior = bridge.points[1]
+  const variableDriverAnalysis =
+    prior && Math.abs(prior.revenue) > DATA_EPSILON
+      ? analyzeVariableCostDrivers({
+          accountNumbers: variableAccounts,
+          currentRevenue: latest.revenue,
+          currentCategoryTotal: latest.variableCosts,
+          priorRevenue: prior.revenue,
+          priorCategoryTotal: prior.variableCosts,
+          resolveCurrentAmount: (accountNumber) =>
+            accountCostTrend(accountNumber, mappingsByAccount, seriesRows, periods, view, refMonth, refYear)?.[0] ??
+            0,
+          resolvePriorAmount: (accountNumber) =>
+            accountCostTrend(accountNumber, mappingsByAccount, seriesRows, periods, view, refMonth, refYear)?.[1] ??
+            0,
+          mappingsByAccount,
+          rows: seriesRows,
+          standardLinkCodes,
+          groupByLinkCode: true,
+        })
+      : null
+
   return {
-    topVariableDrivers: buildDriversForAccounts({
+    topVariableDrivers: variableDriverAnalysis?.topByRevenueShare ?? buildDriversForAccounts({
       accountNumbers: variableAccounts,
       categoryTotal: latest.variableCosts,
       revenue: latest.revenue,
@@ -208,6 +235,7 @@ export function buildExpenseBridgeNarrativeContext(params: {
       codeByCode,
       groupByLinkCode: true,
     }),
+    topVariableDriversByRevenueShift: variableDriverAnalysis?.topByRevenueShift ?? [],
     topFixedDrivers: buildDriversForAccounts({
       accountNumbers: fixedAccounts,
       categoryTotal: latest.fixedCosts,

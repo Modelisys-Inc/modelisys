@@ -222,8 +222,8 @@ export const DIAGNOSTIC_REPORT_VIEW_LABELS: Record<DiagnosticReportView, string>
   performance: "Performance financière",
   revenue: "Analyse des revenus",
   "margin-by-revenue": "Marge par revenus",
-  expenses: "Analyse des dépenses",
-  "expenses-by-division": "Analyse des divisions",
+  expenses: "Analyse de rentabilité",
+  "expenses-by-division": "Rentabilité par division",
   "financial-position": "Situation financière",
   "working-capital": "Fonds de roulement",
   capex: "Capex",
@@ -296,7 +296,7 @@ export const DIAGNOSTIC_PRINT_ANALYSES: ReportPrintAnalysis[] = [
     sectionNumber: 3,
     sectionTitle: "Dépenses",
     intro: {
-      title: "Analyse des dépenses",
+      title: "Analyse de rentabilité",
       subtitle: "Structure de coûts et pont de rentabilité",
       description:
         "Pont entre marge brute et EBITDA, ventilation des coûts variables et fixes, et seuil de rentabilité. Cette analyse éclaire la structure des charges d'exploitation de la société.",
@@ -306,9 +306,9 @@ export const DIAGNOSTIC_PRINT_ANALYSES: ReportPrintAnalysis[] = [
     viewId: "expenses-by-division",
     sectionNumber: 3,
     sectionTitle: "Dépenses",
-    viewSubtitle: "Analyse des divisions",
+    viewSubtitle: "Rentabilité par division",
     intro: {
-      title: "Analyse des divisions",
+      title: "Rentabilité par division",
       subtitle: "Dépenses — Performance par centre d'activité",
       description:
         "Revenus, coûts variables et fixes, marge contributive et bénéfice d'exploitation par division. Permet de comparer la rentabilité relative des centres d'activité de la société.",

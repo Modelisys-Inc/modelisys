@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest"
 import type { AccountMappingData, SeriesPeriod, SeriesRow } from "@/lib/api"
+import { EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL } from "@/lib/expense-bridge-chart-theme"
 import {
   buildPilotageExpenseIndicatorTables,
   pilotageExpenseIndicatorTableKey,
 } from "@/lib/pilotage-expense-indicator"
 import { buildPilotageExpensesBridgeNarrative } from "@/lib/pilotage-expense-performance-narrative"
-import { EXPENSE_FIXED_COSTS_HEADING, EXPENSE_VARIABLE_COSTS_HEADING } from "@/lib/expense-cost-breakdown-tables"
+import { PILOTAGE_MARGIN_AND_BAIIA_HEADING } from "@/lib/expense-cost-breakdown-tables"
 import { packPilotageExpensesLecturePages } from "@/lib/report-narrative-pagination"
 
 function mapping(partial: Partial<AccountMappingData> & Pick<AccountMappingData, "account_number">): AccountMappingData {
@@ -104,7 +105,7 @@ function buildMonthlyFixture() {
 }
 
 describe("buildPilotageExpensesBridgeNarrative", () => {
-  it("émet 3 sous-sections par catégorie de coûts", () => {
+  it("émet 3 sous-sections courtes centrées sur le BAIIA", () => {
     const fixture = buildMonthlyFixture()
     const result = buildPilotageExpensesBridgeNarrative({
       mappings: fixture.mappings,
@@ -116,25 +117,25 @@ describe("buildPilotageExpensesBridgeNarrative", () => {
     })
 
     expect(result?.title).toBe("Lecture des dépenses")
-    expect(result?.paragraphs).toHaveLength(6)
-
-    const variable = result?.paragraphs.filter((p) => p.heading === EXPENSE_VARIABLE_COSTS_HEADING)
-    expect(variable?.map((p) => p.subsection)).toEqual([
+    expect(result?.paragraphs).toHaveLength(3)
+    expect(result?.paragraphs.every((p) => p.heading === PILOTAGE_MARGIN_AND_BAIIA_HEADING)).toBe(true)
+    expect(result?.paragraphs.map((p) => p.subsection)).toEqual([
       "Performance actuelle",
       "Performance de l'exercice (YTD)",
       "Tendance des 12 derniers mois",
     ])
-    expect(variable?.[0]?.body).toContain("coûts variables")
 
-    const fixed = result?.paragraphs.filter((p) => p.heading === EXPENSE_FIXED_COSTS_HEADING)
-    expect(fixed?.map((p) => p.subsection)).toEqual([
-      "Performance actuelle",
-      "Performance de l'exercice (YTD)",
-      "Tendance des 12 derniers mois",
-    ])
+    const current = result?.paragraphs[0]
+    expect(current?.body).toContain(EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL)
+    expect(current?.body).toMatch(/progresse de|recule de|est stable/)
+    expect(current?.body).toContain("s'explique par le fait que")
+    expect(current?.body).toContain("Ainsi,")
+    expect(current?.body).toContain("contribution marginale")
+    expect(current?.body).toContain("coûts fixes")
+    expect(current?.showIndicatorTable).toBe(true)
   })
 
-  it("regroupe CV et CF sur deux pages de lecture", () => {
+  it("regroupe les sous-sections sur deux pages de lecture (actuelle, puis YTD + TTM)", () => {
     const fixture = buildMonthlyFixture()
     const result = buildPilotageExpensesBridgeNarrative({
       mappings: fixture.mappings,
@@ -146,13 +147,17 @@ describe("buildPilotageExpensesBridgeNarrative", () => {
     })
     const pages = packPilotageExpensesLecturePages(result?.paragraphs)
     expect(pages).toHaveLength(2)
-    expect(pages[0]?.every((p) => p.heading === EXPENSE_VARIABLE_COSTS_HEADING)).toBe(true)
-    expect(pages[1]?.every((p) => p.heading === EXPENSE_FIXED_COSTS_HEADING)).toBe(true)
+    expect(pages[0]?.map((paragraph) => paragraph.subsection)).toEqual(["Performance actuelle"])
+    expect(pages[1]?.map((paragraph) => paragraph.subsection)).toEqual([
+      "Performance de l'exercice (YTD)",
+      "Tendance des 12 derniers mois",
+    ])
+    expect(pages.every((page) => page[0]?.heading === PILOTAGE_MARGIN_AND_BAIIA_HEADING)).toBe(true)
   })
 })
 
 describe("buildPilotageExpenseIndicatorTables", () => {
-  it("construit les tableaux Performance actuelle, YTD et TTM pour CV et CF", () => {
+  it("construit les tableaux Performance actuelle, YTD et TTM avec les cinq lignes du pont", () => {
     const fixture = buildMonthlyFixture()
     const tables = buildPilotageExpenseIndicatorTables({
       mappings: fixture.mappings,
@@ -163,19 +168,26 @@ describe("buildPilotageExpenseIndicatorTables", () => {
       fiscalYearEnd: "12-31",
     })
 
-    const variableCurrent = tables.get(
-      pilotageExpenseIndicatorTableKey(EXPENSE_VARIABLE_COSTS_HEADING, "Performance actuelle"),
+    const current = tables.get(
+      pilotageExpenseIndicatorTableKey(PILOTAGE_MARGIN_AND_BAIIA_HEADING, "Performance actuelle"),
     )
-    expect(variableCurrent?.metrics).toHaveLength(1)
-    expect(variableCurrent?.metrics[0]?.label).toBe("Coûts variables")
-    expect(variableCurrent?.columnGroups.length).toBeGreaterThanOrEqual(2)
+    expect(current?.metrics.map((metric) => metric.label)).toEqual([
+      "Revenus",
+      "Coûts variables",
+      "Contribution marginale",
+      "Coûts fixes",
+      "BAIIA",
+    ])
+    expect(current?.metrics[1]?.detailRows?.length).toBeGreaterThan(0)
+    expect(current?.metrics[3]?.detailRows?.length).toBeGreaterThan(0)
+    expect(current?.columnGroups.length).toBeGreaterThanOrEqual(2)
 
-    const fixedYtd = tables.get(
+    const ytd = tables.get(
       pilotageExpenseIndicatorTableKey(
-        EXPENSE_FIXED_COSTS_HEADING,
+        PILOTAGE_MARGIN_AND_BAIIA_HEADING,
         "Performance de l'exercice (YTD)",
       ),
     )
-    expect(fixedYtd?.columnGroups.map((group) => group.label)).toEqual(["YTD 2026", "YTD 2025"])
+    expect(ytd?.columnGroups.map((group) => group.label)).toEqual(["YTD 2026", "YTD 2025"])
   })
 })

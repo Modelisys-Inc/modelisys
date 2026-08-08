@@ -1,4 +1,5 @@
 import { removeCompanyOverview } from "@/lib/diagnostic-company-overview"
+import { removePilotageSectionComments } from "@/lib/pilotage-section-comments"
 import {
   getCompanyReportModule,
   type CompanyReportModuleId,
@@ -154,6 +155,9 @@ export function removeCompanyReport(moduleId: CompanyReportModuleId, id: string)
     readAll(moduleId).filter((row) => row.id !== id),
   )
   removeCompanyOverview(id)
+  if (moduleId === "pilotage") {
+    removePilotageSectionComments(id)
+  }
 }
 
 export function syncCompanyReportCompanyName(

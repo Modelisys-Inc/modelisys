@@ -6,6 +6,7 @@ import {
   type RevenueContributiveMarginRow,
 } from "@/lib/revenue-contributive-margin-table"
 import { cn } from "@/lib/utils"
+import { SUMMARY_TABLE_HIGHLIGHT_COLUMN_CLASS } from "@/lib/summary-performance-table-styles"
 
 interface RevenueContributiveMarginTableProps {
   rows: RevenueContributiveMarginRow[]
@@ -16,13 +17,15 @@ interface RevenueContributiveMarginTableProps {
   footnote?: string
   rowColumnLabel?: string
   testId?: string
+  /** Affiche la colonne TCAC (désactivée en Pilotage). */
+  showCagrColumn?: boolean
 }
 
 export const REVENUE_CONTRIBUTIVE_MARGIN_TABLE_FOOTNOTE =
   "Le calcul de la contribution marginale repose sur les coûts variables directement rattachés à chaque source de revenus dans le mapping comptable. Certains coûts variables peuvent ne pas être attribués à une source précise ; ils sont alors exclus de cette analyse."
 
 /** Fond gris sur toute la colonne Part contr. (aligné sur les colonnes Écart des tableaux indicateurs). */
-const CONTRIBUTIVE_SHARE_COLUMN_CLASS = "bg-slate-50/95"
+const CONTRIBUTIVE_SHARE_COLUMN_CLASS = SUMMARY_TABLE_HIGHLIGHT_COLUMN_CLASS
 
 const headerCellClass =
   "px-2 pb-2 text-left text-[9.5px] font-semibold uppercase leading-tight tracking-[.08em] text-slate-400 first:pl-4 last:pr-4 sm:first:pl-6 sm:last:pr-6"
@@ -53,6 +56,7 @@ export function RevenueContributiveMarginTable({
   footnote = REVENUE_CONTRIBUTIVE_MARGIN_TABLE_FOOTNOTE,
   rowColumnLabel = "Source",
   testId = "revenue-contributive-margin-table",
+  showCagrColumn = true,
 }: RevenueContributiveMarginTableProps) {
   if (!rows.length) return null
 
@@ -68,7 +72,7 @@ export function RevenueContributiveMarginTable({
       </div>
 
       <div className="w-full overflow-x-auto">
-        <table className="w-full min-w-[48rem] border-collapse">
+        <table className={cn("w-full border-collapse", showCagrColumn ? "min-w-[48rem]" : "min-w-[42rem]")}>
           <colgroup>
             <col className="w-[18%]" />
             <col className="w-[11%]" />
@@ -76,8 +80,8 @@ export function RevenueContributiveMarginTable({
             <col className="w-[12%]" />
             <col className="w-[9%]" />
             <col className={cn("w-[9%]", CONTRIBUTIVE_SHARE_COLUMN_CLASS)} />
-            <col className="w-[10%]" />
-            <col className="w-[9%]" />
+            <col className={cn(showCagrColumn ? "w-[10%]" : "w-[12%]")} />
+            {showCagrColumn ? <col className="w-[9%]" /> : null}
           </colgroup>
           <thead>
             <tr>
@@ -88,7 +92,7 @@ export function RevenueContributiveMarginTable({
               <th className={headerValueClass}>Marge</th>
               <th className={contributiveShareHeaderClass}>Part contr.</th>
               <th className={headerValueClass}>Part CA</th>
-              <th className={headerValueClass}>TCAC</th>
+              {showCagrColumn ? <th className={headerValueClass}>TCAC</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -133,15 +137,17 @@ export function RevenueContributiveMarginTable({
                   {formatOptionalPercent(row.contributiveSharePct)}
                 </td>
                 <td className={mutedValueCellClass}>{formatPercent(row.revenueSharePct)}</td>
-                <td
-                  className={cn(valueCellClass, "text-slate-500")}
-                  style={{
-                    color:
-                      row.revenueCagrPct !== null && row.revenueCagrPct > 10 ? "#059669" : "#64748b",
-                  }}
-                >
-                  {formatOptionalPercent(row.revenueCagrPct)}
-                </td>
+                {showCagrColumn ? (
+                  <td
+                    className={cn(valueCellClass, "text-slate-500")}
+                    style={{
+                      color:
+                        row.revenueCagrPct !== null && row.revenueCagrPct > 10 ? "#059669" : "#64748b",
+                    }}
+                  >
+                    {formatOptionalPercent(row.revenueCagrPct)}
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>
@@ -158,7 +164,7 @@ export function RevenueContributiveMarginTable({
                 {formatOptionalPercent(totals.contributiveSharePct)}
               </td>
               <td className={mutedValueCellClass}>{formatPercent(100)}</td>
-              <td className={cn(valueCellClass, "text-slate-400")}>—</td>
+              {showCagrColumn ? <td className={cn(valueCellClass, "text-slate-400")}>—</td> : null}
             </tr>
           </tfoot>
         </table>

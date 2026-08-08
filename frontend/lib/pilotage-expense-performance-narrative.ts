@@ -5,48 +5,63 @@ import {
   collectAllVariableCostAccountNumbers,
 } from "@/lib/expense-contribution-bridge"
 import {
-  EXPENSE_FIXED_COSTS_HEADING,
-  EXPENSE_VARIABLE_COSTS_HEADING,
+  PILOTAGE_MARGIN_AND_BAIIA_BLOCK_ID,
+  PILOTAGE_MARGIN_AND_BAIIA_HEADING,
 } from "@/lib/expense-cost-breakdown-tables"
 import type { PerformanceNarrativeParagraph, PerformanceNarrativeResult } from "@/lib/income-performance-narrative"
-import {
-  buildPilotageScalarMetricParagraphs,
-  createExpenseCostMetricConfig,
-} from "@/lib/pilotage-revenue-performance-narrative"
-import {
-  computePilotageExpenseScalarMetrics,
-  extractMonthlyExpenseBridgeSeries,
-} from "@/lib/pilotage-revenue-metrics"
+import { buildPilotageMarginAndBaiiaParagraphs } from "@/lib/pilotage-margin-and-baiia-narrative"
+import { extractMonthlyExpenseBridgeSeries } from "@/lib/pilotage-revenue-metrics"
 
-const VARIABLE_COST_CONFIG = createExpenseCostMetricConfig(
-  EXPENSE_VARIABLE_COSTS_HEADING,
-  "les coûts variables",
-  "pilotage-variable-costs",
-)
-
-const FIXED_COST_CONFIG = createExpenseCostMetricConfig(
-  EXPENSE_FIXED_COSTS_HEADING,
-  "les coûts fixes",
-  "pilotage-fixed-costs",
-)
-
-function emptyVariableCostParagraph(): PerformanceNarrativeParagraph {
-  return {
-    heading: EXPENSE_VARIABLE_COSTS_HEADING,
-    divisionTitle: EXPENSE_VARIABLE_COSTS_HEADING,
-    divisionBlockId: "pilotage-variable-costs",
-    body:
-      "Aucun compte n'est marqué comme coût variable dans le mapping comptable. Paramétrez le type « Variable » sur les comptes de charges directement liées à l'activité afin de quantifier la contribution marginale.",
-  }
+function emptyVariableCostBody(): string {
+  return "Aucun compte n'est marqué comme coût variable : la contribution marginale ne peut pas être calculée."
 }
 
-function emptyFixedCostParagraph(): PerformanceNarrativeParagraph {
-  return {
-    heading: EXPENSE_FIXED_COSTS_HEADING,
-    divisionTitle: EXPENSE_FIXED_COSTS_HEADING,
-    divisionBlockId: "pilotage-fixed-costs",
-    body: `Aucun compte n'est marqué comme coût fixe dans le mapping comptable. Paramétrez le type « Fixe » sur les charges de structure (salaires admin, loyers, amortissement opérationnel hors dotation, etc.) pour mesurer le passage de la contribution marginale au ${EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL}.`,
+function emptyFixedCostBody(): string {
+  return `Aucun compte n'est marqué comme coût fixe : le ${EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL} ne peut pas être mesuré.`
+}
+
+function wrapParagraphs(
+  contentParagraphs: PerformanceNarrativeParagraph[],
+  options?: {
+    emptyCmBody?: string
+    emptyCfBody?: string
+  },
+): PerformanceNarrativeParagraph[] {
+  if (!contentParagraphs.length) {
+    const emptyBody = [options?.emptyCmBody, options?.emptyCfBody].filter(Boolean).join(" ")
+    if (!emptyBody) return []
+    return [
+      {
+        heading: PILOTAGE_MARGIN_AND_BAIIA_HEADING,
+        divisionTitle: PILOTAGE_MARGIN_AND_BAIIA_HEADING,
+        divisionBlockId: PILOTAGE_MARGIN_AND_BAIIA_BLOCK_ID,
+        section: "revenue-performance",
+        narrativePageGroup: PILOTAGE_MARGIN_AND_BAIIA_BLOCK_ID,
+        hideMainHeading: false,
+        body: emptyBody,
+        showIndicatorTable: false,
+      },
+    ]
   }
+
+  return contentParagraphs.map((paragraph, index) => {
+    const parts: string[] = []
+    if (index === 0 && options?.emptyCmBody) parts.push(options.emptyCmBody)
+    if (index === 0 && options?.emptyCfBody) parts.push(options.emptyCfBody)
+    if (paragraph.body?.trim()) parts.push(paragraph.body.trim())
+
+    return {
+      heading: PILOTAGE_MARGIN_AND_BAIIA_HEADING,
+      divisionTitle: PILOTAGE_MARGIN_AND_BAIIA_HEADING,
+      divisionBlockId: PILOTAGE_MARGIN_AND_BAIIA_BLOCK_ID,
+      section: "revenue-performance",
+      narrativePageGroup: PILOTAGE_MARGIN_AND_BAIIA_BLOCK_ID,
+      hideMainHeading: index > 0,
+      subsection: paragraph.subsection,
+      body: parts.join(" "),
+      showIndicatorTable: true,
+    }
+  })
 }
 
 export function buildPilotageExpensesBridgeNarrative(params: {
@@ -70,49 +85,23 @@ export function buildPilotageExpensesBridgeNarrative(params: {
 
   const variableAccounts = collectAllVariableCostAccountNumbers(params.mappings)
   const fixedAccounts = collectAllFixedCostAccountNumbers(params.mappings)
-  const paragraphs: PerformanceNarrativeParagraph[] = []
+  const canBuildNarrative = variableAccounts.length > 0 && fixedAccounts.length > 0 && series.length > 0
 
-  if (!variableAccounts.length) {
-    paragraphs.push(emptyVariableCostParagraph())
-  } else {
-    const metrics = computePilotageExpenseScalarMetrics(
-      series,
-      params.fiscalYearEnd,
-      (point) => point.variableCosts,
-    )
-    if (metrics) {
-      paragraphs.push(
-        ...buildPilotageScalarMetricParagraphs(VARIABLE_COST_CONFIG, metrics, null, {
-          showIndicatorTable: true,
-        }),
-      )
-    }
-  }
+  const contentParagraphs = canBuildNarrative
+    ? buildPilotageMarginAndBaiiaParagraphs(series, params.fiscalYearEnd)
+    : []
 
-  if (!fixedAccounts.length) {
-    paragraphs.push(emptyFixedCostParagraph())
-  } else {
-    const metrics = computePilotageExpenseScalarMetrics(
-      series,
-      params.fiscalYearEnd,
-      (point) => point.fixedCosts,
-    )
-    if (metrics) {
-      paragraphs.push(
-        ...buildPilotageScalarMetricParagraphs(FIXED_COST_CONFIG, metrics, null, {
-          showIndicatorTable: true,
-        }),
-      )
-    }
-  }
+  const paragraphs = wrapParagraphs(contentParagraphs, {
+    emptyCmBody: !variableAccounts.length ? emptyVariableCostBody() : undefined,
+    emptyCfBody: !fixedAccounts.length ? emptyFixedCostBody() : undefined,
+  })
 
   if (!paragraphs.length) return null
 
   return {
     mode: "monthly",
     title: "Lecture des dépenses",
-    subtitle:
-      "Analyse mensuelle — coûts variables et fixes (performance actuelle, exercice cumulé et douze derniers mois)",
+    subtitle: `Évolution du ${EXPENSE_BRIDGE_OPERATING_PROFIT_LABEL} — performance actuelle, exercice cumulé et douze derniers mois`,
     referencePeriod: series[0]?.period ?? "",
     paragraphs,
   }

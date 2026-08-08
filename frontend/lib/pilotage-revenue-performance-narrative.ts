@@ -13,6 +13,10 @@ import type {
 
 const DATA_EPSILON = 1e-6
 
+export const PILOTAGE_SUBSECTION_CURRENT_PERFORMANCE = "Performance actuelle"
+export const PILOTAGE_SUBSECTION_YTD_PERFORMANCE = "Performance de l'exercice (YTD)"
+export const PILOTAGE_SUBSECTION_TTM_PERFORMANCE = "Tendance des 12 derniers mois"
+
 type MetricValueKind = "currency" | "percent"
 
 export type PilotageMetricConfig = {
@@ -428,7 +432,7 @@ function buildCurrentPerformanceParagraph(
 
   return {
     ...blockBase(config),
-    subsection: "Performance actuelle",
+    subsection: PILOTAGE_SUBSECTION_CURRENT_PERFORMANCE,
     body: parts.join(" "),
     showIndicatorTable,
   }
@@ -495,7 +499,7 @@ function buildYtdPerformanceParagraph(
 
   return {
     ...blockBase(config),
-    subsection: "Performance de l'exercice (YTD)",
+    subsection: PILOTAGE_SUBSECTION_YTD_PERFORMANCE,
     body: parts.join(" "),
     showIndicatorTable,
   }
@@ -560,7 +564,7 @@ function buildTtmPerformanceParagraph(
 
   return {
     ...blockBase(config),
-    subsection: "Tendance des 12 derniers mois",
+    subsection: PILOTAGE_SUBSECTION_TTM_PERFORMANCE,
     body: parts.join(" "),
     showIndicatorTable,
   }

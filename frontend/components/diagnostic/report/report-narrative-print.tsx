@@ -87,11 +87,13 @@ function groupParagraphs(paragraphs: Narrative["paragraphs"]) {
 export function ReportNarrativePrint({
   narrative,
   renderAfterParagraph,
+  renderAfterBlock,
   testId,
   showHeader = true,
 }: {
   narrative: Narrative
   renderAfterParagraph?: (paragraph: Narrative["paragraphs"][number]) => ReactNode
+  renderAfterBlock?: (block: NonNullable<ReturnType<typeof groupDivisionNarrativeBlocks>>[number]) => ReactNode
   testId?: string
   /** Faux sur les pages de suite (pagination). */
   showHeader?: boolean
@@ -124,6 +126,7 @@ export function ReportNarrativePrint({
           <DivisionNarrativeBlockList
             blocks={divisionBlocks}
             renderAfterParagraph={renderAfterParagraph}
+            renderAfterBlock={renderAfterBlock}
             variant="print"
           />
         ) : null}

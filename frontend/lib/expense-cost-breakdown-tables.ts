@@ -24,7 +24,11 @@ import {
 const DATA_EPSILON = 1e-6
 
 export const EXPENSE_VARIABLE_COSTS_HEADING = "Coûts variables"
+export const EXPENSE_CONTRIBUTIVE_MARGIN_HEADING = "Contribution marginale"
 export const EXPENSE_FIXED_COSTS_HEADING = "Coûts fixes"
+export const PILOTAGE_MARGIN_AND_BAIIA_HEADING = "Contribution marginale et BAIIA"
+export const PILOTAGE_MARGIN_AND_BAIIA_BLOCK_ID = "pilotage-margin-and-baiia"
+export const PILOTAGE_MARGIN_AND_BAIIA_SECTION_ID = "pilotage-margin-and-baiia"
 
 const UNMAPPED_GROUP_ID = "__unmapped__"
 
