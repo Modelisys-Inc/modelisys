@@ -1853,7 +1853,7 @@ test.describe("Rapport Pilotage", () => {
     await expect(cover).toHaveClass(/print-sheet-light-grid/)
     await expect(cover.getByText("Rapport de performance", { exact: true })).toBeVisible()
     await expect(
-      cover.getByText(/Rapport de pilotage structuré autour de la performance actuelle/),
+      cover.getByText(/Rapport de performance mensuel intégrant une analyse détaillée/),
     ).toBeVisible()
     await expect(cover.getByText("Rapport de diagnostic financier")).toHaveCount(0)
 

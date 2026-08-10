@@ -28,7 +28,7 @@ const COMPANY_REPORT_BRANDING: Record<CompanyReportModuleId, CompanyReportBrandi
     reportTypeLabel: "Rapport de performance",
     sectionMetaLabel: "Rapport de performance",
     coverDescription:
-      "Rapport de pilotage structuré autour de la performance actuelle, du cumul d'exercice (YTD) et des tendances sur douze mois, avec lecture des écarts par rapport aux périodes de comparaison et au budget lorsque celui-ci est disponible.",
+      "Rapport de performance mensuel intégrant une analyse détaillée des revenus, de la rentabilité, du fonds de roulement, des investissements, du financement et de la trésorerie comparativement au passé et au budget.",
     coverTheme: "light-grid",
     introTheme: "light-grid",
     mandateLeadDocumentLabel: "rapport de performance",
