@@ -15,11 +15,49 @@ import {
   getRowAmounts,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
-import { yearTrendFromReference } from "@/lib/series-reference-columns"
+import { yearTrendFromReference, buildAmountsByCalendarMonth } from "@/lib/series-reference-columns"
+import {
+  applyCashFlowCalcToPoint,
+  applyCashFlowCalcToTrend,
+  buildCashFlowCalcModeByCode,
+  buildCashFlowTinDisplayModeByCode,
+  detailRowToOperandSnapshot,
+  isCashFlowFormulaAggregationRow,
+  readRowCashFlowCalcMode,
+  readRowCashFlowTinDisplayMode,
+  reconcileCashFlowSectionTotalsFromStructure,
+  reconcileDetailRowTotalsFromGlAccounts,
+  resolveCashFlowFormulaPointAmountFromProcessed,
+  resolveCashFlowFormulaTrendValuesFromProcessed,
+  shouldReconcileCashFlowDetailRowFromGlAccounts,
+  structureUsesCashFlowTinCostMode,
+  type CashFlowCalcMode,
+  type CashFlowDetailTrendView,
+  type CashFlowOperandSnapshot,
+  type CashFlowTinDisplayMode,
+} from "@/lib/cash-flow-detail-settings"
+import {
+  applyCashFlowFixedTreasuryRows,
+  buildBeginningCashTrendForView,
+  buildEndingBookTrendForView,
+  buildNetCashByPeriodKey,
+  cashFlowTreasuryValidationEcart,
+  cashFlowTreasuryValidationTrendEcarts,
+  comparisonAnchorMonth,
+  isCashFlowEndingCashStructureRow,
+  isCashFlowFixedTreasuryStructureRow,
+  isCashFlowTreasuryBalanced,
+  netCashFromBalanceSheetPointRows,
+  priorCalendarMonth,
+  structureHasFixedTreasuryRows,
+  type CashFlowTreasuryContext,
+} from "@/lib/cash-flow-treasury-rows"
+import { filterCashFlowDetailRowsWithStructureForHorizon } from "@/lib/cash-flow-horizon-filter"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
+import type { IncomeStatementHorizonView } from "@/lib/income-statement-horizon-visibility"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ChevronDown, ChevronRight, ListTree, Settings, Sparkles } from "lucide-react"
+import { ChevronDown, ChevronRight, ListTree, Settings, Sparkles, AlertTriangle } from "lucide-react"
 import { StatementStructureStudio } from "@/components/statement-structure-studio"
 import {
   detailLineLabelForDisplay,
@@ -30,6 +68,7 @@ import {
   isStructureRowEmptyLabel,
   isTruthySeparatorAbove,
   listStructureRowsForPresentationDisplay,
+  normalizeLiaisonMode,
 } from "@/lib/income-statement-structure-utils"
 import { structureRowHasFormulaLiaison } from "@/lib/balance-sheet-summary-expand"
 import {
@@ -77,6 +116,7 @@ interface GlAccount {
   amount: number
   priorAmount?: number
   trendValues?: number[]
+  amountByCalendarMonth?: Map<string, number>
 }
 
 interface DetailRow {
@@ -95,6 +135,82 @@ interface DetailRow {
   trendValues?: number[]
   /** Comptes GL sous-jacents — visibles uniquement à l'expansion. */
   balanceAccounts?: GlAccount[]
+}
+
+type CashFlowCalcContext = {
+  trendView: CashFlowDetailTrendView
+  trendLabels: string[]
+}
+
+function snapshotFromApiRow(
+  row: FinancialStatementRow | undefined,
+  trendValues?: number[],
+  amountByCalendarMonth?: Map<string, number>,
+): CashFlowOperandSnapshot {
+  return {
+    current: row?.current ?? (trendValues ? trendValues[0] || 0 : 0),
+    prior: row?.prior ?? (trendValues && trendValues.length >= 2 ? trendValues[1] || 0 : 0),
+    trendValues,
+    amountByCalendarMonth,
+  }
+}
+
+function applyCashFlowCalcModeToDetailRow(
+  row: DetailRow,
+  mode: CashFlowCalcMode,
+  calcContext?: CashFlowCalcContext,
+  amountByCalendarMonth?: Map<string, number>,
+): DetailRow {
+  if (!row.hasLiaisonCode || row.isSection) return row
+
+  // Réel = montant API pour l'horizon sélectionné ; les comptes GL servent à l'expansion.
+  if (mode === "actual") return row
+
+  const balanceAccounts = row.balanceAccounts?.map((account) => {
+    const accountPoint = applyCashFlowCalcToPoint(account.amount, account.priorAmount ?? 0, mode)
+    const accountTrend =
+      account.trendValues && calcContext
+        ? applyCashFlowCalcToTrend(
+            account.trendValues,
+            calcContext.trendLabels,
+            mode,
+            account.amountByCalendarMonth,
+            calcContext.trendView,
+          )
+        : account.trendValues
+    return {
+      ...account,
+      amount: accountPoint.current,
+      priorAmount: accountPoint.prior,
+      trendValues: accountTrend,
+    }
+  })
+
+  if (balanceAccounts?.length && shouldReconcileCashFlowDetailRowFromGlAccounts(mode)) {
+    return reconcileDetailRowTotalsFromGlAccounts({
+      ...row,
+      balanceAccounts,
+    })
+  }
+
+  const point = applyCashFlowCalcToPoint(row.current, row.prior, mode)
+  const trendValues =
+    row.trendValues && calcContext
+      ? applyCashFlowCalcToTrend(
+          row.trendValues,
+          calcContext.trendLabels,
+          mode,
+          amountByCalendarMonth,
+          calcContext.trendView,
+        )
+      : row.trendValues
+
+  return {
+    ...row,
+    current: point.current,
+    prior: point.prior,
+    trendValues,
+  }
 }
 
 export function CashFlowDetail({
@@ -135,6 +251,10 @@ export function CashFlowDetail({
   const [statementStructure, setStatementStructure] = useState<Record<string, unknown>[] | null>(null)
   const [structureLoading, setStructureLoading] = useState(false)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const presentationStructureRows = useMemo(
+    () => (statementStructure?.length ? listStructureRowsForPresentationDisplay(statementStructure) : []),
+    [statementStructure],
+  )
 
   const toggleRow = (rowId: string) => {
     setExpandedRows((prev) => {
@@ -193,13 +313,63 @@ export function CashFlowDetail({
       effectiveStructureVersion,
     ]
   )
+  const detailCostFetchParams = useMemo(
+    () => ({
+      ...detailFetchParams,
+      alt_asset_cost_only: true as const,
+    }),
+    [detailFetchParams],
+  )
+  const needsTinCostData = useMemo(
+    () => (statementStructure ? structureUsesCashFlowTinCostMode(statementStructure) : false),
+    [statementStructure],
+  )
+  const hasFixedTreasuryRows = useMemo(
+    () => (statementStructure ? structureHasFixedTreasuryRows(statementStructure) : false),
+    [statementStructure],
+  )
+  const treasuryBeginningRef = useMemo(
+    () => priorCalendarMonth(effectiveRefYear, effectiveRefMonth),
+    [effectiveRefYear, effectiveRefMonth],
+  )
+  const treasuryBeginningPriorRef = useMemo(() => {
+    const anchor = comparisonAnchorMonth(effectiveRefYear, effectiveRefMonth, comparisonType)
+    return priorCalendarMonth(anchor.year, anchor.month)
+  }, [effectiveRefYear, effectiveRefMonth, comparisonType])
+  const treasuryEndingBookPriorRef = useMemo(
+    () => comparisonAnchorMonth(effectiveRefYear, effectiveRefMonth, comparisonType),
+    [effectiveRefYear, effectiveRefMonth, comparisonType],
+  )
+  const bsTreasuryFetchParams = useMemo(
+    () => ({
+      period: "monthly" as const,
+      comparison_type: comparisonType,
+      budget_id: comparisonType === "budget" && selectedBudgetId ? selectedBudgetId : undefined,
+      division_id: divisionId || undefined,
+      sub_division_id: subDivisionId || undefined,
+      structure_rev: effectiveStructureVersion,
+    }),
+    [
+      comparisonType,
+      selectedBudgetId,
+      divisionId,
+      subDivisionId,
+      effectiveStructureVersion,
+    ],
+  )
   const { rows: detailComputedRows, loading: detailComputedLoading } = useFinancialStatement(
     companyId || null,
     "cash-flow-detail",
-    detailFetchParams
+    detailFetchParams,
+  )
+  const { rows: detailCostComputedRows, loading: detailCostComputedLoading } = useFinancialStatement(
+    companyId || null,
+    "cash-flow-detail",
+    detailCostFetchParams,
+    needsTinCostData,
   )
   const amountRows = companyId ? detailComputedRows : backendRows
-  const amountsLoading = companyId ? detailComputedLoading : loading
+  const costAmountRows = needsTinCostData ? detailCostComputedRows : undefined
 
   // Series data for multi-period views (cash-flow-detail structure)
   const isMultiPeriod = view === "12months" || view === "quarters" || view === "years"
@@ -218,11 +388,149 @@ export function CashFlowDetail({
     structureVersion: effectiveStructureVersion,
   })
 
+  const { rows: costSeriesRows, loading: costSeriesLoading } = useFinancialStatementSeries({
+      companyId: companyId || null,
+      statementType: "cash-flow-detail",
+      fiscalYear: currentYear,
+      month: effectiveRefMonth,
+      months: monthsNeeded,
+      divisionId: divisionId || null,
+      subDivisionId: subDivisionId || null,
+      enabled:
+        needsTinCostData &&
+        isMultiPeriod &&
+        (!isForecastSection || forecastUseSeriesActuals),
+      altAssetCostOnly: true,
+      structureVersion: effectiveStructureVersion,
+    })
+
+  const treasuryBsPointEnabled =
+    !!companyId && hasFixedTreasuryRows && !isMultiPeriod
+  const { rows: bsBeginningRows, loading: bsBeginningLoading } = useFinancialStatement(
+    companyId || null,
+    "balance-sheet",
+    {
+      fiscal_year: treasuryBeginningRef.year,
+      month: treasuryBeginningRef.month,
+      ...bsTreasuryFetchParams,
+    },
+    treasuryBsPointEnabled,
+  )
+  const { rows: bsBeginningPriorRows, loading: bsBeginningPriorLoading } = useFinancialStatement(
+    companyId || null,
+    "balance-sheet",
+    {
+      fiscal_year: treasuryBeginningPriorRef.year,
+      month: treasuryBeginningPriorRef.month,
+      ...bsTreasuryFetchParams,
+    },
+    treasuryBsPointEnabled,
+  )
+  const { rows: bsEndingBookRows, loading: bsEndingBookLoading } = useFinancialStatement(
+    companyId || null,
+    "balance-sheet",
+    {
+      fiscal_year: effectiveRefYear,
+      month: effectiveRefMonth,
+      ...bsTreasuryFetchParams,
+    },
+    treasuryBsPointEnabled,
+  )
+  const { rows: bsEndingBookPriorRows, loading: bsEndingBookPriorLoading } = useFinancialStatement(
+    companyId || null,
+    "balance-sheet",
+    {
+      fiscal_year: treasuryEndingBookPriorRef.year,
+      month: treasuryEndingBookPriorRef.month,
+      ...bsTreasuryFetchParams,
+    },
+    treasuryBsPointEnabled,
+  )
+  const bsSeriesMonths = monthsNeeded + 1
+  const { rows: bsSeriesRows, loading: bsSeriesLoading } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "balance-sheet",
+    fiscalYear: currentYear,
+    month: effectiveRefMonth,
+    months: bsSeriesMonths,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: isMultiPeriod && hasFixedTreasuryRows && !!companyId,
+    structureVersion: effectiveStructureVersion,
+  })
+
+  const treasuryContext = useMemo((): CashFlowTreasuryContext | undefined => {
+    if (!hasFixedTreasuryRows) return undefined
+    if (isMultiPeriod) {
+      if (!bsSeriesRows.length || !periods.length) return undefined
+      const netByPeriod = buildNetCashByPeriodKey(bsSeriesRows)
+      const beginningTrend = buildBeginningCashTrendForView(netByPeriod, periods, view)
+      const endingBookTrend = buildEndingBookTrendForView(netByPeriod, periods, view)
+      return { beginningTrend, endingBookTrend }
+    }
+    if (
+      treasuryBsPointEnabled &&
+      (bsBeginningLoading ||
+        bsBeginningPriorLoading ||
+        bsEndingBookLoading ||
+        bsEndingBookPriorLoading)
+    ) {
+      return undefined
+    }
+    const current = netCashFromBalanceSheetPointRows(bsBeginningRows, "current")
+    const prior = bsBeginningPriorRows.length
+      ? netCashFromBalanceSheetPointRows(bsBeginningPriorRows, "current")
+      : netCashFromBalanceSheetPointRows(bsBeginningRows, "prior")
+    const endingBookCurrent = netCashFromBalanceSheetPointRows(bsEndingBookRows, "current")
+    const endingBookPrior = bsEndingBookPriorRows.length
+      ? netCashFromBalanceSheetPointRows(bsEndingBookPriorRows, "current")
+      : netCashFromBalanceSheetPointRows(bsEndingBookRows, "prior")
+    return {
+      beginning: { current, prior },
+      endingBook: { current: endingBookCurrent, prior: endingBookPrior },
+    }
+  }, [
+    hasFixedTreasuryRows,
+    isMultiPeriod,
+    bsBeginningRows,
+    bsBeginningPriorRows,
+    bsBeginningLoading,
+    bsBeginningPriorLoading,
+    bsEndingBookRows,
+    bsEndingBookPriorRows,
+    bsEndingBookLoading,
+    bsEndingBookPriorLoading,
+    bsSeriesRows,
+    periods,
+    treasuryBsPointEnabled,
+    view,
+  ])
+
+  const treasuryLoading =
+    hasFixedTreasuryRows &&
+    (isMultiPeriod
+      ? bsSeriesLoading
+      : bsBeginningLoading ||
+        bsBeginningPriorLoading ||
+        bsEndingBookLoading ||
+        bsEndingBookPriorLoading)
+
+  const amountsLoading = companyId
+    ? detailComputedLoading ||
+      (needsTinCostData && detailCostComputedLoading) ||
+      treasuryLoading
+    : loading
+
   const structureRowToDetailRow = (
     sr: Record<string, unknown>,
     row: FinancialStatementRow | undefined,
     trendValues?: number[],
-    seriesDetailRows?: SeriesDetailRow[]
+    seriesDetailRows?: SeriesDetailRow[],
+    calcContext?: CashFlowCalcContext,
+    amountByCalendarMonth?: Map<string, number>,
+    calcModeByCode?: Map<string, CashFlowCalcMode>,
+    resolveOperand?: (code: string) => CashFlowOperandSnapshot | undefined,
+    skipFormulaAggregation = false,
   ): DetailRow => {
     if (isStructureRowEmptyLabel(sr)) {
       return {
@@ -232,7 +540,7 @@ export function CashFlowDetail({
         isBold: false,
         isSubtotal: false,
         isSection: false,
-        separatorAbove: isTruthySeparatorAbove(sr.separatorAbove),
+        separatorAbove: isTruthySeparatorAbove(sr.separatorAbove ?? row?.separatorAbove),
         rowId: String(sr.id ?? ""),
         hasLiaisonCode: false,
       }
@@ -241,7 +549,9 @@ export function CashFlowDetail({
     const isBold = typeof sr.isBold === "boolean" ? sr.isBold : !!row?.isBold
     const isSection = typeof sr.isSection === "boolean" ? sr.isSection : !!row?.isSection
     const isResult = typeof sr.isResult === "boolean" ? sr.isResult : !!row?.isResult
-    const hasLiaisonCode = row?.hasLiaisonCode ?? isCodeMappingEnabled(sr)
+    const hasLiaisonCode =
+      row?.hasLiaisonCode ??
+      (isCashFlowFixedTreasuryStructureRow(sr) || isCodeMappingEnabled(sr))
 
     let balanceAccounts: GlAccount[] | undefined
     // Formules Paramètres (formula / addition / soustraction) : pas d’expansion GL.
@@ -253,7 +563,7 @@ export function CashFlowDetail({
       }
     }
 
-    return {
+    const baseRow: DetailRow = {
       label,
       current: row?.current ?? (trendValues ? trendValues[0] || 0 : 0),
       prior: row?.prior ?? (trendValues && trendValues.length >= 2 ? trendValues[1] || 0 : 0),
@@ -266,13 +576,46 @@ export function CashFlowDetail({
       isBold,
       isSubtotal: isResult,
       isSection,
-      separatorAbove: isTruthySeparatorAbove(sr.separatorAbove),
+      separatorAbove: isTruthySeparatorAbove(sr.separatorAbove ?? row?.separatorAbove),
       annexLetter: row?.annexLetter,
       rowId: row?.id ?? String(sr.id ?? sr.linkCode ?? ""),
       hasLiaisonCode,
       trendValues: isSection ? undefined : trendValues,
       balanceAccounts,
     }
+
+    if (
+      !skipFormulaAggregation &&
+      isCashFlowFormulaAggregationRow(sr) &&
+      resolveOperand
+    ) {
+      const formulaPoint = resolveCashFlowFormulaPointAmountFromProcessed(sr, resolveOperand)
+      baseRow.current = formulaPoint.current
+      baseRow.prior = formulaPoint.prior
+      if (calcContext) {
+        baseRow.trendValues = resolveCashFlowFormulaTrendValuesFromProcessed(
+          sr,
+          resolveOperand,
+          calcContext,
+        )
+      }
+      return baseRow
+    }
+
+    if (isCashFlowFormulaAggregationRow(sr)) {
+      return baseRow
+    }
+
+    if (isCashFlowFixedTreasuryStructureRow(sr)) {
+      return baseRow
+    }
+
+    return applyCashFlowCalcModeToDetailRow(
+      baseRow,
+      readRowCashFlowCalcMode(sr),
+      calcContext,
+      amountByCalendarMonth,
+    )
   }
 
   const pointInTimeDetailRowsToGlAccounts = (
@@ -316,24 +659,202 @@ export function CashFlowDetail({
         amount: values[0] || 0,
         priorAmount: values.length >= 2 ? values[1] || 0 : 0,
         trendValues: values,
+        amountByCalendarMonth: buildAmountsByCalendarMonth(pseudoRow, periods),
       }
     })
+
+  const resolveCashFlowCalcContext = (): CashFlowCalcContext | undefined => {
+    if (!isMultiPeriod) return undefined
+    if (view !== "12months" && view !== "quarters" && view !== "years") return undefined
+
+    let trendLabels: string[] = []
+    if (view === "12months") {
+      if (periods.length > 0) {
+        trendLabels = reverseSeriesOrderForDisplay(getPeriodLabels(periods))
+      }
+    } else if (view === "quarters") {
+      if (periods.length > 0 && seriesRows.length > 0) {
+        const rawAmounts = getRowAmounts(seriesRows[0]!, periods)
+        trendLabels = reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods).labels)
+      }
+    } else if (isForecastSection) {
+      const baseYear = forecastBaseYear ?? effectiveRefYear ?? new Date().getFullYear()
+      trendLabels = [`${baseYear - 1}`]
+      for (let i = 0; i < projectionYears; i++) {
+        trendLabels.push(`${baseYear + i}`)
+      }
+    } else if (periods.length > 0 && seriesRows.length > 0) {
+      const rawAmounts = getRowAmounts(seriesRows[0]!, periods)
+      trendLabels = reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods).labels)
+    }
+
+    if (!trendLabels.length) return undefined
+    return { trendView: view, trendLabels }
+  }
 
   const mapRowsFromDetailStructure = (
     apiRows: FinancialStatementRow[],
     trendByRowId?: Map<string, number[]>,
-    seriesByRowId?: Map<string, SeriesRow>
+    seriesByRowId?: Map<string, SeriesRow>,
+    calcContext?: CashFlowCalcContext,
+    costApiRows?: FinancialStatementRow[],
+    costTrendByRowId?: Map<string, number[]>,
+    costSeriesByRowId?: Map<string, SeriesRow>,
   ): DetailRow[] => {
     if (!statementStructure?.length) return []
     const displayRows = listStructureRowsForPresentationDisplay(statementStructure)
+    const calcModeByCode = buildCashFlowCalcModeByCode(statementStructure)
+    const tinDisplayModeByCode = buildCashFlowTinDisplayModeByCode(statementStructure)
+
+    const pickTinApiRow = (
+      sr: Record<string, unknown>,
+      rows: FinancialStatementRow[],
+      usedIndices: Set<number>,
+      usedNestedIds: Set<string>,
+    ): FinancialStatementRow | undefined => {
+      const code = String(sr.linkCode ?? "").trim()
+      const tinMode: CashFlowTinDisplayMode = tinDisplayModeByCode.get(code) ?? "actual"
+      if (tinMode === "cost" && costApiRows?.length) {
+        return findStatementApiRowForStructureRow(sr, costApiRows, usedIndices, usedNestedIds)
+      }
+      return findStatementApiRowForStructureRow(sr, rows, usedIndices, usedNestedIds)
+    }
+
+    const pickTinTrendValues = (
+      row: FinancialStatementRow | undefined,
+      tinMode: CashFlowTinDisplayMode,
+    ): number[] | undefined => {
+      if (!row?.id) return undefined
+      if (tinMode === "cost" && costTrendByRowId) return costTrendByRowId.get(row.id)
+      return trendByRowId?.get(row.id)
+    }
+
+    const pickTinSeriesRow = (
+      row: FinancialStatementRow | undefined,
+      tinMode: CashFlowTinDisplayMode,
+    ): SeriesRow | undefined => {
+      if (!row?.id) return undefined
+      if (tinMode === "cost" && costSeriesByRowId) return costSeriesByRowId.get(row.id)
+      return seriesByRowId?.get(row.id)
+    }
+
+    const buildLeafDetailRow = (
+      sr: Record<string, unknown>,
+      usedIndices: Set<number>,
+      usedNestedIds: Set<string>,
+    ): DetailRow => {
+      const code = String(sr.linkCode ?? "").trim()
+      const tinMode: CashFlowTinDisplayMode =
+        tinDisplayModeByCode.get(code) ?? readRowCashFlowTinDisplayMode(sr)
+      const row = pickTinApiRow(sr, apiRows, usedIndices, usedNestedIds)
+      const trendValues = pickTinTrendValues(row, tinMode)
+      const seriesRow = pickTinSeriesRow(row, tinMode)
+      return structureRowToDetailRow(
+        sr,
+        row,
+        trendValues,
+        seriesRow?.detailRows,
+        calcContext,
+        seriesRow && periods.length ? buildAmountsByCalendarMonth(seriesRow, periods) : undefined,
+        calcModeByCode,
+        undefined,
+        true,
+      )
+    }
+
     const usedIndices = new Set<number>()
     const usedNestedIds = new Set<string>()
-    return displayRows.map((sr) => {
-      const row = findStatementApiRowForStructureRow(sr, apiRows, usedIndices, usedNestedIds)
-      const trendValues = row?.id && trendByRowId ? trendByRowId.get(row.id) : undefined
-      const seriesRow = row?.id && seriesByRowId ? seriesByRowId.get(row.id) : undefined
-      return structureRowToDetailRow(sr, row, trendValues, seriesRow?.detailRows)
-    })
+    const leafRows: DetailRow[] = []
+
+    for (const sr of displayRows) {
+      if (isCashFlowFixedTreasuryStructureRow(sr)) {
+        leafRows.push({
+          label: detailLineLabelForDisplay(sr, ""),
+          current: 0,
+          prior: 0,
+          isBold: typeof sr.isBold === "boolean" ? sr.isBold : false,
+          isSubtotal: sr.isResult === true,
+          isSection: sr.isSection === true,
+          separatorAbove: isTruthySeparatorAbove(sr.separatorAbove),
+          rowId: String(sr.id ?? sr.linkCode ?? ""),
+          hasLiaisonCode: true,
+        })
+        continue
+      }
+      if (isCashFlowFormulaAggregationRow(sr)) {
+        leafRows.push({
+          label: detailLineLabelForDisplay(sr, ""),
+          current: 0,
+          prior: 0,
+          isBold: typeof sr.isBold === "boolean" ? sr.isBold : false,
+          isSubtotal: sr.isResult === true,
+          isSection: sr.isSection === true,
+          separatorAbove: isTruthySeparatorAbove(sr.separatorAbove),
+          rowId: String(sr.id ?? sr.linkCode ?? ""),
+          hasLiaisonCode: isCodeMappingEnabled(sr),
+        })
+        continue
+      }
+      const detailRow = buildLeafDetailRow(sr, usedIndices, usedNestedIds)
+      leafRows.push(detailRow)
+    }
+
+    const reconciledRows = reconcileCashFlowSectionTotalsFromStructure(leafRows, displayRows)
+
+    const processedByCode = new Map<string, DetailRow>()
+    for (let i = 0; i < displayRows.length; i++) {
+      const sr = displayRows[i]!
+      const code = String(sr.linkCode ?? "").trim()
+      if (code && normalizeLiaisonMode(sr) === "single" && isCodeMappingEnabled(sr)) {
+        processedByCode.set(code, reconciledRows[i]!)
+      }
+    }
+
+    const buildOperandForLinkCode = (code: string): CashFlowOperandSnapshot | undefined => {
+      const fromStructure = processedByCode.get(code)
+      if (fromStructure) return detailRowToOperandSnapshot(fromStructure)
+
+      const structureMatch = displayRows.find(
+        (sr) =>
+          normalizeLiaisonMode(sr) === "single" &&
+          isCodeMappingEnabled(sr) &&
+          String(sr.linkCode ?? "").trim() === code,
+      )
+      const operandRow = buildLeafDetailRow(
+        structureMatch ?? {
+          linkCode: code,
+          liaisonMode: "single",
+          defineMapping: true,
+          label: code,
+        },
+        new Set<number>(),
+        new Set<string>(),
+      )
+      return detailRowToOperandSnapshot(operandRow)
+    }
+
+    const resolveProcessedOperand = (code: string): CashFlowOperandSnapshot | undefined =>
+      buildOperandForLinkCode(code)
+
+    return applyCashFlowFixedTreasuryRows(
+      displayRows.map((sr, index) => {
+        if (!isCashFlowFormulaAggregationRow(sr)) return reconciledRows[index]!
+        const shell = reconciledRows[index]!
+        const formulaPoint = resolveCashFlowFormulaPointAmountFromProcessed(sr, resolveProcessedOperand)
+        const trendValues = calcContext
+          ? resolveCashFlowFormulaTrendValuesFromProcessed(sr, resolveProcessedOperand, calcContext)
+          : shell.trendValues
+        return {
+          ...shell,
+          separatorAbove: isTruthySeparatorAbove(sr.separatorAbove),
+          current: formulaPoint.current,
+          prior: formulaPoint.prior,
+          trendValues,
+        }
+      }),
+      displayRows,
+      treasuryContext,
+    )
   }
 
   const buildSeriesTrendValues = (row: SeriesRow, rawAmounts: ReturnType<typeof getRowAmounts>): number[] => {
@@ -373,25 +894,39 @@ export function CashFlowDetail({
     }))
   }
 
+  const buildSeriesMaps = (rows: SeriesRow[]) => {
+    const trendByRowId = new Map<string, number[]>()
+    const seriesByRowId = new Map<string, SeriesRow>()
+    for (const row of rows) {
+      const rawAmounts = getRowAmounts(row, periods)
+      if (row.id) {
+        trendByRowId.set(row.id, buildSeriesTrendValues(row, rawAmounts))
+        seriesByRowId.set(row.id, row)
+      }
+    }
+    return { trendByRowId, seriesByRowId }
+  }
+
   // Build multi-period rows from series API data
   const getMultiPeriodData = (): DetailRow[] => {
+    const calcContext = resolveCashFlowCalcContext()
     if (statementStructure?.length) {
       if (!seriesRows.length || !periods.length) {
-        return mapRowsFromDetailStructure([])
+        return mapRowsFromDetailStructure([], undefined, undefined, calcContext)
       }
-      const trendByRowId = new Map<string, number[]>()
-      const seriesByRowId = new Map<string, SeriesRow>()
-      for (const row of seriesRows) {
-        const rawAmounts = getRowAmounts(row, periods)
-        if (row.id) {
-          trendByRowId.set(row.id, buildSeriesTrendValues(row, rawAmounts))
-          seriesByRowId.set(row.id, row)
-        }
-      }
+      const { trendByRowId, seriesByRowId } = buildSeriesMaps(seriesRows)
+      const costMaps =
+        needsTinCostData && costSeriesRows.length
+          ? buildSeriesMaps(costSeriesRows)
+          : undefined
       return mapRowsFromDetailStructure(
         seriesRows as unknown as FinancialStatementRow[],
         trendByRowId,
-        seriesByRowId
+        seriesByRowId,
+        calcContext,
+        needsTinCostData ? (costSeriesRows as unknown as FinancialStatementRow[]) : undefined,
+        costMaps?.trendByRowId,
+        costMaps?.seriesByRowId,
       )
     }
 
@@ -425,7 +960,13 @@ export function CashFlowDetail({
       return getMultiPeriodData()
     }
     if (statementStructure?.length) {
-      return mapRowsFromDetailStructure(amountRows)
+      return mapRowsFromDetailStructure(
+        amountRows,
+        undefined,
+        undefined,
+        resolveCashFlowCalcContext(),
+        costAmountRows,
+      )
     }
     if (amountRows.length > 0) {
       return mapBackendRows(amountRows)
@@ -439,8 +980,9 @@ export function CashFlowDetail({
     return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
   }
 
-  const data = getDetailData()
-  
+  const rawDetailData = getDetailData()
+  const horizonView = view as IncomeStatementHorizonView
+
   // Determine what we're comparing
   const isCompanyComparison = columnMode === "comparison" && !companyId
   const isDivisionComparison = columnMode === "comparison" && companyId && !divisionId
@@ -584,22 +1126,6 @@ export function CashFlowDetail({
     return "Passé"
   }
 
-  // Find total cash flow value for percentage calculations
-  const totalCashFlowRow = data.find(
-    (row) =>
-      (row.label.toLowerCase().includes("flux net") || row.label.toLowerCase().includes("variation nette")) &&
-      row.isSubtotal
-  )
-  const totalCashFlowCurrent = totalCashFlowRow?.current || 1
-  const totalCashFlowPrior = totalCashFlowRow?.prior || 1
-
-  // Helper function to calculate percentage of total cash flow
-  const getTotalCashFlowPercentage = (value: number, isPrior: boolean): number => {
-    const totalCashFlow = isPrior ? totalCashFlowPrior : totalCashFlowCurrent
-    if (totalCashFlow === 0) return 0
-    return (value / Math.abs(totalCashFlow)) * 100
-  }
-
   // Helper function to generate month labels from series data or fallback
   const getMonthLabels = (): string[] => {
     if (periods.length > 0) return reverseSeriesOrderForDisplay(getPeriodLabels(periods))
@@ -658,6 +1184,86 @@ export function CashFlowDetail({
   const canInlineStructureEdit = effectiveShowStructureSettings && !!companyId && !isComparisonMode
   const isStructureStudio = structureEditMode && canInlineStructureEdit && !!companyId
 
+  const { data, visiblePresentationStructureRows } = useMemo(() => {
+    if (isStructureStudio || isForecastSection || !statementStructure?.length) {
+      return {
+        data: rawDetailData,
+        visiblePresentationStructureRows: presentationStructureRows,
+      }
+    }
+    const filtered = filterCashFlowDetailRowsWithStructureForHorizon(
+      rawDetailData,
+      presentationStructureRows,
+      horizonView,
+    )
+    return {
+      data: filtered.rows,
+      visiblePresentationStructureRows: filtered.presentationStructure,
+    }
+  }, [
+    rawDetailData,
+    presentationStructureRows,
+    statementStructure,
+    horizonView,
+    isStructureStudio,
+    isForecastSection,
+  ])
+
+  // Find total cash flow value for percentage calculations
+  const totalCashFlowRow = data.find(
+    (row) =>
+      (row.label.toLowerCase().includes("flux net") || row.label.toLowerCase().includes("variation nette")) &&
+      row.isSubtotal,
+  )
+  const totalCashFlowCurrent = totalCashFlowRow?.current || 1
+  const totalCashFlowPrior = totalCashFlowRow?.prior || 1
+
+  const getTotalCashFlowPercentage = (value: number, isPrior: boolean): number => {
+    const totalCashFlow = isPrior ? totalCashFlowPrior : totalCashFlowCurrent
+    if (totalCashFlow === 0) return 0
+    return (value / Math.abs(totalCashFlow)) * 100
+  }
+
+  const endingCashRowIndex = useMemo(
+    () => visiblePresentationStructureRows.findIndex(isCashFlowEndingCashStructureRow),
+    [visiblePresentationStructureRows],
+  )
+
+  const treasuryValidation = useMemo(() => {
+    if (!hasFixedTreasuryRows || endingCashRowIndex < 0) return null
+    const endingRow = data[endingCashRowIndex]
+    if (!endingRow) return null
+
+    if (isMultiPeriod) {
+      const trendEcarts = cashFlowTreasuryValidationTrendEcarts(
+        endingRow.trendValues,
+        treasuryContext?.endingBookTrend,
+      )
+      if (!trendEcarts.length) return null
+      return { current: null as number | null, prior: null as number | null, trendEcarts }
+    }
+
+    const book = treasuryContext?.endingBook
+    if (!book) return null
+    return {
+      current: cashFlowTreasuryValidationEcart(endingRow.current, book.current),
+      prior: cashFlowTreasuryValidationEcart(endingRow.prior, book.prior),
+      trendEcarts: [] as number[],
+    }
+  }, [
+    hasFixedTreasuryRows,
+    endingCashRowIndex,
+    data,
+    isMultiPeriod,
+    treasuryContext,
+  ])
+
+  const showTreasuryValidation = hasFixedTreasuryRows && treasuryValidation != null
+  const showTreasuryMismatch =
+    showTreasuryValidation &&
+    treasuryValidation.current != null &&
+    !isCashFlowTreasuryBalanced(treasuryValidation.current)
+
   const renderCardHeader = () => (
     <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -679,7 +1285,7 @@ export function CashFlowDetail({
             </div>
             {isStructureStudio ? (
               <p className={cn("text-sm leading-relaxed", dashboardCardBodyMutedClass)}>
-                Ajustez les libellés. <span className="font-medium text-[#2A2F3A]">Masquer</span> retire la ligne du détail. <span className="font-medium text-[#2A2F3A]">Code</span> active la colonne liaison ; <span className="font-medium text-[#2A2F3A]">Liaison</span> définit le code ou la formule. Enregistrez pour appliquer partout.
+                Ajustez les libellés. <span className="font-medium text-[#2A2F3A]">Masquer</span> retire la ligne du détail. <span className="font-medium text-[#2A2F3A]">Code</span> active la colonne liaison ; <span className="font-medium text-[#2A2F3A]">Liaison</span> définit le code ou la formule ; <span className="font-medium text-[#2A2F3A]">Calcul</span> choisit Réel ou une variation N − N−1. Enregistrez pour appliquer partout.
               </p>
             ) : (
               <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
@@ -747,7 +1353,15 @@ export function CashFlowDetail({
   else if (view === "quarters") detailTableColumnCount = 1 + getQuarterLabels().length
   else if (view === "years") detailTableColumnCount = 1 + getYearLabels().length
 
-  if (amountsLoading || structureLoading || (isMultiPeriod && seriesLoading) || entityDataLoading) {
+  if (
+    amountsLoading ||
+    structureLoading ||
+    (isMultiPeriod &&
+      (seriesLoading ||
+        (needsTinCostData && costSeriesLoading) ||
+        treasuryLoading)) ||
+    entityDataLoading
+  ) {
     return (
       <div className={cn("w-full", dashboardCardFrameStaticClass)}>
         <div className={dashboardCardRingClass} aria-hidden />
@@ -782,10 +1396,129 @@ export function CashFlowDetail({
     )
   }
 
+  const renderValidationEcartCell = (ecart: number | null | undefined, key?: string | number) => {
+    if (ecart === null || ecart === undefined) {
+      return (
+        <td key={key} className="px-6 py-2.5 text-right text-sm text-slate-400">
+          —
+        </td>
+      )
+    }
+    const balanced = isCashFlowTreasuryBalanced(ecart)
+    return (
+      <td
+        key={key}
+        className={cn(
+          "px-6 py-2.5 text-right text-sm font-semibold tabular-nums",
+          balanced ? "text-emerald-700" : "text-amber-700",
+        )}
+        title={
+          balanced
+            ? "Flux de trésorerie équilibré"
+            : `Écart trésorerie fin − bilan (ACT-A − PCT-A) : ${formatCurrency(ecart)}`
+        }
+      >
+        {formatCurrency(ecart)}
+      </td>
+    )
+  }
+
+  const renderTreasuryValidationRow = () => {
+    const trendEcarts = treasuryValidation?.trendEcarts ?? []
+    const trendColumnCount =
+      view === "12months"
+        ? 12
+        : view === "quarters"
+          ? 5
+          : isForecastSection
+            ? forecastYearColumnCount
+            : 6
+
+    return (
+      <tr
+        data-testid="cash-flow-treasury-validation-row"
+        className="[&_td]:border-slate-300 [&>td]:bg-slate-50 [&>td:first-child]:bg-slate-50"
+      >
+        <td
+          className="whitespace-nowrap px-6 py-2.5 text-sm font-semibold text-slate-800"
+          title="Trésorerie à la fin − (ACT-A − PCT-A) du mois"
+        >
+          Validation
+        </td>
+        {view === "current" && renderValidationEcartCell(treasuryValidation?.current ?? null)}
+        {view === "comparison" && !isComparisonMode && (
+          <>
+            {renderValidationEcartCell(treasuryValidation?.current ?? null)}
+            {renderValidationEcartCell(treasuryValidation?.prior ?? null)}
+            {columnMode === "variations" ? (
+              <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+            ) : null}
+            {columnMode === "variations" ? (
+              <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+            ) : null}
+            {columnMode === "percentage" ? (
+              <>
+                <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+                <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+              </>
+            ) : null}
+          </>
+        )}
+        {view === "comparison" && isComparisonMode && (
+          <>
+            {entitiesToCompare.map((entity) => (
+              <td key={entity.id} className="px-6 py-2.5 text-right text-sm text-slate-400">
+                —
+              </td>
+            ))}
+          </>
+        )}
+        {(view === "ddm" || view === "ytd") && (
+          <>
+            {renderValidationEcartCell(treasuryValidation?.current ?? null)}
+            {renderValidationEcartCell(treasuryValidation?.prior ?? null)}
+            {columnMode === "variations" ? (
+              <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+            ) : null}
+            {columnMode === "variations" ? (
+              <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+            ) : null}
+            {columnMode === "percentage" ? (
+              <>
+                <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+                <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+              </>
+            ) : null}
+          </>
+        )}
+        {(view === "12months" || view === "quarters" || view === "years") && (
+          <>
+            {(trendEcarts.length > 0 ? trendEcarts : Array.from({ length: trendColumnCount }).map(() => null)).map(
+              (ecart, colIdx) => renderValidationEcartCell(ecart, colIdx),
+            )}
+          </>
+        )}
+      </tr>
+    )
+  }
+
   return (
     <div className={cn("w-full", dashboardCardFrameStaticClass)}>
       <div className={dashboardCardRingClass} aria-hidden />
       <div className="relative w-full min-w-0">
+        {showTreasuryMismatch && treasuryValidation?.current != null && (
+          <div
+            role="alert"
+            className="flex items-start gap-2.5 border-b border-amber-200 bg-amber-50 px-6 py-3 text-sm text-amber-900 sm:px-7"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+            <p className="leading-snug">
+              <span className="font-semibold">Le flux de trésorerie ne concorde pas avec le bilan.</span>{" "}
+              La ligne Validation affiche un écart de {formatCurrency(Math.abs(treasuryValidation.current))}{" "}
+              (Trésorerie à la fin − (ACT-A − PCT-A) du mois).
+            </p>
+          </div>
+        )}
         {renderCardHeader()}
 
         {isStructureStudio ? (
@@ -799,10 +1532,17 @@ export function CashFlowDetail({
           />
         ) : (
           <>
-            <div className="min-w-0 overflow-x-auto bg-white">
-              <table className="w-full min-w-full border-collapse">
-          <thead>
-            <tr className="border-b-2 border-slate-200 bg-gradient-to-b from-slate-50 to-slate-100/80">
+            {/* Table — en-tête et colonne Poste figés au défilement */}
+            <div className="min-w-0 max-h-[min(72vh,56rem)] overflow-auto overscroll-contain bg-white">
+              <table className="w-full min-w-full border-separate border-spacing-0">
+          <thead
+            className={cn(
+              "[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-slate-100",
+              "[&_th]:border-b-2 [&_th]:border-slate-200",
+              "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
+            )}
+          >
+            <tr>
               <th className="px-6 py-4 text-left text-sm font-semibold text-slate-900 w-2/5 whitespace-nowrap">Poste</th>
               {view === "current" && (
                 <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Montant</th>
@@ -902,15 +1642,37 @@ export function CashFlowDetail({
               )}
             </tr>
           </thead>
-          <tbody>
+          <tbody
+            className={cn(
+              "[&_td]:border-b [&_td]:border-slate-200",
+              "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+              "[&_td:first-child]:bg-white",
+            )}
+          >
+            {showTreasuryValidation && renderTreasuryValidationRow()}
+            {showTreasuryValidation && (
+              <tr aria-hidden>
+                <td
+                  colSpan={detailTableColumnCount}
+                  className="border-0 p-0 align-top leading-none border-t border-t-slate-600"
+                />
+              </tr>
+            )}
             {data.map((row, idx) => {
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const displayLabel = row.label
               const isSpacer = row.label === ""
+              const isFixedTreasuryRow =
+                visiblePresentationStructureRows[idx] != null &&
+                isCashFlowFixedTreasuryStructureRow(visiblePresentationStructureRows[idx]!)
               const shouldHideAmounts =
-                isSpacer || !!row.isSection || row.hasLiaisonCode === false
-              const showSeparatorAbove = isTruthySeparatorAbove(row.separatorAbove)
+                isSpacer ||
+                !!row.isSection ||
+                (row.hasLiaisonCode === false && !isFixedTreasuryRow)
+              const showSeparatorAbove = isTruthySeparatorAbove(
+                visiblePresentationStructureRows[idx]?.separatorAbove ?? row.separatorAbove,
+              )
               const isBoldRow = !!row.isBold
               const matchedStructureRow =
                 statementStructure && row.rowId
@@ -1077,10 +1839,9 @@ export function CashFlowDetail({
                   )}
                   <tr
                     className={cn(
-                      "border-b",
-                      isSpacer ? "h-2 border-b border-b-slate-200" : "border-b border-b-slate-200",
-                      !isSpacer && "hover:bg-slate-50/90",
-                      canExpand && "cursor-pointer"
+                      isSpacer ? "h-2" : "",
+                      !isSpacer && "hover:[&>td]:bg-slate-50/90 hover:[&>td:first-child]:bg-slate-50/90",
+                      canExpand && "cursor-pointer",
                     )}
                     onClick={() => canExpand && toggleRow(row.rowId!)}
                     data-testid={canExpand ? "cash-flow-detail-expandable-row" : undefined}

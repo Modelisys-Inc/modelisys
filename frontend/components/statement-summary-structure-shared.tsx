@@ -26,6 +26,18 @@ import {
   type CapexCostDisplayMode,
 } from "@/lib/capex-analysis-settings"
 import {
+  readRowCashFlowCalcMode,
+  readRowCashFlowTinDisplayMode,
+  structureRowShowsCashFlowCalcSelector,
+  structureRowShowsCashFlowTinDisplaySelector,
+  type CashFlowCalcMode,
+  type CashFlowTinDisplayMode,
+} from "@/lib/cash-flow-detail-settings"
+import {
+  isCashFlowEndingCashStructureRow,
+  isCashFlowFixedTreasuryStructureRow,
+} from "@/lib/cash-flow-treasury-rows"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -59,10 +71,14 @@ export function StatementSummaryStructureColgroup({
   hideAnnexColumns = false,
   showDisplayFormatColumn = false,
   showCapexCostDisplayColumn = false,
+  showCashFlowCalcColumn = false,
+  showCashFlowTinDisplayColumn = false,
 }: {
   hideAnnexColumns?: boolean
   showDisplayFormatColumn?: boolean
   showCapexCostDisplayColumn?: boolean
+  showCashFlowCalcColumn?: boolean
+  showCashFlowTinDisplayColumn?: boolean
 }) {
   return (
     <colgroup>
@@ -73,6 +89,8 @@ export function StatementSummaryStructureColgroup({
       <col style={{ width: "7rem" }} />
       {showDisplayFormatColumn ? <col style={{ width: "7.5rem" }} /> : null}
       {showCapexCostDisplayColumn ? <col style={{ width: "9rem" }} /> : null}
+      {showCashFlowCalcColumn ? <col style={{ width: "9rem" }} /> : null}
+      {showCashFlowTinDisplayColumn ? <col style={{ width: "9rem" }} /> : null}
       {!hideAnnexColumns ? (
         <>
           <col style={{ width: "7rem" }} />
@@ -89,11 +107,15 @@ export function StatementSummaryStructureThead({
   hideAnnexColumns = false,
   showDisplayFormatColumn = false,
   showCapexCostDisplayColumn = false,
+  showCashFlowCalcColumn = false,
+  showCashFlowTinDisplayColumn = false,
 }: {
   posteHeader?: string
   hideAnnexColumns?: boolean
   showDisplayFormatColumn?: boolean
   showCapexCostDisplayColumn?: boolean
+  showCashFlowCalcColumn?: boolean
+  showCashFlowTinDisplayColumn?: boolean
 }) {
   return (
     <>
@@ -206,6 +228,42 @@ export function StatementSummaryStructureThead({
           </Tooltip>
         </th>
       ) : null}
+      {showCashFlowCalcColumn ? (
+        <th className="box-border w-[9rem] px-2 py-4 text-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                  <TrendingUp className="h-4 w-4 text-slate-600" />
+                </span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800">Calcul</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[280px] text-balance">
+              Code unique seulement : Réel ou variation N − N−1. Les sommes et différences agrègent
+              chaque code selon son propre mode.
+            </TooltipContent>
+          </Tooltip>
+        </th>
+      ) : null}
+      {showCashFlowTinDisplayColumn ? (
+        <th className="box-border w-[9rem] px-2 py-4 text-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                  <TrendingUp className="h-4 w-4 text-slate-600" />
+                </span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800">Réel / Coût</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[280px] text-balance">
+              Codes TIN uniquement : solde réel ou seulement les comptes marqués Coût au mapping
+              (immobilisations ALT-B / C / D).
+            </TooltipContent>
+          </Tooltip>
+        </th>
+      ) : null}
       {!hideAnnexColumns ? (
         <>
           <th className="box-border w-[7rem] px-2 py-4 text-center">
@@ -269,6 +327,10 @@ type StructureRowCellsProps = {
   showDisplayFormatColumn?: boolean
   /** Capex : colonne Réel / Variation par ligne (coûts ALT). */
   showCapexCostDisplayColumn?: boolean
+  /** Trésorerie détail : colonne Calcul (Réel / variations). */
+  showCashFlowCalcColumn?: boolean
+  /** Trésorerie détail : colonne Réel / Coût pour les codes TIN. */
+  showCashFlowTinDisplayColumn?: boolean
 }
 
 export function StatementSummaryStructureRowCells({
@@ -286,7 +348,11 @@ export function StatementSummaryStructureRowCells({
   allowProductQuotient = false,
   showDisplayFormatColumn = false,
   showCapexCostDisplayColumn = false,
+  showCashFlowCalcColumn = false,
+  showCashFlowTinDisplayColumn = false,
 }: StructureRowCellsProps) {
+  const isFixedTreasuryRow = isCashFlowFixedTreasuryStructureRow(structRow)
+
   return (
     <>
       <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
@@ -333,8 +399,9 @@ export function StatementSummaryStructureRowCells({
             )}
           >
             <Checkbox
-              checked={isStructureRowHidden(structRow)}
-              onCheckedChange={(v) => {
+                checked={isStructureRowHidden(structRow)}
+                disabled={isStructureRowHidden(structRow) || isFixedTreasuryRow}
+                onCheckedChange={(v) => {
                 if (v === true) {
                   structEdit.updateRow(globalIdx, {
                     hidden: true,
@@ -379,7 +446,7 @@ export function StatementSummaryStructureRowCells({
             >
               <Checkbox
                 checked={isCodeMappingEnabled(structRow)}
-                disabled={isStructureRowHidden(structRow)}
+                disabled={isStructureRowHidden(structRow) || isFixedTreasuryRow}
                 onCheckedChange={(v) => {
                   if (isStructureRowHidden(structRow)) return
                   if (v === true) {
@@ -397,6 +464,8 @@ export function StatementSummaryStructureRowCells({
                       liaisonSumCodes: undefined,
                       liaisonNumeratorCodes: undefined,
                       liaisonDenominatorCodes: undefined,
+                      cashFlowCalcMode: undefined,
+                      cashFlowTinDisplayMode: undefined,
                     })
                   }
                 }}
@@ -408,7 +477,16 @@ export function StatementSummaryStructureRowCells({
         )}
       </td>
       <td className="box-border min-w-[8.5rem] max-w-[10rem] px-2 py-2.5 align-middle">
-        {isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
+        {isFixedTreasuryRow ? (
+          <span
+            className="block truncate rounded-lg bg-slate-100/80 px-1.5 py-2 text-center text-[11px] font-medium leading-snug text-slate-600"
+            title="Calcul automatique — non modifiable"
+          >
+            {isCashFlowEndingCashStructureRow(structRow)
+              ? "Variation + début"
+              : "ACT-A − PCT-A (N−1)"}
+          </span>
+        ) : isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
           <IncomeStatementLiaisonCell
             structRow={structRow}
             rowIndex={globalIdx}
@@ -425,6 +503,69 @@ export function StatementSummaryStructureRowCells({
           </span>
         )}
       </td>
+      {showCashFlowCalcColumn ? (
+        <td className="box-border w-[9rem] px-2 py-2.5 align-middle">
+          {isStructureRowEmptyLabel(structRow) ||
+          isStructureRowHidden(structRow) ||
+          !structureRowShowsCashFlowCalcSelector(structRow) ? (
+            <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
+              —
+            </span>
+          ) : (
+            <Select
+              value={readRowCashFlowCalcMode(structRow)}
+              onValueChange={(v) =>
+                structEdit.updateRow(globalIdx, {
+                  cashFlowCalcMode: v as CashFlowCalcMode,
+                })
+              }
+            >
+              <SelectTrigger
+                className="h-9 w-full rounded-xl border-slate-200/90 text-xs shadow-sm focus:border-[#E0742D]/50 focus:ring-2 focus:ring-[#E0742D]/20"
+                aria-label="Mode de calcul"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="actual">Réel</SelectItem>
+                <SelectItem value="variation_nn1">Variations N − N−1</SelectItem>
+                <SelectItem value="variation_n1n">N−1 − N</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </td>
+      ) : null}
+      {showCashFlowTinDisplayColumn ? (
+        <td className="box-border w-[9rem] px-2 py-2.5 align-middle">
+          {isStructureRowEmptyLabel(structRow) ||
+          isStructureRowHidden(structRow) ||
+          !structureRowShowsCashFlowTinDisplaySelector(structRow) ? (
+            <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
+              —
+            </span>
+          ) : (
+            <Select
+              value={readRowCashFlowTinDisplayMode(structRow)}
+              onValueChange={(v) =>
+                structEdit.updateRow(globalIdx, {
+                  cashFlowTinDisplayMode: v as CashFlowTinDisplayMode,
+                })
+              }
+            >
+              <SelectTrigger
+                className="h-9 w-full rounded-xl border-slate-200/90 text-xs shadow-sm focus:border-[#E0742D]/50 focus:ring-2 focus:ring-[#E0742D]/20"
+                aria-label="Affichage réel ou coût TIN"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="actual">Réel</SelectItem>
+                <SelectItem value="cost">Coût</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </td>
+      ) : null}
       {showDisplayFormatColumn ? (
         <td className="box-border w-[7.5rem] px-2 py-2.5 align-middle">
           {isStructureRowEmptyLabel(structRow) || isStructureRowHidden(structRow) ? (

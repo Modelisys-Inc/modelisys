@@ -38,4 +38,43 @@ describe("findStatementApiRowForStructureRow", () => {
     )
     expect(match?.current).toBe(250)
   })
+
+  it("n’associe pas PLT-A à ACT-C.5 quand les libellés sont identiques", () => {
+    const apiRows = [
+      {
+        id: "act-c5-uuid",
+        linkCode: "ACT-C.5",
+        label: "Dépôts",
+        current: 5000,
+        detailRows: [{ id: "1280", label: "1280 — Compte dépôt", current: 5000 }],
+      },
+      {
+        id: "plt-a-uuid",
+        linkCode: "PLT-A",
+        label: "Passifs à court terme",
+        current: 0,
+        detailRows: [],
+      },
+    ]
+    const used = new Set<number>()
+    const usedNested = new Set<string>()
+
+    const pltMatch = findStatementApiRowForStructureRow(
+      { id: "plt-a-uuid", linkCode: "PLT-A", label: "Dépôts" },
+      apiRows,
+      used,
+      usedNested,
+    )
+    expect(pltMatch?.linkCode).toBe("PLT-A")
+    expect(pltMatch?.detailRows).toHaveLength(0)
+
+    const actMatch = findStatementApiRowForStructureRow(
+      { id: "act-c5-uuid", linkCode: "ACT-C.5", label: "Dépôts" },
+      apiRows,
+      used,
+      usedNested,
+    )
+    expect(actMatch?.linkCode).toBe("ACT-C.5")
+    expect(actMatch?.detailRows).toHaveLength(1)
+  })
 })

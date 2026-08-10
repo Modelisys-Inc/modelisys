@@ -36,6 +36,7 @@ import {
 
 const SUMMARY_STRUCTURE_COLUMN_COUNT = 8
 const SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX = 6
+const SUMMARY_STRUCTURE_COLUMN_COUNT_CF_DETAIL = 8
 const SUMMARY_STRUCTURE_COLUMN_COUNT_WC = 7
 const SUMMARY_STRUCTURE_COLUMN_COUNT_CAPEX = 8
 
@@ -162,6 +163,7 @@ export function StatementStructureStudio({
   const isIncomeStatement = statementType === "income-statement"
   const isBalanceSheet = statementType === "balance-sheet"
   const isCashFlow = statementType === "cash-flow" || statementType === "cash-flow-detail"
+  const isCashFlowDetail = statementType === "cash-flow-detail"
   const isWorkingCapital = statementType === "working-capital"
   const isCapex = statementType === "capex"
   const isLinkCodeAnalysis = isWorkingCapital || isCapex
@@ -170,7 +172,7 @@ export function StatementStructureStudio({
   const { codes: balanceParentLinkCodes, labels: balanceParentLinkLabels } =
     useBalanceSheetParentLinkCodes(isBalanceSheet)
   const { codes: cashFlowCategoryLinkCodes, labels: cashFlowCategoryLinkLabels } =
-    useCashFlowCategoryLinkCodes(isCashFlow)
+    useCashFlowCategoryLinkCodes(isCashFlow, isCashFlowDetail)
   const { codes: workingCapitalLinkCodes, labels: workingCapitalLinkLabels } =
     useWorkingCapitalLinkCodes(isLinkCodeAnalysis)
   const singleModeLinkCodes = isIncomeStatement
@@ -217,13 +219,17 @@ export function StatementStructureStudio({
   const annexIdentifierAutoAssigned = isBalanceSheet
   const showDisplayFormatColumn = isLinkCodeAnalysis
   const showCapexCostDisplayColumn = isCapex
+  const showCashFlowCalcColumn = isCashFlowDetail
+  const showCashFlowTinDisplayColumn = isCashFlowDetail
   const structureColumnCount = showCapexCostDisplayColumn
     ? SUMMARY_STRUCTURE_COLUMN_COUNT_CAPEX
     : showDisplayFormatColumn
       ? SUMMARY_STRUCTURE_COLUMN_COUNT_WC
-      : hideAnnexColumns
-        ? SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX
-        : SUMMARY_STRUCTURE_COLUMN_COUNT
+      : showCashFlowCalcColumn
+        ? SUMMARY_STRUCTURE_COLUMN_COUNT_CF_DETAIL
+        : hideAnnexColumns
+          ? SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX
+          : SUMMARY_STRUCTURE_COLUMN_COUNT
 
   return (
     <div
@@ -263,6 +269,8 @@ export function StatementStructureStudio({
             hideAnnexColumns={hideAnnexColumns}
             showDisplayFormatColumn={showDisplayFormatColumn}
             showCapexCostDisplayColumn={showCapexCostDisplayColumn}
+            showCashFlowCalcColumn={showCashFlowCalcColumn}
+            showCashFlowTinDisplayColumn={showCashFlowTinDisplayColumn}
           />
           <thead className="bg-slate-50/70">
             <tr>
@@ -271,6 +279,8 @@ export function StatementStructureStudio({
                 hideAnnexColumns={hideAnnexColumns}
                 showDisplayFormatColumn={showDisplayFormatColumn}
                 showCapexCostDisplayColumn={showCapexCostDisplayColumn}
+                showCashFlowCalcColumn={showCashFlowCalcColumn}
+                showCashFlowTinDisplayColumn={showCashFlowTinDisplayColumn}
               />
             </tr>
           </thead>
@@ -357,6 +367,8 @@ export function StatementStructureStudio({
                       allowProductQuotient={isLinkCodeAnalysis}
                       showDisplayFormatColumn={showDisplayFormatColumn}
                       showCapexCostDisplayColumn={showCapexCostDisplayColumn}
+                      showCashFlowCalcColumn={showCashFlowCalcColumn}
+                      showCashFlowTinDisplayColumn={showCashFlowTinDisplayColumn}
                     />
                   </tr>
                 </Fragment>

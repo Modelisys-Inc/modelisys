@@ -23,7 +23,8 @@ const fetchers: Record<StatementType, typeof getIncomeStatement> = {
 export function useFinancialStatement(
   companyId: string | null,
   type: StatementType,
-  params: FinancialStatementParams
+  params: FinancialStatementParams,
+  enabled = true,
 ) {
   const [data, setData] = useState<FinancialStatementResponse | null>(null)
   const [rows, setRows] = useState<FinancialStatementRow[]>([])
@@ -31,7 +32,7 @@ export function useFinancialStatement(
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!companyId) {
+    if (!companyId || !enabled) {
       setRows([])
       setData(null)
       setLoading(false)
@@ -74,6 +75,8 @@ export function useFinancialStatement(
     params.division_id,
     params.sub_division_id,
     params.structure_rev,
+    params.alt_asset_cost_only,
+    enabled,
   ])
 
   return { data, rows, loading, error }

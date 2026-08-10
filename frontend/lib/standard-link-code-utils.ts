@@ -767,6 +767,19 @@ export function isCashFlowFamily(family: string): family is CashFlowFamily {
   return (CASH_FLOW_FAMILIES as readonly string[]).includes(family)
 }
 
+/** Codes Trésorerie — Investissement (famille TIN ou clé agrégée « TIN »). */
+export function isTinFamilyLinkCode(
+  linkCode: string | undefined,
+  codeByCode?: StandardLinkCodeLookup,
+): boolean {
+  const lc = linkCode?.trim()
+  if (!lc) return false
+  const row = codeByCode?.get(lc)
+  if (row) return row.family === "TIN"
+  if (lc === "TIN") return true
+  return /^TIN[.-]/i.test(lc)
+}
+
 /** @deprecated use isCashFlowFamily */
 export function isCashFlowVirtualFamily(family: string): family is CashFlowVirtualFamily {
   return isCashFlowFamily(family)
@@ -811,6 +824,26 @@ export function cashFlowLinkCodeOptions(codes: StandardLinkCode[]): {
     codes: filtered.map((c) => c.code),
     labels: buildStandardLinkCodeLabelMap(filtered),
   }
+}
+
+/** Codes supplémentaires pour la liaison Trésorerie Détail (bilan ACT-A / PCT-A). */
+export const CASH_FLOW_DETAIL_EXTRA_LINK_CODES = ["ACT-A", "PCT-A"] as const
+
+/** TEX / TIN / TFI + ACT-A / PCT-A pour Paramètres Trésorerie Détail. */
+export function cashFlowDetailLinkCodeOptions(codes: StandardLinkCode[]): {
+  codes: string[]
+  labels: Map<string, string>
+} {
+  const cf = cashFlowLinkCodeOptions(codes)
+  const bs = balanceSheetParentLinkCodeOptions(codes)
+  const labels = new Map<string, string>([...cf.labels, ...bs.labels])
+  for (const code of CASH_FLOW_DETAIL_EXTRA_LINK_CODES) {
+    if (!labels.has(code)) labels.set(code, code)
+  }
+  const merged = [...new Set([...cf.codes, ...CASH_FLOW_DETAIL_EXTRA_LINK_CODES])].sort((a, b) =>
+    a.localeCompare(b, "fr", { numeric: true }),
+  )
+  return { codes: merged, labels }
 }
 
 /** @deprecated use cashFlowLinkCodeOptions */

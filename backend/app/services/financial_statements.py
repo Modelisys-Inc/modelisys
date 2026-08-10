@@ -1977,6 +1977,9 @@ def _balance_sheet_gl_detail_rows_for_link_codes(
 
     rows: list[dict] = []
     for acct_num in accounts:
+        mapping = mappings_by_account.get(acct_num) if mappings_by_account else None
+        if not _account_included_for_alt_asset_cost_only(mapping, None):
+            continue
         cur = _gl_account_sum_months_balance_sheet(
             acct_num, current_amount_index, current_months,
             division_filter, sub_division_filter, division_uuid, sub_division_uuid,
@@ -2095,6 +2098,9 @@ def _balance_sheet_series_gl_detail_rows_for_link_codes(
 
     rows: list[dict] = []
     for acct_num in accounts:
+        mapping = mappings_by_account.get(acct_num) if mappings_by_account else None
+        if not _account_included_for_alt_asset_cost_only(mapping, None):
+            continue
         amounts: dict[str, float] = {}
         for p in periods:
             fy = p["fiscalYear"]
@@ -2490,6 +2496,7 @@ def compute_financial_statement(
     sub_division_id: uuid.UUID | None = None,
     customer_filter: str | None = None,
     supplier_filter: str | None = None,
+    alt_asset_cost_only: bool = False,
 ) -> dict:
     """Compute a financial statement.
 
@@ -2561,6 +2568,10 @@ def compute_financial_statement(
         parent_rollup = build_parent_rollup_index(mappings, chart)
         mapping_index = merge_parent_rollup_into_mapping_index(mapping_index, parent_rollup)
     mappings_by_account = {m.account_number: m for m in mappings}
+
+    alt_token = None
+    if alt_asset_cost_only:
+        alt_token = _alt_asset_cost_only_ctx.set(True)
 
     try:
         # 3. Resolve division/sub-division UUIDs to names for filtering
@@ -2713,6 +2724,8 @@ def compute_financial_statement(
             "rows": rows,
         }
     finally:
+        if alt_token is not None:
+            _alt_asset_cost_only_ctx.reset(alt_token)
         if cf_token is not None:
             _cf_net_income_ctx.reset(cf_token)
 

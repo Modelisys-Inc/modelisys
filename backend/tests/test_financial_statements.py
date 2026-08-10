@@ -1584,3 +1584,59 @@ def test_sum_for_link_code_single_month_alt_asset_cost_only():
 
     assert cost_only == 100_000.0
     assert full == 60_000.0
+
+
+def test_balance_sheet_gl_detail_rows_alt_asset_cost_only():
+    """GL breakdown excludes Amortissement cumulé when alt_asset_cost_only is on."""
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.services.financial_statements import (
+        _alt_asset_cost_only_ctx,
+        _balance_sheet_gl_detail_rows_for_link_codes,
+    )
+
+    mapping_cost = SimpleNamespace(
+        link_code="ALT-B.1",
+        description="Machinerie",
+        alt_asset_cost=True,
+        alt_accumulated_amortization=False,
+    )
+    mapping_accum = SimpleNamespace(
+        link_code="ALT-B.1",
+        description="Amort. machinerie",
+        alt_asset_cost=False,
+        alt_accumulated_amortization=True,
+    )
+    mappings_by_account = {
+        "1640": mapping_cost,
+        "1635": mapping_accum,
+    }
+    mapping_index = {"ALT-B.1": ["1640", "1635"]}
+    amount_index = {
+        "1640": {12: Decimal("-600000")},
+        "1635": {12: Decimal("250472")},
+    }
+
+    token = _alt_asset_cost_only_ctx.set(True)
+    try:
+        rows = _balance_sheet_gl_detail_rows_for_link_codes(
+            ["ALT-B.1"],
+            mapping_index,
+            amount_index,
+            amount_index,
+            [12],
+            [12],
+            None,
+            None,
+            None,
+            None,
+            mappings_by_account,
+            None,
+            None,
+            None,
+        )
+    finally:
+        _alt_asset_cost_only_ctx.reset(token)
+
+    assert [r["id"] for r in rows] == ["1640"]

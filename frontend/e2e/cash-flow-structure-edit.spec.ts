@@ -358,6 +358,8 @@ test.describe("Trésorerie structure editor", () => {
     await expect(page.getByRole("button", { name: /Ajouter un poste/i })).toBeVisible({ timeout: 10000 })
     await expect(page.getByText("Annexe", { exact: true })).toHaveCount(0)
     await expect(page.getByText("Lettre", { exact: true })).toHaveCount(0)
+    await expect(page.getByRole("table").getByText("Calcul", { exact: true })).toBeVisible()
+    await expect(page.getByRole("table").getByText("Réel / Coût", { exact: true })).toBeVisible()
 
     await page.locator('input[value*="investissement" i]').first().fill("flux investissement détail")
     await page.getByRole("button", { name: /^Enregistrer$/ }).click()
@@ -431,6 +433,77 @@ test.describe("Trésorerie structure editor", () => {
 
     const spacerRow = table.locator("tbody tr.h-2")
     await expect(spacerRow).toHaveCount(1)
+  })
+
+  test("Détail masque les postes liaison à zéro sans chiffres", async ({ page }) => {
+    await setupAuth(page)
+
+    const detailStructure = [
+      { id: "sec", label: "Trésorerie - Exploitation", isBold: true, isSection: true },
+      { id: "zero", label: "ligne sans montant", linkCode: "TEX-ZERO", defineMapping: true },
+      { id: "active", label: "ligne avec montant", linkCode: "TEX-ACT", defineMapping: true },
+    ]
+
+    await page.route(isCashFlowDetailUrl, (route) => {
+      if (route.request().url().includes("/series")) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify(emptySeriesResponse("cash-flow-detail")),
+        })
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ...emptyCashFlowResponse("cash-flow-detail"),
+          rows: [
+            {
+              id: "zero",
+              linkCode: "TEX-ZERO",
+              label: "ligne sans montant",
+              current: 0,
+              prior: 0,
+              hasLiaisonCode: true,
+            },
+            {
+              id: "active",
+              linkCode: "TEX-ACT",
+              label: "ligne avec montant",
+              current: 500,
+              prior: 400,
+              hasLiaisonCode: true,
+            },
+          ],
+        }),
+      })
+    })
+    await page.route(isCashFlowDetailStructureUrl, (route) => {
+      if (route.request().method() === "GET") {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: null,
+            company_id: COMPANY_ID,
+            statement_type: "cash-flow-detail",
+            structure: detailStructure,
+          }),
+        })
+      }
+      return route.continue()
+    })
+
+    await page.goto(`/financial-statements/cash-flow?companyId=${COMPANY_ID}`)
+    await page.getByRole("button", { name: /^Détail$/ }).click({ timeout: 15000 })
+    await page.getByRole("combobox").filter({ hasText: /Mensuel|Mois actuel/i }).first().click()
+    await page.getByRole("option", { name: HORIZON_LABEL.moisActuel }).click()
+
+    const table = page.locator("table").filter({ has: page.getByRole("columnheader", { name: "Poste" }) })
+    await expect(table.getByText("Trésorerie - Exploitation", { exact: true })).toBeVisible({ timeout: 15000 })
+    await expect(table.getByText("ligne avec montant", { exact: true })).toBeVisible()
+    await expect(table.getByText("ligne sans montant")).toHaveCount(0)
+    await expect(table.getByText(/500/)).toBeVisible()
   })
 
   test("Détail affiche la somme des codes de liaison attachés (comme Bilan/CDR)", async ({ page }) => {

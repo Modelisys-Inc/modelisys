@@ -127,6 +127,7 @@ def get_cash_flow_detail(
     sub_division_id: uuid.UUID | None = Query(default=None),
     customer: str | None = Query(default=None),
     supplier: str | None = Query(default=None),
+    alt_asset_cost_only: bool = Query(default=False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -137,6 +138,7 @@ def get_cash_flow_detail(
         db, company, "cash-flow-detail", fy, fm,
         period, comparison_type, budget_id, division_id, sub_division_id,
         customer, supplier,
+        alt_asset_cost_only=alt_asset_cost_only,
     )
 
 

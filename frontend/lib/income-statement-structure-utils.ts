@@ -481,6 +481,13 @@ export function findStructureRowForStatementLine(
       return id === idNorm || link === idNorm
     })
     if (byId) return byId as Record<string, unknown>
+    // Totaux / résultats : l’id API peut être le libellé (pas de code liaison)
+    const byIdAsLabel = structure.find(
+      (s) =>
+        normLabel(String((s as Record<string, unknown>).label ?? "")) === normLabel(idNorm),
+    )
+    if (byIdAsLabel) return byIdAsLabel as Record<string, unknown>
+    return undefined
   }
   const lbl = normLabel(statementLineLabel)
   if (!lbl) return undefined
@@ -499,6 +506,8 @@ function statementApiRowMatchesStructureRow(
   const rowLink = String(row.linkCode ?? "").trim()
   if (linkCode && (idNorm === linkCode || rowLink === linkCode)) return true
   if (structId && idNorm === structId) return true
+  // Code liaison explicite : ne jamais rapprocher par libellé (évite PLT-A ↔ ACT-C.5 « Dépôts »)
+  if (linkCode) return false
   const lbl = normLabel(String(structureRow.label ?? ""))
   return !!lbl && normLabel(String(row.label ?? "")) === lbl
 }

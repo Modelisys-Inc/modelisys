@@ -682,6 +682,8 @@ export interface FinancialStatementParams {
   sub_division_id?: string
   customer?: string
   supplier?: string
+  /** Immobilisations ALT : ne sommer que les comptes marqués Coût au mapping. */
+  alt_asset_cost_only?: boolean
   /** Client-only: change l’URL après sauvegarde de la structure (évite cache). L’API l’ignore. */
   structure_rev?: number
 }
@@ -707,6 +709,7 @@ function buildFinancialStatementQuery(params: FinancialStatementParams): string 
   if (params.sub_division_id) query.set("sub_division_id", params.sub_division_id)
   if (params.customer) query.set("customer", params.customer)
   if (params.supplier) query.set("supplier", params.supplier)
+  if (params.alt_asset_cost_only) query.set("alt_asset_cost_only", "true")
   if (params.structure_rev != null && params.structure_rev > 0) {
     query.set("_sr", params.structure_rev.toString())
   }
