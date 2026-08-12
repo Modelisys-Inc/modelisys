@@ -28,7 +28,7 @@ import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 type Period = "monthly" | "quarterly" | "annual"
 type View = "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
 type Section = "dashboard" | "summary" | "detail"
-type ColumnMode = "variationAmount" | "variationPercent" | "percentage" | "comparison"
+type ColumnMode = "variationAmount" | "variationPercent" | "comparison"
 type ComparisonType = "lastMonth" | "pastMonth" | "budget"
 
 const financialStatementsNav = [
@@ -448,9 +448,6 @@ export default function BalanceSheetPage() {
                         </SelectItem>
                         <SelectItem value="variationAmount">Variation $</SelectItem>
                         <SelectItem value="variationPercent">Variation %</SelectItem>
-                        <SelectItem value="percentage">
-                          % actif
-                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </>

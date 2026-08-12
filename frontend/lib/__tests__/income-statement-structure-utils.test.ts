@@ -8,6 +8,9 @@ import {
   syncIncomeStatementDetailSubLinesFromStandard,
   buildLinkCodeLabelsForChartPicker,
   buildMergedChartPickerLinkData,
+  isBaiiaStructureRow,
+  normalizeBaiiaStructureRow,
+  stripObsoleteIncomeStatementStructureRows,
 } from "../income-statement-structure-utils"
 import type { StandardLinkCode } from "@/lib/api"
 
@@ -341,5 +344,53 @@ describe("buildMergedChartPickerLinkData", () => {
     expect(merged.codes).toContain("ACT")
     expect(merged.labels.get("REV.1")).toBe("Ventes")
     expect(merged.labels.get("ACT")).toBe("Actif court terme")
+  })
+})
+
+describe("BAIIA — calcul automatique (sans Code / Liaison)", () => {
+  it("detects BAIIA by isEBITA or label", () => {
+    expect(isBaiiaStructureRow({ label: "BAIIA", isEBITA: true })).toBe(true)
+    expect(isBaiiaStructureRow({ label: "baiia" })).toBe(true)
+    expect(isBaiiaStructureRow({ label: "Bénéfice net" })).toBe(false)
+  })
+
+  it("strips Code, Liaison and Annexe on normalize", () => {
+    const out = normalizeBaiiaStructureRow({
+      label: "BAIIA",
+      defineMapping: true,
+      formula: "NI - D9",
+      linkCode: "X",
+      liaisonMode: "difference",
+      liaisonNumeratorCodes: ["NI"],
+      liaisonDenominatorCodes: ["D9"],
+      showInDetail: true,
+      annexLetter: "A",
+      posteNature: "revenus",
+      separatorAbove: true,
+    })
+    expect(out.isEBITA).toBe(true)
+    expect(out.defineMapping).toBe(false)
+    expect(out.showInDetail).toBe(false)
+    expect(out.formula).toBeUndefined()
+    expect(out.linkCode).toBeUndefined()
+    expect(out.liaisonMode).toBeUndefined()
+    expect(out.annexLetter).toBeUndefined()
+    expect(out.separatorAbove).toBe(true)
+  })
+
+  it("stripObsolete normalizes BAIIA rows in structure", () => {
+    const out = stripObsoleteIncomeStatementStructureRows([
+      {
+        label: "BAIIA",
+        isEBITA: true,
+        defineMapping: true,
+        formula: "NI - D9",
+        annexLetter: "A",
+      },
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0]!.defineMapping).toBe(false)
+    expect(out[0]!.formula).toBeUndefined()
+    expect(out[0]!.annexLetter).toBeUndefined()
   })
 })

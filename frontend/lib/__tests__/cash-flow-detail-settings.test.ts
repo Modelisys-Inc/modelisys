@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest"
 import {
   applyCashFlowCalcToPoint,
   applyCashFlowCalcToTrend,
+  applyCashFlowActualYearTTMToRow,
+  snapshotAmountForYearColumnLabel,
+  mapMonthlyTrendRowsToComparisonAmounts,
+  mapMonthlyTrendRowsToPastMonthComparisonAmounts,
   priorPeriodLabelForTrend,
   readRowCashFlowCalcMode,
   readRowCashFlowTinDisplayMode,
@@ -232,13 +236,32 @@ describe("cash-flow-detail-settings", () => {
     expect(applyCashFlowCalcToPoint(120, 100, "variation_n1n")).toEqual({ current: -20, prior: 0 })
   })
 
-  it("calcule la variation N − N−1 sur la période précédente affichée", () => {
-    const labels = ["Aoû 2026", "Jul 2026", "Aoû 2025"]
+  it("calcule la variation N − N−1 sur le mois civil précédent", () => {
+    const labels = ["Jul 2025", "Jun 2025", "Mai 2025"]
     const values = [150, 140, 100]
-    const result = applyCashFlowCalcToTrend(values, labels, "variation_nn1", undefined, "12months")
+    const calendar = new Map([
+      ["2025-7", 150],
+      ["2025-6", 140],
+      ["2025-5", 100],
+      ["2025-4", 90],
+    ])
+    const result = applyCashFlowCalcToTrend(values, labels, "variation_nn1", calendar, "12months")
     expect(result[0]).toBe(10)
     expect(result[1]).toBe(40)
-    expect(priorPeriodLabelForTrend("Aoû 2026", "12months")).toBe("Aoû 2025")
+    expect(result[2]).toBe(10)
+    expect(priorPeriodLabelForTrend("Jul 2025", "12months")).toBe("Jun 2025")
+    expect(priorPeriodLabelForTrend("Jan 2025", "12months")).toBe("Déc 2024")
+  })
+
+  it("utilise le mois civil précédent hors colonnes affichées", () => {
+    const labels = ["Jul 2025"]
+    const values = [150]
+    const calendar = new Map([
+      ["2025-7", 150],
+      ["2025-6", 140],
+    ])
+    const result = applyCashFlowCalcToTrend(values, labels, "variation_nn1", calendar, "12months")
+    expect(result[0]).toBe(10)
   })
 
   it("calcule la variation annuelle", () => {
@@ -247,5 +270,245 @@ describe("cash-flow-detail-settings", () => {
     const result = applyCashFlowCalcToTrend(values, labels, "variation_nn1", undefined, "years")
     expect(result[0]).toBe(100)
     expect(result[1]).toBe(100)
+  })
+
+  it("calcule la variation annuelle sur le même mois civil (snapshot, pas TTM)", () => {
+    const labels = ["Déc 2026", "Déc 2025", "Déc 2024"]
+    const values = [0, 0, 0]
+    const calendar = new Map([
+      ["2026-12", 500],
+      ["2025-12", 400],
+      ["2024-12", 300],
+    ])
+    const result = applyCashFlowCalcToTrend(values, labels, "variation_nn1", calendar, "years")
+    expect(result[0]).toBe(100)
+    expect(result[1]).toBe(100)
+    expect(result[2]).toBe(300)
+    expect(priorPeriodLabelForTrend("Déc 2026", "years")).toBe("Déc 2025")
+    expect(snapshotAmountForYearColumnLabel("Déc 2023", calendar)).toBe(0)
+  })
+
+  it("compare Déc 2024 à Déc 2023 à 0 $ quand 2023 est absent du calendrier", () => {
+    const labels = ["Déc 2025", "Déc 2024", "Déc 2023"]
+    const values = [0, 0, 999]
+    const calendar = new Map<string, number>([
+      ["2025-12", 80],
+      ["2024-12", 50],
+    ])
+    const result = applyCashFlowCalcToTrend(values, labels, "variation_nn1", calendar, "years")
+    expect(result[1]).toBe(50)
+    expect(result[2]).toBe(0)
+  })
+
+  it("applique le TTM en mode Calcul Réel sur l'horizon annuel", () => {
+    const labels = ["Déc 2026", "Déc 2025"]
+    const calendar = new Map<string, number>()
+    for (let m = 1; m <= 12; m++) {
+      calendar.set(`2026-${m}`, 10)
+      calendar.set(`2025-${m}`, 5)
+    }
+    const row = applyCashFlowActualYearTTMToRow(
+      {
+        current: 500,
+        prior: 400,
+        trendValues: [500, 400],
+      },
+      { trendView: "years", trendLabels: labels },
+      calendar,
+    )
+    expect(row.trendValues).toEqual([120, 60])
+    expect(row.current).toBe(120)
+    expect(row.prior).toBe(60)
+  })
+
+  it("applique la somme du trimestre en mode Calcul Réel sur l'horizon trimestriel", () => {
+    const labels = ["Déc 2026", "Sep 2026"]
+    const calendar = new Map<string, number>([
+      ["2026-10", 10],
+      ["2026-11", 20],
+      ["2026-12", 30],
+      ["2026-7", 1],
+      ["2026-8", 2],
+      ["2026-9", 3],
+    ])
+    const row = applyCashFlowActualYearTTMToRow(
+      {
+        current: 999,
+        prior: 888,
+        trendValues: [12, 9],
+      },
+      { trendView: "quarters", trendLabels: labels, fiscalYearEndMonth: 12 },
+      calendar,
+    )
+    expect(row.trendValues).toEqual([60, 6])
+    expect(row.current).toBe(60)
+    expect(row.prior).toBe(6)
+  })
+
+  it("en mode Réel trimestriel, somme le trimestre fiscal (fin d'exercice août) et non le civil", () => {
+    // Fin d'exercice août : Q4 fiscal = Jun–Jul–Aoû (pas Jul–Sep civil).
+    const labels = ["Aoû 2026", "Mai 2026"]
+    const calendar = new Map<string, number>([
+      ["2026-6", 10],
+      ["2026-7", 20],
+      ["2026-8", 30],
+      // Civil Q3 extra month must NOT be included
+      ["2026-9", 1000],
+      // Prior fiscal Q3 = Mar–Apr–Mai
+      ["2026-3", 1],
+      ["2026-4", 2],
+      ["2026-5", 3],
+    ])
+    const row = applyCashFlowActualYearTTMToRow(
+      {
+        current: 999,
+        prior: 888,
+        trendValues: [8, 5],
+      },
+      { trendView: "quarters", trendLabels: labels, fiscalYearEndMonth: 8 },
+      calendar,
+    )
+    expect(row.trendValues).toEqual([60, 6])
+    expect(row.current).toBe(60)
+    expect(row.prior).toBe(6)
+  })
+
+  it("calcule la variation trimestrielle vs la fin du trimestre fiscal précédent", () => {
+    const labels = ["Nov 2026", "Sep 2026", "Jun 2026"]
+    const values = [0, 0, 0]
+    const calendar = new Map([
+      ["2026-11", 500],
+      ["2026-9", 400],
+      ["2026-6", 300],
+    ])
+    const result = applyCashFlowCalcToTrend(values, labels, "variation_nn1", calendar, "quarters")
+    expect(priorPeriodLabelForTrend("Nov 2026", "quarters")).toBe("Sep 2026")
+    expect(priorPeriodLabelForTrend("Déc 2026", "quarters")).toBe("Sep 2026")
+    expect(priorPeriodLabelForTrend("Aoû 2026", "quarters")).toBe("Jun 2026")
+    expect(result[0]).toBe(100)
+    expect(result[1]).toBe(100)
+  })
+
+  it("en mode Réel trimestriel, exclut les mois futurs du trimestre en cours", () => {
+    const labels = ["Nov 2026", "Sep 2026"]
+    const calendar = new Map<string, number>([
+      // T4 partiel : Oct+Nov (pas Déc)
+      ["2026-10", 10],
+      ["2026-11", 20],
+      ["2026-12", 1000],
+      // T3 complet : Jul–Sep
+      ["2026-7", 1],
+      ["2026-8", 2],
+      ["2026-9", 3],
+    ])
+    const row = applyCashFlowActualYearTTMToRow(
+      {
+        current: 999,
+        prior: 888,
+        trendValues: [11, 9],
+      },
+      { trendView: "quarters", trendLabels: labels, fiscalYearEndMonth: 12 },
+      calendar,
+    )
+    expect(row.trendValues).toEqual([30, 6])
+    expect(row.current).toBe(30)
+    expect(row.prior).toBe(6)
+  })
+
+  it("en mode Réel trimestriel à fin de trimestre, somme les 3 mois", () => {
+    const labels = ["Déc 2026", "Sep 2026"]
+    const calendar = new Map<string, number>([
+      ["2026-10", 10],
+      ["2026-11", 20],
+      ["2026-12", 30],
+      ["2026-7", 1],
+      ["2026-8", 2],
+      ["2026-9", 3],
+    ])
+    const row = applyCashFlowActualYearTTMToRow(
+      {
+        current: 999,
+        prior: 888,
+        trendValues: [12, 9],
+      },
+      { trendView: "quarters", trendLabels: labels, fiscalYearEndMonth: 12 },
+      calendar,
+    )
+    expect(row.trendValues).toEqual([60, 6])
+    expect(row.current).toBe(60)
+    expect(row.prior).toBe(6)
+  })
+
+  it("calcule la variation N − N−1 sur le même mois année précédente", () => {
+    const labels = ["Jul 2025", "Jun 2025", "Jul 2024"]
+    const values = [150, 140, 100]
+    const calendar = new Map([
+      ["2025-7", 150],
+      ["2025-6", 140],
+      ["2024-7", 100],
+      ["2024-6", 90],
+    ])
+    const result = applyCashFlowCalcToTrend(
+      values,
+      labels,
+      "variation_nn1",
+      calendar,
+      "12months",
+      "priorYearSameMonth",
+    )
+    expect(result[0]).toBe(50)
+    expect(priorPeriodLabelForTrend("Jul 2025", "12months", "priorYearSameMonth")).toBe("Jul 2024")
+  })
+
+  it("mappe les colonnes Mensuel vers Mois actuel (courant / N−1)", () => {
+    const mapped = mapMonthlyTrendRowsToComparisonAmounts([
+      {
+        current: 999,
+        prior: 888,
+        trendValues: [150, 140],
+        balanceAccounts: [
+          {
+            accountNumber: "1000",
+            accountName: "Cash",
+            amount: 1,
+            priorAmount: 2,
+            trendValues: [50, 40],
+          },
+        ],
+      },
+    ])
+    expect(mapped[0]?.current).toBe(150)
+    expect(mapped[0]?.prior).toBe(140)
+    expect(mapped[0]?.trendValues).toBeUndefined()
+    expect(mapped[0]?.balanceAccounts?.[0]?.amount).toBe(50)
+    expect(mapped[0]?.balanceAccounts?.[0]?.priorAmount).toBe(40)
+  })
+
+  it("mappe Mois passé : courant = col. 0, passé = même pipeline au mois N−1 année", () => {
+    const mapped = mapMonthlyTrendRowsToPastMonthComparisonAmounts(
+      [
+        {
+          current: 0,
+          prior: 0,
+          trendValues: [80, 70, 60, 20],
+          balanceAccounts: [
+            {
+              accountNumber: "1100",
+              accountName: "Clients",
+              amount: 0,
+              priorAmount: 0,
+              trendValues: [80, 70, 60, 20],
+            },
+          ],
+        },
+      ],
+      8,
+      2026,
+      ["Aoû 2026", "Jul 2026", "Jun 2026", "Aoû 2025"],
+    )
+    expect(mapped[0]?.current).toBe(80)
+    expect(mapped[0]?.prior).toBe(20)
+    expect(mapped[0]?.balanceAccounts?.[0]?.amount).toBe(80)
+    expect(mapped[0]?.balanceAccounts?.[0]?.priorAmount).toBe(20)
   })
 })

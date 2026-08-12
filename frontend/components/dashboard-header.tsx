@@ -12,6 +12,7 @@ import { isFinancialStatementPath } from "@/hooks/use-financial-statement-refere
 import { FinancialStatementReferenceControls } from "@/components/financial-statement-reference-controls"
 import { companyDashboardNavItem, companyModuleNavItems } from "@/lib/company-module-navigation"
 import { FinancialToolsNavDropdown } from "@/components/financial-tools-nav-dropdown"
+import { ConfigurationNavDropdown } from "@/components/configuration-nav-dropdown"
 import { isFinancialToolsPath } from "@/lib/financial-tools-navigation"
 
 interface DashboardHeaderProps {
@@ -145,7 +146,6 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
   const companyPhaseItems = companyNavItems.filter((item) =>
     companyModuleNavItems.some((module) => module.label === item.label),
   )
-  const companyConfigItem = companyNavItems.find((item) => item.label === "Configuration")
 
   return (
     <header className="relative z-50 w-full border-b border-white/10 bg-[#2A2F3A]/92 backdrop-blur-md shadow-md">
@@ -239,7 +239,7 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
             aria-hidden
           />
           <nav className="hidden md:flex items-center gap-1 overflow-visible">
-            {showCompanyTrajectoryNav && monPortailItem && companyDashboardItem && companyConfigItem ? (
+            {showCompanyTrajectoryNav && monPortailItem && companyDashboardItem ? (
               <>
                 <NavLink item={monPortailItem} pathname={pathname} />
                 <NavVerticalSeparator />
@@ -252,7 +252,7 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
                 ))}
                 <NavVerticalSeparator />
                 <FinancialToolsNavDropdown pathname={pathname} companyId={selectedCompanyId} />
-                <NavLink item={companyConfigItem} pathname={pathname} />
+                <ConfigurationNavDropdown pathname={pathname} companyId={selectedCompanyId} />
               </>
             ) : (
               navigationItems.map((item) => {
@@ -265,12 +265,20 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
                     />
                   )
                 }
+                if (item.label === "Configuration") {
+                  return (
+                    <Fragment key="configuration-menu">
+                      <NavVerticalSeparator />
+                      <ConfigurationNavDropdown
+                        pathname={pathname}
+                        companyId={selectedCompanyId}
+                      />
+                    </Fragment>
+                  )
+                }
                 const isActive = getNavItemActive(pathname, item)
-                const showSeparatorBefore =
-                  !isPortalHeader && item.label === "Configuration"
                 return (
                   <Fragment key={`${item.label}-${item.href}`}>
-                    {showSeparatorBefore ? <NavVerticalSeparator /> : null}
                     <Link
                       href={item.href}
                       className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${

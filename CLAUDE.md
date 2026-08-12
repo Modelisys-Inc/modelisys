@@ -192,7 +192,23 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
 - The computation service lives in `backend/app/services/financial_statements.py`
 - Statement structures define the rows/sections of income statement, balance sheet, etc.
 - Account mappings link GL accounts to statement rows via `link_codes`
+- **BAIIA** (résultats, poste `isEBITA` / libellé « BAIIA ») : calculé serveur
+  comme `|REV| − |coûts variables| − |coûts fixes|` (flags `variable_costs` /
+  `fixed_costs` du mapping), aligné Pilotage / pont Dépenses — pas via la
+  formule Liaison des Paramètres (écrasée sur état mono-période et séries).
+  Revenus = comptes GL **uniques** de la famille REV (ancre `REV` après parent
+  rollup — jamais la somme de tous les codes REV*/parents, qui recompterait
+  les mêmes GL). Horizon : mensuel = activité du mois ; YTD / trimestre /
+  annuel = somme des BAIIA mensuels de la fenêtre. En Paramètres Sommaire,
+  Code / Liaison / Annexe sont retirés au chargement/sauvegarde
+  (`normalizeBaiiaStructureRow`) ; Liaison affiche « REV − CV − CF » en
+  lecture seule.
 - Cash flow is derived from income statement + balance sheet deltas
+- **Sommaire** trésorerie : lignes cochées « Annexe » (`showInSummary`) dans
+  Détail → Paramètres ; même moteur de calcul que le Détail (`variant="summary"`).
+  Paramètres Sommaire : espace / gras / séparation via overlay
+  (`summaryOnly` spacers, `summaryIsBold` / `summaryIndent` / `summarySeparatorAbove`)
+  — n’affecte pas l’affichage Détail.
 - CF codes (TEX/TIN/TFI) with `attached_link_codes` including `CAP-C.1` reuse the
   bilan CAP-C.1 formula (REV CT×−1 − charges) over the **selected horizon months**
   (mois courant = that month only; YTD = Jan→mois; not always YTD like BS CAP-C.1)

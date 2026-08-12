@@ -57,6 +57,7 @@ export function FinancialToolsNavDropdown({
   return (
     <div
       className={cn("relative", open && "z-[100]", className)}
+      data-testid="financial-tools-nav"
       onMouseEnter={openMenu}
       onMouseLeave={scheduleClose}
       onFocus={openMenu}

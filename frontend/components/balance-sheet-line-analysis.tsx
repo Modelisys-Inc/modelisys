@@ -133,7 +133,7 @@ export interface BalanceSheetLineAnalysisAsideProps {
   subDivisionId?: string | null
   period: "monthly" | "quarterly" | "annual"
   view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
-  columnMode: "variationAmount" | "variationPercent" | "percentage" | "comparison"
+  columnMode: "variationAmount" | "variationPercent" | "comparison"
   comparisonType: "lastMonth" | "pastMonth" | "budget"
   selectedBudgetName?: string | null
   refMonth: number
@@ -142,7 +142,6 @@ export interface BalanceSheetLineAnalysisAsideProps {
   structureVersion?: number
   isComparisonMode: boolean
   getComparisonLabel: () => string
-  getTotalAssetsPercentage: (value: number, isPrior: boolean) => number
   analysisRowRefs: React.MutableRefObject<Record<string, HTMLTableRowElement | null>>
   onNotesUpdated: () => void
   cardRef?: React.Ref<HTMLElement | null>
@@ -167,7 +166,6 @@ export function BalanceSheetLineAnalysisAside({
   structureVersion = 0,
   isComparisonMode,
   getComparisonLabel,
-  getTotalAssetsPercentage,
   analysisRowRefs,
   onNotesUpdated,
   cardRef,
@@ -518,15 +516,6 @@ export function BalanceSheetLineAnalysisAside({
                         </div>
                       )}
                     </>
-                  ) : null}
-
-                  {columnMode === "percentage" && showComparisonAmounts ? (
-                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm sm:col-span-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">% des actifs totaux</p>
-                      <p className="mt-2 text-lg font-semibold tabular-nums text-slate-800">
-                        {ctx.current !== 0 ? `${getTotalAssetsPercentage(ctx.current, false).toFixed(1)}%` : "—"}
-                      </p>
-                    </div>
                   ) : null}
                 </div>
               )

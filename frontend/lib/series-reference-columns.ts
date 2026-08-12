@@ -6,6 +6,7 @@ import {
   priorCalendarQuarter,
   type CalendarQuarter,
 } from "@/lib/financial-period-labels"
+import { monthsInFiscalQuarterThrough, endOfPriorFiscalQuarter } from "@/lib/capex-year-reference"
 
 /** Abrégés alignés sur l’API (`financial_statements._build_periods`). */
 const FRENCH_MONTH_ABBREVS_SHORT = [
@@ -71,7 +72,7 @@ export function buildAmountsByCalendarMonth(row: SeriesRow, periods: SeriesPerio
     const cal = parseSeriesPeriodCalendarLabel(p.label)
     if (!cal) continue
     const key = calendarMonthKey(cal.month, cal.year)
-    const amt = row.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] || 0
+    const amt = row.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] ?? 0
     map.set(key, amt)
   }
   return map
@@ -125,7 +126,20 @@ export function monthShortLabelsFromReference(refMonth: number, refYear: number,
   return out
 }
 
-/** Somme des montants sur les 3 mois civils d’un trimestre. */
+/** Somme des montants du trimestre fiscal jusqu’au mois as-of (pas de mois futurs). */
+export function sumFiscalQuarterContaining(
+  map: Map<string, number>,
+  month: number,
+  year: number,
+  fiscalYearEndMonth = 12,
+): number {
+  return monthsInFiscalQuarterThrough(month, year, fiscalYearEndMonth).reduce(
+    (sum, point) => sum + (map.get(calendarMonthKey(point.month, point.year)) ?? 0),
+    0,
+  )
+}
+
+/** @deprecated Préférer `sumFiscalQuarterContaining` (trimestre fiscal). */
 export function sumCalendarQuarter(map: Map<string, number>, quarter: number, year: number): number {
   const startM = (quarter - 1) * 3 + 1
   let s = 0
@@ -158,17 +172,98 @@ export function quarterTrendFromReference(
   periods: SeriesPeriod[],
   refMonth: number,
   refYear: number,
-  count = 5
+  count = 5,
+  fiscalYearEndMonth = 12,
 ): number[] {
   const map = buildAmountsByCalendarMonth(row, periods)
-  const seq = calendarQuarterSequenceFromReference(refMonth, refYear, count)
-  return seq.map(({ quarter, year }) => sumCalendarQuarter(map, quarter, year))
+  return referenceQuarterMonthSequenceFromReference(refMonth, refYear, count, fiscalYearEndMonth).map(
+    ({ month, year }) => sumFiscalQuarterContaining(map, month, year, fiscalYearEndMonth),
+  )
 }
 
 export function quarterLabelsFromReference(refMonth: number, refYear: number, count = 5): string[] {
   return calendarQuarterSequenceFromReference(refMonth, refYear, count).map(({ quarter, year }) =>
     formatQuarterShortLabel(quarter, year)
   )
+}
+
+/** Position du mois dans son trimestre civil (0 = 1er mois, 2 = dernier). */
+export function monthOffsetWithinCalendarQuarter(month: number): number {
+  const m = Math.min(12, Math.max(1, month))
+  return (m - 1) % 3
+}
+
+export function monthForQuarterAndOffset(quarter: number, offset: number): number {
+  const q = Math.min(4, Math.max(1, quarter))
+  const o = Math.min(2, Math.max(0, offset))
+  return (q - 1) * 3 + 1 + o
+}
+
+/**
+ * Colonnes trimestrielles cash-flow :
+ * - col. 0 = mois de référence (trimestre en cours, éventuellement partiel) ;
+ * - colonnes suivantes = dernier mois de chaque trimestre fiscal déjà clos.
+ * Ex. réf. Nov 2026 → Nov 2026, Sep 2026, Jun 2026… (pas Aoû).
+ */
+export function referenceQuarterMonthSequenceFromReference(
+  refMonth: number,
+  refYear: number,
+  count: number,
+  fiscalYearEndMonth = 12,
+): { month: number; year: number }[] {
+  if (count < 1) return []
+  const out: { month: number; year: number }[] = [{ month: refMonth, year: refYear }]
+  let cursor = { month: refMonth, year: refYear }
+  for (let i = 1; i < count; i++) {
+    cursor = endOfPriorFiscalQuarter(cursor.month, cursor.year, fiscalYearEndMonth)
+    out.push(cursor)
+  }
+  return out
+}
+
+/** En-têtes « Nov 2026 », « Sep 2026 », … */
+export function referenceQuarterMonthLabelsFromReference(
+  refMonth: number,
+  refYear: number,
+  count = 5,
+  fiscalYearEndMonth = 12,
+): string[] {
+  return referenceQuarterMonthSequenceFromReference(
+    refMonth,
+    refYear,
+    count,
+    fiscalYearEndMonth,
+  ).map(({ month, year }) => `${FRENCH_MONTH_ABBREVS_SHORT[month - 1]} ${year}`)
+}
+
+/** Flux de trésorerie : snapshot au mois de chaque colonne (base des modes Variation). */
+export function flowQuarterSnapshotTrendFromReference(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  refMonth: number,
+  refYear: number,
+  count = 5,
+  fiscalYearEndMonth = 12,
+): number[] {
+  const map = buildAmountsByCalendarMonth(row, periods)
+  return referenceQuarterMonthSequenceFromReference(
+    refMonth,
+    refYear,
+    count,
+    fiscalYearEndMonth,
+  ).map(({ month, year }) => map.get(calendarMonthKey(month, year)) ?? 0)
+}
+
+/** Flux de trésorerie : somme du trimestre fiscal jusqu’au mois de la colonne (mode Réel). */
+export function flowQuarterTrendFromReference(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  refMonth: number,
+  refYear: number,
+  count = 5,
+  fiscalYearEndMonth = 12,
+): number[] {
+  return quarterTrendFromReference(row, periods, refMonth, refYear, count, fiscalYearEndMonth)
 }
 
 /** Somme des montants sur les 12 mois civils d’une année calendaire. */
@@ -180,6 +275,24 @@ export function sumCalendarYear(map: Map<string, number>, year: number): number 
   return s
 }
 
+/** TTM : 12 derniers mois se terminant au mois civil `(month, year)` inclus. */
+export function sumTTMEndingAtCalendarMonth(
+  map: Map<string, number>,
+  month: number,
+  year: number,
+): number {
+  let sum = 0
+  let m = month
+  let y = year
+  for (let i = 0; i < 12; i++) {
+    sum += map.get(calendarMonthKey(m, y)) ?? 0
+    const prior = priorCalMonth(m, y)
+    m = prior.month
+    y = prior.year
+  }
+  return sum
+}
+
 export function calendarYearSequenceFromReference(refYear: number, count: number): number[] {
   return Array.from({ length: count }, (_, i) => refYear - i)
 }
@@ -188,7 +301,7 @@ export function yearTrendFromReference(
   row: SeriesRow,
   periods: SeriesPeriod[],
   refYear: number,
-  count = 6
+  count = 5
 ): number[] {
   const map = buildAmountsByCalendarMonth(row, periods)
   const years = calendarYearSequenceFromReference(refYear, count)
@@ -201,15 +314,50 @@ export function balanceSheetYearTrendFromReference(
   periods: SeriesPeriod[],
   refMonth: number,
   refYear: number,
-  count = 6,
+  count = 5,
 ): number[] {
   const map = buildAmountsByCalendarMonth(row, periods)
   const years = calendarYearSequenceFromReference(refYear, count)
   return years.map((year) => map.get(calendarMonthKey(refMonth, year)) ?? 0)
 }
 
-export function yearLabelsFromReference(refYear: number, count = 6): string[] {
+export function yearLabelsFromReference(refYear: number, count = 5): string[] {
   return calendarYearSequenceFromReference(refYear, count).map(String)
+}
+
+/** En-têtes « Déc 2026 », « Déc 2025 », … — même mois civil chaque année. */
+export function referenceMonthYearLabelsFromReference(
+  refMonth: number,
+  refYear: number,
+  count = 5,
+): string[] {
+  return calendarYearSequenceFromReference(refYear, count).map(
+    (year) => `${FRENCH_MONTH_ABBREVS_SHORT[refMonth - 1]} ${year}`,
+  )
+}
+
+/** Flux de trésorerie : snapshot au mois de référence pour chaque année (base des modes Variation). */
+export function flowYearSnapshotTrendFromReference(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  refMonth: number,
+  refYear: number,
+  count = 5,
+): number[] {
+  return balanceSheetYearTrendFromReference(row, periods, refMonth, refYear, count)
+}
+
+/** Flux de trésorerie : TTM (12 mois) se terminant au mois de référence pour chaque année (mode Réel). */
+export function flowYearTrendFromReference(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  refMonth: number,
+  refYear: number,
+  count = 5,
+): number[] {
+  const map = buildAmountsByCalendarMonth(row, periods)
+  const years = calendarYearSequenceFromReference(refYear, count)
+  return years.map((year) => sumTTMEndingAtCalendarMonth(map, refMonth, year))
 }
 
 /** Index dans `periods` du mois civil (ex. août 2025), ou −1 si absent. */
@@ -238,7 +386,7 @@ export function yearPeriodIndicesFromReference(
   periods: SeriesPeriod[],
   refMonth: number,
   refYear: number,
-  count = 6,
+  count = 5,
 ): number[] {
   const yearsChronological = [...calendarYearSequenceFromReference(refYear, count)].reverse()
   return yearsChronological.map((year) => findPeriodIndexForCalendarMonth(periods, refMonth, year))
@@ -250,7 +398,7 @@ export function sliceAmountsAtReferenceMonthYears(
   periods: SeriesPeriod[],
   refMonth: number,
   refYear: number,
-  count = 6,
+  count = 5,
 ): number[] {
   return yearPeriodIndicesFromReference(periods, refMonth, refYear, count).map((index) =>
     index >= 0 ? (amounts[index] ?? 0) : 0,

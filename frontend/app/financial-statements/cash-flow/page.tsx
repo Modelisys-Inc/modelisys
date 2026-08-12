@@ -28,7 +28,7 @@ import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 type Period = "monthly" | "quarterly" | "annual"
 type View = "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
 type Section = "dashboard" | "summary" | "detail"
-type ColumnMode = "variations" | "percentage" | "comparison"
+type ColumnMode = "variations" | "comparison"
 type ComparisonType = "lastMonth" | "pastMonth" | "budget"
 
 const financialStatementsNav = [
@@ -174,7 +174,7 @@ export default function CashFlowPage() {
           budget_id: comparisonType === "budget" && selectedBudgetId ? selectedBudgetId : undefined,
           division_id: selectedDivisionId || undefined,
           sub_division_id: selectedSubDivisionId || undefined,
-          structure_rev: structureVersion,
+          structure_rev: structureVersion + detailStructureVersion,
         }
 
         const response = await getCashFlow(companyId, params)
@@ -187,7 +187,7 @@ export default function CashFlowPage() {
       }
     }
     fetchData()
-  }, [lockedCompanyId, selectedCompanyId, selectedYear, selectedMonth, period, view, comparisonType, selectedBudgetId, selectedDivisionId, selectedSubDivisionId, structureVersion])
+  }, [lockedCompanyId, selectedCompanyId, selectedYear, selectedMonth, period, view, comparisonType, selectedBudgetId, selectedDivisionId, selectedSubDivisionId, structureVersion, detailStructureVersion])
 
   // Fonction pour obtenir la valeur actuelle du sélecteur Horizon
   const getCurrentHorizon = (): string => {
@@ -418,9 +418,6 @@ export default function CashFlowPage() {
                     <SelectItem value="variations" disabled={getCurrentHorizon() !== "courant"}>
                       Variations
                     </SelectItem>
-                    <SelectItem value="percentage" disabled={getCurrentHorizon() !== "courant"}>
-                      % des flux totaux
-                    </SelectItem>
                   </SelectContent>
                 </Select>
 
@@ -511,11 +508,13 @@ export default function CashFlowPage() {
               selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
               selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
               fiscalYear={selectedYear}
+              refMonth={selectedMonth}
+              refYear={selectedYear}
               rows={rows}
               loading={loading}
-              showCashFlowStructureSettings
-              structureVersion={structureVersion}
-              onCashFlowStructureSaved={() => setStructureVersion((v) => v + 1)}
+              structureVersion={detailStructureVersion}
+              showSummaryStructureSettings
+              onSummaryStructureSaved={() => setDetailStructureVersion((v) => v + 1)}
             />
           ) : (
             <CashFlowDetail

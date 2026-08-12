@@ -12,6 +12,86 @@ export function parseFiscalYearEndMonth(fiscalYearEnd: string): number {
   return 12
 }
 
+function mod12(n: number): number {
+  return ((n % 12) + 12) % 12
+}
+
+/**
+ * Mois fiscal 1–12 (aligné backend `_calendar_to_fiscal_month`).
+ * Le mois fiscal 1 est le mois suivant la fin d'exercice.
+ */
+export function calendarToFiscalMonth(calendarMonth: number, fiscalYearEndMonth: number): number {
+  return mod12(calendarMonth - fiscalYearEndMonth - 1) + 1
+}
+
+/** Année fiscale (année de clôture) pour un mois civil — backend `_calendar_to_fiscal_date`. */
+export function calendarToFiscalYear(
+  calendarYear: number,
+  calendarMonth: number,
+  fiscalYearEndMonth: number,
+): number {
+  return calendarMonth > fiscalYearEndMonth ? calendarYear + 1 : calendarYear
+}
+
+/** Inverse : (année fiscale, mois fiscal) → mois civil — backend `_fiscal_month_to_calendar`. */
+export function fiscalToCalendarMonthYear(
+  fiscalYear: number,
+  fiscalMonth: number,
+  fiscalYearEndMonth: number,
+): { month: number; year: number } {
+  const month = mod12(fiscalYearEndMonth + fiscalMonth - 1) + 1
+  if (fiscalYearEndMonth === 12) {
+    return { month, year: fiscalYear }
+  }
+  const yearOffset = month > fiscalYearEndMonth ? 0 : 1
+  return { month, year: fiscalYear - 1 + yearOffset }
+}
+
+/**
+ * Les 3 mois civils du trimestre fiscal contenant `(calendarMonth, calendarYear)`.
+ * Ex. fin d'exercice août, réf. août → juin, juillet, août (pas juil–sep civil).
+ */
+export function monthsInFiscalQuarterContaining(
+  calendarMonth: number,
+  calendarYear: number,
+  fiscalYearEndMonth: number,
+): { month: number; year: number }[] {
+  const fm = calendarToFiscalMonth(calendarMonth, fiscalYearEndMonth)
+  const fy = calendarToFiscalYear(calendarYear, calendarMonth, fiscalYearEndMonth)
+  const startFm = Math.floor((fm - 1) / 3) * 3 + 1
+  return [0, 1, 2].map((offset) =>
+    fiscalToCalendarMonthYear(fy, startFm + offset, fiscalYearEndMonth),
+  )
+}
+
+/** Mois du trimestre fiscal jusqu’à la date as-of inclusive (exclut les mois futurs). */
+export function monthsInFiscalQuarterThrough(
+  asOfMonth: number,
+  asOfYear: number,
+  fiscalYearEndMonth: number,
+): { month: number; year: number }[] {
+  return monthsInFiscalQuarterContaining(asOfMonth, asOfYear, fiscalYearEndMonth).filter(
+    (point) => point.year < asOfYear || (point.year === asOfYear && point.month <= asOfMonth),
+  )
+}
+
+/** Dernier mois civil du trimestre fiscal précédent (ex. Nov → Sep, Déc → Sep). */
+export function endOfPriorFiscalQuarter(
+  calendarMonth: number,
+  calendarYear: number,
+  fiscalYearEndMonth: number,
+): { month: number; year: number } {
+  const [first] = monthsInFiscalQuarterContaining(calendarMonth, calendarYear, fiscalYearEndMonth)
+  if (!first) return { month: calendarMonth, year: calendarYear }
+  let month = first.month - 1
+  let year = first.year
+  if (month < 1) {
+    month = 12
+    year -= 1
+  }
+  return { month, year }
+}
+
 /**
  * Mois bilan pour chaque année de la fenêtre « 5 ans » Capex :
  * année de référence → mois de référence ; années antérieures → fin d'exercice.

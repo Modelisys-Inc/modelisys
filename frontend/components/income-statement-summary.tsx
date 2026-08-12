@@ -24,6 +24,7 @@ import {
   yearLabelsFromReference,
   yearTrendFromReference,
 } from "@/lib/series-reference-columns"
+import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
 import { useIncomeStatementStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { useIncomeStatementParentLinkCodes } from "@/hooks/use-income-statement-parent-link-codes"
 import {
@@ -31,6 +32,7 @@ import {
   structureRowHiddenForHorizonDisplay,
 } from "@/lib/income-statement-horizon-filter"
 import type { IncomeStatementHorizonView } from "@/lib/income-statement-horizon-visibility"
+import { isStructuralIncomeStatementRowAlwaysVisible } from "@/lib/income-statement-horizon-visibility"
 import {
   TOTAL_CHARGES_LABEL,
   collectDistinctLinkCodesFromStructure,
@@ -39,6 +41,7 @@ import {
   seriesRowBelongsToRevenueAnnexDetail,
   extractGroupePrefixFromCompositeLinkCode,
   isAnnexLetterInputEditable,
+  isBaiiaStructureRow,
   isCodeMappingEnabled,
   isOmittedIncomeStatementSummaryRowLabel,
   isShowInDetail,
@@ -310,9 +313,11 @@ export function IncomeStatementSummary({
 
   const canInlineStructureEdit =
     showIncomeStatementStructureSettings && !!companyId && !isComparisonMode
+  // Charger la structure dès qu’une société est sélectionnée (filtre Sommaire multi-périodes),
+  // même si le bouton Paramètres n’est pas exposé.
   const structEdit = useIncomeStatementStructureEdit(
     companyId ?? null,
-    canInlineStructureEdit
+    !!companyId && !isComparisonMode
   )
   const [standardCodesForFilter, setStandardCodesForFilter] = useState<StandardLinkCode[]>([])
   useEffect(() => {
@@ -441,11 +446,21 @@ export function IncomeStatementSummary({
   // Build data: use series API for multi-period views, backend rows for single-period
   const buildSeriesData = (): SummaryRow[] => {
     if (!seriesRows.length || !seriesPeriods.length) return []
+    const structure = structEdit.structure
     return seriesRows
-      .filter(
-        (row) =>
-          !row.detailOnly && !isOmittedIncomeStatementSummaryRowLabel(row.label)
-      )
+      .filter((row) => {
+        if (row.detailOnly || isOmittedIncomeStatementSummaryRowLabel(row.label)) return false
+        // Sans structure chargée : garder le comportement historique (le filtre horizon
+        // s’appliquera dès que Paramètres est disponible).
+        if (!structure.length) return true
+        const sr = findStructureRowForStatementLine(row.id, row.label, structure)
+        if (!sr) {
+          return isStructuralIncomeStatementRowAlwaysVisible(row.label, {
+            isResult: row.isResult,
+          })
+        }
+        return !isStructureRowDetailOnly(sr) && !isStructureRowHidden(sr)
+      })
       .map((row) => {
       let trendValues: number[]
       if (view === "quarters") {
@@ -457,7 +472,12 @@ export function IncomeStatementSummary({
           const actual = yearTrendFromReference(row, seriesPeriods, actualYear, 1)[0] || 0
           trendValues = [actual, ...Array.from({ length: projectionYears }, () => 0)]
         } else {
-          trendValues = yearTrendFromReference(row, seriesPeriods, refYear, 6)
+          trendValues = yearTrendFromReference(
+            row,
+            seriesPeriods,
+            refYear,
+            PERFORMANCE_CHART_YEAR_COUNT,
+          )
         }
       } else if (view === "24months") {
         trendValues = monthTrendFromReference(row, seriesPeriods, refMonth, refYear, 24)
@@ -502,6 +522,7 @@ export function IncomeStatementSummary({
     view,
     refMonth,
     refYear,
+    structEdit.structure,
   ])
 
   const proFormaRevenueTotals = useMemo(() => {
@@ -967,9 +988,9 @@ export function IncomeStatementSummary({
     else if (view === "quarters") parts.push("5 derniers trimestres")
     else if (view === "years") {
       if (isForecastSection) {
-        parts.push("6 prochaines années")
+        parts.push(`${projectionYears + 1} prochaines années`)
       } else {
-        parts.push("6 dernières années")
+        parts.push(`${PERFORMANCE_CHART_YEAR_COUNT} dernières années`)
       }
     }
 
@@ -1044,7 +1065,7 @@ export function IncomeStatementSummary({
   // Helper function to generate year labels (projectionYears + 1 for forecast sections)
   const getYearLabels = (): string[] => {
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      return yearLabelsFromReference(refYear, 6)
+      return yearLabelsFromReference(refYear, PERFORMANCE_CHART_YEAR_COUNT)
     }
     const labels: string[] = []
     if (isForecastSection) {
@@ -1056,7 +1077,7 @@ export function IncomeStatementSummary({
       }
     } else {
       const currentYear = new Date().getFullYear()
-      for (let i = 5; i >= 0; i--) {
+      for (let i = PERFORMANCE_CHART_YEAR_COUNT - 1; i >= 0; i--) {
         labels.push(`${currentYear - i}`)
       }
     }
@@ -1967,6 +1988,20 @@ export function IncomeStatementSummary({
                       <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
                         {isStructureRowEmptyLabel(structRow) ? (
                           <span className="text-sm text-slate-300">—</span>
+                        ) : isBaiiaStructureRow(structRow) ? (
+                          <div className="flex justify-center">
+                            <label
+                              className="flex cursor-not-allowed items-center justify-center rounded-xl bg-slate-100/60 p-1.5 opacity-50"
+                              title="BAIIA : calcul automatique (REV − coûts variables − coûts fixes), sans code de liaison"
+                            >
+                              <Checkbox
+                                checked={false}
+                                disabled
+                                aria-label="Code désactivé pour BAIIA (calcul automatique)"
+                                className="border-slate-300"
+                              />
+                            </label>
+                          </div>
                         ) : (
                           <div className="flex justify-center">
                             <label
@@ -2017,7 +2052,14 @@ export function IncomeStatementSummary({
                         )}
                       </td>
                       <td className="box-border min-w-[8.5rem] max-w-[10rem] px-2 py-2.5 align-middle">
-                        {isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
+                        {isBaiiaStructureRow(structRow) && !isStructureRowHidden(structRow) ? (
+                          <span
+                            className="block truncate rounded-lg bg-emerald-50/80 px-1.5 py-2 text-center text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-200/70"
+                            title="Calcul serveur : |REV| − |coûts variables| − |coûts fixes|"
+                          >
+                            REV − CV − CF
+                          </span>
+                        ) : isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
                           <IncomeStatementLiaisonCell
                             structRow={structRow}
                             rowIndex={globalIdx}
@@ -2453,7 +2495,7 @@ export function IncomeStatementSummary({
                     (view === "12months" || view === "24months" || view === "quarters" || view === "years") &&
                     !row.trendValues && (
                     <>
-                      {Array.from({ length: view === "12months" ? 12 : view === "24months" ? 24 : view === "quarters" ? 5 : (isForecastSection && view === "years" ? projectionYears + 1 : 6) }).map((_, idx) => (
+                      {Array.from({ length: view === "12months" ? 12 : view === "24months" ? 24 : view === "quarters" ? 5 : (isForecastSection && view === "years" ? projectionYears + 1 : PERFORMANCE_CHART_YEAR_COUNT) }).map((_, idx) => (
                         <td 
                           key={idx} 
                           className={cn(
@@ -2477,7 +2519,7 @@ export function IncomeStatementSummary({
       {/* Footer note */}
       <div className="border-t border-slate-200 bg-slate-50/80 px-8 py-4">
         <p className={cn("text-xs", dashboardCardBodyMutedClass)}>
-          Note: BAIIA = Bénéfice avant intérêts, impôts et amortissement
+          Note: BAIIA = Bénéfice avant intérêts, impôts, amortissement et éléments non directement attribuable aux opérations courantes
         </p>
       </div>
 

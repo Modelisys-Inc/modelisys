@@ -878,6 +878,101 @@ def test_cash_flow_custom_tex_code_aggregates_attached_codes(client, auth_header
     assert row["current"] == 150.0
 
 
+def test_cash_flow_summary_tex_rolls_up_detail_structure_codes(client, auth_headers, su_headers):
+    """Summary linkCode TEX sums only TEX codes present in cash-flow-detail."""
+    company_id = _create_company(client, auth_headers, name="CF Summary TEX Rollup")
+
+    leaf_a = client.post(
+        "/api/standard-link-codes",
+        json={
+            "code": "CF-ROLL-A",
+            "family": "REV",
+            "label_sub_account": "Feuille A",
+            "is_leaf": True,
+        },
+        headers=su_headers,
+    )
+    assert leaf_a.status_code == 201
+    leaf_b = client.post(
+        "/api/standard-link-codes",
+        json={
+            "code": "CF-ROLL-B",
+            "family": "REV",
+            "label_sub_account": "Feuille B",
+            "is_leaf": True,
+        },
+        headers=su_headers,
+    )
+    assert leaf_b.status_code == 201
+
+    tex_a = client.post(
+        "/api/standard-link-codes",
+        json={
+            "code": "TEX-ROLL-A",
+            "family": "TEX",
+            "label_sub_account": "Exploitation A",
+            "attached_link_codes": ["CF-ROLL-A"],
+        },
+        headers=su_headers,
+    )
+    assert tex_a.status_code == 201
+    tex_b = client.post(
+        "/api/standard-link-codes",
+        json={
+            "code": "TEX-ROLL-B",
+            "family": "TEX",
+            "label_sub_account": "Exploitation B",
+            "attached_link_codes": ["CF-ROLL-B"],
+        },
+        headers=su_headers,
+    )
+    assert tex_b.status_code == 201
+
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "5100", "description": "Rev A", "link_code": "CF-ROLL-A"},
+        {"account_number": "5101", "description": "Rev B", "link_code": "CF-ROLL-B"},
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "5100",
+            "description": "Rev A",
+            "monthly_amounts": {"Janvier": 100.0},
+        },
+        {
+            "account_number": "5101",
+            "description": "Rev B",
+            "monthly_amounts": {"Janvier": 40.0},
+        },
+    ], fiscal_year=2026)
+
+    # Detail only includes TEX-ROLL-A (not B).
+    _upsert_structure(client, auth_headers, company_id, "cash-flow-detail", [
+        {
+            "label": "Exploitation A",
+            "linkCode": "TEX-ROLL-A",
+            "liaisonMode": "single",
+            "defineMapping": True,
+        },
+    ])
+    _upsert_structure(client, auth_headers, company_id, "cash-flow", [
+        {
+            "label": "Total exploitation",
+            "linkCode": "TEX",
+            "liaisonMode": "single",
+            "defineMapping": True,
+        },
+    ])
+
+    r = client.get(
+        f"/api/companies/{company_id}/financial-statements/cash-flow",
+        params={"fiscal_year": 2026, "month": 1},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200
+    row = r.json()["rows"][0]
+    assert row["current"] == 100.0
+
+
 def test_cash_flow_detail_custom_tex_code_aggregates_attached_codes(client, auth_headers, su_headers):
     """Detail structure link codes sum accounts via attached Bilan/CDR codes (same as summary)."""
     company_id = _create_company(client, auth_headers, name="CF Detail TEX Co")
@@ -1318,6 +1413,10 @@ def test_series_includes_supplementary_link_codes_from_sum_lists(client, auth_he
 def test_series_computes_baiia_row_from_income_families(client, auth_headers):
     """The BAIIA summary row (isEBITA) must expose computed amounts in series."""
     company_id = _setup_income_statement_data(client, auth_headers)
+    _upsert_structure(client, auth_headers, company_id, "income-statement", [
+        {"label": "revenus", "isBold": True, "isSection": True, "linkCode": "REV-001"},
+        {"label": "BAIIA", "isBold": True, "isEBITA": True},
+    ])
 
     response = client.get(
         f"/api/companies/{company_id}/financial-statements/income-statement/series"
@@ -1328,8 +1427,171 @@ def test_series_computes_baiia_row_from_income_families(client, auth_headers):
     data = response.json()
     baiia = next((r for r in data["rows"] if str(r.get("label", "")).lower() == "baiia"), None)
     assert baiia is not None
-    # REV -10000 ; COGS/OPEX ne sont pas des familles CMV/EXP → seul REV compte ici
-    assert baiia["amounts"]["2024-1"] == -10000.0
+    # BAIIA = |REV| − CV − CF ; sans mapping CV/CF → |REV| (= 10000)
+    assert baiia["amounts"]["2024-1"] == 10000.0
+
+
+def test_series_baiia_uses_variable_and_fixed_cost_flags(client, auth_headers):
+    """BAIIA = |REV| − coûts variables − coûts fixes (flags mapping)."""
+    company_id = _create_company(client, auth_headers)
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "Sales", "link_code": "REV-001"},
+        {
+            "account_number": "5000",
+            "description": "Variable COGS",
+            "link_code": "COGS-001",
+            "variable_costs": True,
+        },
+        {
+            "account_number": "6000",
+            "description": "Fixed opex",
+            "link_code": "OPEX-001",
+            "fixed_costs": True,
+        },
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "4000",
+            "description": "Sales",
+            "monthly_amounts": {"Janvier": 10000.0},
+        },
+        {
+            "account_number": "5000",
+            "description": "Variable COGS",
+            "monthly_amounts": {"Janvier": 4000.0},
+        },
+        {
+            "account_number": "6000",
+            "description": "Fixed opex",
+            "monthly_amounts": {"Janvier": 2500.0},
+        },
+    ], fiscal_year=2024)
+    _upsert_structure(client, auth_headers, company_id, "income-statement", [
+        {"label": "BAIIA", "isBold": True, "isEBITA": True},
+    ])
+
+    response = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement/series"
+        "?fiscal_year=2024&month=1&months=1",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    baiia = next(
+        (r for r in response.json()["rows"] if str(r.get("label", "")).lower() == "baiia"),
+        None,
+    )
+    assert baiia is not None
+    # 10000 − 4000 − 2500 = 3500
+    assert baiia["amounts"]["2024-1"] == 3500.0
+
+
+def test_baiia_does_not_double_count_rev_under_parent_rollup(db, client, auth_headers):
+    """BAIIA must count each REV GL once after parent rollup (leaf + parent + REV).
+
+    Regression: summing every REV* key inflated revenue (e.g. 1 M$ Revenus → 2,4 M$ BAIIA).
+    """
+    from app.models.standard_link_code import StandardLinkCode
+
+    db.add_all([
+        StandardLinkCode(code="REV-A", family="REV", is_leaf=False, parent_code=None, sort_order=1),
+        StandardLinkCode(code="REV-A.1", family="REV", is_leaf=True, parent_code="REV-A", sort_order=2),
+        StandardLinkCode(code="CMV-A", family="CMV", is_leaf=False, parent_code=None, sort_order=3),
+        StandardLinkCode(code="CMV-A.1", family="CMV", is_leaf=True, parent_code="CMV-A", sort_order=4),
+        StandardLinkCode(code="ADM-A", family="ADM", is_leaf=False, parent_code=None, sort_order=5),
+        StandardLinkCode(code="ADM-A.1", family="ADM", is_leaf=True, parent_code="ADM-A", sort_order=6),
+    ])
+    db.commit()
+
+    company_id = _create_company(client, auth_headers)
+    _upsert_account_mappings(client, auth_headers, company_id, [
+        {"account_number": "4000", "description": "Sales", "link_code": "REV-A.1"},
+        {
+            "account_number": "5000",
+            "description": "Variable COGS",
+            "link_code": "CMV-A.1",
+            "variable_costs": True,
+        },
+        {
+            "account_number": "6000",
+            "description": "Fixed opex",
+            "link_code": "ADM-A.1",
+            "fixed_costs": True,
+        },
+    ])
+    _upsert_trial_balance(client, auth_headers, company_id, [
+        {
+            "account_number": "4000",
+            "description": "Sales",
+            "monthly_amounts": {
+                "Janvier": 1_000_000.0,
+                "Février": 900_000.0,
+                "Août": 1_000_000.0,
+            },
+        },
+        {
+            "account_number": "5000",
+            "description": "Variable COGS",
+            "monthly_amounts": {
+                "Janvier": 300_000.0,
+                "Février": 250_000.0,
+                "Août": 400_000.0,
+            },
+        },
+        {
+            "account_number": "6000",
+            "description": "Fixed opex",
+            "monthly_amounts": {
+                "Janvier": 200_000.0,
+                "Février": 200_000.0,
+                "Août": 200_000.0,
+            },
+        },
+    ], fiscal_year=2026)
+    _upsert_structure(client, auth_headers, company_id, "income-statement", [
+        {"label": "revenus", "isBold": True, "isSection": True, "linkCode": "REV", "defineMapping": True},
+        {"label": "BAIIA", "isBold": True, "isEBITA": True},
+    ])
+
+    # Mensuel août : |REV| − CV − CF = 1_000_000 − 400_000 − 200_000 = 400_000
+    monthly = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement"
+        "?fiscal_year=2026&month=8&period=monthly",
+        headers=auth_headers,
+    )
+    assert monthly.status_code == 200
+    monthly_rows = monthly.json()["rows"]
+    rev_m = next(r for r in monthly_rows if str(r.get("label", "")).lower() == "revenus")
+    baiia_m = next(r for r in monthly_rows if str(r.get("label", "")).lower() == "baiia")
+    assert abs(rev_m["current"]) == 1_000_000.0
+    assert baiia_m["current"] == 400_000.0
+
+    # YTD août = somme des mois d'activité présents (jan+fév+août)
+    # REV 2_900_000 − CV 950_000 − CF 600_000 = 1_350_000
+    ytd = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement"
+        "?fiscal_year=2026&month=8&period=ytd",
+        headers=auth_headers,
+    )
+    assert ytd.status_code == 200
+    ytd_rows = ytd.json()["rows"]
+    rev_y = next(r for r in ytd_rows if str(r.get("label", "")).lower() == "revenus")
+    baiia_y = next(r for r in ytd_rows if str(r.get("label", "")).lower() == "baiia")
+    assert abs(rev_y["current"]) == 2_900_000.0
+    assert baiia_y["current"] == 1_350_000.0
+
+    series = client.get(
+        f"/api/companies/{company_id}/financial-statements/income-statement/series"
+        "?fiscal_year=2026&month=8&months=8",
+        headers=auth_headers,
+    )
+    assert series.status_code == 200
+    baiia_s = next(
+        (r for r in series.json()["rows"] if str(r.get("label", "")).lower() == "baiia"),
+        None,
+    )
+    assert baiia_s is not None
+    assert baiia_s["amounts"]["2026-8"] == 400_000.0
+    assert baiia_s["amounts"]["2026-1"] == 500_000.0
 
 
 def test_series_24_months_spans_two_years(client, auth_headers):

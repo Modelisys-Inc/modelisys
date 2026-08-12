@@ -4,6 +4,13 @@ import {
   aggregateToYears,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
+import {
+  calendarYearSequenceFromReference,
+  findPeriodIndexForCalendarMonth,
+  referenceQuarterMonthSequenceFromReference,
+} from "@/lib/series-reference-columns"
+import { endOfPriorFiscalQuarter } from "@/lib/capex-year-reference"
+import type { SeriesPeriod } from "@/lib/api"
 import type { CashFlowDetailTrendView, CashFlowDisplayAmountRow } from "@/lib/cash-flow-detail-settings"
 
 function normTreasuryLabel(s: string): string {
@@ -165,7 +172,7 @@ export function comparisonAnchorMonth(
   refMonth: number,
   comparisonType: "lastMonth" | "pastMonth" | "budget",
 ): { year: number; month: number } {
-  if (comparisonType === "lastMonth" || comparisonType === "pastMonth") {
+  if (comparisonType === "lastMonth") {
     return priorCalendarMonth(refYear, refMonth)
   }
   return { year: refYear - 1, month: refMonth }
@@ -181,11 +188,111 @@ export function beginningCashTrendFromNetCashByPeriod(
   })
 }
 
+export type ReferenceMonthYearTrendOptions = {
+  refMonth: number
+  refYear: number
+  count?: number
+}
+
+export type ReferenceQuarterMonthTrendOptions = {
+  refMonth: number
+  refYear: number
+  count?: number
+  fiscalYearEndMonth?: number
+}
+
+function priorMonthForBeginningCash(refMonth: number, year: number): { month: number; year: number } {
+  return { month: refMonth, year: year - 1 }
+}
+
+export function buildEndingBookTrendForReferenceMonthYears(
+  netByPeriodKey: Map<string, number>,
+  periods: Array<{ fiscalYear: number; fiscalMonth: number; label?: string }>,
+  options: ReferenceMonthYearTrendOptions,
+): number[] {
+  const count = options.count ?? 5
+  return calendarYearSequenceFromReference(options.refYear, count).map((year) => {
+    const idx = findPeriodIndexForCalendarMonth(periods as SeriesPeriod[], options.refMonth, year)
+    if (idx < 0) return 0
+    const period = periods[idx]!
+    return netByPeriodKey.get(periodKey(period.fiscalYear, period.fiscalMonth)) ?? 0
+  })
+}
+
+export function buildBeginningCashTrendForReferenceMonthYears(
+  netByPeriodKey: Map<string, number>,
+  periods: Array<{ fiscalYear: number; fiscalMonth: number; label?: string }>,
+  options: ReferenceMonthYearTrendOptions,
+): number[] {
+  const count = options.count ?? 5
+  return calendarYearSequenceFromReference(options.refYear, count).map((year) => {
+    const prior = priorMonthForBeginningCash(options.refMonth, year)
+    const idx = findPeriodIndexForCalendarMonth(periods as SeriesPeriod[], prior.month, prior.year)
+    if (idx < 0) return 0
+    const period = periods[idx]!
+    return netByPeriodKey.get(periodKey(period.fiscalYear, period.fiscalMonth)) ?? 0
+  })
+}
+
+export function buildEndingBookTrendForReferenceQuarterMonths(
+  netByPeriodKey: Map<string, number>,
+  periods: Array<{ fiscalYear: number; fiscalMonth: number; label?: string }>,
+  options: ReferenceQuarterMonthTrendOptions,
+): number[] {
+  const count = options.count ?? 5
+  const fyEnd = options.fiscalYearEndMonth ?? 12
+  return referenceQuarterMonthSequenceFromReference(
+    options.refMonth,
+    options.refYear,
+    count,
+    fyEnd,
+  ).map(({ month, year }) => {
+    const idx = findPeriodIndexForCalendarMonth(periods as SeriesPeriod[], month, year)
+    if (idx < 0) return 0
+    const period = periods[idx]!
+    return netByPeriodKey.get(periodKey(period.fiscalYear, period.fiscalMonth)) ?? 0
+  })
+}
+
+/** Trésorerie début : fin du trimestre fiscal précédent la colonne. */
+export function buildBeginningCashTrendForReferenceQuarterMonths(
+  netByPeriodKey: Map<string, number>,
+  periods: Array<{ fiscalYear: number; fiscalMonth: number; label?: string }>,
+  options: ReferenceQuarterMonthTrendOptions,
+): number[] {
+  const count = options.count ?? 5
+  const fyEnd = options.fiscalYearEndMonth ?? 12
+  return referenceQuarterMonthSequenceFromReference(
+    options.refMonth,
+    options.refYear,
+    count,
+    fyEnd,
+  ).map(({ month, year }) => {
+    const prior = endOfPriorFiscalQuarter(month, year, fyEnd)
+    const idx = findPeriodIndexForCalendarMonth(periods as SeriesPeriod[], prior.month, prior.year)
+    if (idx < 0) return 0
+    const period = periods[idx]!
+    return netByPeriodKey.get(periodKey(period.fiscalYear, period.fiscalMonth)) ?? 0
+  })
+}
+
 export function buildBeginningCashTrendForView(
   netByPeriodKey: Map<string, number>,
-  periods: Array<{ fiscalYear: number; fiscalMonth: number }>,
+  periods: Array<{ fiscalYear: number; fiscalMonth: number; label?: string }>,
   view: CashFlowDetailTrendView,
+  referenceMonthYear?: ReferenceMonthYearTrendOptions,
+  referenceQuarterMonth?: ReferenceQuarterMonthTrendOptions,
 ): number[] {
+  if (view === "years" && referenceMonthYear) {
+    return buildBeginningCashTrendForReferenceMonthYears(netByPeriodKey, periods, referenceMonthYear)
+  }
+  if (view === "quarters" && referenceQuarterMonth) {
+    return buildBeginningCashTrendForReferenceQuarterMonths(
+      netByPeriodKey,
+      periods,
+      referenceQuarterMonth,
+    )
+  }
   const monthly = beginningCashTrendFromNetCashByPeriod(netByPeriodKey, periods)
   if (view === "12months") {
     return reverseSeriesOrderForDisplay(monthly)
@@ -208,9 +315,21 @@ export function endingBookNetCashForDisplayPeriods(
 
 export function buildEndingBookTrendForView(
   netByPeriodKey: Map<string, number>,
-  periods: Array<{ fiscalYear: number; fiscalMonth: number }>,
+  periods: Array<{ fiscalYear: number; fiscalMonth: number; label?: string }>,
   view: CashFlowDetailTrendView,
+  referenceMonthYear?: ReferenceMonthYearTrendOptions,
+  referenceQuarterMonth?: ReferenceQuarterMonthTrendOptions,
 ): number[] {
+  if (view === "years" && referenceMonthYear) {
+    return buildEndingBookTrendForReferenceMonthYears(netByPeriodKey, periods, referenceMonthYear)
+  }
+  if (view === "quarters" && referenceQuarterMonth) {
+    return buildEndingBookTrendForReferenceQuarterMonths(
+      netByPeriodKey,
+      periods,
+      referenceQuarterMonth,
+    )
+  }
   const monthly = endingBookNetCashForDisplayPeriods(netByPeriodKey, periods)
   if (view === "12months") {
     return reverseSeriesOrderForDisplay(monthly)

@@ -3,6 +3,9 @@ import type { SeriesPeriod } from "@/lib/api"
 import {
   capexYearLabelsChronological,
   capexYearPeriodIndicesFromReference,
+  endOfPriorFiscalQuarter,
+  monthsInFiscalQuarterContaining,
+  monthsInFiscalQuarterThrough,
   parseFiscalYearEndMonth,
   sliceAmountsAtCapexReferenceYears,
 } from "@/lib/capex-year-reference"
@@ -41,6 +44,42 @@ describe("capex year reference", () => {
   it("parses fiscal year end month", () => {
     expect(parseFiscalYearEndMonth("12-31")).toBe(12)
     expect(parseFiscalYearEndMonth("03-31")).toBe(3)
+  })
+
+  it("lists calendar months in the fiscal quarter containing a reference month", () => {
+    expect(monthsInFiscalQuarterContaining(8, 2026, 12)).toEqual([
+      { month: 7, year: 2026 },
+      { month: 8, year: 2026 },
+      { month: 9, year: 2026 },
+    ])
+    expect(monthsInFiscalQuarterContaining(8, 2026, 8)).toEqual([
+      { month: 6, year: 2026 },
+      { month: 7, year: 2026 },
+      { month: 8, year: 2026 },
+    ])
+    expect(monthsInFiscalQuarterContaining(1, 2025, 3)).toEqual([
+      { month: 1, year: 2025 },
+      { month: 2, year: 2025 },
+      { month: 3, year: 2025 },
+    ])
+  })
+
+  it("truncates the current fiscal quarter through the as-of month", () => {
+    expect(monthsInFiscalQuarterThrough(11, 2026, 12)).toEqual([
+      { month: 10, year: 2026 },
+      { month: 11, year: 2026 },
+    ])
+    expect(monthsInFiscalQuarterThrough(12, 2026, 12)).toEqual([
+      { month: 10, year: 2026 },
+      { month: 11, year: 2026 },
+      { month: 12, year: 2026 },
+    ])
+  })
+
+  it("resolves the end of the prior fiscal quarter", () => {
+    expect(endOfPriorFiscalQuarter(11, 2026, 12)).toEqual({ month: 9, year: 2026 })
+    expect(endOfPriorFiscalQuarter(12, 2026, 12)).toEqual({ month: 9, year: 2026 })
+    expect(endOfPriorFiscalQuarter(8, 2026, 8)).toEqual({ month: 5, year: 2026 })
   })
 
   it("uses reference month for current year and fiscal year end for prior years", () => {

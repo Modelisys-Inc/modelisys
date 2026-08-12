@@ -820,9 +820,17 @@ export function cashFlowLinkCodeOptions(codes: StandardLinkCode[]): {
   const filtered = [...codes]
     .filter((c) => isCashFlowFamily(c.family))
     .sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code))
+  const labels = buildStandardLinkCodeLabelMap(filtered)
+  // Ancres familiales : le sommaire agrège les codes de la structure Détail.
+  for (const family of CASH_FLOW_FAMILIES) {
+    if (!labels.has(family)) {
+      labels.set(family, CASH_FLOW_FAMILY_LABELS[family])
+    }
+  }
+  const merged = [...CASH_FLOW_FAMILIES, ...filtered.map((c) => c.code)]
   return {
-    codes: filtered.map((c) => c.code),
-    labels: buildStandardLinkCodeLabelMap(filtered),
+    codes: [...new Set(merged)],
+    labels,
   }
 }
 

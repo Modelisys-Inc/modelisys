@@ -3,6 +3,8 @@ import {
   applyCashFlowFixedTreasuryRows,
   balanceSheetAmountForLinkCodeRoot,
   beginningCashTrendFromNetCashByPeriod,
+  buildBeginningCashTrendForReferenceMonthYears,
+  buildEndingBookTrendForReferenceMonthYears,
   buildNetCashByPeriodKey,
   cashFlowTreasuryValidationEcart,
   cashFlowTreasuryValidationTrendEcarts,
@@ -15,6 +17,7 @@ import {
   netCashFromBalanceSheetPointRows,
   priorCalendarMonth,
 } from "@/lib/cash-flow-treasury-rows"
+import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
 
 describe("cash-flow-treasury-rows", () => {
   it("détecte les lignes trésorerie par libellé", () => {
@@ -127,6 +130,29 @@ describe("cash-flow-treasury-rows", () => {
     expect(priorCalendarMonth(2026, 8)).toEqual({ year: 2026, month: 7 })
     expect(priorCalendarMonth(2026, 1)).toEqual({ year: 2025, month: 12 })
     expect(comparisonAnchorMonth(2026, 8, "lastMonth")).toEqual({ year: 2026, month: 7 })
+    expect(comparisonAnchorMonth(2026, 8, "pastMonth")).toEqual({ year: 2025, month: 8 })
     expect(comparisonAnchorMonth(2026, 8, "budget")).toEqual({ year: 2025, month: 8 })
+  })
+
+  it("tendances annuelles trésorerie : 5 colonnes par défaut (Annuel - 5 ans)", () => {
+    const netByPeriod = buildNetCashByPeriodKey([
+      { id: "ACT-A", amounts: { "2022-8": 50, "2023-8": 60, "2024-8": 70, "2025-8": 80, "2026-8": 90 } },
+      { id: "PCT-A", amounts: { "2022-8": 10, "2023-8": 10, "2024-8": 10, "2025-8": 10, "2026-8": 10 } },
+    ])
+    const periods = [2022, 2023, 2024, 2025, 2026].map((year) => ({
+      fiscalYear: year,
+      fiscalMonth: 8,
+      label: `Août ${year}`,
+    }))
+    const ending = buildEndingBookTrendForReferenceMonthYears(netByPeriod, periods, {
+      refMonth: 8,
+      refYear: 2026,
+    })
+    const beginning = buildBeginningCashTrendForReferenceMonthYears(netByPeriod, periods, {
+      refMonth: 8,
+      refYear: 2026,
+    })
+    expect(ending).toHaveLength(PERFORMANCE_CHART_YEAR_COUNT)
+    expect(beginning).toHaveLength(PERFORMANCE_CHART_YEAR_COUNT)
   })
 })

@@ -18,6 +18,7 @@ import {
   newBalanceSheetPostRow,
   newChargeRow,
   newDetailSubLineRow,
+  newEmptySpacerCashFlowSummaryRow,
   newEmptySpacerSummaryRow,
   normalizeCodeList,
   normalizeDtCt,
@@ -203,34 +204,44 @@ export function useStatementStructureEdit(
     [newPostRow]
   )
 
-  const insertEmptySpacerAbove = useCallback((globalIndex: number) => {
-    setStructure((prev) => {
-      if (globalIndex < 0) return prev
-      const spacer = newEmptySpacerSummaryRow()
-      if (prev.length === 0) {
-        return globalIndex === 0 ? [spacer] : prev
-      }
-      if (globalIndex < 0 || globalIndex >= prev.length) return prev
-      const next = cloneStructure(prev)
-      next.splice(globalIndex, 0, spacer)
-      return next
-    })
-  }, [])
+  const insertEmptySpacerAbove = useCallback(
+    (globalIndex: number, opts?: { summaryOnly?: boolean }) => {
+      setStructure((prev) => {
+        if (globalIndex < 0) return prev
+        const spacer = opts?.summaryOnly
+          ? newEmptySpacerCashFlowSummaryRow()
+          : newEmptySpacerSummaryRow()
+        if (prev.length === 0) {
+          return globalIndex === 0 ? [spacer] : prev
+        }
+        if (globalIndex < 0 || globalIndex >= prev.length) return prev
+        const next = cloneStructure(prev)
+        next.splice(globalIndex, 0, spacer)
+        return next
+      })
+    },
+    [],
+  )
 
-  const insertEmptySpacerBelow = useCallback((globalIndex: number) => {
-    setStructure((prev) => {
-      if (globalIndex < 0) return prev
-      const spacer = newEmptySpacerSummaryRow()
-      if (prev.length === 0) {
-        return globalIndex === 0 ? [spacer] : prev
-      }
-      if (globalIndex < 0 || globalIndex >= prev.length) return prev
-      const insertAt = globalIndex + 1
-      const next = cloneStructure(prev)
-      next.splice(insertAt, 0, spacer)
-      return next
-    })
-  }, [])
+  const insertEmptySpacerBelow = useCallback(
+    (globalIndex: number, opts?: { summaryOnly?: boolean }) => {
+      setStructure((prev) => {
+        if (globalIndex < 0) return prev
+        const spacer = opts?.summaryOnly
+          ? newEmptySpacerCashFlowSummaryRow()
+          : newEmptySpacerSummaryRow()
+        if (prev.length === 0) {
+          return globalIndex === 0 ? [spacer] : prev
+        }
+        if (globalIndex < 0 || globalIndex >= prev.length) return prev
+        const insertAt = globalIndex + 1
+        const next = cloneStructure(prev)
+        next.splice(insertAt, 0, spacer)
+        return next
+      })
+    },
+    [],
+  )
 
   const addDetailSubLine = useCallback(
     (

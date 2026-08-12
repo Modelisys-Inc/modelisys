@@ -28,11 +28,6 @@ export const FINANCIAL_TOOLS_NAV_ITEMS: FinancialToolLink[] = [
     pathPrefix: "/evaluation",
   },
   {
-    label: "Scénarios",
-    href: "/scenarios",
-    pathPrefix: "/scenarios",
-  },
-  {
     label: "Documentation",
     href: "/year-end-cpa",
     pathPrefix: "/year-end-cpa",
@@ -47,7 +42,6 @@ const FINANCIAL_TOOLS_PATH_PREFIXES = [
   "/analysis",
   "/projections",
   "/evaluation",
-  "/scenarios",
   "/year-end-cpa",
 ] as const
 

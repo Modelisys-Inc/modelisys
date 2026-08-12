@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { LayoutDashboard, TrendingUp, BarChart3, Scale, Waves, ChevronDown, LineChart, DollarSign, Calendar, Calculator, FileText, Target, Building2, Home, Settings, BookOpen, LogOut, StickyNote, Users, Truck, Layers, GitCompare } from "lucide-react"
+import { LayoutDashboard, TrendingUp, BarChart3, Scale, Waves, ChevronDown, LineChart, DollarSign, Calendar, Calculator, FileText, Target, Building2, Home, Settings, BookOpen, LogOut, StickyNote, Users, Truck } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState, useEffect } from "react"
 import { useSidebar } from "@/contexts/sidebar-context"
@@ -151,23 +151,6 @@ const menuItems = [
         label: "VCA",
         href: "/evaluation/vca",
         icon: Building2,
-      },
-    ],
-  },
-  {
-    label: "Scénarios",
-    href: "#",
-    icon: Layers,
-    submenu: [
-      {
-        label: "Comparaison",
-        href: "/scenarios",
-        icon: GitCompare,
-      },
-      {
-        label: "VAN",
-        href: "/scenarios/van",
-        icon: Calculator,
       },
     ],
   },

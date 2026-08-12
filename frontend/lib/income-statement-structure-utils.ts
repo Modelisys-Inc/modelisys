@@ -263,6 +263,49 @@ export function newEmptySpacerSummaryRow(): Record<string, unknown> {
   }
 }
 
+/**
+ * Espace vertical propre au Sommaire trésorerie (ignoré au Détail).
+ * Stocké dans la structure `cash-flow-detail` avec `summaryOnly: true`.
+ */
+export function newEmptySpacerCashFlowSummaryRow(): Record<string, unknown> {
+  return {
+    ...newEmptySpacerSummaryRow(),
+    summaryOnly: true,
+  }
+}
+
+/** Espace Sommaire CF uniquement (`summaryOnly` + libellé vide). */
+export function isCashFlowSummaryOnlySpacer(row: Record<string, unknown>): boolean {
+  return isStructureRowEmptyLabel(row) && row.summaryOnly === true
+}
+
+/**
+ * Présentation Sommaire CF : overlay `summaryIsBold` / `summaryIndent` /
+ * `summarySeparatorAbove` (sinon repli sur les champs Détail).
+ */
+export function resolveCashFlowSummaryRowPresentation(row: Record<string, unknown>): {
+  isBold: boolean
+  indent: boolean
+  separatorAbove: boolean
+} {
+  const isBold =
+    typeof row.summaryIsBold === "boolean" ? row.summaryIsBold === true : row.isBold === true
+  const indent =
+    typeof row.summaryIndent === "boolean"
+      ? row.summaryIndent === true
+      : indentForSummaryRow({
+          isBold,
+          isSection: row.isSection === true,
+          isResult: row.isResult === true,
+          indent: typeof row.indent === "boolean" ? row.indent : undefined,
+        })
+  const separatorAbove =
+    typeof row.summarySeparatorAbove === "boolean"
+      ? row.summarySeparatorAbove === true
+      : isTruthySeparatorAbove(row.separatorAbove)
+  return { isBold, indent, separatorAbove }
+}
+
 /** Ligne masquée au sommaire / détail (champ structure `hidden`). */
 export function isStructureRowHidden(row: Record<string, unknown>): boolean {
   return row.hidden === true
@@ -466,6 +509,46 @@ export function isShowInDetail(
   return isCodeMappingEnabled(row)
 }
 
+/**
+ * Case « Annexe » Trésorerie Détail → affichage au Sommaire.
+ * Explicit only (défaut : non coché) — pas de repli sur le code de liaison.
+ */
+export function isShowInSummary(row: Record<string, unknown>): boolean {
+  if (isStructureRowEmptyLabel(row)) return false
+  if (isStructureRowHidden(row)) return false
+  return row.showInSummary === true
+}
+
+/** Lignes de la structure Détail cochées Annexe, dans l’ordre Paramètres. */
+export function listStructureRowsForCashFlowSummary(
+  structure: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return structure.filter(
+    (sr) =>
+      !isStructureRowEmptyLabel(sr) &&
+      !isStructureRowHidden(sr) &&
+      !isStructureRowDetailOnly(sr) &&
+      !isComputedNetIncomeStructureRow(sr) &&
+      isShowInSummary(sr),
+  )
+}
+
+/**
+ * Sommaire trésorerie hors Paramètres : annexes + espaces `summaryOnly`,
+ * dans l’ordre de la structure Détail (espaces Détail exclus).
+ */
+export function listStructureRowsForCashFlowSummaryPresentation(
+  structure: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return structure.filter((sr) => {
+    if (isStructureRowHidden(sr) || isStructureRowDetailOnly(sr)) return false
+    if (isComputedNetIncomeStructureRow(sr)) return false
+    if (isCashFlowSummaryOnlySpacer(sr)) return true
+    if (isStructureRowEmptyLabel(sr)) return false
+    return isShowInSummary(sr)
+  })
+}
+
 /** Associe une ligne d’état (id / code liaison / libellé) à une entrée de structure sauvegardée. */
 export function findStructureRowForStatementLine(
   statementLineId: string,
@@ -572,7 +655,8 @@ export function listStructureRowsForPresentationDisplay(
     (sr) =>
       !isStructureRowHidden(sr) &&
       !isStructureRowDetailOnly(sr) &&
-      !isComputedNetIncomeStructureRow(sr),
+      !isComputedNetIncomeStructureRow(sr) &&
+      !isCashFlowSummaryOnlySpacer(sr),
   )
 }
 
@@ -1484,6 +1568,36 @@ export function dtCtSignMultiplier(structureRow: Record<string, unknown> | undef
   return normalizeDtCt(structureRow.dtCt) === "CT" ? -1 : 1
 }
 
+/** Ligne BAIIA du Sommaire : montant calculé serveur (REV − CV − CF), pas via Liaison. */
+export function isBaiiaStructureRow(row: Record<string, unknown>): boolean {
+  if (row.isEBITA === true) return true
+  return normLabel(String(row.label ?? "")) === "baiia"
+}
+
+/**
+ * Normalise le poste BAIIA : pas de Code / Liaison / Annexe — le moteur calcule
+ * |REV| − |coûts variables| − |coûts fixes| (aligné Pilotage).
+ */
+export function normalizeBaiiaStructureRow(row: Record<string, unknown>): Record<string, unknown> {
+  if (!isBaiiaStructureRow(row)) return row
+  return {
+    ...row,
+    label: String(row.label ?? "").trim() || "BAIIA",
+    isEBITA: true,
+    isBold: row.isBold !== false,
+    defineMapping: false,
+    showInDetail: false,
+    linkCode: undefined,
+    formula: undefined,
+    liaisonMode: undefined,
+    liaisonSumCodes: undefined,
+    liaisonNumeratorCodes: undefined,
+    liaisonDenominatorCodes: undefined,
+    annexLetter: undefined,
+    posteNature: undefined,
+  }
+}
+
 /** Retire les libellés obsolètes (ex. Produits A) — aligné sur le backend. */
 export function stripObsoleteIncomeStatementStructureRows(
   structure: Record<string, unknown>[]
@@ -1501,11 +1615,12 @@ export function stripObsoleteIncomeStatementStructureRows(
     const res: Record<string, unknown>[] = []
     for (const row of block) {
       if (isObsoleteLabel(String(row.label ?? ""))) continue
-      const next: Record<string, unknown> = { ...row }
+      let next: Record<string, unknown> = { ...row }
       for (const key of ["children", "detailRows"] as const) {
         const ch = next[key] as Record<string, unknown>[] | undefined
         if (Array.isArray(ch) && ch.length) next[key] = stripBlock(ch)
       }
+      next = normalizeBaiiaStructureRow(next)
       res.push(next)
     }
     return res

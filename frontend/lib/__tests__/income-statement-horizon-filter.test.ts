@@ -45,6 +45,35 @@ describe("filterIncomeStatementSummaryRowsForHorizon", () => {
     )
     expect(years.map((r) => r.label)).toContain("AUT poste")
   })
+
+  it("exclut les codes de liaison chart-only absents des Paramètres Sommaire", () => {
+    const rows = [
+      { label: "BAIIA", current: 1000, prior: 900, isResult: true, trendValues: [1000, 900] },
+      {
+        label: "REV-A.1",
+        current: 100,
+        prior: 90,
+        hasLiaisonCode: true,
+        trendValues: [100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1],
+      },
+      {
+        label: "REV-A.2",
+        current: 50,
+        prior: 40,
+        hasLiaisonCode: true,
+        trendValues: [50, 40, 30, 20, 10, 5, 4, 3, 2, 1, 1, 1],
+      },
+    ]
+    const sommaireStructure = [{ label: "BAIIA", isResult: true, isBold: true, formula: "EBIT+AMO" }]
+
+    const months = filterIncomeStatementSummaryRowsForHorizon(
+      rows,
+      sommaireStructure,
+      "12months",
+    )
+    expect(months.map((r) => r.label)).toEqual(["BAIIA"])
+    expect(months.map((r) => r.label)).not.toContain("REV-A.1")
+  })
 })
 
 describe("filterIncomeStatementDetailRowsForHorizon", () => {

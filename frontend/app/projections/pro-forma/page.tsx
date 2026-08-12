@@ -369,7 +369,7 @@ export default function ProFormaPage() {
   const period: "monthly" | "quarterly" | "annual" = (selectedModule === "revenue" || selectedModule === "expenses" || selectedModule === "capex" || selectedModule === "debt" || selectedModule === "fdr" || selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") ? "annual" : "monthly"
   const view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years" = (selectedModule === "revenue" || selectedModule === "expenses" || selectedModule === "capex" || selectedModule === "debt" || selectedModule === "fdr" || selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") ? "years" : "current"
   // In projections, we display amounts (not variations) by default.
-  const columnMode: "variations" | "percentage" | "comparison" = "comparison"
+  const columnMode = "comparison" as const
   const isFinancialStatementModule =
     selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow"
   const isAssumptions = topNav === "assumptions"

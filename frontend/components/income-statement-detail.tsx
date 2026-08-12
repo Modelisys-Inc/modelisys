@@ -67,6 +67,7 @@ import {
   yearLabelsFromReference,
   yearTrendFromReference,
 } from "@/lib/series-reference-columns"
+import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
 import {
   collectDistinctLinkCodesFromStructure,
   mapLinkCodesToOwnerLabel,
@@ -250,7 +251,7 @@ function balanceAccountsFromSeriesRowDetail(
         ? monthTrendFromReference(pseudo, periods, refMonth, refYear, 12)
         : horizon === "quarters"
           ? quarterTrendFromReference(pseudo, periods, refMonth, refYear, 5)
-          : yearTrendFromReference(pseudo, periods, refYear, 6)
+          : yearTrendFromReference(pseudo, periods, refYear, PERFORMANCE_CHART_YEAR_COUNT)
     return {
       accountNumber: dr.id,
       accountName: dr.label,
@@ -3071,7 +3072,7 @@ export function IncomeStatementDetail({
             const actual = yearTrendFromReference(row, seriesPeriods, refYear, 1)[0] || 0
             return [actual, ...Array.from({ length: projectionYears }, () => 0)]
           })()
-        : yearTrendFromReference(row, seriesPeriods, refYear, 6)
+        : yearTrendFromReference(row, seriesPeriods, refYear, PERFORMANCE_CHART_YEAR_COUNT)
       const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
       const lastAmount = trend[0] || 0
       const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
@@ -3807,7 +3808,7 @@ export function IncomeStatementDetail({
           return quarterTrendFromReference(revenueSeries, seriesPeriods, refMonth, refYear, 5)
         }
         if (view === "years") {
-          return yearTrendFromReference(revenueSeries, seriesPeriods, refYear, 6)
+          return yearTrendFromReference(revenueSeries, seriesPeriods, refYear, PERFORMANCE_CHART_YEAR_COUNT)
         }
       }
     }
@@ -4176,7 +4177,7 @@ export function IncomeStatementDetail({
     else if (view === "ddm") parts.push("Même jour du mois dernier (DDM)")
     else if (view === "12months") parts.push("12 derniers mois")
     else if (view === "quarters") parts.push("5 derniers trimestres")
-    else if (view === "years") parts.push(title === "Estimation des revenus annuels" ? "6 prochaines années" : "6 dernières années")
+    else if (view === "years") parts.push(title === "Estimation des revenus annuels" ? `${projectionYears + 1} prochaines années` : `${PERFORMANCE_CHART_YEAR_COUNT} dernières années`)
 
     // Entity selection
     if (isCompanyComparison) {
@@ -4257,7 +4258,7 @@ export function IncomeStatementDetail({
       return labels
     }
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      return yearLabelsFromReference(refYear, 6)
+      return yearLabelsFromReference(refYear, PERFORMANCE_CHART_YEAR_COUNT)
     }
     const labels: string[] = []
     if (isForecastSection) {
@@ -4268,7 +4269,7 @@ export function IncomeStatementDetail({
       }
     } else {
       const currentYear = new Date().getFullYear()
-      for (let i = 5; i >= 0; i--) {
+      for (let i = PERFORMANCE_CHART_YEAR_COUNT - 1; i >= 0; i--) {
         labels.push(`${currentYear - i}`)
       }
     }
@@ -9308,7 +9309,7 @@ export function IncomeStatementDetail({
                       {title === "Estimation des dépenses annuelles" && view === "years" && (
                         <td className="min-w-[6.5rem] px-4 py-3 text-center text-white">-</td>
                       )}
-                      {Array.from({ length: view === "12months" ? 12 : view === "quarters" ? 5 : (isForecastSection && view === "years" ? projectionYears + 1 : 6) }).map((_, idx) => (
+                      {Array.from({ length: view === "12months" ? 12 : view === "quarters" ? 5 : (isForecastSection && view === "years" ? projectionYears + 1 : PERFORMANCE_CHART_YEAR_COUNT) }).map((_, idx) => (
                         <td 
                           key={idx} 
                           className={cn(

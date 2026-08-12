@@ -10,9 +10,10 @@ services:
       - /app/node_modules
       # Pas de volume séparé pour .next : avec Next en dev, un volume anonyme peut
       # garder d’anciens artefacts et donner l’impression que les changements ne s’appliquent pas.
-    command: sh -c "pnpm install --frozen-lockfile && pnpm run dev"
+    command: sh -c "pnpm install --frozen-lockfile && pnpm run dev:clean"
     environment:
       - NODE_ENV=development
+      - CI=true
       - NEXT_PUBLIC_API_URL=http://localhost:8000
       - INTERNAL_API_URL=http://backend:8000
       - CHOKIDAR_USEPOLLING=true
