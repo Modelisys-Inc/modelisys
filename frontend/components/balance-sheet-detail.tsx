@@ -261,7 +261,11 @@ export function BalanceSheetDetail({
   const detailAnnexEditorGlobalIndices = useMemo(() => {
     if (!isStructureStudio) return []
     return structEdit.structure
-      .map((r, i) => (isStructureRowInDetailAnnexEditor(r as Record<string, unknown>) ? i : -1))
+      .map((r, i) =>
+        isStructureRowInDetailAnnexEditor(r as Record<string, unknown>, structEdit.structure, i)
+          ? i
+          : -1,
+      )
       .filter((i) => i >= 0)
   }, [isStructureStudio, structEdit.structure])
 

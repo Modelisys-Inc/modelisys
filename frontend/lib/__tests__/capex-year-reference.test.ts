@@ -5,7 +5,9 @@ import {
   capexYearPeriodIndicesFromReference,
   endOfPriorFiscalQuarter,
   monthsInFiscalQuarterContaining,
+  fiscalYearStartContaining,
   monthsInFiscalQuarterThrough,
+  monthsInFiscalYearThrough,
   parseFiscalYearEndMonth,
   sliceAmountsAtCapexReferenceYears,
 } from "@/lib/capex-year-reference"
@@ -73,6 +75,19 @@ describe("capex year reference", () => {
       { month: 10, year: 2026 },
       { month: 11, year: 2026 },
       { month: 12, year: 2026 },
+    ])
+  })
+
+  it("lists fiscal year months through the as-of date", () => {
+    expect(fiscalYearStartContaining(8, 2026, 12)).toEqual({ month: 1, year: 2026 })
+    expect(monthsInFiscalYearThrough(8, 2026, 12)).toHaveLength(8)
+    expect(monthsInFiscalYearThrough(12, 2026, 12)).toHaveLength(12)
+    expect(monthsInFiscalYearThrough(8, 2026, 3)).toEqual([
+      { month: 4, year: 2026 },
+      { month: 5, year: 2026 },
+      { month: 6, year: 2026 },
+      { month: 7, year: 2026 },
+      { month: 8, year: 2026 },
     ])
   })
 

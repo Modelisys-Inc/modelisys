@@ -62,12 +62,19 @@ import {
 import {
   monthShortLabelsFromReference,
   monthTrendFromReference,
-  quarterLabelsFromReference,
-  quarterTrendFromReference,
   yearLabelsFromReference,
   yearTrendFromReference,
 } from "@/lib/series-reference-columns"
 import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
+import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
+import {
+  INCOME_STATEMENT_QUARTER_COUNT,
+  incomeStatementQuarterLabelsForBasis,
+  incomeStatementQuarterTrendForBasis,
+  incomeStatementYearLabelsForBasis,
+  incomeStatementYearTrendForBasis,
+  type IncomeStatementPeriodBasis,
+} from "@/lib/income-statement-period-basis"
 import {
   collectDistinctLinkCodesFromStructure,
   mapLinkCodesToOwnerLabel,
@@ -90,6 +97,11 @@ import {
   seriesRowUsesExcludedProjectionExpenseLinkCode,
 } from "@/lib/income-statement-structure-utils"
 import { filterIncomeStatementDetailRowsForHorizon } from "@/lib/income-statement-horizon-filter"
+import {
+  annexGroupShouldShowSubtotal,
+  resolveDetailAnnexMeta,
+  uniqueStatementRowsByStructureIndex,
+} from "@/lib/income-statement-annex-detail"
 import type { IncomeStatementHorizonView } from "@/lib/income-statement-horizon-visibility"
 import {
   dashboardCardAccentBarClass,
@@ -191,6 +203,7 @@ interface IncomeStatementDetailProps {
   projectionYears?: 3 | 4 | 5
   projectionMode?: "gl" | "account"
   comparisonType?: "lastMonth" | "pastMonth" | "budget"
+  periodBasis?: IncomeStatementPeriodBasis
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
   fiscalYear?: number
@@ -233,7 +246,10 @@ function balanceAccountsFromSeriesRowDetail(
   periods: SeriesPeriod[],
   horizon: "12months" | "quarters" | "years",
   refMonth: number,
-  refYear: number
+  refYear: number,
+  periodBasis: IncomeStatementPeriodBasis = "current",
+  fiscalYearEndMonth = 12,
+  useCalendarYearTotals = false,
 ): BalanceAccount[] | undefined {
   if (!row.detailRows?.length) return undefined
   return row.detailRows.map((dr) => {
@@ -250,8 +266,26 @@ function balanceAccountsFromSeriesRowDetail(
       horizon === "12months"
         ? monthTrendFromReference(pseudo, periods, refMonth, refYear, 12)
         : horizon === "quarters"
-          ? quarterTrendFromReference(pseudo, periods, refMonth, refYear, 5)
-          : yearTrendFromReference(pseudo, periods, refYear, PERFORMANCE_CHART_YEAR_COUNT)
+          ? incomeStatementQuarterTrendForBasis(
+              pseudo,
+              periods,
+              refMonth,
+              refYear,
+              periodBasis,
+              fiscalYearEndMonth,
+              INCOME_STATEMENT_QUARTER_COUNT,
+            )
+          : useCalendarYearTotals
+            ? yearTrendFromReference(pseudo, periods, refYear, PERFORMANCE_CHART_YEAR_COUNT)
+            : incomeStatementYearTrendForBasis(
+                pseudo,
+                periods,
+                refMonth,
+                refYear,
+                periodBasis,
+                fiscalYearEndMonth,
+                PERFORMANCE_CHART_YEAR_COUNT,
+              )
     return {
       accountNumber: dr.id,
       accountName: dr.label,
@@ -397,10 +431,12 @@ function insertAnnexDetailPlaceholderRows(
         out.push(rows[j])
         j++
       }
-      const agg = sumAnnexGroupRows(groupRows)
-      out.push(buildAnnexSubtotalDetailRow(letter, agg))
-      if (includeIndicatif) {
-        out.push(buildAnnexPlaceholderDetailRow(letter, trendValuesLength))
+      if (annexGroupShouldShowSubtotal(groupRows)) {
+        const agg = sumAnnexGroupRows(groupRows)
+        out.push(buildAnnexSubtotalDetailRow(letter, agg))
+        if (includeIndicatif) {
+          out.push(buildAnnexPlaceholderDetailRow(letter, trendValuesLength))
+        }
       }
       i = j
     } else {
@@ -1136,6 +1172,7 @@ export function IncomeStatementDetail({
   projectionYears = 5,
   projectionMode = "gl",
   comparisonType = "lastMonth",
+  periodBasis = "current",
   selectedBudgetId = null,
   selectedBudgetName = null,
   fiscalYear,
@@ -1167,6 +1204,9 @@ export function IncomeStatementDetail({
 
   const refMonth = referenceMonth ?? new Date().getMonth() + 1
   const refYear = fiscalYear ?? new Date().getFullYear()
+  const fiscalYearEndMonth = parseFiscalYearEndMonth(
+    companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
+  )
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1023px)")
@@ -1527,7 +1567,11 @@ export function IncomeStatementDetail({
   const detailAnnexEditorGlobalIndices = useMemo(() => {
     if (!structureEditMode || !canInlineStructureEdit) return []
     return structEdit.structure
-      .map((r, i) => (isStructureRowInDetailAnnexEditor(r as Record<string, unknown>) ? i : -1))
+      .map((r, i) =>
+        isStructureRowInDetailAnnexEditor(r as Record<string, unknown>, structEdit.structure, i)
+          ? i
+          : -1,
+      )
       .filter((i) => i >= 0)
   }, [structureEditMode, canInlineStructureEdit, structEdit.structure])
 
@@ -1566,7 +1610,7 @@ export function IncomeStatementDetail({
 
   // Determine months needed for series API based on view
   const isMultiPeriodView = view === "12months" || view === "quarters" || view === "years"
-  const seriesMonthsNeeded = view === "years" ? 72 : view === "quarters" ? 15 : 12
+  const seriesMonthsNeeded = view === "years" ? 72 : view === "quarters" ? 18 : 12
 
   // Fetch multi-period series data from API
   const { rows: seriesRows, periods: seriesPeriods, loading: seriesLoading } = useFinancialStatementSeries({
@@ -2871,15 +2915,13 @@ export function IncomeStatementDetail({
       const sr = findStructureRowForStatementLine(row.id, row.label, structure)
       return sr !== undefined && isShowInDetail(sr, structure) && isCodeMappingEnabled(sr)
     })
-    const sorted = [...defined].sort((a, b) => {
-      const srA = findStructureRowForStatementLine(a.id, a.label, structure)!
-      const srB = findStructureRowForStatementLine(b.id, b.label, structure)!
-      return getStructureRowGlobalIndex(srA, structure) - getStructureRowGlobalIndex(srB, structure)
-    })
+    const sorted = uniqueStatementRowsByStructureIndex(defined, structure)
     return sorted.map((row) => {
-      const sr = findStructureRowForStatementLine(row.id, row.label, structure)!
-      const sub = isStructureRowDetailOnly(sr)
-      const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+      const { structRow: sr, sub, annexLetter, isAnnexTitle } = resolveDetailAnnexMeta(
+        row,
+        structure,
+        sorted,
+      )
       const rawDetail = row.detailRows
       const balanceAccounts =
         rawDetail &&
@@ -2893,9 +2935,9 @@ export function IncomeStatementDetail({
             }))
           : undefined
       return zeroAmountsForAnnexTitleRow({
-        label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
+        label: detailLineLabelForDisplay(sr, row.label, annexLetter || undefined),
         statementLabel: row.label,
-        annexLetter: String(row.annexLetter ?? ""),
+        annexLetter,
         current: row.current ?? 0,
         prior: row.prior ?? 0,
         indent: sub,
@@ -2914,11 +2956,7 @@ export function IncomeStatementDetail({
       const sr = findStructureRowForStatementLine(row.id, row.label, structure)
       return sr !== undefined && isShowInDetail(sr, structure) && isCodeMappingEnabled(sr)
     })
-    return [...defined].sort((a, b) => {
-      const srA = findStructureRowForStatementLine(a.id, a.label, structure)!
-      const srB = findStructureRowForStatementLine(b.id, b.label, structure)!
-      return getStructureRowGlobalIndex(srA, structure) - getStructureRowGlobalIndex(srB, structure)
-    })
+    return uniqueStatementRowsByStructureIndex(defined, structure)
   }, [])
 
   /** Postes de revenus (même périmètre que « Estimation des revenus annuelles » en mode annexes) pour lier une dépense variable. */
@@ -2981,9 +3019,11 @@ export function IncomeStatementDetail({
       const trend = monthTrendFromReference(row, seriesPeriods, refMonth, refYear, 12)
       const lastAmount = trend[0] || 0
       const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
-      const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
-      const sub = sr ? isStructureRowDetailOnly(sr) : false
-      const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+      const { structRow: sr, sub, annexLetter, isAnnexTitle } = resolveDetailAnnexMeta(
+        row,
+        incomeStatementStructure,
+        sorted,
+      )
       const balanceAccountsRaw = balanceAccountsFromSeriesRowDetail(
         row,
         seriesPeriods,
@@ -3000,9 +3040,9 @@ export function IncomeStatementDetail({
           ? balanceAccountsRaw
           : undefined
       return zeroAmountsForAnnexTitleRow({
-        label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
+        label: detailLineLabelForDisplay(sr, row.label, annexLetter || undefined),
         statementLabel: row.label,
-        annexLetter: String(row.annexLetter ?? ""),
+        annexLetter,
         current: lastAmount,
         prior: priorAmount,
         isBold: !sub,
@@ -3022,18 +3062,30 @@ export function IncomeStatementDetail({
     if (!seriesRows.length || !seriesPeriods.length || !incomeStatementStructure) return []
     const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
     return sorted.map((row) => {
-      const trend = quarterTrendFromReference(row, seriesPeriods, refMonth, refYear, 5)
-      const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
+      const trend = incomeStatementQuarterTrendForBasis(
+        row,
+        seriesPeriods,
+        refMonth,
+        refYear,
+        periodBasis,
+        fiscalYearEndMonth,
+        INCOME_STATEMENT_QUARTER_COUNT,
+      )
       const lastAmount = trend[0] || 0
       const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
-      const sub = sr ? isStructureRowDetailOnly(sr) : false
-      const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+      const { structRow: sr, sub, annexLetter, isAnnexTitle } = resolveDetailAnnexMeta(
+        row,
+        incomeStatementStructure,
+        sorted,
+      )
       const balanceAccountsRaw = balanceAccountsFromSeriesRowDetail(
         row,
         seriesPeriods,
         "quarters",
         refMonth,
-        refYear
+        refYear,
+        periodBasis,
+        fiscalYearEndMonth,
       )
       const balanceAccounts =
         balanceAccountsRaw &&
@@ -3044,9 +3096,9 @@ export function IncomeStatementDetail({
           ? balanceAccountsRaw
           : undefined
       return zeroAmountsForAnnexTitleRow({
-        label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
+        label: detailLineLabelForDisplay(sr, row.label, annexLetter || undefined),
         statementLabel: row.label,
-        annexLetter: String(row.annexLetter ?? ""),
+        annexLetter,
         current: lastAmount,
         prior: priorAmount,
         isBold: !sub,
@@ -3072,18 +3124,31 @@ export function IncomeStatementDetail({
             const actual = yearTrendFromReference(row, seriesPeriods, refYear, 1)[0] || 0
             return [actual, ...Array.from({ length: projectionYears }, () => 0)]
           })()
-        : yearTrendFromReference(row, seriesPeriods, refYear, PERFORMANCE_CHART_YEAR_COUNT)
-      const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
+        : incomeStatementYearTrendForBasis(
+            row,
+            seriesPeriods,
+            refMonth,
+            refYear,
+            periodBasis,
+            fiscalYearEndMonth,
+            PERFORMANCE_CHART_YEAR_COUNT,
+          )
       const lastAmount = trend[0] || 0
       const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
-      const sub = sr ? isStructureRowDetailOnly(sr) : false
-      const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+      const { structRow: sr, sub, annexLetter, isAnnexTitle } = resolveDetailAnnexMeta(
+        row,
+        incomeStatementStructure,
+        sorted,
+      )
       const balanceAccountsRaw = balanceAccountsFromSeriesRowDetail(
         row,
         seriesPeriods,
         "years",
         refMonth,
-        refYear
+        refYear,
+        periodBasis,
+        fiscalYearEndMonth,
+        forceForecastSection,
       )
       const balanceAccounts =
         balanceAccountsRaw &&
@@ -3094,9 +3159,9 @@ export function IncomeStatementDetail({
           ? balanceAccountsRaw
           : undefined
       return zeroAmountsForAnnexTitleRow({
-        label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
+        label: detailLineLabelForDisplay(sr, row.label, annexLetter || undefined),
         statementLabel: row.label,
-        annexLetter: String(row.annexLetter ?? ""),
+        annexLetter,
         current: lastAmount,
         prior: priorAmount,
         isBold: !sub,
@@ -3631,7 +3696,10 @@ export function IncomeStatementDetail({
               seriesPeriods,
               "years",
               refMonth,
-              refYear
+              refYear,
+              periodBasis,
+              fiscalYearEndMonth,
+              true,
             )
           } else if (indent) {
             balanceAccounts = sr.detailRows.map((dr) => {
@@ -3805,10 +3873,26 @@ export function IncomeStatementDetail({
           return monthTrendFromReference(revenueSeries, seriesPeriods, refMonth, refYear, 12)
         }
         if (view === "quarters") {
-          return quarterTrendFromReference(revenueSeries, seriesPeriods, refMonth, refYear, 5)
+          return incomeStatementQuarterTrendForBasis(
+            revenueSeries,
+            seriesPeriods,
+            refMonth,
+            refYear,
+            periodBasis,
+            fiscalYearEndMonth,
+            INCOME_STATEMENT_QUARTER_COUNT,
+          )
         }
         if (view === "years") {
-          return yearTrendFromReference(revenueSeries, seriesPeriods, refYear, PERFORMANCE_CHART_YEAR_COUNT)
+          return incomeStatementYearTrendForBasis(
+            revenueSeries,
+            seriesPeriods,
+            refMonth,
+            refYear,
+            periodBasis,
+            fiscalYearEndMonth,
+            PERFORMANCE_CHART_YEAR_COUNT,
+          )
         }
       }
     }
@@ -3827,6 +3911,8 @@ export function IncomeStatementDetail({
     view,
     refMonth,
     refYear,
+    periodBasis,
+    fiscalYearEndMonth,
     filterSeriesRowsDefinedOnly,
     data,
   ])
@@ -4015,17 +4101,27 @@ export function IncomeStatementDetail({
                 .map(([, v]) => v)
               const lastAmount = amounts[amounts.length - 1] || 0
               const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
-              const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
-              const sub = sr ? isStructureRowDetailOnly(sr) : false
-              const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+              const { structRow: sr, sub, annexLetter, isAnnexTitle } = resolveDetailAnnexMeta(
+                row,
+                incomeStatementStructure,
+                sorted,
+              )
               const balanceAccounts =
                 seriesHorizon && periods.length > 0
-                  ? balanceAccountsFromSeriesRowDetail(row, periods, seriesHorizon, refMonth, refYear)
+                  ? balanceAccountsFromSeriesRowDetail(
+                      row,
+                      periods,
+                      seriesHorizon,
+                      refMonth,
+                      refYear,
+                      periodBasis,
+                      fiscalYearEndMonth,
+                    )
                   : undefined
               return zeroAmountsForAnnexTitleRow({
-                label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
+                label: detailLineLabelForDisplay(sr, row.label, annexLetter || undefined),
                 statementLabel: row.label,
-                annexLetter: String(row.annexLetter ?? ""),
+                annexLetter,
                 current: lastAmount,
                 prior: priorAmount,
                 indent: sub,
@@ -4235,7 +4331,13 @@ export function IncomeStatementDetail({
   // Helper function to generate quarter labels (5 quarters)
   const getQuarterLabels = (): string[] => {
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      return quarterLabelsFromReference(refMonth, refYear, 5)
+      return incomeStatementQuarterLabelsForBasis(
+        refMonth,
+        refYear,
+        periodBasis,
+        fiscalYearEndMonth,
+        INCOME_STATEMENT_QUARTER_COUNT,
+      )
     }
     const currentDate = new Date()
     const labels: string[] = []
@@ -4258,7 +4360,13 @@ export function IncomeStatementDetail({
       return labels
     }
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      return yearLabelsFromReference(refYear, PERFORMANCE_CHART_YEAR_COUNT)
+      return incomeStatementYearLabelsForBasis(
+        refMonth,
+        refYear,
+        periodBasis,
+        fiscalYearEndMonth,
+        PERFORMANCE_CHART_YEAR_COUNT,
+      )
     }
     const labels: string[] = []
     if (isForecastSection) {
@@ -9309,7 +9417,7 @@ export function IncomeStatementDetail({
                       {title === "Estimation des dépenses annuelles" && view === "years" && (
                         <td className="min-w-[6.5rem] px-4 py-3 text-center text-white">-</td>
                       )}
-                      {Array.from({ length: view === "12months" ? 12 : view === "quarters" ? 5 : (isForecastSection && view === "years" ? projectionYears + 1 : PERFORMANCE_CHART_YEAR_COUNT) }).map((_, idx) => (
+                      {Array.from({ length: view === "12months" ? 12 : view === "quarters" ? INCOME_STATEMENT_QUARTER_COUNT : (isForecastSection && view === "years" ? projectionYears + 1 : PERFORMANCE_CHART_YEAR_COUNT) }).map((_, idx) => (
                         <td 
                           key={idx} 
                           className={cn(

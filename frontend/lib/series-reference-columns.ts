@@ -6,7 +6,11 @@ import {
   priorCalendarQuarter,
   type CalendarQuarter,
 } from "@/lib/financial-period-labels"
-import { monthsInFiscalQuarterThrough, endOfPriorFiscalQuarter } from "@/lib/capex-year-reference"
+import {
+  monthsInFiscalQuarterThrough,
+  monthsInFiscalYearThrough,
+  endOfPriorFiscalQuarter,
+} from "@/lib/capex-year-reference"
 
 /** Abrégés alignés sur l’API (`financial_statements._build_periods`). */
 const FRENCH_MONTH_ABBREVS_SHORT = [
@@ -275,22 +279,136 @@ export function sumCalendarYear(map: Map<string, number>, year: number): number 
   return s
 }
 
-/** TTM : 12 derniers mois se terminant au mois civil `(month, year)` inclus. */
-export function sumTTMEndingAtCalendarMonth(
+/** Somme des `count` mois civils se terminant au mois `(month, year)` inclus. */
+export function sumTrailingMonthsEndingAt(
   map: Map<string, number>,
   month: number,
   year: number,
+  count: number,
 ): number {
   let sum = 0
   let m = month
   let y = year
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < count; i++) {
     sum += map.get(calendarMonthKey(m, y)) ?? 0
     const prior = priorCalMonth(m, y)
     m = prior.month
     y = prior.year
   }
   return sum
+}
+
+/** TTM : 12 derniers mois se terminant au mois civil `(month, year)` inclus. */
+export function sumTTMEndingAtCalendarMonth(
+  map: Map<string, number>,
+  month: number,
+  year: number,
+): number {
+  return sumTrailingMonthsEndingAt(map, month, year, 12)
+}
+
+/** YTD de l’exercice contenant `(month, year)` jusqu’à ce mois inclus. */
+export function sumFiscalYearThrough(
+  map: Map<string, number>,
+  month: number,
+  year: number,
+  fiscalYearEndMonth = 12,
+): number {
+  return monthsInFiscalYearThrough(month, year, fiscalYearEndMonth).reduce(
+    (sum, point) => sum + (map.get(calendarMonthKey(point.month, point.year)) ?? 0),
+    0,
+  )
+}
+
+/**
+ * Colonnes « Exercice » annuel : mois de référence, puis chaque fin d’exercice close.
+ * Ex. réf. Aoû 2026, clôture 31 déc. → Aoû 2026, Déc 2025, Déc 2024…
+ */
+export function fiscalYearAsOfSequenceFromReference(
+  refMonth: number,
+  refYear: number,
+  count: number,
+  fiscalYearEndMonth = 12,
+): { month: number; year: number }[] {
+  if (count < 1) return []
+  const out: { month: number; year: number }[] = [{ month: refMonth, year: refYear }]
+  let fyYear = refMonth <= fiscalYearEndMonth ? refYear - 1 : refYear
+  for (let i = 1; i < count; i++) {
+    out.push({ month: fiscalYearEndMonth, year: fyYear })
+    fyYear -= 1
+  }
+  return out
+}
+
+export function fiscalYearAsOfLabelsFromReference(
+  refMonth: number,
+  refYear: number,
+  count = 5,
+  fiscalYearEndMonth = 12,
+): string[] {
+  return fiscalYearAsOfSequenceFromReference(refMonth, refYear, count, fiscalYearEndMonth).map(
+    ({ month, year }) => `${FRENCH_MONTH_ABBREVS_SHORT[month - 1]} ${year}`,
+  )
+}
+
+export function fiscalYearTrendFromReference(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  refMonth: number,
+  refYear: number,
+  count = 5,
+  fiscalYearEndMonth = 12,
+): number[] {
+  const map = buildAmountsByCalendarMonth(row, periods)
+  return fiscalYearAsOfSequenceFromReference(refMonth, refYear, count, fiscalYearEndMonth).map(
+    ({ month, year }) => sumFiscalYearThrough(map, month, year, fiscalYearEndMonth),
+  )
+}
+
+/**
+ * Colonnes trimestrielles « Courant » : tous les 3 mois civils, T3M se terminant à cette date.
+ * Ex. réf. Aoû 2026 → Aoû 2026, Mai 2026, Fév 2026…
+ */
+export function trailingQuarterMonthSequenceFromReference(
+  refMonth: number,
+  refYear: number,
+  count: number,
+): { month: number; year: number }[] {
+  const out: { month: number; year: number }[] = []
+  let month = refMonth
+  let year = refYear
+  for (let i = 0; i < count; i++) {
+    out.push({ month, year })
+    month -= 3
+    while (month < 1) {
+      month += 12
+      year -= 1
+    }
+  }
+  return out
+}
+
+export function trailingQuarterMonthLabelsFromReference(
+  refMonth: number,
+  refYear: number,
+  count = 5,
+): string[] {
+  return trailingQuarterMonthSequenceFromReference(refMonth, refYear, count).map(
+    ({ month, year }) => `${FRENCH_MONTH_ABBREVS_SHORT[month - 1]} ${year}`,
+  )
+}
+
+export function trailingQuarterTrendFromReference(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  refMonth: number,
+  refYear: number,
+  count = 5,
+): number[] {
+  const map = buildAmountsByCalendarMonth(row, periods)
+  return trailingQuarterMonthSequenceFromReference(refMonth, refYear, count).map(({ month, year }) =>
+    sumTrailingMonthsEndingAt(map, month, year, 3),
+  )
 }
 
 export function calendarYearSequenceFromReference(refYear: number, count: number): number[] {

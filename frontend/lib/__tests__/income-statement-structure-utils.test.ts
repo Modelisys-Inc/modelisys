@@ -11,6 +11,9 @@ import {
   isBaiiaStructureRow,
   normalizeBaiiaStructureRow,
   stripObsoleteIncomeStatementStructureRows,
+  isShowInDetail,
+  isStructureRowInDetailAnnexEditor,
+  findSummaryAnnexOwnerRow,
 } from "../income-statement-structure-utils"
 import type { StandardLinkCode } from "@/lib/api"
 
@@ -57,6 +60,18 @@ describe("renumberAnnexesByAppearance — letters (Résultats)", () => {
     expect(out[2]!.annexLetter).toBe("B")
   })
 
+  it("keeps hidden detailOnly inside the annex block so following lines keep the letter", () => {
+    const s: Row[] = [
+      { label: "Coûts des produits vendus", showInDetail: true, defineMapping: true, annexLetter: "B" },
+      { label: "Stocks au début", detailOnly: true, hidden: true, annexLetter: "B" },
+      { label: "Achats", detailOnly: true, annexLetter: "" },
+    ]
+    const out = renumberAnnexesByAppearance(s, "letter")
+    expect(out[0]!.annexLetter).toBe("A")
+    expect(out[1]!.annexLetter).toBe("A")
+    expect(out[2]!.annexLetter).toBe("A")
+  })
+
   it("splits legacy non-contiguous rows sharing an id into separate annexes", () => {
     const s: Row[] = [
       { label: "A1", showInDetail: true, annexLetter: "A" },
@@ -86,6 +101,7 @@ describe("renumberAnnexesByAppearance — letters (Résultats)", () => {
       { label: "Real", showInDetail: true, defineMapping: true, annexLetter: "" },
     ]
     const out = renumberAnnexesByAppearance(s, "letter")
+    expect(out[1]!.annexLetter).toBeUndefined()
     expect(out[3]!.annexLetter).toBe("A") // first id goes to the only real annexe
   })
 
@@ -244,6 +260,137 @@ describe("syncIncomeStatementDetailSubLinesFromStandard", () => {
     expect(detailRows.map((r) => r.linkCode)).toEqual(["REV-A"])
     expect(detailRows[0]!.liaisonMode).toBe("sum")
     expect(detailRows[0]!.liaisonSumCodes).toEqual(["REV-A.1"])
+  })
+
+  it("does not duplicate CMV leaves when some detailOnly lost their annex letter", () => {
+    const structure: Row[] = [
+      {
+        id: "owner",
+        label: "Coûts des produits vendus",
+        defineMapping: true,
+        showInDetail: true,
+        annexLetter: "B",
+        linkCode: "CMV",
+        liaisonMode: "single",
+      },
+      {
+        id: "hidden-stock",
+        label: "Stocks au début",
+        detailOnly: true,
+        hidden: true,
+        annexLetter: "B",
+        linkCode: "CMV.1",
+      },
+      {
+        id: "achats-uuid",
+        label: "Achats",
+        detailOnly: true,
+        annexLetter: "",
+        linkCode: "CMV.1",
+      },
+    ]
+    const out = syncIncomeStatementDetailSubLinesFromStandard(structure, revChart)
+    const cmvLeaves = out.filter((r) => r.detailOnly)
+    expect(cmvLeaves).toHaveLength(1)
+    expect(cmvLeaves[0]!.linkCode).toBe("CMV.1")
+    expect(cmvLeaves[0]!.annexLetter).toBe("B")
+  })
+
+  it("syncs ADM onto the visible ADM owner, not the hidden EXP that shares letter C", () => {
+    const chart: StandardLinkCode[] = [
+      ...revChart,
+      {
+        code: "EXP",
+        family: "EXP",
+        parent_code: null,
+        is_leaf: false,
+        label_sub_account: "Exploitation",
+        label_account: null,
+        sort_order: 10,
+        is_active: true,
+        attached_link_codes: [],
+      },
+      {
+        code: "EXP.1",
+        family: "EXP",
+        parent_code: "EXP",
+        is_leaf: true,
+        label_sub_account: "Salaires EXP",
+        label_account: null,
+        sort_order: 11,
+        is_active: true,
+        attached_link_codes: [],
+      },
+      {
+        code: "ADM",
+        family: "ADM",
+        parent_code: null,
+        is_leaf: false,
+        label_sub_account: "Administration",
+        label_account: null,
+        sort_order: 20,
+        is_active: true,
+        attached_link_codes: [],
+      },
+      {
+        code: "ADM.12",
+        family: "ADM",
+        parent_code: "ADM",
+        is_leaf: true,
+        label_sub_account: "Honoraires professionnels",
+        label_account: null,
+        sort_order: 21,
+        is_active: true,
+        attached_link_codes: [],
+      },
+    ]
+    const structure: Row[] = [
+      {
+        id: "exp",
+        label: "Frais d'exploitation",
+        hidden: true,
+        showInDetail: false,
+        defineMapping: false,
+        annexLetter: "C",
+        linkCode: "EXP",
+      },
+      {
+        id: "exp1",
+        label: "Salaires EXP",
+        detailOnly: true,
+        hidden: true,
+        annexLetter: "C",
+        linkCode: "EXP.1",
+      },
+      {
+        id: "adm",
+        label: "Frais d'administration",
+        defineMapping: true,
+        showInDetail: true,
+        annexLetter: "C",
+        linkCode: "ADM",
+      },
+      {
+        id: "hon",
+        label: "Honoraires professionnels",
+        detailOnly: true,
+        annexLetter: "",
+        linkCode: "ADM.12",
+      },
+    ]
+    const out = syncIncomeStatementDetailSubLinesFromStandard(structure, chart)
+    expect(out[0]!.id).toBe("exp")
+    expect(out[1]!.id).toBe("exp1")
+    const admIdx = out.findIndex((r) => r.id === "adm")
+    expect(admIdx).toBeGreaterThan(1)
+    const admLeaves = out.filter((r) => r.linkCode === "ADM.12")
+    expect(admLeaves).toHaveLength(1)
+    expect(out[admIdx + 1]!.linkCode).toBe("ADM.12")
+    expect(out[admIdx + 1]!.annexLetter).toBe("C")
+    expect(isShowInDetail(out[admIdx + 1]!, out)).toBe(true)
+    expect(findSummaryAnnexOwnerRow(out, "C")?.id).toBe("adm")
+    expect(isStructureRowInDetailAnnexEditor(out[1]!, out, 1)).toBe(false)
+    expect(isStructureRowInDetailAnnexEditor(out[admIdx + 1]!, out, admIdx + 1)).toBe(true)
   })
 })
 

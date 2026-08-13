@@ -203,6 +203,22 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   Code / Liaison / Annexe sont retirés au chargement/sauvegarde
   (`normalizeBaiiaStructureRow`) ; Liaison affiche « REV − CV − CF » en
   lecture seule.
+- **Résultats Annuel 5 ans / Trimestriel 2 ans** (Sommaire + Détail) : sélecteur
+  **Courant** | **Exercice** (comme Mois dernier / Mois passé sur Mois actuel).
+  Courant annuel = TTM au même mois chaque année (Aoû 2026, Aoû 2025…) ;
+  Exercice annuel = YTD jusqu’à la date de référence puis fins d’exercice
+  (Aoû 2026, Déc 2025…, selon `fiscal_year_end`). Courant trimestriel = T3M
+  tous les 3 mois ; Exercice trimestriel = QTD fiscal puis fins de trimestres.
+  Lib `income-statement-period-basis.ts`.
+- **Détail annexes (IS)** : `renumberAnnexesByAppearance` ne rompt pas le bloc
+  sur une sous-ligne `detailOnly` masquée (ex. Stocks CMV.1) et **efface** la
+  lettre des postes sommaire masqués (EXP/VNT auto-hide). Sinon Achats /
+  Main-d’œuvre perdent `annexLetter`, ou ADM/AUT héritent de la lettre d’un
+  EXP/VNT masqué, et la sync recollait les feuilles sous le mauvais owner →
+  doublons toutes annexes. La sync itère chaque **owner visible** et ne
+  remplace que son span `detailOnly` contigu (jamais un strip global par
+  lettre). Visibilité / Paramètres : owner contigu, pas le premier row de
+  la lettre. Dédup affichage : `uniqueStatementRowsByStructureIndex`.
 - Cash flow is derived from income statement + balance sheet deltas
 - **Sommaire** trésorerie : lignes cochées « Annexe » (`showInSummary`) dans
   Détail → Paramètres ; même moteur de calcul que le Détail (`variant="summary"`).

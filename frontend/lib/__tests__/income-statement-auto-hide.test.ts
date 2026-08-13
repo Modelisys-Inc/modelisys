@@ -196,4 +196,45 @@ describe("isShowInDetail with structure", () => {
     ]
     expect(isShowInDetail(structure[1]!, structure)).toBe(false)
   })
+
+  it("garde visibles les sous-lignes ADM même si EXP masqué partage la lettre C", () => {
+    const structure = [
+      {
+        id: "exp",
+        label: "Frais d'exploitation",
+        linkCode: "EXP",
+        annexLetter: "C",
+        hidden: true,
+        defineMapping: false,
+        showInDetail: false,
+      },
+      {
+        id: "exp1",
+        label: "EXP.1",
+        detailOnly: true,
+        linkCode: "EXP.1",
+        annexLetter: "C",
+        hidden: true,
+      },
+      {
+        id: "adm",
+        label: "Frais d'administration",
+        linkCode: "ADM",
+        annexLetter: "C",
+        defineMapping: true,
+        showInDetail: true,
+      },
+      {
+        id: "adm1",
+        label: "Salaires",
+        detailOnly: true,
+        linkCode: "ADM.1",
+        annexLetter: "C",
+        defineMapping: true,
+        showInDetail: true,
+      },
+    ]
+    expect(isShowInDetail(structure[3]!, structure)).toBe(true)
+    expect(isShowInDetail(structure[1]!, structure)).toBe(false)
+  })
 })

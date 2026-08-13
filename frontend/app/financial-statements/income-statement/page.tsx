@@ -22,6 +22,7 @@ import {
   type FinancialStatementParams,
 } from "@/lib/api"
 import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
+import type { IncomeStatementPeriodBasis } from "@/lib/income-statement-period-basis"
 import { defaultChartCardTitle } from "@/lib/statement-chart-config"
 import { useStatementChartSlots } from "@/hooks/use-statement-chart-slots"
 
@@ -44,6 +45,7 @@ export default function IncomeStatementPage() {
   const [section, setSection] = useState<Section>("dashboard")
   const [columnMode, setColumnMode] = useState<ColumnMode>("variationAmount")
   const [comparisonType, setComparisonType] = useState<ComparisonType>("lastMonth")
+  const [periodBasis, setPeriodBasis] = useState<IncomeStatementPeriodBasis>("current")
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null)
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
@@ -396,6 +398,24 @@ export default function IncomeStatementPage() {
                       )}
                     </SelectContent>
                   </Select>
+                  {(section === "summary" || section === "detail") &&
+                    (view === "years" || view === "quarters") && (
+                    <>
+                      <ChevronRight className="h-4 w-4 text-[#C9B8A5]/50" />
+                      <Select
+                        value={periodBasis}
+                        onValueChange={(value) => setPeriodBasis(value as IncomeStatementPeriodBasis)}
+                      >
+                        <SelectTrigger className="h-8 w-[140px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="current">{HORIZON_LABEL.courant}</SelectItem>
+                          <SelectItem value="fiscal">{HORIZON_LABEL.exercice}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </>
+                  )}
                   {(view === "comparison" || view === "ytd" || view === "ddm") && (
                     <>
                       <ChevronRight className="h-4 w-4 text-[#C9B8A5]/50" />
@@ -569,6 +589,7 @@ export default function IncomeStatementPage() {
             subDivisionId={selectedSubDivisionId}
             companies={companies}
             comparisonType={comparisonType}
+            periodBasis={periodBasis}
             selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
             selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
             fiscalYear={selectedYear}
@@ -595,6 +616,7 @@ export default function IncomeStatementPage() {
             subDivisionId={selectedSubDivisionId}
             companies={companies}
             comparisonType={comparisonType}
+            periodBasis={periodBasis}
             selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
             selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
             fiscalYear={selectedYear}

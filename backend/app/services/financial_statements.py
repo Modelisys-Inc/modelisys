@@ -1225,10 +1225,23 @@ def _find_summary_annex_owner_row(structure_flat: list[dict], letter: str) -> di
             continue
         if _is_structure_row_empty_label(row):
             continue
+        if bool(row.get("hidden")):
+            continue
         if _normalize_annex_letter(row.get("annexLetter")) != target:
             continue
         return row
     return None
+
+
+def _contiguous_detail_annex_owner_index(structure_flat: list[dict], from_index: int) -> int:
+    for i in range(from_index - 1, -1, -1):
+        row = structure_flat[i]
+        if _is_structure_row_empty_label(row):
+            return -1
+        if _is_structure_row_detail_only(row):
+            continue
+        return i
+    return -1
 
 
 def _is_show_in_detail(row: dict, structure_flat: list[dict] | None = None) -> bool:
@@ -1239,6 +1252,18 @@ def _is_show_in_detail(row: dict, structure_flat: list[dict] | None = None) -> b
     if _is_structure_row_detail_only(row):
         if not structure_flat:
             return True
+        idx = next(
+            (
+                i
+                for i, r in enumerate(structure_flat)
+                if r is row or (str(r.get("id") or "").strip() and r.get("id") == row.get("id"))
+            ),
+            -1,
+        )
+        if idx >= 0:
+            owner_idx = _contiguous_detail_annex_owner_index(structure_flat, idx)
+            if owner_idx >= 0:
+                return _is_show_in_detail(structure_flat[owner_idx], structure_flat)
         letter = _normalize_annex_letter(row.get("annexLetter"))
         if not letter:
             return True

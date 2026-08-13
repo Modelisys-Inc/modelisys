@@ -132,9 +132,16 @@ export function renumberAnnexesByAppearance(
     scheme === "number" ? String(n) : numberToAnnexLetters(n)
 
   for (const row of next) {
-    if (isStructureRowEmptyLabel(row) || isStructureRowHidden(row)) {
-      // Espacement / ligne masquée : rompt la contiguïté du bloc en cours.
+    if (isStructureRowEmptyLabel(row)) {
       currentId = undefined
+      continue
+    }
+    // Ligne sommaire masquée : rompt le bloc et efface la lettre périmée (sinon
+    // EXP/VNT masqués gardent C/E et volent ADM/AUT). Les sous-lignes detailOnly
+    // masquées (auto-hide hors montant) restent dans le bloc courant.
+    if (isStructureRowHidden(row) && !isStructureRowDetailOnly(row)) {
+      currentId = undefined
+      row.annexLetter = undefined
       continue
     }
     if (isStructureRowDetailOnly(row)) {
@@ -325,7 +332,11 @@ export function autoUnhideIncomeStatementSummaryRowPatch(): Record<string, unkno
   return { hidden: false }
 }
 
-/** Première ligne sommaire (non `detailOnly`) portant cette lettre d’annexe. */
+/**
+ * Propriétaire d’annexe visible (Sommaire, non masqué) pour une lettre.
+ * Ignore les postes masqués (EXP/VNT auto-hide) qui gardent une lettre périmée
+ * sinon ADM/AUT héritent du mauvais owner et disparaissent du Détail.
+ */
 export function findSummaryAnnexOwnerRow(
   structure: Record<string, unknown>[],
   letter: string,
@@ -333,12 +344,25 @@ export function findSummaryAnnexOwnerRow(
   const L = normalizeAnnexLetter(letter)
   if (!L) return undefined
   for (const row of structure) {
-    if (isStructureRowDetailOnly(row)) continue
-    if (isStructureRowEmptyLabel(row)) continue
+    if (!isSummaryRowVisibleInDetail(row)) continue
     if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== L) continue
     return row
   }
   return undefined
+}
+
+/** Index du poste sommaire qui précède une sous-ligne `detailOnly` (bloc contigu). */
+export function findContiguousDetailAnnexOwnerIndex(
+  structure: Record<string, unknown>[],
+  fromIndex: number,
+): number {
+  for (let i = fromIndex - 1; i >= 0; i--) {
+    const row = structure[i]
+    if (!row || isStructureRowEmptyLabel(row)) return -1
+    if (isStructureRowDetailOnly(row)) continue
+    return i
+  }
+  return -1
 }
 
 /** Ligne sommaire visible au Détail (hors sous-lignes `detailOnly`). */
@@ -498,6 +522,17 @@ export function isShowInDetail(
   if (isStructureRowHidden(row)) return false
   if (isStructureRowDetailOnly(row)) {
     if (!structure) return true
+    const idx = structure.findIndex(
+      (r) =>
+        r === row ||
+        (String(r.id ?? "").trim() !== "" && String(r.id ?? "").trim() === String(row.id ?? "").trim()),
+    )
+    if (idx >= 0) {
+      const ownerIdx = findContiguousDetailAnnexOwnerIndex(structure, idx)
+      if (ownerIdx >= 0) {
+        return isShowInDetail(structure[ownerIdx]!, structure)
+      }
+    }
     const letter = normalizeAnnexLetter(String(row.annexLetter ?? ""))
     if (!letter) return true
     const owner = findSummaryAnnexOwnerRow(structure, letter)
@@ -674,7 +709,7 @@ export function listStructureRowsForDetailDisplay(
     (sr) =>
       !isStructureRowEmptyLabel(sr) &&
       !isStructureRowHidden(sr) &&
-      isShowInDetail(sr) &&
+      isShowInDetail(sr, structure) &&
       isCodeMappingEnabled(sr) &&
       !isComputedNetIncomeStructureRow(sr),
   )
@@ -892,38 +927,34 @@ export function syncIncomeStatementDetailSubLinesFromStandard(
   if (standardCodes.length === 0) return structure
 
   let next = cloneStructure(structure)
-  const letters = listAnnexLettersForDetailSubLines(next)
+  const ownerIndices: number[] = []
+  for (let i = 0; i < next.length; i++) {
+    const row = next[i]!
+    if (!isSummaryRowVisibleInDetail(row)) continue
+    if (!normalizeAnnexLetter(String(row.annexLetter ?? ""))) continue
+    ownerIndices.push(i)
+  }
 
-  for (const letter of letters) {
-    const parentCode = getSummaryAnnexParentLinkCode(next, letter)
-    if (!parentCode) continue
+  for (let k = ownerIndices.length - 1; k >= 0; k--) {
+    const ownerIdx = ownerIndices[k]!
+    const owner = next[ownerIdx]!
+    const letter = normalizeAnnexLetter(String(owner.annexLetter ?? ""))
+    const parentCode = String(owner.linkCode ?? "").trim()
+    if (!letter || !parentCode) continue
 
     const expectedTargets = getDetailSubLineCodesFromStandardLinkCode(parentCode, standardCodes)
     const expectedCodes = new Set(expectedTargets.map((c) => c.code))
 
     const existingByCode = new Map<string, Record<string, unknown>>()
-    for (const row of next) {
-      if (!isStructureRowDetailOnly(row)) continue
-      if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== letter) continue
+    let blockEnd = ownerIdx
+    for (let i = ownerIdx + 1; i < next.length; i++) {
+      const row = next[i]!
+      if (isStructureRowEmptyLabel(row) || !isStructureRowDetailOnly(row)) break
+      blockEnd = i
       const code = String(row.linkCode ?? "").trim()
-      if (code && expectedCodes.has(code)) existingByCode.set(code, row)
-    }
-
-    next = next.filter(
-      (row) =>
-        !(
-          isStructureRowDetailOnly(row) &&
-          normalizeAnnexLetter(String(row.annexLetter ?? "")) === letter
-        ),
-    )
-
-    let endIdx = findStructureInsertIndexAfterAnnexContiguousBlock(next, letter)
-    if (endIdx < 0) continue
-    while (
-      endIdx + 1 < next.length &&
-      normalizeAnnexLetter(String(next[endIdx + 1]?.annexLetter ?? "")) === letter
-    ) {
-      endIdx++
+      if (code && expectedCodes.has(code) && !existingByCode.has(code)) {
+        existingByCode.set(code, row)
+      }
     }
 
     const orderedRows: Record<string, unknown>[] = []
@@ -953,7 +984,7 @@ export function syncIncomeStatementDetailSubLinesFromStandard(
       }
     }
 
-    next.splice(endIdx + 1, 0, ...orderedRows)
+    next = [...next.slice(0, ownerIdx + 1), ...orderedRows, ...next.slice(blockEnd + 1)]
   }
 
   return next
@@ -1523,9 +1554,27 @@ export function formatLiaisonCellHint(row: Record<string, unknown>): string {
 }
 
 /** Ligne affichée dans la grille Paramètres du Détail (titres d’annexe + sous-lignes detailOnly). */
-export function isStructureRowInDetailAnnexEditor(row: Record<string, unknown>): boolean {
+export function isStructureRowInDetailAnnexEditor(
+  row: Record<string, unknown>,
+  structure?: Record<string, unknown>[],
+  index?: number,
+): boolean {
   if (isStructureRowEmptyLabel(row)) return false
-  if (isStructureRowDetailOnly(row)) return true
+  if (isStructureRowDetailOnly(row)) {
+    if (!isStructureRowHidden(row)) return true
+    if (!structure?.length) return false
+    const idx =
+      index ??
+      structure.findIndex(
+        (r) =>
+          r === row ||
+          (String(r.id ?? "").trim() !== "" &&
+            String(r.id ?? "").trim() === String(row.id ?? "").trim()),
+      )
+    const ownerIdx = findContiguousDetailAnnexOwnerIndex(structure, idx)
+    if (ownerIdx < 0) return false
+    return isSummaryRowVisibleInDetail(structure[ownerIdx]!)
+  }
   return (
     isShowInDetail(row) &&
     isCodeMappingEnabled(row) &&

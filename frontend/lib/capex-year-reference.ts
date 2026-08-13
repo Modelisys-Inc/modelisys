@@ -92,6 +92,44 @@ export function endOfPriorFiscalQuarter(
   return { month, year }
 }
 
+/** Premier mois civil de l’exercice contenant `(calendarMonth, calendarYear)`. */
+export function fiscalYearStartContaining(
+  calendarMonth: number,
+  calendarYear: number,
+  fiscalYearEndMonth: number,
+): { month: number; year: number } {
+  const startMonth = (fiscalYearEndMonth % 12) + 1
+  if (calendarMonth > fiscalYearEndMonth) {
+    return { month: startMonth, year: calendarYear }
+  }
+  if (startMonth <= calendarMonth) {
+    return { month: startMonth, year: calendarYear }
+  }
+  return { month: startMonth, year: calendarYear - 1 }
+}
+
+/** Mois de l’exercice jusqu’à la date as-of inclusive (YTD fiscal, max 12 mois). */
+export function monthsInFiscalYearThrough(
+  asOfMonth: number,
+  asOfYear: number,
+  fiscalYearEndMonth: number,
+): { month: number; year: number }[] {
+  const start = fiscalYearStartContaining(asOfMonth, asOfYear, fiscalYearEndMonth)
+  const out: { month: number; year: number }[] = []
+  let month = start.month
+  let year = start.year
+  while (year < asOfYear || (year === asOfYear && month <= asOfMonth)) {
+    out.push({ month, year })
+    month += 1
+    if (month > 12) {
+      month = 1
+      year += 1
+    }
+    if (out.length >= 12) break
+  }
+  return out
+}
+
 /**
  * Mois bilan pour chaque année de la fenêtre « 5 ans » Capex :
  * année de référence → mois de référence ; années antérieures → fin d'exercice.
