@@ -88,4 +88,18 @@ test.describe("Analysis Pages", () => {
     await page.goto("/analysis/capex");
     await expect(page.getByText("Date de référence")).toBeVisible({ timeout: 10000 });
   });
+
+  test("ratios page has dashboard and summary sections", async ({ page }) => {
+    await page.goto("/analysis/ratios");
+    await expect(page.getByRole("button", { name: "Tableau de bord" })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("button", { name: "Sommaire" })).toBeVisible();
+    await page.getByRole("button", { name: "Sommaire" }).click();
+    await expect(page.getByTestId("ratios-summary-table-scroll")).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("button", { name: "Paramètres" })).toBeVisible();
+  });
+
+  test("ratios page shows reference date selector in header", async ({ page }) => {
+    await page.goto("/analysis/ratios");
+    await expect(page.getByText("Date de référence")).toBeVisible({ timeout: 10000 });
+  });
 });

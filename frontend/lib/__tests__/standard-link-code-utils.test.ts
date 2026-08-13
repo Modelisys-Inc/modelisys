@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import type { StandardLinkCode } from "@/lib/api"
 import {
+  allAnalysisLinkCodeOptions,
   capexLinkCodeOptions,
   filterAssignableMappingLinkCodes,
   getDetailSubLineCodesFromStandardLinkCode,
@@ -305,5 +306,29 @@ describe("capexLinkCodeOptions", () => {
     expect(capex.codes).toContain("REV")
     expect(capex.codes).not.toContain("TEX-A")
     expect(capex.labels.get("CMV.1")).toBe("Achats")
+  })
+})
+
+describe("allAnalysisLinkCodeOptions", () => {
+  const chart: StandardLinkCode[] = [
+    code({ code: "ALT-B", family: "ALT", is_leaf: true }),
+    code({
+      code: "CMV.1",
+      family: "CMV",
+      parent_code: "CMV",
+      is_leaf: true,
+      label_sub_account: "Achats",
+    }),
+    code({ code: "TEX-A", family: "TEX", is_leaf: true }),
+  ]
+
+  it("includes every active code including CMV.1 and trésorerie leaves", () => {
+    const all = allAnalysisLinkCodeOptions(chart)
+    expect(all.codes).toContain("CMV.1")
+    expect(all.codes).toContain("ALT-B")
+    expect(all.codes).toContain("TEX-A")
+    expect(all.codes).toContain("REV")
+    expect(all.codes).toContain("TEX")
+    expect(all.labels.get("CMV.1")).toBe("Achats")
   })
 })

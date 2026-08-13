@@ -1,12 +1,29 @@
 "use client"
 
-import type { RatioDataPoint } from "@/components/financial-ratios"
-import { ChartContainer, ChartTooltip, ChartLegend } from "@/components/ui/chart"
+import { BarChart3 } from "lucide-react"
 import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid } from "recharts"
-import { Company } from "@/components/entity-selector"
+import { ChartContainer, ChartTooltip, ChartLegend } from "@/components/ui/chart"
+import type { Company } from "@/components/entity-selector"
+import { cn } from "@/lib/utils"
+import {
+  averageRatioValues,
+  formatRatioValue,
+  type RatioDataPoint,
+  type RatioDisplayView,
+} from "@/lib/financial-ratios"
+import {
+  dashboardCardAccentClass,
+  dashboardCardBodyMutedClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardHeaderIconBoxClass,
+  dashboardCardRingClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 
 interface FinancialRatiosChartProps {
   ratioData: RatioDataPoint[]
+  view: RatioDisplayView
   loading?: boolean
   companyId?: string | null
   divisionId?: string | null
@@ -16,6 +33,7 @@ interface FinancialRatiosChartProps {
 
 export function FinancialRatiosChart({
   ratioData,
+  view,
   loading = false,
   companyId,
   divisionId,
@@ -24,31 +42,31 @@ export function FinancialRatiosChart({
 }: FinancialRatiosChartProps) {
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+      <div className={cn("mb-6 flex h-64 items-center justify-center", dashboardCardFrameStaticClass)}>
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
       </div>
     )
   }
 
   if (ratioData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64 bg-white rounded-2xl border border-slate-200/80 shadow-lg mb-6">
-        <p className="text-slate-400">Aucune donnée disponible</p>
+      <div className={cn("mb-6 flex h-64 items-center justify-center", dashboardCardFrameStaticClass)}>
+        <p className={dashboardCardBodyMutedClass}>Aucune donnée disponible</p>
       </div>
     )
   }
 
-  // Key metrics for the left panel
-  const latestData = ratioData[ratioData.length - 1]
-  const avgCurrentRatio =
-    ratioData.filter((d) => d.currentRatio !== null).reduce((s, d) => s + (d.currentRatio || 0), 0) /
-    (ratioData.filter((d) => d.currentRatio !== null).length || 1)
-  const avgGrossMargin =
-    ratioData.filter((d) => d.grossMargin !== null).reduce((s, d) => s + (d.grossMargin || 0), 0) /
-    (ratioData.filter((d) => d.grossMargin !== null).length || 1)
-  const avgNetMargin =
-    ratioData.filter((d) => d.netMargin !== null).reduce((s, d) => s + (d.netMargin || 0), 0) /
-    (ratioData.filter((d) => d.netMargin !== null).length || 1)
+  const latestData = ratioData[ratioData.length - 1]!
+  const currentRatioAvg = averageRatioValues(ratioData.map((d) => d.currentRatio))
+  const grossMarginAvg = averageRatioValues(ratioData.map((d) => d.grossMargin))
+  const netMarginAvg = averageRatioValues(ratioData.map((d) => d.netMargin))
+
+  const getHorizonText = (): string => {
+    if (view === "12months") return "12 mois"
+    if (view === "24months") return "24 mois"
+    if (view === "years") return "5 ans"
+    return "Courant"
+  }
 
   const chartConfig = {
     currentRatio: { label: "Ratio de liquidité", color: "#10b981" },
@@ -57,98 +75,95 @@ export function FinancialRatiosChart({
   }
 
   return (
-    <div className="bg-gradient-to-br from-white to-slate-50/50 rounded-2xl border border-slate-200/80 shadow-lg mb-6 overflow-hidden relative z-10">
-      {/* Header */}
-      <div className="bg-white px-8 py-5 border-b border-slate-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">
-                Ratios de liquidité et de rentabilité
-              </h3>
-              <div className="flex items-center gap-3 text-sm text-slate-700 flex-wrap">
-                {subDivisionId && divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">&bull;</span>
-                    <span>
-                      {companies
-                        .find((c) => c.id === companyId)
-                        ?.divisions.find((d) => d.id === divisionId)?.name || "Division"}
-                    </span>
-                    <span className="text-slate-400">&bull;</span>
-                    <span className="text-emerald-600 font-semibold">
-                      {companies
-                        .find((c) => c.id === companyId)
-                        ?.divisions.find((d) => d.id === divisionId)
-                        ?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
-                    </span>
-                  </>
-                ) : divisionId && companyId ? (
-                  <>
-                    <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                    <span className="text-slate-400">&bull;</span>
-                    <span className="text-emerald-600 font-semibold">
-                      {companies
-                        .find((c) => c.id === companyId)
-                        ?.divisions.find((d) => d.id === divisionId)?.name || "Division"}
-                    </span>
-                  </>
-                ) : companyId ? (
-                  <span className="text-emerald-600 font-semibold">
-                    {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+    <div className={cn("relative z-10 mb-6", dashboardCardFrameStaticClass)}>
+      <div className={dashboardCardRingClass} aria-hidden />
+      <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+        <div className="flex min-w-0 flex-1 items-start gap-4">
+          <div className={dashboardCardHeaderIconBoxClass}>
+            <BarChart3 className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className={cn("mb-1 text-xl leading-tight", dashboardCardTitleClass)}>
+              Ratios financiers
+            </h3>
+            <div className={cn("flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+              <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
+              <span className="text-slate-400">•</span>
+              {subDivisionId && divisionId && companyId ? (
+                <>
+                  <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                  <span className="text-slate-400">•</span>
+                  <span>
+                    {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name ||
+                      "Division"}
                   </span>
-                ) : (
-                  <span className="truncate">Toutes les sociétés</span>
-                )}
-              </div>
+                  <span className="text-slate-400">•</span>
+                  <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                    {companies
+                      .find((c) => c.id === companyId)
+                      ?.divisions.find((d) => d.id === divisionId)
+                      ?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
+                  </span>
+                </>
+              ) : divisionId && companyId ? (
+                <>
+                  <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                  <span className="text-slate-400">•</span>
+                  <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                    {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name ||
+                      "Division"}
+                  </span>
+                </>
+              ) : companyId ? (
+                <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                  {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
+                </span>
+              ) : (
+                <span className="truncate">Toutes les sociétés</span>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Chart + Metrics */}
-      <div className="px-8 py-6 bg-white">
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* Left Panel - Key Metrics */}
+      <div className="bg-white px-8 py-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
           <div className="lg:col-span-1">
             <div className="pb-3">
-              <div className="text-xs font-medium text-slate-500 mb-1">Ratio de liquidité</div>
-              <div className="text-xl font-semibold text-slate-900 mb-1.5">
-                {latestData.currentRatio !== null ? `${latestData.currentRatio.toFixed(2)}x` : "\u2014"}
+              <div className="mb-1 text-xs font-medium text-slate-500">Ratio de liquidité</div>
+              <div className="mb-1.5 text-xl font-semibold text-slate-900">
+                {formatRatioValue(latestData.currentRatio, "ratio")}
               </div>
               <div className="text-xs text-slate-500">
-                Moyenne: {avgCurrentRatio.toFixed(2)}x
+                Moyenne: {formatRatioValue(currentRatioAvg, "ratio")}
               </div>
             </div>
 
-            <div className="border-b border-slate-200 my-3"></div>
+            <div className="my-3 border-b border-slate-200" />
 
             <div className="pb-3">
-              <div className="text-xs font-medium text-slate-500 mb-1">Marge brute moyenne</div>
-              <div className="text-xl font-semibold text-slate-900 mb-1.5">
-                {avgGrossMargin.toFixed(1)}&nbsp;%
+              <div className="mb-1 text-xs font-medium text-slate-500">Marge brute moyenne</div>
+              <div className="mb-1.5 text-xl font-semibold text-slate-900">
+                {formatRatioValue(grossMarginAvg, "percentage")}
               </div>
               <div className="text-xs text-slate-500">
-                Dernière: {latestData.grossMargin !== null ? `${latestData.grossMargin.toFixed(1)}\u00A0%` : "\u2014"}
+                Dernière: {formatRatioValue(latestData.grossMargin, "percentage")}
               </div>
             </div>
 
-            <div className="border-b border-slate-200 my-3"></div>
+            <div className="my-3 border-b border-slate-200" />
 
             <div>
-              <div className="text-xs font-medium text-slate-500 mb-1">Marge nette moyenne</div>
-              <div className="text-xl font-semibold text-slate-900 mb-1.5">
-                {avgNetMargin.toFixed(1)}&nbsp;%
+              <div className="mb-1 text-xs font-medium text-slate-500">Marge nette moyenne</div>
+              <div className="mb-1.5 text-xl font-semibold text-slate-900">
+                {formatRatioValue(netMarginAvg, "percentage")}
               </div>
               <div className="text-xs text-slate-500">
-                Dernière: {latestData.netMargin !== null ? `${latestData.netMargin.toFixed(1)}\u00A0%` : "\u2014"}
+                Dernière: {formatRatioValue(latestData.netMargin, "percentage")}
               </div>
             </div>
           </div>
 
-          {/* Right Panel - Chart */}
           <div className="lg:col-span-4">
             <ChartContainer config={chartConfig} className="h-[400px] w-full">
               <ComposedChart data={ratioData} margin={{ top: 20, right: 50, left: 20, bottom: 5 }}>
@@ -164,7 +179,7 @@ export function FinancialRatiosChart({
                   tick={{ fill: "#64748b", fontSize: 12 }}
                   tickLine={{ stroke: "#cbd5e1" }}
                   axisLine={{ stroke: "#cbd5e1" }}
-                  tickFormatter={(v) => `${v.toFixed(1)}x`}
+                  tickFormatter={(v) => `${Number(v).toFixed(1)}x`}
                 />
                 <YAxis
                   yAxisId="right"
@@ -172,43 +187,34 @@ export function FinancialRatiosChart({
                   tick={{ fill: "#64748b", fontSize: 12 }}
                   tickLine={{ stroke: "#cbd5e1" }}
                   axisLine={{ stroke: "#cbd5e1" }}
-                  tickFormatter={(v) => `${v.toFixed(0)}%`}
+                  tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
                 />
                 <ChartTooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null
                     const data = payload[0]?.payload as RatioDataPoint
                     return (
-                      <div className="rounded-xl border border-slate-200 bg-white/95 backdrop-blur-sm p-4 shadow-xl">
-                        <div className="font-bold text-sm text-slate-900 mb-3 pb-2 border-b border-slate-100">
+                      <div className="rounded-xl border border-slate-200 bg-white/95 p-4 shadow-xl backdrop-blur-sm">
+                        <div className="mb-3 border-b border-slate-100 pb-2 text-sm font-bold text-slate-900">
                           {label}
                         </div>
                         <div className="space-y-2.5">
-                          <div className="flex items-center justify-between gap-6 min-w-[220px]">
-                            <div className="flex items-center gap-2">
-                              <div className="w-3 h-3 rounded-sm bg-emerald-500"></div>
-                              <span className="text-xs font-medium text-slate-600">Liquidité</span>
-                            </div>
-                            <span className="font-mono font-bold text-sm text-emerald-600">
-                              {data.currentRatio !== null ? `${data.currentRatio.toFixed(2)}x` : "\u2014"}
+                          <div className="flex min-w-[220px] items-center justify-between gap-6">
+                            <span className="text-xs font-medium text-slate-600">Liquidité</span>
+                            <span className="font-mono text-sm font-bold text-emerald-600">
+                              {formatRatioValue(data.currentRatio, "ratio")}
                             </span>
                           </div>
                           <div className="flex items-center justify-between gap-6">
-                            <div className="flex items-center gap-2">
-                              <div className="w-6 h-0.5 bg-blue-500"></div>
-                              <span className="text-xs font-medium text-slate-600">Marge brute</span>
-                            </div>
-                            <span className="font-mono font-bold text-sm text-blue-600">
-                              {data.grossMargin !== null ? `${data.grossMargin.toFixed(1)}\u00A0%` : "\u2014"}
+                            <span className="text-xs font-medium text-slate-600">Marge brute</span>
+                            <span className="font-mono text-sm font-bold text-blue-600">
+                              {formatRatioValue(data.grossMargin, "percentage")}
                             </span>
                           </div>
-                          <div className="flex items-center justify-between gap-6 pt-1 border-t border-slate-100">
-                            <div className="flex items-center gap-2">
-                              <div className="w-6 h-0.5 bg-amber-500"></div>
-                              <span className="text-xs font-medium text-slate-600">Marge nette</span>
-                            </div>
-                            <span className="font-mono font-bold text-sm text-amber-600">
-                              {data.netMargin !== null ? `${data.netMargin.toFixed(1)}\u00A0%` : "\u2014"}
+                          <div className="flex items-center justify-between gap-6 border-t border-slate-100 pt-1">
+                            <span className="text-xs font-medium text-slate-600">Marge nette</span>
+                            <span className="font-mono text-sm font-bold text-amber-600">
+                              {formatRatioValue(data.netMargin, "percentage")}
                             </span>
                           </div>
                         </div>
@@ -218,45 +224,37 @@ export function FinancialRatiosChart({
                 />
                 <ChartLegend
                   content={() => (
-                    <div className="w-full pt-6 pb-2">
-                      <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3 px-4">
-                        <div className="flex items-center gap-2.5 min-w-fit">
-                          <div className="w-4 h-4 rounded-md shadow-sm bg-emerald-500 flex-shrink-0"></div>
-                          <span className="text-sm font-medium text-slate-700 whitespace-nowrap">
+                    <div className="w-full px-4 pb-2 pt-6">
+                      <div className="flex flex-wrap items-center justify-center gap-x-10 gap-y-3">
+                        <div className="flex min-w-fit items-center gap-2.5">
+                          <div className="h-4 w-4 flex-shrink-0 rounded-md bg-emerald-500 shadow-sm" />
+                          <span className="whitespace-nowrap text-sm font-medium text-slate-700">
                             Ratio de liquidité
                           </span>
                         </div>
-                        <div className="flex items-center gap-2.5 min-w-fit">
-                          <div className="w-8 h-1.5 bg-blue-500 rounded-full flex-shrink-0"></div>
-                          <span className="text-sm font-medium text-slate-700 whitespace-nowrap">
+                        <div className="flex min-w-fit items-center gap-2.5">
+                          <div className="h-1.5 w-8 flex-shrink-0 rounded-full bg-blue-500" />
+                          <span className="whitespace-nowrap text-sm font-medium text-slate-700">
                             Marge brute (%)
                           </span>
                         </div>
-                        <div className="flex items-center gap-2.5 min-w-fit">
-                          <div className="w-8 h-1.5 bg-amber-500 rounded-full flex-shrink-0"></div>
-                          <span className="text-sm font-medium text-slate-700 whitespace-nowrap">
+                        <div className="flex min-w-fit items-center gap-2.5">
+                          <div className="h-1.5 w-8 flex-shrink-0 rounded-full bg-amber-500" />
+                          <span className="whitespace-nowrap text-sm font-medium text-slate-700">
                             Marge nette (%)
                           </span>
                         </div>
                       </div>
                     </div>
                   )}
-                  wrapperStyle={{ paddingTop: "25px", width: "100%", paddingLeft: "0", paddingRight: "0" }}
+                  wrapperStyle={{ paddingTop: "25px", width: "100%" }}
                 />
-                <defs>
-                  <linearGradient id="ratioBarGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
-                    <stop offset="100%" stopColor="#059669" stopOpacity={0.9} />
-                  </linearGradient>
-                </defs>
                 <Bar
                   yAxisId="left"
                   dataKey="currentRatio"
-                  fill="url(#ratioBarGradient)"
+                  fill="#10b981"
                   name="Ratio de liquidité"
                   radius={[6, 6, 0, 0]}
-                  stroke="#059669"
-                  strokeWidth={0.5}
                 />
                 <Line
                   yAxisId="right"
@@ -265,7 +263,6 @@ export function FinancialRatiosChart({
                   stroke="#3b82f6"
                   strokeWidth={3}
                   dot={{ fill: "#3b82f6", r: 5, strokeWidth: 2.5, stroke: "#fff" }}
-                  activeDot={{ r: 7, strokeWidth: 2.5, stroke: "#fff", fill: "#3b82f6" }}
                   name="Marge brute (%)"
                   connectNulls
                 />
@@ -276,7 +273,6 @@ export function FinancialRatiosChart({
                   stroke="#f59e0b"
                   strokeWidth={3}
                   dot={{ fill: "#f59e0b", r: 5, strokeWidth: 2.5, stroke: "#fff" }}
-                  activeDot={{ r: 7, strokeWidth: 2.5, stroke: "#fff", fill: "#f59e0b" }}
                   name="Marge nette (%)"
                   connectNulls
                 />

@@ -138,6 +138,51 @@ def test_upsert_working_capital_structure(client, auth_headers):
     assert response.json()["structure"][0]["liaisonMode"] == "difference"
 
 
+def test_get_ratios_structure_defaults(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    response = client.get(
+        f"/api/companies/{company_id}/statement-structures/ratios",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["statement_type"] == "ratios"
+    labels = [r.get("label") for r in data["structure"]]
+    assert "Ratio de liquidité générale" in labels
+    assert "Marge BAIIA" in labels
+
+
+def test_upsert_ratios_structure(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    payload = [
+        {
+            "label": "Ratio de liquidité générale",
+            "defineMapping": True,
+            "liaisonMode": "quotient",
+            "liaisonNumeratorCodes": ["ACT"],
+            "liaisonDenominatorCodes": ["PCT"],
+            "displayFormat": "number",
+        },
+        {
+            "label": "Marge CMV.1",
+            "defineMapping": True,
+            "liaisonMode": "single",
+            "linkCode": "CMV.1",
+            "displayFormat": "percent",
+        },
+    ]
+    response = client.put(
+        f"/api/companies/{company_id}/statement-structures/ratios",
+        json={"structure": payload},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["statement_type"] == "ratios"
+    assert len(response.json()["structure"]) == 2
+    assert response.json()["structure"][0]["liaisonMode"] == "quotient"
+    assert response.json()["structure"][1]["linkCode"] == "CMV.1"
+
+
 def test_get_capex_structure_default(client, auth_headers):
     company_id = _create_company(client, auth_headers)
     response = client.get(

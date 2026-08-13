@@ -218,6 +218,18 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   « Capex / Exploitation » (ratios). Colonne **Moyenne** = moyenne des
   colonnes affichées (`averageDisplayedHorizonValues`), pas des années
   vides masquées (Annuel 5 ans).
+- **Ratios financiers** (`/analysis/ratios`) : même coquille que Capex / FDR
+  (hero, Tableau de bord / Sommaire, date de référence, horizons, cartes
+  `dashboardCard*`). Sommaire = liquidité / rentabilité / levier + colonne
+  **Moyenne** ; Annuel 5 ans = `table-fixed` + entêtes mois+année
+  (`pickCapexDisplayIndices`, années vides masquées). **Paramètres** comme FDR
+  (structure `statement_type="ratios"`, studio Code / Liaison / Format,
+  `allowProductQuotient`). Picker = **tous les codes actifs** Bilan + CDR +
+  Trésorerie, parents et feuilles (CMV.1, ALT-B, TEX-A, ancres REV/TEX, overlay
+  `company_link_codes`) via `allAnalysisLinkCodeOptions`. Calcul liaison =
+  `resolveWorkingCapitalStructureAmount` (BS snapshot, IS/CF TTM) ; les 7
+  ratios historiques restent en repli libellé si `liaisonMode: "na"`.
+  Couverture des intérêts = BAIIA / charges financières, distinct du diagnostic.
 - **Annuel 5 ans / Trimestriel 2 ans** (Sommaire + Détail, Résultats + Bilan +
   Trésorerie) : sélecteur **Courant** | **Exercice** (comme Mois dernier /
   Mois passé sur Mois actuel). Mêmes dates de colonnes partout

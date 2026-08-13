@@ -103,6 +103,57 @@ DEFAULT_WORKING_CAPITAL = [
     {"label": "CCC", "defineMapping": True, "liaisonMode": "na", "displayFormat": "days"},
 ]
 
+# Analyse ratios — lignes configurables (code / formule via Paramètres).
+DEFAULT_RATIOS = [
+    {"label": "Liquidité", "isBold": True, "defineMapping": False},
+    {
+        "label": "Ratio de liquidité générale",
+        "defineMapping": True,
+        "liaisonMode": "na",
+        "displayFormat": "number",
+    },
+    {
+        "label": "Ratio de liquidité immédiate",
+        "defineMapping": True,
+        "liaisonMode": "na",
+        "displayFormat": "number",
+    },
+    {"label": "", "separatorAbove": True},
+    {"label": "Rentabilité", "isBold": True, "defineMapping": False},
+    {
+        "label": "Marge brute",
+        "defineMapping": True,
+        "liaisonMode": "na",
+        "displayFormat": "percent",
+    },
+    {
+        "label": "Marge nette",
+        "defineMapping": True,
+        "liaisonMode": "na",
+        "displayFormat": "percent",
+    },
+    {
+        "label": "Marge BAIIA",
+        "defineMapping": True,
+        "liaisonMode": "na",
+        "displayFormat": "percent",
+    },
+    {"label": "", "separatorAbove": True},
+    {"label": "Levier financier", "isBold": True, "defineMapping": False},
+    {
+        "label": "Dette / Capitaux propres",
+        "defineMapping": True,
+        "liaisonMode": "na",
+        "displayFormat": "number",
+    },
+    {
+        "label": "Couverture des intérêts",
+        "defineMapping": True,
+        "liaisonMode": "na",
+        "displayFormat": "number",
+    },
+]
+
 # Analyse Capex — lignes configurables (code / formule via Paramètres).
 DEFAULT_CAPEX = [
     {"label": "Capex", "defineMapping": True, "liaisonMode": "na", "displayFormat": "currency"},
@@ -124,4 +175,5 @@ DEFAULT_STRUCTURES = {
     "cash-flow-detail": DEFAULT_CASH_FLOW_DETAIL,
     "working-capital": DEFAULT_WORKING_CAPITAL,
     "capex": DEFAULT_CAPEX,
+    "ratios": DEFAULT_RATIOS,
 }

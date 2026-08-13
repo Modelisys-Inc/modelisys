@@ -293,6 +293,21 @@ export function capexLinkCodeOptions(codes: StandardLinkCode[]): {
   }
 }
 
+/**
+ * Tous les codes actifs (Bilan, Compte de résultat et Trésorerie, parents et feuilles).
+ * Inclut CMV.1, ALT-B, TEX-A, et les ancres de famille (REV, CMV, TEX, …).
+ */
+export function allAnalysisLinkCodeOptions(codes: StandardLinkCode[]): {
+  codes: string[]
+  labels: Map<string, string>
+} {
+  const capex = capexLinkCodeOptions(codes)
+  const cf = cashFlowLinkCodeOptions(codes)
+  const labels = new Map<string, string>([...capex.labels, ...cf.labels])
+  const merged = [...new Set([...capex.codes, ...cf.codes])]
+  return { codes: merged, labels }
+}
+
 export function standardLinkCodeDisplayLabel(code: StandardLinkCode): string {
   return (code.label_sub_account || code.label_account || code.label || code.code).trim()
 }

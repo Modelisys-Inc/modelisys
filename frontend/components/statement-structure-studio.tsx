@@ -169,7 +169,9 @@ export function StatementStructureStudio({
   const isCashFlowDetail = statementType === "cash-flow-detail"
   const isWorkingCapital = statementType === "working-capital"
   const isCapex = statementType === "capex"
-  const isLinkCodeAnalysis = isWorkingCapital || isCapex
+  const isRatios = statementType === "ratios"
+  const isLinkCodeAnalysis = isWorkingCapital || isCapex || isRatios
+  const analysisLinkCodeVariant = isCapex ? "capex" : isRatios ? "ratios" : "working-capital"
   const annexMode =
     annexModeProp ??
     (isCashFlowDetail ? "summary" : hideAnnexColumns ? "hidden" : "full")
@@ -180,7 +182,11 @@ export function StatementStructureStudio({
   const { codes: cashFlowCategoryLinkCodes, labels: cashFlowCategoryLinkLabels } =
     useCashFlowCategoryLinkCodes(isCashFlow, isCashFlowDetail)
   const { codes: workingCapitalLinkCodes, labels: workingCapitalLinkLabels } =
-    useWorkingCapitalLinkCodes(isLinkCodeAnalysis, isCapex ? "capex" : "working-capital")
+    useWorkingCapitalLinkCodes(
+      isLinkCodeAnalysis,
+      analysisLinkCodeVariant,
+      isRatios ? companyId : undefined,
+    )
   const singleModeLinkCodes = isIncomeStatement
     ? incomeParentLinkCodes
     : isBalanceSheet
