@@ -29,6 +29,7 @@ VALID_STATEMENT_TYPES = {
     "cash-flow-detail",
     "working-capital",
     "capex",
+    "ratios",
     "baiia",
 }
 

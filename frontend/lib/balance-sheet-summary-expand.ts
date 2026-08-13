@@ -46,12 +46,11 @@ function findApiRowByCodeOrLabel<T extends { id?: string; label?: string; linkCo
   const codeNorm = normId(code)
   const labelNorm = label.trim().toLowerCase()
   if (codeNorm) {
-    const byCode = apiRows.find((r) => {
+    return apiRows.find((r) => {
       const id = normId(r.id)
       const link = normId(r.linkCode)
       return id === codeNorm || link === codeNorm
     })
-    if (byCode) return byCode
   }
   if (labelNorm) {
     return apiRows.find((r) => String(r.label ?? "").trim().toLowerCase() === labelNorm)

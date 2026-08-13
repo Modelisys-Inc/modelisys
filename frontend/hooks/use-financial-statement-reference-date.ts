@@ -12,7 +12,9 @@ export function isFinancialStatementPath(pathname: string | null): boolean {
     pathname.startsWith("/financial-statements/income-statement") ||
     pathname.startsWith("/financial-statements/balance-sheet") ||
     pathname.startsWith("/financial-statements/cash-flow") ||
-    pathname.startsWith("/analysis/working-capital")
+    pathname.startsWith("/analysis/working-capital") ||
+    pathname.startsWith("/analysis/capex") ||
+    pathname.startsWith("/analysis/ratios")
   )
 }
 
@@ -46,7 +48,7 @@ export type UseFinancialStatementReferenceDateOptions = {
 }
 
 /**
- * Mois / année de référence partagés entre Résultats, Bilan et Trésorerie via l’URL (?refMonth=&refYear=).
+ * Mois / année de référence partagés entre états financiers et analyses (FDR, Capex, Ratios) via l’URL (?refMonth=&refYear=).
  */
 export function useFinancialStatementReferenceDate(options?: UseFinancialStatementReferenceDateOptions) {
   const skipUrlSync = options?.skipUrlSync === true

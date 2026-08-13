@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils"
 export interface Company {
   id: string
   name: string
+  /** Fin d'exercice « MM-JJ » (ex. 12-31). */
+  fiscalYearEnd?: string
   divisions: Division[]
 }
 

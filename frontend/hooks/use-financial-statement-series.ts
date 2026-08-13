@@ -19,6 +19,8 @@ interface UseFinancialStatementSeriesParams {
   customer?: string | null
   supplier?: string | null
   enabled?: boolean  // skip fetch when false
+  /** Capex : séries bilan filtrées aux comptes ALT-B/C/D mappés « Coût » uniquement. */
+  altAssetCostOnly?: boolean
   /** Incrémenté après sauvegarde de la structure (compte de résultat, etc.) pour refetch. */
   structureVersion?: number
 }
@@ -43,6 +45,7 @@ export function useFinancialStatementSeries({
   customer,
   supplier,
   enabled = true,
+  altAssetCostOnly = false,
   structureVersion = 0,
 }: UseFinancialStatementSeriesParams): UseFinancialStatementSeriesReturn {
   const [data, setData] = useState<FinancialStatementSeriesResponse | null>(null)
@@ -68,6 +71,7 @@ export function useFinancialStatementSeries({
       sub_division_id: subDivisionId || undefined,
       customer: customer || undefined,
       supplier: supplier || undefined,
+      alt_asset_cost_only: altAssetCostOnly || undefined,
       structure_rev: structureVersion > 0 ? structureVersion : undefined,
     })
       .then((response) => {
@@ -97,6 +101,7 @@ export function useFinancialStatementSeries({
     customer,
     supplier,
     enabled,
+    altAssetCostOnly,
     reloadCounter,
     structureVersion,
   ])

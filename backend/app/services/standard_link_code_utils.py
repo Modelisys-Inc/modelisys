@@ -333,6 +333,71 @@ def build_cash_flow_virtual_family_link_codes(db: "Session") -> dict[str, list[s
     return index
 
 
+def collect_cash_flow_structure_family_codes(
+    structure: list[dict] | None,
+    family: str,
+) -> list[str]:
+    """Link codes of a Trésorerie family present as « code unique » in a structure.
+
+    Used by the cash-flow summary so TEX/TIN/TFI roll up only the codes configured
+    in the company's cash-flow-detail structure (not every chart code in the family).
+    """
+    fam = str(family or "").strip().upper()
+    if fam not in CASH_FLOW_FAMILIES or not structure:
+        return []
+
+    def _mode(row: dict) -> str:
+        raw = row.get("liaisonMode")
+        if isinstance(raw, str) and raw.strip():
+            m = raw.strip().lower()
+            if m in ("na", "n/a", "none"):
+                return "na"
+            if m in ("single", "unique", "code"):
+                return "single"
+            if m in ("sum", "addition", "add"):
+                return "sum"
+            if m in ("difference", "subtraction", "subtract"):
+                return "difference"
+            if m in ("product", "multiplication", "multiply"):
+                return "product"
+            if m in ("quotient", "division", "divide"):
+                return "quotient"
+        if str(row.get("linkCode") or "").strip():
+            return "single"
+        return "na"
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for row in structure:
+        if not isinstance(row, dict):
+            continue
+        if _mode(row) != "single":
+            continue
+        lc = str(row.get("linkCode") or "").strip()
+        if not lc or lc.upper() == fam:
+            continue
+        if derive_link_code_family(lc) != fam:
+            continue
+        if lc in seen:
+            continue
+        seen.add(lc)
+        out.append(lc)
+    return out
+
+
+def build_cash_flow_virtual_family_link_codes_from_detail(
+    db: "Session",
+    detail_structure: list[dict] | None,
+) -> dict[str, list[str]]:
+    """TEX/TIN/TFI → union of attachments for codes present in the Detail structure."""
+    by_code = build_cash_flow_link_code_attachments(db)
+    index: dict[str, list[str]] = {vf: [] for vf in CASH_FLOW_FAMILIES}
+    for family in CASH_FLOW_FAMILIES:
+        for cf_code in collect_cash_flow_structure_family_codes(detail_structure, family):
+            index[family].extend(by_code.get(cf_code, []))
+    return index
+
+
 def build_net_income_balance_structure_row(
     code,
     revenue_codes: list[str],

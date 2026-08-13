@@ -18,6 +18,7 @@ import {
   newBalanceSheetPostRow,
   newChargeRow,
   newDetailSubLineRow,
+  newEmptySpacerCashFlowSummaryRow,
   newEmptySpacerSummaryRow,
   normalizeCodeList,
   normalizeDtCt,
@@ -32,10 +33,14 @@ import {
   ensureBalanceSheetValidationStructure,
   isBalanceSheetValidationStructureRow,
 } from "@/lib/balance-sheet-validation"
+import {
+  isCapexSettingsStructureRow,
+  normalizeCapexStructure,
+} from "@/lib/capex-analysis-settings"
 
 export type StatementStructureEditKind = Extract<
   StatementType,
-  "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "working-capital" | "capex"
+  "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "working-capital" | "capex" | "ratios"
 >
 
 export function useStatementStructureEdit(
@@ -66,7 +71,8 @@ export function useStatementStructureEdit(
         .map((r, i) =>
           !isStructureRowDetailOnly(r) &&
           !isComputedNetIncomeStructureRow(r) &&
-          !(statementType === "balance-sheet" && isBalanceSheetValidationStructureRow(r))
+          !(statementType === "balance-sheet" && isBalanceSheetValidationStructureRow(r)) &&
+          !(statementType === "capex" && isCapexSettingsStructureRow(r))
             ? i
             : -1,
         )
@@ -93,7 +99,9 @@ export function useStatementStructureEdit(
           ? stripObsoleteIncomeStatementStructureRows(raw)
           : statementType === "balance-sheet"
             ? ensureBalanceSheetValidationStructure(raw)
-            : raw
+            : statementType === "capex"
+              ? normalizeCapexStructure(raw)
+              : raw
       // Normaliser les identifiants d'annexe selon l'ordre d'apparition dès le
       // chargement : les structures anciennes (identifiants désordonnés) sont
       // corrigées en mémoire et le champ « Lettre » (lecture seule) est exact.
@@ -201,34 +209,44 @@ export function useStatementStructureEdit(
     [newPostRow]
   )
 
-  const insertEmptySpacerAbove = useCallback((globalIndex: number) => {
-    setStructure((prev) => {
-      if (globalIndex < 0) return prev
-      const spacer = newEmptySpacerSummaryRow()
-      if (prev.length === 0) {
-        return globalIndex === 0 ? [spacer] : prev
-      }
-      if (globalIndex < 0 || globalIndex >= prev.length) return prev
-      const next = cloneStructure(prev)
-      next.splice(globalIndex, 0, spacer)
-      return next
-    })
-  }, [])
+  const insertEmptySpacerAbove = useCallback(
+    (globalIndex: number, opts?: { summaryOnly?: boolean }) => {
+      setStructure((prev) => {
+        if (globalIndex < 0) return prev
+        const spacer = opts?.summaryOnly
+          ? newEmptySpacerCashFlowSummaryRow()
+          : newEmptySpacerSummaryRow()
+        if (prev.length === 0) {
+          return globalIndex === 0 ? [spacer] : prev
+        }
+        if (globalIndex < 0 || globalIndex >= prev.length) return prev
+        const next = cloneStructure(prev)
+        next.splice(globalIndex, 0, spacer)
+        return next
+      })
+    },
+    [],
+  )
 
-  const insertEmptySpacerBelow = useCallback((globalIndex: number) => {
-    setStructure((prev) => {
-      if (globalIndex < 0) return prev
-      const spacer = newEmptySpacerSummaryRow()
-      if (prev.length === 0) {
-        return globalIndex === 0 ? [spacer] : prev
-      }
-      if (globalIndex < 0 || globalIndex >= prev.length) return prev
-      const insertAt = globalIndex + 1
-      const next = cloneStructure(prev)
-      next.splice(insertAt, 0, spacer)
-      return next
-    })
-  }, [])
+  const insertEmptySpacerBelow = useCallback(
+    (globalIndex: number, opts?: { summaryOnly?: boolean }) => {
+      setStructure((prev) => {
+        if (globalIndex < 0) return prev
+        const spacer = opts?.summaryOnly
+          ? newEmptySpacerCashFlowSummaryRow()
+          : newEmptySpacerSummaryRow()
+        if (prev.length === 0) {
+          return globalIndex === 0 ? [spacer] : prev
+        }
+        if (globalIndex < 0 || globalIndex >= prev.length) return prev
+        const insertAt = globalIndex + 1
+        const next = cloneStructure(prev)
+        next.splice(insertAt, 0, spacer)
+        return next
+      })
+    },
+    [],
+  )
 
   const addDetailSubLine = useCallback(
     (
@@ -365,7 +383,9 @@ export function useStatementStructureEdit(
           ? stripObsoleteIncomeStatementStructureRows(normalized)
           : statementType === "balance-sheet"
             ? ensureBalanceSheetValidationStructure(normalized)
-            : normalized
+            : statementType === "capex"
+              ? normalizeCapexStructure(normalized)
+              : normalized
       // Renuméroter les annexes selon l'ordre d'apparition avant validation /
       // sauvegarde : chaque annexe possède donc déjà un identifiant.
       const toSave = renumberAnnexesByAppearance(cleaned, annexScheme)

@@ -505,3 +505,68 @@ test("Bilan Détail : séparateur toujours au-dessus du sous-total après expand
     })
     .toBe(true)
 })
+
+test("Affichage n'offre plus % actif (Sommaire et Détail)", async ({ page }) => {
+  test.setTimeout(180_000)
+  await setupAuth(page)
+
+  await page.route(`**/api/companies/${COMPANY_ID}/financial-statements/balance-sheet**`, (route) => {
+    if (route.request().url().includes("/series")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          companyId: COMPANY_ID,
+          statementType: "balance-sheet",
+          fiscalYear: 2026,
+          periods: [],
+          rows: [],
+        }),
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        companyId: COMPANY_ID,
+        statementType: "balance-sheet",
+        fiscalYear: 2026,
+        month: 5,
+        period: "monthly",
+        rows: [],
+      }),
+    })
+  })
+  await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/balance-sheet**`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: null,
+        company_id: COMPANY_ID,
+        statement_type: "balance-sheet",
+        structure: [],
+      }),
+    }),
+  )
+
+  await page.goto(`/financial-statements/balance-sheet?companyId=${COMPANY_ID}`, {
+    waitUntil: "domcontentloaded",
+    timeout: 120_000,
+  })
+
+  await page.getByRole("button", { name: /^Sommaire$/ }).click({ timeout: 15000 })
+  await page.getByLabel("Affichage").click()
+  await expect(page.getByRole("option", { name: "Comparaison" })).toBeVisible()
+  await expect(page.getByRole("option", { name: "Variation $" })).toBeVisible()
+  await expect(page.getByRole("option", { name: "Variation %" })).toBeVisible()
+  await expect(page.getByRole("option", { name: "% actif" })).toHaveCount(0)
+  await page.keyboard.press("Escape")
+
+  await page.getByRole("button", { name: /^Détail$/ }).click()
+  await page.getByLabel("Affichage").click()
+  await expect(page.getByRole("option", { name: "Comparaison" })).toBeVisible()
+  await expect(page.getByRole("option", { name: "Variation $" })).toBeVisible()
+  await expect(page.getByRole("option", { name: "Variation %" })).toBeVisible()
+  await expect(page.getByRole("option", { name: "% actif" })).toHaveCount(0)
+})

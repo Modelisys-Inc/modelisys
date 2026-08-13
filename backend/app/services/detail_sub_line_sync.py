@@ -60,6 +60,14 @@ def _is_show_in_detail(row: dict) -> bool:
     return _is_code_mapping_enabled(row)
 
 
+def _is_summary_row_visible_in_detail(row: dict) -> bool:
+    if _is_structure_row_empty_label(row) or _is_structure_row_hidden(row):
+        return False
+    if _is_structure_row_detail_only(row):
+        return False
+    return _is_show_in_detail(row)
+
+
 def _list_annex_letters_for_detail_sub_lines(structure: list[dict]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -244,41 +252,32 @@ def sync_detail_sub_lines_from_standard(db: Session, structure: list[dict]) -> l
         return structure
 
     next_rows = copy.deepcopy(structure)
-    for letter in _list_annex_letters_for_detail_sub_lines(next_rows):
-        parent_code = _get_summary_annex_parent_link_code(next_rows, letter)
-        if not parent_code:
+    owner_indices = [
+        i
+        for i, row in enumerate(next_rows)
+        if _is_summary_row_visible_in_detail(row) and _normalize_annex_letter(row.get("annexLetter"))
+    ]
+
+    for owner_idx in reversed(owner_indices):
+        owner = next_rows[owner_idx]
+        letter = _normalize_annex_letter(owner.get("annexLetter"))
+        parent_code = str(owner.get("linkCode") or "").strip()
+        if not letter or not parent_code:
             continue
 
         expected_targets = _get_detail_sub_line_codes_from_standard(parent_code, standard_codes)
         expected_codes = {t.code for t in expected_targets}
 
-
         existing_by_code: dict[str, dict] = {}
-        for row in next_rows:
-            if not _is_structure_row_detail_only(row):
-                continue
-            if _normalize_annex_letter(row.get("annexLetter")) != letter:
-                continue
+        block_end = owner_idx
+        for i in range(owner_idx + 1, len(next_rows)):
+            row = next_rows[i]
+            if _is_structure_row_empty_label(row) or not _is_structure_row_detail_only(row):
+                break
+            block_end = i
             code = str(row.get("linkCode") or "").strip()
-            if code and code in expected_codes:
+            if code and code in expected_codes and code not in existing_by_code:
                 existing_by_code[code] = row
-
-        next_rows = [
-            row for row in next_rows
-            if not (
-                _is_structure_row_detail_only(row)
-                and _normalize_annex_letter(row.get("annexLetter")) == letter
-            )
-        ]
-
-        end_idx = _find_structure_insert_index_after_annex_contiguous_block(next_rows, letter)
-        if end_idx < 0:
-            continue
-        while (
-            end_idx + 1 < len(next_rows)
-            and _normalize_annex_letter(next_rows[end_idx + 1].get("annexLetter")) == letter
-        ):
-            end_idx += 1
 
         ordered_rows: list[dict] = []
         for target in expected_targets:
@@ -288,7 +287,6 @@ def sync_detail_sub_lines_from_standard(db: Session, structure: list[dict]) -> l
             if existing:
                 ordered_rows.append({
                     **existing,
-                    "id": target.code,
                     "label": label,
                     **liaison,
                     "defineMapping": True,
@@ -303,6 +301,6 @@ def sync_detail_sub_lines_from_standard(db: Session, structure: list[dict]) -> l
                     **liaison,
                 })
 
-        next_rows[end_idx + 1:end_idx + 1] = ordered_rows
+        next_rows = next_rows[: owner_idx + 1] + ordered_rows + next_rows[block_end + 1 :]
 
     return next_rows

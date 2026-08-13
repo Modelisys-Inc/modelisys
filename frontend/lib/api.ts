@@ -471,6 +471,8 @@ export interface AccountMappingData {
   variable_costs: boolean
   fixed_costs: boolean
   variable_cost_revenue_link_code: string | null
+  alt_asset_cost: boolean
+  alt_accumulated_amortization: boolean
   liability_remaining_years: number | null
   liability_interest_rate: number | null
   product: string | null
@@ -514,6 +516,8 @@ export async function upsertAccountMappings(
     variable_costs?: boolean
     fixed_costs?: boolean
     variable_cost_revenue_link_code?: string | null
+    alt_asset_cost?: boolean
+    alt_accumulated_amortization?: boolean
     liability_remaining_years?: number | null
     liability_interest_rate?: number | null
     product?: string | null
@@ -583,7 +587,7 @@ export async function listStatementStructures(
   return data.structures;
 }
 
-export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "working-capital" | "capex" | "baiia";
+export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "working-capital" | "capex" | "ratios" | "baiia";
 
 export async function getStatementStructure(
   companyId: string,
@@ -678,6 +682,8 @@ export interface FinancialStatementParams {
   sub_division_id?: string
   customer?: string
   supplier?: string
+  /** Immobilisations ALT : ne sommer que les comptes marqués Coût au mapping. */
+  alt_asset_cost_only?: boolean
   /** Client-only: change l’URL après sauvegarde de la structure (évite cache). L’API l’ignore. */
   structure_rev?: number
 }
@@ -703,6 +709,7 @@ function buildFinancialStatementQuery(params: FinancialStatementParams): string 
   if (params.sub_division_id) query.set("sub_division_id", params.sub_division_id)
   if (params.customer) query.set("customer", params.customer)
   if (params.supplier) query.set("supplier", params.supplier)
+  if (params.alt_asset_cost_only) query.set("alt_asset_cost_only", "true")
   if (params.structure_rev != null && params.structure_rev > 0) {
     query.set("_sr", params.structure_rev.toString())
   }
@@ -1483,6 +1490,8 @@ export interface FinancialStatementSeriesParams {
   sub_division_id?: string
   customer?: string
   supplier?: string
+  /** Capex : n'inclure que les comptes ALT-B/C/D mappés « Coût » (exclut Amortissement cumulé). */
+  alt_asset_cost_only?: boolean
   /** Client-only: invalidation cache après sauvegarde structure. L’API l’ignore. */
   structure_rev?: number
 }
@@ -1500,6 +1509,7 @@ export async function getFinancialStatementSeries(
   if (params.sub_division_id) query.set("sub_division_id", params.sub_division_id)
   if (params.customer) query.set("customer", params.customer)
   if (params.supplier) query.set("supplier", params.supplier)
+  if (params.alt_asset_cost_only) query.set("alt_asset_cost_only", "true")
   if (params.structure_rev != null && params.structure_rev > 0) {
     query.set("_sr", params.structure_rev.toString())
   }
@@ -2323,4 +2333,145 @@ export async function saveStatementChartSlot(
     }
     throw err
   }
+}
+
+// --- Company Diagnostic API ---
+// Miroir exact des modèles Pydantic backend/app/schemas/company_diagnostic.py (snake_case).
+
+export interface DiagnosticSummary {
+  latest_fiscal_year: number
+  /** "croissance" | "maturité" | "décroissance" */
+  lifecycle_stage: string
+  revenue_cagr_5y: number | null
+  latest_revenue: number
+  latest_ebitda: number
+  latest_net_income: number
+  latest_gross_margin_pct: number | null
+  latest_ebitda_margin_pct: number | null
+  latest_net_margin_pct: number | null
+  current_ratio: number | null
+  quick_ratio: number | null
+  debt_to_equity: number | null
+  capex_latest: number
+  capex_revenue_pct: number | null
+  indicative_enterprise_value_mid: number
+}
+
+export interface DiagnosticTrendYear {
+  fiscal_year: number
+  revenue: number
+  gross_profit: number
+  gross_margin_pct: number | null
+  ebitda: number
+  ebitda_margin_pct: number | null
+  net_income: number
+  net_margin_pct: number | null
+  current_assets: number
+  current_liabilities: number
+  inventory: number
+  total_assets: number
+  total_liabilities: number
+  equity: number
+  depreciation: number
+  capex: number
+  current_ratio: number | null
+  quick_ratio: number | null
+  debt_to_equity: number | null
+  asset_turnover: number | null
+  interest_coverage: number | null
+}
+
+export interface DiagnosticSeasonalityMonth {
+  month_number: number
+  month_label: string
+  average_revenue: number
+  average_ebitda: number
+  revenue_share_pct: number | null
+  ebitda_margin_pct: number | null
+}
+
+export interface DiagnosticDivisionPerformance {
+  division_id: string
+  division_name: string
+  revenue: number
+  gross_profit: number
+  gross_margin_pct: number | null
+  ebitda: number
+  ebitda_margin_pct: number | null
+  net_income: number
+  revenue_share_pct: number | null
+  revenue_cagr_5y: number | null
+  profitable: boolean
+}
+
+export interface DiagnosticProductPerformance {
+  product_name: string
+  revenue: number
+  gross_profit: number
+  gross_margin_pct: number | null
+  ebitda: number
+  ebitda_margin_pct: number | null
+  revenue_share_pct: number | null
+}
+
+export interface DiagnosticDivisionProductPerformance {
+  division_id: string
+  division_name: string
+  product_name: string
+  revenue: number
+  gross_profit: number
+  gross_margin_pct: number | null
+  ebitda: number
+  ebitda_margin_pct: number | null
+}
+
+export interface DiagnosticValuation {
+  normalized_ebitda: number
+  multiple_low: number
+  multiple_high: number
+  enterprise_value_low: number
+  enterprise_value_high: number
+  enterprise_value_mid: number
+  book_equity: number
+  rationale: string[]
+}
+
+export interface DiagnosticReferencePeriod {
+  calendar_year: number
+  calendar_month: number
+  fiscal_year: number
+  fiscal_month: number
+}
+
+export interface CompanyDiagnostic {
+  company_id: string
+  company_name: string
+  currency: string
+  fiscal_year_end: string
+  latest_fiscal_year: number
+  reference_period: DiagnosticReferencePeriod
+  summary: DiagnosticSummary
+  trends: DiagnosticTrendYear[]
+  seasonality: DiagnosticSeasonalityMonth[]
+  divisions: DiagnosticDivisionPerformance[]
+  products: DiagnosticProductPerformance[]
+  division_products: DiagnosticDivisionProductPerformance[]
+  valuation: DiagnosticValuation
+  notes: string[]
+  generated_at: string
+}
+
+export async function getCompanyDiagnostic(
+  companyId: string,
+  options?: { referenceYear?: number; referenceMonth?: number },
+): Promise<CompanyDiagnostic> {
+  const params = new URLSearchParams()
+  if (options?.referenceYear != null && options?.referenceMonth != null) {
+    params.set("fiscal_year", String(options.referenceYear))
+    params.set("month", String(options.referenceMonth))
+  }
+  const qs = params.toString()
+  return apiFetch<CompanyDiagnostic>(
+    `/api/companies/${companyId}/diagnostic${qs ? `?${qs}` : ""}`,
+  )
 }

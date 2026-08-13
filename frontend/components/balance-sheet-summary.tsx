@@ -11,14 +11,22 @@ import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-ser
 import { useBalanceSheetStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { useBalanceSheetParentLinkCodes } from "@/hooks/use-balance-sheet-parent-link-codes"
 import {
-  aggregateToQuarters,
   aggregateToYears,
   findSeriesRowOrDetail,
   getPeriodLabels,
   getRowAmounts,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
-import { monthTrendFromReference, quarterTrendFromReference, yearTrendFromReference } from "@/lib/series-reference-columns"
+import { monthTrendFromReference } from "@/lib/series-reference-columns"
+import {
+  balanceSheetQuarterTrendForBasis,
+  balanceSheetYearTrendForBasis,
+  statementQuarterLabelsForBasis,
+  statementYearLabelsForBasis,
+  STATEMENT_QUARTER_COUNT,
+  type StatementPeriodBasis,
+} from "@/lib/income-statement-period-basis"
+import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
 import {
   filterBalanceSheetSummaryRowsForHorizon,
 } from "@/lib/balance-sheet-horizon-filter"
@@ -47,6 +55,7 @@ import {
   priorCalendarQuarter,
 } from "@/lib/financial-period-labels"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
+import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
 import {
   collectDistinctLinkCodesFromStructure,
   findStatementApiRowForStructureRow,
@@ -135,7 +144,7 @@ import {
 interface BalanceSheetSummaryProps {
   period: "monthly" | "quarterly" | "annual"
   view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
-  columnMode?: "variationAmount" | "variationPercent" | "percentage" | "comparison"
+  columnMode?: "variationAmount" | "variationPercent" | "comparison"
   companyId?: string | null
   divisionId?: string | null
   subDivisionId?: string | null
@@ -162,6 +171,8 @@ interface BalanceSheetSummaryProps {
   forecastBaseYear?: number
   /** En projections : réel pour (baseYear - 1) depuis les séries, années projetées à 0. */
   forecastUseSeriesActuals?: boolean
+  /** Annuel / trimestriel : Courant (même mois / T3M) ou Exercice (FYE / trimestres fiscaux). */
+  periodBasis?: StatementPeriodBasis
 }
 
 interface SummaryRow {
@@ -267,9 +278,13 @@ export function BalanceSheetSummary({
   projectionYears = 5,
   forecastBaseYear,
   forecastUseSeriesActuals = false,
+  periodBasis = "current",
 }: BalanceSheetSummaryProps) {
   const isForecastSection = title === "Bilan pro forma"
   const forecastYearColumnCount = projectionYears + 1
+  const fiscalYearEndMonth = parseFiscalYearEndMonth(
+    companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
+  )
 
   useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -313,7 +328,7 @@ export function BalanceSheetSummary({
   // Series data for multi-period views
   const isMultiPeriod = view === "12months" || view === "quarters" || view === "years"
   const currentYear = fiscalYear || new Date().getFullYear()
-  const monthsNeeded = view === "years" ? 60 : 12
+  const monthsNeeded = view === "years" ? 72 : view === "quarters" ? 15 : 12
 
   const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
@@ -512,9 +527,25 @@ export function BalanceSheetSummary({
           }
           const detailValues =
             view === "quarters"
-              ? quarterTrendFromReference(detailSeriesRow, periods, refMonth, refYear, 5)
+              ? balanceSheetQuarterTrendForBasis(
+                  detailSeriesRow,
+                  periods,
+                  refMonth,
+                  refYear,
+                  periodBasis,
+                  fiscalYearEndMonth,
+                  STATEMENT_QUARTER_COUNT,
+                )
               : view === "years"
-                ? yearTrendFromReference(detailSeriesRow, periods, refYear, 6)
+                ? balanceSheetYearTrendForBasis(
+                    detailSeriesRow,
+                    periods,
+                    refMonth,
+                    refYear,
+                    periodBasis,
+                    fiscalYearEndMonth,
+                    PERFORMANCE_CHART_YEAR_COUNT,
+                  )
                 : monthTrendFromReference(detailSeriesRow, periods, refMonth, refYear, 12)
           return {
             accountNumber: dr.id,
@@ -544,16 +575,41 @@ export function BalanceSheetSummary({
     const usedNested = new Set<string>()
     const buildYearTrendValues = (row: SeriesRow) => {
       if (isForecastSection && forecastUseSeriesActuals) {
-        const actual = yearTrendFromReference(row, periods, refYear, 1)[0] || 0
+        const actual =
+          balanceSheetYearTrendForBasis(
+            row,
+            periods,
+            refMonth,
+            refYear,
+            periodBasis,
+            fiscalYearEndMonth,
+            1,
+          )[0] || 0
         return [actual, ...Array.from({ length: projectionYears }, () => 0)]
       }
-      return yearTrendFromReference(row, periods, refYear, 6)
+      return balanceSheetYearTrendForBasis(
+        row,
+        periods,
+        refMonth,
+        refYear,
+        periodBasis,
+        fiscalYearEndMonth,
+        PERFORMANCE_CHART_YEAR_COUNT,
+      )
     }
     return listStructureRowsForPresentationDisplay(structure).map((sr) => {
       const row = findStatementApiRowForStructureRow(sr, rows, used, usedNested)
       const trend =
         row && view === "quarters"
-          ? quarterTrendFromReference(row, periods, refMonth, refYear, 5)
+          ? balanceSheetQuarterTrendForBasis(
+              row,
+              periods,
+              refMonth,
+              refYear,
+              periodBasis,
+              fiscalYearEndMonth,
+              STATEMENT_QUARTER_COUNT,
+            )
           : row && view === "years"
             ? buildYearTrendValues(row)
             : row
@@ -679,9 +735,25 @@ export function BalanceSheetSummary({
         .map((row) => {
           const trend =
             view === "quarters"
-              ? quarterTrendFromReference(row, periods, refMonth, refYear, 5)
+              ? balanceSheetQuarterTrendForBasis(
+                  row,
+                  periods,
+                  refMonth,
+                  refYear,
+                  periodBasis,
+                  fiscalYearEndMonth,
+                  STATEMENT_QUARTER_COUNT,
+                )
               : view === "years"
-                ? yearTrendFromReference(row, periods, refYear, 6)
+                ? balanceSheetYearTrendForBasis(
+                    row,
+                    periods,
+                    refMonth,
+                    refYear,
+                    periodBasis,
+                    fiscalYearEndMonth,
+                    PERFORMANCE_CHART_YEAR_COUNT,
+                  )
                 : monthTrendFromReference(row, periods, refMonth, refYear, 12)
           return mapSeriesStructureRowToSummaryRow({ label: row.label }, row, trend)
         })
@@ -697,6 +769,8 @@ export function BalanceSheetSummary({
     view,
     refMonth,
     refYear,
+    periodBasis,
+    fiscalYearEndMonth,
     isForecastSection,
     forecastUseSeriesActuals,
     projectionYears,
@@ -867,11 +941,8 @@ export function BalanceSheetSummary({
     presentationStructure,
   ])
 
-  // Find total assets value for percentage calculations
+  // Find total assets for balance validation (formule Paramètres ou défaut Total actif − Total passifs+CP).
   const totalAssetsRow = findBalanceSheetTotalAssetsRow(data)
-  const totalAssetsCurrent = totalAssetsRow?.current || 1
-
-  // Validation : formule Paramètres (structure) ou défaut Total actif − Total passifs+CP.
   const liabilitiesEquityRow = findBalanceSheetTotalLiabilitiesEquityRow(data)
   const validationStructureMeta = useMemo(() => {
     const ensured = ensureBalanceSheetValidationStructure(fullStructure)
@@ -905,22 +976,6 @@ export function BalanceSheetSummary({
     return []
   })()
 
-  const totalAssetsPrior = totalAssetsRow?.prior || 1
-  const totalAssetsTrendValues = totalAssetsRow?.trendValues ?? []
-
-  // Helper function to calculate percentage of total assets
-  const getTotalAssetsPercentage = (value: number, isPrior: boolean): number => {
-    const totalAssets = isPrior ? totalAssetsPrior : totalAssetsCurrent
-    if (totalAssets === 0) return 0
-    return (value / totalAssets) * 100
-  }
-
-  const getTrendTotalAssetsPercentage = (value: number, valueIdx: number): number => {
-    const totalAssets = totalAssetsTrendValues[valueIdx] ?? 0
-    if (totalAssets === 0) return 0
-    return (value / totalAssets) * 100
-  }
-
   const getTrendVariation = (values: number[], valueIdx: number): number | null => {
     if (valueIdx >= values.length - 1) return null
     return calculateVariation(values[valueIdx] ?? 0, values[valueIdx + 1] ?? 0)
@@ -943,7 +998,7 @@ export function BalanceSheetSummary({
     else if (view === "ddm") parts.push("Même jour du mois dernier (DDM)")
     else if (view === "12months") parts.push("12 derniers mois")
     else if (view === "quarters") parts.push("5 derniers trimestres")
-    else if (view === "years") parts.push("6 dernières années")
+    else if (view === "years") parts.push("5 dernières années")
 
     // Entity selection
     if (isCompanyComparison) {
@@ -974,8 +1029,6 @@ export function BalanceSheetSummary({
     // Column mode
     if (columnMode === "comparison") {
       // Already handled above
-    } else if (columnMode === "percentage") {
-      parts.push("• % des actifs totaux")
     } else if (columnMode === "variationPercent") {
       parts.push("• Variation %")
     } else if (columnMode === "variationAmount") {
@@ -1000,18 +1053,13 @@ export function BalanceSheetSummary({
 
   // Helper function to generate quarter labels from series data or fallback
   const getQuarterLabels = (): string[] => {
-    if (periods.length > 0 && seriesRows.length > 0) {
-      const rawAmounts = getRowAmounts(seriesRows[0], periods)
-      return reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods, "last").labels)
-    }
-    const cd = new Date()
-    const labels: string[] = []
-    for (let i = 4; i >= 0; i--) {
-      const date = new Date(cd.getFullYear(), cd.getMonth() - i * 3, 1)
-      const quarter = Math.floor(date.getMonth() / 3) + 1
-      labels.push(`T${quarter} ${date.getFullYear()}`)
-    }
-    return reverseSeriesOrderForDisplay(labels)
+    return statementQuarterLabelsForBasis(
+      refMonth,
+      refYear,
+      periodBasis,
+      fiscalYearEndMonth,
+      STATEMENT_QUARTER_COUNT,
+    )
   }
 
   // Helper function to generate year labels from series data or fallback
@@ -1024,16 +1072,13 @@ export function BalanceSheetSummary({
       }
       return labels
     }
-    if (periods.length > 0 && seriesRows.length > 0) {
-      const rawAmounts = getRowAmounts(seriesRows[0], periods)
-      return reverseSeriesOrderForDisplay(aggregateToYears(rawAmounts, periods, "last").labels)
-    }
-    const cy = new Date().getFullYear()
-    const labels: string[] = []
-    for (let i = 5; i >= 0; i--) {
-      labels.push(`${cy - i}`)
-    }
-    return reverseSeriesOrderForDisplay(labels)
+    return statementYearLabelsForBasis(
+      refMonth,
+      refYear,
+      periodBasis,
+      fiscalYearEndMonth,
+      PERFORMANCE_CHART_YEAR_COUNT,
+    )
   }
 
   const getHorizonText = (): string => getHorizonModeLabel(view, period)
@@ -1345,14 +1390,6 @@ export function BalanceSheetSummary({
                     </>
                   ) : null}
 
-                  {columnMode === "percentage" && showComparisonAmounts ? (
-                    <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm sm:col-span-2">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">% des actifs totaux</p>
-                      <p className="mt-2 text-lg font-semibold tabular-nums text-slate-800">
-                        {ctx.current !== 0 ? `${getTotalAssetsPercentage(ctx.current, false).toFixed(1)}%` : "—"}
-                      </p>
-                    </div>
-                  ) : null}
                 </div>
               )
             ) : null}
@@ -1854,7 +1891,7 @@ export function BalanceSheetSummary({
     if (isComparisonMode) summaryTableColumnCount = 1 + entitiesToCompare.length
     else {
       const extra =
-        columnMode === "percentage" ? 2 : (columnMode === "variationAmount" || columnMode === "variationPercent") ? 1 : 0
+        columnMode === "variationAmount" || columnMode === "variationPercent" ? 1 : 0
       summaryTableColumnCount = 3 + extra
     }
   } else if (view === "12months") summaryTableColumnCount = 1 + getMonthLabels().length
@@ -2226,11 +2263,6 @@ export function BalanceSheetSummary({
                     <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
                   ) : columnMode === "variationAmount" ? (
                     <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation $</th>
-                  ) : columnMode === "percentage" ? (
-                    <>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">% des actifs totaux</th>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">% des actifs totaux</th>
-                    </>
                   ) : null}
                 </>
               )}
@@ -2251,12 +2283,7 @@ export function BalanceSheetSummary({
                     <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
                   ) : columnMode === "variationAmount" ? (
                     <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation $</th>
-                  ) : (
-                    <>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">% des actifs totaux</th>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">% des actifs totaux</th>
-                    </>
-                  )}
+                  ) : null}
                 </>
               )}
               {view === "ytd" && (
@@ -2267,12 +2294,7 @@ export function BalanceSheetSummary({
                     <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation %</th>
                   ) : columnMode === "variationAmount" ? (
                     <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Variation $</th>
-                  ) : (
-                    <>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">% des actifs totaux</th>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">% des actifs totaux</th>
-                    </>
-                  )}
+                  ) : null}
                 </>
               )}
               {view === "12months" && (
@@ -2405,14 +2427,39 @@ export function BalanceSheetSummary({
                       standardCodes: standardCodesForFilter,
                       buildTrendValues: (seriesRow) => {
                         if (view === "quarters") {
-                          return quarterTrendFromReference(seriesRow, periods, refMonth, refYear, 5)
+                          return balanceSheetQuarterTrendForBasis(
+                            seriesRow,
+                            periods,
+                            refMonth,
+                            refYear,
+                            periodBasis,
+                            fiscalYearEndMonth,
+                            STATEMENT_QUARTER_COUNT,
+                          )
                         }
                         if (view === "years") {
                           if (isForecastSection && forecastUseSeriesActuals) {
-                            const actual = yearTrendFromReference(seriesRow, periods, refYear, 1)[0] || 0
+                            const actual =
+                              balanceSheetYearTrendForBasis(
+                                seriesRow,
+                                periods,
+                                refMonth,
+                                refYear,
+                                periodBasis,
+                                fiscalYearEndMonth,
+                                1,
+                              )[0] || 0
                             return [actual, ...Array.from({ length: projectionYears }, () => 0)]
                           }
-                          return yearTrendFromReference(seriesRow, periods, refYear, 6)
+                          return balanceSheetYearTrendForBasis(
+                            seriesRow,
+                            periods,
+                            refMonth,
+                            refYear,
+                            periodBasis,
+                            fiscalYearEndMonth,
+                            PERFORMANCE_CHART_YEAR_COUNT,
+                          )
                         }
                         return monthTrendFromReference(seriesRow, periods, refMonth, refYear, 12)
                       },
@@ -2436,14 +2483,39 @@ export function BalanceSheetSummary({
                       seriesRows,
                       buildTrendValues: (seriesRow) => {
                         if (view === "quarters") {
-                          return quarterTrendFromReference(seriesRow, periods, refMonth, refYear, 5)
+                          return balanceSheetQuarterTrendForBasis(
+                            seriesRow,
+                            periods,
+                            refMonth,
+                            refYear,
+                            periodBasis,
+                            fiscalYearEndMonth,
+                            STATEMENT_QUARTER_COUNT,
+                          )
                         }
                         if (view === "years") {
                           if (isForecastSection && forecastUseSeriesActuals) {
-                            const actual = yearTrendFromReference(seriesRow, periods, refYear, 1)[0] || 0
+                            const actual =
+                              balanceSheetYearTrendForBasis(
+                                seriesRow,
+                                periods,
+                                refMonth,
+                                refYear,
+                                periodBasis,
+                                fiscalYearEndMonth,
+                                1,
+                              )[0] || 0
                             return [actual, ...Array.from({ length: projectionYears }, () => 0)]
                           }
-                          return yearTrendFromReference(seriesRow, periods, refYear, 6)
+                          return balanceSheetYearTrendForBasis(
+                            seriesRow,
+                            periods,
+                            refMonth,
+                            refYear,
+                            periodBasis,
+                            fiscalYearEndMonth,
+                            PERFORMANCE_CHART_YEAR_COUNT,
+                          )
                         }
                         return monthTrendFromReference(seriesRow, periods, refMonth, refYear, 12)
                       },
@@ -2497,12 +2569,6 @@ export function BalanceSheetSummary({
                           {columnMode === "variationPercent" || columnMode === "variationAmount" ? (
                             <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
                           ) : null}
-                          {columnMode === "percentage" ? (
-                            <>
-                              <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
-                              <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
-                            </>
-                          ) : null}
                         </>
                       )}
                       {view === "comparison" && isComparisonMode && (
@@ -2523,12 +2589,6 @@ export function BalanceSheetSummary({
                           {columnMode === "variationPercent" || columnMode === "variationAmount" ? (
                             <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
                           ) : null}
-                          {columnMode === "percentage" ? (
-                            <>
-                              <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
-                              <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
-                            </>
-                          ) : null}
                         </>
                       )}
                       {(view === "12months" || view === "quarters" || view === "years") && (
@@ -2543,7 +2603,7 @@ export function BalanceSheetSummary({
                                       ? 5
                                       : isForecastSection
                                         ? forecastYearColumnCount
-                                        : 6,
+                                        : PERFORMANCE_CHART_YEAR_COUNT,
                               }).map(() => null)
                           ).map((ecart, colIdx) =>
                             renderValidationEcartCell(ecart, colIdx),
@@ -2707,15 +2767,6 @@ export function BalanceSheetSummary({
                             ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
                             : "-"}
                         </td>
-                      ) : columnMode === "percentage" ? (
-                        <>
-                          <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
-                            {row.current !== 0 ? `${getTotalAssetsPercentage(row.current, false).toFixed(1)}%` : "-"}
-                          </td>
-                          <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
-                            {row.prior !== 0 ? `${getTotalAssetsPercentage(row.prior, true).toFixed(1)}%` : "-"}
-                          </td>
-                        </>
                       ) : null}
                     </>
                   )}
@@ -2763,16 +2814,7 @@ export function BalanceSheetSummary({
                             ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
                             : "-"}
                         </td>
-                      ) : (
-                        <>
-                          <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
-                            {row.current !== 0 ? `${getTotalAssetsPercentage(row.current, false).toFixed(1)}%` : "-"}
-                          </td>
-                          <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
-                            {row.prior !== 0 ? `${getTotalAssetsPercentage(row.prior, true).toFixed(1)}%` : "-"}
-                          </td>
-                        </>
-                      )}
+                      ) : null}
                     </>
                   )}
                   {!showStructureCols && view === "ytd" && (
@@ -2803,16 +2845,7 @@ export function BalanceSheetSummary({
                             ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
                             : "-"}
                         </td>
-                      ) : (
-                        <>
-                          <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
-                            {row.current !== 0 ? `${getTotalAssetsPercentage(row.current, false).toFixed(1)}%` : "-"}
-                          </td>
-                          <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold text-slate-600" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
-                            {row.prior !== 0 ? `${getTotalAssetsPercentage(row.prior, true).toFixed(1)}%` : "-"}
-                          </td>
-                        </>
-                      )}
+                      ) : null}
                     </>
                   )}
                   {!showStructureCols && view === "12months" && row.trendValues && (
@@ -2822,9 +2855,7 @@ export function BalanceSheetSummary({
                           key={valueIdx}
                           className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
                         >
-                          {columnMode === "percentage"
-                            ? (value !== 0 ? `${getTrendTotalAssetsPercentage(value, valueIdx).toFixed(1)}%` : "-")
-                            : columnMode === "variationAmount" || columnMode === "variationPercent"
+                          {columnMode === "variationAmount" || columnMode === "variationPercent"
                               ? (() => {
                                   const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
                                   const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
@@ -2847,9 +2878,7 @@ export function BalanceSheetSummary({
                           key={valueIdx}
                           className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}
                         >
-                          {columnMode === "percentage"
-                            ? (value !== 0 ? `${getTrendTotalAssetsPercentage(value, valueIdx).toFixed(1)}%` : "-")
-                            : columnMode === "variationAmount" || columnMode === "variationPercent"
+                          {columnMode === "variationAmount" || columnMode === "variationPercent"
                               ? (() => {
                                   const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
                                   const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
@@ -2877,9 +2906,7 @@ export function BalanceSheetSummary({
                               isForecastSection && valueIdx === 0 ? "bg-slate-50" : ""
                             )}
                           >
-                            {columnMode === "percentage"
-                              ? (value !== 0 ? `${getTrendTotalAssetsPercentage(value, valueIdx).toFixed(1)}%` : "-")
-                              : columnMode === "variationAmount" || columnMode === "variationPercent"
+                            {columnMode === "variationAmount" || columnMode === "variationPercent"
                                 ? (() => {
                                     const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
                                     const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
@@ -2901,7 +2928,13 @@ export function BalanceSheetSummary({
                     <>
                       {Array.from({
                         length:
-                          view === "12months" ? 12 : view === "quarters" ? 5 : isForecastSection ? forecastYearColumnCount : 6,
+                          view === "12months"
+                            ? 12
+                            : view === "quarters"
+                              ? 5
+                              : isForecastSection
+                                ? forecastYearColumnCount
+                                : PERFORMANCE_CHART_YEAR_COUNT,
                       }).map((_, idx) => (
                           <td
                             key={idx}
@@ -2987,17 +3020,6 @@ export function BalanceSheetSummary({
                                 ? `${accountVariationAmount >= 0 ? "+" : ""}${formatCurrency(accountVariationAmount)}`
                                 : "-"}
                             </td>
-                          ) : columnMode === "percentage" ? (
-                            <>
-                              <td className="px-6 py-2 text-right text-sm font-normal text-slate-700">
-                                {child.amount !== 0 ? `${getTotalAssetsPercentage(child.amount, false).toFixed(1)}%` : "-"}
-                              </td>
-                              <td className="px-6 py-2 text-right text-sm font-normal text-slate-500">
-                                {child.priorAmount !== undefined && child.priorAmount !== 0
-                                  ? `${getTotalAssetsPercentage(child.priorAmount, true).toFixed(1)}%`
-                                  : "-"}
-                              </td>
-                            </>
                           ) : null}
                         </>
                       )}
@@ -3019,7 +3041,7 @@ export function BalanceSheetSummary({
                                     ? 5
                                     : isForecastSection
                                       ? forecastYearColumnCount
-                                      : 6,
+                                      : PERFORMANCE_CHART_YEAR_COUNT,
                             }).map(() => 0)
                         ).map((value, cellIdx) => (
                           <td

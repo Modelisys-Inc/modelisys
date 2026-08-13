@@ -1,5 +1,14 @@
 import type { SeriesRow, SeriesPeriod } from "@/lib/api"
 
+/** Garde les N derniers mois pour l’affichage mensuel (le mois N−1 sert au calcul de variation). */
+export function slicePeriodsForMonthlyDisplay(
+  periods: SeriesPeriod[],
+  displayMonthCount: number,
+): SeriesPeriod[] {
+  if (periods.length <= displayMonthCount) return periods
+  return periods.slice(-displayMonthCount)
+}
+
 /**
  * Extract amounts for a specific row as an ordered array matching the periods.
  */

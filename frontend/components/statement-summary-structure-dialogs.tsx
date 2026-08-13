@@ -71,6 +71,8 @@ export function StatementSummaryStructureDialogs({
     spacerTargetPosts,
     resetAddPostDialog,
     resetAddSpaceDialog,
+    summaryOnlySpacers = false,
+    cashFlowSummaryPresentationOverlay = false,
   } = dialogs
 
   return (
@@ -204,10 +206,11 @@ export function StatementSummaryStructureDialogs({
               disabled={addSpaceTargetIdx === null}
               onClick={() => {
                 if (addSpaceTargetIdx === null) return
+                const spacerOpts = summaryOnlySpacers ? { summaryOnly: true as const } : undefined
                 if (addSpacePlacement === "above") {
-                  structEdit.insertEmptySpacerAbove(addSpaceTargetIdx)
+                  structEdit.insertEmptySpacerAbove(addSpaceTargetIdx, spacerOpts)
                 } else {
-                  structEdit.insertEmptySpacerBelow(addSpaceTargetIdx)
+                  structEdit.insertEmptySpacerBelow(addSpaceTargetIdx, spacerOpts)
                 }
                 setAddSpaceDialogOpen(false)
                 resetAddSpaceDialog()
@@ -497,7 +500,9 @@ export function StatementSummaryStructureDialogs({
                         <span className="min-w-0 space-y-1.5 text-[#2A2F3A]">
                           <span className="block text-[15px] font-semibold">Mettre en gras</span>
                           <span className={cn("block text-[13px] leading-relaxed", dashboardCardBodyMutedClass)}>
-                            Libellé en gras au sommaire une fois la structure enregistrée.
+                            {cashFlowSummaryPresentationOverlay
+                              ? "Libellé en gras au sommaire uniquement (le Détail n’est pas modifié)."
+                              : "Libellé en gras au sommaire une fois la structure enregistrée."}
                           </span>
                         </span>
                       </label>
@@ -541,10 +546,17 @@ export function StatementSummaryStructureDialogs({
                     disabled={editingPostGlobalIdx === null && addPostAnchorIdx === null}
                     onClick={() => {
                       if (editingPostGlobalIdx !== null) {
-                        structEdit.updateRow(editingPostGlobalIdx, {
-                          indent: addPostRank === "secondary",
-                          isBold: addPostBold,
-                        })
+                        if (cashFlowSummaryPresentationOverlay) {
+                          structEdit.updateRow(editingPostGlobalIdx, {
+                            summaryIndent: addPostRank === "secondary",
+                            summaryIsBold: addPostBold,
+                          })
+                        } else {
+                          structEdit.updateRow(editingPostGlobalIdx, {
+                            indent: addPostRank === "secondary",
+                            isBold: addPostBold,
+                          })
+                        }
                         setAddPostDialogOpen(false)
                         resetAddPostDialog()
                         return

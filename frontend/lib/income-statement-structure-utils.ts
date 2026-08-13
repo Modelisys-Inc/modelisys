@@ -132,9 +132,16 @@ export function renumberAnnexesByAppearance(
     scheme === "number" ? String(n) : numberToAnnexLetters(n)
 
   for (const row of next) {
-    if (isStructureRowEmptyLabel(row) || isStructureRowHidden(row)) {
-      // Espacement / ligne masquée : rompt la contiguïté du bloc en cours.
+    if (isStructureRowEmptyLabel(row)) {
       currentId = undefined
+      continue
+    }
+    // Ligne sommaire masquée : rompt le bloc et efface la lettre périmée (sinon
+    // EXP/VNT masqués gardent C/E et volent ADM/AUT). Les sous-lignes detailOnly
+    // masquées (auto-hide hors montant) restent dans le bloc courant.
+    if (isStructureRowHidden(row) && !isStructureRowDetailOnly(row)) {
+      currentId = undefined
+      row.annexLetter = undefined
       continue
     }
     if (isStructureRowDetailOnly(row)) {
@@ -263,6 +270,49 @@ export function newEmptySpacerSummaryRow(): Record<string, unknown> {
   }
 }
 
+/**
+ * Espace vertical propre au Sommaire trésorerie (ignoré au Détail).
+ * Stocké dans la structure `cash-flow-detail` avec `summaryOnly: true`.
+ */
+export function newEmptySpacerCashFlowSummaryRow(): Record<string, unknown> {
+  return {
+    ...newEmptySpacerSummaryRow(),
+    summaryOnly: true,
+  }
+}
+
+/** Espace Sommaire CF uniquement (`summaryOnly` + libellé vide). */
+export function isCashFlowSummaryOnlySpacer(row: Record<string, unknown>): boolean {
+  return isStructureRowEmptyLabel(row) && row.summaryOnly === true
+}
+
+/**
+ * Présentation Sommaire CF : overlay `summaryIsBold` / `summaryIndent` /
+ * `summarySeparatorAbove` (sinon repli sur les champs Détail).
+ */
+export function resolveCashFlowSummaryRowPresentation(row: Record<string, unknown>): {
+  isBold: boolean
+  indent: boolean
+  separatorAbove: boolean
+} {
+  const isBold =
+    typeof row.summaryIsBold === "boolean" ? row.summaryIsBold === true : row.isBold === true
+  const indent =
+    typeof row.summaryIndent === "boolean"
+      ? row.summaryIndent === true
+      : indentForSummaryRow({
+          isBold,
+          isSection: row.isSection === true,
+          isResult: row.isResult === true,
+          indent: typeof row.indent === "boolean" ? row.indent : undefined,
+        })
+  const separatorAbove =
+    typeof row.summarySeparatorAbove === "boolean"
+      ? row.summarySeparatorAbove === true
+      : isTruthySeparatorAbove(row.separatorAbove)
+  return { isBold, indent, separatorAbove }
+}
+
 /** Ligne masquée au sommaire / détail (champ structure `hidden`). */
 export function isStructureRowHidden(row: Record<string, unknown>): boolean {
   return row.hidden === true
@@ -282,7 +332,11 @@ export function autoUnhideIncomeStatementSummaryRowPatch(): Record<string, unkno
   return { hidden: false }
 }
 
-/** Première ligne sommaire (non `detailOnly`) portant cette lettre d’annexe. */
+/**
+ * Propriétaire d’annexe visible (Sommaire, non masqué) pour une lettre.
+ * Ignore les postes masqués (EXP/VNT auto-hide) qui gardent une lettre périmée
+ * sinon ADM/AUT héritent du mauvais owner et disparaissent du Détail.
+ */
 export function findSummaryAnnexOwnerRow(
   structure: Record<string, unknown>[],
   letter: string,
@@ -290,12 +344,25 @@ export function findSummaryAnnexOwnerRow(
   const L = normalizeAnnexLetter(letter)
   if (!L) return undefined
   for (const row of structure) {
-    if (isStructureRowDetailOnly(row)) continue
-    if (isStructureRowEmptyLabel(row)) continue
+    if (!isSummaryRowVisibleInDetail(row)) continue
     if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== L) continue
     return row
   }
   return undefined
+}
+
+/** Index du poste sommaire qui précède une sous-ligne `detailOnly` (bloc contigu). */
+export function findContiguousDetailAnnexOwnerIndex(
+  structure: Record<string, unknown>[],
+  fromIndex: number,
+): number {
+  for (let i = fromIndex - 1; i >= 0; i--) {
+    const row = structure[i]
+    if (!row || isStructureRowEmptyLabel(row)) return -1
+    if (isStructureRowDetailOnly(row)) continue
+    return i
+  }
+  return -1
 }
 
 /** Ligne sommaire visible au Détail (hors sous-lignes `detailOnly`). */
@@ -455,6 +522,17 @@ export function isShowInDetail(
   if (isStructureRowHidden(row)) return false
   if (isStructureRowDetailOnly(row)) {
     if (!structure) return true
+    const idx = structure.findIndex(
+      (r) =>
+        r === row ||
+        (String(r.id ?? "").trim() !== "" && String(r.id ?? "").trim() === String(row.id ?? "").trim()),
+    )
+    if (idx >= 0) {
+      const ownerIdx = findContiguousDetailAnnexOwnerIndex(structure, idx)
+      if (ownerIdx >= 0) {
+        return isShowInDetail(structure[ownerIdx]!, structure)
+      }
+    }
     const letter = normalizeAnnexLetter(String(row.annexLetter ?? ""))
     if (!letter) return true
     const owner = findSummaryAnnexOwnerRow(structure, letter)
@@ -464,6 +542,46 @@ export function isShowInDetail(
   if (row.showInDetail === false) return false
   if (row.showInDetail === true) return true
   return isCodeMappingEnabled(row)
+}
+
+/**
+ * Case « Annexe » Trésorerie Détail → affichage au Sommaire.
+ * Explicit only (défaut : non coché) — pas de repli sur le code de liaison.
+ */
+export function isShowInSummary(row: Record<string, unknown>): boolean {
+  if (isStructureRowEmptyLabel(row)) return false
+  if (isStructureRowHidden(row)) return false
+  return row.showInSummary === true
+}
+
+/** Lignes de la structure Détail cochées Annexe, dans l’ordre Paramètres. */
+export function listStructureRowsForCashFlowSummary(
+  structure: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return structure.filter(
+    (sr) =>
+      !isStructureRowEmptyLabel(sr) &&
+      !isStructureRowHidden(sr) &&
+      !isStructureRowDetailOnly(sr) &&
+      !isComputedNetIncomeStructureRow(sr) &&
+      isShowInSummary(sr),
+  )
+}
+
+/**
+ * Sommaire trésorerie hors Paramètres : annexes + espaces `summaryOnly`,
+ * dans l’ordre de la structure Détail (espaces Détail exclus).
+ */
+export function listStructureRowsForCashFlowSummaryPresentation(
+  structure: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  return structure.filter((sr) => {
+    if (isStructureRowHidden(sr) || isStructureRowDetailOnly(sr)) return false
+    if (isComputedNetIncomeStructureRow(sr)) return false
+    if (isCashFlowSummaryOnlySpacer(sr)) return true
+    if (isStructureRowEmptyLabel(sr)) return false
+    return isShowInSummary(sr)
+  })
 }
 
 /** Associe une ligne d’état (id / code liaison / libellé) à une entrée de structure sauvegardée. */
@@ -481,6 +599,13 @@ export function findStructureRowForStatementLine(
       return id === idNorm || link === idNorm
     })
     if (byId) return byId as Record<string, unknown>
+    // Totaux / résultats : l’id API peut être le libellé (pas de code liaison)
+    const byIdAsLabel = structure.find(
+      (s) =>
+        normLabel(String((s as Record<string, unknown>).label ?? "")) === normLabel(idNorm),
+    )
+    if (byIdAsLabel) return byIdAsLabel as Record<string, unknown>
+    return undefined
   }
   const lbl = normLabel(statementLineLabel)
   if (!lbl) return undefined
@@ -499,6 +624,8 @@ function statementApiRowMatchesStructureRow(
   const rowLink = String(row.linkCode ?? "").trim()
   if (linkCode && (idNorm === linkCode || rowLink === linkCode)) return true
   if (structId && idNorm === structId) return true
+  // Code liaison explicite : ne jamais rapprocher par libellé (évite PLT-A ↔ ACT-C.5 « Dépôts »)
+  if (linkCode) return false
   const lbl = normLabel(String(structureRow.label ?? ""))
   return !!lbl && normLabel(String(row.label ?? "")) === lbl
 }
@@ -563,7 +690,8 @@ export function listStructureRowsForPresentationDisplay(
     (sr) =>
       !isStructureRowHidden(sr) &&
       !isStructureRowDetailOnly(sr) &&
-      !isComputedNetIncomeStructureRow(sr),
+      !isComputedNetIncomeStructureRow(sr) &&
+      !isCashFlowSummaryOnlySpacer(sr),
   )
 }
 
@@ -581,7 +709,7 @@ export function listStructureRowsForDetailDisplay(
     (sr) =>
       !isStructureRowEmptyLabel(sr) &&
       !isStructureRowHidden(sr) &&
-      isShowInDetail(sr) &&
+      isShowInDetail(sr, structure) &&
       isCodeMappingEnabled(sr) &&
       !isComputedNetIncomeStructureRow(sr),
   )
@@ -799,38 +927,34 @@ export function syncIncomeStatementDetailSubLinesFromStandard(
   if (standardCodes.length === 0) return structure
 
   let next = cloneStructure(structure)
-  const letters = listAnnexLettersForDetailSubLines(next)
+  const ownerIndices: number[] = []
+  for (let i = 0; i < next.length; i++) {
+    const row = next[i]!
+    if (!isSummaryRowVisibleInDetail(row)) continue
+    if (!normalizeAnnexLetter(String(row.annexLetter ?? ""))) continue
+    ownerIndices.push(i)
+  }
 
-  for (const letter of letters) {
-    const parentCode = getSummaryAnnexParentLinkCode(next, letter)
-    if (!parentCode) continue
+  for (let k = ownerIndices.length - 1; k >= 0; k--) {
+    const ownerIdx = ownerIndices[k]!
+    const owner = next[ownerIdx]!
+    const letter = normalizeAnnexLetter(String(owner.annexLetter ?? ""))
+    const parentCode = String(owner.linkCode ?? "").trim()
+    if (!letter || !parentCode) continue
 
     const expectedTargets = getDetailSubLineCodesFromStandardLinkCode(parentCode, standardCodes)
     const expectedCodes = new Set(expectedTargets.map((c) => c.code))
 
     const existingByCode = new Map<string, Record<string, unknown>>()
-    for (const row of next) {
-      if (!isStructureRowDetailOnly(row)) continue
-      if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== letter) continue
+    let blockEnd = ownerIdx
+    for (let i = ownerIdx + 1; i < next.length; i++) {
+      const row = next[i]!
+      if (isStructureRowEmptyLabel(row) || !isStructureRowDetailOnly(row)) break
+      blockEnd = i
       const code = String(row.linkCode ?? "").trim()
-      if (code && expectedCodes.has(code)) existingByCode.set(code, row)
-    }
-
-    next = next.filter(
-      (row) =>
-        !(
-          isStructureRowDetailOnly(row) &&
-          normalizeAnnexLetter(String(row.annexLetter ?? "")) === letter
-        ),
-    )
-
-    let endIdx = findStructureInsertIndexAfterAnnexContiguousBlock(next, letter)
-    if (endIdx < 0) continue
-    while (
-      endIdx + 1 < next.length &&
-      normalizeAnnexLetter(String(next[endIdx + 1]?.annexLetter ?? "")) === letter
-    ) {
-      endIdx++
+      if (code && expectedCodes.has(code) && !existingByCode.has(code)) {
+        existingByCode.set(code, row)
+      }
     }
 
     const orderedRows: Record<string, unknown>[] = []
@@ -860,7 +984,7 @@ export function syncIncomeStatementDetailSubLinesFromStandard(
       }
     }
 
-    next.splice(endIdx + 1, 0, ...orderedRows)
+    next = [...next.slice(0, ownerIdx + 1), ...orderedRows, ...next.slice(blockEnd + 1)]
   }
 
   return next
@@ -932,6 +1056,27 @@ export function collectDistinctLinkCodesFromStructure(
   return Array.from(seen).sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
 }
 
+/** Postes calculés du Sommaire (BAIIA, bénéfice brut, …) — sélectionnables dans les graphiques. */
+export function collectSummaryRowSourcesFromStructure(
+  structure: Record<string, unknown>[]
+): Array<{ id: string; label: string }> {
+  const out: Array<{ id: string; label: string }> = []
+  const seen = new Set<string>()
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    const id = String(row.id ?? row.linkCode ?? row.label ?? "").trim()
+    if (!id) continue
+    const key = id.toLowerCase()
+    if (seen.has(key)) continue
+    const isSummaryRow =
+      row.isEBITA === true || row.isResult === true || !!row.formula
+    if (!isSummaryRow) continue
+    seen.add(key)
+    out.push({ id, label: String(row.label ?? id).trim() || id })
+  }
+  return out.sort((a, b) => a.label.localeCompare(b.label, "fr", { numeric: true }))
+}
+
 /**
  * Associe chaque code de liaison au libellé du poste qui le **définit** (ligne en
  * mode « Code unique » dont le `linkCode` vaut ce code). Permet d'afficher « 4100 —
@@ -952,6 +1097,131 @@ export function mapLinkCodesToOwnerLabel(
     if (label) map.set(code, label)
   }
   return map
+}
+
+function rowLabelForLinkCodePicker(
+  row: Record<string, unknown>,
+  annexToSummary: Map<string, string>,
+): string {
+  const raw = String(row.label ?? "").trim()
+  if (raw) return raw
+  const fallback = summaryLabelForLinkedRow(row, annexToSummary)
+  return fallback === "—" ? "" : fallback
+}
+
+/**
+ * Libellés pour les sélecteurs de codes (paramètres des graphiques) : postes de la
+ * structure (y compris parents en mode somme, ex. REV-A) puis charte standard en repli.
+ * Les libellés « propriétaire » (mode code unique) priment en dernier.
+ */
+export function buildLinkCodeLabelsForChartPicker(
+  structure: Record<string, unknown>[],
+  standardLabels?: Map<string, string>,
+): Map<string, string> {
+  const out = new Map<string, string>()
+  const annexToSummary = mapAnnexLetterToSummaryLabel(structure)
+
+  const setLabel = (code: string, label: string, force = false) => {
+    const c = code.trim()
+    const l = label.trim()
+    if (!c || !l) return
+    if (force || !out.has(c)) out.set(c, l)
+  }
+
+  if (standardLabels) {
+    for (const [code, label] of standardLabels) setLabel(code, label)
+  }
+
+  for (const row of structure) {
+    if (isStructureRowEmptyLabel(row)) continue
+    const label = rowLabelForLinkCodePicker(row, annexToSummary)
+    if (!label) continue
+    const mode = normalizeLiaisonMode(row)
+    const add = (code: string) => setLabel(code, label, true)
+
+    if (mode === "single") {
+      add(String(row.linkCode ?? ""))
+    } else if (mode === "sum") {
+      add(String(row.linkCode ?? ""))
+      for (const c of normalizeCodeList(row.liaisonSumCodes)) add(c)
+    } else if (mode === "difference" || mode === "quotient") {
+      // Seul le code du poste calculé porte ce libellé ; les codes N/D sont des références.
+      add(String(row.linkCode ?? ""))
+    } else if (mode === "product") {
+      add(String(row.linkCode ?? ""))
+    }
+  }
+
+  for (const [code, label] of mapLinkCodesToOwnerLabel(structure)) {
+    setLabel(code, label, true)
+  }
+
+  return out
+}
+
+/**
+ * Codes + libellés pour les paramètres de graphique quand plusieurs structures
+ * alimentent le sélecteur (ex. fonds de roulement : CR + bilan).
+ * Ordre recommandé : compte de résultat, puis bilan.
+ */
+export function buildMergedChartPickerLinkData(
+  structures: Record<string, unknown>[],
+  standardLabels?: Map<string, string>,
+): {
+  codes: string[]
+  labels: Map<string, string>
+  summaryRowSources: Array<{ id: string; label: string }>
+} {
+  const codeSet = new Set<string>()
+  const summaryById = new Map<string, { id: string; label: string }>()
+
+  for (const structure of structures) {
+    for (const code of collectDistinctLinkCodesFromStructure(structure)) {
+      codeSet.add(code)
+    }
+    for (const row of collectSummaryRowSourcesFromStructure(structure)) {
+      const key = row.id.toLowerCase()
+      if (!summaryById.has(key)) summaryById.set(key, row)
+    }
+  }
+
+  const labels = new Map<string, string>()
+  if (standardLabels) {
+    for (const [code, label] of standardLabels) {
+      const c = code.trim()
+      const l = label.trim()
+      if (c && l) labels.set(c, l)
+    }
+  }
+
+  for (const structure of structures) {
+    const partial = buildLinkCodeLabelsForChartPicker(structure)
+    for (const [code, label] of partial) {
+      if (!labels.has(code)) labels.set(code, label)
+    }
+  }
+
+  for (const structure of structures) {
+    for (const [code, label] of mapLinkCodesToOwnerLabel(structure)) {
+      labels.set(code, label)
+    }
+  }
+
+  if (standardLabels) {
+    for (const [code, label] of standardLabels) {
+      const c = code.trim()
+      const l = label.trim()
+      if (c && l && !labels.has(c)) labels.set(c, l)
+    }
+  }
+
+  return {
+    codes: Array.from(codeSet).sort((a, b) => a.localeCompare(b, "fr", { numeric: true })),
+    labels,
+    summaryRowSources: Array.from(summaryById.values()).sort((a, b) =>
+      a.label.localeCompare(b.label, "fr", { numeric: true }),
+    ),
+  }
 }
 
 /** Au moins un poste du sommaire est marqué « Revenus » (nature). */
@@ -1284,9 +1554,27 @@ export function formatLiaisonCellHint(row: Record<string, unknown>): string {
 }
 
 /** Ligne affichée dans la grille Paramètres du Détail (titres d’annexe + sous-lignes detailOnly). */
-export function isStructureRowInDetailAnnexEditor(row: Record<string, unknown>): boolean {
+export function isStructureRowInDetailAnnexEditor(
+  row: Record<string, unknown>,
+  structure?: Record<string, unknown>[],
+  index?: number,
+): boolean {
   if (isStructureRowEmptyLabel(row)) return false
-  if (isStructureRowDetailOnly(row)) return true
+  if (isStructureRowDetailOnly(row)) {
+    if (!isStructureRowHidden(row)) return true
+    if (!structure?.length) return false
+    const idx =
+      index ??
+      structure.findIndex(
+        (r) =>
+          r === row ||
+          (String(r.id ?? "").trim() !== "" &&
+            String(r.id ?? "").trim() === String(row.id ?? "").trim()),
+      )
+    const ownerIdx = findContiguousDetailAnnexOwnerIndex(structure, idx)
+    if (ownerIdx < 0) return false
+    return isSummaryRowVisibleInDetail(structure[ownerIdx]!)
+  }
   return (
     isShowInDetail(row) &&
     isCodeMappingEnabled(row) &&
@@ -1329,6 +1617,36 @@ export function dtCtSignMultiplier(structureRow: Record<string, unknown> | undef
   return normalizeDtCt(structureRow.dtCt) === "CT" ? -1 : 1
 }
 
+/** Ligne BAIIA du Sommaire : montant calculé serveur (REV − CV − CF), pas via Liaison. */
+export function isBaiiaStructureRow(row: Record<string, unknown>): boolean {
+  if (row.isEBITA === true) return true
+  return normLabel(String(row.label ?? "")) === "baiia"
+}
+
+/**
+ * Normalise le poste BAIIA : pas de Code / Liaison / Annexe — le moteur calcule
+ * |REV| − |coûts variables| − |coûts fixes| (aligné Pilotage).
+ */
+export function normalizeBaiiaStructureRow(row: Record<string, unknown>): Record<string, unknown> {
+  if (!isBaiiaStructureRow(row)) return row
+  return {
+    ...row,
+    label: String(row.label ?? "").trim() || "BAIIA",
+    isEBITA: true,
+    isBold: row.isBold !== false,
+    defineMapping: false,
+    showInDetail: false,
+    linkCode: undefined,
+    formula: undefined,
+    liaisonMode: undefined,
+    liaisonSumCodes: undefined,
+    liaisonNumeratorCodes: undefined,
+    liaisonDenominatorCodes: undefined,
+    annexLetter: undefined,
+    posteNature: undefined,
+  }
+}
+
 /** Retire les libellés obsolètes (ex. Produits A) — aligné sur le backend. */
 export function stripObsoleteIncomeStatementStructureRows(
   structure: Record<string, unknown>[]
@@ -1346,11 +1664,12 @@ export function stripObsoleteIncomeStatementStructureRows(
     const res: Record<string, unknown>[] = []
     for (const row of block) {
       if (isObsoleteLabel(String(row.label ?? ""))) continue
-      const next: Record<string, unknown> = { ...row }
+      let next: Record<string, unknown> = { ...row }
       for (const key of ["children", "detailRows"] as const) {
         const ch = next[key] as Record<string, unknown>[] | undefined
         if (Array.isArray(ch) && ch.length) next[key] = stripBlock(ch)
       }
+      next = normalizeBaiiaStructureRow(next)
       res.push(next)
     }
     return res

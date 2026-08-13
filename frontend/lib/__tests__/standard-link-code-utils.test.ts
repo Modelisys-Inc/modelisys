@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest"
 import type { StandardLinkCode } from "@/lib/api"
 import {
+  allAnalysisLinkCodeOptions,
+  capexLinkCodeOptions,
   filterAssignableMappingLinkCodes,
   getDetailSubLineCodesFromStandardLinkCode,
+  workingCapitalLinkCodeOptions,
   getLeafDescendantsOfStandardLinkCode,
   detailSubLineLiaisonFromStandardTarget,
   isMappingLiabilityTermLinkCode,
@@ -11,6 +14,10 @@ import {
   sanitizeMappingLiabilityTermFields,
   showsMappingCostTypeOptions,
   showsMappingLiabilityTermOptions,
+  showsMappingAltAssetTypeOptions,
+  mappingAltAssetTypeLabel,
+  sanitizeMappingAltAssetFields,
+  isMappingAltAssetTypeUnset,
   resolveLinkCodeDtCt,
   linkCodeDtCtDisplay,
   defaultDtCtForFamily,
@@ -194,6 +201,55 @@ describe("mapping liability term options", () => {
   })
 })
 
+describe("mapping alt asset type options", () => {
+  it("matches ALT-B/C/D roots and descendants", () => {
+    expect(showsMappingAltAssetTypeOptions("ALT-B")).toBe(true)
+    expect(showsMappingAltAssetTypeOptions("ALT-B.1")).toBe(true)
+    expect(showsMappingAltAssetTypeOptions("ALT-C.2")).toBe(true)
+    expect(showsMappingAltAssetTypeOptions("ALT-D.3")).toBe(true)
+    expect(showsMappingAltAssetTypeOptions("ALT-A.1")).toBe(false)
+    expect(showsMappingAltAssetTypeOptions("CMV.1")).toBe(false)
+  })
+
+  it("labels cost vs accumulated and detects unset", () => {
+    expect(
+      mappingAltAssetTypeLabel({
+        linkCode: "ALT-B.1",
+        altAssetCost: true,
+        altAccumulatedAmortization: false,
+      }),
+    ).toBe("cost")
+    expect(
+      mappingAltAssetTypeLabel({
+        linkCode: "ALT-C.1",
+        altAssetCost: false,
+        altAccumulatedAmortization: true,
+      }),
+    ).toBe("accumulated")
+    expect(
+      isMappingAltAssetTypeUnset({
+        linkCode: "ALT-D.1",
+        altAssetCost: false,
+        altAccumulatedAmortization: false,
+      }),
+    ).toBe(true)
+  })
+
+  it("clears alt fields when link code is not capex projection", () => {
+    expect(
+      sanitizeMappingAltAssetFields({
+        linkCode: "CMV.1",
+        altAssetCost: true,
+        altAccumulatedAmortization: false,
+      }),
+    ).toEqual({
+      linkCode: "CMV.1",
+      altAssetCost: false,
+      altAccumulatedAmortization: false,
+    })
+  })
+})
+
 describe("resolveLinkCodeDtCt", () => {
   it("applies family defaults for bilan and compte de résultat", () => {
     expect(resolveLinkCodeDtCt(code({ code: "ACT-A.1", family: "ACT", is_leaf: true }))).toBe("DT")
@@ -220,5 +276,59 @@ describe("resolveLinkCodeDtCt", () => {
     expect(linkCodeDtCtSignMultiplier("PCT-A.1")).toBe(-1)
     expect(linkCodeDtCtSignMultiplier("ACT-A.1")).toBe(1)
     expect(linkCodeDtCtSignMultiplier("EXP.1")).toBe(1)
+  })
+})
+
+describe("capexLinkCodeOptions", () => {
+  const chart: StandardLinkCode[] = [
+    code({ code: "ALT-B", family: "ALT", is_leaf: true }),
+    code({ code: "CMV", family: "CMV", is_leaf: false }),
+    code({
+      code: "CMV.1",
+      family: "CMV",
+      parent_code: "CMV",
+      is_leaf: true,
+      label_sub_account: "Achats",
+    }),
+    code({ code: "TEX-A", family: "TEX", is_leaf: true }),
+  ]
+
+  it("includes Compte de résultat leaves such as CMV.1, unlike FDR parents-only", () => {
+    const wc = workingCapitalLinkCodeOptions(chart)
+    expect(wc.codes).toContain("CMV")
+    expect(wc.codes).not.toContain("CMV.1")
+    expect(wc.codes).not.toContain("ALT-B")
+
+    const capex = capexLinkCodeOptions(chart)
+    expect(capex.codes).toContain("CMV")
+    expect(capex.codes).toContain("CMV.1")
+    expect(capex.codes).toContain("ALT-B")
+    expect(capex.codes).toContain("REV")
+    expect(capex.codes).not.toContain("TEX-A")
+    expect(capex.labels.get("CMV.1")).toBe("Achats")
+  })
+})
+
+describe("allAnalysisLinkCodeOptions", () => {
+  const chart: StandardLinkCode[] = [
+    code({ code: "ALT-B", family: "ALT", is_leaf: true }),
+    code({
+      code: "CMV.1",
+      family: "CMV",
+      parent_code: "CMV",
+      is_leaf: true,
+      label_sub_account: "Achats",
+    }),
+    code({ code: "TEX-A", family: "TEX", is_leaf: true }),
+  ]
+
+  it("includes every active code including CMV.1 and trésorerie leaves", () => {
+    const all = allAnalysisLinkCodeOptions(chart)
+    expect(all.codes).toContain("CMV.1")
+    expect(all.codes).toContain("ALT-B")
+    expect(all.codes).toContain("TEX-A")
+    expect(all.codes).toContain("REV")
+    expect(all.codes).toContain("TEX")
+    expect(all.labels.get("CMV.1")).toBe("Achats")
   })
 })

@@ -4,7 +4,22 @@
   "current_workflow": null,
   "current_phase": null,
   "session_start": "2026-06-14T16:55:59Z",
-  "decisions": [],
+  "decisions": [
+    {
+      "phase": "design_review_ceremony",
+      "decision": "Design review completed for: Unzip the file 'Diagnostics page UI redesign.zip' at the rep",
+      "rationale": "[Provider claude unavailable: claude CLI not found in PATH]",
+      "date": "2026-07-28",
+      "commit": "ccd819b365ffc1e77d987ac0f962b176a7fb6c38"
+    },
+    {
+      "phase": "ink_deliver/cross-model-review",
+      "decision": "Review scorecard: sec=5 rel=5 perf=5 acc=5",
+      "rationale": "4x10 cross-model review scores",
+      "date": "2026-07-28",
+      "commit": "ccd819b365ffc1e77d987ac0f962b176a7fb6c38"
+    }
+  ],
   "blockers": [],
   "context": {
     "discover": null,
@@ -16,7 +31,7 @@
     "phases_completed": 0,
     "total_execution_time_minutes": 0,
     "provider_usage": {
-      "codex": 0,
+      "codex": 1,
       "gemini": 0,
       "perplexity": 0,
       "claude": 0

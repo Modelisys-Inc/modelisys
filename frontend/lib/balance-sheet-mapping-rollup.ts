@@ -14,17 +14,32 @@ function normLabel(s: string): string {
   return s.trim().toLowerCase()
 }
 
+const BALANCE_SHEET_FAMILY_PARENT_HEADERS = new Set([
+  "actif",
+  "actifs",
+  "passif",
+  "passifs",
+])
+
 /** Famille associée à un libellé de section sommaire bilan. */
 export function balanceSheetFamilyForSectionLabel(label: string): string | null {
   const lab = normLabel(label)
-  if (!lab) return null
+  if (!lab || BALANCE_SHEET_FAMILY_PARENT_HEADERS.has(lab)) return null
   for (const [fam, sectionLabel] of Object.entries(BALANCE_SHEET_FAMILY_SECTION_LABELS)) {
     if (normLabel(sectionLabel) === lab) return fam
   }
-  if (lab === "actif") return "ACT"
-  if (lab === "passif") return "PCT"
-  if (lab === "capitaux propres") return "CAP"
-  return null
+  const aliases: Record<string, string> = {
+    "actifs courants": "ACT",
+    "actif courant": "ACT",
+    "actifs non courants": "ALT",
+    "actif non courant": "ALT",
+    "passifs courants": "PCT",
+    "passif courant": "PCT",
+    "passifs non courants": "PLT",
+    "passif non courant": "PLT",
+    "capitaux propres": "CAP",
+  }
+  return aliases[lab] ?? null
 }
 
 /** Code parent standard dont le libellé correspond (sections intermédiaires). */

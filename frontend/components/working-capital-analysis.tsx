@@ -7,12 +7,22 @@ import { StatementStructureStudio } from "@/components/statement-structure-studi
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, aggregateToYears, findRow, reverseSeriesOrderForDisplay } from "@/lib/series-utils"
+import { getRowAmounts, findRow, reverseSeriesOrderForDisplay } from "@/lib/series-utils"
+import {
+  calendarYearSequenceFromReference,
+  findPeriodIndexForCalendarMonth,
+} from "@/lib/series-reference-columns"
+import {
+  capexYearCalendarMonth,
+  capexYearLabelsChronological,
+  parseFiscalYearEndMonth,
+  sliceAmountsAtCapexReferenceYears,
+} from "@/lib/capex-year-reference"
 import { getStatementStructure } from "@/lib/api"
 import {
   resolveWorkingCapitalStructureAmount,
   resolveWorkingCapitalOperandAmount,
-  collectWorkingCapitalIncludedOperands,
+  collectWorkingCapitalIncludedOperandsForDisplay,
   workingCapitalOperandDisplayLabel,
   workingCapitalStructureViewRows,
   normalizeWorkingCapitalDisplayFormat,
@@ -23,8 +33,22 @@ import {
   type WorkingCapitalDisplayFormat,
   type WorkingCapitalIncludedOperand,
 } from "@/lib/working-capital-structure-utils"
+import { CONTRIBUTIVE_MARGIN_AMOUNT_EPSILON } from "@/lib/revenue-contributive-margin-evolution"
+import { emptyHorizonColumnMask, pickHorizonColumns } from "@/lib/horizon-column-visibility"
+import { IndicatorAnalysisTableColGroup } from "@/components/indicator-analysis-table-colgroup"
+import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
 import { ChevronDown, ChevronRight, LayoutList, Settings, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { IncomePerformanceNarrativeSection } from "@/components/diagnostic/v2/income-performance-narrative-section"
+import { ReportNarrativePrint } from "@/components/diagnostic/report/report-narrative-print"
+import {
+  lecturePageCountFromPacked,
+  packNarrativeParagraphs,
+  paragraphsForPackedPage,
+} from "@/lib/report-narrative-pagination"
+import { buildWorkingCapitalDiagnosticResult } from "@/lib/working-capital-diagnostic"
+import { buildWorkingCapitalCompositionResult } from "@/lib/working-capital-composition"
+import { buildWorkingCapitalDiagnosticNarrative } from "@/lib/working-capital-diagnostic-narrative"
 import {
   dashboardCardAccentClass,
   dashboardCardBodyMutedClass,
@@ -48,7 +72,15 @@ interface WorkingCapitalAnalysisProps {
   referenceMonth?: number
   structureVersion?: number
   showStructureSettings?: boolean
+  /** Mode contrôlé pour l’éditeur de structure (diagnostic). */
+  structureEditOpen?: boolean
+  onStructureEditOpenChange?: (open: boolean) => void
   onStructureSaved?: () => void
+  /** En diagnostic : contenu seul, sans chrome « tableau de bord ». En report : impression. */
+  appearance?: "dashboard" | "diagnostic" | "report"
+  printSegment?: "chart" | "narrative"
+  narrativePageIndex?: number
+  onNarrativePageCount?: (count: number) => void
 }
 
 interface AnalysisData {
@@ -113,14 +145,28 @@ export function WorkingCapitalAnalysis({
   structureVersion = 0,
   showStructureSettings = true,
   onStructureSaved,
+  appearance = "dashboard",
+  printSegment,
+  narrativePageIndex,
+  onNarrativePageCount,
+  structureEditOpen,
+  onStructureEditOpenChange,
 }: WorkingCapitalAnalysisProps) {
   const resolvedYear = fiscalYear ?? new Date().getFullYear()
   const resolvedMonth = referenceMonth ?? new Date().getMonth() + 1
+  const fiscalYearEndMonth = parseFiscalYearEndMonth(
+    companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
+  )
   const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
   /** CDR : fenêtre affichée + 11 mois pour calculer le TTM à chaque date de référence. */
   const isMonthsNeeded = monthsNeeded + WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS
-  const [structureEditMode, setStructureEditMode] = useState(false)
+  const [internalStructureEditMode, setInternalStructureEditMode] = useState(false)
+  const [narrativeStructureEditOpen, setNarrativeStructureEditOpen] = useState(false)
+  const [localStructureVersion, setLocalStructureVersion] = useState(0)
+  const structureEditMode = structureEditOpen ?? internalStructureEditMode
+  const setStructureEditMode = onStructureEditOpenChange ?? setInternalStructureEditMode
   const [structure, setStructure] = useState<Record<string, unknown>[]>([])
+  const [structureLoaded, setStructureLoaded] = useState(false)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
   const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
@@ -146,26 +192,37 @@ export function WorkingCapitalAnalysis({
   })
 
   const loading = bsLoading || isLoading
-  const canInlineStructureEdit = showStructureSettings && !!companyId
+  const isDiagnosticAppearance = appearance === "diagnostic" || appearance === "report"
+  const isReportAppearance = appearance === "report"
+  const canInlineStructureEdit = showStructureSettings && !!companyId && !isDiagnosticAppearance
+  const canNarrativeStructureEdit = appearance === "diagnostic" && !!companyId
   const isStructureStudio = structureEditMode && canInlineStructureEdit
 
   useEffect(() => {
     if (!companyId) {
       setStructure([])
+      setStructureLoaded(false)
       return
     }
     let cancelled = false
+    setStructureLoaded(false)
     getStatementStructure(companyId, "working-capital")
       .then((res) => {
-        if (!cancelled) setStructure(Array.isArray(res.structure) ? res.structure : [])
+        if (!cancelled) {
+          setStructure(Array.isArray(res.structure) ? res.structure : [])
+          setStructureLoaded(true)
+        }
       })
       .catch(() => {
-        if (!cancelled) setStructure([])
+        if (!cancelled) {
+          setStructure([])
+          setStructureLoaded(true)
+        }
       })
     return () => {
       cancelled = true
     }
-  }, [companyId, structureVersion])
+  }, [companyId, structureVersion, localStructureVersion])
 
   const data: AnalysisData = useMemo(() => {
     const empty: AnalysisData = {
@@ -209,11 +266,38 @@ export function WorkingCapitalAnalysis({
       let finalCash: number[]
 
       if (view === "years") {
-        finalAssets = aggregateToYears(assetsAmounts, bsPeriods).amounts
-        finalLiabilities = aggregateToYears(liabilitiesAmounts, bsPeriods).amounts
-        // TTM à la fin de chaque exercice (pas la somme des TTM mensuels).
-        finalRevenue = aggregateToYears(revenueTtmForBsPeriods, bsPeriods, "last").amounts
-        finalCash = aggregateToYears(cashAmounts, bsPeriods).amounts
+        finalAssets = sliceAmountsAtCapexReferenceYears(
+          assetsAmounts,
+          bsPeriods,
+          resolvedMonth,
+          resolvedYear,
+          fiscalYearEndMonth,
+          PERFORMANCE_CHART_YEAR_COUNT,
+        )
+        finalLiabilities = sliceAmountsAtCapexReferenceYears(
+          liabilitiesAmounts,
+          bsPeriods,
+          resolvedMonth,
+          resolvedYear,
+          fiscalYearEndMonth,
+          PERFORMANCE_CHART_YEAR_COUNT,
+        )
+        finalRevenue = sliceAmountsAtCapexReferenceYears(
+          revenueTtmForBsPeriods,
+          bsPeriods,
+          resolvedMonth,
+          resolvedYear,
+          fiscalYearEndMonth,
+          PERFORMANCE_CHART_YEAR_COUNT,
+        )
+        finalCash = sliceAmountsAtCapexReferenceYears(
+          cashAmounts,
+          bsPeriods,
+          resolvedMonth,
+          resolvedYear,
+          fiscalYearEndMonth,
+          PERFORMANCE_CHART_YEAR_COUNT,
+        )
       } else {
         finalAssets = assetsAmounts
         finalLiabilities = liabilitiesAmounts
@@ -264,7 +348,7 @@ export function WorkingCapitalAnalysis({
       priorCash: cLen > 1 ? cashAmounts[cLen - 2]! : 0,
       trendValues: undefined,
     }
-  }, [bsRows, isRows, bsPeriods, isPeriods, view])
+  }, [bsRows, isRows, bsPeriods, isPeriods, view, resolvedMonth, resolvedYear, fiscalYearEndMonth])
 
   const calculateWorkingCapital = (isPrior: boolean, trendIndex?: number): number => {
     if (trendIndex !== undefined && data.trendValues) {
@@ -334,13 +418,20 @@ export function WorkingCapitalAnalysis({
   const periodIndexFor = (isPrior: boolean, trendIndex?: number): number => {
     if (trendIndex !== undefined) {
       if (view === "years" && bsPeriods.length > 0) {
-        const years = [...new Set(bsPeriods.map((p) => p.fiscalYear))].sort((a, b) => a - b)
-        const fy = years[Math.max(0, Math.min(trendIndex, years.length - 1))]
-        let lastIdx = 0
-        for (let i = 0; i < bsPeriods.length; i++) {
-          if (bsPeriods[i]!.fiscalYear === fy) lastIdx = i
-        }
-        return lastIdx
+        const yearsChronological = [
+          ...calendarYearSequenceFromReference(resolvedYear, PERFORMANCE_CHART_YEAR_COUNT),
+        ].reverse()
+        const year =
+          yearsChronological[
+            Math.max(0, Math.min(trendIndex, yearsChronological.length - 1))
+          ]!
+        const month = capexYearCalendarMonth(
+          year,
+          resolvedMonth,
+          resolvedYear,
+          fiscalYearEndMonth,
+        )
+        return findPeriodIndexForCalendarMonth(bsPeriods, month, year)
       }
       return Math.max(0, Math.min(trendIndex, Math.max(0, bsPeriods.length - 1)))
     }
@@ -392,6 +483,11 @@ export function WorkingCapitalAnalysis({
     return null
   }
 
+  const operandDisplayContext = useMemo(
+    () => ({ bsRows, isRows }),
+    [bsRows, isRows],
+  )
+
   const tableRows: Array<
     | { kind: "separator"; key: string }
     | { kind: "spacer"; key: string }
@@ -430,6 +526,8 @@ export function WorkingCapitalAnalysis({
           showAmounts: true,
           format: metricFormat,
           valueAt: (isPrior: boolean, trendIndex?: number) => {
+            const periodIndex = periodIndexFor(isPrior, trendIndex)
+            if (periodIndex < 0) return 0
             const raw =
               resolveWorkingCapitalStructureAmount(
                 row,
@@ -437,7 +535,7 @@ export function WorkingCapitalAnalysis({
                 isRows,
                 bsPeriods,
                 isPeriods,
-                periodIndexFor(isPrior, trendIndex),
+                periodIndex,
                 structure,
               ) ?? 0
             return displayFormat === "percent" ? raw * 100 : raw
@@ -464,7 +562,10 @@ export function WorkingCapitalAnalysis({
           key: item.key,
           metric: buildMetricFromRow(item.row, item.index),
           structureRow: item.row,
-          operands: collectWorkingCapitalIncludedOperands(item.row),
+          operands: collectWorkingCapitalIncludedOperandsForDisplay(
+            item.row,
+            operandDisplayContext,
+          ),
         }
       })
     }
@@ -482,7 +583,7 @@ export function WorkingCapitalAnalysis({
       key: `fallback-${idx}`,
       metric: buildMetricFromRow(row, idx),
       structureRow: row,
-      operands: collectWorkingCapitalIncludedOperands(row),
+      operands: collectWorkingCapitalIncludedOperandsForDisplay(row, operandDisplayContext),
     }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [structure, bsRows, isRows, bsPeriods, isPeriods, data, view])
@@ -496,7 +597,18 @@ export function WorkingCapitalAnalysis({
     })
   }
 
+  const yearColumnLabelsChronological = () =>
+    capexYearLabelsChronological(
+      resolvedMonth,
+      resolvedYear,
+      fiscalYearEndMonth,
+      PERFORMANCE_CHART_YEAR_COUNT,
+    )
+
   const getPeriodColumnLabels = (): string[] => {
+    if (view === "years") {
+      return reverseSeriesOrderForDisplay(yearColumnLabelsChronological())
+    }
     if (bsPeriods.length > 0) {
       if (view === "current") {
         // Courant = date de référence, Passé = période précédente (libellés réels, décroissant).
@@ -507,20 +619,9 @@ export function WorkingCapitalAnalysis({
             : "Passé"
         return [last, prior]
       }
-      const chronological =
-        view === "years"
-          ? aggregateToYears(
-              bsPeriods.map(() => 0),
-              bsPeriods,
-            ).labels
-          : bsPeriods.map((p) => p.label)
-      return reverseSeriesOrderForDisplay(chronological)
+      return reverseSeriesOrderForDisplay(bsPeriods.map((p) => p.label))
     }
     if (view === "current") return ["Courant", "Passé"]
-    if (view === "years") {
-      const cy = new Date().getFullYear()
-      return Array.from({ length: 6 }, (_, i) => `${cy - i}`)
-    }
     const count = view === "24months" ? 24 : 12
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
     const labels: string[] = []
@@ -544,37 +645,225 @@ export function WorkingCapitalAnalysis({
 
   const trendCount =
     data.trendValues?.length ||
-    (view === "24months" ? 24 : view === "years" ? 6 : view === "12months" ? 12 : 0)
+    (view === "24months"
+      ? 24
+      : view === "years"
+        ? PERFORMANCE_CHART_YEAR_COUNT
+        : view === "12months"
+          ? 12
+          : 0)
 
-  const tableColumnCount =
-    2 + (view === "current" ? 2 : Math.max(trendCount, getPeriodColumnLabels().length, 1))
+  const annualYearsColumnMask = useMemo(() => {
+    if (view !== "years" || bsPeriods.length === 0) return null
+
+    const chronologicalLabels = yearColumnLabelsChronological()
+    const displayLabels = reverseSeriesOrderForDisplay(chronologicalLabels)
+    const metricRows = tableRows
+      .filter((item): item is Extract<typeof item, { kind: "metric" }> => item.kind === "metric")
+      .filter((item) => item.metric.showAmounts)
+      .map((item) => {
+        const chronologicalValues = Array.from({ length: trendCount }, (_, idx) =>
+          item.metric.valueAt(false, idx),
+        )
+        return reverseSeriesOrderForDisplay(chronologicalValues)
+      })
+
+    if (!metricRows.length || !displayLabels.length) return null
+    return emptyHorizonColumnMask(displayLabels.length, metricRows)
+  }, [view, tableRows, trendCount, bsPeriods, resolvedMonth, resolvedYear, fiscalYearEndMonth])
+
+  const filterAnnualDisplayColumns = <T,>(items: T[]): T[] => {
+    if (view !== "years" || !annualYearsColumnMask) return items
+    return pickHorizonColumns(items, annualYearsColumnMask)
+  }
+
+  const getVisiblePeriodColumnLabels = (): string[] =>
+    filterAnnualDisplayColumns(getPeriodColumnLabels())
+
+  const visiblePeriodLabels = getVisiblePeriodColumnLabels()
+  const visiblePeriodCount = view === "current" ? 2 : Math.max(visiblePeriodLabels.length, 1)
+  const fillTableWidth = isDiagnosticAppearance || view !== "current"
+  const tableColumnCount = 2 + visiblePeriodCount
 
   /** Style montants : Détail CDR (slate-500) ; postes gras → libellé + montants en gras. */
-  const metricColumnClass =
-    "box-border w-[18rem] min-w-[18rem] max-w-[18rem] sm:w-[20rem] sm:min-w-[20rem] sm:max-w-[20rem]"
+  const metricColumnClass = isDiagnosticAppearance
+    ? "box-border w-full"
+    : "box-border w-[18rem] min-w-[18rem] max-w-[18rem] sm:w-[20rem] sm:min-w-[20rem] sm:max-w-[20rem]"
   const amountCellClass = (isBold?: boolean) =>
     cn(
-      "whitespace-nowrap px-6 py-3 text-right text-sm",
-      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
+      isDiagnosticAppearance
+        ? "whitespace-nowrap px-3 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums"
+        : "whitespace-nowrap px-6 py-3 text-right text-sm",
+      isBold
+        ? isDiagnosticAppearance
+          ? "text-[#2A2F3A]"
+          : "font-semibold font-bold text-slate-900"
+        : "text-slate-500",
     )
   const amountTrendCellClass = (isBold?: boolean) =>
     cn(
-      "min-w-[5.5rem] whitespace-nowrap px-4 py-3 text-right text-sm",
-      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
+      isDiagnosticAppearance
+        ? "whitespace-nowrap px-2.5 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums"
+        : "min-w-[5.5rem] whitespace-nowrap px-4 py-3 text-right text-sm",
+      isBold
+        ? isDiagnosticAppearance
+          ? "text-[#2A2F3A]"
+          : "font-semibold font-bold text-slate-900"
+        : "text-slate-500",
     )
+  const averageColumnBgClass = "bg-gradient-to-b from-slate-50 to-slate-100/50"
   const amountAverageCellClass = (isBold?: boolean) =>
     cn(
-      "min-w-[7.5rem] whitespace-nowrap bg-gradient-to-b from-slate-50 to-slate-100/50 px-6 py-3 text-right text-sm",
-      isBold ? "font-semibold font-bold text-slate-900" : "text-slate-500",
+      isDiagnosticAppearance
+        ? "min-w-[5.5rem] whitespace-nowrap px-3 py-[9px] text-right font-mono text-[11.5px] font-medium tabular-nums"
+        : "min-w-[7.5rem] whitespace-nowrap px-6 py-3 text-right text-sm",
+      averageColumnBgClass,
+      isBold
+        ? isDiagnosticAppearance
+          ? "text-[#2A2F3A]"
+          : "font-semibold font-bold text-slate-900"
+        : "text-slate-500",
     )
   const metricLabelCellClass = (isBold?: boolean, isChild?: boolean) =>
     cn(
       metricColumnClass,
-      "sticky left-0 z-10",
+      !isDiagnosticAppearance && "sticky left-0 z-10",
       isChild
-        ? "bg-slate-50 py-2.5 pl-14 pr-6 text-sm text-slate-600"
-        : cn("bg-white px-6 py-3 text-slate-900", isBold && "font-bold"),
+        ? isDiagnosticAppearance
+          ? "bg-slate-50 py-2 pl-10 pr-4 text-[11px] text-slate-600"
+          : "bg-slate-50 py-2.5 pl-14 pr-6 text-sm text-slate-600"
+        : isDiagnosticAppearance
+          ? cn("bg-white px-4 py-[9px] text-xs font-medium text-[#2A2F3A]", isBold && "font-semibold")
+          : cn("bg-white px-6 py-3 text-slate-900", isBold && "font-bold"),
     )
+  const tableHeaderClass = isDiagnosticAppearance
+    ? "px-4 py-2 text-[9.5px] font-semibold uppercase leading-tight tracking-[.08em] text-slate-400"
+    : "px-6 py-4 text-sm font-semibold text-[#2A2F3A]"
+  const tableHeaderAverageClass = cn(
+    tableHeaderClass,
+    !isDiagnosticAppearance && "min-w-[7.5rem]",
+    "text-right",
+    averageColumnBgClass,
+  )
+  const tableHeaderPeriodClass = isDiagnosticAppearance
+    ? cn(
+        tableHeaderClass,
+        "text-right",
+        view === "current" ? "min-w-[5.5rem]" : "px-2.5",
+      )
+    : cn(
+        tableHeaderClass,
+        "text-right",
+        view === "current" ? "min-w-[7.5rem]" : "min-w-[5.5rem] px-4",
+      )
+  const rowHoverClass = isDiagnosticAppearance ? "hover:bg-slate-50" : "hover:bg-[#E0742D]/[0.04]"
+  const rowHoverCellClass = isDiagnosticAppearance ? "group-hover:bg-slate-50" : "group-hover:bg-[#FDF6F1]"
+  const averageRowHoverCellClass = isDiagnosticAppearance
+    ? "group-hover:from-slate-100 group-hover:to-slate-100/70"
+    : "group-hover:from-[#FDF6F1] group-hover:to-[#FDF6F1]"
+
+  const companyCurrency = companies.find((c) => c.id === companyId)?.currency ?? "CAD"
+
+  const workingCapitalDiagnosticResult = useMemo(() => {
+    if (!isDiagnosticAppearance || !companyId || !structureLoaded || loading) return null
+    return buildWorkingCapitalDiagnosticResult({
+      bsRows,
+      bsPeriods,
+      isRows,
+      isPeriods,
+      structure,
+      view,
+      refMonth: resolvedMonth,
+      refYear: resolvedYear,
+      structureReady: true,
+    })
+  }, [
+    isDiagnosticAppearance,
+    companyId,
+    structureLoaded,
+    loading,
+    bsRows,
+    bsPeriods,
+    isRows,
+    isPeriods,
+    structure,
+    view,
+    resolvedMonth,
+    resolvedYear,
+  ])
+
+  const workingCapitalCompositionResult = useMemo(() => {
+    if (!isDiagnosticAppearance || !companyId || !structureLoaded || loading) return null
+    return buildWorkingCapitalCompositionResult({
+      bsRows,
+      bsPeriods,
+      isRows,
+      isPeriods,
+      structure,
+      view,
+      refMonth: resolvedMonth,
+      refYear: resolvedYear,
+      structureReady: true,
+    })
+  }, [
+    isDiagnosticAppearance,
+    companyId,
+    structureLoaded,
+    loading,
+    bsRows,
+    bsPeriods,
+    isRows,
+    isPeriods,
+    structure,
+    view,
+    resolvedMonth,
+    resolvedYear,
+  ])
+
+  const workingCapitalDiagnosticNarrative = useMemo(() => {
+    if (!workingCapitalDiagnosticResult?.points.length) return null
+    return buildWorkingCapitalDiagnosticNarrative({
+      fdrResult: workingCapitalDiagnosticResult,
+      compositionResult: workingCapitalCompositionResult,
+      view,
+      bsRows,
+      isRows,
+      bsPeriods,
+      isPeriods,
+      structure,
+      refMonth: resolvedMonth,
+      refYear: resolvedYear,
+    })
+  }, [
+    workingCapitalDiagnosticResult,
+    workingCapitalCompositionResult,
+    view,
+    bsRows,
+    isRows,
+    bsPeriods,
+    isPeriods,
+    structure,
+    resolvedMonth,
+    resolvedYear,
+  ])
+
+  const wcPackedPages = useMemo(
+    () => packNarrativeParagraphs(workingCapitalDiagnosticNarrative?.paragraphs),
+    [workingCapitalDiagnosticNarrative],
+  )
+
+  useEffect(() => {
+    if (printSegment !== "narrative" || !onNarrativePageCount) return
+    onNarrativePageCount(lecturePageCountFromPacked(wcPackedPages.length))
+  }, [printSegment, onNarrativePageCount, wcPackedPages.length])
+
+  const paginatedWorkingCapitalNarrative = useMemo(() => {
+    if (!workingCapitalDiagnosticNarrative) return null
+    if (narrativePageIndex === undefined) return workingCapitalDiagnosticNarrative
+    const pageParagraphs = paragraphsForPackedPage(wcPackedPages, narrativePageIndex)
+    if (!pageParagraphs.length) return null
+    return { ...workingCapitalDiagnosticNarrative, paragraphs: pageParagraphs }
+  }, [workingCapitalDiagnosticNarrative, narrativePageIndex, wcPackedPages])
 
   const renderMetricRow = (
     rowKey: string,
@@ -589,7 +878,7 @@ export function WorkingCapitalAnalysis({
     const values =
       view === "current"
         ? chronologicalValues
-        : reverseSeriesOrderForDisplay(chronologicalValues)
+        : filterAnnualDisplayColumns(reverseSeriesOrderForDisplay(chronologicalValues))
     const average =
       chronologicalValues.length > 0
         ? chronologicalValues.reduce((sum, v) => sum + v, 0) / chronologicalValues.length
@@ -598,64 +887,57 @@ export function WorkingCapitalAnalysis({
     const formatCell = (value: number) =>
       metric.showAmounts ? formatMetricValue(value, metric.format) : ""
 
-    const canExpand = operands.length > 0
-    const isExpanded = expandedRows.has(rowKey)
+    const operandAmountAt = (code: string, periodIndex: number): number => {
+      if (periodIndex < 0) return 0
+      return resolveWorkingCapitalOperandAmount(
+        code,
+        bsRows,
+        isRows,
+        bsPeriods,
+        isPeriods,
+        periodIndex,
+        structure,
+      )
+    }
 
     const operandChronologicalValues = (code: string): number[] => {
       if (view === "current") {
-        return [
-          resolveWorkingCapitalOperandAmount(
-            code,
-            bsRows,
-            isRows,
-            bsPeriods,
-            isPeriods,
-            periodIndexFor(false),
-            structure,
-          ),
-          resolveWorkingCapitalOperandAmount(
-            code,
-            bsRows,
-            isRows,
-            bsPeriods,
-            isPeriods,
-            periodIndexFor(true),
-            structure,
-          ),
-        ]
+        return [operandAmountAt(code, periodIndexFor(false)), operandAmountAt(code, periodIndexFor(true))]
       }
       return Array.from({ length: trendCount }, (_, idx) =>
-        resolveWorkingCapitalOperandAmount(
-          code,
-          bsRows,
-          isRows,
-          bsPeriods,
-          isPeriods,
-          periodIndexFor(false, idx),
-          structure,
-        ),
+        operandAmountAt(code, periodIndexFor(false, idx)),
       )
     }
+
+    const visibleOperands = operands.filter((op) =>
+      operandChronologicalValues(op.code).some(
+        (value) => Math.abs(value) > CONTRIBUTIVE_MARGIN_AMOUNT_EPSILON,
+      ),
+    )
+
+    const canExpand = visibleOperands.length > 0
+    const isExpanded = expandedRows.has(rowKey)
 
     return (
       <Fragment key={rowKey}>
         <tr
           className={cn(
-            "group transition-colors hover:bg-[#E0742D]/[0.04]",
+            "group transition-colors",
+            rowHoverClass,
             canExpand && "cursor-pointer",
           )}
           onClick={canExpand ? () => toggleRow(rowKey) : undefined}
           data-testid={canExpand ? `wc-metric-expand-${rowKey}` : undefined}
           aria-expanded={canExpand ? isExpanded : undefined}
         >
-          <td className={cn(metricLabelCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+          <td className={cn(metricLabelCellClass(metric.isBold), rowHoverCellClass)}>
             <div className="flex items-center gap-2">
               {canExpand ? (
                 <span className="flex-shrink-0" aria-hidden>
                   {isExpanded ? (
-                    <ChevronDown className="h-4 w-4 text-slate-500" />
+                    <ChevronDown className={cn(isDiagnosticAppearance ? "h-3 w-3" : "h-4 w-4", "text-slate-500")} />
                   ) : (
-                    <ChevronRight className="h-4 w-4 text-slate-500" />
+                    <ChevronRight className={cn(isDiagnosticAppearance ? "h-3 w-3" : "h-4 w-4", "text-slate-500")} />
                   )}
                 </span>
               ) : (
@@ -664,15 +946,15 @@ export function WorkingCapitalAnalysis({
               <span className="min-w-0 truncate">{metric.label}</span>
             </div>
           </td>
-          <td className={cn(amountAverageCellClass(metric.isBold), "group-hover:from-[#FDF6F1] group-hover:to-[#FDF6F1]")}>
+          <td className={cn(amountAverageCellClass(metric.isBold), averageRowHoverCellClass)}>
             {formatCell(average)}
           </td>
           {view === "current" ? (
             <>
-              <td className={cn(amountCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+              <td className={cn(amountCellClass(metric.isBold), rowHoverCellClass)}>
                 {formatCell(values[0] ?? 0)}
               </td>
-              <td className={cn(amountCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}>
+              <td className={cn(amountCellClass(metric.isBold), rowHoverCellClass)}>
                 {formatCell(values[1] ?? 0)}
               </td>
             </>
@@ -680,7 +962,7 @@ export function WorkingCapitalAnalysis({
             values.map((v, idx) => (
               <td
                 key={idx}
-                className={cn(amountTrendCellClass(metric.isBold), "group-hover:bg-[#FDF6F1]")}
+                className={cn(amountTrendCellClass(metric.isBold), rowHoverCellClass)}
               >
                 {formatCell(v)}
               </td>
@@ -688,12 +970,13 @@ export function WorkingCapitalAnalysis({
           )}
         </tr>
         {isExpanded &&
-          operands.map((op) => {
+          visibleOperands.map((op) => {
             const chronological = operandChronologicalValues(op.code)
-            const displayValues =
+            const displayValues = filterAnnualDisplayColumns(
               view === "current"
                 ? chronological
-                : reverseSeriesOrderForDisplay(chronological)
+                : reverseSeriesOrderForDisplay(chronological),
+            )
             const opAverage =
               chronological.length > 0
                 ? chronological.reduce((sum, v) => sum + v, 0) / chronological.length
@@ -743,6 +1026,218 @@ export function WorkingCapitalAnalysis({
             )
           })}
       </Fragment>
+    )
+  }
+
+  const analysisBody = isStructureStudio ? (
+    <StatementStructureStudio
+      embedded
+      companyId={companyId!}
+      statementType="working-capital"
+      hideAnnexColumns
+      onSaved={() => {
+        onStructureSaved?.()
+        setStructureEditMode(false)
+      }}
+      onClose={() => setStructureEditMode(false)}
+    />
+  ) : (
+    <>
+      {loading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
+        </div>
+      )}
+
+      {!companyId && !loading && (
+        <div className="flex items-center justify-center py-12 text-sm text-slate-500">
+          Sélectionnez une société
+        </div>
+      )}
+
+      {!loading && companyId && (
+        <div
+          className={cn(
+            "min-w-0 w-full bg-white",
+            isReportAppearance && printSegment === "chart"
+              ? "report-chart-indicator-table-wrap overflow-x-auto pb-1 pt-1"
+              : isDiagnosticAppearance
+                ? "w-full overflow-x-auto px-6 pb-2 pt-2 sm:px-7"
+                : "max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
+          )}
+          data-testid="wc-summary-table-scroll"
+        >
+          <table
+            className={cn(
+              "w-full border-separate border-spacing-0",
+              fillTableWidth ? "table-fixed" : "min-w-max",
+            )}
+          >
+            {fillTableWidth ? (
+              <IndicatorAnalysisTableColGroup periodCount={visiblePeriodCount} />
+            ) : null}
+            <thead
+              className={cn(
+                !isDiagnosticAppearance && "[&_th]:sticky [&_th]:top-0 [&_th]:z-20",
+                isDiagnosticAppearance
+                  ? "[&_th]:border-b [&_th]:border-slate-200"
+                  : "[&_th]:border-b-2 [&_th]:border-slate-200 [&_th]:bg-gradient-to-b [&_th]:from-slate-50 [&_th]:to-slate-100/80 [&_th:first-child]:left-0 [&_th:first-child]:z-30",
+              )}
+            >
+              <tr>
+                <th className={cn(metricColumnClass, tableHeaderClass, "text-left")}>
+                  Métrique
+                </th>
+                <th className={tableHeaderAverageClass}>Moyenne</th>
+                {visiblePeriodLabels.map((label, idx) => (
+                  <th key={idx} className={tableHeaderPeriodClass}>
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody
+              className={cn(
+                isDiagnosticAppearance
+                  ? "[&_td]:border-t [&_td]:border-slate-200"
+                  : "[&_td]:border-b [&_td]:border-slate-200 [&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+              )}
+            >
+              {tableRows.map((item) => {
+                if (item.kind === "separator") {
+                  return (
+                    <tr key={item.key} aria-hidden data-testid="wc-structure-separator">
+                      <td colSpan={tableColumnCount} className="border-0 p-0">
+                        <div className="my-1 border-t-2 border-slate-700" />
+                      </td>
+                    </tr>
+                  )
+                }
+                if (item.kind === "spacer") {
+                  const periodColCount = visiblePeriodCount
+                  return (
+                    <tr key={item.key} data-testid="wc-structure-spacer" className="h-2">
+                      <td
+                        className={cn(
+                          metricColumnClass,
+                          !isDiagnosticAppearance && "sticky left-0 z-10",
+                          isDiagnosticAppearance ? "px-4 py-4" : "px-6 py-4",
+                          "bg-white text-transparent select-none",
+                        )}
+                      >
+                        {"\u00a0"}
+                      </td>
+                      <td
+                        className={cn(
+                          amountAverageCellClass(false),
+                          "py-4 text-transparent select-none",
+                        )}
+                        data-testid="wc-spacer-average-cell"
+                      >
+                        {"\u00a0"}
+                      </td>
+                      {Array.from({ length: periodColCount }, (_, idx) => (
+                        <td
+                          key={idx}
+                          className={cn(
+                            view === "current"
+                              ? amountCellClass(false)
+                              : amountTrendCellClass(false),
+                            "py-4 text-transparent select-none",
+                          )}
+                        >
+                          {"\u00a0"}
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                }
+                return renderMetricRow(item.key, item.metric, item.operands)
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  )
+
+  if (isDiagnosticAppearance) {
+    const narrativeForSection =
+      paginatedWorkingCapitalNarrative ??
+      (canNarrativeStructureEdit && !isReportAppearance && narrativePageIndex === undefined
+        ? {
+            title: "Lecture du fonds de roulement",
+            subtitle:
+              view === "years"
+                ? "Fonds de roulement, cycle de trésorerie et ratios de structure sur les cinq derniers exercices."
+                : "Fonds de roulement, cycle de trésorerie et ratios de structure sur les douze derniers mois.",
+            mode: view === "years" ? ("annual" as const) : ("monthly" as const),
+            paragraphs: [],
+          }
+        : null)
+
+    const narrativeBlock =
+      narrativeForSection != null ? (
+        isReportAppearance ? (
+          <ReportNarrativePrint
+            testId="working-capital-narrative"
+            narrative={narrativeForSection}
+            showHeader={narrativePageIndex === undefined || narrativePageIndex === 0}
+          />
+        ) : (
+          <IncomePerformanceNarrativeSection
+            testId="working-capital-narrative"
+            narrative={narrativeForSection}
+            headerActions={
+              canNarrativeStructureEdit && !narrativeStructureEditOpen ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={dashboardCardStructureSettingsButtonClass}
+                  onClick={() => setNarrativeStructureEditOpen(true)}
+                  data-testid="working-capital-narrative-settings"
+                >
+                  <Settings className={cn("h-4 w-4", dashboardCardAccentClass)} />
+                  Paramètres
+                </Button>
+              ) : null
+            }
+            settingsPanel={
+              narrativeStructureEditOpen && companyId ? (
+                <StatementStructureStudio
+                  embedded
+                  companyId={companyId}
+                  statementType="working-capital"
+                  hideAnnexColumns
+                  onSaved={() => {
+                    setLocalStructureVersion((v) => v + 1)
+                    onStructureSaved?.()
+                    setNarrativeStructureEditOpen(false)
+                  }}
+                  onClose={() => setNarrativeStructureEditOpen(false)}
+                />
+              ) : null
+            }
+          />
+        )
+      ) : null
+
+    if (printSegment === "chart") {
+      return <div className="report-wc-chart-only">{analysisBody}</div>
+    }
+    if (printSegment === "narrative") {
+      if (!narrativeBlock && narrativePageIndex !== undefined && narrativePageIndex > 0) {
+        return null
+      }
+      return narrativeBlock
+    }
+
+    return (
+      <>
+        {analysisBody}
+        {narrativeBlock}
+      </>
     )
   }
 
@@ -808,143 +1303,7 @@ export function WorkingCapitalAnalysis({
         </div>
       </div>
 
-      {isStructureStudio ? (
-        <StatementStructureStudio
-          embedded
-          companyId={companyId!}
-          statementType="working-capital"
-          hideAnnexColumns
-          onSaved={() => {
-            onStructureSaved?.()
-            setStructureEditMode(false)
-          }}
-          onClose={() => setStructureEditMode(false)}
-        />
-      ) : (
-        <>
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
-            </div>
-          )}
-
-          {!companyId && !loading && (
-            <div className="flex items-center justify-center py-12 text-sm text-slate-500">
-              Sélectionnez une société
-            </div>
-          )}
-
-          {!loading && companyId && (
-              <div
-                className="min-w-0 max-h-[min(72vh,56rem)] overflow-auto overscroll-contain bg-white"
-                data-testid="wc-summary-table-scroll"
-              >
-                <table className="w-full min-w-max border-separate border-spacing-0">
-                  <thead
-                    className={cn(
-                      "[&_th]:sticky [&_th]:top-0 [&_th]:z-20",
-                      "[&_th]:border-b-2 [&_th]:border-slate-200",
-                      "[&_th]:bg-gradient-to-b [&_th]:from-slate-50 [&_th]:to-slate-100/80",
-                      "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
-                    )}
-                  >
-                    <tr>
-                      <th
-                        className={cn(
-                          metricColumnClass,
-                          "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
-                        )}
-                      >
-                        Métrique
-                      </th>
-                      <th
-                        className={cn(
-                          "min-w-[7.5rem] whitespace-nowrap px-6 py-4 text-right text-sm font-semibold text-[#2A2F3A]",
-                          "bg-gradient-to-b from-slate-50 to-slate-100/50",
-                        )}
-                      >
-                        Moyenne
-                      </th>
-                      {getPeriodColumnLabels().map((label, idx) => (
-                        <th
-                          key={idx}
-                          className={cn(
-                            "whitespace-nowrap text-right text-sm font-semibold text-[#2A2F3A]",
-                            view === "current"
-                              ? "min-w-[7.5rem] px-6 py-4"
-                              : "min-w-[5.5rem] px-4 py-4",
-                          )}
-                        >
-                          {label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody
-                    className={cn(
-                      // Même motif que CDR / Bilan : bordures sur les td (border-separate).
-                      "[&_td]:border-b [&_td]:border-slate-200",
-                      "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
-                    )}
-                  >
-                    {tableRows.map((item) => {
-                      if (item.kind === "separator") {
-                        return (
-                          <tr key={item.key} aria-hidden data-testid="wc-structure-separator">
-                            <td colSpan={tableColumnCount} className="border-0 p-0">
-                              <div className="my-1 border-t-2 border-slate-700" />
-                            </td>
-                          </tr>
-                        )
-                      }
-                      if (item.kind === "spacer") {
-                        const periodColCount =
-                          view === "current"
-                            ? 2
-                            : Math.max(trendCount, getPeriodColumnLabels().length, 1)
-                        return (
-                          <tr key={item.key} data-testid="wc-structure-spacer" className="h-2">
-                            <td
-                              className={cn(
-                                metricColumnClass,
-                                "sticky left-0 z-10 bg-white px-6 py-4 text-transparent select-none",
-                              )}
-                            >
-                              {"\u00a0"}
-                            </td>
-                            <td
-                              className={cn(
-                                amountAverageCellClass(false),
-                                "py-4 text-transparent select-none",
-                              )}
-                              data-testid="wc-spacer-average-cell"
-                            >
-                              {"\u00a0"}
-                            </td>
-                            {Array.from({ length: periodColCount }, (_, idx) => (
-                              <td
-                                key={idx}
-                                className={cn(
-                                  view === "current"
-                                    ? amountCellClass(false)
-                                    : amountTrendCellClass(false),
-                                  "py-4 text-transparent select-none",
-                                )}
-                              >
-                                {"\u00a0"}
-                              </td>
-                            ))}
-                          </tr>
-                        )
-                      }
-                      return renderMetricRow(item.key, item.metric, item.operands)
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-        </>
-      )}
+      {analysisBody}
     </div>
   )
 }

@@ -25,6 +25,7 @@ from app.services.statement_template import get_default_structure
 from app.services.standard_link_code_utils import (
     build_cash_flow_link_code_attachments,
     build_cash_flow_virtual_family_link_codes,
+    build_cash_flow_virtual_family_link_codes_from_detail,
     build_parent_rollup_index,
     dt_ct_for_link_code,
     ensure_net_income_in_balance_structure,
@@ -32,14 +33,52 @@ from app.services.standard_link_code_utils import (
     is_computed_net_income_link_code,
     load_merged_link_code_chart,
     merge_parent_rollup_into_mapping_index,
+    derive_link_code_family,
 )
 
 # Summary (`cash-flow`) and Detail (`cash-flow-detail`) share the same
 # liaison resolution: TEX/TIN/TFI codes expand via attached Bilan/CDR codes.
 _CASH_FLOW_STATEMENT_TYPES = frozenset({"cash-flow", "cash-flow-detail"})
 
-# Per-request context so CF sums can add CAP-C.1 without threading kwargs everywhere.
+# Per-request contexts so CF sums can add CAP-C.1 and the diagnostic endpoint
+# can scope computations to a mapped product/service without widening every
+# function signature in this module.
 _cf_net_income_ctx: ContextVar[dict | None] = ContextVar("cf_net_income_ctx", default=None)
+_product_filter_ctx: ContextVar[str | None] = ContextVar("product_filter_ctx", default=None)
+_alt_asset_cost_only_ctx: ContextVar[bool] = ContextVar("alt_asset_cost_only_ctx", default=False)
+
+_CAPEX_PROJECTION_LINK_CODE_ROOTS = ("ALT-B", "ALT-C", "ALT-D")
+
+
+def _is_capex_projection_link_code(link_code: str | None) -> bool:
+    if not link_code:
+        return False
+    normalized = str(link_code).strip()
+    if not normalized:
+        return False
+    for root in _CAPEX_PROJECTION_LINK_CODE_ROOTS:
+        if normalized == root or normalized.startswith(f"{root}."):
+            return True
+    return False
+
+
+def _account_included_for_alt_asset_cost_only(
+    mapping: AccountMapping | None,
+    link_code: str | None,
+) -> bool:
+    """When capex cost-only mode is on, ALT-B/C/D sums include only mapped Coût accounts."""
+    if not _alt_asset_cost_only_ctx.get():
+        return True
+    resolved = str(link_code or "").strip()
+    if not resolved and mapping and mapping.link_code:
+        resolved = str(mapping.link_code).strip()
+    if not _is_capex_projection_link_code(resolved):
+        return True
+    if not mapping:
+        return False
+    if mapping.alt_accumulated_amortization:
+        return False
+    return bool(mapping.alt_asset_cost)
 
 def _is_cash_flow_statement_type(statement_type: str) -> bool:
     return statement_type in _CASH_FLOW_STATEMENT_TYPES
@@ -741,14 +780,35 @@ def _build_mapping_index(
     return index
 
 
+def _load_company_statement_structure_rows(
+    db: Session,
+    company_id: uuid.UUID,
+    statement_type: str,
+) -> list[dict]:
+    structure = (
+        db.query(CompanyStatementStructure)
+        .filter(
+            CompanyStatementStructure.company_id == company_id,
+            CompanyStatementStructure.statement_type == statement_type,
+        )
+        .first()
+    )
+    if not structure:
+        return list(get_default_structure(db, statement_type) or [])
+    return list(structure.structure or [])
+
+
 def _augment_mapping_index_for_cash_flow_virtual_families(
     mapping_index: dict[str, list[str]],
     db: Session,
+    *,
+    detail_structure: list[dict] | None = None,
+    scope_virtual_families_to_detail: bool = False,
 ) -> dict[str, list[str]]:
-    """Expose Trésorerie link codes (and legacy TEX/TIN/TFI aggregates) in the mapping index.
+    """Expose Trésorerie link codes (and TEX/TIN/TFI aggregates) in the mapping index.
 
-    Returns the resolved attachment map (per-code + virtual family keys) so callers
-    can detect CAP-C.1 and reuse the bilan net-income formula.
+    When ``scope_virtual_families_to_detail`` is True (cash-flow summary), TEX/TIN/TFI
+    union only the attachments of codes present in the cash-flow-detail structure.
     """
     by_code = build_cash_flow_link_code_attachments(db)
     for cf_code, source_codes in by_code.items():
@@ -762,7 +822,10 @@ def _augment_mapping_index_for_cash_flow_virtual_families(
                 accounts.append(account_number)
         mapping_index[cf_code] = accounts
 
-    by_family = build_cash_flow_virtual_family_link_codes(db)
+    if scope_virtual_families_to_detail:
+        by_family = build_cash_flow_virtual_family_link_codes_from_detail(db, detail_structure)
+    else:
+        by_family = build_cash_flow_virtual_family_link_codes(db)
     for virtual_family, link_codes in by_family.items():
         accounts: list[str] = []
         seen: set[str] = set()
@@ -919,6 +982,51 @@ def _mapping_csv_matches_entity(
     return False
 
 
+def _mapping_csv_has_token(field: str | None, token: str | None) -> bool:
+    if not token:
+        return True
+    if not field or not str(field).strip():
+        return False
+    parts = {p.strip() for p in str(field).split(",") if p.strip()}
+    return token in parts
+
+
+def _mapping_matches_dimension_filters(
+    mapping: AccountMapping | None,
+    division_filter: str | None,
+    sub_division_filter: str | None,
+    division_uuid: uuid.UUID | None,
+    sub_division_uuid: uuid.UUID | None,
+    customer_filter: str | None,
+    supplier_filter: str | None,
+) -> bool:
+    if division_filter or division_uuid:
+        if not mapping or not _mapping_csv_matches_entity(
+            mapping.divisions, division_filter, division_uuid
+        ):
+            return False
+    if sub_division_filter or sub_division_uuid:
+        if not mapping or not _mapping_csv_matches_entity(
+            mapping.sub_divisions, sub_division_filter, sub_division_uuid
+        ):
+            return False
+
+    product_filter = _product_filter_ctx.get()
+    if product_filter and not _mapping_csv_has_token(
+        mapping.product if mapping else None, product_filter
+    ):
+        return False
+    if customer_filter and not _mapping_csv_has_token(
+        mapping.customer if mapping else None, customer_filter
+    ):
+        return False
+    if supplier_filter and not _mapping_csv_has_token(
+        mapping.supplier if mapping else None, supplier_filter
+    ):
+        return False
+    return True
+
+
 def _sum_for_link_code_single_month(
     link_code: str | None,
     mapping_index: dict[str, list[str]],
@@ -944,36 +1052,28 @@ def _sum_for_link_code_single_month(
     )
     total = Decimal("0")
     for acct_num in account_numbers:
+        mapping = mappings_by_account.get(acct_num) if mappings_by_account else None
         if (
             division_filter
             or division_uuid
             or sub_division_filter
             or sub_division_uuid
+            or _product_filter_ctx.get()
             or customer_filter
             or supplier_filter
         ) and mappings_by_account:
-            mapping = mappings_by_account.get(acct_num)
-            if division_filter or division_uuid:
-                if not mapping or not _mapping_csv_matches_entity(
-                    mapping.divisions, division_filter, division_uuid
-                ):
-                    continue
-            if sub_division_filter or sub_division_uuid:
-                if not mapping or not _mapping_csv_matches_entity(
-                    mapping.sub_divisions, sub_division_filter, sub_division_uuid
-                ):
-                    continue
-            if mapping:
-                if customer_filter and mapping.customer:
-                    if customer_filter not in mapping.customer.split(","):
-                        continue
-                elif customer_filter and not mapping.customer:
-                    continue
-                if supplier_filter and mapping.supplier:
-                    if supplier_filter not in mapping.supplier.split(","):
-                        continue
-                elif supplier_filter and not mapping.supplier:
-                    continue
+            if not _mapping_matches_dimension_filters(
+                mapping,
+                division_filter,
+                sub_division_filter,
+                division_uuid,
+                sub_division_uuid,
+                customer_filter,
+                supplier_filter,
+            ):
+                continue
+        if not _account_included_for_alt_asset_cost_only(mapping, link_code):
+            continue
 
         monthly = amount_index.get(acct_num, {})
         raw = monthly.get(fiscal_month, Decimal("0"))
@@ -1125,10 +1225,23 @@ def _find_summary_annex_owner_row(structure_flat: list[dict], letter: str) -> di
             continue
         if _is_structure_row_empty_label(row):
             continue
+        if bool(row.get("hidden")):
+            continue
         if _normalize_annex_letter(row.get("annexLetter")) != target:
             continue
         return row
     return None
+
+
+def _contiguous_detail_annex_owner_index(structure_flat: list[dict], from_index: int) -> int:
+    for i in range(from_index - 1, -1, -1):
+        row = structure_flat[i]
+        if _is_structure_row_empty_label(row):
+            return -1
+        if _is_structure_row_detail_only(row):
+            continue
+        return i
+    return -1
 
 
 def _is_show_in_detail(row: dict, structure_flat: list[dict] | None = None) -> bool:
@@ -1139,6 +1252,18 @@ def _is_show_in_detail(row: dict, structure_flat: list[dict] | None = None) -> b
     if _is_structure_row_detail_only(row):
         if not structure_flat:
             return True
+        idx = next(
+            (
+                i
+                for i, r in enumerate(structure_flat)
+                if r is row or (str(r.get("id") or "").strip() and r.get("id") == row.get("id"))
+            ),
+            -1,
+        )
+        if idx >= 0:
+            owner_idx = _contiguous_detail_annex_owner_index(structure_flat, idx)
+            if owner_idx >= 0:
+                return _is_show_in_detail(structure_flat[owner_idx], structure_flat)
         letter = _normalize_annex_letter(row.get("annexLetter"))
         if not letter:
             return True
@@ -1386,37 +1511,29 @@ def _sum_for_link_code(
     )
     total = Decimal("0")
     for acct_num in account_numbers:
+        mapping = mappings_by_account.get(acct_num) if mappings_by_account else None
         # Apply division/sub-division/customer/supplier filter if provided
         if (
             division_filter
             or division_uuid
             or sub_division_filter
             or sub_division_uuid
+            or _product_filter_ctx.get()
             or customer_filter
             or supplier_filter
         ) and mappings_by_account:
-            mapping = mappings_by_account.get(acct_num)
-            if division_filter or division_uuid:
-                if not mapping or not _mapping_csv_matches_entity(
-                    mapping.divisions, division_filter, division_uuid
-                ):
-                    continue
-            if sub_division_filter or sub_division_uuid:
-                if not mapping or not _mapping_csv_matches_entity(
-                    mapping.sub_divisions, sub_division_filter, sub_division_uuid
-                ):
-                    continue
-            if mapping:
-                if customer_filter and mapping.customer:
-                    if customer_filter not in mapping.customer.split(","):
-                        continue
-                elif customer_filter and not mapping.customer:
-                    continue
-                if supplier_filter and mapping.supplier:
-                    if supplier_filter not in mapping.supplier.split(","):
-                        continue
-                elif supplier_filter and not mapping.supplier:
-                    continue
+            if not _mapping_matches_dimension_filters(
+                mapping,
+                division_filter,
+                sub_division_filter,
+                division_uuid,
+                sub_division_uuid,
+                customer_filter,
+                supplier_filter,
+            ):
+                continue
+        if not _account_included_for_alt_asset_cost_only(mapping, link_code):
+            continue
 
         monthly = amount_index.get(acct_num, {})
         mult = _dt_ct_multiplier_for_account(
@@ -1546,31 +1663,21 @@ def _gl_account_single_month_income_statement(
         or division_uuid
         or sub_division_filter
         or sub_division_uuid
+        or _product_filter_ctx.get()
         or customer_filter
         or supplier_filter
     ) and mappings_by_account:
         mapping = mappings_by_account.get(acct_num)
-        if division_filter or division_uuid:
-            if not mapping or not _mapping_csv_matches_entity(
-                mapping.divisions, division_filter, division_uuid
-            ):
-                return 0.0
-        if sub_division_filter or sub_division_uuid:
-            if not mapping or not _mapping_csv_matches_entity(
-                mapping.sub_divisions, sub_division_filter, sub_division_uuid
-            ):
-                return 0.0
-        if mapping:
-            if customer_filter and mapping.customer:
-                if customer_filter not in mapping.customer.split(","):
-                    return 0.0
-            elif customer_filter and not mapping.customer:
-                return 0.0
-            if supplier_filter and mapping.supplier:
-                if supplier_filter not in mapping.supplier.split(","):
-                    return 0.0
-            elif supplier_filter and not mapping.supplier:
-                return 0.0
+        if not _mapping_matches_dimension_filters(
+            mapping,
+            division_filter,
+            sub_division_filter,
+            division_uuid,
+            sub_division_uuid,
+            customer_filter,
+            supplier_filter,
+        ):
+            return 0.0
 
     monthly = amount_index.get(acct_num, {})
     mult = _dt_ct_multiplier_for_account(
@@ -1837,31 +1944,21 @@ def _gl_account_single_month_balance_sheet(
         or division_uuid
         or sub_division_filter
         or sub_division_uuid
+        or _product_filter_ctx.get()
         or customer_filter
         or supplier_filter
     ) and mappings_by_account:
         mapping = mappings_by_account.get(acct_num)
-        if division_filter or division_uuid:
-            if not mapping or not _mapping_csv_matches_entity(
-                mapping.divisions, division_filter, division_uuid
-            ):
-                return 0.0
-        if sub_division_filter or sub_division_uuid:
-            if not mapping or not _mapping_csv_matches_entity(
-                mapping.sub_divisions, sub_division_filter, sub_division_uuid
-            ):
-                return 0.0
-        if mapping:
-            if customer_filter and mapping.customer:
-                if customer_filter not in mapping.customer.split(","):
-                    return 0.0
-            elif customer_filter and not mapping.customer:
-                return 0.0
-            if supplier_filter and mapping.supplier:
-                if supplier_filter not in mapping.supplier.split(","):
-                    return 0.0
-            elif supplier_filter and not mapping.supplier:
-                return 0.0
+        if not _mapping_matches_dimension_filters(
+            mapping,
+            division_filter,
+            sub_division_filter,
+            division_uuid,
+            sub_division_uuid,
+            customer_filter,
+            supplier_filter,
+        ):
+            return 0.0
 
     monthly = amount_index.get(acct_num, {})
     mult = _dt_ct_multiplier_for_account(
@@ -1928,6 +2025,9 @@ def _balance_sheet_gl_detail_rows_for_link_codes(
 
     rows: list[dict] = []
     for acct_num in accounts:
+        mapping = mappings_by_account.get(acct_num) if mappings_by_account else None
+        if not _account_included_for_alt_asset_cost_only(mapping, None):
+            continue
         cur = _gl_account_sum_months_balance_sheet(
             acct_num, current_amount_index, current_months,
             division_filter, sub_division_filter, division_uuid, sub_division_uuid,
@@ -2046,6 +2146,9 @@ def _balance_sheet_series_gl_detail_rows_for_link_codes(
 
     rows: list[dict] = []
     for acct_num in accounts:
+        mapping = mappings_by_account.get(acct_num) if mappings_by_account else None
+        if not _account_included_for_alt_asset_cost_only(mapping, None):
+            continue
         amounts: dict[str, float] = {}
         for p in periods:
             fy = p["fiscalYear"]
@@ -2441,6 +2544,7 @@ def compute_financial_statement(
     sub_division_id: uuid.UUID | None = None,
     customer_filter: str | None = None,
     supplier_filter: str | None = None,
+    alt_asset_cost_only: bool = False,
 ) -> dict:
     """Compute a financial statement.
 
@@ -2498,8 +2602,17 @@ def compute_financial_statement(
     mapping_index = _build_mapping_index(mappings)
     cf_token = None
     if _is_cash_flow_statement_type(statement_type):
+        detail_structure = None
+        scope_to_detail = statement_type == "cash-flow"
+        if scope_to_detail:
+            detail_structure = _load_company_statement_structure_rows(
+                db, company.id, "cash-flow-detail",
+            )
         cash_flow_attachments = _augment_mapping_index_for_cash_flow_virtual_families(
-            mapping_index, db
+            mapping_index,
+            db,
+            detail_structure=detail_structure,
+            scope_virtual_families_to_detail=scope_to_detail,
         )
         rev_codes, exp_codes = income_statement_net_income_code_split(db)
         cf_token = _cf_net_income_ctx.set({
@@ -2512,6 +2625,10 @@ def compute_financial_statement(
         parent_rollup = build_parent_rollup_index(mappings, chart)
         mapping_index = merge_parent_rollup_into_mapping_index(mapping_index, parent_rollup)
     mappings_by_account = {m.account_number: m for m in mappings}
+
+    alt_token = None
+    if alt_asset_cost_only:
+        alt_token = _alt_asset_cost_only_ctx.set(True)
 
     try:
         # 3. Resolve division/sub-division UUIDs to names for filtering
@@ -2651,6 +2768,28 @@ def compute_financial_statement(
             dt_ct_by_link_code=dt_ct_by_link_code,
             structure_flat=structure_flat,
         )
+        if statement_type == "income-statement" and structure_flat:
+            prior_fy = fiscal_year if prior_amount_index is current_amount_index else fiscal_year - 1
+            _fill_ebitda_statement_row_amounts(
+                rows,
+                structure_flat,
+                mapping_index,
+                current_amount_index,
+                prior_amount_index,
+                current_months,
+                prior_months,
+                fiscal_year,
+                prior_fy,
+                division_filter,
+                sub_division_filter,
+                division_uuid,
+                sub_division_uuid,
+                mappings_by_account,
+                customer_filter,
+                supplier_filter,
+                groupe_index,
+                dt_ct_by_link_code,
+            )
         if statement_type == "balance-sheet":
             rows = _fold_computed_net_income_into_cap_c_parent(rows, structure_rows)
 
@@ -2664,6 +2803,8 @@ def compute_financial_statement(
             "rows": rows,
         }
     finally:
+        if alt_token is not None:
+            _alt_asset_cost_only_ctx.reset(alt_token)
         if cf_token is not None:
             _cf_net_income_ctx.reset(cf_token)
 
@@ -2795,6 +2936,431 @@ def _build_periods_from_reference(
         label = f"{FRENCH_MONTH_ABBREVS[cal_month - 1]} {cal_year}"
         periods.append({"fiscalYear": fy, "fiscalMonth": fm, "label": label})
     return periods
+
+
+def _link_codes_for_family(mapping_index: dict[str, list[str]], family: str) -> list[str]:
+    return [
+        code for code in mapping_index
+        if derive_link_code_family(code) == family
+    ]
+
+
+def _revenue_account_numbers_for_baiia(mapping_index: dict[str, list[str]]) -> list[str]:
+    """Comptes GL revenus pour BAIIA — une seule fois par compte.
+
+    Après ``merge_parent_rollup_into_mapping_index``, le même GL apparaît sous la
+    feuille, les parents et l'ancre ``REV``. Sommer tous les codes REV* recompterait
+    les revenus (ex. 3×) et peut faire BAIIA ≫ Revenus affichés.
+    """
+    if "REV" in mapping_index:
+        return [
+            num
+            for acct in mapping_index.get("REV") or []
+            if (num := str(acct or "").strip())
+        ]
+    accounts: set[str] = set()
+    for code in _link_codes_for_family(mapping_index, "REV"):
+        for acct in mapping_index.get(code) or []:
+            num = str(acct or "").strip()
+            if num:
+                accounts.add(num)
+    return sorted(accounts)
+
+
+def _variable_and_fixed_cost_account_numbers(
+    mappings_by_account: dict[str, AccountMapping] | None,
+) -> tuple[list[str], list[str]]:
+    """Comptes GL marqués coûts variables / fixes dans le mapping (aligné Pilotage)."""
+    if not mappings_by_account:
+        return [], []
+    variable: list[str] = []
+    fixed: list[str] = []
+    for acct, mapping in mappings_by_account.items():
+        num = str(acct or "").strip()
+        if not num:
+            continue
+        if bool(getattr(mapping, "variable_costs", False)):
+            variable.append(num)
+        if bool(getattr(mapping, "fixed_costs", False)):
+            fixed.append(num)
+    return sorted(set(variable)), sorted(set(fixed))
+
+
+def _income_statement_ebitda_single_month(
+    mapping_index: dict[str, list[str]],
+    amount_indices: dict[int, dict[str, dict[int, Decimal]]],
+    fiscal_year: int,
+    fiscal_month: int,
+    division_filter: str | None,
+    sub_division_filter: str | None,
+    division_uuid: uuid.UUID | None,
+    sub_division_uuid: uuid.UUID | None,
+    mappings_by_account: dict[str, AccountMapping] | None,
+    customer_filter: str | None,
+    supplier_filter: str | None,
+    _groupe_index: dict[str, list[str]] | None,
+    dt_ct_by_link_code: dict[str, str] | None,
+) -> float:
+    """BAIIA = |REV| − |coûts variables| − |coûts fixes| (aligné Pilotage / pont Dépenses).
+
+    Revenus et coûts sont agrégés par compte GL unique (pas par code de liaison
+    après rollup parent), pour chaque mois d'activité de l'horizon sélectionné.
+    """
+    amt_index = amount_indices.get(fiscal_year, {})
+    rev_accounts = _revenue_account_numbers_for_baiia(mapping_index)
+    rev = sum(
+        _gl_account_single_month_income_statement(
+            acct,
+            amt_index,
+            fiscal_month,
+            division_filter,
+            sub_division_filter,
+            division_uuid,
+            sub_division_uuid,
+            mappings_by_account,
+            customer_filter,
+            supplier_filter,
+            dt_ct_by_link_code,
+        )
+        for acct in rev_accounts
+    )
+    revenue = abs(rev)
+
+    variable_accounts, fixed_accounts = _variable_and_fixed_cost_account_numbers(mappings_by_account)
+    variable_costs = sum(
+        abs(
+            _gl_account_single_month_income_statement(
+                acct,
+                amt_index,
+                fiscal_month,
+                division_filter,
+                sub_division_filter,
+                division_uuid,
+                sub_division_uuid,
+                mappings_by_account,
+                customer_filter,
+                supplier_filter,
+                dt_ct_by_link_code,
+            )
+        )
+        for acct in variable_accounts
+    )
+    fixed_costs = sum(
+        abs(
+            _gl_account_single_month_income_statement(
+                acct,
+                amt_index,
+                fiscal_month,
+                division_filter,
+                sub_division_filter,
+                division_uuid,
+                sub_division_uuid,
+                mappings_by_account,
+                customer_filter,
+                supplier_filter,
+                dt_ct_by_link_code,
+            )
+        )
+        for acct in fixed_accounts
+    )
+    return round(revenue - variable_costs - fixed_costs, 2)
+
+
+def _ebitda_structure_keys(structure_flat: list[dict]) -> set[str]:
+    keys: set[str] = set()
+    for row in structure_flat:
+        label = str(row.get("label") or "").strip()
+        is_baiia = bool(row.get("isEBITA")) or label.lower() == "baiia"
+        if not is_baiia:
+            continue
+        for key in (
+            str(row.get("id") or "").strip(),
+            str(row.get("linkCode") or "").strip(),
+            label,
+        ):
+            if key:
+                keys.add(key.lower())
+    return keys
+
+
+def _fill_ebitda_series_row_amounts(
+    output_rows: list[dict],
+    structure_flat: list[dict],
+    mapping_index: dict[str, list[str]],
+    amount_indices: dict[int, dict[str, dict[int, Decimal]]],
+    periods: list[dict],
+    division_filter: str | None,
+    sub_division_filter: str | None,
+    division_uuid: uuid.UUID | None,
+    sub_division_uuid: uuid.UUID | None,
+    mappings_by_account: dict[str, AccountMapping] | None,
+    customer_filter: str | None,
+    supplier_filter: str | None,
+    groupe_index: dict[str, list[str]] | None,
+    dt_ct_by_link_code: dict[str, str] | None,
+) -> None:
+    """Renseigne les montants du poste BAIIA (isEBITA) — pas un code de liaison."""
+    ebitda_keys = _ebitda_structure_keys(structure_flat)
+    if not ebitda_keys:
+        return
+
+    for out in output_rows:
+        keys = {
+            str(out.get("id") or "").strip().lower(),
+            str(out.get("label") or "").strip().lower(),
+        }
+        if not keys & ebitda_keys:
+            continue
+        amounts: dict[str, float] = {}
+        for p in periods:
+            key = f"{p['fiscalYear']}-{p['fiscalMonth']}"
+            amounts[key] = _income_statement_ebitda_single_month(
+                mapping_index,
+                amount_indices,
+                p["fiscalYear"],
+                p["fiscalMonth"],
+                division_filter,
+                sub_division_filter,
+                division_uuid,
+                sub_division_uuid,
+                mappings_by_account,
+                customer_filter,
+                supplier_filter,
+                groupe_index,
+                dt_ct_by_link_code,
+            )
+        out["amounts"] = amounts
+        out["hasLiaisonCode"] = False
+
+
+def _fill_ebitda_statement_row_amounts(
+    output_rows: list[dict],
+    structure_flat: list[dict],
+    mapping_index: dict[str, list[str]],
+    current_amount_index: dict[str, dict[int, Decimal]],
+    prior_amount_index: dict[str, dict[int, Decimal]],
+    current_months: list[int],
+    prior_months: list[int],
+    current_fiscal_year: int,
+    prior_fiscal_year: int,
+    division_filter: str | None,
+    sub_division_filter: str | None,
+    division_uuid: uuid.UUID | None,
+    sub_division_uuid: uuid.UUID | None,
+    mappings_by_account: dict[str, AccountMapping] | None,
+    customer_filter: str | None,
+    supplier_filter: str | None,
+    groupe_index: dict[str, list[str]] | None,
+    dt_ct_by_link_code: dict[str, str] | None,
+) -> None:
+    """Remplit current/prior du poste BAIIA (isEBITA) sur l’état mono-période."""
+    ebitda_keys = _ebitda_structure_keys(structure_flat)
+    if not ebitda_keys:
+        return
+
+    amount_indices_current = {current_fiscal_year: current_amount_index}
+    amount_indices_prior = {prior_fiscal_year: prior_amount_index}
+
+    def _sum_months(amount_indices: dict[int, dict[str, dict[int, Decimal]]], fy: int, months: list[int]) -> float:
+        return round(
+            sum(
+                _income_statement_ebitda_single_month(
+                    mapping_index,
+                    amount_indices,
+                    fy,
+                    m,
+                    division_filter,
+                    sub_division_filter,
+                    division_uuid,
+                    sub_division_uuid,
+                    mappings_by_account,
+                    customer_filter,
+                    supplier_filter,
+                    groupe_index,
+                    dt_ct_by_link_code,
+                )
+                for m in months
+            ),
+            2,
+        )
+
+    current_total = _sum_months(amount_indices_current, current_fiscal_year, current_months)
+    prior_total = _sum_months(amount_indices_prior, prior_fiscal_year, prior_months)
+
+    for out in output_rows:
+        keys = {
+            str(out.get("id") or "").strip().lower(),
+            str(out.get("label") or "").strip().lower(),
+        }
+        if not keys & ebitda_keys:
+            continue
+        out["current"] = current_total
+        out["prior"] = prior_total
+        out["variation"] = _compute_variation(current_total, prior_total)
+        out["variationAmount"] = round(current_total - prior_total, 2)
+        out["hasLiaisonCode"] = False
+
+
+def _collect_distinct_link_codes_from_structure(structure_flat: list[dict]) -> list[str]:
+    """Tous les codes de liaison référencés dans la structure (y compris listes somme / différence)."""
+    seen: set[str] = set()
+    for row in structure_flat:
+        if _is_structure_row_empty_label(row):
+            continue
+        for code in _liaison_codes_for_gl_breakdown(row):
+            if code:
+                seen.add(code)
+    return sorted(seen)
+
+
+def _collect_series_row_link_codes(rows: list[dict]) -> set[str]:
+    codes: set[str] = set()
+    for row in rows:
+        lc = str(row.get("linkCode") or "").strip()
+        if lc:
+            codes.add(lc)
+    return codes
+
+
+def _series_amounts_for_single_link_code(
+    link_code: str,
+    mapping_index: dict[str, list[str]],
+    amount_indices: dict[int, dict[str, dict[int, Decimal]]],
+    periods: list[dict],
+    statement_type: str,
+    division_filter: str | None,
+    sub_division_filter: str | None,
+    division_uuid: uuid.UUID | None,
+    sub_division_uuid: uuid.UUID | None,
+    mappings_by_account: dict[str, AccountMapping] | None,
+    customer_filter: str | None,
+    supplier_filter: str | None,
+    groupe_index: dict[str, list[str]] | None,
+    dt_ct_by_link_code: dict[str, str] | None,
+    *,
+    balance_sheet_cumulative_tb: bool = False,
+    available_months_by_fy: dict[int, set[int]] | None = None,
+) -> dict[str, float]:
+    """Montants mensuels pour un code de liaison isolé (utilisé par les lignes synthétiques de séries)."""
+    amounts: dict[str, float] = {}
+    lc = str(link_code or "").strip()
+    if not lc:
+        return amounts
+    for p in periods:
+        fy = p["fiscalYear"]
+        fm = p["fiscalMonth"]
+        key = f"{fy}-{fm}"
+        amt_index = amount_indices.get(fy, {})
+        if statement_type == "balance-sheet":
+            if available_months_by_fy is not None and fm not in available_months_by_fy.get(fy, set()):
+                amounts[key] = 0.0
+                continue
+            if balance_sheet_cumulative_tb:
+                total = 0.0
+                for m in range(1, fm + 1):
+                    total += _sum_for_link_code_single_month(
+                        lc, mapping_index, amt_index, m,
+                        division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
+                        customer_filter, supplier_filter,
+                        groupe_index, statement_type, dt_ct_by_link_code,
+                    )
+                amounts[key] = round(total, 2)
+            else:
+                amounts[key] = round(_sum_for_link_code_single_month(
+                    lc, mapping_index, amt_index, fm,
+                    division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
+                    customer_filter, supplier_filter,
+                    groupe_index, statement_type, dt_ct_by_link_code,
+                ), 2)
+        else:
+            amounts[key] = round(_sum_for_link_code_single_month(
+                lc, mapping_index, amt_index, fm,
+                division_filter, sub_division_filter, division_uuid, sub_division_uuid, mappings_by_account,
+                customer_filter, supplier_filter,
+                groupe_index, statement_type, dt_ct_by_link_code,
+            ), 2)
+    return amounts
+
+
+def _append_supplementary_link_code_series_rows(
+    output_rows: list[dict],
+    structure_flat: list[dict],
+    mapping_index: dict[str, list[str]],
+    amount_indices: dict[int, dict[str, dict[int, Decimal]]],
+    periods: list[dict],
+    statement_type: str,
+    division_filter: str | None,
+    sub_division_filter: str | None,
+    division_uuid: uuid.UUID | None,
+    sub_division_uuid: uuid.UUID | None,
+    mappings_by_account: dict[str, AccountMapping] | None,
+    customer_filter: str | None,
+    supplier_filter: str | None,
+    groupe_index: dict[str, list[str]] | None,
+    dt_ct_by_link_code: dict[str, str] | None,
+    *,
+    balance_sheet_cumulative_tb: bool = False,
+) -> None:
+    """Expose chaque code de liaison comme ligne de série, même s'il n'apparaît que dans une liste somme."""
+    if statement_type not in ("income-statement", "balance-sheet"):
+        return
+
+    present = _collect_series_row_link_codes(output_rows)
+    available_months_by_fy: dict[int, set[int]] | None = None
+    if statement_type == "balance-sheet":
+        available_months_by_fy = {}
+        for fy, idx in amount_indices.items():
+            months_set: set[int] = set()
+            for monthly in idx.values():
+                for k in (monthly or {}).keys():
+                    try:
+                        months_set.add(int(k))
+                    except (TypeError, ValueError):
+                        continue
+            available_months_by_fy[fy] = months_set
+
+    label_by_code: dict[str, str] = {}
+    for row in structure_flat:
+        if _normalize_liaison_mode(row) != "single":
+            continue
+        lc = str(row.get("linkCode") or "").strip()
+        if not lc or lc in label_by_code:
+            continue
+        label = str(row.get("label") or "").strip()
+        if label:
+            label_by_code[lc] = label
+
+    for code in _collect_distinct_link_codes_from_structure(structure_flat):
+        if code in present:
+            continue
+        amounts = _series_amounts_for_single_link_code(
+            code,
+            mapping_index,
+            amount_indices,
+            periods,
+            statement_type,
+            division_filter,
+            sub_division_filter,
+            division_uuid,
+            sub_division_uuid,
+            mappings_by_account,
+            customer_filter,
+            supplier_filter,
+            groupe_index,
+            dt_ct_by_link_code,
+            balance_sheet_cumulative_tb=balance_sheet_cumulative_tb,
+            available_months_by_fy=available_months_by_fy,
+        )
+        output_rows.append({
+            "id": code,
+            "linkCode": code,
+            "label": label_by_code.get(code, code),
+            "isBold": False,
+            "isSection": False,
+            "isResult": False,
+            "amounts": amounts,
+            "hasLiaisonCode": True,
+        })
 
 
 def _process_structure_rows_series(
@@ -3156,6 +3722,7 @@ def compute_financial_statement_series(
     sub_division_id: uuid.UUID | None = None,
     customer_filter: str | None = None,
     supplier_filter: str | None = None,
+    alt_asset_cost_only: bool = False,
 ) -> dict:
     """Compute monthly series data for a financial statement.
 
@@ -3200,8 +3767,17 @@ def compute_financial_statement_series(
     mapping_index = _build_mapping_index(mappings)
     cf_token = None
     if _is_cash_flow_statement_type(statement_type):
+        detail_structure = None
+        scope_to_detail = statement_type == "cash-flow"
+        if scope_to_detail:
+            detail_structure = _load_company_statement_structure_rows(
+                db, company.id, "cash-flow-detail",
+            )
         cash_flow_attachments = _augment_mapping_index_for_cash_flow_virtual_families(
-            mapping_index, db
+            mapping_index,
+            db,
+            detail_structure=detail_structure,
+            scope_virtual_families_to_detail=scope_to_detail,
         )
         rev_codes, exp_codes = income_statement_net_income_code_split(db)
         cf_token = _cf_net_income_ctx.set({
@@ -3214,6 +3790,10 @@ def compute_financial_statement_series(
         parent_rollup = build_parent_rollup_index(mappings, chart)
         mapping_index = merge_parent_rollup_into_mapping_index(mapping_index, parent_rollup)
     mappings_by_account = {m.account_number: m for m in mappings}
+
+    alt_token = None
+    if alt_asset_cost_only:
+        alt_token = _alt_asset_cost_only_ctx.set(True)
 
     try:
         # 3. Resolve division/sub-division filters
@@ -3275,6 +3855,42 @@ def compute_financial_statement_series(
             balance_sheet_cumulative_tb=company.is_cumulative_tb,
             structure_flat=structure_flat,
         )
+        if statement_type in ("income-statement", "balance-sheet") and structure_flat:
+            if statement_type == "income-statement":
+                _fill_ebitda_series_row_amounts(
+                    rows,
+                    structure_flat,
+                    mapping_index,
+                    amount_indices,
+                    periods,
+                    division_filter,
+                    sub_division_filter,
+                    division_uuid,
+                    sub_division_uuid,
+                    mappings_by_account,
+                    customer_filter=customer_filter,
+                    supplier_filter=supplier_filter,
+                    groupe_index=groupe_index,
+                    dt_ct_by_link_code=dt_ct_by_link_code,
+                )
+            _append_supplementary_link_code_series_rows(
+                rows,
+                structure_flat,
+                mapping_index,
+                amount_indices,
+                periods,
+                statement_type,
+                division_filter,
+                sub_division_filter,
+                division_uuid,
+                sub_division_uuid,
+                mappings_by_account,
+                customer_filter=customer_filter,
+                supplier_filter=supplier_filter,
+                groupe_index=groupe_index,
+                dt_ct_by_link_code=dt_ct_by_link_code,
+                balance_sheet_cumulative_tb=company.is_cumulative_tb,
+            )
         if statement_type == "balance-sheet":
             rows = _fold_computed_net_income_into_cap_c_parent(rows, structure_rows)
 
@@ -3286,6 +3902,8 @@ def compute_financial_statement_series(
             "rows": rows,
         }
     finally:
+        if alt_token is not None:
+            _alt_asset_cost_only_ctx.reset(alt_token)
         if cf_token is not None:
             _cf_net_income_ctx.reset(cf_token)
 

@@ -125,6 +125,8 @@ def upsert_account_mappings(
             mapping.variable_costs = entry.variable_costs
             mapping.fixed_costs = entry.fixed_costs
             mapping.variable_cost_revenue_link_code = entry.variable_cost_revenue_link_code
+            mapping.alt_asset_cost = entry.alt_asset_cost
+            mapping.alt_accumulated_amortization = entry.alt_accumulated_amortization
             mapping.liability_remaining_years = entry.liability_remaining_years
             mapping.liability_interest_rate = entry.liability_interest_rate
             mapping.product = entry.product
@@ -147,6 +149,8 @@ def upsert_account_mappings(
                 variable_costs=entry.variable_costs,
                 fixed_costs=entry.fixed_costs,
                 variable_cost_revenue_link_code=entry.variable_cost_revenue_link_code,
+                alt_asset_cost=entry.alt_asset_cost,
+                alt_accumulated_amortization=entry.alt_accumulated_amortization,
                 liability_remaining_years=entry.liability_remaining_years,
                 liability_interest_rate=entry.liability_interest_rate,
                 product=entry.product,

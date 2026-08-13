@@ -24,11 +24,12 @@ import {
   type FinancialStatementParams,
 } from "@/lib/api"
 import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
+import type { StatementPeriodBasis } from "@/lib/income-statement-period-basis"
 
 type Period = "monthly" | "quarterly" | "annual"
 type View = "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
 type Section = "dashboard" | "summary" | "detail"
-type ColumnMode = "variationAmount" | "variationPercent" | "percentage" | "comparison"
+type ColumnMode = "variationAmount" | "variationPercent" | "comparison"
 type ComparisonType = "lastMonth" | "pastMonth" | "budget"
 
 const financialStatementsNav = [
@@ -47,6 +48,7 @@ export default function BalanceSheetPage() {
   const [selectedDivisionId, setSelectedDivisionId] = useState<string | null>(null)
   const [selectedSubDivisionId, setSelectedSubDivisionId] = useState<string | null>(null)
   const [comparisonType, setComparisonType] = useState<ComparisonType>("lastMonth")
+  const [periodBasis, setPeriodBasis] = useState<StatementPeriodBasis>("current")
   const [selectedBudgetId, setSelectedBudgetId] = useState<string | null>(null)
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -380,6 +382,24 @@ export default function BalanceSheetPage() {
                         )}
                       </SelectContent>
                     </Select>
+                    {(section === "summary" || section === "detail") &&
+                      (view === "years" || view === "quarters") && (
+                      <>
+                        <ChevronRight className="h-4 w-4 text-[#C9B8A5]/50" />
+                        <Select
+                          value={periodBasis}
+                          onValueChange={(value) => setPeriodBasis(value as StatementPeriodBasis)}
+                        >
+                          <SelectTrigger className="h-8 w-[140px] border border-white/10 bg-[#2A2F3A]/55 text-xs text-[#C9B8A5] hover:bg-white/5">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="current">{HORIZON_LABEL.courant}</SelectItem>
+                            <SelectItem value="fiscal">{HORIZON_LABEL.exercice}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </>
+                    )}
                     {view === "comparison" && (
                       <>
                         <ChevronRight className="h-4 w-4 text-[#C9B8A5]/50" />
@@ -448,9 +468,6 @@ export default function BalanceSheetPage() {
                         </SelectItem>
                         <SelectItem value="variationAmount">Variation $</SelectItem>
                         <SelectItem value="variationPercent">Variation %</SelectItem>
-                        <SelectItem value="percentage">
-                          % actif
-                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </>
@@ -539,6 +556,7 @@ export default function BalanceSheetPage() {
               subDivisionId={selectedSubDivisionId}
               companies={companies}
               comparisonType={comparisonType}
+              periodBasis={periodBasis}
               selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
               selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
               fiscalYear={selectedYear}
@@ -567,6 +585,7 @@ export default function BalanceSheetPage() {
               subDivisionId={selectedSubDivisionId}
               companies={companies}
               comparisonType={comparisonType}
+              periodBasis={periodBasis}
               selectedBudgetId={comparisonType === "budget" ? selectedBudgetId : null}
               selectedBudgetName={comparisonType === "budget" && selectedBudgetId ? budgets.find(b => b.id === selectedBudgetId)?.name || null : null}
               fiscalYear={selectedYear}

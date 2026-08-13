@@ -1,0 +1,196 @@
+import { test, expect, Page } from "@playwright/test"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
+
+const COMPANY_ID = "11111111-1111-1111-1111-111111111111"
+
+function isIncomeStatementUrl(url: URL | string): boolean {
+  const path = typeof url === "string" ? url : url.href
+  return path.includes(`/companies/${COMPANY_ID}/financial-statements/income-statement`)
+}
+
+const STRUCTURE = [
+  {
+    id: "rev",
+    label: "Revenus",
+    linkCode: "REV",
+    defineMapping: true,
+    isBold: true,
+    showInSummary: true,
+  },
+]
+
+function seriesPeriods() {
+  const labels = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
+  const periods: Array<{ fiscalYear: number; fiscalMonth: number; label: string }> = []
+  for (let year = 2022; year <= 2026; year++) {
+    for (let month = 1; month <= 12; month++) {
+      periods.push({
+        fiscalYear: year,
+        fiscalMonth: month,
+        label: `${labels[month - 1]} ${year}`,
+      })
+    }
+  }
+  return periods
+}
+
+function seriesPayload() {
+  const periods = seriesPeriods()
+  const amounts: Record<string, number> = {}
+  for (const p of periods) amounts[`${p.fiscalYear}-${p.fiscalMonth}`] = p.fiscalMonth
+  return {
+    companyId: COMPANY_ID,
+    statementType: "income-statement",
+    fiscalYear: 2026,
+    periods,
+    rows: [
+      {
+        id: "rev",
+        label: "Revenus",
+        linkCode: "REV",
+        isBold: true,
+        hasLiaisonCode: true,
+        amounts,
+      },
+    ],
+  }
+}
+
+async function setupAuth(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem("access_token", "fake-access-token")
+    localStorage.setItem("refresh_token", "fake-refresh-token")
+  })
+  await page.context().addCookies([{ name: "has_session", value: "1", url: "http://localhost:3000" }])
+  await page.route("**/api/auth/me", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        user: { id: "u1", email: "u@e.com", full_name: "Test", is_active: true, created_at: "2026-01-01T00:00:00Z" },
+        organizations: [{ id: "o1", name: "Org", slug: "org", role: "admin" }],
+      }),
+    }),
+  )
+  await page.route("**/api/organizations", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([{ id: "o1", name: "Org", slug: "org", role: "admin" }]),
+    }),
+  )
+  await page.route(/\/api\/companies(\?.*)?$/, (route) => {
+    if (route.request().method() === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          companies: [
+            {
+              id: COMPANY_ID,
+              name: "Test Co",
+              fiscal_year_end: "12-31",
+              divisions: [],
+            },
+          ],
+        }),
+      })
+    }
+    return route.continue()
+  })
+  await page.route(`**/api/companies/${COMPANY_ID}/budgets**`, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ budgets: [] }) }),
+  )
+  await page.route(`**/api/companies/${COMPANY_ID}/statement-chart-configs*`, (route) => {
+    if (route.request().method() === "GET") {
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ slots: [] }) })
+    }
+    return route.continue()
+  })
+  await page.route(`**/api/companies/${COMPANY_ID}/trial-balance/fiscal-years`, (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([2026]) }),
+  )
+  await page.route(`**/api/companies/${COMPANY_ID}/trial-balance**`, (route) => {
+    if (route.request().url().includes("fiscal-years")) return route.fallback()
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        company_id: COMPANY_ID,
+        fiscal_year: 2026,
+        months_with_data: [8],
+        accounts: [{ account_number: "4000", description: "Ventes", monthly_amounts: { Août: 1000 } }],
+      }),
+    })
+  })
+  await page.route(isIncomeStatementUrl, (route) => {
+    if (route.request().url().includes("/series")) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(seriesPayload()),
+      })
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        companyId: COMPANY_ID,
+        statementType: "income-statement",
+        fiscalYear: 2026,
+        month: 8,
+        rows: [{ id: "rev", label: "Revenus", current: 36, prior: 78, isBold: true, hasLiaisonCode: true }],
+      }),
+    })
+  })
+  await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/income-statement**`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "s1",
+        company_id: COMPANY_ID,
+        statement_type: "income-statement",
+        structure: STRUCTURE,
+      }),
+    }),
+  )
+  await page.route("**/api/standard-link-codes/flat**", (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([]) }),
+  )
+}
+
+test.describe("Résultats Courant / Exercice", () => {
+  test.setTimeout(120_000)
+
+  test("Sommaire Annuel 5 ans : Courant = Aoû chaque année, Exercice = Aoû puis Déc", async ({ page }) => {
+    await setupAuth(page)
+    await page.goto(`/financial-statements/income-statement?companyId=${COMPANY_ID}&refMonth=8&refYear=2026`, {
+      waitUntil: "domcontentloaded",
+      timeout: 120_000,
+    })
+    await page.getByRole("button", { name: /^Sommaire$/ }).click({ timeout: 30000 })
+    await expect(page.getByRole("heading", { name: /^Sommaire$/ })).toBeVisible({ timeout: 30000 })
+
+    await page
+      .getByRole("combobox")
+      .filter({ hasText: /Mois actuel|Mensuel|Trimestriel|Annuel|YTD|DDM/i })
+      .first()
+      .click()
+    await page.getByRole("option", { name: HORIZON_LABEL.annuel5Ans }).click()
+
+    await expect(page.getByRole("combobox").filter({ hasText: HORIZON_LABEL.courant }).first()).toBeVisible()
+
+    const table = page.locator("table").filter({ has: page.getByRole("columnheader", { name: "Poste" }) })
+    await expect(table.getByRole("columnheader", { name: "Aoû 2026" })).toBeVisible({ timeout: 30000 })
+    await expect(table.getByRole("columnheader", { name: "Aoû 2025" })).toBeVisible()
+    await expect(table.getByRole("columnheader", { name: "Déc 2025" })).toHaveCount(0)
+
+    await page.getByRole("combobox").filter({ hasText: HORIZON_LABEL.courant }).first().click()
+    await page.getByRole("option", { name: HORIZON_LABEL.exercice }).click()
+
+    await expect(table.getByRole("columnheader", { name: "Aoû 2026" })).toBeVisible()
+    await expect(table.getByRole("columnheader", { name: "Déc 2025" })).toBeVisible()
+    await expect(table.getByRole("columnheader", { name: "Aoû 2025" })).toHaveCount(0)
+  })
+})

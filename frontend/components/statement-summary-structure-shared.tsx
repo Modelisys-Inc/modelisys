@@ -17,8 +17,29 @@ import {
   PanelTop,
   Percent,
   Trash2,
+  TrendingUp,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import {
+  capexAutoRatioLiaisonLabel,
+  isCapexAutoComputedRow,
+  isCapexAutoRatioRow,
+  readRowCapexCostDisplayMode,
+  structureRowShowsCapexCostDisplaySelector,
+  type CapexCostDisplayMode,
+} from "@/lib/capex-analysis-settings"
+import {
+  readRowCashFlowCalcMode,
+  readRowCashFlowTinDisplayMode,
+  structureRowShowsCashFlowCalcSelector,
+  structureRowShowsCashFlowTinDisplaySelector,
+  type CashFlowCalcMode,
+  type CashFlowTinDisplayMode,
+} from "@/lib/cash-flow-detail-settings"
+import {
+  isCashFlowEndingCashStructureRow,
+  isCashFlowFixedTreasuryStructureRow,
+} from "@/lib/cash-flow-treasury-rows"
 import {
   Select,
   SelectContent,
@@ -30,6 +51,7 @@ import {
   isAnnexLetterInputEditable,
   isCodeMappingEnabled,
   isShowInDetail,
+  isShowInSummary,
   isStructureRowEmptyLabel,
   isStructureRowHidden,
   normalizeAnnexLetter,
@@ -40,6 +62,8 @@ import {
   type WorkingCapitalDisplayFormat,
 } from "@/lib/working-capital-structure-utils"
 
+export type StatementAnnexColumnMode = "full" | "summary" | "hidden"
+
 export type StatementSummaryStructureEditApi = {
   updateRow: (index: number, patch: Record<string, unknown>) => void
   /** Bascule « Annexe » puis renumérote les identifiants selon l'ordre du rapport. */
@@ -49,13 +73,30 @@ export type StatementSummaryStructureEditApi = {
   moveStructureRow?: (index: number, direction: -1 | 1) => void
 }
 
+function resolveAnnexMode(
+  hideAnnexColumns: boolean | undefined,
+  annexMode: StatementAnnexColumnMode | undefined,
+): StatementAnnexColumnMode {
+  if (annexMode) return annexMode
+  return hideAnnexColumns ? "hidden" : "full"
+}
+
 export function StatementSummaryStructureColgroup({
   hideAnnexColumns = false,
+  annexMode,
   showDisplayFormatColumn = false,
+  showCapexCostDisplayColumn = false,
+  showCashFlowCalcColumn = false,
+  showCashFlowTinDisplayColumn = false,
 }: {
   hideAnnexColumns?: boolean
+  annexMode?: StatementAnnexColumnMode
   showDisplayFormatColumn?: boolean
+  showCapexCostDisplayColumn?: boolean
+  showCashFlowCalcColumn?: boolean
+  showCashFlowTinDisplayColumn?: boolean
 }) {
+  const mode = resolveAnnexMode(hideAnnexColumns, annexMode)
   return (
     <colgroup>
       <col className="min-w-0" />
@@ -64,12 +105,16 @@ export function StatementSummaryStructureColgroup({
       <col style={{ width: "7rem" }} />
       <col style={{ width: "7rem" }} />
       {showDisplayFormatColumn ? <col style={{ width: "7.5rem" }} /> : null}
-      {!hideAnnexColumns ? (
+      {showCapexCostDisplayColumn ? <col style={{ width: "9rem" }} /> : null}
+      {showCashFlowCalcColumn ? <col style={{ width: "9rem" }} /> : null}
+      {showCashFlowTinDisplayColumn ? <col style={{ width: "9rem" }} /> : null}
+      {mode === "full" ? (
         <>
           <col style={{ width: "7rem" }} />
           <col style={{ width: "7rem" }} />
         </>
       ) : null}
+      {mode === "summary" ? <col style={{ width: "7rem" }} /> : null}
       <col style={{ width: "9.5rem" }} />
     </colgroup>
   )
@@ -78,12 +123,21 @@ export function StatementSummaryStructureColgroup({
 export function StatementSummaryStructureThead({
   posteHeader = "Poste",
   hideAnnexColumns = false,
+  annexMode,
   showDisplayFormatColumn = false,
+  showCapexCostDisplayColumn = false,
+  showCashFlowCalcColumn = false,
+  showCashFlowTinDisplayColumn = false,
 }: {
   posteHeader?: string
   hideAnnexColumns?: boolean
+  annexMode?: StatementAnnexColumnMode
   showDisplayFormatColumn?: boolean
+  showCapexCostDisplayColumn?: boolean
+  showCashFlowCalcColumn?: boolean
+  showCashFlowTinDisplayColumn?: boolean
 }) {
+  const mode = resolveAnnexMode(hideAnnexColumns, annexMode)
   return (
     <>
       <th
@@ -178,7 +232,60 @@ export function StatementSummaryStructureThead({
           </Tooltip>
         </th>
       ) : null}
-      {!hideAnnexColumns ? (
+      {showCapexCostDisplayColumn ? (
+        <th className="box-border w-[9rem] px-2 py-4 text-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                  <TrendingUp className="h-4 w-4 text-slate-600" />
+                </span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800">Coût ALT</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[260px] text-balance">
+              Pour les codes ALT-B / C / D : afficher le solde réel ou la variation (N − N−1).
+            </TooltipContent>
+          </Tooltip>
+        </th>
+      ) : null}
+      {showCashFlowCalcColumn ? (
+        <th className="box-border w-[9rem] px-2 py-4 text-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                  <TrendingUp className="h-4 w-4 text-slate-600" />
+                </span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800">Calcul</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[280px] text-balance">
+              Code unique seulement : Réel ou variation N − N−1. Les sommes et différences agrègent
+              chaque code selon son propre mode.
+            </TooltipContent>
+          </Tooltip>
+        </th>
+      ) : null}
+      {showCashFlowTinDisplayColumn ? (
+        <th className="box-border w-[9rem] px-2 py-4 text-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200/80">
+                  <TrendingUp className="h-4 w-4 text-slate-600" />
+                </span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800">Réel / Coût</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[280px] text-balance">
+              Codes TIN uniquement : solde réel ou seulement les comptes marqués Coût au mapping
+              (immobilisations ALT-B / C / D).
+            </TooltipContent>
+          </Tooltip>
+        </th>
+      ) : null}
+      {mode === "full" ? (
         <>
           <th className="box-border w-[7rem] px-2 py-4 text-center">
             <Tooltip>
@@ -212,6 +319,23 @@ export function StatementSummaryStructureThead({
           </th>
         </>
       ) : null}
+      {mode === "summary" ? (
+        <th className="box-border w-[7rem] px-2 py-4 text-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-help flex-col items-center gap-1.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
+                  <Eye className="h-4 w-4 text-sky-600" />
+                </span>
+                <span className="text-[11px] font-semibold leading-tight text-slate-800">Annexe</span>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[240px] text-balance">
+              Affiche cette ligne au Sommaire trésorerie, avec le même calcul que dans le Détail.
+            </TooltipContent>
+          </Tooltip>
+        </th>
+      ) : null}
       <th className="px-6 py-4 text-center text-sm font-semibold text-slate-900 min-w-[9.5rem]">
         Actions
       </th>
@@ -233,12 +357,20 @@ type StructureRowCellsProps = {
   onEditPresentation?: (globalIdx: number) => void
   /** Bilan : numéros d'annexe attribués automatiquement (1, 2, 3…) — champ en lecture seule. */
   annexIdentifierAutoAssigned?: boolean
-  /** Masque les colonnes Annexe et Lettre (ex. Trésorerie Détail). */
+  /** Masque les colonnes Annexe et Lettre (ex. Capex). Préférer `annexMode`. */
   hideAnnexColumns?: boolean
+  /** full = Annexe+Lettre ; summary = Annexe → Sommaire (Trésorerie Détail) ; hidden = aucune. */
+  annexMode?: StatementAnnexColumnMode
   /** Fonds de roulement : autorise multiplication et division. */
   allowProductQuotient?: boolean
   /** Fonds de roulement : colonne Format ($ / Nombre / %). */
   showDisplayFormatColumn?: boolean
+  /** Capex : colonne Réel / Variation par ligne (coûts ALT). */
+  showCapexCostDisplayColumn?: boolean
+  /** Trésorerie détail : colonne Calcul (Réel / variations). */
+  showCashFlowCalcColumn?: boolean
+  /** Trésorerie détail : colonne Réel / Coût pour les codes TIN. */
+  showCashFlowTinDisplayColumn?: boolean
 }
 
 export function StatementSummaryStructureRowCells({
@@ -253,9 +385,18 @@ export function StatementSummaryStructureRowCells({
   onEditPresentation,
   annexIdentifierAutoAssigned = false,
   hideAnnexColumns = false,
+  annexMode,
   allowProductQuotient = false,
   showDisplayFormatColumn = false,
+  showCapexCostDisplayColumn = false,
+  showCashFlowCalcColumn = false,
+  showCashFlowTinDisplayColumn = false,
 }: StructureRowCellsProps) {
+  const mode = resolveAnnexMode(hideAnnexColumns, annexMode)
+  const isFixedTreasuryRow = isCashFlowFixedTreasuryStructureRow(structRow)
+  const isCapexAutoComputed = isCapexAutoComputedRow(structRow)
+  const isCapexAutoRatio = isCapexAutoRatioRow(structRow)
+
   return (
     <>
       <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
@@ -302,8 +443,9 @@ export function StatementSummaryStructureRowCells({
             )}
           >
             <Checkbox
-              checked={isStructureRowHidden(structRow)}
-              onCheckedChange={(v) => {
+                checked={isStructureRowHidden(structRow)}
+                disabled={isStructureRowHidden(structRow) || isFixedTreasuryRow}
+                onCheckedChange={(v) => {
                 if (v === true) {
                   structEdit.updateRow(globalIdx, {
                     hidden: true,
@@ -335,22 +477,24 @@ export function StatementSummaryStructureRowCells({
             <label
               className={cn(
                 "flex items-center justify-center rounded-xl p-1.5 transition-colors",
-                isStructureRowHidden(structRow)
+                isStructureRowHidden(structRow) || isCapexAutoComputed
                   ? "cursor-not-allowed opacity-40"
                   : "cursor-pointer",
                 !isStructureRowHidden(structRow) &&
                   isCodeMappingEnabled(structRow) &&
+                  !isCapexAutoComputed &&
                   "bg-orange-50/90 ring-2 ring-[#E0742D]/35",
                 !isStructureRowHidden(structRow) &&
                   !isCodeMappingEnabled(structRow) &&
+                  !isCapexAutoComputed &&
                   "bg-slate-100/60 hover:bg-slate-200/60"
               )}
             >
               <Checkbox
                 checked={isCodeMappingEnabled(structRow)}
-                disabled={isStructureRowHidden(structRow)}
+                disabled={isStructureRowHidden(structRow) || isFixedTreasuryRow || isCapexAutoComputed}
                 onCheckedChange={(v) => {
-                  if (isStructureRowHidden(structRow)) return
+                  if (isStructureRowHidden(structRow) || isCapexAutoComputed) return
                   if (v === true) {
                     structEdit.updateRow(globalIdx, {
                       defineMapping: true,
@@ -366,6 +510,8 @@ export function StatementSummaryStructureRowCells({
                       liaisonSumCodes: undefined,
                       liaisonNumeratorCodes: undefined,
                       liaisonDenominatorCodes: undefined,
+                      cashFlowCalcMode: undefined,
+                      cashFlowTinDisplayMode: undefined,
                     })
                   }
                 }}
@@ -377,7 +523,23 @@ export function StatementSummaryStructureRowCells({
         )}
       </td>
       <td className="box-border min-w-[8.5rem] max-w-[10rem] px-2 py-2.5 align-middle">
-        {isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
+        {isFixedTreasuryRow ? (
+          <span
+            className="block truncate rounded-lg bg-slate-100/80 px-1.5 py-2 text-center text-[11px] font-medium leading-snug text-slate-600"
+            title="Calcul automatique — non modifiable"
+          >
+            {isCashFlowEndingCashStructureRow(structRow)
+              ? "Variation + début"
+              : "ACT-A − PCT-A (N−1)"}
+          </span>
+        ) : isCapexAutoComputed && !isStructureRowHidden(structRow) ? (
+          <span
+            className="block truncate rounded-lg bg-emerald-50/80 px-1.5 py-2 text-center text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-200/70"
+            title="Calcul automatique — non modifiable"
+          >
+            {capexAutoRatioLiaisonLabel(structRow)}
+          </span>
+        ) : isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
           <IncomeStatementLiaisonCell
             structRow={structRow}
             rowIndex={globalIdx}
@@ -394,11 +556,78 @@ export function StatementSummaryStructureRowCells({
           </span>
         )}
       </td>
+      {showCashFlowCalcColumn ? (
+        <td className="box-border w-[9rem] px-2 py-2.5 align-middle">
+          {isStructureRowEmptyLabel(structRow) ||
+          isStructureRowHidden(structRow) ||
+          !structureRowShowsCashFlowCalcSelector(structRow) ? (
+            <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
+              —
+            </span>
+          ) : (
+            <Select
+              value={readRowCashFlowCalcMode(structRow)}
+              onValueChange={(v) =>
+                structEdit.updateRow(globalIdx, {
+                  cashFlowCalcMode: v as CashFlowCalcMode,
+                })
+              }
+            >
+              <SelectTrigger
+                className="h-9 w-full rounded-xl border-slate-200/90 text-xs shadow-sm focus:border-[#E0742D]/50 focus:ring-2 focus:ring-[#E0742D]/20"
+                aria-label="Mode de calcul"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="actual">Réel</SelectItem>
+                <SelectItem value="variation_nn1">Variations N − N−1</SelectItem>
+                <SelectItem value="variation_n1n">N−1 − N</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </td>
+      ) : null}
+      {showCashFlowTinDisplayColumn ? (
+        <td className="box-border w-[9rem] px-2 py-2.5 align-middle">
+          {isStructureRowEmptyLabel(structRow) ||
+          isStructureRowHidden(structRow) ||
+          !structureRowShowsCashFlowTinDisplaySelector(structRow) ? (
+            <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
+              —
+            </span>
+          ) : (
+            <Select
+              value={readRowCashFlowTinDisplayMode(structRow)}
+              onValueChange={(v) =>
+                structEdit.updateRow(globalIdx, {
+                  cashFlowTinDisplayMode: v as CashFlowTinDisplayMode,
+                })
+              }
+            >
+              <SelectTrigger
+                className="h-9 w-full rounded-xl border-slate-200/90 text-xs shadow-sm focus:border-[#E0742D]/50 focus:ring-2 focus:ring-[#E0742D]/20"
+                aria-label="Affichage réel ou coût TIN"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="actual">Réel</SelectItem>
+                <SelectItem value="cost">Coût</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </td>
+      ) : null}
       {showDisplayFormatColumn ? (
         <td className="box-border w-[7.5rem] px-2 py-2.5 align-middle">
           {isStructureRowEmptyLabel(structRow) || isStructureRowHidden(structRow) ? (
             <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
               —
+            </span>
+          ) : isCapexAutoComputed ? (
+            <span className="block truncate rounded-lg bg-slate-100/80 px-1.5 py-2 text-center text-xs font-medium text-slate-600">
+              {isCapexAutoRatio ? "%" : "$"}
             </span>
           ) : (
             <Select
@@ -425,7 +654,38 @@ export function StatementSummaryStructureRowCells({
           )}
         </td>
       ) : null}
-      {!hideAnnexColumns ? (
+      {showCapexCostDisplayColumn ? (
+        <td className="box-border w-[9rem] px-2 py-2.5 align-middle">
+          {isStructureRowEmptyLabel(structRow) ||
+          isStructureRowHidden(structRow) ||
+          !structureRowShowsCapexCostDisplaySelector(structRow) ? (
+            <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
+              —
+            </span>
+          ) : (
+            <Select
+              value={readRowCapexCostDisplayMode(structRow)}
+              onValueChange={(v) =>
+                structEdit.updateRow(globalIdx, {
+                  capexCostDisplayMode: v as CapexCostDisplayMode,
+                })
+              }
+            >
+              <SelectTrigger
+                className="h-9 w-full rounded-xl border-slate-200/90 text-xs shadow-sm focus:border-[#E0742D]/50 focus:ring-2 focus:ring-[#E0742D]/20"
+                aria-label="Affichage du coût ALT"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="actual">Réel</SelectItem>
+                <SelectItem value="variation">Variation (N − N−1)</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        </td>
+      ) : null}
+      {mode === "full" ? (
         <>
           <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
             {isStructureRowEmptyLabel(structRow) ? (
@@ -491,6 +751,41 @@ export function StatementSummaryStructureRowCells({
             )}
           </td>
         </>
+      ) : null}
+      {mode === "summary" ? (
+        <td className="box-border w-[7rem] px-2 py-2.5 align-middle text-center">
+          {isStructureRowEmptyLabel(structRow) ? (
+            <span className="text-sm text-slate-300">—</span>
+          ) : (
+            <div className="flex justify-center">
+              <label
+                className={cn(
+                  "flex items-center justify-center rounded-xl p-1.5 transition-colors",
+                  isStructureRowHidden(structRow)
+                    ? "cursor-not-allowed opacity-40"
+                    : "cursor-pointer",
+                  !isStructureRowHidden(structRow) &&
+                    isShowInSummary(structRow) &&
+                    "bg-sky-50/90 ring-2 ring-sky-400/40",
+                  !isStructureRowHidden(structRow) &&
+                    !isShowInSummary(structRow) &&
+                    "bg-slate-100/60 hover:bg-slate-200/60",
+                )}
+              >
+                <Checkbox
+                  checked={isShowInSummary(structRow)}
+                  disabled={isStructureRowHidden(structRow)}
+                  onCheckedChange={(v) => {
+                    if (isStructureRowHidden(structRow)) return
+                    structEdit.updateRow(globalIdx, { showInSummary: v === true })
+                  }}
+                  aria-label="Annexe : afficher au sommaire"
+                  className="border-slate-300 data-[state=checked]:border-sky-600 data-[state=checked]:bg-sky-600"
+                />
+              </label>
+            </div>
+          )}
+        </td>
       ) : null}
       <td className="px-2 py-2 text-center align-middle">
         <div className="flex items-center justify-center gap-0.5">

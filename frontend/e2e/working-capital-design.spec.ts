@@ -1,4 +1,5 @@
 import { test, expect, Page } from "@playwright/test"
+import { HORIZON_LABEL } from "@/lib/financial-statement-horizon-labels"
 
 test.setTimeout(90_000)
 
@@ -334,5 +335,30 @@ test.describe("Working capital IS-style chrome", () => {
     await expect(headers.nth(3)).toHaveText("Juin 2026")
     await expect(headers.nth(4)).toHaveText("Mai 2026")
     await expect(page.getByText("Décembre 2026")).toHaveCount(0)
+  })
+
+  test("Sommaire Annuel 5 ans : table-fixed, thead = tbody (pas d’espace vide)", async ({ page }) => {
+    await setupAuth(page)
+    await page.goto(`/analysis/working-capital?companyId=${COMPANY_ID}&refMonth=7&refYear=2026`)
+    await expect(
+      page.locator("h2").filter({ hasText: /Analyse du fonds de roulement/i }),
+    ).toBeVisible({ timeout: 15000 })
+
+    await page.getByRole("button", { name: /^Sommaire$/ }).click()
+    await expect(page.getByText("Métrique", { exact: true })).toBeVisible({ timeout: 15000 })
+
+    await page.getByText("Horizon", { exact: true }).locator("..").getByRole("combobox").click()
+    await page.getByRole("option", { name: HORIZON_LABEL.annuel5Ans }).click()
+
+    const table = page.locator("[data-testid='wc-summary-table-scroll'] table")
+    await expect(table).toHaveClass(/table-fixed/)
+    const headers = table.locator("thead tr").first().locator("th")
+    const headerCount = await headers.count()
+    const firstDataRow = table.locator("tbody tr").filter({ hasText: "FDR" }).first()
+    await expect(firstDataRow).toBeVisible()
+    expect(await firstDataRow.locator("td").count()).toBe(headerCount)
+    expect(headerCount).toBeGreaterThanOrEqual(3)
+    await expect(headers.nth(2)).toHaveText("Jul 2026")
+    await expect(headers.filter({ hasText: /^20\d{2}$/ })).toHaveCount(0)
   })
 })

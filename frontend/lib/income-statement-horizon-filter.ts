@@ -116,6 +116,15 @@ export function filterIncomeStatementSummaryRowsForHorizon<
   return rows.filter((row) => {
     const structRow = findStructureRowForStatementLine("", row.label, structure)
     if (structRow && isStructureRowHidden(structRow)) return false
+    if (structRow && isStructureRowDetailOnly(structRow)) return false
+
+    // Lignes séries « supplémentaires » (ex. REV-A.1 appendus pour les graphiques) :
+    // absentes des Paramètres Sommaire → ne pas les afficher dans le tableau.
+    if (!structRow) {
+      return isStructuralIncomeStatementRowAlwaysVisible(row.label, {
+        isResult: row.isResult,
+      })
+    }
 
     if (!summaryRowQualifiesForHorizonHiding(row, structRow, standardCodes)) {
       return true

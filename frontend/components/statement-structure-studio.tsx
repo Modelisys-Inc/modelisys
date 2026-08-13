@@ -36,7 +36,9 @@ import {
 
 const SUMMARY_STRUCTURE_COLUMN_COUNT = 8
 const SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX = 6
+const SUMMARY_STRUCTURE_COLUMN_COUNT_CF_DETAIL = 8
 const SUMMARY_STRUCTURE_COLUMN_COUNT_WC = 7
+const SUMMARY_STRUCTURE_COLUMN_COUNT_CAPEX = 8
 
 interface StatementStructureStudioToolbarProps {
   companyId: string
@@ -143,8 +145,10 @@ interface StatementStructureStudioProps {
   embedded?: boolean
   /** Masque la barre d’actions (fournie par le parent, ex. en-tête Sommaire). */
   hideToolbar?: boolean
-  /** Masque les colonnes Annexe et Lettre (ex. Trésorerie Détail). */
+  /** Masque les colonnes Annexe et Lettre (ex. Capex). Préférer `annexMode`. */
   hideAnnexColumns?: boolean
+  /** full | summary (Annexe → Sommaire) | hidden */
+  annexMode?: "full" | "summary" | "hidden"
 }
 
 export function StatementStructureStudio({
@@ -155,23 +159,34 @@ export function StatementStructureStudio({
   embedded = false,
   hideToolbar = false,
   hideAnnexColumns = false,
+  annexMode: annexModeProp,
 }: StatementStructureStudioProps) {
   const structEdit = useStatementStructureEdit(companyId, true, statementType)
   const dialogs = useStatementSummaryStructureDialogs(structEdit)
   const isIncomeStatement = statementType === "income-statement"
   const isBalanceSheet = statementType === "balance-sheet"
   const isCashFlow = statementType === "cash-flow" || statementType === "cash-flow-detail"
+  const isCashFlowDetail = statementType === "cash-flow-detail"
   const isWorkingCapital = statementType === "working-capital"
   const isCapex = statementType === "capex"
-  const isLinkCodeAnalysis = isWorkingCapital || isCapex
+  const isRatios = statementType === "ratios"
+  const isLinkCodeAnalysis = isWorkingCapital || isCapex || isRatios
+  const analysisLinkCodeVariant = isCapex ? "capex" : isRatios ? "ratios" : "working-capital"
+  const annexMode =
+    annexModeProp ??
+    (isCashFlowDetail ? "summary" : hideAnnexColumns ? "hidden" : "full")
   const { codes: incomeParentLinkCodes, labels: incomeParentLinkLabels } =
     useIncomeStatementParentLinkCodes(isIncomeStatement)
   const { codes: balanceParentLinkCodes, labels: balanceParentLinkLabels } =
     useBalanceSheetParentLinkCodes(isBalanceSheet)
   const { codes: cashFlowCategoryLinkCodes, labels: cashFlowCategoryLinkLabels } =
-    useCashFlowCategoryLinkCodes(isCashFlow)
+    useCashFlowCategoryLinkCodes(isCashFlow, isCashFlowDetail)
   const { codes: workingCapitalLinkCodes, labels: workingCapitalLinkLabels } =
-    useWorkingCapitalLinkCodes(isLinkCodeAnalysis)
+    useWorkingCapitalLinkCodes(
+      isLinkCodeAnalysis,
+      analysisLinkCodeVariant,
+      isRatios ? companyId : undefined,
+    )
   const singleModeLinkCodes = isIncomeStatement
     ? incomeParentLinkCodes
     : isBalanceSheet
@@ -215,11 +230,22 @@ export function StatementStructureStudio({
 
   const annexIdentifierAutoAssigned = isBalanceSheet
   const showDisplayFormatColumn = isLinkCodeAnalysis
-  const structureColumnCount = showDisplayFormatColumn
-    ? SUMMARY_STRUCTURE_COLUMN_COUNT_WC
-    : hideAnnexColumns
-      ? SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX
-      : SUMMARY_STRUCTURE_COLUMN_COUNT
+  const showCapexCostDisplayColumn = isCapex
+  const showCashFlowCalcColumn = isCashFlowDetail
+  const showCashFlowTinDisplayColumn = isCashFlowDetail
+  const structureColumnCount = showCapexCostDisplayColumn
+    ? SUMMARY_STRUCTURE_COLUMN_COUNT_CAPEX
+    : showDisplayFormatColumn
+      ? SUMMARY_STRUCTURE_COLUMN_COUNT_WC
+      : showCashFlowCalcColumn
+        ? annexMode === "summary"
+          ? SUMMARY_STRUCTURE_COLUMN_COUNT_CF_DETAIL + 1
+          : annexMode === "hidden"
+            ? SUMMARY_STRUCTURE_COLUMN_COUNT_CF_DETAIL
+            : SUMMARY_STRUCTURE_COLUMN_COUNT_CF_DETAIL + 2
+        : annexMode === "hidden"
+          ? SUMMARY_STRUCTURE_COLUMN_COUNT_NO_ANNEX
+          : SUMMARY_STRUCTURE_COLUMN_COUNT
 
   return (
     <div
@@ -256,15 +282,21 @@ export function StatementStructureStudio({
       <div className="overflow-x-auto">
         <table className="w-full table-fixed border-collapse">
           <StatementSummaryStructureColgroup
-            hideAnnexColumns={hideAnnexColumns}
+            annexMode={annexMode}
             showDisplayFormatColumn={showDisplayFormatColumn}
+            showCapexCostDisplayColumn={showCapexCostDisplayColumn}
+            showCashFlowCalcColumn={showCashFlowCalcColumn}
+            showCashFlowTinDisplayColumn={showCashFlowTinDisplayColumn}
           />
           <thead className="bg-slate-50/70">
             <tr>
               <StatementSummaryStructureThead
                 posteHeader="Poste"
-                hideAnnexColumns={hideAnnexColumns}
+                annexMode={annexMode}
                 showDisplayFormatColumn={showDisplayFormatColumn}
+                showCapexCostDisplayColumn={showCapexCostDisplayColumn}
+                showCashFlowCalcColumn={showCashFlowCalcColumn}
+                showCashFlowTinDisplayColumn={showCashFlowTinDisplayColumn}
               />
             </tr>
           </thead>
@@ -347,9 +379,12 @@ export function StatementStructureStudio({
                       showSeparatorAbove={showSeparatorAbove}
                       onEditPresentation={dialogs.beginEditPostPresentation}
                       annexIdentifierAutoAssigned={annexIdentifierAutoAssigned}
-                      hideAnnexColumns={hideAnnexColumns}
+                      annexMode={annexMode}
                       allowProductQuotient={isLinkCodeAnalysis}
                       showDisplayFormatColumn={showDisplayFormatColumn}
+                      showCapexCostDisplayColumn={showCapexCostDisplayColumn}
+                      showCashFlowCalcColumn={showCashFlowCalcColumn}
+                      showCashFlowTinDisplayColumn={showCashFlowTinDisplayColumn}
                     />
                   </tr>
                 </Fragment>

@@ -10,6 +10,8 @@ export const HORIZON_LABEL = {
   annuel5Ans: "Annuel - 5 ans",
   ytd: "YTD",
   ddm: "DDM",
+  courant: "Courant",
+  exercice: "Exercice",
 } as const
 
 /**

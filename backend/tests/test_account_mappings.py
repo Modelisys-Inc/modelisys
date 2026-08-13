@@ -118,6 +118,45 @@ def test_upsert_account_mappings_liability_term_fields(client, auth_headers):
     assert float(m["liability_interest_rate"]) == 5.25
 
 
+def test_upsert_account_mappings_alt_asset_fields(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+
+    entry = {
+        "account_number": "1500",
+        "description": "Machinery cost",
+        "link_code": "ALT-B.1",
+        "alt_asset_cost": True,
+        "alt_accumulated_amortization": False,
+    }
+    response = client.put(
+        f"/api/companies/{company_id}/account-mappings",
+        json=[entry],
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    m = response.json()["mappings"][0]
+    assert m["alt_asset_cost"] is True
+    assert m["alt_accumulated_amortization"] is False
+
+    response = client.put(
+        f"/api/companies/{company_id}/account-mappings",
+        json=[
+            {
+                "account_number": "1500",
+                "description": "Machinery cost",
+                "link_code": "ALT-B.1",
+                "alt_asset_cost": False,
+                "alt_accumulated_amortization": True,
+            }
+        ],
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    m = response.json()["mappings"][0]
+    assert m["alt_asset_cost"] is False
+    assert m["alt_accumulated_amortization"] is True
+
+
 def test_account_mappings_ordered_by_account_number(client, auth_headers):
     company_id = _create_company(client, auth_headers)
     entries = [

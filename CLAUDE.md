@@ -192,11 +192,124 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
 - The computation service lives in `backend/app/services/financial_statements.py`
 - Statement structures define the rows/sections of income statement, balance sheet, etc.
 - Account mappings link GL accounts to statement rows via `link_codes`
+- **BAIIA** (résultats, poste `isEBITA` / libellé « BAIIA ») : calculé serveur
+  comme `|REV| − |coûts variables| − |coûts fixes|` (flags `variable_costs` /
+  `fixed_costs` du mapping), aligné Pilotage / pont Dépenses — pas via la
+  formule Liaison des Paramètres (écrasée sur état mono-période et séries).
+  Revenus = comptes GL **uniques** de la famille REV (ancre `REV` après parent
+  rollup — jamais la somme de tous les codes REV*/parents, qui recompterait
+  les mêmes GL). Horizon : mensuel = activité du mois ; YTD / trimestre /
+  annuel = somme des BAIIA mensuels de la fenêtre. En Paramètres Sommaire,
+  Code / Liaison / Annexe sont retirés au chargement/sauvegarde
+  (`normalizeBaiiaStructureRow`) ; Liaison affiche « REV − CV − CF » en
+  lecture seule.
+- **Capex auto** (analyse Capex) : postes **BAIIA** et **Flux de trésorerie -
+  Exploitation** (montants TTM) et ratios **Capex / BAIIA**, **Capex / Flux…**
+  (`normalizeCapexAutoRatioRow`, liaison verrouillée). Même principe que
+  **Capex / Revenus** (Capex / Chiffre d’affaires) sur tous les horizons :
+  ratio = **Capex affiché ÷ dénominateur affiché**. Numérateur = poste
+  « Capex » ou lignes ALT en **Variation** (jamais le stock Réel des
+  immobilisations) aux mêmes colonnes (`pickCapexDisplayIndices` : mois réf.
+  année courante, clôture les années antérieures). Dénominateur = montant
+  TTM affiché (BAIIA `REV − CV − CF` ; exploitation = codes TEX Sommaire).
+  Paramètres : picker de codes **Bilan + Compte de résultat** (feuilles
+  incluses, ex. CMV.1 — `capexLinkCodeOptions`) ; « REV − CV − CF » /
+  « Exploitation » (montants) et « Capex / (REV − CV − CF) » /
+  « Capex / Exploitation » (ratios). Colonne **Moyenne** = moyenne des
+  colonnes affichées (`averageDisplayedHorizonValues`), pas des années
+  vides masquées (Annuel 5 ans).
+- **Ratios financiers** (`/analysis/ratios`) : même coquille que Capex / FDR
+  (hero, Tableau de bord / Sommaire, date de référence, horizons, cartes
+  `dashboardCard*`). Sommaire = liquidité / rentabilité / levier + colonne
+  **Moyenne** ; Annuel 5 ans = `table-fixed` + entêtes mois+année
+  (`pickCapexDisplayIndices`, années vides masquées). **Paramètres** comme FDR
+  (structure `statement_type="ratios"`, studio Code / Liaison / Format,
+  `allowProductQuotient`). Picker = **tous les codes actifs** Bilan + CDR +
+  Trésorerie, parents et feuilles (CMV.1, ALT-B, TEX-A, ancres REV/TEX, overlay
+  `company_link_codes`) via `allAnalysisLinkCodeOptions`. Calcul liaison =
+  `resolveWorkingCapitalStructureAmount` (BS snapshot, IS/CF TTM) ; les 7
+  ratios historiques restent en repli libellé si `liaisonMode: "na"`.
+  Couverture des intérêts = BAIIA / charges financières, distinct du diagnostic.
+- **Annuel 5 ans / Trimestriel 2 ans** (Sommaire + Détail, Résultats + Bilan +
+  Trésorerie) : sélecteur **Courant** | **Exercice** (comme Mois dernier /
+  Mois passé sur Mois actuel). Mêmes dates de colonnes partout
+  (`income-statement-period-basis.ts`). Courant annuel = même mois chaque année
+  (Aoû 2026, Aoû 2025…) ; Exercice annuel = date de référence puis fins
+  d’exercice (Aoû 2026, Déc 2025…, selon `fiscal_year_end`). Courant
+  trimestriel = tous les 3 mois (Aoû, Mai, Fév…) ; Exercice trimestriel =
+  QTD fiscal puis fins de trimestres. **Valeurs :** Résultats / Trésorerie Réel
+  = TTM / T3M (Courant) ou YTD / QTD fiscal (Exercice) ; Bilan et Trésorerie
+  Variation = snapshot à la date de la colonne.
+- **Détail annexes (IS)** : `renumberAnnexesByAppearance` ne rompt pas le bloc
+  sur une sous-ligne `detailOnly` masquée (ex. Stocks CMV.1) et **efface** la
+  lettre des postes sommaire masqués (EXP/VNT auto-hide). Sinon Achats /
+  Main-d’œuvre perdent `annexLetter`, ou ADM/AUT héritent de la lettre d’un
+  EXP/VNT masqué, et la sync recollait les feuilles sous le mauvais owner →
+  doublons toutes annexes. La sync itère chaque **owner visible** et ne
+  remplace que son span `detailOnly` contigu (jamais un strip global par
+  lettre). Visibilité / Paramètres : owner contigu, pas le premier row de
+  la lettre. Dédup affichage : `uniqueStatementRowsByStructureIndex`.
 - Cash flow is derived from income statement + balance sheet deltas
+- **Sommaire** trésorerie : lignes cochées « Annexe » (`showInSummary`) dans
+  Détail → Paramètres ; même moteur de calcul que le Détail (`variant="summary"`).
+  Paramètres Sommaire : espace / gras / séparation via overlay
+  (`summaryOnly` spacers, `summaryIsBold` / `summaryIndent` / `summarySeparatorAbove`)
+  — n’affecte pas l’affichage Détail.
 - CF codes (TEX/TIN/TFI) with `attached_link_codes` including `CAP-C.1` reuse the
   bilan CAP-C.1 formula (REV CT×−1 − charges) over the **selected horizon months**
   (mois courant = that month only; YTD = Jan→mois; not always YTD like BS CAP-C.1)
 - See `docs/plans/` for detailed design documents
+
+### Diagnostic (rapport VC)
+
+- `GET /api/companies/{id}/diagnostic` (read gate `verify_company_access`, viewers OK)
+  accepts optional `fiscal_year` + `month` query params (calendar dates, same as
+  financial statements) to anchor the report; without them, the latest trial-balance
+  period is used. Returns a single aggregate payload (`app/schemas/company_diagnostic.py`):
+  `reference_period`, 5-year trends (YTD window aligned on the reference month),
+  trends, seasonality, per-division profitability, product/service margins, 5-year
+  ratios, capex, and an indicative EBITDA-multiple valuation. Computed in
+  `app/services/company_diagnostic.py` on top of the statement engine using
+  link-code **family** sums (REV/CMV/… — never label matching); EBITDA = EBIT +
+  amortissement; equity = assets − liabilities; capex = ΔALT net + amortissement.
+  Product scoping uses `_product_filter_ctx` (ContextVar in
+  `financial_statements.py`); multiples come from `ForecastConfig`
+  `config_type="ebitda_multiple"` else default 3–5× (rationale notes the default).
+- Frontend: `/modules/diagnostic?companyId=…` (static route beats the `[moduleId]` placeholder;
+  reached via the module nav when a company is selected — same pattern as Projections).
+  **Portail** : liste / création des diagnostics (registre `localStorage` via
+  `lib/diagnostic-registry.ts`, incl. `referenceYear` / `referenceMonth` per entry);
+  rapport à `/modules/diagnostic/[diagnosticId]?companyId=…`. Redesigned (2026-07) as a
+  light-theme report aligned with financial-statement pages: components in `frontend/components/diagnostic/v2/`
+  (hero with 0-100 health index, KPI strip, hand-written SVG charts — **no
+  Recharts** — drill-down drawer, sticky nav rail). Client-side derivations
+  (health index, typed signals, ratio definitions) in `lib/diagnostic-derive.ts`;
+  design tokens in `lib/diagnostic-theme.ts`; sector medians **hardcoded** in
+  `lib/diagnostic-benchmarks.ts` (should move to the backend eventually —
+  original handoff's `api-gaps.md` lists Phase-2 payload fields: EBITDA bridge,
+  per-year seasonality, cash flow, debt, headcount, multi-method valuation).
+  `diagnostic-format.ts` + `diagnostic-skeleton.tsx` (kept from v1) still used;
+  hook `use-company-diagnostic.ts` (passes reference date to the API). E2e (fully mocked) in
+  `frontend/e2e/diagnostic.spec.ts` + `diagnostic-visual.spec.ts`; testids:
+  `kpi-cards`, `lifecycle-badge`, `division-row-{id}`, `valuation-notes`,
+  `diagnostic-error`, `diagnostic-signal`, `products-empty-state`.
+  **Rapport (nav rail):** vues Performance / Revenus / Marge par Revenus / Dépenses /
+  **Divisions** — la vue Divisions (sous Dépenses) réutilise la config chart
+  `diagnostic-expenses`, charge une série ER par division (`division_id` sur
+  l'API series) et construit un pont REV → CV → marge contributive → CF → bénéfice
+  d'exploitation par division via `lib/division-profitability.ts` (mapping `divisions`
+  CSV) ; tableau `DivisionProfitabilityTable`, lecture CPA
+  `division-profitability-narrative`, tableaux indicateurs extensibles (REV / CV / CF).
+  **Situation financière** (`diagnostic-financial-position`) : bilan ACT/ALT/PCT/PLT/CAP,
+  libs `financial-position*.ts`, graphiques dual-panel `financial-position-chart.tsx`.
+  **Fonds de roulement** (`diagnostic-working-capital`, indenté sous Situation financière) :
+  réutilise la structure `working-capital` (même moteur que `/analysis/working-capital`,
+  `working-capital-structure-utils.ts`) + séries bilan + CDR (TTM) ; graphiques FDR/FdRHC
+  et cycle DSO/DIO/DPO/CCC (`working-capital-diagnostic-chart.tsx`) ; lecture +
+  tableaux indicateurs dans `working-capital-diagnostic-{narrative,breakdown}.ts`.
+- Known deltas vs analysis pages (deliberate, flagged for product review): capex
+  differs from `/analysis/capex` (ΔALT vs Δ of first BS total row);
+  `interest_coverage` = EBIT/FIN here vs EBITDA/FIN on `/analysis/ratios`.
 
 ### Authorization (RBAC)
 

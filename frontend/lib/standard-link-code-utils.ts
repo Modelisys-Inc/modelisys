@@ -135,6 +135,45 @@ export const INCOME_STATEMENT_FAMILY_ANCHORS = [
   "IMP",
 ] as const
 
+const INCOME_STATEMENT_FAMILY_ANCHOR_SET = new Set<string>(INCOME_STATEMENT_FAMILY_ANCHORS)
+
+export function isIncomeStatementFamilyAnchorCode(code: string | undefined): boolean {
+  const lc = code?.trim()
+  if (!lc) return false
+  return INCOME_STATEMENT_FAMILY_ANCHOR_SET.has(lc)
+}
+
+/**
+ * Niveau de regroupement pour la ventilation CV/CF (diagnostic Dépenses).
+ * - Feuille rattachée à un poste (ex. CMV-A.1) → regroupe sous le poste (CMV-A).
+ * - Feuille rattachée directement à une famille (ex. CMV.1 / parent CMV) → regroupe sous le code assigné.
+ */
+export function resolveExpenseCostGroupingFromLinkCode(
+  linkCode: string | undefined,
+  codeByCode: StandardLinkCodeLookup,
+): { id: string; label: string } | null {
+  const lc = linkCode?.trim()
+  if (!lc) return null
+  const row = codeByCode.get(lc)
+  if (!row) return { id: lc, label: lc }
+
+  const parentCode = row.parent_code?.trim()
+  if (!parentCode) {
+    return { id: row.code, label: standardLinkCodeDisplayLabel(row) }
+  }
+
+  if (isIncomeStatementFamilyAnchorCode(parentCode)) {
+    return { id: row.code, label: standardLinkCodeDisplayLabel(row) }
+  }
+
+  const parent = codeByCode.get(parentCode)
+  if (parent) {
+    return { id: parent.code, label: standardLinkCodeDisplayLabel(parent) }
+  }
+
+  return { id: parentCode, label: parentCode }
+}
+
 const INCOME_STATEMENT_FAMILY_ANCHOR_LABELS: Record<string, string> = {
   REV: "Chiffre d'affaires",
   CMV: "Coûts des produits vendus",
@@ -223,6 +262,49 @@ export function workingCapitalLinkCodeOptions(codes: StandardLinkCode[]): {
   const is = incomeStatementParentLinkCodeOptions(codes)
   const labels = new Map<string, string>([...bs.labels, ...is.labels])
   const merged = [...new Set([...bs.codes, ...is.codes])]
+  return { codes: merged, labels }
+}
+
+/**
+ * Bilan + Compte de résultat (parents et feuilles, ex. CMV.1) pour l’analyse Capex.
+ * Les ancres REV / CMV / … restent proposées même sans nœud charte.
+ */
+export function filterCapexLinkCodes(codes: StandardLinkCode[]): StandardLinkCode[] {
+  const fromChart = codes.filter(
+    (c) =>
+      c.is_active !== false &&
+      (isBalanceSheetFamily(c.family) || isIncomeStatementFamily(c.family)),
+  )
+  const byCode = new Set(fromChart.map((c) => c.code))
+  for (const anchor of filterIncomeStatementParentLinkCodes(codes)) {
+    if (!byCode.has(anchor.code)) fromChart.push(anchor)
+  }
+  return fromChart
+}
+
+export function capexLinkCodeOptions(codes: StandardLinkCode[]): {
+  codes: string[]
+  labels: Map<string, string>
+} {
+  const filtered = sortStandardLinkCodesHierarchically(filterCapexLinkCodes(codes))
+  return {
+    codes: filtered.map((c) => c.code),
+    labels: buildStandardLinkCodeLabelMap(filtered),
+  }
+}
+
+/**
+ * Tous les codes actifs (Bilan, Compte de résultat et Trésorerie, parents et feuilles).
+ * Inclut CMV.1, ALT-B, TEX-A, et les ancres de famille (REV, CMV, TEX, …).
+ */
+export function allAnalysisLinkCodeOptions(codes: StandardLinkCode[]): {
+  codes: string[]
+  labels: Map<string, string>
+} {
+  const capex = capexLinkCodeOptions(codes)
+  const cf = cashFlowLinkCodeOptions(codes)
+  const labels = new Map<string, string>([...capex.labels, ...cf.labels])
+  const merged = [...new Set([...capex.codes, ...cf.codes])]
   return { codes: merged, labels }
 }
 
@@ -550,6 +632,86 @@ export function compareCapexProjectionLinkCodes(a: string, b: string): number {
   return a.localeCompare(b, "fr", { numeric: true })
 }
 
+/** Immobilisations capex (ALT-B / ALT-C / ALT-D) : choix Coût vs Amortissement cumulé. */
+export function showsMappingAltAssetTypeOptions(linkCode: string | undefined): boolean {
+  const lc = linkCode?.trim()
+  if (!lc) return false
+  return isCapexProjectionLinkCode(lc)
+}
+
+export type MappingAltAssetTypeLabel = "cost" | "accumulated" | "unset" | "na"
+
+export function mappingAltAssetTypeLabel(account: {
+  linkCode?: string
+  altAssetCost?: boolean
+  altAccumulatedAmortization?: boolean
+}): MappingAltAssetTypeLabel {
+  if (!showsMappingAltAssetTypeOptions(account.linkCode)) return "na"
+  const cost = !!account.altAssetCost
+  const accumulated = !!account.altAccumulatedAmortization
+  if (cost && !accumulated) return "cost"
+  if (accumulated && !cost) return "accumulated"
+  return "unset"
+}
+
+export function mappingAltAssetTypeDisplayLabel(account: {
+  linkCode?: string
+  altAssetCost?: boolean
+  altAccumulatedAmortization?: boolean
+}): string {
+  switch (mappingAltAssetTypeLabel(account)) {
+    case "cost":
+      return "Coût"
+    case "accumulated":
+      return "Amort. cumulé"
+    case "unset":
+      return "—"
+    default:
+      return "N/A"
+  }
+}
+
+export function isMappingAltAssetTypeUnset(account: {
+  linkCode?: string
+  altAssetCost?: boolean
+  altAccumulatedAmortization?: boolean
+}): boolean {
+  return mappingAltAssetTypeLabel(account) === "unset"
+}
+
+export function sanitizeMappingAltAssetFields<
+  T extends {
+    linkCode?: string
+    altAssetCost?: boolean
+    altAccumulatedAmortization?: boolean
+  },
+>(draft: T): T {
+  if (!showsMappingAltAssetTypeOptions(draft.linkCode)) {
+    return {
+      ...draft,
+      altAssetCost: false,
+      altAccumulatedAmortization: false,
+    }
+  }
+  return draft
+}
+
+/** Libellé colonne Type : immobilisations capex ou CV/CF. */
+export function mappingAccountTypeDisplayLabel(
+  account: {
+    linkCode?: string
+    variableCosts?: boolean
+    fixedCosts?: boolean
+    altAssetCost?: boolean
+    altAccumulatedAmortization?: boolean
+  },
+  codeByCode: StandardLinkCodeLookup,
+): string {
+  const altLabel = mappingAltAssetTypeDisplayLabel(account)
+  if (altLabel !== "N/A") return altLabel
+  return mappingCostTypeDisplayLabel(account, codeByCode)
+}
+
 export function isMappableStandardLinkCode(code: StandardLinkCode): boolean {
   if (code.is_active === false) return false
   if (isCashFlowFamily(code.family)) return false
@@ -648,6 +810,19 @@ export function isCashFlowFamily(family: string): family is CashFlowFamily {
   return (CASH_FLOW_FAMILIES as readonly string[]).includes(family)
 }
 
+/** Codes Trésorerie — Investissement (famille TIN ou clé agrégée « TIN »). */
+export function isTinFamilyLinkCode(
+  linkCode: string | undefined,
+  codeByCode?: StandardLinkCodeLookup,
+): boolean {
+  const lc = linkCode?.trim()
+  if (!lc) return false
+  const row = codeByCode?.get(lc)
+  if (row) return row.family === "TIN"
+  if (lc === "TIN") return true
+  return /^TIN[.-]/i.test(lc)
+}
+
 /** @deprecated use isCashFlowFamily */
 export function isCashFlowVirtualFamily(family: string): family is CashFlowVirtualFamily {
   return isCashFlowFamily(family)
@@ -688,10 +863,38 @@ export function cashFlowLinkCodeOptions(codes: StandardLinkCode[]): {
   const filtered = [...codes]
     .filter((c) => isCashFlowFamily(c.family))
     .sort((a, b) => a.sort_order - b.sort_order || a.code.localeCompare(b.code))
-  return {
-    codes: filtered.map((c) => c.code),
-    labels: buildStandardLinkCodeLabelMap(filtered),
+  const labels = buildStandardLinkCodeLabelMap(filtered)
+  // Ancres familiales : le sommaire agrège les codes de la structure Détail.
+  for (const family of CASH_FLOW_FAMILIES) {
+    if (!labels.has(family)) {
+      labels.set(family, CASH_FLOW_FAMILY_LABELS[family])
+    }
   }
+  const merged = [...CASH_FLOW_FAMILIES, ...filtered.map((c) => c.code)]
+  return {
+    codes: [...new Set(merged)],
+    labels,
+  }
+}
+
+/** Codes supplémentaires pour la liaison Trésorerie Détail (bilan ACT-A / PCT-A). */
+export const CASH_FLOW_DETAIL_EXTRA_LINK_CODES = ["ACT-A", "PCT-A"] as const
+
+/** TEX / TIN / TFI + ACT-A / PCT-A pour Paramètres Trésorerie Détail. */
+export function cashFlowDetailLinkCodeOptions(codes: StandardLinkCode[]): {
+  codes: string[]
+  labels: Map<string, string>
+} {
+  const cf = cashFlowLinkCodeOptions(codes)
+  const bs = balanceSheetParentLinkCodeOptions(codes)
+  const labels = new Map<string, string>([...cf.labels, ...bs.labels])
+  for (const code of CASH_FLOW_DETAIL_EXTRA_LINK_CODES) {
+    if (!labels.has(code)) labels.set(code, code)
+  }
+  const merged = [...new Set([...cf.codes, ...CASH_FLOW_DETAIL_EXTRA_LINK_CODES])].sort((a, b) =>
+    a.localeCompare(b, "fr", { numeric: true }),
+  )
+  return { codes: merged, labels }
 }
 
 /** @deprecated use cashFlowLinkCodeOptions */

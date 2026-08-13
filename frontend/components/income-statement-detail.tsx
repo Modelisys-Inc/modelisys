@@ -62,11 +62,19 @@ import {
 import {
   monthShortLabelsFromReference,
   monthTrendFromReference,
-  quarterLabelsFromReference,
-  quarterTrendFromReference,
   yearLabelsFromReference,
   yearTrendFromReference,
 } from "@/lib/series-reference-columns"
+import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
+import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
+import {
+  INCOME_STATEMENT_QUARTER_COUNT,
+  incomeStatementQuarterLabelsForBasis,
+  incomeStatementQuarterTrendForBasis,
+  incomeStatementYearLabelsForBasis,
+  incomeStatementYearTrendForBasis,
+  type IncomeStatementPeriodBasis,
+} from "@/lib/income-statement-period-basis"
 import {
   collectDistinctLinkCodesFromStructure,
   mapLinkCodesToOwnerLabel,
@@ -89,6 +97,11 @@ import {
   seriesRowUsesExcludedProjectionExpenseLinkCode,
 } from "@/lib/income-statement-structure-utils"
 import { filterIncomeStatementDetailRowsForHorizon } from "@/lib/income-statement-horizon-filter"
+import {
+  annexGroupShouldShowSubtotal,
+  resolveDetailAnnexMeta,
+  uniqueStatementRowsByStructureIndex,
+} from "@/lib/income-statement-annex-detail"
 import type { IncomeStatementHorizonView } from "@/lib/income-statement-horizon-visibility"
 import {
   dashboardCardAccentBarClass,
@@ -190,6 +203,7 @@ interface IncomeStatementDetailProps {
   projectionYears?: 3 | 4 | 5
   projectionMode?: "gl" | "account"
   comparisonType?: "lastMonth" | "pastMonth" | "budget"
+  periodBasis?: IncomeStatementPeriodBasis
   selectedBudgetId?: string | null
   selectedBudgetName?: string | null
   fiscalYear?: number
@@ -232,7 +246,10 @@ function balanceAccountsFromSeriesRowDetail(
   periods: SeriesPeriod[],
   horizon: "12months" | "quarters" | "years",
   refMonth: number,
-  refYear: number
+  refYear: number,
+  periodBasis: IncomeStatementPeriodBasis = "current",
+  fiscalYearEndMonth = 12,
+  useCalendarYearTotals = false,
 ): BalanceAccount[] | undefined {
   if (!row.detailRows?.length) return undefined
   return row.detailRows.map((dr) => {
@@ -249,8 +266,26 @@ function balanceAccountsFromSeriesRowDetail(
       horizon === "12months"
         ? monthTrendFromReference(pseudo, periods, refMonth, refYear, 12)
         : horizon === "quarters"
-          ? quarterTrendFromReference(pseudo, periods, refMonth, refYear, 5)
-          : yearTrendFromReference(pseudo, periods, refYear, 6)
+          ? incomeStatementQuarterTrendForBasis(
+              pseudo,
+              periods,
+              refMonth,
+              refYear,
+              periodBasis,
+              fiscalYearEndMonth,
+              INCOME_STATEMENT_QUARTER_COUNT,
+            )
+          : useCalendarYearTotals
+            ? yearTrendFromReference(pseudo, periods, refYear, PERFORMANCE_CHART_YEAR_COUNT + 1)
+            : incomeStatementYearTrendForBasis(
+                pseudo,
+                periods,
+                refMonth,
+                refYear,
+                periodBasis,
+                fiscalYearEndMonth,
+                PERFORMANCE_CHART_YEAR_COUNT + 1,
+              )
     return {
       accountNumber: dr.id,
       accountName: dr.label,
@@ -396,10 +431,12 @@ function insertAnnexDetailPlaceholderRows(
         out.push(rows[j])
         j++
       }
-      const agg = sumAnnexGroupRows(groupRows)
-      out.push(buildAnnexSubtotalDetailRow(letter, agg))
-      if (includeIndicatif) {
-        out.push(buildAnnexPlaceholderDetailRow(letter, trendValuesLength))
+      if (annexGroupShouldShowSubtotal(groupRows)) {
+        const agg = sumAnnexGroupRows(groupRows)
+        out.push(buildAnnexSubtotalDetailRow(letter, agg))
+        if (includeIndicatif) {
+          out.push(buildAnnexPlaceholderDetailRow(letter, trendValuesLength))
+        }
       }
       i = j
     } else {
@@ -1135,6 +1172,7 @@ export function IncomeStatementDetail({
   projectionYears = 5,
   projectionMode = "gl",
   comparisonType = "lastMonth",
+  periodBasis = "current",
   selectedBudgetId = null,
   selectedBudgetName = null,
   fiscalYear,
@@ -1166,6 +1204,9 @@ export function IncomeStatementDetail({
 
   const refMonth = referenceMonth ?? new Date().getMonth() + 1
   const refYear = fiscalYear ?? new Date().getFullYear()
+  const fiscalYearEndMonth = parseFiscalYearEndMonth(
+    companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
+  )
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 1023px)")
@@ -1526,7 +1567,11 @@ export function IncomeStatementDetail({
   const detailAnnexEditorGlobalIndices = useMemo(() => {
     if (!structureEditMode || !canInlineStructureEdit) return []
     return structEdit.structure
-      .map((r, i) => (isStructureRowInDetailAnnexEditor(r as Record<string, unknown>) ? i : -1))
+      .map((r, i) =>
+        isStructureRowInDetailAnnexEditor(r as Record<string, unknown>, structEdit.structure, i)
+          ? i
+          : -1,
+      )
       .filter((i) => i >= 0)
   }, [structureEditMode, canInlineStructureEdit, structEdit.structure])
 
@@ -1565,7 +1610,7 @@ export function IncomeStatementDetail({
 
   // Determine months needed for series API based on view
   const isMultiPeriodView = view === "12months" || view === "quarters" || view === "years"
-  const seriesMonthsNeeded = view === "years" ? 72 : view === "quarters" ? 15 : 12
+  const seriesMonthsNeeded = view === "years" ? 72 : view === "quarters" ? 18 : 12
 
   // Fetch multi-period series data from API
   const { rows: seriesRows, periods: seriesPeriods, loading: seriesLoading } = useFinancialStatementSeries({
@@ -2870,15 +2915,13 @@ export function IncomeStatementDetail({
       const sr = findStructureRowForStatementLine(row.id, row.label, structure)
       return sr !== undefined && isShowInDetail(sr, structure) && isCodeMappingEnabled(sr)
     })
-    const sorted = [...defined].sort((a, b) => {
-      const srA = findStructureRowForStatementLine(a.id, a.label, structure)!
-      const srB = findStructureRowForStatementLine(b.id, b.label, structure)!
-      return getStructureRowGlobalIndex(srA, structure) - getStructureRowGlobalIndex(srB, structure)
-    })
+    const sorted = uniqueStatementRowsByStructureIndex(defined, structure)
     return sorted.map((row) => {
-      const sr = findStructureRowForStatementLine(row.id, row.label, structure)!
-      const sub = isStructureRowDetailOnly(sr)
-      const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+      const { structRow: sr, sub, annexLetter, isAnnexTitle } = resolveDetailAnnexMeta(
+        row,
+        structure,
+        sorted,
+      )
       const rawDetail = row.detailRows
       const balanceAccounts =
         rawDetail &&
@@ -2892,9 +2935,9 @@ export function IncomeStatementDetail({
             }))
           : undefined
       return zeroAmountsForAnnexTitleRow({
-        label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
+        label: detailLineLabelForDisplay(sr, row.label, annexLetter || undefined),
         statementLabel: row.label,
-        annexLetter: String(row.annexLetter ?? ""),
+        annexLetter,
         current: row.current ?? 0,
         prior: row.prior ?? 0,
         indent: sub,
@@ -2913,11 +2956,7 @@ export function IncomeStatementDetail({
       const sr = findStructureRowForStatementLine(row.id, row.label, structure)
       return sr !== undefined && isShowInDetail(sr, structure) && isCodeMappingEnabled(sr)
     })
-    return [...defined].sort((a, b) => {
-      const srA = findStructureRowForStatementLine(a.id, a.label, structure)!
-      const srB = findStructureRowForStatementLine(b.id, b.label, structure)!
-      return getStructureRowGlobalIndex(srA, structure) - getStructureRowGlobalIndex(srB, structure)
-    })
+    return uniqueStatementRowsByStructureIndex(defined, structure)
   }, [])
 
   /** Postes de revenus (même périmètre que « Estimation des revenus annuelles » en mode annexes) pour lier une dépense variable. */
@@ -2980,9 +3019,11 @@ export function IncomeStatementDetail({
       const trend = monthTrendFromReference(row, seriesPeriods, refMonth, refYear, 12)
       const lastAmount = trend[0] || 0
       const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
-      const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
-      const sub = sr ? isStructureRowDetailOnly(sr) : false
-      const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+      const { structRow: sr, sub, annexLetter, isAnnexTitle } = resolveDetailAnnexMeta(
+        row,
+        incomeStatementStructure,
+        sorted,
+      )
       const balanceAccountsRaw = balanceAccountsFromSeriesRowDetail(
         row,
         seriesPeriods,
@@ -2999,9 +3040,9 @@ export function IncomeStatementDetail({
           ? balanceAccountsRaw
           : undefined
       return zeroAmountsForAnnexTitleRow({
-        label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
+        label: detailLineLabelForDisplay(sr, row.label, annexLetter || undefined),
         statementLabel: row.label,
-        annexLetter: String(row.annexLetter ?? ""),
+        annexLetter,
         current: lastAmount,
         prior: priorAmount,
         isBold: !sub,
@@ -3021,18 +3062,30 @@ export function IncomeStatementDetail({
     if (!seriesRows.length || !seriesPeriods.length || !incomeStatementStructure) return []
     const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
     return sorted.map((row) => {
-      const trend = quarterTrendFromReference(row, seriesPeriods, refMonth, refYear, 5)
-      const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
+      const trend = incomeStatementQuarterTrendForBasis(
+        row,
+        seriesPeriods,
+        refMonth,
+        refYear,
+        periodBasis,
+        fiscalYearEndMonth,
+        INCOME_STATEMENT_QUARTER_COUNT,
+      )
       const lastAmount = trend[0] || 0
       const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
-      const sub = sr ? isStructureRowDetailOnly(sr) : false
-      const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+      const { structRow: sr, sub, annexLetter, isAnnexTitle } = resolveDetailAnnexMeta(
+        row,
+        incomeStatementStructure,
+        sorted,
+      )
       const balanceAccountsRaw = balanceAccountsFromSeriesRowDetail(
         row,
         seriesPeriods,
         "quarters",
         refMonth,
-        refYear
+        refYear,
+        periodBasis,
+        fiscalYearEndMonth,
       )
       const balanceAccounts =
         balanceAccountsRaw &&
@@ -3043,9 +3096,9 @@ export function IncomeStatementDetail({
           ? balanceAccountsRaw
           : undefined
       return zeroAmountsForAnnexTitleRow({
-        label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
+        label: detailLineLabelForDisplay(sr, row.label, annexLetter || undefined),
         statementLabel: row.label,
-        annexLetter: String(row.annexLetter ?? ""),
+        annexLetter,
         current: lastAmount,
         prior: priorAmount,
         isBold: !sub,
@@ -3071,18 +3124,31 @@ export function IncomeStatementDetail({
             const actual = yearTrendFromReference(row, seriesPeriods, refYear, 1)[0] || 0
             return [actual, ...Array.from({ length: projectionYears }, () => 0)]
           })()
-        : yearTrendFromReference(row, seriesPeriods, refYear, 6)
-      const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
+        : incomeStatementYearTrendForBasis(
+            row,
+            seriesPeriods,
+            refMonth,
+            refYear,
+            periodBasis,
+            fiscalYearEndMonth,
+            PERFORMANCE_CHART_YEAR_COUNT + 1,
+          )
       const lastAmount = trend[0] || 0
       const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
-      const sub = sr ? isStructureRowDetailOnly(sr) : false
-      const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+      const { structRow: sr, sub, annexLetter, isAnnexTitle } = resolveDetailAnnexMeta(
+        row,
+        incomeStatementStructure,
+        sorted,
+      )
       const balanceAccountsRaw = balanceAccountsFromSeriesRowDetail(
         row,
         seriesPeriods,
         "years",
         refMonth,
-        refYear
+        refYear,
+        periodBasis,
+        fiscalYearEndMonth,
+        forceForecastSection,
       )
       const balanceAccounts =
         balanceAccountsRaw &&
@@ -3093,9 +3159,9 @@ export function IncomeStatementDetail({
           ? balanceAccountsRaw
           : undefined
       return zeroAmountsForAnnexTitleRow({
-        label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
+        label: detailLineLabelForDisplay(sr, row.label, annexLetter || undefined),
         statementLabel: row.label,
-        annexLetter: String(row.annexLetter ?? ""),
+        annexLetter,
         current: lastAmount,
         prior: priorAmount,
         isBold: !sub,
@@ -3630,7 +3696,10 @@ export function IncomeStatementDetail({
               seriesPeriods,
               "years",
               refMonth,
-              refYear
+              refYear,
+              periodBasis,
+              fiscalYearEndMonth,
+              true,
             )
           } else if (indent) {
             balanceAccounts = sr.detailRows.map((dr) => {
@@ -3804,10 +3873,26 @@ export function IncomeStatementDetail({
           return monthTrendFromReference(revenueSeries, seriesPeriods, refMonth, refYear, 12)
         }
         if (view === "quarters") {
-          return quarterTrendFromReference(revenueSeries, seriesPeriods, refMonth, refYear, 5)
+          return incomeStatementQuarterTrendForBasis(
+            revenueSeries,
+            seriesPeriods,
+            refMonth,
+            refYear,
+            periodBasis,
+            fiscalYearEndMonth,
+            INCOME_STATEMENT_QUARTER_COUNT,
+          )
         }
         if (view === "years") {
-          return yearTrendFromReference(revenueSeries, seriesPeriods, refYear, 6)
+          return incomeStatementYearTrendForBasis(
+            revenueSeries,
+            seriesPeriods,
+            refMonth,
+            refYear,
+            periodBasis,
+            fiscalYearEndMonth,
+            PERFORMANCE_CHART_YEAR_COUNT + 1,
+          )
         }
       }
     }
@@ -3826,6 +3911,8 @@ export function IncomeStatementDetail({
     view,
     refMonth,
     refYear,
+    periodBasis,
+    fiscalYearEndMonth,
     filterSeriesRowsDefinedOnly,
     data,
   ])
@@ -4014,17 +4101,27 @@ export function IncomeStatementDetail({
                 .map(([, v]) => v)
               const lastAmount = amounts[amounts.length - 1] || 0
               const priorAmount = amounts.length >= 2 ? amounts[amounts.length - 2] || 0 : 0
-              const sr = findStructureRowForStatementLine(row.id, row.label, incomeStatementStructure)
-              const sub = sr ? isStructureRowDetailOnly(sr) : false
-              const isAnnexTitle = !sub && normalizeAnnexLetter(String(row.annexLetter ?? "")) !== ""
+              const { structRow: sr, sub, annexLetter, isAnnexTitle } = resolveDetailAnnexMeta(
+                row,
+                incomeStatementStructure,
+                sorted,
+              )
               const balanceAccounts =
                 seriesHorizon && periods.length > 0
-                  ? balanceAccountsFromSeriesRowDetail(row, periods, seriesHorizon, refMonth, refYear)
+                  ? balanceAccountsFromSeriesRowDetail(
+                      row,
+                      periods,
+                      seriesHorizon,
+                      refMonth,
+                      refYear,
+                      periodBasis,
+                      fiscalYearEndMonth,
+                    )
                   : undefined
               return zeroAmountsForAnnexTitleRow({
-                label: detailLineLabelForDisplay(sr, row.label, row.annexLetter),
+                label: detailLineLabelForDisplay(sr, row.label, annexLetter || undefined),
                 statementLabel: row.label,
-                annexLetter: String(row.annexLetter ?? ""),
+                annexLetter,
                 current: lastAmount,
                 prior: priorAmount,
                 indent: sub,
@@ -4164,6 +4261,22 @@ export function IncomeStatementDetail({
     return (values[valueIdx] ?? 0) - (values[valueIdx + 1] ?? 0)
   }
 
+  const isTrendVariationMode =
+    columnMode === "variationAmount" || columnMode === "variationPercent"
+
+  const renderTrendVariationText = (values: number[], valueIdx: number): string => {
+    if (columnMode === "variationPercent") {
+      const trendVariation = getTrendVariation(values, valueIdx)
+      return trendVariation !== null
+        ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%`
+        : "-"
+    }
+    const trendVariationAmount = getTrendVariationAmount(values, valueIdx)
+    return trendVariationAmount !== null
+      ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}`
+      : "-"
+  }
+
   // Helper function to generate descriptive text
   const getDescriptionText = (): string => {
     const parts: string[] = []
@@ -4176,7 +4289,7 @@ export function IncomeStatementDetail({
     else if (view === "ddm") parts.push("Même jour du mois dernier (DDM)")
     else if (view === "12months") parts.push("12 derniers mois")
     else if (view === "quarters") parts.push("5 derniers trimestres")
-    else if (view === "years") parts.push(title === "Estimation des revenus annuels" ? "6 prochaines années" : "6 dernières années")
+    else if (view === "years") parts.push(title === "Estimation des revenus annuels" ? `${projectionYears + 1} prochaines années` : `${PERFORMANCE_CHART_YEAR_COUNT} dernières années`)
 
     // Entity selection
     if (isCompanyComparison) {
@@ -4234,7 +4347,13 @@ export function IncomeStatementDetail({
   // Helper function to generate quarter labels (5 quarters)
   const getQuarterLabels = (): string[] => {
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      return quarterLabelsFromReference(refMonth, refYear, 5)
+      return incomeStatementQuarterLabelsForBasis(
+        refMonth,
+        refYear,
+        periodBasis,
+        fiscalYearEndMonth,
+        INCOME_STATEMENT_QUARTER_COUNT,
+      )
     }
     const currentDate = new Date()
     const labels: string[] = []
@@ -4257,7 +4376,13 @@ export function IncomeStatementDetail({
       return labels
     }
     if (seriesPeriods.length > 0 && !isForecastSection) {
-      return yearLabelsFromReference(refYear, 6)
+      return incomeStatementYearLabelsForBasis(
+        refMonth,
+        refYear,
+        periodBasis,
+        fiscalYearEndMonth,
+        PERFORMANCE_CHART_YEAR_COUNT,
+      )
     }
     const labels: string[] = []
     if (isForecastSection) {
@@ -4268,7 +4393,7 @@ export function IncomeStatementDetail({
       }
     } else {
       const currentYear = new Date().getFullYear()
-      for (let i = 5; i >= 0; i--) {
+      for (let i = PERFORMANCE_CHART_YEAR_COUNT - 1; i >= 0; i--) {
         labels.push(`${currentYear - i}`)
       }
     }
@@ -4890,21 +5015,22 @@ export function IncomeStatementDetail({
                     </p>
                   </div>
 
-                  {columnMode === "variations" && showComparisonAmounts ? (
-                    <>
+                  {isTrendVariationMode && showComparisonAmounts ? (
+                    columnMode === "variationPercent" ? (
                       <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Variation %</p>
                         <p className={cn("mt-2 text-lg font-semibold tabular-nums", variation != null && variation >= 0 ? "text-emerald-600" : "text-red-600")}>
                           {variation != null && ctx.current !== 0 ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%` : "—"}
                         </p>
                       </div>
+                    ) : (
                       <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Variation $</p>
                         <p className={cn("mt-2 text-lg font-semibold tabular-nums", variationAmount >= 0 ? "text-emerald-600" : "text-red-600")}>
                           {ctx.current !== 0 ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}` : "—"}
                         </p>
                       </div>
-                    </>
+                    )
                   ) : null}
 
                   {columnMode === "percentage" && showComparisonAmounts ? (
@@ -8937,27 +9063,26 @@ export function IncomeStatementDetail({
                       >
                         {row.prior !== 0 ? formatCurrency(row.prior) : "-"}
                       </td>
-                      {columnMode === "variations" ? (
-                        <>
-                          <td
-                            className={`px-6 py-3 text-right ${row.isBold ? "font-semibold " : ""}${
-                              variation && variation >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
-                          >
-                            {variation !== null && row.current !== 0
-                              ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
-                              : "-"}
-                          </td>
-                          <td
-                            className={`px-6 py-3 text-right font-semibold ${
-                              variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
-                          >
-                            {row.current !== 0
-                              ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
-                              : "-"}
-                          </td>
-                        </>
+                      {columnMode === "variationPercent" ? (
+                        <td
+                          className={`px-6 py-3 text-right ${row.isBold ? "font-semibold " : ""}${
+                            variation && variation >= 0 ? "text-emerald-600" : "text-red-600"
+                          } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
+                        >
+                          {variation !== null && row.current !== 0
+                            ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
+                            : "-"}
+                        </td>
+                      ) : columnMode === "variationAmount" ? (
+                        <td
+                          className={`px-6 py-3 text-right font-semibold ${
+                            variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
+                          } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
+                        >
+                          {row.current !== 0
+                            ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
+                            : "-"}
+                        </td>
                       ) : columnMode === "percentage" ? (
                         <>
                           <td className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
@@ -9002,17 +9127,8 @@ export function IncomeStatementDetail({
                         >
                           {columnMode === "percentage"
                             ? (value !== 0 ? `${getTrendRevenuePercentage(value, valueIdx).toFixed(1)}%` : "-")
-                            : columnMode === "variationAmount" || columnMode === "variationPercent"
-                              ? (() => {
-                                  const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
-                                  const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
-                                  if (columnMode === "variationPercent") {
-                                    return trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"
-                                  }
-                                  return trendVariationAmount !== null
-                                    ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}`
-                                    : "-"
-                                })()
+                            : isTrendVariationMode
+                              ? renderTrendVariationText(row.trendValues ?? [], valueIdx)
                               : (value !== 0 ? formatCurrency(value) : "-")}
                         </td>
                       ))}
@@ -9027,17 +9143,8 @@ export function IncomeStatementDetail({
                         >
                           {columnMode === "percentage"
                             ? (value !== 0 ? `${getTrendRevenuePercentage(value, valueIdx).toFixed(1)}%` : "-")
-                            : columnMode === "variationAmount" || columnMode === "variationPercent"
-                              ? (() => {
-                                  const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
-                                  const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
-                                  if (columnMode === "variationPercent") {
-                                    return trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"
-                                  }
-                                  return trendVariationAmount !== null
-                                    ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}`
-                                    : "-"
-                                })()
+                            : isTrendVariationMode
+                              ? renderTrendVariationText(row.trendValues ?? [], valueIdx)
                               : (value !== 0 ? formatCurrency(value) : "-")}
                         </td>
                       ))}
@@ -9112,7 +9219,8 @@ export function IncomeStatementDetail({
                           )}
                         </td>
                       )}
-                      {row.trendValues.map((value, valueIdx) => {
+                      {getYearLabels().map((_, valueIdx) => {
+                        const value = row.trendValues?.[valueIdx] ?? 0
                         const annexLetterNorm = normalizeAnnexLetter(String(row.annexLetter ?? ""))
                         const annexForecastTotalsForRow =
                           isForecastSection &&
@@ -9275,19 +9383,8 @@ export function IncomeStatementDetail({
                                     ? displayValue
                                     : !isForecastSection && columnMode === "percentage"
                                       ? (actualValue !== 0 ? `${getTrendRevenuePercentage(actualValue, valueIdx).toFixed(1)}%` : "-")
-                                      : !isForecastSection && columnMode === "variations"
-                                        ? (() => {
-                                            const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
-                                            const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
-                                            return (
-                                              <div className="space-y-0.5">
-                                                <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
-                                                <div className="text-[11px] font-medium">
-                                                  {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
-                                                </div>
-                                              </div>
-                                            )
-                                          })()
+                                      : !isForecastSection && isTrendVariationMode
+                                        ? renderTrendVariationText(row.trendValues ?? [], valueIdx)
                                         : (effectiveValue !== 0 ? formatCurrency(effectiveValue) : "-")}
                                 </div>
                               </div>
@@ -9308,7 +9405,7 @@ export function IncomeStatementDetail({
                       {title === "Estimation des dépenses annuelles" && view === "years" && (
                         <td className="min-w-[6.5rem] px-4 py-3 text-center text-white">-</td>
                       )}
-                      {Array.from({ length: view === "12months" ? 12 : view === "quarters" ? 5 : (isForecastSection && view === "years" ? projectionYears + 1 : 6) }).map((_, idx) => (
+                      {Array.from({ length: view === "12months" ? 12 : view === "quarters" ? INCOME_STATEMENT_QUARTER_COUNT : (isForecastSection && view === "years" ? projectionYears + 1 : PERFORMANCE_CHART_YEAR_COUNT) }).map((_, idx) => (
                         <td 
                           key={idx} 
                           className={cn(
@@ -9655,19 +9752,8 @@ export function IncomeStatementDetail({
                                     <td key={valueIdx} className="px-4 py-2 text-right font-normal text-sm text-slate-700">
                                       {columnMode === "percentage"
                                         ? (accountTrendValue !== 0 ? `${getTrendRevenuePercentage(accountTrendValue, valueIdx).toFixed(1)}%` : "-")
-                                        : columnMode === "variations"
-                                          ? (() => {
-                                              const trendVariation = getTrendVariation(account.trendValues ?? row.trendValues ?? [], valueIdx)
-                                              const trendVariationAmount = getTrendVariationAmount(account.trendValues ?? row.trendValues ?? [], valueIdx)
-                                              return (
-                                                <div className="space-y-0.5">
-                                                  <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
-                                                  <div className="text-[11px] font-medium">
-                                                    {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
-                                                  </div>
-                                                </div>
-                                              )
-                                            })()
+                                        : isTrendVariationMode
+                                          ? renderTrendVariationText(account.trendValues ?? row.trendValues ?? [], valueIdx)
                                           : (accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-")}
                                     </td>
                                   )
@@ -9690,19 +9776,8 @@ export function IncomeStatementDetail({
                                     <td key={valueIdx} className="px-4 py-2 text-right font-normal text-sm text-slate-700">
                                       {columnMode === "percentage"
                                         ? (accountTrendValue !== 0 ? `${getTrendRevenuePercentage(accountTrendValue, valueIdx).toFixed(1)}%` : "-")
-                                        : columnMode === "variations"
-                                          ? (() => {
-                                              const trendVariation = getTrendVariation(account.trendValues ?? row.trendValues ?? [], valueIdx)
-                                              const trendVariationAmount = getTrendVariationAmount(account.trendValues ?? row.trendValues ?? [], valueIdx)
-                                              return (
-                                                <div className="space-y-0.5">
-                                                  <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
-                                                  <div className="text-[11px] font-medium">
-                                                    {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
-                                                  </div>
-                                                </div>
-                                              )
-                                            })()
+                                        : isTrendVariationMode
+                                          ? renderTrendVariationText(account.trendValues ?? row.trendValues ?? [], valueIdx)
                                           : (accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-")}
                                     </td>
                                   )
@@ -9747,7 +9822,14 @@ export function IncomeStatementDetail({
                                     )}
                                   </td>
                                 )}
-                                {row.trendValues.map((rowTrendValue, valueIdx) => {
+                                {Array.from(
+                                  {
+                                    length: isForecastSection
+                                      ? row.trendValues.length
+                                      : getYearLabels().length,
+                                  },
+                                  (_, valueIdx) => {
+                                  const rowTrendValue = row.trendValues[valueIdx] ?? 0
                                   // Get the actual row value (edited or default) for forecast sections
                                   const actualRowValue = isForecastSection && row.rowId 
                                     ? getRevenueValue(row.rowId, valueIdx, rowTrendValue, undefined, row.trendValues)
@@ -9805,19 +9887,8 @@ export function IncomeStatementDetail({
                                         ? displayValue
                                         : !isForecastSection && columnMode === "percentage"
                                           ? (accountTrendValue !== 0 ? `${getTrendRevenuePercentage(accountTrendValue, valueIdx).toFixed(1)}%` : "-")
-                                          : !isForecastSection && columnMode === "variations"
-                                            ? (() => {
-                                                const trendVariation = getTrendVariation(account.trendValues ?? row.trendValues ?? [], valueIdx)
-                                                const trendVariationAmount = getTrendVariationAmount(account.trendValues ?? row.trendValues ?? [], valueIdx)
-                                                return (
-                                                  <div className="space-y-0.5">
-                                                    <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
-                                                    <div className="text-[11px] font-medium">
-                                                      {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
-                                                    </div>
-                                                  </div>
-                                                )
-                                              })()
+                                          : !isForecastSection && isTrendVariationMode
+                                            ? renderTrendVariationText(account.trendValues ?? row.trendValues ?? [], valueIdx)
                                             : (accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-")}
                                     </td>
                                   )

@@ -10,7 +10,17 @@ by company.
 from typing import Literal
 
 
-StatementType = Literal["income-statement", "balance-sheet", "cash-flow"]
+StatementType = Literal[
+    "income-statement",
+    "balance-sheet",
+    "cash-flow",
+    "diagnostic-revenue",
+    "diagnostic-margin-by-revenue",
+    "diagnostic-expenses",
+    "diagnostic-expenses-by-division",
+    "diagnostic-financial-position",
+    "diagnostic-working-capital",
+]
 
 _DEFAULT_COLORS = [
     "#3b82f6",  # 0
@@ -43,6 +53,20 @@ def _income_statement_default() -> dict:
                 "color": _DEFAULT_COLORS[0],
             },
             {
+                "id": margin_id,
+                "kind": "line",
+                "label": "Contribution marginale (%)",
+                "spec": {
+                    "type": "derivedContributiveMargin",
+                    "revenueSeriesId": rev_id,
+                },
+                "yAxis": "right",
+                "valueFormat": "ratio",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[2],
+            },
+            {
                 "id": ebita_id,
                 "kind": "bar",
                 "label": "BAIIA",
@@ -52,21 +76,6 @@ def _income_statement_default() -> dict:
                 "showOnChart": True,
                 "showInSidePanel": True,
                 "color": _DEFAULT_COLORS[1],
-            },
-            {
-                "id": margin_id,
-                "kind": "line",
-                "label": "Marge brute (%)",
-                "spec": {
-                    "type": "derivedMargin",
-                    "revenueSeriesId": rev_id,
-                    "grossProfitFromSpec": {"type": "single", "code": ""},
-                },
-                "yAxis": "right",
-                "valueFormat": "ratio",
-                "showOnChart": True,
-                "showInSidePanel": True,
-                "color": _DEFAULT_COLORS[2],
             },
         ],
     }
@@ -170,10 +179,242 @@ def _cash_flow_default() -> dict:
     }
 
 
+def _diagnostic_revenue_default() -> dict:
+    return {
+        "version": 2,
+        "chartTitle": "Revenus",
+        "series": [
+            {
+                "id": "diag-revenue-primary",
+                "kind": "bar",
+                "label": "Revenus",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[0],
+            },
+        ],
+    }
+
+
+def _diagnostic_margin_by_revenue_default() -> dict:
+    rev_id = "diag-margin-rev-primary"
+    return {
+        "version": 2,
+        "chartTitle": "Marge par Revenus",
+        "series": [
+            {
+                "id": rev_id,
+                "kind": "bar",
+                "label": "Revenus",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[0],
+            },
+            {
+                "id": "diag-margin-primary",
+                "kind": "line",
+                "label": "Marge brute (%)",
+                "spec": {
+                    "type": "derivedMargin",
+                    "revenueSeriesId": rev_id,
+                    "grossProfitFromSpec": {"type": "single", "code": ""},
+                },
+                "yAxis": "right",
+                "valueFormat": "ratio",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[2],
+            },
+        ],
+    }
+
+
+def _diagnostic_expenses_default() -> dict:
+    return {
+        "version": 2,
+        "chartTitle": "Dépenses",
+        "series": [
+            {
+                "id": "diag-expense-primary",
+                "kind": "bar",
+                "label": "Dépenses",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[3],
+            },
+        ],
+    }
+
+
+def _diagnostic_working_capital_default() -> dict:
+    return {
+        "version": 2,
+        "chartTitle": "Fonds de roulement",
+        "series": [
+            {
+                "id": "wc-fdr",
+                "kind": "bar",
+                "label": "Fonds de roulement",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[0],
+                "stackGroup": "wc-fdr",
+            },
+            {
+                "id": "wc-fdrhc",
+                "kind": "bar",
+                "label": "Fonds de roulement hors caisse",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[1],
+                "stackGroup": "wc-fdr",
+            },
+            {
+                "id": "wc-dso",
+                "kind": "bar",
+                "label": "DSO",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "ratio",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[2],
+                "stackGroup": "wc-cycle",
+            },
+            {
+                "id": "wc-dio",
+                "kind": "bar",
+                "label": "Rotation des stocks",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "ratio",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[3],
+                "stackGroup": "wc-cycle",
+            },
+            {
+                "id": "wc-dpo",
+                "kind": "bar",
+                "label": "DPO",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "ratio",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[5],
+                "stackGroup": "wc-cycle",
+            },
+            {
+                "id": "wc-ccc",
+                "kind": "line",
+                "label": "CCC",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "ratio",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[4],
+                "stackGroup": "wc-cycle",
+            },
+        ],
+    }
+
+
+def _diagnostic_financial_position_default() -> dict:
+    return {
+        "version": 2,
+        "chartTitle": "Situation financière",
+        "series": [
+            {
+                "id": "fp-act",
+                "kind": "bar",
+                "label": "Actif court terme",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[0],
+                "stackGroup": "fp-assets",
+            },
+            {
+                "id": "fp-alt",
+                "kind": "bar",
+                "label": "Actif long terme",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[1],
+                "stackGroup": "fp-assets",
+            },
+            {
+                "id": "fp-pct",
+                "kind": "bar",
+                "label": "Passif court terme",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[2],
+                "stackGroup": "fp-liabilities",
+            },
+            {
+                "id": "fp-plt",
+                "kind": "bar",
+                "label": "Passif long terme",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[3],
+                "stackGroup": "fp-liabilities",
+            },
+            {
+                "id": "fp-cap",
+                "kind": "bar",
+                "label": "Capitaux propres",
+                "spec": {"type": "single", "code": ""},
+                "yAxis": "left",
+                "valueFormat": "currency",
+                "showOnChart": True,
+                "showInSidePanel": True,
+                "color": _DEFAULT_COLORS[5],
+                "stackGroup": "fp-liabilities",
+            },
+        ],
+    }
+
+
 _FACTORIES = {
     "income-statement": _income_statement_default,
     "balance-sheet": _balance_sheet_default,
     "cash-flow": _cash_flow_default,
+    "diagnostic-revenue": _diagnostic_revenue_default,
+    "diagnostic-margin-by-revenue": _diagnostic_margin_by_revenue_default,
+    "diagnostic-expenses": _diagnostic_expenses_default,
+    "diagnostic-expenses-by-division": _diagnostic_expenses_default,
+    "diagnostic-financial-position": _diagnostic_financial_position_default,
+    "diagnostic-working-capital": _diagnostic_working_capital_default,
 }
 
 

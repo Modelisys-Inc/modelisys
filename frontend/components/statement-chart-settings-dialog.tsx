@@ -16,19 +16,32 @@ import {
 } from "@/components/ui/select"
 import {
   getStatementStructure,
+  listStandardLinkCodesFlat,
   saveStatementChartSlot,
   StaleVersionError,
   type StatementType as ApiStatementType,
 } from "@/lib/api"
 import {
+  buildLinkCodeLabelsForChartPicker,
+  buildMergedChartPickerLinkData,
   collectDistinctLinkCodesFromStructure,
-  mapLinkCodesToOwnerLabel,
+  collectSummaryRowSourcesFromStructure,
   normalizeCodeList,
 } from "@/lib/income-statement-structure-utils"
 import {
+  financialPositionPanelTitle,
+  type FinancialPositionSettingsPanel,
+} from "@/lib/financial-position-config"
+import {
+  CONTRIBUTIVE_MARGIN_SERIES_LABEL,
   DEFAULT_COLORS,
   defaultChartCardTitle,
+  ensureIncomeStatementPerformanceConfig,
+  defaultValueFormatForChartSeries,
+  isContributiveMarginSeriesSpec,
   newSeriesId,
+  structureStatementTypeForChart,
+  structureTypesForChartSettings,
   type ChartMetricSpec,
   type ChartSlot,
   type ChartValueFormat,
@@ -53,8 +66,9 @@ import {
 const EMPTY_SELECT = "__empty__"
 
 function structureHintLabel(t: StatementType): string {
-  if (t === "income-statement") return "Sommaire du compte de résultat"
-  if (t === "balance-sheet") return "Sommaire du bilan"
+  const core = structureStatementTypeForChart(t)
+  if (core === "income-statement") return "Sommaire du compte de résultat"
+  if (core === "balance-sheet") return "Sommaire du bilan"
   return "Sommaire de la trésorerie"
 }
 
@@ -72,10 +86,13 @@ function labelForCode(labels: Map<string, string> | undefined, code: string): st
 function summarizeMetricSpec(
   spec: ChartMetricSpec,
   labels: Map<string, string>,
+  summaryRows?: Array<{ id: string; label: string }>,
 ): string {
   if (spec.type === "single") {
     const code = spec.code.trim()
     if (!code) return "Choisir un code de liaison"
+    const summary = summaryRows?.find((r) => r.id.toLowerCase() === code.toLowerCase())
+    if (summary) return `Poste sommaire — ${summary.label}`
     const lbl = labelForCode(labels, code)
     return lbl ? `${code} — ${lbl}` : code
   }
@@ -98,6 +115,9 @@ function summarizeMetricSpec(
   }
   if (spec.type === "derivedMargin") {
     return "Marge % (bénéfice brut ÷ revenus)"
+  }
+  if (spec.type === "derivedContributiveMargin") {
+    return "Contribution marginale % (revenus − coûts variables mappés)"
   }
   return "Source non définie"
 }
@@ -156,8 +176,10 @@ export function ChartMetricSpecEditor({
   onChange,
   idPrefix,
   allLinkCodes,
+  summaryRowSources = [],
   linkCodeLabels,
   allowDerivedMargin,
+  allowDerivedContributiveMargin,
   barSeriesOptions,
   currentSeriesId,
   embedded,
@@ -167,14 +189,21 @@ export function ChartMetricSpecEditor({
   onChange: (s: ChartMetricSpec) => void
   idPrefix: string
   allLinkCodes: string[]
+  summaryRowSources?: Array<{ id: string; label: string }>
   linkCodeLabels?: Map<string, string>
   allowDerivedMargin?: boolean
+  allowDerivedContributiveMargin?: boolean
   barSeriesOptions?: { id: string; label: string }[]
   currentSeriesId?: string
   embedded?: boolean
   structureHintLabel?: string
 }) {
-  const mode = spec.type === "derivedMargin" ? "derivedMargin" : spec.type
+  const mode =
+    spec.type === "derivedMargin"
+      ? "derivedMargin"
+      : spec.type === "derivedContributiveMargin"
+        ? "derivedContributiveMargin"
+        : spec.type
   const codeOptions = allLinkCodes
   const firstBarId = barSeriesOptions?.find((b) => b.id !== currentSeriesId)?.id ?? ""
 
@@ -213,6 +242,16 @@ export function ChartMetricSpecEditor({
                   revenueSeriesId: "",
                   grossProfitFromSpec: { type: "single", code: "" },
                 })
+              } else if (v === "derivedContributiveMargin" && allowDerivedContributiveMargin && firstBarId) {
+                onChange({
+                  type: "derivedContributiveMargin",
+                  revenueSeriesId: firstBarId,
+                })
+              } else if (v === "derivedContributiveMargin" && allowDerivedContributiveMargin) {
+                onChange({
+                  type: "derivedContributiveMargin",
+                  revenueSeriesId: "",
+                })
               }
             }}
           >
@@ -224,7 +263,11 @@ export function ChartMetricSpecEditor({
               <SelectItem value="sum">Somme de codes</SelectItem>
               <SelectItem value="difference">Différence (numérateur − dénominateur)</SelectItem>
               <SelectItem value="ratio">Rapport (numérateur ÷ dénominateur)</SelectItem>
-              {allowDerivedMargin ? (
+              {allowDerivedContributiveMargin ? (
+                <SelectItem value="derivedContributiveMargin">
+                  Contribution marginale % (mapping coûts variables)
+                </SelectItem>
+              ) : allowDerivedMargin ? (
                 <SelectItem value="derivedMargin">Marge % (bénéfice brut ÷ revenus d&apos;un histogramme)</SelectItem>
               ) : null}
             </SelectContent>
@@ -234,9 +277,9 @@ export function ChartMetricSpecEditor({
         {spec.type === "single" ? (
           <div className="space-y-1.5">
             <Label htmlFor={`${idPrefix}-code`} className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Code de liaison
+              Code de liaison ou poste sommaire
             </Label>
-            {codeOptions.length === 0 ? (
+            {codeOptions.length === 0 && summaryRowSources.length === 0 ? (
               <p className="rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-xs text-amber-800">
                 Aucun code disponible : définissez des liaisons dans Paramètres {structureHintLabelProp ?? "Sommaire"}.
               </p>
@@ -249,12 +292,18 @@ export function ChartMetricSpecEditor({
                   id={`${idPrefix}-code`}
                   className="h-10 rounded-xl border-slate-200/90 bg-white text-sm"
                 >
-                  <SelectValue placeholder="Choisir un code" />
+                  <SelectValue placeholder="Choisir une source" />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
                   <SelectItem value={EMPTY_SELECT} className="text-slate-500">
                     — Non choisi —
                   </SelectItem>
+                  {summaryRowSources.map((row) => (
+                    <SelectItem key={`summary-${row.id}`} value={row.id} className="text-sm">
+                      <span className="font-medium text-slate-800">{row.label}</span>
+                      <span className="ml-1.5 text-slate-500">— poste sommaire</span>
+                    </SelectItem>
+                  ))}
                   {codeOptions.map((code) => (
                     <SelectItem key={code} value={code} className="text-sm">
                       <span className="font-mono">{code}</span>
@@ -266,9 +315,56 @@ export function ChartMetricSpecEditor({
                 </SelectContent>
               </Select>
             )}
+            {summaryRowSources.some((r) => r.label.toLowerCase() === "baiia") ? (
+              <p className="text-xs leading-relaxed text-slate-500">
+                Pour le BAIIA, choisissez le poste sommaire «&nbsp;BAIIA&nbsp;» (calculé automatiquement).
+                Additionner des codes de liaison ne reproduit pas le BAIIA du Sommaire.
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
+
+      {spec.type === "derivedContributiveMargin" && (
+        <div className="space-y-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
+          <p className="text-xs leading-relaxed text-slate-600">
+            La courbe affiche ((revenus de l&apos;histogramme − coûts variables du mapping comptable) ÷ revenus) × 100
+            pour chaque période, comme dans la vue Dépenses.
+          </p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Histogramme (revenus)
+              </Label>
+              <Select
+                value={spec.revenueSeriesId || EMPTY_SELECT}
+                onValueChange={(rid) =>
+                  onChange({
+                    ...spec,
+                    revenueSeriesId: rid === EMPTY_SELECT ? "" : rid,
+                  })
+                }
+              >
+                <SelectTrigger className="h-10 rounded-xl border-slate-200/90 bg-white text-sm">
+                  <SelectValue placeholder="Choisir une série barres" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={EMPTY_SELECT} className="text-slate-500">
+                    — Choisir —
+                  </SelectItem>
+                  {(barSeriesOptions ?? [])
+                    .filter((b) => b.id !== currentSeriesId)
+                    .map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.label}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {spec.type === "derivedMargin" && (
         <div className="space-y-4 rounded-xl border border-slate-100 bg-slate-50/50 p-4">
@@ -397,13 +493,13 @@ function patchSeriesAfterRemove(
   return series
     .filter((s) => s.id !== removedId)
     .map((s) => {
-      if (s.spec.type !== "derivedMargin") return s
+      if (s.spec.type !== "derivedMargin" && s.spec.type !== "derivedContributiveMargin") return s
       if (s.spec.revenueSeriesId === removedId) {
         return {
           ...s,
           spec: {
             ...s.spec,
-            revenueSeriesId: s.spec.revenueSeriesId === removedId ? fallback : s.spec.revenueSeriesId,
+            revenueSeriesId: fallback,
           },
         }
       }
@@ -418,6 +514,8 @@ interface StatementChartSettingsDialogProps {
   companyId: string
   slot: ChartSlot
   onSaved: () => void
+  /** Limite l’édition aux séries d’un panneau Situation financière (Actif ou Passif). */
+  financialPositionPanel?: FinancialPositionSettingsPanel
 }
 
 function SeriesSidebarItem({
@@ -425,6 +523,7 @@ function SeriesSidebarItem({
   index,
   selected,
   linkCodeLabels,
+  summaryRowSources = [],
   onSelect,
   onMoveUp,
   onMoveDown,
@@ -437,6 +536,7 @@ function SeriesSidebarItem({
   index: number
   selected: boolean
   linkCodeLabels: Map<string, string>
+  summaryRowSources?: Array<{ id: string; label: string }>
   onSelect: () => void
   onMoveUp: () => void
   onMoveDown: () => void
@@ -446,7 +546,7 @@ function SeriesSidebarItem({
   isLast: boolean
 }) {
   const color = series.color ?? DEFAULT_COLORS[index % DEFAULT_COLORS.length]
-  const specSummary = summarizeMetricSpec(series.spec, linkCodeLabels)
+  const specSummary = summarizeMetricSpec(series.spec, linkCodeLabels, summaryRowSources)
 
   return (
     <div
@@ -548,6 +648,7 @@ export function StatementChartSettingsDialog({
   companyId,
   slot,
   onSaved,
+  financialPositionPanel,
 }: StatementChartSettingsDialogProps) {
   const [localConfig, setLocalConfig] = useState<StatementChartConfig>(slot.config)
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(
@@ -562,15 +663,44 @@ export function StatementChartSettingsDialog({
     updatedAt: string
   } | null>(null)
   const [linkCodes, setLinkCodes] = useState<string[]>([])
+  const [summaryRowSources, setSummaryRowSources] = useState<Array<{ id: string; label: string }>>([])
   const [linkCodeLabels, setLinkCodeLabels] = useState<Map<string, string>>(new Map())
   const [loadingCodes, setLoadingCodes] = useState(false)
 
   useEffect(() => {
-    setLocalConfig(slot.config)
-    setSelectedSeriesId(slot.config.series[0]?.id ?? null)
+    const normalized = ensureIncomeStatementPerformanceConfig(slot.config, statementType)
+    setLocalConfig(normalized)
+    const panelFilter = financialPositionPanel
+    if (panelFilter) {
+      const firstInPanel = normalized.series.find((s) => s.stackGroup === panelFilter)
+      setSelectedSeriesId(firstInPanel?.id ?? normalized.series[0]?.id ?? null)
+    } else {
+      const firstEditable =
+        statementType === "income-statement"
+          ? normalized.series.find((s) => !isContributiveMarginSeriesSpec(s.spec))
+          : normalized.series[0]
+      setSelectedSeriesId(firstEditable?.id ?? null)
+    }
     setStaleConflict(null)
     setSaveError(null)
-  }, [slot.chartInstanceId, slot.version, open])
+  }, [slot.chartInstanceId, slot.version, open, financialPositionPanel, statementType, slot.config])
+
+  const panelSeriesEntries = useMemo(() => {
+    const entries = localConfig.series.map((series, index) => ({ series, index }))
+    const filtered =
+      statementType === "income-statement"
+        ? entries.filter(({ series }) => !isContributiveMarginSeriesSpec(series.spec))
+        : entries
+    if (!financialPositionPanel) return filtered
+    return filtered.filter(({ series }) => series.stackGroup === financialPositionPanel)
+  }, [localConfig.series, financialPositionPanel, statementType])
+
+  const fixedContributiveMarginSeries = useMemo(() => {
+    if (statementType !== "income-statement") return null
+    return localConfig.series.find((s) => isContributiveMarginSeriesSpec(s.spec)) ?? null
+  }, [localConfig.series, statementType])
+
+  const isPanelMode = Boolean(financialPositionPanel)
 
   useEffect(() => {
     if (!localConfig.series.some((s) => s.id === selectedSeriesId)) {
@@ -582,15 +712,39 @@ export function StatementChartSettingsDialog({
     if (!open || !companyId) return
     let cancelled = false
     setLoadingCodes(true)
-    getStatementStructure(companyId, statementType as unknown as ApiStatementType)
-      .then((data) => {
+    const structureTypes = structureTypesForChartSettings(statementType)
+    Promise.all(
+      structureTypes.map((t) =>
+        getStatementStructure(companyId, t as unknown as ApiStatementType),
+      ),
+    )
+      .then(async (results) => {
         if (cancelled) return
-        setLinkCodes(collectDistinctLinkCodesFromStructure(data.structure ?? []))
-        setLinkCodeLabels(mapLinkCodesToOwnerLabel(data.structure ?? []))
+        const structures = results.map((data) => (data.structure ?? []) as Record<string, unknown>[])
+        let standardLabels = new Map<string, string>()
+        try {
+          const standardCodes = await listStandardLinkCodesFlat(false)
+          if (!cancelled) standardLabels = buildStandardLinkCodeLabelMap(standardCodes)
+        } catch {
+          /* repli structure seule */
+        }
+        if (cancelled) return
+        if (structures.length > 1) {
+          const merged = buildMergedChartPickerLinkData(structures, standardLabels)
+          setLinkCodes(merged.codes)
+          setSummaryRowSources(merged.summaryRowSources)
+          setLinkCodeLabels(merged.labels)
+        } else {
+          const structure = structures[0] ?? []
+          setLinkCodes(collectDistinctLinkCodesFromStructure(structure))
+          setSummaryRowSources(collectSummaryRowSourcesFromStructure(structure))
+          setLinkCodeLabels(buildLinkCodeLabelsForChartPicker(structure, standardLabels))
+        }
       })
       .catch(() => {
         if (!cancelled) {
           setLinkCodes([])
+          setSummaryRowSources([])
           setLinkCodeLabels(new Map())
         }
       })
@@ -621,17 +775,24 @@ export function StatementChartSettingsDialog({
 
   const selectedIndex = localConfig.series.findIndex((s) => s.id === selectedSeriesId)
   const selectedSeries = selectedIndex >= 0 ? localConfig.series[selectedIndex] : null
-  const barCount = localConfig.series.filter((s) => s.kind === "bar").length
-  const lineCount = localConfig.series.filter((s) => s.kind === "line").length
+  const barCount = panelSeriesEntries.filter(({ series }) => series.kind === "bar").length
+  const lineCount = panelSeriesEntries.filter(({ series }) => series.kind === "line").length
+  const settingsTitle = financialPositionPanel
+    ? financialPositionPanelTitle(financialPositionPanel)
+    : "Paramètres du graphique"
+  const settingsDescription = financialPositionPanel
+    ? "Associez chaque barre à un code de liaison du Sommaire bilan. Les montants suivent l’horizon sélectionné (clôture de période)."
+    : `Configurez les histogrammes et courbes de ${defaultChartCardTitle(statementType).toLowerCase()}. Les données proviennent des mêmes codes de liaison que le Sommaire.`
 
   async function handleSave() {
     setSaving(true)
     setStaleConflict(null)
     setSaveError(null)
+    const configToSave = ensureIncomeStatementPerformanceConfig(localConfig, statementType)
     try {
       await saveStatementChartSlot(companyId, statementType, slot.chartInstanceId, {
         version: slot.version,
-        config: localConfig,
+        config: configToSave,
       })
       onSaved()
       onOpenChange(false)
@@ -660,7 +821,7 @@ export function StatementChartSettingsDialog({
       label: kind === "bar" ? `Histogramme ${barCount + 1}` : `Courbe ${lineCount + 1}`,
       spec:
         kind === "line"
-          ? localConfig.series.some((s) => s.kind === "bar")
+          ? localConfig.series.some((s) => s.kind === "bar") && statementType !== "income-statement"
             ? {
                 type: "derivedMargin",
                 revenueSeriesId: localConfig.series.find((s) => s.kind === "bar")!.id,
@@ -669,7 +830,12 @@ export function StatementChartSettingsDialog({
             : { type: "single", code: "" }
           : { type: "single", code: "" },
       yAxis: kind === "line" ? "right" : "left",
-      valueFormat: kind === "line" ? "ratio" : "currency",
+      valueFormat:
+        kind === "line" &&
+        localConfig.series.some((s) => s.kind === "bar") &&
+        statementType !== "income-statement"
+          ? "ratio"
+          : "currency",
       showOnChart: true,
       showInSidePanel: true,
       color: DEFAULT_COLORS[i % DEFAULT_COLORS.length],
@@ -691,10 +857,23 @@ export function StatementChartSettingsDialog({
   const removeSeries = (index: number) => {
     const id = localConfig.series[index]?.id
     if (!id) return
-    setLocalConfig((d) => ({ ...d, series: patchSeriesAfterRemove(d.series, id) }))
+    if (statementType === "income-statement") {
+      const target = localConfig.series[index]
+      if (target && isContributiveMarginSeriesSpec(target.spec)) return
+    }
+    setLocalConfig((d) =>
+      ensureIncomeStatementPerformanceConfig(
+        { ...d, series: patchSeriesAfterRemove(d.series, id) },
+        statementType,
+      ),
+    )
     if (selectedSeriesId === id) {
       const remaining = patchSeriesAfterRemove(localConfig.series, id)
-      setSelectedSeriesId(remaining[Math.min(index, remaining.length - 1)]?.id ?? null)
+      const next =
+        statementType === "income-statement"
+          ? remaining.find((s) => !isContributiveMarginSeriesSpec(s.spec))
+          : remaining[Math.min(index, remaining.length - 1)]
+      setSelectedSeriesId(next?.id ?? null)
     }
   }
 
@@ -730,14 +909,14 @@ export function StatementChartSettingsDialog({
           </Button>
           <DialogHeader className="space-y-1 text-left">
             <DialogTitle className="text-lg font-semibold tracking-tight text-slate-900">
-              Paramètres du graphique
+              {settingsTitle}
             </DialogTitle>
             <DialogDescription className="text-sm text-slate-500">
-              Configurez les histogrammes et courbes de {defaultChartCardTitle(statementType).toLowerCase()}. Les
-              données proviennent des mêmes codes de liaison que le Sommaire.
+              {settingsDescription}
             </DialogDescription>
           </DialogHeader>
 
+          {!isPanelMode ? (
           <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
             <div className="space-y-1.5">
               <Label htmlFor="perf-chart-card-title" className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -754,6 +933,9 @@ export function StatementChartSettingsDialog({
             </div>
             <p className="text-xs leading-snug text-slate-400 lg:max-w-xs lg:pb-2.5">{hint}</p>
           </div>
+          ) : (
+            <p className="mt-4 text-xs leading-snug text-slate-400">{hint}</p>
+          )}
         </div>
 
         {staleConflict && (
@@ -816,12 +998,13 @@ export function StatementChartSettingsDialog({
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-sm font-semibold text-slate-900">
                   Séries
-                  <span className="ml-1.5 font-normal text-slate-400">({localConfig.series.length})</span>
+                  <span className="ml-1.5 font-normal text-slate-400">({panelSeriesEntries.length})</span>
                 </h3>
                 <span className="text-[11px] text-slate-400">
                   {barCount} barre{barCount > 1 ? "s" : ""} · {lineCount} courbe{lineCount > 1 ? "s" : ""}
                 </span>
               </div>
+              {!isPanelMode ? (
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -846,31 +1029,42 @@ export function StatementChartSettingsDialog({
                   Courbe
                 </Button>
               </div>
+              ) : null}
             </div>
 
             <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3 [scrollbar-width:thin]">
-              {localConfig.series.length === 0 ? (
+              {panelSeriesEntries.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-6 text-center text-xs text-slate-500">
-                  Ajoutez un histogramme ou une courbe pour commencer.
+                  Aucune série pour ce panneau.
                 </p>
               ) : (
-                localConfig.series.map((s, idx) => (
+                panelSeriesEntries.map(({ series: s, index: idx }, panelIdx) => (
                   <SeriesSidebarItem
                     key={s.id}
                     series={s}
-                    index={idx}
+                    index={panelIdx}
                     selected={s.id === selectedSeriesId}
                     linkCodeLabels={linkCodeLabels}
+                    summaryRowSources={summaryRowSources}
                     onSelect={() => setSelectedSeriesId(s.id)}
                     onMoveUp={() => moveSeries(idx, -1)}
                     onMoveDown={() => moveSeries(idx, 1)}
                     onRemove={() => removeSeries(idx)}
-                    canRemove={localConfig.series.length > 1}
-                    isFirst={idx === 0}
-                    isLast={idx === localConfig.series.length - 1}
+                    canRemove={!isPanelMode && localConfig.series.length > 1}
+                    isFirst={panelIdx === 0}
+                    isLast={panelIdx === panelSeriesEntries.length - 1}
                   />
                 ))
               )}
+              {fixedContributiveMarginSeries ? (
+                <div className="rounded-xl border border-slate-200/90 bg-white px-3 py-3 text-xs text-slate-600">
+                  <p className="font-semibold text-slate-800">{CONTRIBUTIVE_MARGIN_SERIES_LABEL}</p>
+                  <p className="mt-1 leading-snug text-slate-500">
+                    Calculée automatiquement à partir du mapping comptable (coûts variables), alignée sur le
+                    graphique Dépenses. Non modifiable ici.
+                  </p>
+                </div>
+              ) : null}
             </div>
           </aside>
 
@@ -889,14 +1083,15 @@ export function StatementChartSettingsDialog({
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      Série {selectedIndex + 1} sur {localConfig.series.length}
+                      Série {panelSeriesEntries.findIndex((e) => e.series.id === selectedSeriesId) + 1} sur{" "}
+                      {panelSeriesEntries.length}
                     </p>
                     <h4 className="mt-1 text-lg font-semibold text-slate-900">
                       {selectedSeries.kind === "bar" ? "Histogramme" : "Courbe"}
                     </h4>
                   </div>
                   <Badge variant="outline" className="font-mono text-xs text-slate-500">
-                    {summarizeMetricSpec(selectedSeries.spec, linkCodeLabels)}
+                    {summarizeMetricSpec(selectedSeries.spec, linkCodeLabels, summaryRowSources)}
                   </Badge>
                 </div>
 
@@ -928,18 +1123,20 @@ export function StatementChartSettingsDialog({
                         value={selectedSeries.kind}
                         onValueChange={(v) => {
                           const k = v as "bar" | "line"
+                          const isMargin = isContributiveMarginSeriesSpec(selectedSeries.spec)
+                          if (isMargin) {
+                            updateSeries(selectedIndex, {
+                              kind: k,
+                              yAxis: "right",
+                              valueFormat: "ratio",
+                            })
+                            return
+                          }
                           updateSeries(selectedIndex, {
                             kind: k,
-                            yAxis: k === "line" ? "right" : "left",
-                            valueFormat: k === "line" ? "ratio" : "currency",
-                            spec:
-                              k === "line" && barOptions.length
-                                ? {
-                                    type: "derivedMargin",
-                                    revenueSeriesId: barOptions[0]!.id,
-                                    grossProfitFromSpec: { type: "single", code: "" },
-                                  }
-                                : { type: "single", code: "" },
+                            yAxis: selectedSeries.yAxis,
+                            valueFormat: defaultValueFormatForChartSeries(selectedSeries),
+                            spec: selectedSeries.spec,
                           })
                         }}
                       >
@@ -1019,8 +1216,10 @@ export function StatementChartSettingsDialog({
                     spec={selectedSeries.spec}
                     onChange={(spec) => updateSeries(selectedIndex, { spec })}
                     allLinkCodes={sortedCodes}
+                    summaryRowSources={summaryRowSources}
                     linkCodeLabels={linkCodeLabels}
-                    allowDerivedMargin={selectedSeries.kind === "line"}
+                    allowDerivedMargin={selectedSeries.kind === "line" && statementType !== "income-statement"}
+                    allowDerivedContributiveMargin={selectedSeries.kind === "line" && statementType === "income-statement"}
                     barSeriesOptions={barOptions.length ? barOptions : undefined}
                     currentSeriesId={selectedSeries.id}
                     structureHintLabel={structureHintLabel(statementType)}

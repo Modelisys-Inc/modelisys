@@ -86,6 +86,66 @@ def test_build_cash_flow_link_code_attachments():
     assert "CAP-C.2" in by_family["TEX"]
 
 
+def test_collect_cash_flow_structure_family_codes_and_detail_virtual():
+    from app.services.standard_link_code_utils import (
+        collect_cash_flow_structure_family_codes,
+        build_cash_flow_virtual_family_link_codes_from_detail,
+    )
+
+    structure = [
+        {"label": "A", "linkCode": "TEX-A", "liaisonMode": "single"},
+        {"label": "B", "linkCode": "TEX-B", "liaisonMode": "single"},
+        {"label": "Sum", "liaisonMode": "sum", "liaisonSumCodes": ["TEX-A", "TEX-B"]},
+        {"label": "Inv", "linkCode": "TIN-1", "liaisonMode": "single"},
+        {"label": "Famille", "linkCode": "TEX", "liaisonMode": "single"},
+    ]
+    assert collect_cash_flow_structure_family_codes(structure, "TEX") == ["TEX-A", "TEX-B"]
+    assert collect_cash_flow_structure_family_codes(structure, "TIN") == ["TIN-1"]
+
+    class _Code:
+        def __init__(self, code, family, is_leaf, parent_code, attached_link_codes, sort_order=0):
+            self.code = code
+            self.family = family
+            self.is_leaf = is_leaf
+            self.parent_code = parent_code
+            self.attached_link_codes = attached_link_codes
+            self.sort_order = sort_order
+
+    class _Query:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def filter(self, *args, **kwargs):
+            return self
+
+        def order_by(self, *args, **kwargs):
+            return self
+
+        def all(self):
+            return self._rows
+
+        def first(self):
+            return self._rows[0] if self._rows else None
+
+    rows = [
+        _Code("REV-X.1", "REV", True, None, [], sort_order=0),
+        _Code("TEX-A", "TEX", False, None, ["REV-X.1"], sort_order=1),
+        _Code("TEX-B", "TEX", False, None, ["CAP-C.2"], sort_order=2),
+        _Code("CAP-C.2", "CAP", True, "CAP-C", [], sort_order=3),
+    ]
+
+    class _Db:
+        def query(self, model):
+            return _Query(rows)
+
+    scoped = build_cash_flow_virtual_family_link_codes_from_detail(
+        _Db(),
+        [{"linkCode": "TEX-A", "liaisonMode": "single"}],
+    )
+    assert scoped["TEX"] == ["REV-X.1"]
+    assert scoped["TIN"] == []
+
+
 def test_income_statement_parent_cannot_have_ft_category(client, su_headers):
     create = client.post(
         "/api/standard-link-codes",

@@ -25,7 +25,17 @@ router = APIRouter(
 )
 
 
-StatementTypeQuery = Literal["income-statement", "balance-sheet", "cash-flow"]
+StatementTypeQuery = Literal[
+    "income-statement",
+    "balance-sheet",
+    "cash-flow",
+    "diagnostic-revenue",
+    "diagnostic-margin-by-revenue",
+    "diagnostic-expenses",
+    "diagnostic-expenses-by-division",
+    "diagnostic-financial-position",
+    "diagnostic-working-capital",
+]
 
 
 def _row_to_response(db: Session, row: StatementChartConfig) -> ChartSlotResponse:
