@@ -11,19 +11,22 @@ import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-ser
 import { useBalanceSheetStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { useBalanceSheetParentLinkCodes } from "@/hooks/use-balance-sheet-parent-link-codes"
 import {
-  aggregateToQuarters,
   aggregateToYears,
   findSeriesRowOrDetail,
   getPeriodLabels,
   getRowAmounts,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
+import { monthTrendFromReference } from "@/lib/series-reference-columns"
 import {
-  monthTrendFromReference,
-  quarterTrendFromReference,
-  balanceSheetYearTrendFromReference,
-  referenceMonthYearLabelsFromReference,
-} from "@/lib/series-reference-columns"
+  balanceSheetQuarterTrendForBasis,
+  balanceSheetYearTrendForBasis,
+  statementQuarterLabelsForBasis,
+  statementYearLabelsForBasis,
+  STATEMENT_QUARTER_COUNT,
+  type StatementPeriodBasis,
+} from "@/lib/income-statement-period-basis"
+import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
 import {
   filterBalanceSheetSummaryRowsForHorizon,
 } from "@/lib/balance-sheet-horizon-filter"
@@ -168,6 +171,8 @@ interface BalanceSheetSummaryProps {
   forecastBaseYear?: number
   /** En projections : réel pour (baseYear - 1) depuis les séries, années projetées à 0. */
   forecastUseSeriesActuals?: boolean
+  /** Annuel / trimestriel : Courant (même mois / T3M) ou Exercice (FYE / trimestres fiscaux). */
+  periodBasis?: StatementPeriodBasis
 }
 
 interface SummaryRow {
@@ -273,9 +278,13 @@ export function BalanceSheetSummary({
   projectionYears = 5,
   forecastBaseYear,
   forecastUseSeriesActuals = false,
+  periodBasis = "current",
 }: BalanceSheetSummaryProps) {
   const isForecastSection = title === "Bilan pro forma"
   const forecastYearColumnCount = projectionYears + 1
+  const fiscalYearEndMonth = parseFiscalYearEndMonth(
+    companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
+  )
 
   useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -518,13 +527,23 @@ export function BalanceSheetSummary({
           }
           const detailValues =
             view === "quarters"
-              ? quarterTrendFromReference(detailSeriesRow, periods, refMonth, refYear, 5)
+              ? balanceSheetQuarterTrendForBasis(
+                  detailSeriesRow,
+                  periods,
+                  refMonth,
+                  refYear,
+                  periodBasis,
+                  fiscalYearEndMonth,
+                  STATEMENT_QUARTER_COUNT,
+                )
               : view === "years"
-                ? balanceSheetYearTrendFromReference(
+                ? balanceSheetYearTrendForBasis(
                     detailSeriesRow,
                     periods,
                     refMonth,
                     refYear,
+                    periodBasis,
+                    fiscalYearEndMonth,
                     PERFORMANCE_CHART_YEAR_COUNT,
                   )
                 : monthTrendFromReference(detailSeriesRow, periods, refMonth, refYear, 12)
@@ -557,14 +576,24 @@ export function BalanceSheetSummary({
     const buildYearTrendValues = (row: SeriesRow) => {
       if (isForecastSection && forecastUseSeriesActuals) {
         const actual =
-          balanceSheetYearTrendFromReference(row, periods, refMonth, refYear, 1)[0] || 0
+          balanceSheetYearTrendForBasis(
+            row,
+            periods,
+            refMonth,
+            refYear,
+            periodBasis,
+            fiscalYearEndMonth,
+            1,
+          )[0] || 0
         return [actual, ...Array.from({ length: projectionYears }, () => 0)]
       }
-      return balanceSheetYearTrendFromReference(
+      return balanceSheetYearTrendForBasis(
         row,
         periods,
         refMonth,
         refYear,
+        periodBasis,
+        fiscalYearEndMonth,
         PERFORMANCE_CHART_YEAR_COUNT,
       )
     }
@@ -572,7 +601,15 @@ export function BalanceSheetSummary({
       const row = findStatementApiRowForStructureRow(sr, rows, used, usedNested)
       const trend =
         row && view === "quarters"
-          ? quarterTrendFromReference(row, periods, refMonth, refYear, 5)
+          ? balanceSheetQuarterTrendForBasis(
+              row,
+              periods,
+              refMonth,
+              refYear,
+              periodBasis,
+              fiscalYearEndMonth,
+              STATEMENT_QUARTER_COUNT,
+            )
           : row && view === "years"
             ? buildYearTrendValues(row)
             : row
@@ -698,13 +735,23 @@ export function BalanceSheetSummary({
         .map((row) => {
           const trend =
             view === "quarters"
-              ? quarterTrendFromReference(row, periods, refMonth, refYear, 5)
+              ? balanceSheetQuarterTrendForBasis(
+                  row,
+                  periods,
+                  refMonth,
+                  refYear,
+                  periodBasis,
+                  fiscalYearEndMonth,
+                  STATEMENT_QUARTER_COUNT,
+                )
               : view === "years"
-                ? balanceSheetYearTrendFromReference(
+                ? balanceSheetYearTrendForBasis(
                     row,
                     periods,
                     refMonth,
                     refYear,
+                    periodBasis,
+                    fiscalYearEndMonth,
                     PERFORMANCE_CHART_YEAR_COUNT,
                   )
                 : monthTrendFromReference(row, periods, refMonth, refYear, 12)
@@ -722,6 +769,8 @@ export function BalanceSheetSummary({
     view,
     refMonth,
     refYear,
+    periodBasis,
+    fiscalYearEndMonth,
     isForecastSection,
     forecastUseSeriesActuals,
     projectionYears,
@@ -1004,18 +1053,13 @@ export function BalanceSheetSummary({
 
   // Helper function to generate quarter labels from series data or fallback
   const getQuarterLabels = (): string[] => {
-    if (periods.length > 0 && seriesRows.length > 0) {
-      const rawAmounts = getRowAmounts(seriesRows[0], periods)
-      return reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods, "last").labels)
-    }
-    const cd = new Date()
-    const labels: string[] = []
-    for (let i = 4; i >= 0; i--) {
-      const date = new Date(cd.getFullYear(), cd.getMonth() - i * 3, 1)
-      const quarter = Math.floor(date.getMonth() / 3) + 1
-      labels.push(`T${quarter} ${date.getFullYear()}`)
-    }
-    return reverseSeriesOrderForDisplay(labels)
+    return statementQuarterLabelsForBasis(
+      refMonth,
+      refYear,
+      periodBasis,
+      fiscalYearEndMonth,
+      STATEMENT_QUARTER_COUNT,
+    )
   }
 
   // Helper function to generate year labels from series data or fallback
@@ -1028,10 +1072,13 @@ export function BalanceSheetSummary({
       }
       return labels
     }
-    if (periods.length > 0 && seriesRows.length > 0) {
-      return referenceMonthYearLabelsFromReference(refMonth, refYear, PERFORMANCE_CHART_YEAR_COUNT)
-    }
-    return referenceMonthYearLabelsFromReference(refMonth, refYear, PERFORMANCE_CHART_YEAR_COUNT)
+    return statementYearLabelsForBasis(
+      refMonth,
+      refYear,
+      periodBasis,
+      fiscalYearEndMonth,
+      PERFORMANCE_CHART_YEAR_COUNT,
+    )
   }
 
   const getHorizonText = (): string => getHorizonModeLabel(view, period)
@@ -2380,19 +2427,37 @@ export function BalanceSheetSummary({
                       standardCodes: standardCodesForFilter,
                       buildTrendValues: (seriesRow) => {
                         if (view === "quarters") {
-                          return quarterTrendFromReference(seriesRow, periods, refMonth, refYear, 5)
-                        }
-                        if (view === "years") {
-                          if (isForecastSection && forecastUseSeriesActuals) {
-                            const actual =
-                              balanceSheetYearTrendFromReference(seriesRow, periods, refMonth, refYear, 1)[0] || 0
-                            return [actual, ...Array.from({ length: projectionYears }, () => 0)]
-                          }
-                          return balanceSheetYearTrendFromReference(
+                          return balanceSheetQuarterTrendForBasis(
                             seriesRow,
                             periods,
                             refMonth,
                             refYear,
+                            periodBasis,
+                            fiscalYearEndMonth,
+                            STATEMENT_QUARTER_COUNT,
+                          )
+                        }
+                        if (view === "years") {
+                          if (isForecastSection && forecastUseSeriesActuals) {
+                            const actual =
+                              balanceSheetYearTrendForBasis(
+                                seriesRow,
+                                periods,
+                                refMonth,
+                                refYear,
+                                periodBasis,
+                                fiscalYearEndMonth,
+                                1,
+                              )[0] || 0
+                            return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+                          }
+                          return balanceSheetYearTrendForBasis(
+                            seriesRow,
+                            periods,
+                            refMonth,
+                            refYear,
+                            periodBasis,
+                            fiscalYearEndMonth,
                             PERFORMANCE_CHART_YEAR_COUNT,
                           )
                         }
@@ -2418,19 +2483,37 @@ export function BalanceSheetSummary({
                       seriesRows,
                       buildTrendValues: (seriesRow) => {
                         if (view === "quarters") {
-                          return quarterTrendFromReference(seriesRow, periods, refMonth, refYear, 5)
-                        }
-                        if (view === "years") {
-                          if (isForecastSection && forecastUseSeriesActuals) {
-                            const actual =
-                              balanceSheetYearTrendFromReference(seriesRow, periods, refMonth, refYear, 1)[0] || 0
-                            return [actual, ...Array.from({ length: projectionYears }, () => 0)]
-                          }
-                          return balanceSheetYearTrendFromReference(
+                          return balanceSheetQuarterTrendForBasis(
                             seriesRow,
                             periods,
                             refMonth,
                             refYear,
+                            periodBasis,
+                            fiscalYearEndMonth,
+                            STATEMENT_QUARTER_COUNT,
+                          )
+                        }
+                        if (view === "years") {
+                          if (isForecastSection && forecastUseSeriesActuals) {
+                            const actual =
+                              balanceSheetYearTrendForBasis(
+                                seriesRow,
+                                periods,
+                                refMonth,
+                                refYear,
+                                periodBasis,
+                                fiscalYearEndMonth,
+                                1,
+                              )[0] || 0
+                            return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+                          }
+                          return balanceSheetYearTrendForBasis(
+                            seriesRow,
+                            periods,
+                            refMonth,
+                            refYear,
+                            periodBasis,
+                            fiscalYearEndMonth,
                             PERFORMANCE_CHART_YEAR_COUNT,
                           )
                         }

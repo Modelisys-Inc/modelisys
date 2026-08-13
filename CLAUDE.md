@@ -203,13 +203,31 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   Code / Liaison / Annexe sont retirés au chargement/sauvegarde
   (`normalizeBaiiaStructureRow`) ; Liaison affiche « REV − CV − CF » en
   lecture seule.
-- **Résultats Annuel 5 ans / Trimestriel 2 ans** (Sommaire + Détail) : sélecteur
-  **Courant** | **Exercice** (comme Mois dernier / Mois passé sur Mois actuel).
-  Courant annuel = TTM au même mois chaque année (Aoû 2026, Aoû 2025…) ;
-  Exercice annuel = YTD jusqu’à la date de référence puis fins d’exercice
-  (Aoû 2026, Déc 2025…, selon `fiscal_year_end`). Courant trimestriel = T3M
-  tous les 3 mois ; Exercice trimestriel = QTD fiscal puis fins de trimestres.
-  Lib `income-statement-period-basis.ts`.
+- **Capex auto** (analyse Capex) : postes **BAIIA** et **Flux de trésorerie -
+  Exploitation** (montants TTM) et ratios **Capex / BAIIA**, **Capex / Flux…**
+  (`normalizeCapexAutoRatioRow`, liaison verrouillée). Même principe que
+  **Capex / Revenus** (Capex / Chiffre d’affaires) sur tous les horizons :
+  ratio = **Capex affiché ÷ dénominateur affiché**. Numérateur = poste
+  « Capex » ou lignes ALT en **Variation** (jamais le stock Réel des
+  immobilisations) aux mêmes colonnes (`pickCapexDisplayIndices` : mois réf.
+  année courante, clôture les années antérieures). Dénominateur = montant
+  TTM affiché (BAIIA `REV − CV − CF` ; exploitation = codes TEX Sommaire).
+  Paramètres : picker de codes **Bilan + Compte de résultat** (feuilles
+  incluses, ex. CMV.1 — `capexLinkCodeOptions`) ; « REV − CV − CF » /
+  « Exploitation » (montants) et « Capex / (REV − CV − CF) » /
+  « Capex / Exploitation » (ratios). Colonne **Moyenne** = moyenne des
+  colonnes affichées (`averageDisplayedHorizonValues`), pas des années
+  vides masquées (Annuel 5 ans).
+- **Annuel 5 ans / Trimestriel 2 ans** (Sommaire + Détail, Résultats + Bilan +
+  Trésorerie) : sélecteur **Courant** | **Exercice** (comme Mois dernier /
+  Mois passé sur Mois actuel). Mêmes dates de colonnes partout
+  (`income-statement-period-basis.ts`). Courant annuel = même mois chaque année
+  (Aoû 2026, Aoû 2025…) ; Exercice annuel = date de référence puis fins
+  d’exercice (Aoû 2026, Déc 2025…, selon `fiscal_year_end`). Courant
+  trimestriel = tous les 3 mois (Aoû, Mai, Fév…) ; Exercice trimestriel =
+  QTD fiscal puis fins de trimestres. **Valeurs :** Résultats / Trésorerie Réel
+  = TTM / T3M (Courant) ou YTD / QTD fiscal (Exercice) ; Bilan et Trésorerie
+  Variation = snapshot à la date de la colonne.
 - **Détail annexes (IS)** : `renumberAnnexesByAppearance` ne rompt pas le bloc
   sur une sous-ligne `detailOnly` masquée (ex. Stocks CMV.1) et **efface** la
   lettre des postes sommaire masqués (EXP/VNT auto-hide). Sinon Achats /

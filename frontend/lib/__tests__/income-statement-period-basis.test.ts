@@ -11,10 +11,16 @@ import {
   trailingQuarterTrendFromReference,
 } from "@/lib/series-reference-columns"
 import {
+  balanceSheetQuarterTrendForBasis,
+  balanceSheetYearTrendForBasis,
+  cashFlowQuarterSnapshotTrendForBasis,
+  cashFlowYearSnapshotTrendForBasis,
   incomeStatementQuarterLabelsForBasis,
   incomeStatementQuarterTrendForBasis,
   incomeStatementYearLabelsForBasis,
   incomeStatementYearTrendForBasis,
+  statementQuarterLabelsForBasis,
+  statementYearLabelsForBasis,
 } from "@/lib/income-statement-period-basis"
 
 const ABBREVS = [
@@ -153,6 +159,59 @@ describe("income-statement period basis Courant / Exercice", () => {
     expect(incomeStatementQuarterTrendForBasis(row, periods, 8, 2026, "fiscal", 12, 2)).toEqual([
       15, // jul+aoû (T3 partiel)
       15, // avr+mai+jun
+    ])
+  })
+})
+
+describe("bilan / trésorerie period basis Courant / Exercice", () => {
+  const periods = makePeriods()
+  const row = makeRow(periods)
+
+  it("partage les libellés Annuel / Trimestriel avec les Résultats", () => {
+    expect(statementYearLabelsForBasis(8, 2026, "current", 12)).toEqual(
+      incomeStatementYearLabelsForBasis(8, 2026, "current", 12),
+    )
+    expect(statementYearLabelsForBasis(8, 2026, "fiscal", 12)).toEqual(
+      incomeStatementYearLabelsForBasis(8, 2026, "fiscal", 12),
+    )
+    expect(statementQuarterLabelsForBasis(8, 2026, "current", 12)).toEqual(
+      incomeStatementQuarterLabelsForBasis(8, 2026, "current", 12),
+    )
+    expect(statementQuarterLabelsForBasis(8, 2026, "fiscal", 12)).toEqual(
+      incomeStatementQuarterLabelsForBasis(8, 2026, "fiscal", 12),
+    )
+  })
+
+  it("Bilan Annuel : snapshot du mois, pas une somme TTM", () => {
+    expect(balanceSheetYearTrendForBasis(row, periods, 8, 2026, "current", 12, 3)).toEqual([
+      8, 8, 8,
+    ])
+    expect(balanceSheetYearTrendForBasis(row, periods, 8, 2026, "fiscal", 12, 3)).toEqual([
+      8, 12, 12,
+    ])
+  })
+
+  it("Bilan Trimestriel : snapshot Courant tous les 3 mois, Exercice aux fins de trimestre", () => {
+    expect(balanceSheetQuarterTrendForBasis(row, periods, 8, 2026, "current", 12, 3)).toEqual([
+      8, 5, 2,
+    ])
+    expect(balanceSheetQuarterTrendForBasis(row, periods, 8, 2026, "fiscal", 12, 3)).toEqual([
+      8, 6, 3,
+    ])
+  })
+
+  it("Trésorerie snapshot aligné sur les mêmes dates de colonnes", () => {
+    expect(cashFlowYearSnapshotTrendForBasis(row, periods, 8, 2026, "current", 12, 3)).toEqual([
+      8, 8, 8,
+    ])
+    expect(cashFlowYearSnapshotTrendForBasis(row, periods, 8, 2026, "fiscal", 12, 3)).toEqual([
+      8, 12, 12,
+    ])
+    expect(cashFlowQuarterSnapshotTrendForBasis(row, periods, 8, 2026, "current", 12, 3)).toEqual([
+      8, 5, 2,
+    ])
+    expect(cashFlowQuarterSnapshotTrendForBasis(row, periods, 8, 2026, "fiscal", 12, 3)).toEqual([
+      8, 6, 3,
     ])
   })
 })

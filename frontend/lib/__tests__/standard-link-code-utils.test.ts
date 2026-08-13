@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest"
 import type { StandardLinkCode } from "@/lib/api"
 import {
+  capexLinkCodeOptions,
   filterAssignableMappingLinkCodes,
   getDetailSubLineCodesFromStandardLinkCode,
+  workingCapitalLinkCodeOptions,
   getLeafDescendantsOfStandardLinkCode,
   detailSubLineLiaisonFromStandardTarget,
   isMappingLiabilityTermLinkCode,
@@ -273,5 +275,35 @@ describe("resolveLinkCodeDtCt", () => {
     expect(linkCodeDtCtSignMultiplier("PCT-A.1")).toBe(-1)
     expect(linkCodeDtCtSignMultiplier("ACT-A.1")).toBe(1)
     expect(linkCodeDtCtSignMultiplier("EXP.1")).toBe(1)
+  })
+})
+
+describe("capexLinkCodeOptions", () => {
+  const chart: StandardLinkCode[] = [
+    code({ code: "ALT-B", family: "ALT", is_leaf: true }),
+    code({ code: "CMV", family: "CMV", is_leaf: false }),
+    code({
+      code: "CMV.1",
+      family: "CMV",
+      parent_code: "CMV",
+      is_leaf: true,
+      label_sub_account: "Achats",
+    }),
+    code({ code: "TEX-A", family: "TEX", is_leaf: true }),
+  ]
+
+  it("includes Compte de résultat leaves such as CMV.1, unlike FDR parents-only", () => {
+    const wc = workingCapitalLinkCodeOptions(chart)
+    expect(wc.codes).toContain("CMV")
+    expect(wc.codes).not.toContain("CMV.1")
+    expect(wc.codes).not.toContain("ALT-B")
+
+    const capex = capexLinkCodeOptions(chart)
+    expect(capex.codes).toContain("CMV")
+    expect(capex.codes).toContain("CMV.1")
+    expect(capex.codes).toContain("ALT-B")
+    expect(capex.codes).toContain("REV")
+    expect(capex.codes).not.toContain("TEX-A")
+    expect(capex.labels.get("CMV.1")).toBe("Achats")
   })
 })

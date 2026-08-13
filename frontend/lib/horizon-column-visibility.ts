@@ -18,6 +18,21 @@ export function emptyHorizonColumnMask(
   )
 }
 
+/** Moyenne des colonnes affichées (années / mois visibles), y compris les zéros réels. */
+export function averageDisplayedHorizonValues(
+  values: readonly (number | null | undefined)[],
+): number {
+  if (!values.length) return 0
+  let sum = 0
+  let count = 0
+  for (const value of values) {
+    if (value == null || !Number.isFinite(value)) continue
+    sum += value
+    count += 1
+  }
+  return count > 0 ? sum / count : 0
+}
+
 export function pickHorizonColumns<T>(items: readonly T[], mask: readonly boolean[]): T[] {
   if (!items.length || mask.length !== items.length) return [...items]
   if (mask.every(Boolean)) return [...items]

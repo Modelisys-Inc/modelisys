@@ -7,9 +7,12 @@ import {
 import {
   calendarYearSequenceFromReference,
   findPeriodIndexForCalendarMonth,
+  fiscalYearAsOfSequenceFromReference,
   referenceQuarterMonthSequenceFromReference,
+  trailingQuarterMonthSequenceFromReference,
 } from "@/lib/series-reference-columns"
-import { endOfPriorFiscalQuarter } from "@/lib/capex-year-reference"
+import { endOfPriorFiscalQuarter, endOfPriorFiscalYear } from "@/lib/capex-year-reference"
+import type { StatementPeriodBasis } from "@/lib/income-statement-period-basis"
 import type { SeriesPeriod } from "@/lib/api"
 import type { CashFlowDetailTrendView, CashFlowDisplayAmountRow } from "@/lib/cash-flow-detail-settings"
 
@@ -192,6 +195,8 @@ export type ReferenceMonthYearTrendOptions = {
   refMonth: number
   refYear: number
   count?: number
+  periodBasis?: StatementPeriodBasis
+  fiscalYearEndMonth?: number
 }
 
 export type ReferenceQuarterMonthTrendOptions = {
@@ -199,10 +204,65 @@ export type ReferenceQuarterMonthTrendOptions = {
   refYear: number
   count?: number
   fiscalYearEndMonth?: number
+  periodBasis?: StatementPeriodBasis
 }
 
 function priorMonthForBeginningCash(refMonth: number, year: number): { month: number; year: number } {
   return { month: refMonth, year: year - 1 }
+}
+
+function priorTrailingQuarterMonth(month: number, year: number): { month: number; year: number } {
+  let m = month - 3
+  let y = year
+  while (m < 1) {
+    m += 12
+    y -= 1
+  }
+  return { month: m, year: y }
+}
+
+function yearColumnSequence(options: ReferenceMonthYearTrendOptions): { month: number; year: number }[] {
+  const count = options.count ?? 5
+  if (options.periodBasis === "fiscal") {
+    return fiscalYearAsOfSequenceFromReference(
+      options.refMonth,
+      options.refYear,
+      count,
+      options.fiscalYearEndMonth ?? 12,
+    )
+  }
+  return calendarYearSequenceFromReference(options.refYear, count).map((year) => ({
+    month: options.refMonth,
+    year,
+  }))
+}
+
+function quarterColumnSequence(
+  options: ReferenceQuarterMonthTrendOptions,
+): { month: number; year: number }[] {
+  const count = options.count ?? 5
+  const fyEnd = options.fiscalYearEndMonth ?? 12
+  if (options.periodBasis === "current") {
+    return trailingQuarterMonthSequenceFromReference(options.refMonth, options.refYear, count)
+  }
+  return referenceQuarterMonthSequenceFromReference(
+    options.refMonth,
+    options.refYear,
+    count,
+    fyEnd,
+  )
+}
+
+function snapshotNetAtCalendarMonth(
+  netByPeriodKey: Map<string, number>,
+  periods: Array<{ fiscalYear: number; fiscalMonth: number; label?: string }>,
+  month: number,
+  year: number,
+): number {
+  const idx = findPeriodIndexForCalendarMonth(periods as SeriesPeriod[], month, year)
+  if (idx < 0) return 0
+  const period = periods[idx]!
+  return netByPeriodKey.get(periodKey(period.fiscalYear, period.fiscalMonth)) ?? 0
 }
 
 export function buildEndingBookTrendForReferenceMonthYears(
@@ -210,13 +270,9 @@ export function buildEndingBookTrendForReferenceMonthYears(
   periods: Array<{ fiscalYear: number; fiscalMonth: number; label?: string }>,
   options: ReferenceMonthYearTrendOptions,
 ): number[] {
-  const count = options.count ?? 5
-  return calendarYearSequenceFromReference(options.refYear, count).map((year) => {
-    const idx = findPeriodIndexForCalendarMonth(periods as SeriesPeriod[], options.refMonth, year)
-    if (idx < 0) return 0
-    const period = periods[idx]!
-    return netByPeriodKey.get(periodKey(period.fiscalYear, period.fiscalMonth)) ?? 0
-  })
+  return yearColumnSequence(options).map(({ month, year }) =>
+    snapshotNetAtCalendarMonth(netByPeriodKey, periods, month, year),
+  )
 }
 
 export function buildBeginningCashTrendForReferenceMonthYears(
@@ -224,13 +280,13 @@ export function buildBeginningCashTrendForReferenceMonthYears(
   periods: Array<{ fiscalYear: number; fiscalMonth: number; label?: string }>,
   options: ReferenceMonthYearTrendOptions,
 ): number[] {
-  const count = options.count ?? 5
-  return calendarYearSequenceFromReference(options.refYear, count).map((year) => {
-    const prior = priorMonthForBeginningCash(options.refMonth, year)
-    const idx = findPeriodIndexForCalendarMonth(periods as SeriesPeriod[], prior.month, prior.year)
-    if (idx < 0) return 0
-    const period = periods[idx]!
-    return netByPeriodKey.get(periodKey(period.fiscalYear, period.fiscalMonth)) ?? 0
+  const fyEnd = options.fiscalYearEndMonth ?? 12
+  return yearColumnSequence(options).map(({ month, year }) => {
+    const prior =
+      options.periodBasis === "fiscal"
+        ? endOfPriorFiscalYear(month, year, fyEnd)
+        : priorMonthForBeginningCash(month, year)
+    return snapshotNetAtCalendarMonth(netByPeriodKey, periods, prior.month, prior.year)
   })
 }
 
@@ -239,40 +295,24 @@ export function buildEndingBookTrendForReferenceQuarterMonths(
   periods: Array<{ fiscalYear: number; fiscalMonth: number; label?: string }>,
   options: ReferenceQuarterMonthTrendOptions,
 ): number[] {
-  const count = options.count ?? 5
-  const fyEnd = options.fiscalYearEndMonth ?? 12
-  return referenceQuarterMonthSequenceFromReference(
-    options.refMonth,
-    options.refYear,
-    count,
-    fyEnd,
-  ).map(({ month, year }) => {
-    const idx = findPeriodIndexForCalendarMonth(periods as SeriesPeriod[], month, year)
-    if (idx < 0) return 0
-    const period = periods[idx]!
-    return netByPeriodKey.get(periodKey(period.fiscalYear, period.fiscalMonth)) ?? 0
-  })
+  return quarterColumnSequence(options).map(({ month, year }) =>
+    snapshotNetAtCalendarMonth(netByPeriodKey, periods, month, year),
+  )
 }
 
-/** Trésorerie début : fin du trimestre fiscal précédent la colonne. */
+/** Trésorerie début : fin du trimestre fiscal précédent (Exercice) ou T−3 mois (Courant). */
 export function buildBeginningCashTrendForReferenceQuarterMonths(
   netByPeriodKey: Map<string, number>,
   periods: Array<{ fiscalYear: number; fiscalMonth: number; label?: string }>,
   options: ReferenceQuarterMonthTrendOptions,
 ): number[] {
-  const count = options.count ?? 5
   const fyEnd = options.fiscalYearEndMonth ?? 12
-  return referenceQuarterMonthSequenceFromReference(
-    options.refMonth,
-    options.refYear,
-    count,
-    fyEnd,
-  ).map(({ month, year }) => {
-    const prior = endOfPriorFiscalQuarter(month, year, fyEnd)
-    const idx = findPeriodIndexForCalendarMonth(periods as SeriesPeriod[], prior.month, prior.year)
-    if (idx < 0) return 0
-    const period = periods[idx]!
-    return netByPeriodKey.get(periodKey(period.fiscalYear, period.fiscalMonth)) ?? 0
+  return quarterColumnSequence(options).map(({ month, year }) => {
+    const prior =
+      options.periodBasis === "current"
+        ? priorTrailingQuarterMonth(month, year)
+        : endOfPriorFiscalQuarter(month, year, fyEnd)
+    return snapshotNetAtCalendarMonth(netByPeriodKey, periods, prior.month, prior.year)
   })
 }
 

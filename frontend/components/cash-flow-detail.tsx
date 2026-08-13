@@ -18,11 +18,15 @@ import {
 import {
   yearTrendFromReference,
   buildAmountsByCalendarMonth,
-  flowYearSnapshotTrendFromReference,
-  flowQuarterSnapshotTrendFromReference,
-  referenceMonthYearLabelsFromReference,
-  referenceQuarterMonthLabelsFromReference,
 } from "@/lib/series-reference-columns"
+import {
+  cashFlowQuarterSnapshotTrendForBasis,
+  cashFlowYearSnapshotTrendForBasis,
+  statementQuarterLabelsForBasis,
+  statementYearLabelsForBasis,
+  STATEMENT_QUARTER_COUNT,
+  type StatementPeriodBasis,
+} from "@/lib/income-statement-period-basis"
 import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
 import {
   applyCashFlowCalcToPoint,
@@ -139,6 +143,8 @@ interface CashFlowDetailProps {
   projectionYears?: 3 | 4 | 5
   forecastBaseYear?: number
   forecastUseSeriesActuals?: boolean
+  /** Annuel / trimestriel : Courant (TTM / T3M) ou Exercice (YTD / QTD). */
+  periodBasis?: StatementPeriodBasis
 }
 
 interface GlAccount {
@@ -211,6 +217,7 @@ function applyCashFlowCalcModeToDetailRow(
             calcContext.trendView,
             calcContext.comparisonAnchor,
             calcContext.fiscalYearEndMonth,
+            calcContext.periodBasis,
           )
         : account.trendValues
     return {
@@ -239,6 +246,7 @@ function applyCashFlowCalcModeToDetailRow(
           calcContext.trendView,
           calcContext.comparisonAnchor,
           calcContext.fiscalYearEndMonth,
+          calcContext.periodBasis,
         )
       : row.trendValues
 
@@ -279,6 +287,7 @@ export function CashFlowDetail({
   projectionYears = 5,
   forecastBaseYear,
   forecastUseSeriesActuals = false,
+  periodBasis = "current",
 }: CashFlowDetailProps) {
   const isForecastSection = title?.endsWith("pro forma") ?? false
   const forecastYearColumnCount = projectionYears + 1
@@ -552,6 +561,8 @@ export function CashFlowDetail({
               refMonth: effectiveRefMonth,
               refYear: effectiveRefYear,
               count: PERFORMANCE_CHART_YEAR_COUNT,
+              periodBasis,
+              fiscalYearEndMonth,
             }
           : undefined
       const referenceQuarterMonth =
@@ -559,8 +570,9 @@ export function CashFlowDetail({
           ? {
               refMonth: effectiveRefMonth,
               refYear: effectiveRefYear,
-              count: 5,
+              count: STATEMENT_QUARTER_COUNT,
               fiscalYearEndMonth,
+              periodBasis,
             }
           : undefined
       const treasuryPeriods =
@@ -648,6 +660,7 @@ export function CashFlowDetail({
     effectiveRefMonth,
     effectiveRefYear,
     fiscalYearEndMonth,
+    periodBasis,
   ])
 
   const treasuryLoading =
@@ -788,24 +801,27 @@ export function CashFlowDetail({
       const rawAmounts = seriesPeriodsForBuild.map((p) => dr.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] || 0)
       let values: number[]
       if (view === "quarters") {
-        values = flowQuarterSnapshotTrendFromReference(
+        values = cashFlowQuarterSnapshotTrendForBasis(
           pseudoRow,
           periods,
           effectiveRefMonth,
           effectiveRefYear,
-          5,
+          periodBasis,
           fiscalYearEndMonth,
+          STATEMENT_QUARTER_COUNT,
         )
       } else if (view === "years") {
         if (isForecastSection && forecastUseSeriesActuals) {
           const actual = yearTrendFromReference(pseudoRow, periods, effectiveRefYear, 1)[0] || 0
           values = [actual, ...Array.from({ length: projectionYears }, () => 0)]
         } else {
-          values = flowYearSnapshotTrendFromReference(
+          values = cashFlowYearSnapshotTrendForBasis(
             pseudoRow,
             periods,
             effectiveRefMonth,
             effectiveRefYear,
+            periodBasis,
+            fiscalYearEndMonth,
             PERFORMANCE_CHART_YEAR_COUNT,
           )
         }
@@ -837,11 +853,12 @@ export function CashFlowDetail({
         trendLabels = reverseSeriesOrderForDisplay(getPeriodLabels(seriesPeriodsForBuild))
       }
     } else if (monthlyTrend === "quarters") {
-      trendLabels = referenceQuarterMonthLabelsFromReference(
+      trendLabels = statementQuarterLabelsForBasis(
         effectiveRefMonth,
         effectiveRefYear,
-        5,
+        periodBasis,
         fiscalYearEndMonth,
+        STATEMENT_QUARTER_COUNT,
       )
     } else if (isForecastSection) {
       const baseYear = forecastBaseYear ?? effectiveRefYear ?? new Date().getFullYear()
@@ -850,15 +867,17 @@ export function CashFlowDetail({
         trendLabels.push(`${baseYear + i}`)
       }
     } else if (displayPeriods.length > 0 && seriesRows.length > 0) {
-      trendLabels = referenceMonthYearLabelsFromReference(
+      trendLabels = statementYearLabelsForBasis(
         effectiveRefMonth,
         effectiveRefYear,
+        periodBasis,
+        fiscalYearEndMonth,
         PERFORMANCE_CHART_YEAR_COUNT,
       )
     }
 
     if (!trendLabels.length) return undefined
-    return { trendView: monthlyTrend, trendLabels, fiscalYearEndMonth }
+    return { trendView: monthlyTrend, trendLabels, fiscalYearEndMonth, periodBasis }
   }
 
   const mapRowsFromDetailStructure = (
@@ -1028,13 +1047,14 @@ export function CashFlowDetail({
 
   const buildSeriesTrendValues = (row: SeriesRow, rawAmounts: ReturnType<typeof getRowAmounts>): number[] => {
     if (view === "quarters") {
-      return flowQuarterSnapshotTrendFromReference(
+      return cashFlowQuarterSnapshotTrendForBasis(
         row,
         periods,
         effectiveRefMonth,
         effectiveRefYear,
-        5,
+        periodBasis,
         fiscalYearEndMonth,
+        STATEMENT_QUARTER_COUNT,
       )
     }
     if (view === "years") {
@@ -1042,11 +1062,13 @@ export function CashFlowDetail({
         const actual = yearTrendFromReference(row, periods, effectiveRefYear, 1)[0] || 0
         return [actual, ...Array.from({ length: projectionYears }, () => 0)]
       }
-      return flowYearSnapshotTrendFromReference(
+      return cashFlowYearSnapshotTrendForBasis(
         row,
         periods,
         effectiveRefMonth,
         effectiveRefYear,
+        periodBasis,
+        fiscalYearEndMonth,
         PERFORMANCE_CHART_YEAR_COUNT,
       )
     }
@@ -1412,11 +1434,12 @@ export function CashFlowDetail({
 
   // Helper function to generate quarter labels from series data or fallback
   const getQuarterLabels = (): string[] => {
-    return referenceQuarterMonthLabelsFromReference(
+    return statementQuarterLabelsForBasis(
       effectiveRefMonth,
       effectiveRefYear,
-      5,
+      periodBasis,
       fiscalYearEndMonth,
+      STATEMENT_QUARTER_COUNT,
     )
   }
 
@@ -1430,16 +1453,11 @@ export function CashFlowDetail({
       }
       return labels
     }
-    if (displayPeriods.length > 0 && seriesRows.length > 0) {
-      return referenceMonthYearLabelsFromReference(
-        effectiveRefMonth,
-        effectiveRefYear,
-        PERFORMANCE_CHART_YEAR_COUNT,
-      )
-    }
-    return referenceMonthYearLabelsFromReference(
+    return statementYearLabelsForBasis(
       effectiveRefMonth,
       effectiveRefYear,
+      periodBasis,
+      fiscalYearEndMonth,
       PERFORMANCE_CHART_YEAR_COUNT,
     )
   }

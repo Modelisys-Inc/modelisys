@@ -265,6 +265,34 @@ export function workingCapitalLinkCodeOptions(codes: StandardLinkCode[]): {
   return { codes: merged, labels }
 }
 
+/**
+ * Bilan + Compte de résultat (parents et feuilles, ex. CMV.1) pour l’analyse Capex.
+ * Les ancres REV / CMV / … restent proposées même sans nœud charte.
+ */
+export function filterCapexLinkCodes(codes: StandardLinkCode[]): StandardLinkCode[] {
+  const fromChart = codes.filter(
+    (c) =>
+      c.is_active !== false &&
+      (isBalanceSheetFamily(c.family) || isIncomeStatementFamily(c.family)),
+  )
+  const byCode = new Set(fromChart.map((c) => c.code))
+  for (const anchor of filterIncomeStatementParentLinkCodes(codes)) {
+    if (!byCode.has(anchor.code)) fromChart.push(anchor)
+  }
+  return fromChart
+}
+
+export function capexLinkCodeOptions(codes: StandardLinkCode[]): {
+  codes: string[]
+  labels: Map<string, string>
+} {
+  const filtered = sortStandardLinkCodesHierarchically(filterCapexLinkCodes(codes))
+  return {
+    codes: filtered.map((c) => c.code),
+    labels: buildStandardLinkCodeLabelMap(filtered),
+  }
+}
+
 export function standardLinkCodeDisplayLabel(code: StandardLinkCode): string {
   return (code.label_sub_account || code.label_account || code.label || code.code).trim()
 }

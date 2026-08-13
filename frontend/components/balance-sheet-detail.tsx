@@ -44,9 +44,7 @@ import {
 import { filterBalanceSheetDetailRowsForHorizon } from "@/lib/balance-sheet-horizon-filter"
 import type { IncomeStatementHorizonView } from "@/lib/income-statement-horizon-visibility"
 import {
-  aggregateToQuarters,
   getPeriodLabels,
-  getRowAmounts,
   reverseSeriesOrderForDisplay,
 } from "@/lib/series-utils"
 import {
@@ -59,12 +57,16 @@ import {
 } from "@/lib/financial-period-labels"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
+import { monthTrendFromReference } from "@/lib/series-reference-columns"
 import {
-  monthTrendFromReference,
-  quarterTrendFromReference,
-  balanceSheetYearTrendFromReference,
-  referenceMonthYearLabelsFromReference,
-} from "@/lib/series-reference-columns"
+  balanceSheetQuarterTrendForBasis,
+  balanceSheetYearTrendForBasis,
+  statementQuarterLabelsForBasis,
+  statementYearLabelsForBasis,
+  STATEMENT_QUARTER_COUNT,
+  type StatementPeriodBasis,
+} from "@/lib/income-statement-period-basis"
+import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
 import {
   insertAnnexDetailPlaceholderRows,
   zeroAmountsForAnnexTitleRow,
@@ -110,6 +112,8 @@ interface BalanceSheetDetailProps {
   projectionYears?: 3 | 4 | 5
   forecastBaseYear?: number
   forecastUseSeriesActuals?: boolean
+  /** Annuel / trimestriel : Courant (même mois / T3M) ou Exercice (FYE / trimestres fiscaux). */
+  periodBasis?: StatementPeriodBasis
 }
 
 interface BalanceAccount {
@@ -171,9 +175,13 @@ export function BalanceSheetDetail({
   projectionYears = 5,
   forecastBaseYear,
   forecastUseSeriesActuals = false,
+  periodBasis = "current",
 }: BalanceSheetDetailProps) {
   const isForecastSection = title === "Bilan pro forma"
   const forecastYearColumnCount = projectionYears + 1
+  const fiscalYearEndMonth = parseFiscalYearEndMonth(
+    companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
+  )
 
   useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -534,17 +542,28 @@ export function BalanceSheetDetail({
 
   const getSeriesQuarterRows = (): DetailRow[] => {
     if (!seriesRows.length || !periods.length || !displayStructure) return []
-    const emptyTrendLength = quarterTrendFromReference(
+    const emptyTrendLength = balanceSheetQuarterTrendForBasis(
       seriesRows[0],
       periods as SeriesPeriod[],
       refMonth,
       refYear,
-      5
+      periodBasis,
+      fiscalYearEndMonth,
+      STATEMENT_QUARTER_COUNT,
     ).length
     return mapSeriesRowsDefinedOnly(
       seriesRows,
       displayStructure,
-      (row) => quarterTrendFromReference(row, periods as SeriesPeriod[], refMonth, refYear, 5),
+      (row) =>
+        balanceSheetQuarterTrendForBasis(
+          row,
+          periods as SeriesPeriod[],
+          refMonth,
+          refYear,
+          periodBasis,
+          fiscalYearEndMonth,
+          STATEMENT_QUARTER_COUNT,
+        ),
       emptyTrendLength
     )
   }
@@ -554,25 +573,37 @@ export function BalanceSheetDetail({
     const buildYearTrend = (row: SeriesRow) => {
       if (isForecastSection && forecastUseSeriesActuals) {
         const actual =
-          balanceSheetYearTrendFromReference(row, periods as SeriesPeriod[], refMonth, refYear, 1)[0] || 0
+          balanceSheetYearTrendForBasis(
+            row,
+            periods as SeriesPeriod[],
+            refMonth,
+            refYear,
+            periodBasis,
+            fiscalYearEndMonth,
+            1,
+          )[0] || 0
         return [actual, ...Array.from({ length: projectionYears }, () => 0)]
       }
-      return balanceSheetYearTrendFromReference(
+      return balanceSheetYearTrendForBasis(
         row,
         periods as SeriesPeriod[],
         refMonth,
         refYear,
+        periodBasis,
+        fiscalYearEndMonth,
         PERFORMANCE_CHART_YEAR_COUNT,
       )
     }
     const emptyTrendLength =
       isForecastSection && forecastUseSeriesActuals
         ? forecastYearColumnCount
-        : balanceSheetYearTrendFromReference(
+        : balanceSheetYearTrendForBasis(
             seriesRows[0],
             periods as SeriesPeriod[],
             refMonth,
             refYear,
+            periodBasis,
+            fiscalYearEndMonth,
             PERFORMANCE_CHART_YEAR_COUNT,
           ).length
     return mapSeriesRowsDefinedOnly(seriesRows, displayStructure, buildYearTrend, emptyTrendLength)
@@ -787,18 +818,13 @@ export function BalanceSheetDetail({
 
   // Helper function to generate quarter labels from series data or fallback
   const getQuarterLabels = (): string[] => {
-    if (periods.length > 0 && seriesRows.length > 0) {
-      const rawAmounts = getRowAmounts(seriesRows[0], periods)
-      return reverseSeriesOrderForDisplay(aggregateToQuarters(rawAmounts, periods, "last").labels)
-    }
-    const currentDate = new Date()
-    const labels: string[] = []
-    for (let i = 4; i >= 0; i--) {
-      const date = new Date(currentDate.getFullYear(), currentDate.getMonth() - i * 3, 1)
-      const quarter = Math.floor(date.getMonth() / 3) + 1
-      labels.push(`T${quarter} ${date.getFullYear()}`)
-    }
-    return reverseSeriesOrderForDisplay(labels)
+    return statementQuarterLabelsForBasis(
+      refMonth,
+      refYear,
+      periodBasis,
+      fiscalYearEndMonth,
+      STATEMENT_QUARTER_COUNT,
+    )
   }
 
   // Helper function to generate year labels from series data or fallback
@@ -811,10 +837,13 @@ export function BalanceSheetDetail({
       }
       return labels
     }
-    if (periods.length > 0 && seriesRows.length > 0) {
-      return referenceMonthYearLabelsFromReference(refMonth, refYear, PERFORMANCE_CHART_YEAR_COUNT)
-    }
-    return referenceMonthYearLabelsFromReference(refMonth, refYear, PERFORMANCE_CHART_YEAR_COUNT)
+    return statementYearLabelsForBasis(
+      refMonth,
+      refYear,
+      periodBasis,
+      fiscalYearEndMonth,
+      PERFORMANCE_CHART_YEAR_COUNT,
+    )
   }
 
   // Helper function to get comparison label (daté selon la référence, comme l’état des résultats)

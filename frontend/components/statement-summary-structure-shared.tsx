@@ -21,6 +21,9 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
+  capexAutoRatioLiaisonLabel,
+  isCapexAutoComputedRow,
+  isCapexAutoRatioRow,
   readRowCapexCostDisplayMode,
   structureRowShowsCapexCostDisplaySelector,
   type CapexCostDisplayMode,
@@ -391,6 +394,8 @@ export function StatementSummaryStructureRowCells({
 }: StructureRowCellsProps) {
   const mode = resolveAnnexMode(hideAnnexColumns, annexMode)
   const isFixedTreasuryRow = isCashFlowFixedTreasuryStructureRow(structRow)
+  const isCapexAutoComputed = isCapexAutoComputedRow(structRow)
+  const isCapexAutoRatio = isCapexAutoRatioRow(structRow)
 
   return (
     <>
@@ -472,22 +477,24 @@ export function StatementSummaryStructureRowCells({
             <label
               className={cn(
                 "flex items-center justify-center rounded-xl p-1.5 transition-colors",
-                isStructureRowHidden(structRow)
+                isStructureRowHidden(structRow) || isCapexAutoComputed
                   ? "cursor-not-allowed opacity-40"
                   : "cursor-pointer",
                 !isStructureRowHidden(structRow) &&
                   isCodeMappingEnabled(structRow) &&
+                  !isCapexAutoComputed &&
                   "bg-orange-50/90 ring-2 ring-[#E0742D]/35",
                 !isStructureRowHidden(structRow) &&
                   !isCodeMappingEnabled(structRow) &&
+                  !isCapexAutoComputed &&
                   "bg-slate-100/60 hover:bg-slate-200/60"
               )}
             >
               <Checkbox
                 checked={isCodeMappingEnabled(structRow)}
-                disabled={isStructureRowHidden(structRow) || isFixedTreasuryRow}
+                disabled={isStructureRowHidden(structRow) || isFixedTreasuryRow || isCapexAutoComputed}
                 onCheckedChange={(v) => {
-                  if (isStructureRowHidden(structRow)) return
+                  if (isStructureRowHidden(structRow) || isCapexAutoComputed) return
                   if (v === true) {
                     structEdit.updateRow(globalIdx, {
                       defineMapping: true,
@@ -524,6 +531,13 @@ export function StatementSummaryStructureRowCells({
             {isCashFlowEndingCashStructureRow(structRow)
               ? "Variation + début"
               : "ACT-A − PCT-A (N−1)"}
+          </span>
+        ) : isCapexAutoComputed && !isStructureRowHidden(structRow) ? (
+          <span
+            className="block truncate rounded-lg bg-emerald-50/80 px-1.5 py-2 text-center text-[11px] font-medium text-emerald-800 ring-1 ring-emerald-200/70"
+            title="Calcul automatique — non modifiable"
+          >
+            {capexAutoRatioLiaisonLabel(structRow)}
           </span>
         ) : isCodeMappingEnabled(structRow) && !isStructureRowHidden(structRow) ? (
           <IncomeStatementLiaisonCell
@@ -610,6 +624,10 @@ export function StatementSummaryStructureRowCells({
           {isStructureRowEmptyLabel(structRow) || isStructureRowHidden(structRow) ? (
             <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">
               —
+            </span>
+          ) : isCapexAutoComputed ? (
+            <span className="block truncate rounded-lg bg-slate-100/80 px-1.5 py-2 text-center text-xs font-medium text-slate-600">
+              {isCapexAutoRatio ? "%" : "$"}
             </span>
           ) : (
             <Select

@@ -5,9 +5,19 @@ import {
   normalizeLiaisonMode,
 } from "@/lib/income-statement-structure-utils"
 import { isTinFamilyLinkCode } from "@/lib/standard-link-code-utils"
-import { parseSeriesPeriodCalendarLabel, sumTTMEndingAtCalendarMonth } from "@/lib/series-reference-columns"
+import {
+  parseSeriesPeriodCalendarLabel,
+  sumFiscalYearThrough,
+  sumTrailingMonthsEndingAt,
+  sumTTMEndingAtCalendarMonth,
+} from "@/lib/series-reference-columns"
+import type { StatementPeriodBasis } from "@/lib/income-statement-period-basis"
 import { formatCalendarMonthYearShort } from "@/lib/financial-period-labels"
-import { monthsInFiscalQuarterThrough, endOfPriorFiscalQuarter } from "@/lib/capex-year-reference"
+import {
+  monthsInFiscalQuarterThrough,
+  endOfPriorFiscalQuarter,
+  endOfPriorFiscalYear,
+} from "@/lib/capex-year-reference"
 
 export type CashFlowCalcMode = "actual" | "variation_nn1" | "variation_n1n"
 
@@ -25,6 +35,8 @@ export type CashFlowCalcTrendContext = {
   comparisonAnchor?: CashFlowTrendComparisonAnchor
   /** Mois civil de fin d'exercice (1–12). Requis pour la somme trimestrielle fiscale (mode Réel). */
   fiscalYearEndMonth?: number
+  /** Annuel / trimestriel : Courant (TTM / T3M) ou Exercice (YTD / QTD). */
+  periodBasis?: StatementPeriodBasis
 }
 
 export type CashFlowOperandSnapshot = {
@@ -141,6 +153,7 @@ function transformedOperandTrend(
     calcContext.trendView,
     calcContext.comparisonAnchor,
     calcContext.fiscalYearEndMonth,
+    calcContext.periodBasis,
   )
 }
 
@@ -440,12 +453,23 @@ function parseYearLabel(label: string): number | null {
   return Number.isFinite(year) ? year : null
 }
 
+function priorTrailingQuarterMonth(month: number, year: number): { month: number; year: number } {
+  let m = month - 3
+  let y = year
+  while (m < 1) {
+    m += 12
+    y -= 1
+  }
+  return { month: m, year: y }
+}
+
 /** Libellé de la période N−1 alignée (mois précédent / trimestre précédent / même mois année −1). */
 export function priorPeriodLabelForTrend(
   label: string,
   view: CashFlowDetailTrendView,
   comparisonAnchor: CashFlowTrendComparisonAnchor = "calendarPrior",
   fiscalYearEndMonth = 12,
+  periodBasis?: StatementPeriodBasis,
 ): string | null {
   if (comparisonAnchor === "priorYearSameMonth" && view === "12months") {
     const cal = parseSeriesPeriodCalendarLabel(label)
@@ -454,13 +478,23 @@ export function priorPeriodLabelForTrend(
   }
   if (view === "years") {
     const cal = parseSeriesPeriodCalendarLabel(label)
-    if (cal) return formatCalendarMonthYearShort(cal.month, cal.year - 1)
+    if (cal) {
+      if (periodBasis === "fiscal") {
+        const prior = endOfPriorFiscalYear(cal.month, cal.year, fiscalYearEndMonth)
+        return formatCalendarMonthYearShort(prior.month, prior.year)
+      }
+      return formatCalendarMonthYearShort(cal.month, cal.year - 1)
+    }
     const year = parseYearLabel(label)
     return year != null ? String(year - 1) : null
   }
   if (view === "quarters") {
     const cal = parseSeriesPeriodCalendarLabel(label)
     if (cal) {
+      if (periodBasis === "current") {
+        const prior = priorTrailingQuarterMonth(cal.month, cal.year)
+        return formatCalendarMonthYearShort(prior.month, prior.year)
+      }
       // Fin du trimestre fiscal précédent (Nov → Sep, pas Aoû).
       const prior = endOfPriorFiscalQuarter(cal.month, cal.year, fiscalYearEndMonth)
       return formatCalendarMonthYearShort(prior.month, prior.year)
@@ -540,7 +574,7 @@ function amountForTrendLabel(
   return 0
 }
 
-/** TTM par libellé « Déc 2026 », … — utilisé uniquement en mode Calcul Réel (horizon annuel). */
+/** TTM par libellé « Déc 2026 », … — utilisé uniquement en mode Calcul Réel (horizon annuel Courant). */
 export function yearLabelsToTTMTrendValues(
   labels: string[],
   amountByCalendarMonth: Map<string, number>,
@@ -549,6 +583,31 @@ export function yearLabelsToTTMTrendValues(
     const cal = parseSeriesPeriodCalendarLabel(label)
     if (!cal) return 0
     return sumTTMEndingAtCalendarMonth(amountByCalendarMonth, cal.month, cal.year)
+  })
+}
+
+/** YTD fiscal par libellé — mode Calcul Réel, Annuel Exercice. */
+export function yearLabelsToFiscalYtdTrendValues(
+  labels: string[],
+  amountByCalendarMonth: Map<string, number>,
+  fiscalYearEndMonth = 12,
+): number[] {
+  return labels.map((label) => {
+    const cal = parseSeriesPeriodCalendarLabel(label)
+    if (!cal) return 0
+    return sumFiscalYearThrough(amountByCalendarMonth, cal.month, cal.year, fiscalYearEndMonth)
+  })
+}
+
+/** T3M par libellé — mode Calcul Réel, Trimestriel Courant. */
+export function quarterLabelsToTrailingSumTrendValues(
+  labels: string[],
+  amountByCalendarMonth: Map<string, number>,
+): number[] {
+  return labels.map((label) => {
+    const cal = parseSeriesPeriodCalendarLabel(label)
+    if (!cal) return 0
+    return sumTrailingMonthsEndingAt(amountByCalendarMonth, cal.month, cal.year, 3)
   })
 }
 
@@ -594,18 +653,27 @@ export function applyCashFlowActualYearTTMToRow<
   if (calcContext.trendView === "quarters") {
     if (!calcContext.trendLabels.length || !amountByCalendarMonth) return row
     const fyEnd = calcContext.fiscalYearEndMonth ?? 12
-    const trendValues = quarterLabelsToQuarterSumTrendValues(
-      calcContext.trendLabels,
-      amountByCalendarMonth,
-      fyEnd,
-    )
+    const trendValues =
+      calcContext.periodBasis === "current"
+        ? quarterLabelsToTrailingSumTrendValues(calcContext.trendLabels, amountByCalendarMonth)
+        : quarterLabelsToQuarterSumTrendValues(
+            calcContext.trendLabels,
+            amountByCalendarMonth,
+            fyEnd,
+          )
     const balanceAccounts = row.balanceAccounts?.map((account) => {
       if (!account.amountByCalendarMonth) return account
-      const accountTrend = quarterLabelsToQuarterSumTrendValues(
-        calcContext.trendLabels,
-        account.amountByCalendarMonth,
-        fyEnd,
-      )
+      const accountTrend =
+        calcContext.periodBasis === "current"
+          ? quarterLabelsToTrailingSumTrendValues(
+              calcContext.trendLabels,
+              account.amountByCalendarMonth,
+            )
+          : quarterLabelsToQuarterSumTrendValues(
+              calcContext.trendLabels,
+              account.amountByCalendarMonth,
+              fyEnd,
+            )
       return {
         ...account,
         amount: accountTrend[0] ?? account.amount,
@@ -625,10 +693,21 @@ export function applyCashFlowActualYearTTMToRow<
   if (calcContext.trendView !== "years" || !calcContext.trendLabels.length || !amountByCalendarMonth) {
     return row
   }
-  const trendValues = yearLabelsToTTMTrendValues(calcContext.trendLabels, amountByCalendarMonth)
+  const fyEnd = calcContext.fiscalYearEndMonth ?? 12
+  const trendValues =
+    calcContext.periodBasis === "fiscal"
+      ? yearLabelsToFiscalYtdTrendValues(calcContext.trendLabels, amountByCalendarMonth, fyEnd)
+      : yearLabelsToTTMTrendValues(calcContext.trendLabels, amountByCalendarMonth)
   const balanceAccounts = row.balanceAccounts?.map((account) => {
     if (!account.amountByCalendarMonth) return account
-    const accountTrend = yearLabelsToTTMTrendValues(calcContext.trendLabels, account.amountByCalendarMonth)
+    const accountTrend =
+      calcContext.periodBasis === "fiscal"
+        ? yearLabelsToFiscalYtdTrendValues(
+            calcContext.trendLabels,
+            account.amountByCalendarMonth,
+            fyEnd,
+          )
+        : yearLabelsToTTMTrendValues(calcContext.trendLabels, account.amountByCalendarMonth)
     return {
       ...account,
       amount: accountTrend[0] ?? account.amount,
@@ -653,6 +732,7 @@ export function applyCashFlowCalcToTrend(
   view: CashFlowDetailTrendView = "12months",
   comparisonAnchor: CashFlowTrendComparisonAnchor = "calendarPrior",
   fiscalYearEndMonth = 12,
+  periodBasis?: StatementPeriodBasis,
 ): number[] {
   if (mode === "actual") return values
 
@@ -667,7 +747,13 @@ export function applyCashFlowCalcToTrend(
     ) {
       current = snapshotAmountForYearColumnLabel(label, amountByCalendarMonth)
     }
-    const priorLabel = priorPeriodLabelForTrend(label, view, comparisonAnchor, fiscalYearEndMonth)
+    const priorLabel = priorPeriodLabelForTrend(
+      label,
+      view,
+      comparisonAnchor,
+      fiscalYearEndMonth,
+      periodBasis,
+    )
     let prior = 0
     if (priorLabel) {
       prior = amountForTrendLabel(priorLabel, valuesByLabel, amountByCalendarMonth, view)

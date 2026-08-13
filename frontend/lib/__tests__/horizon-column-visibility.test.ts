@@ -1,9 +1,28 @@
 import { describe, expect, it } from "vitest"
 import {
+  averageDisplayedHorizonValues,
   emptyHorizonColumnMask,
   filterLabeledHorizonPoints,
   pickHorizonColumns,
 } from "@/lib/horizon-column-visibility"
+
+describe("averageDisplayedHorizonValues", () => {
+  it("averages visible year columns, not padded empty years", () => {
+    expect(averageDisplayedHorizonValues([3.5, 6.9, 151.7])).toBeCloseTo(
+      (3.5 + 6.9 + 151.7) / 3,
+      10,
+    )
+    expect(averageDisplayedHorizonValues([3.5, 6.9, 151.7, 0, 0, 0])).toBeCloseTo(
+      (3.5 + 6.9 + 151.7) / 6,
+      10,
+    )
+  })
+
+  it("returns 0 for an empty series", () => {
+    expect(averageDisplayedHorizonValues([])).toBe(0)
+    expect(averageDisplayedHorizonValues([null, undefined])).toBe(0)
+  })
+})
 
 describe("emptyHorizonColumnMask", () => {
   it("drops columns where every series is zero", () => {

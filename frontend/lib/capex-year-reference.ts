@@ -92,6 +92,20 @@ export function endOfPriorFiscalQuarter(
   return { month, year }
 }
 
+/**
+ * Fin d’exercice close précédant la date as-of (début de la fenêtre YTD).
+ * Aoû 2026 / clôture déc. → Déc 2025 ; Déc 2025 → Déc 2024 ; Aoû 2026 / mars → Mar 2026.
+ */
+export function endOfPriorFiscalYear(
+  calendarMonth: number,
+  calendarYear: number,
+  fiscalYearEndMonth: number,
+): { month: number; year: number } {
+  const start = fiscalYearStartContaining(calendarMonth, calendarYear, fiscalYearEndMonth)
+  if (start.month === 1) return { month: 12, year: start.year - 1 }
+  return { month: start.month - 1, year: start.year }
+}
+
 /** Premier mois civil de l’exercice contenant `(calendarMonth, calendarYear)`. */
 export function fiscalYearStartContaining(
   calendarMonth: number,

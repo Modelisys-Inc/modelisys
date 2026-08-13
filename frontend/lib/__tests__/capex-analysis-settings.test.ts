@@ -1,9 +1,26 @@
 import { describe, it, expect } from "vitest"
+import type { SeriesPeriod, SeriesRow } from "@/lib/api"
 import {
   applyCapexCostDisplayMode,
+  baiiaTtmAtBalancePeriod,
+  buildCapexAlignedPeriodValues,
   buildCapexOperandDisplayValues,
   buildCapexRowDisplayValues,
+  capexSeriesValueAt,
   capexOperandAmountAtPeriod,
+  capexRatioPercent,
+  collectOperatingCashFlowLinkCodes,
+  isCapexAutoComputedRow,
+  isCapexAutoRatioRow,
+  isCapexBaiiaMetricRow,
+  isCapexBaiiaRatioRow,
+  isCapexHeadlineRow,
+  isCapexNumeratorSourceRow,
+  isCapexOperatingCashFlowMetricRow,
+  isCapexRevenueRatioRow,
+  isCapexOperatingCashFlowRatioRow,
+  normalizeCapexAutoRatioRow,
+  operatingCashFlowTtmAtBalancePeriod,
   pickCapexDisplayValues,
   readCapexCostDisplayMode,
   readRowCapexCostDisplayMode,
@@ -12,6 +29,7 @@ import {
   structureRowShowsCapexCostDisplaySelector,
   priorPeriodIndexForCapexVariation,
   pickCapexDisplayIndices,
+  sumCapexDisplaySeries,
 } from "../capex-analysis-settings"
 
 describe("capex analysis settings", () => {
@@ -207,5 +225,176 @@ describe("capex analysis settings", () => {
       -30, 50,
     ])
     expect(pickCapexDisplayIndices(periods.length, "years", 1, periods, 8, 2026)).toEqual([2])
+  })
+
+  it("identifies auto-computed Capex ratio rows and strips liaison", () => {
+    expect(isCapexHeadlineRow({ label: "Capex" })).toBe(true)
+    expect(isCapexHeadlineRow({ label: "Capex / BAIIA" })).toBe(false)
+    expect(isCapexBaiiaRatioRow({ label: "Capex / BAIIA" })).toBe(true)
+    expect(
+      isCapexOperatingCashFlowRatioRow({
+        label: "Capex / Flux de trésorerie - Exploitation",
+      }),
+    ).toBe(true)
+    expect(
+      isCapexOperatingCashFlowRatioRow({
+        label: "Capex / Flux de trésorerie liés aux opérations",
+      }),
+    ).toBe(true)
+    expect(isCapexAutoRatioRow({ label: "Capex / Revenus" })).toBe(false)
+    expect(isCapexBaiiaMetricRow({ label: "BAIIA" })).toBe(true)
+    expect(isCapexBaiiaMetricRow({ label: "Capex / BAIIA" })).toBe(false)
+    expect(
+      isCapexOperatingCashFlowMetricRow({
+        label: "Flux de trésorerie - Exploitation",
+      }),
+    ).toBe(true)
+    expect(
+      isCapexOperatingCashFlowMetricRow({
+        label: "Capex / Flux de trésorerie - Exploitation",
+      }),
+    ).toBe(false)
+    expect(isCapexAutoComputedRow({ label: "BAIIA" })).toBe(true)
+    expect(
+      structureRowShowsCapexCostDisplaySelector({
+        label: "Capex / BAIIA",
+        defineMapping: true,
+      }),
+    ).toBe(false)
+
+    const normalized = normalizeCapexAutoRatioRow({
+      label: "Capex / BAIIA",
+      defineMapping: true,
+      liaisonMode: "na",
+      displayFormat: "percent",
+    })
+    expect(normalized.defineMapping).toBe(false)
+    expect(normalized.liaisonMode).toBeUndefined()
+    expect(normalizeCapexAutoRatioRow({ label: "BAIIA" }).displayFormat).toBe("currency")
+  })
+
+  it("uses TTM BAIIA and Sommaire TEX for auto ratio denominators", () => {
+    const periods: SeriesPeriod[] = [
+      { fiscalYear: 2026, fiscalMonth: 6, label: "Juin 2026" },
+      { fiscalYear: 2026, fiscalMonth: 7, label: "Juillet 2026" },
+      { fiscalYear: 2026, fiscalMonth: 8, label: "Août 2026" },
+    ]
+    const baiiaRow: SeriesRow = {
+      id: "baiia",
+      label: "BAIIA",
+      isBold: true,
+      isSection: false,
+      isResult: true,
+      amounts: { "2026-6": 10, "2026-7": 20, "2026-8": 30 },
+      detailRows: [],
+    }
+    expect(baiiaTtmAtBalancePeriod([baiiaRow], periods, periods, 2)).toBe(60)
+    expect(capexRatioPercent(12, 60)).toBe(20)
+
+    const cfStructure = [
+      { label: "Trésorerie - Exploitation", isSection: true, isBold: true },
+      { label: "Exploitation", linkCode: "TEX-A", showInSummary: true },
+      { label: "Détail enfant", linkCode: "TEX-A.1", showInSummary: true },
+      { label: "Investissement", linkCode: "TIN-A", showInSummary: true },
+    ]
+    expect(collectOperatingCashFlowLinkCodes(cfStructure, [])).toEqual(["TEX-A.1"])
+
+    const texRow: SeriesRow = {
+      id: "TEX-A.1",
+      linkCode: "TEX-A.1",
+      label: "Exploitation",
+      isBold: false,
+      isSection: false,
+      isResult: false,
+      amounts: { "2026-6": 4, "2026-7": 5, "2026-8": 6 },
+      detailRows: [],
+    }
+    expect(
+      operatingCashFlowTtmAtBalancePeriod([texRow], periods, cfStructure, periods, 2),
+    ).toBe(15)
+    expect(capexRatioPercent(3, 15)).toBe(20)
+  })
+
+  it("aligns auto ratios on the same year snapshots as Capex / Revenus", () => {
+    expect(
+      isCapexNumeratorSourceRow({
+        label: "Biens loués - Location acquisition",
+        defineMapping: true,
+        liaisonMode: "single",
+        linkCode: "ALT-B",
+        capexCostDisplayMode: "variation",
+      }),
+    ).toBe(true)
+    expect(
+      isCapexNumeratorSourceRow({
+        label: "Immobilisations corporelles",
+        defineMapping: true,
+        liaisonMode: "single",
+        linkCode: "ALT-B",
+        capexCostDisplayMode: "actual",
+      }),
+    ).toBe(false)
+    expect(isCapexNumeratorSourceRow({ label: "BAIIA" })).toBe(false)
+    expect(isCapexRevenueRatioRow({ label: "Capex / Chiffre d'affaires" })).toBe(true)
+    expect(
+      isCapexNumeratorSourceRow({
+        label: "Capex / Revenus",
+        defineMapping: true,
+        liaisonMode: "quotient",
+        liaisonNumeratorCodes: ["ALT-B"],
+        liaisonDenominatorCodes: ["REV"],
+        displayFormat: "percent",
+      }),
+    ).toBe(false)
+
+    const periods: SeriesPeriod[] = [
+      { fiscalYear: 2024, fiscalMonth: 12, label: "Décembre 2024" },
+      { fiscalYear: 2025, fiscalMonth: 12, label: "Décembre 2025" },
+      { fiscalYear: 2026, fiscalMonth: 8, label: "Août 2026" },
+    ]
+    const alt = [1_000_000, 1_260_000, 1_200_000]
+    const baiiaTtm = [10_000_000, 12_000_000, 14_349_511]
+    const capexSeries = buildCapexAlignedPeriodValues(
+      "years",
+      3,
+      periods.length,
+      periods,
+      8,
+      2026,
+      12,
+      (periodIndex, displayIdx, indices) => {
+        const priorIdx = priorPeriodIndexForCapexVariation(
+          indices,
+          displayIdx,
+          periodIndex,
+          "years",
+        )
+        const actual = alt[periodIndex] ?? 0
+        if (priorIdx < 0) return 0
+        return actual - (alt[priorIdx] ?? 0)
+      },
+    )
+    const baiiaSeries = buildCapexAlignedPeriodValues(
+      "years",
+      3,
+      periods.length,
+      periods,
+      8,
+      2026,
+      12,
+      (periodIndex) => baiiaTtm[periodIndex] ?? 0,
+    )
+    expect(capexSeries).toEqual([0, 260_000, -60_000])
+    expect(baiiaSeries).toEqual([10_000_000, 12_000_000, 14_349_511])
+    expect(capexRatioPercent(capexSeries[1]!, baiiaSeries[1]!)).toBeCloseTo(
+      (260_000 / 12_000_000) * 100,
+      10,
+    )
+    expect(capexRatioPercent(capexSeries[2]!, baiiaSeries[2]!)).toBeCloseTo(
+      (-60_000 / 14_349_511) * 100,
+      10,
+    )
+    expect(sumCapexDisplaySeries([capexSeries, [1, 2, 3]])).toEqual([1, 260_002, -59_997])
+    expect(capexSeriesValueAt(capexSeries, "years", false, 2)).toBe(-60_000)
   })
 })

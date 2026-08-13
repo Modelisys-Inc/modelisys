@@ -100,4 +100,48 @@ describe("cash-flow treasury quarters horizon", () => {
     // Début Nov = fin Sep ; début Sep = fin Jun
     expect(beginning).toEqual([1500, 1200])
   })
+
+  it("Annuel Exercice : clôture puis FYE, début = FYE précédent", () => {
+    const periods = makeDecemberPeriods()
+    const netByPeriod = new Map<string, number>([
+      ["2026-8", 1800],
+      ["2025-12", 1500],
+      ["2024-12", 1200],
+    ])
+    const opts = {
+      refMonth: 8,
+      refYear: 2026,
+      count: 3,
+      periodBasis: "fiscal" as const,
+      fiscalYearEndMonth: 12,
+    }
+    expect(buildEndingBookTrendForReferenceMonthYears(netByPeriod, periods, opts)).toEqual([
+      1800, 1500, 1200,
+    ])
+    expect(buildBeginningCashTrendForReferenceMonthYears(netByPeriod, periods, opts)).toEqual([
+      1500, 1200, 0,
+    ])
+  })
+
+  it("Trimestriel Courant : colonnes tous les 3 mois, début = T−3", () => {
+    const periods = makeDecemberPeriods()
+    const netByPeriod = new Map<string, number>([
+      ["2026-8", 1800],
+      ["2026-5", 1500],
+      ["2026-2", 1200],
+    ])
+    const opts = {
+      refMonth: 8,
+      refYear: 2026,
+      count: 2,
+      periodBasis: "current" as const,
+      fiscalYearEndMonth: 12,
+    }
+    expect(buildEndingBookTrendForReferenceQuarterMonths(netByPeriod, periods, opts)).toEqual([
+      1800, 1500,
+    ])
+    expect(buildBeginningCashTrendForReferenceQuarterMonths(netByPeriod, periods, opts)).toEqual([
+      1500, 1200,
+    ])
+  })
 })

@@ -180,7 +180,7 @@ export function StatementStructureStudio({
   const { codes: cashFlowCategoryLinkCodes, labels: cashFlowCategoryLinkLabels } =
     useCashFlowCategoryLinkCodes(isCashFlow, isCashFlowDetail)
   const { codes: workingCapitalLinkCodes, labels: workingCapitalLinkLabels } =
-    useWorkingCapitalLinkCodes(isLinkCodeAnalysis)
+    useWorkingCapitalLinkCodes(isLinkCodeAnalysis, isCapex ? "capex" : "working-capital")
   const singleModeLinkCodes = isIncomeStatement
     ? incomeParentLinkCodes
     : isBalanceSheet

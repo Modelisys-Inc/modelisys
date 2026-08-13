@@ -511,4 +511,93 @@ describe("cash-flow-detail-settings", () => {
     expect(mapped[0]?.balanceAccounts?.[0]?.amount).toBe(80)
     expect(mapped[0]?.balanceAccounts?.[0]?.priorAmount).toBe(20)
   })
+
+  it("Annuel Exercice Réel : YTD fiscal, pas TTM", () => {
+    const labels = ["Aoû 2026", "Déc 2025"]
+    const calendar = new Map<string, number>()
+    for (let month = 1; month <= 12; month++) {
+      calendar.set(`2026-${month}`, month)
+      calendar.set(`2025-${month}`, month)
+    }
+    const row = applyCashFlowActualYearTTMToRow(
+      { current: 999, prior: 888, trendValues: [8, 12] },
+      { trendView: "years", trendLabels: labels, fiscalYearEndMonth: 12, periodBasis: "fiscal" },
+      calendar,
+    )
+    // jan–aoû 2026 = 36 ; année civile 2025 = 78
+    expect(row.trendValues).toEqual([36, 78])
+  })
+
+  it("Trimestriel Courant Réel : T3M, pas QTD fiscal", () => {
+    const labels = ["Nov 2026", "Aoû 2026"]
+    const calendar = new Map<string, number>([
+      ["2026-9", 9],
+      ["2026-10", 10],
+      ["2026-11", 11],
+      ["2026-6", 6],
+      ["2026-7", 7],
+      ["2026-8", 8],
+      ["2026-12", 1000],
+    ])
+    const row = applyCashFlowActualYearTTMToRow(
+      { current: 999, prior: 888, trendValues: [11, 8] },
+      { trendView: "quarters", trendLabels: labels, fiscalYearEndMonth: 12, periodBasis: "current" },
+      calendar,
+    )
+    expect(row.trendValues).toEqual([30, 21])
+  })
+
+  it("variation trimestrielle Courant : N vs T−3 mois (Aoû → Mai)", () => {
+    expect(priorPeriodLabelForTrend("Aoû 2026", "quarters", "calendarPrior", 12, "current")).toBe(
+      "Mai 2026",
+    )
+    const labels = ["Aoû 2026", "Mai 2026"]
+    const calendar = new Map([
+      ["2026-8", 80],
+      ["2026-5", 50],
+    ])
+    const result = applyCashFlowCalcToTrend(
+      [0, 0],
+      labels,
+      "variation_nn1",
+      calendar,
+      "quarters",
+      "calendarPrior",
+      12,
+      "current",
+    )
+    expect(result[0]).toBe(30)
+  })
+
+  it("Annuel Exercice Variation : période en cours vs clôture précédente, pas le même mois N−1", () => {
+    expect(priorPeriodLabelForTrend("Aoû 2026", "years", "calendarPrior", 12, "fiscal")).toBe(
+      "Déc 2025",
+    )
+    expect(priorPeriodLabelForTrend("Déc 2025", "years", "calendarPrior", 12, "fiscal")).toBe(
+      "Déc 2024",
+    )
+    expect(priorPeriodLabelForTrend("Aoû 2026", "years", "calendarPrior", 3, "fiscal")).toBe(
+      "Mar 2026",
+    )
+    const labels = ["Aoû 2026", "Déc 2025", "Déc 2024"]
+    const calendar = new Map([
+      ["2026-8", 800],
+      ["2025-8", 100],
+      ["2025-12", 500],
+      ["2024-12", 400],
+    ])
+    const result = applyCashFlowCalcToTrend(
+      [0, 0, 0],
+      labels,
+      "variation_nn1",
+      calendar,
+      "years",
+      "calendarPrior",
+      12,
+      "fiscal",
+    )
+    // Aoû 2026 − Déc 2025 (pas Aoû 2025) ; Déc 2025 − Déc 2024
+    expect(result[0]).toBe(300)
+    expect(result[1]).toBe(100)
+  })
 })

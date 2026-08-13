@@ -7,7 +7,17 @@ import { StatementStructureStudio } from "@/components/statement-structure-studi
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
-import { getRowAmounts, aggregateToYears, findRow, reverseSeriesOrderForDisplay } from "@/lib/series-utils"
+import { getRowAmounts, findRow, reverseSeriesOrderForDisplay } from "@/lib/series-utils"
+import {
+  calendarYearSequenceFromReference,
+  findPeriodIndexForCalendarMonth,
+} from "@/lib/series-reference-columns"
+import {
+  capexYearCalendarMonth,
+  capexYearLabelsChronological,
+  parseFiscalYearEndMonth,
+  sliceAmountsAtCapexReferenceYears,
+} from "@/lib/capex-year-reference"
 import { getStatementStructure } from "@/lib/api"
 import {
   resolveWorkingCapitalStructureAmount,
@@ -26,6 +36,7 @@ import {
 import { CONTRIBUTIVE_MARGIN_AMOUNT_EPSILON } from "@/lib/revenue-contributive-margin-evolution"
 import { emptyHorizonColumnMask, pickHorizonColumns } from "@/lib/horizon-column-visibility"
 import { IndicatorAnalysisTableColGroup } from "@/components/indicator-analysis-table-colgroup"
+import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
 import { ChevronDown, ChevronRight, LayoutList, Settings, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { IncomePerformanceNarrativeSection } from "@/components/diagnostic/v2/income-performance-narrative-section"
@@ -143,6 +154,9 @@ export function WorkingCapitalAnalysis({
 }: WorkingCapitalAnalysisProps) {
   const resolvedYear = fiscalYear ?? new Date().getFullYear()
   const resolvedMonth = referenceMonth ?? new Date().getMonth() + 1
+  const fiscalYearEndMonth = parseFiscalYearEndMonth(
+    companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
+  )
   const monthsNeeded = view === "24months" ? 24 : view === "years" ? 60 : 12
   /** CDR : fenêtre affichée + 11 mois pour calculer le TTM à chaque date de référence. */
   const isMonthsNeeded = monthsNeeded + WORKING_CAPITAL_IS_TTM_LOOKBACK_MONTHS
@@ -252,11 +266,38 @@ export function WorkingCapitalAnalysis({
       let finalCash: number[]
 
       if (view === "years") {
-        finalAssets = aggregateToYears(assetsAmounts, bsPeriods).amounts
-        finalLiabilities = aggregateToYears(liabilitiesAmounts, bsPeriods).amounts
-        // TTM à la fin de chaque exercice (pas la somme des TTM mensuels).
-        finalRevenue = aggregateToYears(revenueTtmForBsPeriods, bsPeriods, "last").amounts
-        finalCash = aggregateToYears(cashAmounts, bsPeriods).amounts
+        finalAssets = sliceAmountsAtCapexReferenceYears(
+          assetsAmounts,
+          bsPeriods,
+          resolvedMonth,
+          resolvedYear,
+          fiscalYearEndMonth,
+          PERFORMANCE_CHART_YEAR_COUNT,
+        )
+        finalLiabilities = sliceAmountsAtCapexReferenceYears(
+          liabilitiesAmounts,
+          bsPeriods,
+          resolvedMonth,
+          resolvedYear,
+          fiscalYearEndMonth,
+          PERFORMANCE_CHART_YEAR_COUNT,
+        )
+        finalRevenue = sliceAmountsAtCapexReferenceYears(
+          revenueTtmForBsPeriods,
+          bsPeriods,
+          resolvedMonth,
+          resolvedYear,
+          fiscalYearEndMonth,
+          PERFORMANCE_CHART_YEAR_COUNT,
+        )
+        finalCash = sliceAmountsAtCapexReferenceYears(
+          cashAmounts,
+          bsPeriods,
+          resolvedMonth,
+          resolvedYear,
+          fiscalYearEndMonth,
+          PERFORMANCE_CHART_YEAR_COUNT,
+        )
       } else {
         finalAssets = assetsAmounts
         finalLiabilities = liabilitiesAmounts
@@ -307,7 +348,7 @@ export function WorkingCapitalAnalysis({
       priorCash: cLen > 1 ? cashAmounts[cLen - 2]! : 0,
       trendValues: undefined,
     }
-  }, [bsRows, isRows, bsPeriods, isPeriods, view])
+  }, [bsRows, isRows, bsPeriods, isPeriods, view, resolvedMonth, resolvedYear, fiscalYearEndMonth])
 
   const calculateWorkingCapital = (isPrior: boolean, trendIndex?: number): number => {
     if (trendIndex !== undefined && data.trendValues) {
@@ -377,13 +418,20 @@ export function WorkingCapitalAnalysis({
   const periodIndexFor = (isPrior: boolean, trendIndex?: number): number => {
     if (trendIndex !== undefined) {
       if (view === "years" && bsPeriods.length > 0) {
-        const years = [...new Set(bsPeriods.map((p) => p.fiscalYear))].sort((a, b) => a - b)
-        const fy = years[Math.max(0, Math.min(trendIndex, years.length - 1))]
-        let lastIdx = 0
-        for (let i = 0; i < bsPeriods.length; i++) {
-          if (bsPeriods[i]!.fiscalYear === fy) lastIdx = i
-        }
-        return lastIdx
+        const yearsChronological = [
+          ...calendarYearSequenceFromReference(resolvedYear, PERFORMANCE_CHART_YEAR_COUNT),
+        ].reverse()
+        const year =
+          yearsChronological[
+            Math.max(0, Math.min(trendIndex, yearsChronological.length - 1))
+          ]!
+        const month = capexYearCalendarMonth(
+          year,
+          resolvedMonth,
+          resolvedYear,
+          fiscalYearEndMonth,
+        )
+        return findPeriodIndexForCalendarMonth(bsPeriods, month, year)
       }
       return Math.max(0, Math.min(trendIndex, Math.max(0, bsPeriods.length - 1)))
     }
@@ -478,6 +526,8 @@ export function WorkingCapitalAnalysis({
           showAmounts: true,
           format: metricFormat,
           valueAt: (isPrior: boolean, trendIndex?: number) => {
+            const periodIndex = periodIndexFor(isPrior, trendIndex)
+            if (periodIndex < 0) return 0
             const raw =
               resolveWorkingCapitalStructureAmount(
                 row,
@@ -485,7 +535,7 @@ export function WorkingCapitalAnalysis({
                 isRows,
                 bsPeriods,
                 isPeriods,
-                periodIndexFor(isPrior, trendIndex),
+                periodIndex,
                 structure,
               ) ?? 0
             return displayFormat === "percent" ? raw * 100 : raw
@@ -547,7 +597,18 @@ export function WorkingCapitalAnalysis({
     })
   }
 
+  const yearColumnLabelsChronological = () =>
+    capexYearLabelsChronological(
+      resolvedMonth,
+      resolvedYear,
+      fiscalYearEndMonth,
+      PERFORMANCE_CHART_YEAR_COUNT,
+    )
+
   const getPeriodColumnLabels = (): string[] => {
+    if (view === "years") {
+      return reverseSeriesOrderForDisplay(yearColumnLabelsChronological())
+    }
     if (bsPeriods.length > 0) {
       if (view === "current") {
         // Courant = date de référence, Passé = période précédente (libellés réels, décroissant).
@@ -558,20 +619,9 @@ export function WorkingCapitalAnalysis({
             : "Passé"
         return [last, prior]
       }
-      const chronological =
-        view === "years"
-          ? aggregateToYears(
-              bsPeriods.map(() => 0),
-              bsPeriods,
-            ).labels
-          : bsPeriods.map((p) => p.label)
-      return reverseSeriesOrderForDisplay(chronological)
+      return reverseSeriesOrderForDisplay(bsPeriods.map((p) => p.label))
     }
     if (view === "current") return ["Courant", "Passé"]
-    if (view === "years") {
-      const cy = new Date().getFullYear()
-      return Array.from({ length: 6 }, (_, i) => `${cy - i}`)
-    }
     const count = view === "24months" ? 24 : 12
     const months = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"]
     const labels: string[] = []
@@ -595,15 +645,18 @@ export function WorkingCapitalAnalysis({
 
   const trendCount =
     data.trendValues?.length ||
-    (view === "24months" ? 24 : view === "years" ? 6 : view === "12months" ? 12 : 0)
+    (view === "24months"
+      ? 24
+      : view === "years"
+        ? PERFORMANCE_CHART_YEAR_COUNT
+        : view === "12months"
+          ? 12
+          : 0)
 
   const annualYearsColumnMask = useMemo(() => {
     if (view !== "years" || bsPeriods.length === 0) return null
 
-    const chronologicalLabels = aggregateToYears(
-      bsPeriods.map(() => 0),
-      bsPeriods,
-    ).labels
+    const chronologicalLabels = yearColumnLabelsChronological()
     const displayLabels = reverseSeriesOrderForDisplay(chronologicalLabels)
     const metricRows = tableRows
       .filter((item): item is Extract<typeof item, { kind: "metric" }> => item.kind === "metric")
@@ -617,7 +670,7 @@ export function WorkingCapitalAnalysis({
 
     if (!metricRows.length || !displayLabels.length) return null
     return emptyHorizonColumnMask(displayLabels.length, metricRows)
-  }, [view, tableRows, trendCount, bsPeriods])
+  }, [view, tableRows, trendCount, bsPeriods, resolvedMonth, resolvedYear, fiscalYearEndMonth])
 
   const filterAnnualDisplayColumns = <T,>(items: T[]): T[] => {
     if (view !== "years" || !annualYearsColumnMask) return items
@@ -627,8 +680,10 @@ export function WorkingCapitalAnalysis({
   const getVisiblePeriodColumnLabels = (): string[] =>
     filterAnnualDisplayColumns(getPeriodColumnLabels())
 
-  const tableColumnCount =
-    2 + (view === "current" ? 2 : Math.max(trendCount, getVisiblePeriodColumnLabels().length, 1))
+  const visiblePeriodLabels = getVisiblePeriodColumnLabels()
+  const visiblePeriodCount = view === "current" ? 2 : Math.max(visiblePeriodLabels.length, 1)
+  const fillTableWidth = isDiagnosticAppearance || view !== "current"
+  const tableColumnCount = 2 + visiblePeriodCount
 
   /** Style montants : Détail CDR (slate-500) ; postes gras → libellé + montants en gras. */
   const metricColumnClass = isDiagnosticAppearance
@@ -832,39 +887,25 @@ export function WorkingCapitalAnalysis({
     const formatCell = (value: number) =>
       metric.showAmounts ? formatMetricValue(value, metric.format) : ""
 
+    const operandAmountAt = (code: string, periodIndex: number): number => {
+      if (periodIndex < 0) return 0
+      return resolveWorkingCapitalOperandAmount(
+        code,
+        bsRows,
+        isRows,
+        bsPeriods,
+        isPeriods,
+        periodIndex,
+        structure,
+      )
+    }
+
     const operandChronologicalValues = (code: string): number[] => {
       if (view === "current") {
-        return [
-          resolveWorkingCapitalOperandAmount(
-            code,
-            bsRows,
-            isRows,
-            bsPeriods,
-            isPeriods,
-            periodIndexFor(false),
-            structure,
-          ),
-          resolveWorkingCapitalOperandAmount(
-            code,
-            bsRows,
-            isRows,
-            bsPeriods,
-            isPeriods,
-            periodIndexFor(true),
-            structure,
-          ),
-        ]
+        return [operandAmountAt(code, periodIndexFor(false)), operandAmountAt(code, periodIndexFor(true))]
       }
       return Array.from({ length: trendCount }, (_, idx) =>
-        resolveWorkingCapitalOperandAmount(
-          code,
-          bsRows,
-          isRows,
-          bsPeriods,
-          isPeriods,
-          periodIndexFor(false, idx),
-          structure,
-        ),
+        operandAmountAt(code, periodIndexFor(false, idx)),
       )
     }
 
@@ -1029,15 +1070,11 @@ export function WorkingCapitalAnalysis({
           <table
             className={cn(
               "w-full border-separate border-spacing-0",
-              isDiagnosticAppearance ? "table-fixed" : "min-w-max",
+              fillTableWidth ? "table-fixed" : "min-w-max",
             )}
           >
-            {isDiagnosticAppearance ? (
-              <IndicatorAnalysisTableColGroup
-                periodCount={
-                  view === "current" ? 2 : getVisiblePeriodColumnLabels().length
-                }
-              />
+            {fillTableWidth ? (
+              <IndicatorAnalysisTableColGroup periodCount={visiblePeriodCount} />
             ) : null}
             <thead
               className={cn(
@@ -1052,7 +1089,7 @@ export function WorkingCapitalAnalysis({
                   Métrique
                 </th>
                 <th className={tableHeaderAverageClass}>Moyenne</th>
-                {getVisiblePeriodColumnLabels().map((label, idx) => (
+                {visiblePeriodLabels.map((label, idx) => (
                   <th key={idx} className={tableHeaderPeriodClass}>
                     {label}
                   </th>
@@ -1077,10 +1114,7 @@ export function WorkingCapitalAnalysis({
                   )
                 }
                 if (item.kind === "spacer") {
-                  const periodColCount =
-                    view === "current"
-                      ? 2
-                      : Math.max(trendCount, getVisiblePeriodColumnLabels().length, 1)
+                  const periodColCount = visiblePeriodCount
                   return (
                     <tr key={item.key} data-testid="wc-structure-spacer" className="h-2">
                       <td

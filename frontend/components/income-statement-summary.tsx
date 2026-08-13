@@ -500,7 +500,7 @@ export function IncomeStatementSummary({
             refYear,
             periodBasis,
             fiscalYearEndMonth,
-            PERFORMANCE_CHART_YEAR_COUNT,
+            PERFORMANCE_CHART_YEAR_COUNT + 1,
           )
         }
       } else if (view === "24months") {
@@ -2477,7 +2477,9 @@ export function IncomeStatementSummary({
                   )}
                   {!showStructureCols && view === "years" && row.trendValues && (
                     <>
-                      {row.trendValues.map((value, valueIdx) => (
+                      {getYearLabels().map((_, valueIdx) => {
+                        const value = row.trendValues?.[valueIdx] ?? 0
+                        return (
                         <td
                           key={valueIdx}
                           className={cn(
@@ -2510,7 +2512,8 @@ export function IncomeStatementSummary({
                                 : (value !== 0 ? formatCurrency(value) : "-")
                           }
                         </td>
-                      ))}
+                        )
+                      })}
                     </>
                   )}
                   {view === "24months" && row.trendValues && (

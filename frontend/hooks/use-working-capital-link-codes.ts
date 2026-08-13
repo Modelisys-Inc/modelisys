@@ -2,10 +2,18 @@
 
 import { useEffect, useState } from "react"
 import { listStandardLinkCodesFlat } from "@/lib/api"
-import { workingCapitalLinkCodeOptions } from "@/lib/standard-link-code-utils"
+import {
+  capexLinkCodeOptions,
+  workingCapitalLinkCodeOptions,
+} from "@/lib/standard-link-code-utils"
 
-/** Codes de liaison Bilan + Résultats pour le picker Paramètres fonds de roulement. */
-export function useWorkingCapitalLinkCodes(enabled: boolean) {
+export type AnalysisLinkCodeVariant = "working-capital" | "capex"
+
+/** Codes de liaison Bilan + Résultats pour le picker Paramètres FDR / Capex. */
+export function useWorkingCapitalLinkCodes(
+  enabled: boolean,
+  variant: AnalysisLinkCodeVariant = "working-capital",
+) {
   const [codes, setCodes] = useState<string[]>([])
   const [labels, setLabels] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(false)
@@ -24,7 +32,10 @@ export function useWorkingCapitalLinkCodes(enabled: boolean) {
     listStandardLinkCodesFlat(false)
       .then((all) => {
         if (cancelled) return
-        const { codes: nextCodes, labels: nextLabels } = workingCapitalLinkCodeOptions(all)
+        const { codes: nextCodes, labels: nextLabels } =
+          variant === "capex"
+            ? capexLinkCodeOptions(all)
+            : workingCapitalLinkCodeOptions(all)
         setCodes(nextCodes)
         setLabels(nextLabels)
       })
@@ -40,7 +51,7 @@ export function useWorkingCapitalLinkCodes(enabled: boolean) {
     return () => {
       cancelled = true
     }
-  }, [enabled])
+  }, [enabled, variant])
 
   return { codes, labels, loading }
 }

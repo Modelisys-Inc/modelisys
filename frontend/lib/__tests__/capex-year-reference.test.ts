@@ -4,6 +4,7 @@ import {
   capexYearLabelsChronological,
   capexYearPeriodIndicesFromReference,
   endOfPriorFiscalQuarter,
+  endOfPriorFiscalYear,
   monthsInFiscalQuarterContaining,
   fiscalYearStartContaining,
   monthsInFiscalQuarterThrough,
@@ -95,6 +96,13 @@ describe("capex year reference", () => {
     expect(endOfPriorFiscalQuarter(11, 2026, 12)).toEqual({ month: 9, year: 2026 })
     expect(endOfPriorFiscalQuarter(12, 2026, 12)).toEqual({ month: 9, year: 2026 })
     expect(endOfPriorFiscalQuarter(8, 2026, 8)).toEqual({ month: 5, year: 2026 })
+  })
+
+  it("resolves the end of the prior fiscal year for a mid-year as-of", () => {
+    expect(endOfPriorFiscalYear(8, 2026, 12)).toEqual({ month: 12, year: 2025 })
+    expect(endOfPriorFiscalYear(12, 2026, 12)).toEqual({ month: 12, year: 2025 })
+    expect(endOfPriorFiscalYear(8, 2026, 3)).toEqual({ month: 3, year: 2026 })
+    expect(endOfPriorFiscalYear(3, 2026, 3)).toEqual({ month: 3, year: 2025 })
   })
 
   it("uses reference month for current year and fiscal year end for prior years", () => {

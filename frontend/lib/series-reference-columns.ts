@@ -426,6 +426,16 @@ export function yearTrendFromReference(
   return years.map((y) => sumCalendarYear(map, y))
 }
 
+/** Snapshot au mois civil de chaque point (bilan / variation trésorerie). */
+export function snapshotTrendFromCalendarSequence(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  sequence: { month: number; year: number }[],
+): number[] {
+  const map = buildAmountsByCalendarMonth(row, periods)
+  return sequence.map(({ month, year }) => map.get(calendarMonthKey(month, year)) ?? 0)
+}
+
 /** Bilan : solde à la date de clôture (mois de référence) pour chaque année — pas une somme des mois. */
 export function balanceSheetYearTrendFromReference(
   row: SeriesRow,
@@ -434,9 +444,42 @@ export function balanceSheetYearTrendFromReference(
   refYear: number,
   count = 5,
 ): number[] {
-  const map = buildAmountsByCalendarMonth(row, periods)
-  const years = calendarYearSequenceFromReference(refYear, count)
-  return years.map((year) => map.get(calendarMonthKey(refMonth, year)) ?? 0)
+  return snapshotTrendFromCalendarSequence(
+    row,
+    periods,
+    calendarYearSequenceFromReference(refYear, count).map((year) => ({ month: refMonth, year })),
+  )
+}
+
+/** Bilan Exercice : solde à la date de référence, puis à chaque fin d’exercice close. */
+export function balanceSheetFiscalYearTrendFromReference(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  refMonth: number,
+  refYear: number,
+  count = 5,
+  fiscalYearEndMonth = 12,
+): number[] {
+  return snapshotTrendFromCalendarSequence(
+    row,
+    periods,
+    fiscalYearAsOfSequenceFromReference(refMonth, refYear, count, fiscalYearEndMonth),
+  )
+}
+
+/** Bilan / variation CF « Courant » trimestriel : solde tous les 3 mois civils. */
+export function trailingQuarterSnapshotTrendFromReference(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  refMonth: number,
+  refYear: number,
+  count = 5,
+): number[] {
+  return snapshotTrendFromCalendarSequence(
+    row,
+    periods,
+    trailingQuarterMonthSequenceFromReference(refMonth, refYear, count),
+  )
 }
 
 export function yearLabelsFromReference(refYear: number, count = 5): string[] {

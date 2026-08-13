@@ -276,7 +276,7 @@ function balanceAccountsFromSeriesRowDetail(
               INCOME_STATEMENT_QUARTER_COUNT,
             )
           : useCalendarYearTotals
-            ? yearTrendFromReference(pseudo, periods, refYear, PERFORMANCE_CHART_YEAR_COUNT)
+            ? yearTrendFromReference(pseudo, periods, refYear, PERFORMANCE_CHART_YEAR_COUNT + 1)
             : incomeStatementYearTrendForBasis(
                 pseudo,
                 periods,
@@ -284,7 +284,7 @@ function balanceAccountsFromSeriesRowDetail(
                 refYear,
                 periodBasis,
                 fiscalYearEndMonth,
-                PERFORMANCE_CHART_YEAR_COUNT,
+                PERFORMANCE_CHART_YEAR_COUNT + 1,
               )
     return {
       accountNumber: dr.id,
@@ -3131,7 +3131,7 @@ export function IncomeStatementDetail({
             refYear,
             periodBasis,
             fiscalYearEndMonth,
-            PERFORMANCE_CHART_YEAR_COUNT,
+            PERFORMANCE_CHART_YEAR_COUNT + 1,
           )
       const lastAmount = trend[0] || 0
       const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
@@ -3891,7 +3891,7 @@ export function IncomeStatementDetail({
             refYear,
             periodBasis,
             fiscalYearEndMonth,
-            PERFORMANCE_CHART_YEAR_COUNT,
+            PERFORMANCE_CHART_YEAR_COUNT + 1,
           )
         }
       }
@@ -4259,6 +4259,22 @@ export function IncomeStatementDetail({
   const getTrendVariationAmount = (values: number[], valueIdx: number): number | null => {
     if (valueIdx >= values.length - 1) return null
     return (values[valueIdx] ?? 0) - (values[valueIdx + 1] ?? 0)
+  }
+
+  const isTrendVariationMode =
+    columnMode === "variationAmount" || columnMode === "variationPercent"
+
+  const renderTrendVariationText = (values: number[], valueIdx: number): string => {
+    if (columnMode === "variationPercent") {
+      const trendVariation = getTrendVariation(values, valueIdx)
+      return trendVariation !== null
+        ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%`
+        : "-"
+    }
+    const trendVariationAmount = getTrendVariationAmount(values, valueIdx)
+    return trendVariationAmount !== null
+      ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}`
+      : "-"
   }
 
   // Helper function to generate descriptive text
@@ -4999,21 +5015,22 @@ export function IncomeStatementDetail({
                     </p>
                   </div>
 
-                  {columnMode === "variations" && showComparisonAmounts ? (
-                    <>
+                  {isTrendVariationMode && showComparisonAmounts ? (
+                    columnMode === "variationPercent" ? (
                       <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Variation %</p>
                         <p className={cn("mt-2 text-lg font-semibold tabular-nums", variation != null && variation >= 0 ? "text-emerald-600" : "text-red-600")}>
                           {variation != null && ctx.current !== 0 ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%` : "—"}
                         </p>
                       </div>
+                    ) : (
                       <div className="rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-sm">
                         <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Variation $</p>
                         <p className={cn("mt-2 text-lg font-semibold tabular-nums", variationAmount >= 0 ? "text-emerald-600" : "text-red-600")}>
                           {ctx.current !== 0 ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}` : "—"}
                         </p>
                       </div>
-                    </>
+                    )
                   ) : null}
 
                   {columnMode === "percentage" && showComparisonAmounts ? (
@@ -9046,27 +9063,26 @@ export function IncomeStatementDetail({
                       >
                         {row.prior !== 0 ? formatCurrency(row.prior) : "-"}
                       </td>
-                      {columnMode === "variations" ? (
-                        <>
-                          <td
-                            className={`px-6 py-3 text-right ${row.isBold ? "font-semibold " : ""}${
-                              variation && variation >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
-                          >
-                            {variation !== null && row.current !== 0
-                              ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
-                              : "-"}
-                          </td>
-                          <td
-                            className={`px-6 py-3 text-right font-semibold ${
-                              variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
-                            } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
-                          >
-                            {row.current !== 0
-                              ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
-                              : "-"}
-                          </td>
-                        </>
+                      {columnMode === "variationPercent" ? (
+                        <td
+                          className={`px-6 py-3 text-right ${row.isBold ? "font-semibold " : ""}${
+                            variation && variation >= 0 ? "text-emerald-600" : "text-red-600"
+                          } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
+                        >
+                          {variation !== null && row.current !== 0
+                            ? `${variation >= 0 ? "+" : ""}${variation.toFixed(1)}%`
+                            : "-"}
+                        </td>
+                      ) : columnMode === "variationAmount" ? (
+                        <td
+                          className={`px-6 py-3 text-right font-semibold ${
+                            variationAmount >= 0 ? "text-emerald-600" : "text-red-600"
+                          } ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}
+                        >
+                          {row.current !== 0
+                            ? `${variationAmount >= 0 ? "+" : ""}${formatCurrency(variationAmount)}`
+                            : "-"}
+                        </td>
                       ) : columnMode === "percentage" ? (
                         <>
                           <td className={`px-6 py-3 text-right ${amountWeightClass} ${shouldHideAmounts ? "text-white" : ""}${annexSubtotalDarkNumbers ? " text-slate-900" : ""}`}>
@@ -9111,17 +9127,8 @@ export function IncomeStatementDetail({
                         >
                           {columnMode === "percentage"
                             ? (value !== 0 ? `${getTrendRevenuePercentage(value, valueIdx).toFixed(1)}%` : "-")
-                            : columnMode === "variationAmount" || columnMode === "variationPercent"
-                              ? (() => {
-                                  const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
-                                  const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
-                                  if (columnMode === "variationPercent") {
-                                    return trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"
-                                  }
-                                  return trendVariationAmount !== null
-                                    ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}`
-                                    : "-"
-                                })()
+                            : isTrendVariationMode
+                              ? renderTrendVariationText(row.trendValues ?? [], valueIdx)
                               : (value !== 0 ? formatCurrency(value) : "-")}
                         </td>
                       ))}
@@ -9136,17 +9143,8 @@ export function IncomeStatementDetail({
                         >
                           {columnMode === "percentage"
                             ? (value !== 0 ? `${getTrendRevenuePercentage(value, valueIdx).toFixed(1)}%` : "-")
-                            : columnMode === "variationAmount" || columnMode === "variationPercent"
-                              ? (() => {
-                                  const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
-                                  const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
-                                  if (columnMode === "variationPercent") {
-                                    return trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"
-                                  }
-                                  return trendVariationAmount !== null
-                                    ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}`
-                                    : "-"
-                                })()
+                            : isTrendVariationMode
+                              ? renderTrendVariationText(row.trendValues ?? [], valueIdx)
                               : (value !== 0 ? formatCurrency(value) : "-")}
                         </td>
                       ))}
@@ -9221,7 +9219,8 @@ export function IncomeStatementDetail({
                           )}
                         </td>
                       )}
-                      {row.trendValues.map((value, valueIdx) => {
+                      {getYearLabels().map((_, valueIdx) => {
+                        const value = row.trendValues?.[valueIdx] ?? 0
                         const annexLetterNorm = normalizeAnnexLetter(String(row.annexLetter ?? ""))
                         const annexForecastTotalsForRow =
                           isForecastSection &&
@@ -9384,19 +9383,8 @@ export function IncomeStatementDetail({
                                     ? displayValue
                                     : !isForecastSection && columnMode === "percentage"
                                       ? (actualValue !== 0 ? `${getTrendRevenuePercentage(actualValue, valueIdx).toFixed(1)}%` : "-")
-                                      : !isForecastSection && columnMode === "variations"
-                                        ? (() => {
-                                            const trendVariation = getTrendVariation(row.trendValues ?? [], valueIdx)
-                                            const trendVariationAmount = getTrendVariationAmount(row.trendValues ?? [], valueIdx)
-                                            return (
-                                              <div className="space-y-0.5">
-                                                <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
-                                                <div className="text-[11px] font-medium">
-                                                  {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
-                                                </div>
-                                              </div>
-                                            )
-                                          })()
+                                      : !isForecastSection && isTrendVariationMode
+                                        ? renderTrendVariationText(row.trendValues ?? [], valueIdx)
                                         : (effectiveValue !== 0 ? formatCurrency(effectiveValue) : "-")}
                                 </div>
                               </div>
@@ -9764,19 +9752,8 @@ export function IncomeStatementDetail({
                                     <td key={valueIdx} className="px-4 py-2 text-right font-normal text-sm text-slate-700">
                                       {columnMode === "percentage"
                                         ? (accountTrendValue !== 0 ? `${getTrendRevenuePercentage(accountTrendValue, valueIdx).toFixed(1)}%` : "-")
-                                        : columnMode === "variations"
-                                          ? (() => {
-                                              const trendVariation = getTrendVariation(account.trendValues ?? row.trendValues ?? [], valueIdx)
-                                              const trendVariationAmount = getTrendVariationAmount(account.trendValues ?? row.trendValues ?? [], valueIdx)
-                                              return (
-                                                <div className="space-y-0.5">
-                                                  <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
-                                                  <div className="text-[11px] font-medium">
-                                                    {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
-                                                  </div>
-                                                </div>
-                                              )
-                                            })()
+                                        : isTrendVariationMode
+                                          ? renderTrendVariationText(account.trendValues ?? row.trendValues ?? [], valueIdx)
                                           : (accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-")}
                                     </td>
                                   )
@@ -9799,19 +9776,8 @@ export function IncomeStatementDetail({
                                     <td key={valueIdx} className="px-4 py-2 text-right font-normal text-sm text-slate-700">
                                       {columnMode === "percentage"
                                         ? (accountTrendValue !== 0 ? `${getTrendRevenuePercentage(accountTrendValue, valueIdx).toFixed(1)}%` : "-")
-                                        : columnMode === "variations"
-                                          ? (() => {
-                                              const trendVariation = getTrendVariation(account.trendValues ?? row.trendValues ?? [], valueIdx)
-                                              const trendVariationAmount = getTrendVariationAmount(account.trendValues ?? row.trendValues ?? [], valueIdx)
-                                              return (
-                                                <div className="space-y-0.5">
-                                                  <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
-                                                  <div className="text-[11px] font-medium">
-                                                    {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
-                                                  </div>
-                                                </div>
-                                              )
-                                            })()
+                                        : isTrendVariationMode
+                                          ? renderTrendVariationText(account.trendValues ?? row.trendValues ?? [], valueIdx)
                                           : (accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-")}
                                     </td>
                                   )
@@ -9856,7 +9822,14 @@ export function IncomeStatementDetail({
                                     )}
                                   </td>
                                 )}
-                                {row.trendValues.map((rowTrendValue, valueIdx) => {
+                                {Array.from(
+                                  {
+                                    length: isForecastSection
+                                      ? row.trendValues.length
+                                      : getYearLabels().length,
+                                  },
+                                  (_, valueIdx) => {
+                                  const rowTrendValue = row.trendValues[valueIdx] ?? 0
                                   // Get the actual row value (edited or default) for forecast sections
                                   const actualRowValue = isForecastSection && row.rowId 
                                     ? getRevenueValue(row.rowId, valueIdx, rowTrendValue, undefined, row.trendValues)
@@ -9914,19 +9887,8 @@ export function IncomeStatementDetail({
                                         ? displayValue
                                         : !isForecastSection && columnMode === "percentage"
                                           ? (accountTrendValue !== 0 ? `${getTrendRevenuePercentage(accountTrendValue, valueIdx).toFixed(1)}%` : "-")
-                                          : !isForecastSection && columnMode === "variations"
-                                            ? (() => {
-                                                const trendVariation = getTrendVariation(account.trendValues ?? row.trendValues ?? [], valueIdx)
-                                                const trendVariationAmount = getTrendVariationAmount(account.trendValues ?? row.trendValues ?? [], valueIdx)
-                                                return (
-                                                  <div className="space-y-0.5">
-                                                    <div>{trendVariation !== null ? `${trendVariation >= 0 ? "+" : ""}${trendVariation.toFixed(1)}%` : "-"}</div>
-                                                    <div className="text-[11px] font-medium">
-                                                      {trendVariationAmount !== null ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}` : "-"}
-                                                    </div>
-                                                  </div>
-                                                )
-                                              })()
+                                          : !isForecastSection && isTrendVariationMode
+                                            ? renderTrendVariationText(account.trendValues ?? row.trendValues ?? [], valueIdx)
                                             : (accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-")}
                                     </td>
                                   )

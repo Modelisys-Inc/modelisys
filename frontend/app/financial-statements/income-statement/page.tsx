@@ -122,7 +122,7 @@ export default function IncomeStatementPage() {
     const allowed = view === "12months" || view === "quarters" || view === "years"
     if (!allowed) {
       setView("12months")
-      setColumnMode("variations")
+      setColumnMode("variationAmount")
     }
   }, [section, view])
 

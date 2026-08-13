@@ -33,7 +33,10 @@ import {
   ensureBalanceSheetValidationStructure,
   isBalanceSheetValidationStructureRow,
 } from "@/lib/balance-sheet-validation"
-import { isCapexSettingsStructureRow } from "@/lib/capex-analysis-settings"
+import {
+  isCapexSettingsStructureRow,
+  normalizeCapexStructure,
+} from "@/lib/capex-analysis-settings"
 
 export type StatementStructureEditKind = Extract<
   StatementType,
@@ -96,7 +99,9 @@ export function useStatementStructureEdit(
           ? stripObsoleteIncomeStatementStructureRows(raw)
           : statementType === "balance-sheet"
             ? ensureBalanceSheetValidationStructure(raw)
-            : raw
+            : statementType === "capex"
+              ? normalizeCapexStructure(raw)
+              : raw
       // Normaliser les identifiants d'annexe selon l'ordre d'apparition dès le
       // chargement : les structures anciennes (identifiants désordonnés) sont
       // corrigées en mémoire et le champ « Lettre » (lecture seule) est exact.
@@ -378,7 +383,9 @@ export function useStatementStructureEdit(
           ? stripObsoleteIncomeStatementStructureRows(normalized)
           : statementType === "balance-sheet"
             ? ensureBalanceSheetValidationStructure(normalized)
-            : normalized
+            : statementType === "capex"
+              ? normalizeCapexStructure(normalized)
+              : normalized
       // Renuméroter les annexes selon l'ordre d'apparition avant validation /
       // sauvegarde : chaque annexe possède donc déjà un identifiant.
       const toSave = renumberAnnexesByAppearance(cleaned, annexScheme)
