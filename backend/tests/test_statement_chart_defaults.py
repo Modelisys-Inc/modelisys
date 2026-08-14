@@ -15,7 +15,9 @@ def test_income_statement_default_has_three_series():
 def test_income_statement_default_margin_references_revenue_series():
     cfg = seed_default_chart_config("income-statement")
     rev_id = cfg["series"][0]["id"]
-    margin_spec = cfg["series"][2]["spec"]
+    # Series order is Revenus / Contribution marginale (%) / BAIIA — the margin
+    # line is index 1 (index 2 is the BAIIA bar, spec type "single").
+    margin_spec = cfg["series"][1]["spec"]
     assert margin_spec["type"] == "derivedContributiveMargin"
     assert margin_spec["revenueSeriesId"] == rev_id
 

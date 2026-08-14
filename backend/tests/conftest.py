@@ -83,6 +83,14 @@ def seed_standard_link_codes(setup_db):
         StandardLinkCode(code="AC-001", family="TST", is_leaf=True, sort_order=12),
         StandardLinkCode(code="A", family="TST", is_leaf=True, sort_order=13),
         StandardLinkCode(code="CF-CASH", family="TST", is_leaf=True, sort_order=14),
+        # Real-chart-shaped ALT leaf: the mapping upsert gate rejects codes that
+        # aren't assignable, and the alt_asset_cost / alt_accumulated_amortization
+        # flags only make sense on an ALT code. family stays "TST" — the DT/CT
+        # sign is derived from the *code string* (derive_link_code_family), so
+        # ALT-B.1 still behaves as ALT without pulling a real family into the
+        # seed. (REV-A/REV-B are deliberately NOT seeded here: several tests
+        # define them locally as non-leaf parents with REV-A.1/REV-B.1 leaves.)
+        StandardLinkCode(code="ALT-B.1", family="TST", is_leaf=True, sort_order=15),
     ]
     with Session(engine) as session:
         session.add_all(codes)
