@@ -27,7 +27,7 @@ export const STANDARD_PRE_REVENUE_ADVANCE_DAYS = [30, 60, 90, 120] as const
 export const DEFAULT_FORECAST_COLLECTION_CASH: ForecastCollectionCash = {
   mode: "advanced",
   dsoDays: 45,
-  badDebtPercent: 1,
+  badDebtPercent: 0,
 }
 
 export function clampRoundBadDebt(p: number): number {
@@ -161,7 +161,7 @@ export function parseCollectionCashFromStorage(adj: {
   const raw = adj.disbursementCash ?? adj.collectionCash
   if (raw && typeof raw === "object" && raw !== null && "mode" in raw) {
     const c = raw as Record<string, unknown>
-    const badDebtPercent = clampRoundBadDebt(Number(c.badDebtPercent))
+    const badDebtPercent = 0
     const bucketsRaw = c.advancedBuckets
     let advancedBuckets: ForecastCollectionBucket[]
     if (Array.isArray(bucketsRaw) && bucketsRaw.length > 0) {

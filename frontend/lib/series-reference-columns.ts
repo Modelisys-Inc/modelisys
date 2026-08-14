@@ -60,6 +60,16 @@ export function parseSeriesPeriodCalendarLabel(label: string): { month: number; 
   return { month: mon, year }
 }
 
+/** Libellé numérique de test / fallback (`1/2027`, `01-2027`). */
+function parseNumericPeriodLabel(label: string): { month: number; year: number } | null {
+  const m = /^(\d{1,2})[/-](\d{4})$/.exec(label.trim())
+  if (!m) return null
+  const month = Number(m[1])
+  const year = Number(m[2])
+  if (!Number.isFinite(month) || !Number.isFinite(year) || month < 1 || month > 12) return null
+  return { month, year }
+}
+
 function calendarMonthKey(month: number, year: number): string {
   return `${year}-${month}`
 }
@@ -73,7 +83,12 @@ function priorCalMonth(m: number, y: number): { month: number; year: number } {
 export function buildAmountsByCalendarMonth(row: SeriesRow, periods: SeriesPeriod[]): Map<string, number> {
   const map = new Map<string, number>()
   for (const p of periods) {
-    const cal = parseSeriesPeriodCalendarLabel(p.label)
+    const cal =
+      parseSeriesPeriodCalendarLabel(p.label) ??
+      parseNumericPeriodLabel(p.label) ??
+      (p.fiscalMonth >= 1 && p.fiscalMonth <= 12
+        ? { month: p.fiscalMonth, year: p.fiscalYear }
+        : null)
     if (!cal) continue
     const key = calendarMonthKey(cal.month, cal.year)
     const amt = row.amounts[`${p.fiscalYear}-${p.fiscalMonth}`] ?? 0

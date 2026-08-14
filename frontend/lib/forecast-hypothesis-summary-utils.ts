@@ -22,7 +22,7 @@ export type HypothesisYearSummaryInput = {
   cashFlowBySeasonalityDirect?: boolean
   /** Saisonnalité du décaissement (défaut = seasonalityMonthPercents). */
   cashFlowSeasonalityMonthPercents?: number[]
-  /** Revenus : mauvaise créance. Dépenses : 0 (décaissement à 100 %). */
+  /** Toujours 0 (encaissement / décaissement à 100 %). Conservé pour compatibilité du payload. */
   badDebtPercent: number
   buckets: ForecastCollectionBucket[]
   /** Dépenses variables : avance pré-revenus → décalage de la saisonnalité ; décaissement = charge + délai paiement. */

@@ -35,6 +35,82 @@ export const FORECAST_SEASONALITY_AXIS_LABELS = [
 export const FORECAST_SEASONALITY_CHART_SLATE = "#475569"
 /** Courbe de référence : saisonnalité des revenus liés (dépenses variables). */
 export const FORECAST_SEASONALITY_REVENUE_OVERLAY_BLUE = "#2563eb"
+/** Exercice réel le plus ancien (N−2), puis N−1 — distincts de la projection ardoise. */
+export const FORECAST_SEASONALITY_ACTUAL_YEAR_COLORS = ["#94a3b8", "#0284c7"] as const
+
+export type ActualYearSeasonality = {
+  year: number
+  percents: number[]
+  hasData: boolean
+}
+
+/** Deux derniers exercices civils clos avant l’année de début de projection (ex. 2026 → 2024, 2025). */
+export function lastTwoActualCalendarYears(projectionStartYear: number): [number, number] {
+  const lastActual = Math.round(Number(projectionStartYear) || 0) - 1
+  return [lastActual - 1, lastActual]
+}
+
+export function calendarYearMonthlyAmounts(amountByCalendarMonth: Map<string, number>, year: number): number[] {
+  return Array.from({ length: 12 }, (_, i) => {
+    const raw = amountByCalendarMonth.get(`${year}-${i + 1}`) ?? 0
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return 0
+    return Math.abs(n)
+  })
+}
+
+export function seasonalityPercentsFromMonthlyAmounts(amounts: number[]): ActualYearSeasonality["percents"] {
+  const safe = amounts.map((a) => Math.max(0, Number(a) || 0))
+  if (safe.reduce((s, v) => s + v, 0) <= 0) return Array.from({ length: 12 }, () => 0)
+  return normalizeForecastSeasonalityMonthPercents(safe)
+}
+
+export function actualYearsSeasonalityFromCalendarMap(
+  amountByCalendarMonth: Map<string, number>,
+  years: number[]
+): ActualYearSeasonality[] {
+  return years.map((year) => {
+    const amounts = calendarYearMonthlyAmounts(amountByCalendarMonth, year)
+    const hasData = amounts.some((v) => v > 0)
+    return {
+      year,
+      percents: hasData ? seasonalityPercentsFromMonthlyAmounts(amounts) : Array.from({ length: 12 }, () => 0),
+      hasData,
+    }
+  })
+}
+
+/** Moyenne mensuelle des saisonnalités (années avec données, poids égaux), renormalisée à 100 %. */
+export function averageSeasonalityMonthPercents(years: ActualYearSeasonality[]): number[] {
+  const withData = years.filter((y) => y.hasData)
+  if (withData.length === 0) return createDefaultForecastSeasonalityMonthPercents()
+  const avg = Array.from({ length: 12 }, (_, m) => {
+    const sum = withData.reduce((s, y) => s + (y.percents[m] ?? 0), 0)
+    return sum / withData.length
+  })
+  return normalizeForecastSeasonalityMonthPercents(avg)
+}
+
+/**
+ * Saisonnalité globale = répartition des montants mensuels Σ (poids × % poste).
+ * Ex. revenus totaux projetés = Σ (CA_i × saisonnalité_i), renormalisé à 100 %.
+ */
+export function weightedSeasonalityMonthPercents(
+  contributions: { weight: number; monthPercents: number[] }[]
+): number[] {
+  const usable = contributions.filter((c) => Number.isFinite(c.weight) && Math.abs(c.weight) > 1e-9)
+  if (usable.length === 0) return createDefaultForecastSeasonalityMonthPercents()
+  const monthAmounts = Array.from({ length: 12 }, (_, m) => {
+    let sum = 0
+    for (const c of usable) {
+      const pct = normalizeForecastSeasonalityMonthPercents(c.monthPercents)
+      sum += Math.abs(c.weight) * ((pct[m] ?? 0) / 100)
+    }
+    return sum
+  })
+  if (monthAmounts.every((v) => v <= 0)) return createDefaultForecastSeasonalityMonthPercents()
+  return seasonalityPercentsFromMonthlyAmounts(monthAmounts)
+}
 
 export function createDefaultForecastSeasonalityMonthPercents(): number[] {
   const n = 12
@@ -96,6 +172,31 @@ export function normalizeForecastSeasonalityMonthPercents(months: number[]): num
   }
   return out
 }
+
+/** Clamp 12 mois à des % ≥ 0 sans renormaliser (permet tout à 0 % pour éditer ensuite 1 mois à 100 %). */
+export function clampForecastSeasonalityMonthPercents(months: number[]): number[] {
+  const raw =
+    months.length >= 12 ? months.slice(0, 12) : [...months, ...Array(12 - months.length).fill(0)]
+  return raw.map((b) => Math.max(0, Math.round(Number.isFinite(Number(b)) ? Number(b) : 0)))
+}
+
+export function createZeroForecastSeasonalityMonthPercents(): number[] {
+  return Array.from({ length: 12 }, () => 0)
+}
+
+/** Convertit des montants mensuels en % de saisonnalité (somme 100), ou défaut si total ≤ 0. */
+export function monthPercentsFromMonthlyAmounts(amounts: number[]): number[] {
+  const safe =
+    amounts.length >= 12
+      ? amounts.slice(0, 12).map((a) => Math.max(0, Number(a) || 0))
+      : [...amounts.map((a) => Math.max(0, Number(a) || 0)), ...Array(12 - amounts.length).fill(0)]
+  const sum = safe.reduce((a, b) => a + b, 0)
+  if (sum <= 0) return createDefaultForecastSeasonalityMonthPercents()
+  return normalizeForecastSeasonalityMonthPercents(safe.map((a) => (a / sum) * 100))
+}
+
+/** Couleur courbe « Avec ajustement » (saisonnalité dépenses). */
+export const FORECAST_SEASONALITY_WITH_ADJUSTMENT_COLOR = "#059669"
 
 export function parseSeasonalityMonthPercentsFromStorage(adj: {
   seasonalityMonthPercents?: unknown

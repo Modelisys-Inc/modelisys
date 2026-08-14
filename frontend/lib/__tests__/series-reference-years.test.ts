@@ -320,4 +320,31 @@ describe("reference month year snapshots", () => {
     // FYE août : colonne Aoû 2026 = Jun+Jul+Aoû = 6+7+8 = 21 (pas Jul–Sep = 24)
     expect(flowQuarterTrendFromReference(row, shortPeriods, 8, 2026, 2, 8)).toEqual([21, 12])
   })
+
+  it("sums a calendar year when period labels are numeric (fiscal-year fallback)", () => {
+    const periods: SeriesPeriod[] = []
+    for (const year of [2026, 2027]) {
+      for (let month = 1; month <= 12; month++) {
+        periods.push({
+          fiscalYear: year,
+          fiscalMonth: month,
+          label: `${month}/${year}`,
+        })
+      }
+    }
+    const amounts: Record<string, number> = {}
+    for (const p of periods) {
+      amounts[`${p.fiscalYear}-${p.fiscalMonth}`] = p.fiscalYear === 2027 ? 10 : 1
+    }
+    const row = {
+      id: "REV",
+      label: "Revenus",
+      isBold: false,
+      isSection: false,
+      isResult: false,
+      amounts,
+      detailRows: [],
+    }
+    expect(yearTrendFromReference(row, periods, 2027, 1)).toEqual([120])
+  })
 })

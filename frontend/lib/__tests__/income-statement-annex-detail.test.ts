@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   annexGroupShouldShowSubtotal,
+  omitAnnexTitleRowsWithoutAmountPosts,
   resolveDetailAnnexMeta,
   uniqueStatementRowsByStructureIndex,
 } from "@/lib/income-statement-annex-detail"
@@ -55,6 +56,32 @@ describe("resolveDetailAnnexMeta", () => {
     expect(solo.isAnnexTitle).toBe(false)
     expect(solo.annexLetter).toBe("B")
   })
+
+  it("rattache une sous-ligne sans lettre au poste sommaire contigu (Annexe B)", () => {
+    const cmv = [
+      {
+        id: "cmv",
+        label: "Coûts des produits vendus",
+        annexLetter: "B",
+        detailOnly: false,
+      },
+      {
+        id: "CMV.2",
+        label: "Achats",
+        annexLetter: "",
+        detailOnly: true,
+      },
+    ]
+    const peers = [
+      { id: "cmv", label: "Coûts des produits vendus", annexLetter: "B" },
+      { id: "CMV.2", label: "Achats" },
+    ]
+    const child = resolveDetailAnnexMeta(peers[1]!, cmv, peers)
+    expect(child.annexLetter).toBe("B")
+    expect(child.sub).toBe(true)
+    const title = resolveDetailAnnexMeta(peers[0]!, cmv, peers)
+    expect(title.isAnnexTitle).toBe(true)
+  })
 })
 
 describe("annexGroupShouldShowSubtotal", () => {
@@ -68,6 +95,18 @@ describe("annexGroupShouldShowSubtotal", () => {
 
   it("n’affiche pas de sous-total pour un titre isolé", () => {
     expect(annexGroupShouldShowSubtotal([{ isAnnexTitle: true }])).toBe(false)
+  })
+})
+
+describe("omitAnnexTitleRowsWithoutAmountPosts", () => {
+  it("retire un titre d’annexe sans poste", () => {
+    const rows = [
+      { isAnnexTitle: true, annexLetter: "B", label: "Annexe B" },
+      { annexLetter: "C", label: "Salaires" },
+    ]
+    expect(omitAnnexTitleRowsWithoutAmountPosts(rows)).toEqual([
+      { annexLetter: "C", label: "Salaires" },
+    ])
   })
 })
 

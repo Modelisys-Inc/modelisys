@@ -3,6 +3,7 @@ import {
   getStructureRowGlobalIndex,
   isStructureRowDetailOnly,
   normalizeAnnexLetter,
+  resolveStructureAnnexLetter,
 } from "@/lib/income-statement-structure-utils"
 
 export type AnnexSourceRow = {
@@ -36,7 +37,7 @@ export function resolveDetailAnnexMeta(
   const sub = structRow ? isStructureRowDetailOnly(structRow) : false
   const annexLetter = normalizeAnnexLetter(
     String(row.annexLetter ?? "").trim() ||
-      (structRow ? String(structRow.annexLetter ?? "").trim() : ""),
+      (structRow && structure?.length ? resolveStructureAnnexLetter(structRow, structure) : ""),
   )
 
   let hasPeerDetailOnlySameAnnex = false
@@ -51,7 +52,7 @@ export function resolveDetailAnnexMeta(
       )
       if (!oStruct || !isStructureRowDetailOnly(oStruct)) continue
       const oLetter = normalizeAnnexLetter(
-        String(other.annexLetter ?? "").trim() || String(oStruct.annexLetter ?? "").trim(),
+        String(other.annexLetter ?? "").trim() || resolveStructureAnnexLetter(oStruct, structure),
       )
       if (oLetter === annexLetter) {
         hasPeerDetailOnlySameAnnex = true
@@ -86,6 +87,29 @@ export function annexGroupShouldShowSubtotal(
     (r) => !r.isAnnexTitle && !r.isAnnexPlaceholder && !r.isAnnexSubtotal && !r.isSection,
   ).length
   return (hasTitle && amountLineCount > 0) || amountLineCount >= 2
+}
+
+/** Titre d’annexe isolé (aucun poste) : on ne l’affiche pas. */
+export function omitAnnexTitleRowsWithoutAmountPosts<
+  T extends {
+    isAnnexTitle?: boolean
+    isAnnexPlaceholder?: boolean
+    isAnnexSubtotal?: boolean
+    isSection?: boolean
+    annexLetter?: string
+  },
+>(rows: T[]): T[] {
+  const lettersWithPosts = new Set<string>()
+  for (const r of rows) {
+    if (r.isAnnexTitle || r.isAnnexPlaceholder || r.isAnnexSubtotal || r.isSection) continue
+    const letter = normalizeAnnexLetter(String(r.annexLetter ?? ""))
+    if (letter) lettersWithPosts.add(letter)
+  }
+  return rows.filter((r) => {
+    if (!r.isAnnexTitle) return true
+    const letter = normalizeAnnexLetter(String(r.annexLetter ?? ""))
+    return letter !== "" && lettersWithPosts.has(letter)
+  })
 }
 
 /** Une ligne structure = une ligne Détail (évite série sync + ligne UUID en double). */

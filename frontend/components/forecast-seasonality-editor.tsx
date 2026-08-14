@@ -6,8 +6,10 @@ import { ChartContainer, ChartTooltip } from "@/components/ui/chart"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
+  clampForecastSeasonalityMonthPercents,
   createDefaultForecastSeasonalityMonthPercents,
   createForecastSeasonalityBandXScale,
+  createZeroForecastSeasonalityMonthPercents,
   computeForecastSeasonalityChartYScale,
   FORECAST_SEASONALITY_AXIS_LABELS,
   FORECAST_SEASONALITY_CHART_SLATE,
@@ -26,6 +28,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   clampPreRevenueAdvanceDays,
   labelForCollectionDelayDays,
   parsePercentInput,
@@ -33,11 +42,17 @@ import {
 } from "@/lib/forecast-collection-cash-utils"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { AlertTriangle, Info } from "lucide-react"
-import { useMemo, type ReactNode } from "react"
+import { AlertTriangle, ChevronDown, Info } from "lucide-react"
+import { useMemo, useState, type ReactNode } from "react"
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 
 export type ForecastSeasonalityEditorVariant = "revenu" | "depense" | "capex" | "decaissement"
+
+function forecastSeasonalityPercentsMatch(a: number[], b: number[]): boolean {
+  const left = normalizeForecastSeasonalityMonthPercents(a)
+  const right = normalizeForecastSeasonalityMonthPercents(b)
+  return left.every((v, i) => v === (right[i] ?? 0))
+}
 
 const VARIANT_COPY: Record<
   ForecastSeasonalityEditorVariant,
@@ -47,6 +62,7 @@ const VARIANT_COPY: Record<
     tooltipPercentLabel: string
     replicateTitle: string
     replicateDescription: (followingYears: string, yearLabel: string) => string
+    projectionLegend: string
   }
 > = {
   revenu: {
@@ -56,6 +72,7 @@ const VARIANT_COPY: Record<
     replicateTitle: "Appliquer la même saisonnalité aux années suivantes",
     replicateDescription: (following, year) =>
       `Pour ${following}, chaque année qui comporte déjà une hypothèse pour ce poste reprendra la même répartition mensuelle (%) que ${year}.`,
+    projectionLegend: "Projection",
   },
   depense: {
     distributionTitle: "Saisonnalité",
@@ -64,6 +81,7 @@ const VARIANT_COPY: Record<
     replicateTitle: "Appliquer la même saisonnalité aux années suivantes",
     replicateDescription: (following, year) =>
       `Pour ${following}, la même répartition mensuelle (%) que ${year} sera enregistrée sur chaque année projetée suivante.`,
+    projectionLegend: "Dépense",
   },
   capex: {
     distributionTitle: "Saisonnalité",
@@ -72,6 +90,7 @@ const VARIANT_COPY: Record<
     replicateTitle: "Appliquer la même saisonnalité aux années suivantes",
     replicateDescription: (following, year) =>
       `Pour ${following}, la même répartition mensuelle (%) que ${year} sera enregistrée sur chaque année projetée suivante.`,
+    projectionLegend: "Capex",
   },
   decaissement: {
     distributionTitle: "Calendrier de décaissement",
@@ -80,7 +99,16 @@ const VARIANT_COPY: Record<
     replicateTitle: "Appliquer le même calendrier aux années suivantes",
     replicateDescription: (following, year) =>
       `Pour ${following}, chaque année qui comporte déjà une hypothèse pour ce poste reprendra le même calendrier mensuel (%) que ${year}.`,
+    projectionLegend: "Décaissement",
   },
+}
+
+export type ForecastSeasonalityOverlayLine = {
+  key: string
+  label: string
+  monthPercents: number[]
+  color: string
+  dashed?: boolean
 }
 
 export type ForecastSeasonalityEditorProps = {
@@ -94,7 +122,9 @@ export type ForecastSeasonalityEditorProps = {
   replicateCheckboxId: string
   monthPercents: number[]
   onMonthPercentsChange: (next: number[]) => void
-  /** Courbe en lecture seule (ex. saisonnalité des revenus liés pour une dépense variable). */
+  /** Courbes en lecture seule (ex. exercices réels, saisonnalité des revenus liés). */
+  overlayLines?: ForecastSeasonalityOverlayLine[]
+  /** @deprecated Préférer `overlayLines`. Courbe unique (dépenses variables). */
   overlayLine?: {
     monthPercents: number[]
     label: string
@@ -106,6 +136,29 @@ export type ForecastSeasonalityEditorProps = {
     label: string
     monthPercents: number[]
   }
+  /** Presets à copier sur la saisonnalité projetée (ex. 2024, 2025, moyenne). */
+  applySeasonalityPresets?: {
+    key: string
+    label: string
+    monthPercents: number[]
+    disabled?: boolean
+  }[]
+  /** Montants $ mensuels sous la grille des % (ex. Revenus répartis). */
+  monthlyAmountRow?: {
+    label: string
+    values: number[] | null
+    formatValue: (n: number) => string
+    unavailableHint?: string
+  }
+  /** Plusieurs lignes de montants (ex. Dépenses / Ajustement / Avec ajustement). Prioritaire sur `monthlyAmountRow`. */
+  monthlyAmountRows?: {
+    label: string
+    values: number[] | null
+    formatValue: (n: number) => string
+    testId?: string
+  }[]
+  /** Libellé de la courbe éditable (défaut selon le variant). */
+  projectionLegendOverride?: string
   /** Dépenses variables : coûts engagés avant les revenus liés. */
   showPreRevenueNeed?: boolean
   preRevenueNeedEnabled?: boolean
@@ -113,6 +166,10 @@ export type ForecastSeasonalityEditorProps = {
   preRevenueAdvanceDays?: number
   onPreRevenueAdvanceDaysChange?: (days: number) => void
   preRevenueCheckboxId?: string
+  /** Mode compact (ex. répartition d’un ajustement $) : pas de réplication ni actions secondaires. */
+  compact?: boolean
+  /** Autorise des mois à 0 % sans renormaliser (utile pour mettre 100 % sur un seul mois). */
+  allowZeroMonthPercents?: boolean
 }
 
 export function ForecastSeasonalityEditor({
@@ -126,62 +183,130 @@ export function ForecastSeasonalityEditor({
   replicateCheckboxId,
   monthPercents,
   onMonthPercentsChange,
+  overlayLines,
   overlayLine,
   afterReplicate,
   linkedRevenueSeasonalityApply,
+  applySeasonalityPresets,
+  monthlyAmountRow,
+  monthlyAmountRows,
+  projectionLegendOverride,
   showPreRevenueNeed = false,
   preRevenueNeedEnabled = false,
   onPreRevenueNeedEnabledChange,
   preRevenueAdvanceDays = 30,
   onPreRevenueAdvanceDaysChange,
   preRevenueCheckboxId = "forecast-pre-revenue-need",
+  compact = false,
+  allowZeroMonthPercents = false,
 }: ForecastSeasonalityEditorProps) {
   const copy = VARIANT_COPY[variant]
+  const projectionLegend = projectionLegendOverride ?? copy.projectionLegend
+  const resolvedAmountRows = useMemo(() => {
+    if (monthlyAmountRows && monthlyAmountRows.length > 0) return monthlyAmountRows
+    if (monthlyAmountRow) {
+      return [
+        {
+          label: monthlyAmountRow.label,
+          values: monthlyAmountRow.values,
+          formatValue: monthlyAmountRow.formatValue,
+          testId: "forecast-seasonality-amount-row",
+        },
+      ]
+    }
+    return []
+  }, [monthlyAmountRows, monthlyAmountRow])
+  const hasAmountTable = resolvedAmountRows.length > 0
+  const resolvedOverlayLines = useMemo((): ForecastSeasonalityOverlayLine[] => {
+    if (overlayLines && overlayLines.length > 0) return overlayLines
+    if (overlayLine) {
+      return [
+        {
+          key: "overlay",
+          label: overlayLine.label,
+          monthPercents: overlayLine.monthPercents,
+          color: FORECAST_SEASONALITY_REVENUE_OVERLAY_BLUE,
+          dashed: true,
+        },
+      ]
+    }
+    return []
+  }, [overlayLines, overlayLine])
   const preRevenueShiftActive =
     variant === "depense" && showPreRevenueNeed && preRevenueNeedEnabled
   const displayMonthPercents = useMemo(() => {
-    const base = normalizeForecastSeasonalityMonthPercents(monthPercents)
+    const base = allowZeroMonthPercents
+      ? clampForecastSeasonalityMonthPercents(monthPercents)
+      : normalizeForecastSeasonalityMonthPercents(monthPercents)
     if (preRevenueShiftActive) {
       return shiftSeasonalityEarlierForPreRevenue(base, preRevenueAdvanceDays)
     }
     return base
-  }, [monthPercents, preRevenueShiftActive, preRevenueAdvanceDays])
+  }, [monthPercents, preRevenueShiftActive, preRevenueAdvanceDays, allowZeroMonthPercents])
   const seasonalityTotal = displayMonthPercents.reduce((a, b) => a + b, 0)
-  const overlayPercents = overlayLine?.monthPercents
   const chartData = useMemo(
     () =>
-      FORECAST_SEASONALITY_MONTH_LABELS.map((name, idx) => ({
-        key: `sea-${idx}`,
-        name,
-        percent: Math.max(0, Math.round(displayMonthPercents[idx] ?? 0)),
-        overlayPercent: overlayPercents
-          ? Math.max(0, Math.round(overlayPercents[idx] ?? 0))
-          : undefined,
-      })),
-    [displayMonthPercents, overlayPercents]
+      FORECAST_SEASONALITY_MONTH_LABELS.map((name, idx) => {
+        const overlays: Record<string, number> = {}
+        for (const line of resolvedOverlayLines) {
+          overlays[`overlay_${line.key}`] = Math.max(0, Math.round(line.monthPercents[idx] ?? 0))
+        }
+        return {
+          key: `sea-${idx}`,
+          name,
+          percent: Math.max(0, Math.round(displayMonthPercents[idx] ?? 0)),
+          ...overlays,
+        }
+      }),
+    [displayMonthPercents, resolvedOverlayLines]
   )
   const seasonHistColCount = 12
-  const seasonGridTemplate = `3.25rem repeat(${seasonHistColCount}, minmax(2.25rem, 1fr))`
+  const seasonLabelCol = hasAmountTable ? "minmax(5.5rem, 7.5rem)" : "3.25rem"
+  const seasonGridTemplate = `${seasonLabelCol} repeat(${seasonHistColCount}, minmax(2.25rem, 1fr))`
   const { yMax: seasonalityYMax, ticks: seasonalityYTicks } = useMemo(() => {
     const values = chartData.map((e) => e.percent)
-    if (overlayPercents?.length) {
-      for (let i = 0; i < 12; i++) values.push(Math.max(0, Math.round(overlayPercents[i] ?? 0)))
+    for (const line of resolvedOverlayLines) {
+      for (let i = 0; i < 12; i++) values.push(Math.max(0, Math.round(line.monthPercents[i] ?? 0)))
     }
     return computeForecastSeasonalityChartYScale(values)
-  }, [chartData, overlayPercents])
+  }, [chartData, resolvedOverlayLines])
+  const [appliedSeasonalityPresetKey, setAppliedSeasonalityPresetKey] = useState<string | null>(
+    null
+  )
+  const matchedSeasonalityPreset = useMemo(() => {
+    if (!applySeasonalityPresets?.length) return null
+    if (appliedSeasonalityPresetKey) {
+      const applied = applySeasonalityPresets.find(
+        (preset) => preset.key === appliedSeasonalityPresetKey && preset.disabled !== true
+      )
+      if (applied) return applied
+    }
+    const matching = applySeasonalityPresets.filter(
+      (preset) =>
+        preset.disabled !== true &&
+        forecastSeasonalityPercentsMatch(preset.monthPercents, monthPercents)
+    )
+    return matching.find((preset) => preset.key === "average") ?? matching[0] ?? null
+  }, [applySeasonalityPresets, appliedSeasonalityPresetKey, monthPercents])
   const seasonalityLineData = useMemo(
     () =>
-      chartData.map((e, i) => ({
-        axisLabel: FORECAST_SEASONALITY_AXIS_LABELS[i] ?? `M${i + 1}`,
-        monthName: e.name,
-        percent: e.percent,
-        overlayPercent: e.overlayPercent,
-      })),
-    [chartData]
+      chartData.map((e, i) => {
+        const row: Record<string, string | number> = {
+          axisLabel: FORECAST_SEASONALITY_AXIS_LABELS[i] ?? `M${i + 1}`,
+          monthName: e.name,
+          percent: e.percent,
+        }
+        for (const line of resolvedOverlayLines) {
+          row[`overlay_${line.key}`] = e[`overlay_${line.key}`] ?? 0
+        }
+        return row
+      }),
+    [chartData, resolvedOverlayLines]
   )
   const seasonalityXBandScale = useMemo(() => createForecastSeasonalityBandXScale(), [])
 
   const setMonthAt = (colIdx: number, value: number) => {
+    setAppliedSeasonalityPresetKey(null)
     onMonthPercentsChange(
       (() => {
         const next =
@@ -192,13 +317,16 @@ export function ForecastSeasonalityEditor({
           ? seasonalityDisplayColumnToBaseIndex(colIdx, preRevenueAdvanceDays)
           : colIdx
         next[baseIdx] = value
-        return normalizeForecastSeasonalityMonthPercents(next)
+        return allowZeroMonthPercents
+          ? clampForecastSeasonalityMonthPercents(next)
+          : normalizeForecastSeasonalityMonthPercents(next)
       })()
     )
   }
 
   return (
     <div className={cn(embedded && "min-w-0 max-w-full")}>
+      {!compact ? (
       <div className={cn("space-y-6", afterReplicate ? "mb-6" : "mb-3")}>
         {canReplicateToFollowingYears ? (
           <div className="flex min-w-0 items-start gap-2.5">
@@ -300,33 +428,49 @@ export function ForecastSeasonalityEditor({
         ) : null}
         {afterReplicate ? <div>{afterReplicate}</div> : null}
       </div>
+      ) : null}
       <div className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-white p-3 sm:p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div className="min-w-0 space-y-1.5">
-            <span className="font-medium text-slate-800">{copy.distributionTitle}</span>
+            <span className="font-medium text-slate-800">
+              {compact
+                ? "Répartition de l'ajustement par mois (janvier à décembre)"
+                : copy.distributionTitle}
+            </span>
             {preRevenueShiftActive ? (
               <p className="text-[11px] leading-relaxed text-blue-800">
                 Répartition décalée de {preRevenueAdvanceDays} jours (
                 {seasonalityAdvanceToMonthOffset(preRevenueAdvanceDays)} mois vers le début de l&apos;année).
               </p>
             ) : null}
-            {overlayLine ? (
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600">
+            {resolvedOverlayLines.length > 0 ? (
+              <div
+                className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600"
+                data-testid="forecast-seasonality-legend"
+              >
+                {resolvedOverlayLines.map((line) => (
+                  <span key={line.key} className="inline-flex items-center gap-1.5">
+                    <span
+                      className="inline-block h-0.5 w-5 rounded-full"
+                      style={{
+                        backgroundColor: line.color,
+                        backgroundImage:
+                          line.dashed === false
+                            ? undefined
+                            : `repeating-linear-gradient(90deg, ${line.color} 0, ${line.color} 4px, transparent 4px, transparent 7px)`,
+                      }}
+                      aria-hidden
+                    />
+                    {line.label}
+                  </span>
+                ))}
                 <span className="inline-flex items-center gap-1.5">
                   <span
                     className="inline-block h-0.5 w-5 rounded-full"
                     style={{ backgroundColor: FORECAST_SEASONALITY_CHART_SLATE }}
                     aria-hidden
                   />
-                  Dépense
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span
-                    className="inline-block h-0.5 w-5 rounded-full"
-                    style={{ backgroundColor: FORECAST_SEASONALITY_REVENUE_OVERLAY_BLUE }}
-                    aria-hidden
-                  />
-                  {overlayLine.label}
+                  {projectionLegend}
                 </span>
               </div>
             ) : null}
@@ -345,7 +489,9 @@ export function ForecastSeasonalityEditor({
           <div
             className="min-w-0 w-full"
             style={{
-              minWidth: `max(100%, calc(3.25rem + ${seasonHistColCount} * 2.75rem))`,
+              minWidth: hasAmountTable
+                ? `max(100%, calc(7.5rem + ${seasonHistColCount} * 2.75rem))`
+                : `max(100%, calc(3.25rem + ${seasonHistColCount} * 2.75rem))`,
             }}
           >
             <div
@@ -368,13 +514,15 @@ export function ForecastSeasonalityEditor({
                 <ChartContainer
                   config={{
                     percent: {
-                      label: "Part annuelle",
+                      label: projectionLegend,
                       color: FORECAST_SEASONALITY_CHART_SLATE,
                     },
-                    overlayPercent: {
-                      label: overlayLine?.label ?? "Revenus liés",
-                      color: FORECAST_SEASONALITY_REVENUE_OVERLAY_BLUE,
-                    },
+                    ...Object.fromEntries(
+                      resolvedOverlayLines.map((line) => [
+                        `overlay_${line.key}`,
+                        { label: line.label, color: line.color },
+                      ])
+                    ),
                   }}
                   className="h-full w-full min-w-0 !aspect-auto !justify-start [&_.recharts-responsive-container]:w-full"
                   aria-label={copy.chartAria}
@@ -400,50 +548,56 @@ export function ForecastSeasonalityEditor({
                       content={({ active, payload }) => {
                         if (!active || !payload?.length) return null
                         const row = payload[0]?.payload as
-                          | { monthName?: string; percent?: number; overlayPercent?: number }
+                          | ({ monthName?: string; percent?: number } & Record<string, number | string | undefined>)
                           | undefined
-                        const pct = row?.percent ?? 0
-                        const overlayPct = row?.overlayPercent
+                        const pct = Number(row?.percent ?? 0)
                         return (
                           <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
                             <p className="font-semibold text-slate-900">{row?.monthName ?? "—"}</p>
-                            <p className="mt-0.5 tabular-nums text-slate-700">
-                              {Math.round(pct)} % {copy.tooltipPercentLabel}
-                            </p>
-                            {overlayLine && overlayPct !== undefined ? (
-                              <p className="mt-0.5 tabular-nums text-blue-700">
-                                {Math.round(overlayPct)} % {overlayLine.label}
+                            {resolvedOverlayLines.map((line) => (
+                              <p
+                                key={line.key}
+                                className="mt-0.5 tabular-nums"
+                                style={{ color: line.color }}
+                              >
+                                {Math.round(Number(row?.[`overlay_${line.key}`] ?? 0))} % {line.label}
                               </p>
-                            ) : null}
+                            ))}
+                            <p className="mt-0.5 tabular-nums text-slate-700">
+                              {Math.round(pct)} % {projectionLegend}
+                            </p>
                           </div>
                         )
                       }}
                     />
-                    {overlayLine ? (
+                    {resolvedOverlayLines.map((line) => (
                       <Line
+                        key={line.key}
                         type="monotone"
-                        dataKey="overlayPercent"
-                        name="overlayPercent"
-                        stroke="var(--color-overlayPercent)"
+                        dataKey={`overlay_${line.key}`}
+                        name={line.label}
+                        stroke={line.color}
                         strokeWidth={2}
-                        strokeDasharray="6 4"
+                        strokeDasharray={line.dashed === false ? undefined : "6 4"}
                         dot={{
-                          fill: "var(--color-overlayPercent)",
-                          r: 3.5,
+                          fill: line.color,
+                          r: 3,
                           strokeWidth: 2,
                           stroke: "#fff",
                         }}
                         activeDot={{ r: 5, strokeWidth: 2, stroke: "#fff" }}
+                        isAnimationActive={false}
                       />
-                    ) : null}
+                    ))}
                     <Line
                       type="monotone"
                       dataKey="percent"
-                      name="percent"
+                      name={projectionLegend}
                       stroke="var(--color-percent)"
                       strokeWidth={2.5}
                       dot={{ fill: "var(--color-percent)", r: 4, strokeWidth: 2, stroke: "#fff" }}
                       activeDot={{ r: 6, strokeWidth: 2, stroke: "#fff" }}
+                      isAnimationActive={false}
                     />
                   </LineChart>
                 </ChartContainer>
@@ -495,25 +649,124 @@ export function ForecastSeasonalityEditor({
                 </div>
               ))}
             </div>
+            {resolvedAmountRows.map((row, rowIdx) =>
+              row.values && row.values.length === 12 ? (
+                <div
+                  key={`amt-row-${row.testId ?? row.label}-${rowIdx}`}
+                  className="grid min-w-0 divide-x divide-slate-200 border-t border-slate-200 bg-white"
+                  style={{ gridTemplateColumns: seasonGridTemplate }}
+                  data-testid={row.testId ?? (rowIdx === 0 ? "forecast-seasonality-amount-row" : undefined)}
+                >
+                  <div className="flex min-h-[2.75rem] shrink-0 items-center justify-end overflow-visible bg-white px-1 py-2 sm:px-1.5">
+                    <span className="text-right text-[10px] font-semibold leading-snug text-slate-700 sm:text-xs">
+                      {row.label}
+                    </span>
+                  </div>
+                  {row.values.map((amount, colIdx) => (
+                    <div
+                      key={`amt-col-${rowIdx}-${colIdx}`}
+                      className="flex min-h-[2.75rem] min-w-0 items-center justify-center px-0.5 py-2 sm:px-1"
+                    >
+                      <span className="w-full text-center text-[10px] font-medium tabular-nums leading-tight text-slate-700 sm:text-[11px]">
+                        {row.formatValue(amount)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : null
+            )}
+            {resolvedAmountRows.length === 0 && monthlyAmountRow?.unavailableHint ? (
+              <p
+                className="border-t border-amber-200 bg-amber-50/90 px-3 py-2 text-[11px] text-amber-900"
+                data-testid="forecast-seasonality-amount-row"
+              >
+                {monthlyAmountRow.unavailableHint}
+              </p>
+            ) : null}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {linkedRevenueSeasonalityApply ? (
+          {allowZeroMonthPercents ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 rounded-md text-xs"
+              data-testid="forecast-seasonality-zero-all"
+              onClick={() => {
+                setAppliedSeasonalityPresetKey(null)
+                onMonthPercentsChange(createZeroForecastSeasonalityMonthPercents())
+              }}
+            >
+              Tout à 0 %
+            </Button>
+          ) : null}          {!compact && applySeasonalityPresets && applySeasonalityPresets.length > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={cn(
+                    "h-9 max-w-full rounded-md text-xs",
+                    matchedSeasonalityPreset &&
+                      "border-slate-400 bg-slate-50 font-medium text-slate-900"
+                  )}
+                  data-testid="apply-seasonality-preset"
+                  aria-label={
+                    matchedSeasonalityPreset
+                      ? `Saisonnalité appliquée : ${matchedSeasonalityPreset.label}`
+                      : "Appliquer une saisonnalité"
+                  }
+                >
+                  <span className="truncate">
+                    {matchedSeasonalityPreset
+                      ? matchedSeasonalityPreset.label
+                      : "Appliquer une saisonnalité"}
+                  </span>
+                  <ChevronDown className="ml-1.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[14rem]">
+                <DropdownMenuRadioGroup value={matchedSeasonalityPreset?.key ?? ""}>
+                  {applySeasonalityPresets.map((preset) => (
+                    <DropdownMenuRadioItem
+                      key={preset.key}
+                      value={preset.key}
+                      disabled={preset.disabled === true}
+                      className="text-xs"
+                      onSelect={() => {
+                        if (preset.disabled) return
+                        setAppliedSeasonalityPresetKey(preset.key)
+                        onMonthPercentsChange(
+                          normalizeForecastSeasonalityMonthPercents(preset.monthPercents)
+                        )
+                      }}
+                    >
+                      {preset.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+          {linkedRevenueSeasonalityApply && !compact ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="h-9 rounded-md border-blue-200 bg-blue-50/80 text-xs font-medium text-blue-900 hover:bg-blue-100/90"
               title={linkedRevenueSeasonalityApply.label}
-              onClick={() =>
+              onClick={() => {
+                setAppliedSeasonalityPresetKey(null)
                 onMonthPercentsChange(
                   normalizeForecastSeasonalityMonthPercents(
                     linkedRevenueSeasonalityApply.monthPercents
                   )
                 )
-              }
+              }}
             >
-              Appliquer la saisonnalité du revenu lié
+              Appliquer la saisonnalité des revenus
             </Button>
           ) : null}
           <Button
@@ -527,15 +780,20 @@ export function ForecastSeasonalityEditor({
           >
             Normaliser à 100 %
           </Button>
+          {!compact ? (
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="h-9 rounded-md text-xs"
-            onClick={() => onMonthPercentsChange(createDefaultForecastSeasonalityMonthPercents())}
+            onClick={() => {
+              setAppliedSeasonalityPresetKey(null)
+              onMonthPercentsChange(createDefaultForecastSeasonalityMonthPercents())
+            }}
           >
             Répartition uniforme sur 12 mois
           </Button>
+          ) : null}
         </div>
       </div>
     </div>

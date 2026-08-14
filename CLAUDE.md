@@ -249,6 +249,38 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   remplace que son span `detailOnly` contigu (jamais un strip global par
   lettre). Visibilité / Paramètres : owner contigu, pas le premier row de
   la lettre. Dédup affichage : `uniqueStatementRowsByStructureIndex`.
+  **Hypothèses Dépenses** : mêmes postes Détail que l’annexe (`detailOnly`
+  via lettre du sommaire contigu — ex. Achats CMV.2 sous Annexe B même sans
+  `annexLetter` stocké). Codes calculés ailleurs (CMV.11, EXP.20, IMP, FIN.2…)
+  et famille **AUT** (cession d’immos AUT.3, change, placements…) exclus ;
+  titre d’annexe sans poste masqué. Tableau Dépenses et Revenus : une colonne
+  **% CA** à droite de chaque année (dépenses : réel N-1 puis CA projeté des
+  hypothèses Revenus ; revenus : part du CA total de la colonne), avec un
+  trait vertical entre chaque couple année / % CA ; pas de
+  bouton « % des revenus ». Panneau hypothèse Revenus : onglets Croissance /
+  Saisonnalité (plus de Sommaire ni d’Encaissement) ; Saisonnalité = courbe %
+  + ligne **Revenus** (montants mensuels). Dépenses : Ajustement / Saisonnalité
+  (plus de Sommaire ni Décaissement) ; Saisonnalité = courbe % + ligne **Dépenses**
+  (montants mensuels). Dépenses fixes : courbes des 2 exercices réels + presets
+  (année / moyenne), comme les revenus.
+  Tableau Revenus : montant + % CA + croissance ; pas de ligne de délai de collection.
+  Dépense variable : % des revenus totaux projetés (Hypothèse revenus), sans picker de
+  poste ni option « avant la réalisation des revenus ». Saisonnalité par défaut =
+  mix pondéré des postes Revenus (CA_i × saisonnalité_i) pour l’année projetée ;
+  overlay / appliquer = même référence. **Ajustements** (plusieurs à la fois) :
+  Montant $ = toujours non récurrent + répartition mensuelle (somme 100 %, éditeur
+  compact type Saisonnalité avec « Tout à 0 % » pour placer 100 % sur un mois) ;
+  % des revenus + non récurrent = mois cochés de l’année ; % + récurrent = mois de
+  début puis années suivantes. Calcul = taux mensuel × CA mensuel, puis + montants $.
+  Onglet Saisonnalité : courbe éditable = fond (sans ajustement) ; courbe « Avec
+  ajustement » = mix Dépenses + effets des % (mois ciblés / début) et montants $ ;
+  tableau = Dépenses / Ajustement / Dépenses avec ajustement.
+  **Dépenses fixes** : Montant $ = Non récurrent (répartition mensuelle somme 100 %)
+  ou Récurrent (mois de début, puis années suivantes avec inflation) ; Inflation (%)
+  = Non récurrent (mois cochés) ou Récurrent (mois de début) — le taux remplace le
+  Type/Taux sur ces mois. Saisonnalité 2024/2025/moyenne = historique **du poste** ;
+  avec ajustement = courbes + tableau Dépenses / Ajustement / Dépenses avec
+  ajustement.
 - Cash flow is derived from income statement + balance sheet deltas
 - **Sommaire** trésorerie : lignes cochées « Annexe » (`showInSummary`) dans
   Détail → Paramètres ; même moteur de calcul que le Détail (`variant="summary"`).

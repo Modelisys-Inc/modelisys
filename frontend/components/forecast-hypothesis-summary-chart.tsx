@@ -21,7 +21,7 @@ export type ForecastSummarySeriesDef = {
 
 export type ForecastHypothesisSummaryChartProps = {
   points: HypothesisSummaryMoneyPoint[]
-  series: readonly [ForecastSummarySeriesDef, ForecastSummarySeriesDef, ForecastSummarySeriesDef]
+  series: readonly ForecastSummarySeriesDef[]
   visible: Record<ForecastSummarySeriesKey, boolean>
   onToggleVisible: (key: ForecastSummarySeriesKey) => void
   formatValue: (n: number) => string
@@ -40,7 +40,7 @@ export function ForecastHypothesisSummaryChart({
   chartAriaLabel,
 }: ForecastHypothesisSummaryChartProps) {
   const maxDollar = points.length
-    ? Math.max(1, ...points.flatMap((p) => [p.primary, p.cashFlow, p.balance]))
+    ? Math.max(1, ...points.flatMap((p) => series.map((s) => p[s.key])))
     : 1
   const { yMax: chartYMax, ticks: yTicksLeft } = useMemo(
     () => computeHypothesisSummaryDollarYScale(maxDollar),
