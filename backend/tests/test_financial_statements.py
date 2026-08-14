@@ -1368,13 +1368,23 @@ def test_series_anchored_on_reference_month(client, auth_headers):
     assert jan_labels[0] == "Fév 2023"
 
 
-def test_series_includes_supplementary_link_codes_from_sum_lists(client, auth_headers):
+def test_series_includes_supplementary_link_codes_from_sum_lists(db, client, auth_headers):
     """Codes only referenced in liaisonSumCodes must still be addressable in chart series."""
+    from app.models.standard_link_code import StandardLinkCode
+
+    db.add_all([
+        StandardLinkCode(code="REV-A", family="REV", is_leaf=False, parent_code=None, sort_order=1),
+        StandardLinkCode(code="REV-A.1", family="REV", is_leaf=True, parent_code="REV-A", sort_order=2),
+        StandardLinkCode(code="REV-B", family="REV", is_leaf=False, parent_code=None, sort_order=3),
+        StandardLinkCode(code="REV-B.1", family="REV", is_leaf=True, parent_code="REV-B", sort_order=4),
+    ])
+    db.commit()
+
     company_id = _create_company(client, auth_headers)
 
     _upsert_account_mappings(client, auth_headers, company_id, [
-        {"account_number": "4000", "description": "Sales A", "link_code": "REV-A"},
-        {"account_number": "4100", "description": "Sales B", "link_code": "REV-B"},
+        {"account_number": "4000", "description": "Sales A", "link_code": "REV-A.1"},
+        {"account_number": "4100", "description": "Sales B", "link_code": "REV-B.1"},
     ])
     _upsert_trial_balance(client, auth_headers, company_id, [
         {
@@ -1392,7 +1402,7 @@ def test_series_includes_supplementary_link_codes_from_sum_lists(client, auth_he
         {
             "label": "Revenus",
             "liaisonMode": "sum",
-            "liaisonSumCodes": ["REV-A", "REV-B"],
+            "liaisonSumCodes": ["REV-A.1", "REV-B.1"],
         },
     ])
 
@@ -1404,10 +1414,10 @@ def test_series_includes_supplementary_link_codes_from_sum_lists(client, auth_he
     assert response.status_code == 200
     data = response.json()
     by_code = {r.get("linkCode"): r for r in data["rows"] if r.get("linkCode")}
-    assert "REV-A" in by_code
-    assert "REV-B" in by_code
-    assert by_code["REV-A"]["amounts"]["2024-1"] == -10000.0
-    assert by_code["REV-B"]["amounts"]["2024-1"] == -5000.0
+    assert "REV-A.1" in by_code
+    assert "REV-B.1" in by_code
+    assert by_code["REV-A.1"]["amounts"]["2024-1"] == -10000.0
+    assert by_code["REV-B.1"]["amounts"]["2024-1"] == -5000.0
 
 
 def test_series_computes_baiia_row_from_income_families(client, auth_headers):
