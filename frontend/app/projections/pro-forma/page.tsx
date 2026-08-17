@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
-import { TrendingUp, TrendingDown, Calculator, CreditCard, BarChart3, Scale, Waves, Save, FolderOpen, X, Plus, Wallet } from "lucide-react"
+import { TrendingUp, TrendingDown, Calculator, CreditCard, BarChart3, Scale, Waves, Save, FolderOpen, X, Plus, Wallet, Percent } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { IncomeStatementDetail } from "@/components/income-statement-detail"
 import { IncomeStatementSummary } from "@/components/income-statement-summary"
@@ -18,6 +18,9 @@ import { CashFlowDetail } from "@/components/cash-flow-detail"
 import { CashFlowSummary } from "@/components/cash-flow-summary"
 import { CapexForecastDetail } from "@/components/capex-forecast-detail"
 import { DebtForecastDetail } from "@/components/debt-forecast-detail"
+import { TaxForecastDetail } from "@/components/tax-forecast-detail"
+import { BILAN_HYPOTHESIS_TITLE } from "@/lib/bilan-forecast-utils"
+import { TAX_FORECAST_TITLE } from "@/lib/tax-forecast-utils"
 import { FDRForecastDetail } from "@/components/fdr-forecast-detail"
 import { useCompanies } from "@/hooks/use-companies"
 import { useSearchParams } from "next/navigation"
@@ -41,9 +44,9 @@ import {
   type ProjectionData,
 } from "@/lib/api"
 
-type ModuleType = "income-statement" | "balance-sheet" | "cash-flow" | "revenue" | "expenses" | "capex" | "debt" | "fdr"
+type ModuleType = "income-statement" | "balance-sheet" | "cash-flow" | "revenue" | "expenses" | "capex" | "debt" | "taxes" | "bilan" | "fdr"
 type TopNav = "income-statement" | "balance-sheet" | "cash-flow" | "assumptions"
-type AssumptionsNav = "revenue" | "expenses" | "capex" | "debt"
+type AssumptionsNav = "revenue" | "expenses" | "capex" | "debt" | "taxes" | "bilan"
 
 interface Module {
   id: ModuleType
@@ -94,9 +97,21 @@ const assumptionsModules: Module[] = [
   },
   {
     id: "debt",
-    label: "Dettes",
+    label: "Financement",
     icon: CreditCard,
-    description: "Structure de la dette",
+    description: "Structure de financement",
+  },
+  {
+    id: "taxes",
+    label: "Impôts",
+    icon: Percent,
+    description: "Taux d'impôt applicable",
+  },
+  {
+    id: "bilan",
+    label: "Bilan",
+    icon: Scale,
+    description: "Ajustements du bilan",
   },
   {
     id: "fdr",
@@ -366,8 +381,8 @@ export default function ProFormaPage() {
 
   // Default values for IncomeStatementDetail, BalanceSheetDetail, and CashFlowDetail
   // For revenue, expenses, capex, debt, fdr, income-statement, balance-sheet, and cash-flow, use annual years view
-  const period: "monthly" | "quarterly" | "annual" = (selectedModule === "revenue" || selectedModule === "expenses" || selectedModule === "capex" || selectedModule === "debt" || selectedModule === "fdr" || selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") ? "annual" : "monthly"
-  const view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years" = (selectedModule === "revenue" || selectedModule === "expenses" || selectedModule === "capex" || selectedModule === "debt" || selectedModule === "fdr" || selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") ? "years" : "current"
+  const period: "monthly" | "quarterly" | "annual" = (selectedModule === "revenue" || selectedModule === "expenses" || selectedModule === "capex" || selectedModule === "debt" || selectedModule === "taxes" || selectedModule === "bilan" || selectedModule === "fdr" || selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") ? "annual" : "monthly"
+  const view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years" = (selectedModule === "revenue" || selectedModule === "expenses" || selectedModule === "capex" || selectedModule === "debt" || selectedModule === "taxes" || selectedModule === "bilan" || selectedModule === "fdr" || selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") ? "years" : "current"
   // In projections, we display amounts (not variations) by default.
   const columnMode = "comparison" as const
   const isFinancialStatementModule =
@@ -509,7 +524,7 @@ export default function ProFormaPage() {
                   </div>
                 )}
 
-                {/* Hypothèses: sous-menu (Revenus / Dépenses / Capex / Dettes) */}
+                {/* Hypothèses: sous-menu (Revenus / Dépenses / Capex / Financement / Impôts / Bilan) */}
                 {isAssumptions && (
                   <div className="flex items-center gap-2">
                     <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
@@ -517,7 +532,9 @@ export default function ProFormaPage() {
                         { id: "revenue" as const, label: "Revenus" },
                         { id: "expenses" as const, label: "Dépenses" },
                         { id: "capex" as const, label: "Capex" },
-                        { id: "debt" as const, label: "Dettes" },
+                        { id: "debt" as const, label: "Financement" },
+                        { id: "taxes" as const, label: "Impôts" },
+                        { id: "bilan" as const, label: "Bilan" },
                       ].map((item) => {
                         const isActive = assumptionsNav === item.id
                         return (
@@ -693,7 +710,7 @@ export default function ProFormaPage() {
               divisionId={divisionId}
               subDivisionId={subDivisionId}
               companies={companies}
-              title="Estimation des Dettes annuelles"
+              title="Estimation du Financement annuel"
               projectionYears={projectionYears}
               projectionId={currentProjectionId}
               forecastBaseYear={projectionStartYear ?? undefined}
@@ -704,6 +721,43 @@ export default function ProFormaPage() {
               }
               referenceMonth={projectionStartMonth ?? undefined}
               projectionHorizon={projectionHorizon}
+            />
+          ) : selectedModule === "taxes" ? (
+            <TaxForecastDetail
+              companyId={companyId}
+              divisionId={divisionId}
+              subDivisionId={subDivisionId}
+              companies={companies}
+              title={TAX_FORECAST_TITLE}
+              projectionId={currentProjectionId}
+              projectionYears={projectionYears}
+            />
+          ) : selectedModule === "bilan" ? (
+            <BalanceSheetDetail
+              period={period}
+              view={view}
+              columnMode={columnMode}
+              companyId={companyId}
+              divisionId={divisionId}
+              subDivisionId={subDivisionId}
+              companies={companies}
+              title={BILAN_HYPOTHESIS_TITLE}
+              fiscalYear={
+                projectionHorizon === "annual" && projectionStartYear
+                  ? projectionStartYear - 1
+                  : projectionStartYear ?? undefined
+              }
+              refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
+              refYear={
+                projectionHorizon === "annual" && projectionStartYear
+                  ? projectionStartYear - 1
+                  : projectionStartYear ?? new Date().getFullYear()
+              }
+              projectionYears={projectionYears}
+              forecastBaseYear={projectionStartYear ?? undefined}
+              forecastUseSeriesActuals
+              disableRowInteractions
+              projectionId={currentProjectionId}
             />
           ) : selectedModule === "fdr" ? (
             <FDRForecastDetail

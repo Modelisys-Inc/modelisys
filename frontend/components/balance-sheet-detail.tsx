@@ -5,11 +5,30 @@ import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import type { FinancialStatementRow } from "@/lib/api"
-import { getFinancialStatementSeries, getStatementStructure, type FinancialStatementSeriesParams } from "@/lib/api"
+import {
+  getFinancialStatementSeries,
+  getStatementStructure,
+  listForecastConfigs,
+  upsertForecastConfig,
+  type FinancialStatementSeriesParams,
+} from "@/lib/api"
 import type { SeriesPeriod, SeriesRow } from "@/lib/api"
 import { Button } from "@/components/ui/button"
-import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import { generateId } from "@/lib/seeded-random"
+import {
+  BILAN_FORECAST_CONFIG_TYPE,
+  BILAN_HYPOTHESIS_TITLE,
+  isEncaisseBilanRow,
+  parseBilanAdjustments,
+  resolveBilanAdjustedValue,
+  resolveEncaisseFromEndingCash,
+  buildForecastEndingCashTrend,
+  type BilanAdjustment,
+} from "@/lib/bilan-forecast-utils"
+import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { Badge } from "@/components/ui/badge"
 import { ChevronRight, ChevronDown, ListTree, Loader2, Settings, Sparkles } from "lucide-react"
 import {
@@ -32,6 +51,8 @@ import {
   getStructureRowGlobalIndex,
   listAnnexOptionsForDetailSubLineModal,
   listStructureRowsForDetailDisplay,
+  listStructureRowsForPresentationDisplay,
+  indentForSummaryRow,
   isCodeMappingEnabled,
   isShowInDetail,
   isStructureRowDetailOnly,
@@ -57,7 +78,7 @@ import {
 } from "@/lib/financial-period-labels"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
-import { monthTrendFromReference } from "@/lib/series-reference-columns"
+import { monthTrendFromReference, yearTrendFromReference } from "@/lib/series-reference-columns"
 import {
   balanceSheetQuarterTrendForBasis,
   balanceSheetYearTrendForBasis,
@@ -67,6 +88,12 @@ import {
   type StatementPeriodBasis,
 } from "@/lib/income-statement-period-basis"
 import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
+import { isBalanceSheetValidationStructureRow } from "@/lib/balance-sheet-validation"
+import {
+  buildNetCashByPeriodKey,
+  isCashFlowNetVariationStructureRow,
+  periodKey,
+} from "@/lib/cash-flow-treasury-rows"
 import {
   insertAnnexDetailPlaceholderRows,
   zeroAmountsForAnnexTitleRow,
@@ -114,6 +141,7 @@ interface BalanceSheetDetailProps {
   forecastUseSeriesActuals?: boolean
   /** Annuel / trimestriel : Courant (même mois / T3M) ou Exercice (FYE / trimestres fiscaux). */
   periodBasis?: StatementPeriodBasis
+  projectionId?: string | null
 }
 
 interface BalanceAccount {
@@ -176,8 +204,10 @@ export function BalanceSheetDetail({
   forecastBaseYear,
   forecastUseSeriesActuals = false,
   periodBasis = "current",
+  projectionId = null,
 }: BalanceSheetDetailProps) {
-  const isForecastSection = title === "Bilan pro forma"
+  const isHypothesisSection = title === BILAN_HYPOTHESIS_TITLE
+  const isForecastSection = title === "Bilan pro forma" || isHypothesisSection
   const forecastYearColumnCount = projectionYears + 1
   const fiscalYearEndMonth = parseFiscalYearEndMonth(
     companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
@@ -185,17 +215,31 @@ export function BalanceSheetDetail({
 
   useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [bilanAdjustments, setBilanAdjustments] = useState<Record<string, BilanAdjustment[]>>({})
+  const [hypothesisRowId, setHypothesisRowId] = useState<string | null>(null)
+  const [hypothesisYearIndex, setHypothesisYearIndex] = useState<number>(1)
+  const [hypothesisRowLabel, setHypothesisRowLabel] = useState("")
+  const [draftValue, setDraftValue] = useState(0)
+  const [draftRecurring, setDraftRecurring] = useState(false)
+  const [draftNote, setDraftNote] = useState("")
+  const [draftAdjustmentId, setDraftAdjustmentId] = useState<string | null>(null)
+  const [bilanConfigLoaded, setBilanConfigLoaded] = useState(false)
+  const bilanSaveRef = useRef<ReturnType<typeof setTimeout>>()
   const [statementStructure, setStatementStructure] = useState<Record<string, unknown>[] | null>(null)
+  const [cashFlowStructure, setCashFlowStructure] = useState<Record<string, unknown>[] | null>(null)
   const [structureEditMode, setStructureEditMode] = useState(false)
   const [lineAnalysis, setLineAnalysis] = useState<BalanceSheetLineAnalysisSnapshot | null>(null)
   const [notesUpdated, setNotesUpdated] = useState(0) // Force re-render when notes change
   const analysisCardRef = useRef<HTMLElement | null>(null)
   const analysisRowRefs = useRef<Record<string, HTMLTableRowElement | null>>({})
 
-  // Determine what we're comparing (needed early for Paramètres button availability)
-  const isCompanyComparison = columnMode === "comparison" && !companyId
-  const isDivisionComparison = columnMode === "comparison" && companyId && !divisionId
-  const isSubDivisionComparison = columnMode === "comparison" && companyId && divisionId && !subDivisionId
+  // Determine what we're comparing (needed early for Paramètres button availability).
+  // Projections (pro forma / hypothèses) reuse columnMode="comparison" to show amounts,
+  // not entity-vs-entity columns — skip that fetch path there.
+  const isCompanyComparison = !isForecastSection && columnMode === "comparison" && !companyId
+  const isDivisionComparison = !isForecastSection && columnMode === "comparison" && !!companyId && !divisionId
+  const isSubDivisionComparison =
+    !isForecastSection && columnMode === "comparison" && !!companyId && !!divisionId && !subDivisionId
   const isComparisonMode = isCompanyComparison || isDivisionComparison || isSubDivisionComparison
 
   useEffect(() => {
@@ -219,8 +263,123 @@ export function BalanceSheetDetail({
     }
   }, [companyId, structureVersion])
 
+  useEffect(() => {
+    if (!companyId || !isHypothesisSection) {
+      setCashFlowStructure(null)
+      return
+    }
+    let cancelled = false
+    const load = async () => {
+      try {
+        const data = await getStatementStructure(companyId, "cash-flow-detail")
+        if (!cancelled) setCashFlowStructure((data.structure ?? []) as Record<string, unknown>[])
+      } catch (e) {
+        console.error("Error loading cash-flow structure for Encaisse:", e)
+        if (!cancelled) setCashFlowStructure([])
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, isHypothesisSection])
+
+  useEffect(() => {
+    if (!companyId || !isHypothesisSection) {
+      setBilanAdjustments({})
+      setBilanConfigLoaded(false)
+      return
+    }
+    let cancelled = false
+    const load = async () => {
+      try {
+        const configs = await listForecastConfigs(companyId, {
+          config_type: BILAN_FORECAST_CONFIG_TYPE,
+          projection_id: projectionId ?? undefined,
+        })
+        if (cancelled) return
+        const data = configs[0]?.data as Record<string, unknown> | undefined
+        setBilanAdjustments(parseBilanAdjustments(data?.adjustments))
+        setBilanConfigLoaded(true)
+      } catch (err) {
+        console.error("Error loading bilan forecast config:", err)
+        if (!cancelled) {
+          setBilanAdjustments({})
+          setBilanConfigLoaded(true)
+        }
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, isHypothesisSection, projectionId])
+
+  useEffect(() => {
+    if (!companyId || !isHypothesisSection || !bilanConfigLoaded) return
+    clearTimeout(bilanSaveRef.current)
+    bilanSaveRef.current = setTimeout(async () => {
+      try {
+        await upsertForecastConfig(companyId, {
+          config_type: BILAN_FORECAST_CONFIG_TYPE,
+          data: { adjustments: bilanAdjustments },
+          projection_id: projectionId ?? undefined,
+        })
+      } catch (err) {
+        console.error("Error saving bilan forecast config:", err)
+      }
+    }, 500)
+    return () => clearTimeout(bilanSaveRef.current)
+  }, [bilanAdjustments, bilanConfigLoaded, companyId, isHypothesisSection, projectionId])
+
+  const closeBilanHypothesisPanel = () => {
+    setHypothesisRowId(null)
+    setDraftAdjustmentId(null)
+  }
+
+  const openBilanHypothesisPanel = (rowId: string, yearIndex: number, rowLabel: string) => {
+    if (isEncaisseBilanRow({ rowId, label: rowLabel })) return
+    const existing = (bilanAdjustments[rowId] ?? []).find((a) => a.yearIndex === yearIndex)
+    setHypothesisRowId(rowId)
+    setHypothesisYearIndex(yearIndex)
+    setHypothesisRowLabel(rowLabel)
+    setDraftAdjustmentId(existing?.id ?? null)
+    setDraftValue(existing?.value ?? 0)
+    setDraftRecurring(existing?.isRecurring ?? false)
+    setDraftNote(existing?.note ?? "")
+  }
+
+  const saveBilanHypothesis = () => {
+    if (!hypothesisRowId) return
+    const id = draftAdjustmentId ?? generateId("bilan")
+    const nextAdj: BilanAdjustment = {
+      id,
+      rowId: hypothesisRowId,
+      yearIndex: hypothesisYearIndex,
+      type: "amount",
+      value: draftValue,
+      isRecurring: draftRecurring,
+      note: draftNote,
+    }
+    setBilanAdjustments((prev) => {
+      const list = (prev[hypothesisRowId] ?? []).filter((a) => a.yearIndex !== hypothesisYearIndex)
+      const keep = draftValue === 0 && !draftNote.trim() ? list : [...list, nextAdj]
+      return { ...prev, [hypothesisRowId]: keep }
+    })
+    closeBilanHypothesisPanel()
+  }
+
+  const deleteBilanHypothesis = () => {
+    if (!hypothesisRowId) return
+    setBilanAdjustments((prev) => ({
+      ...prev,
+      [hypothesisRowId]: (prev[hypothesisRowId] ?? []).filter((a) => a.yearIndex !== hypothesisYearIndex),
+    }))
+    closeBilanHypothesisPanel()
+  }
+
   const canInlineStructureEdit = !!showBalanceSheetStructureSettings && !!companyId && !isComparisonMode
-  const shouldLoadStandardLinkCodes = !!companyId
+  const shouldLoadStandardLinkCodes = !!companyId && !isHypothesisSection
   const structEdit = useBalanceSheetStructureEdit(companyId ?? null, structureEditMode && canInlineStructureEdit)
   const { codes: standardLinkCodes } = useStandardLinkCodesFlat(
     false,
@@ -228,12 +387,15 @@ export function BalanceSheetDetail({
     shouldLoadStandardLinkCodes
   )
 
-  /** Structure affichée au Détail : sous-lignes standard alignées même hors mode Paramètres. */
+  /** Structure affichée : Sommaire pour l’hypothèse, Détail (sous-lignes standard) sinon. */
   const displayStructure = useMemo((): Record<string, unknown>[] | null => {
     if (statementStructure === null) return null
+    if (isHypothesisSection) {
+      return statementStructure.filter((r) => !isBalanceSheetValidationStructureRow(r))
+    }
     if (standardLinkCodes.length === 0) return statementStructure
     return syncDetailSubLinesFromStandard(statementStructure, standardLinkCodes)
-  }, [statementStructure, standardLinkCodes])
+  }, [statementStructure, standardLinkCodes, isHypothesisSection])
 
   useEffect(() => {
     if (!structureEditMode || !canInlineStructureEdit || structEdit.loading) return
@@ -360,6 +522,67 @@ export function BalanceSheetDetail({
     structureVersion,
   })
 
+  const { rows: cashFlowSeriesRows, periods: cashFlowPeriods } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "cash-flow-detail",
+    fiscalYear: currentYear,
+    month: refMonth,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: isHypothesisSection && !!companyId,
+    structureVersion,
+  })
+
+  const endingCashTrend = useMemo(() => {
+    if (!isHypothesisSection) return undefined
+    const variationByYear = Array.from({ length: forecastYearColumnCount }, () => 0)
+    if (cashFlowStructure?.length && cashFlowSeriesRows.length && cashFlowPeriods.length) {
+      const variationSr = cashFlowStructure.find(isCashFlowNetVariationStructureRow)
+      if (variationSr) {
+        const used = new Set<number>()
+        const usedNested = new Set<string>()
+        const variationRow = findStatementApiRowForStructureRow(
+          variationSr,
+          cashFlowSeriesRows,
+          used,
+          usedNested,
+        )
+        if (variationRow) {
+          variationByYear[0] = yearTrendFromReference(variationRow, cashFlowPeriods, refYear, 1)[0] || 0
+        }
+      }
+    }
+    const netByPeriod = seriesRows.length ? buildNetCashByPeriodKey(seriesRows) : new Map<string, number>()
+    const beginningActual =
+      netByPeriod.get(periodKey(refYear - 1, refMonth)) ?? netByPeriod.get(periodKey(refYear, refMonth)) ?? 0
+    return buildForecastEndingCashTrend(beginningActual, variationByYear)
+  }, [
+    isHypothesisSection,
+    forecastYearColumnCount,
+    cashFlowStructure,
+    cashFlowSeriesRows,
+    cashFlowPeriods,
+    seriesRows,
+    refYear,
+    refMonth,
+  ])
+
+  const getBilanDisplayValue = (
+    rowId: string | undefined,
+    trend: number[] | undefined,
+    yearIndex: number,
+    fallback: number,
+    rowLabel?: string,
+  ) => {
+    if (!trend) return fallback
+    if (!isHypothesisSection || !rowId) return trend[yearIndex] ?? fallback
+    if (isEncaisseBilanRow({ rowId, label: rowLabel })) {
+      return resolveEncaisseFromEndingCash(trend[0] ?? fallback, endingCashTrend, yearIndex)
+    }
+    return resolveBilanAdjustedValue(trend, yearIndex, bilanAdjustments[rowId] ?? [])
+  }
+
   const toggleRow = (rowId: string) => {
     setExpandedRows((prev) => {
       const newSet = new Set(prev)
@@ -376,10 +599,37 @@ export function BalanceSheetDetail({
     setLineAnalysis((prev) => (prev?.rowId === snapshot.rowId ? null : snapshot))
   }, [])
 
+  const listDisplayedStructureRows = (structure: Record<string, unknown>[]) =>
+    isHypothesisSection
+      ? listStructureRowsForPresentationDisplay(structure)
+      : listStructureRowsForDetailDisplay(structure)
+
   const mapStructureRowToDetailRow = (
     sr: Record<string, unknown>,
     row: FinancialStatementRow | undefined
   ): DetailRow => {
+    if (isHypothesisSection) {
+      const isSection = row?.isSection ?? sr.isSection === true
+      const isResult = row?.isResult ?? sr.isResult === true
+      const isBold = row?.isBold ?? sr.isBold === true
+      return {
+        label: String(sr.label ?? row?.label ?? ""),
+        statementLabel: row?.label ?? String(sr.linkCode ?? sr.label ?? ""),
+        current: row?.current ?? 0,
+        prior: row?.prior ?? 0,
+        indent: indentForSummaryRow({
+          isBold,
+          isSection,
+          isResult,
+          indent: typeof sr.indent === "boolean" ? sr.indent : row?.indent,
+        }),
+        isBold,
+        isSubtotal: isResult,
+        isSection,
+        rowId: row?.id ?? String(sr.linkCode ?? sr.id ?? ""),
+        hasLiaisonCode: row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr),
+      }
+    }
     const sub = isStructureRowDetailOnly(sr)
     const annexLetter = String(row?.annexLetter ?? sr.annexLetter ?? "")
     const isAnnexTitle = !sub && normalizeAnnexLetter(annexLetter) !== ""
@@ -421,8 +671,8 @@ export function BalanceSheetDetail({
   const mapBackendRowsDefinedOnly = (apiRows: FinancialStatementRow[], structure: Record<string, unknown>[]): DetailRow[] => {
     const used = new Set<number>()
     const usedNested = new Set<string>()
-    const detailStructureRows = listStructureRowsForDetailDisplay(structure)
-    const fromStructure = detailStructureRows.map((sr) => {
+    const displayedRows = listDisplayedStructureRows(structure)
+    const fromStructure = displayedRows.map((sr) => {
       const row = findStatementApiRowForStructureRow(sr, apiRows, used, usedNested)
       return mapStructureRowToDetailRow(sr, row)
     })
@@ -453,11 +703,34 @@ export function BalanceSheetDetail({
     trend: number[],
     trendFn: (row: SeriesRow) => number[],
   ): DetailRow => {
+    const lastAmount = trend[0] || 0
+    const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
+    if (isHypothesisSection) {
+      const isSection = row?.isSection ?? sr.isSection === true
+      const isResult = row?.isResult ?? sr.isResult === true
+      const isBold = row?.isBold ?? sr.isBold === true
+      return {
+        label: String(sr.label ?? row?.label ?? ""),
+        statementLabel: row?.label ?? String(sr.linkCode ?? sr.label ?? ""),
+        current: lastAmount,
+        prior: priorAmount,
+        isBold,
+        isSection,
+        isSubtotal: isResult,
+        indent: indentForSummaryRow({
+          isBold,
+          isSection,
+          isResult,
+          indent: typeof sr.indent === "boolean" ? sr.indent : row?.indent,
+        }),
+        trendValues: isSection ? undefined : trend,
+        rowId: row?.id ?? String(sr.linkCode ?? sr.id ?? ""),
+        hasLiaisonCode: row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr),
+      }
+    }
     const sub = isStructureRowDetailOnly(sr)
     const annexLetter = String(row?.annexLetter ?? sr.annexLetter ?? "")
     const isAnnexTitle = !sub && normalizeAnnexLetter(annexLetter) !== ""
-    const lastAmount = trend[0] || 0
-    const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
     const allowsGl = balanceSheetDetailRowAllowsGlBreakdown(
       sr,
       standardLinkCodes,
@@ -515,8 +788,8 @@ export function BalanceSheetDetail({
   ): DetailRow[] => {
     const used = new Set<number>()
     const usedNested = new Set<string>()
-    const detailStructureRows = listStructureRowsForDetailDisplay(structure)
-    return detailStructureRows.map((sr) => {
+    const displayedRows = listDisplayedStructureRows(structure)
+    return displayedRows.map((sr) => {
       const row = findStatementApiRowForStructureRow(sr, rows, used, usedNested)
       const trend = row ? trendFn(row) : Array(emptyTrendLength).fill(0)
       return mapSeriesRowToDetailRow(sr, row, trend, trendFn)
@@ -569,44 +842,49 @@ export function BalanceSheetDetail({
   }
 
   const getSeriesYearRows = (): DetailRow[] => {
-    if (!seriesRows.length || !periods.length || !displayStructure) return []
-    const buildYearTrend = (row: SeriesRow) => {
-      if (isForecastSection && forecastUseSeriesActuals) {
+    if (!displayStructure) return []
+    if (isForecastSection && forecastUseSeriesActuals) {
+      const buildYearTrend = (row: SeriesRow) => {
         const actual =
-          balanceSheetYearTrendForBasis(
-            row,
-            periods as SeriesPeriod[],
-            refMonth,
-            refYear,
-            periodBasis,
-            fiscalYearEndMonth,
-            1,
-          )[0] || 0
+          seriesRows.length && periods.length
+            ? balanceSheetYearTrendForBasis(
+                row,
+                periods as SeriesPeriod[],
+                refMonth,
+                refYear,
+                periodBasis,
+                fiscalYearEndMonth,
+                1,
+              )[0] || 0
+            : 0
         return [actual, ...Array.from({ length: projectionYears }, () => 0)]
       }
-      return balanceSheetYearTrendForBasis(
-        row,
+      return mapSeriesRowsDefinedOnly(seriesRows, displayStructure, buildYearTrend, forecastYearColumnCount)
+    }
+    if (!seriesRows.length || !periods.length) return []
+    return mapSeriesRowsDefinedOnly(
+      seriesRows,
+      displayStructure,
+      (row) =>
+        balanceSheetYearTrendForBasis(
+          row,
+          periods as SeriesPeriod[],
+          refMonth,
+          refYear,
+          periodBasis,
+          fiscalYearEndMonth,
+          PERFORMANCE_CHART_YEAR_COUNT,
+        ),
+      balanceSheetYearTrendForBasis(
+        seriesRows[0],
         periods as SeriesPeriod[],
         refMonth,
         refYear,
         periodBasis,
         fiscalYearEndMonth,
         PERFORMANCE_CHART_YEAR_COUNT,
-      )
-    }
-    const emptyTrendLength =
-      isForecastSection && forecastUseSeriesActuals
-        ? forecastYearColumnCount
-        : balanceSheetYearTrendForBasis(
-            seriesRows[0],
-            periods as SeriesPeriod[],
-            refMonth,
-            refYear,
-            periodBasis,
-            fiscalYearEndMonth,
-            PERFORMANCE_CHART_YEAR_COUNT,
-          ).length
-    return mapSeriesRowsDefinedOnly(seriesRows, displayStructure, buildYearTrend, emptyTrendLength)
+      ).length,
+    )
   }
 
   const getDetailData = (): DetailRow[] => {
@@ -633,7 +911,7 @@ export function BalanceSheetDetail({
     )
   }
 
-  if (!isStructureStudio) {
+  if (!isStructureStudio && !isHypothesisSection) {
     const trendLen = data.find((r) => r.trendValues != null)?.trendValues?.length ?? 0
     data = insertAnnexDetailPlaceholderRows(data, trendLen > 0 ? trendLen : undefined)
   }
@@ -658,6 +936,7 @@ export function BalanceSheetDetail({
   useEffect(() => {
     if (!isComparisonMode) {
       setEntityDataMap(prev => Object.keys(prev).length === 0 ? prev : {})
+      setEntityDataLoading(false)
       return
     }
 
@@ -676,6 +955,7 @@ export function BalanceSheetDetail({
 
     if (entities.length === 0) {
       setEntityDataMap(prev => Object.keys(prev).length === 0 ? prev : {})
+      setEntityDataLoading(false)
       return
     }
 
@@ -916,25 +1196,30 @@ export function BalanceSheetDetail({
   else if (view === "years") detailTableColumnCount = 1 + getYearLabels().length
 
   const awaitingBalanceSheetStructure =
-    !isForecastSection && !!companyId && statementStructure === null
+    !!companyId && statementStructure === null && (!isForecastSection || isHypothesisSection)
 
   const isDataLoading =
     awaitingBalanceSheetStructure ||
     loading ||
-    (isMultiPeriod && seriesLoading) ||
+    (isMultiPeriod && seriesLoading && !isHypothesisSection) ||
     entityDataLoading
 
   if (isDataLoading) {
     return (
       <div className={cn("w-full", dashboardCardFrameStaticClass)}>
         <div className={dashboardCardRingClass} aria-hidden />
-        <div className="relative px-8 py-16 text-center">
-          <div className="animate-pulse space-y-4">
-            <div className="mx-auto h-4 w-1/3 rounded bg-slate-200"></div>
-            <div className="mx-auto h-4 w-2/3 rounded bg-slate-200"></div>
-            <div className="mx-auto h-4 w-1/2 rounded bg-slate-200"></div>
+        <div className="relative">
+          <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+            <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
           </div>
-          <p className={cn("mt-4 text-sm", dashboardCardBodyMutedClass)}>Chargement des données...</p>
+          <div className="px-8 py-16 text-center">
+            <div className="animate-pulse space-y-4">
+              <div className="mx-auto h-4 w-1/3 rounded bg-slate-200"></div>
+              <div className="mx-auto h-4 w-2/3 rounded bg-slate-200"></div>
+              <div className="mx-auto h-4 w-1/2 rounded bg-slate-200"></div>
+            </div>
+            <p className={cn("mt-4 text-sm", dashboardCardBodyMutedClass)}>Chargement des données...</p>
+          </div>
         </div>
       </div>
     )
@@ -944,10 +1229,15 @@ export function BalanceSheetDetail({
     return (
       <div className={cn("w-full", dashboardCardFrameStaticClass)}>
         <div className={dashboardCardRingClass} aria-hidden />
-        <div className="relative px-8 py-16 text-center">
-          <p className={cn("text-sm", dashboardCardBodyMutedClass)}>
-            Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.
-          </p>
+        <div className="relative">
+          <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+            <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
+          </div>
+          <div className="px-8 py-16 text-center">
+            <p className={cn("text-sm", dashboardCardBodyMutedClass)}>
+              Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.
+            </p>
+          </div>
         </div>
       </div>
     )
@@ -1307,6 +1597,7 @@ export function BalanceSheetDetail({
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const isSpacer = row.label === ""
               const shouldHideAmounts = isSpacer || !!row.isSection || !!row.isAnnexPlaceholder || !!row.isAnnexTitle
+              const isEncaisseRow = isEncaisseBilanRow({ rowId: row.rowId, label: row.label })
               /** Hors Paramètres : libellé sous-total masqué (blanc) mais chiffres en noir. */
               const annexSubtotalDarkNumbers = !!row.isAnnexSubtotal
               const displayLabel = row.isSection ? capitalizeFirst(row.label) : row.label
@@ -1322,11 +1613,13 @@ export function BalanceSheetDetail({
                       displayStructure
                     )
                   : undefined
-              const canExpand = balanceSheetDetailCanExpandGlAccounts(
-                matchedStructureRow,
-                standardLinkCodes,
-                row
-              )
+              const canExpand =
+                !isHypothesisSection &&
+                balanceSheetDetailCanExpandGlAccounts(
+                  matchedStructureRow,
+                  standardLinkCodes,
+                  row,
+                )
               const isExpanded = row.rowId ? expandedRows.has(row.rowId) : false
               /** À l’ouverture : montants en graisse normale (pas gras). */
               const amountWeightClass =
@@ -1340,6 +1633,12 @@ export function BalanceSheetDetail({
               const hasNote = row.rowId
                 ? getNoteByRowId(row.rowId, "balance-sheet", period, view, companyId, divisionId, subDivisionId) !== null
                 : false
+
+              if (isHypothesisSection && hypothesisRowId && row.rowId !== hypothesisRowId) {
+                return null
+              }
+
+              const isHypothesisSelected = isHypothesisSection && hypothesisRowId === row.rowId
 
               return (
                 <Fragment key={idx}>
@@ -1356,7 +1655,8 @@ export function BalanceSheetDetail({
                     className={cn(
                     row.label === "" ? "h-2" : "",
                     "hover:[&>td]:bg-slate-50/90 hover:[&>td:first-child]:bg-slate-50/90",
-                    canExpand && "cursor-pointer"
+                    canExpand && "cursor-pointer",
+                    isHypothesisSelected && "bg-blue-50/35 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.28)]"
                   )}
                   onClick={() => canExpand && toggleRow(row.rowId!)}
                   >
@@ -1394,6 +1694,11 @@ export function BalanceSheetDetail({
                             )}
                             {!canExpand && row.indent && <span className="w-4"></span>}
                             <span className="flex-1 whitespace-nowrap">{displayLabel}</span>
+                            {isHypothesisSection && isEncaisseRow && (
+                              <span className="text-[11px] font-medium text-slate-400">
+                                Trésorerie à la fin
+                              </span>
+                            )}
                           </>
                         )}
                         {row.rowId &&
@@ -1648,7 +1953,21 @@ export function BalanceSheetDetail({
                   )}
                   {view === "years" && row.trendValues && (
                     <>
-                      {row.trendValues.map((value, valueIdx) => (
+                      {row.trendValues.map((value, valueIdx) => {
+                        const displayValue = getBilanDisplayValue(
+                          row.rowId,
+                          row.trendValues,
+                          valueIdx,
+                          value,
+                          row.label,
+                        )
+                        const canAdjust =
+                          isHypothesisSection &&
+                          !!row.rowId &&
+                          !shouldHideAmounts &&
+                          valueIdx > 0 &&
+                          !isEncaisseRow
+                        return (
                           <td
                             key={valueIdx}
                             className={cn(
@@ -1656,8 +1975,17 @@ export function BalanceSheetDetail({
                               row.isBold && !isExpanded ? "font-semibold font-bold" : "font-normal text-slate-600",
                               shouldHideAmounts ? "text-white" : "",
                               annexSubtotalDarkNumbers ? "text-slate-900" : "",
-                              isForecastSection && valueIdx === 0 ? "bg-slate-50" : ""
+                              isForecastSection && valueIdx === 0 ? "bg-slate-50" : "",
+                              canAdjust && "cursor-pointer hover:bg-slate-50/90",
+                              isHypothesisSelected &&
+                                hypothesisYearIndex === valueIdx &&
+                                "z-[1] bg-blue-50/50 shadow-[inset_0_0_0_2px_rgb(59,130,246)]",
                             )}
+                            onClick={(e) => {
+                              if (!canAdjust || !row.rowId) return
+                              e.stopPropagation()
+                              openBilanHypothesisPanel(row.rowId, valueIdx, displayLabel)
+                            }}
                           >
                             {columnMode === "variationAmount" || columnMode === "variationPercent"
                                 ? (() => {
@@ -1670,9 +1998,10 @@ export function BalanceSheetDetail({
                                       ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}`
                                       : "-"
                                   })()
-                                : (value !== 0 ? formatCurrency(value) : "-")}
+                                : (displayValue !== 0 ? formatCurrency(displayValue) : "-")}
                           </td>
-                      ))}
+                        )
+                      })}
                     </>
                   )}
                   {/* Empty cells for spacer rows in trend views */}
@@ -1702,6 +2031,97 @@ export function BalanceSheetDetail({
                     </>
                   )}
                 </tr>
+                  {isHypothesisSection && isHypothesisSelected && hypothesisRowId ? (
+                    <tr className="border-b-2 border-blue-200/90 bg-slate-50/95">
+                      <td colSpan={detailTableColumnCount} className="min-w-0 p-0 align-top">
+                        <div className="min-w-0 max-w-full overflow-x-auto px-3 py-3 sm:px-5 sm:py-4">
+                          <div className="min-w-0 max-w-full">
+                            <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                  Hypothèse
+                                </p>
+                                <h3 className="mt-3 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
+                                  {hypothesisRowLabel}
+                                </h3>
+                                <p className="mt-3 text-xs font-medium leading-relaxed text-blue-800">
+                                  Année sélectionnée ·{" "}
+                                  <span className="font-semibold text-blue-900">
+                                    {getYearLabels()[hypothesisYearIndex] ?? hypothesisYearIndex}
+                                  </span>
+                                </p>
+                              </div>
+                              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-9 border-slate-200 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                                  onClick={saveBilanHypothesis}
+                                >
+                                  Enregistrer l&apos;ajustement
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="shrink-0 border-blue-200/90 text-xs font-medium text-blue-900 hover:bg-blue-50/90"
+                                  onClick={closeBilanHypothesisPanel}
+                                >
+                                  Fermer
+                                </Button>
+                              </div>
+                            </div>
+                            <div className="mt-6 space-y-4 rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5">
+                              <div>
+                                <Label htmlFor="bilan-adj-value" className="mb-2 block text-sm font-medium text-slate-700">
+                                  Montant ($)
+                                </Label>
+                                <Input
+                                  id="bilan-adj-value"
+                                  type="number"
+                                  step={1}
+                                  value={draftValue}
+                                  onChange={(e) => setDraftValue(parseFloat(e.target.value) || 0)}
+                                />
+                              </div>
+                              <label className="flex items-center gap-2 text-sm text-slate-700">
+                                <Checkbox
+                                  checked={draftRecurring}
+                                  onCheckedChange={(v) => setDraftRecurring(v === true)}
+                                />
+                                Appliquer aux années suivantes
+                              </label>
+                              <div>
+                                <Label htmlFor="bilan-adj-note" className="mb-2 block text-sm font-medium text-slate-700">
+                                  Note explicative
+                                </Label>
+                                <Input
+                                  id="bilan-adj-note"
+                                  value={draftNote}
+                                  onChange={(e) => setDraftNote(e.target.value)}
+                                  placeholder="Optionnel"
+                                />
+                              </div>
+                              {draftAdjustmentId ? (
+                                <div className="flex justify-end border-t border-slate-200/70 pt-4">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-9 text-xs text-red-700 hover:bg-red-50"
+                                    onClick={deleteBilanHypothesis}
+                                  >
+                                    Supprimer l&apos;ajustement
+                                  </Button>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
                   {/* Expanded balance accounts */}
                   {isExpanded && canExpand && row.balanceAccounts && row.balanceAccounts.length > 0 && (
                     <>

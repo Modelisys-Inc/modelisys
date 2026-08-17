@@ -289,10 +289,19 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   Dette : Intérêts seulement (option paiement résiduel) ou Capital et intérêt ;
   date de 1er paiement ≥ première année projetée ; moratoire (mois) — intérêts
   seulement pour IO, portée intérêts / capital / les deux pour C&I.
-  **Hypothèses Dettes** : même carte / tableau que Capex (Emprunt | Taux | années).
+  **Hypothèses Financement** : même carte / tableau que Capex (Emprunt | Taux | années).
   Clic sur un emprunt → panneau inline (nom, montant, `DebtParamsFields`) ; les
-  autres lignes sont masquées. Mapping PLT alimente le tableau ; paramètres
-  éditables dans le panneau (plus d’édition dans les cellules).
+  autres lignes sont masquées. Mapping PLT (PLT-B/G/C/D) alimente le tableau
+  (solde d’ouverture) ; taux / durée / remboursement se définissent dans le
+  panneau, plus dans le mapping comptable. Emprunts mapping sans hypothèse
+  flaggés « À définir » jusqu’à Enregistrer.
+  **Hypothèses Impôts** : taux unique (`tax-forecast`, défaut 26 %) applicable aux
+  années projetées (poste IMP).
+  **Hypothèses Bilan** : même tableau que le **Sommaire** du bilan (`Estimation du Bilan annuel`),
+  sans les sous-lignes Détail / annexes ; clic sur une année projetée → panneau
+  d’ajustement (Montant $ seulement, récurrent, note). Encaisse (ACT-A.1) n’est pas
+  ajustable : elle suit la **Trésorerie à la fin** des projections (variation de
+  trésorerie reportée).
 - Cash flow is derived from income statement + balance sheet deltas
 - **Sommaire** trésorerie : lignes cochées « Annexe » (`showInSummary`) dans
   Détail → Paramètres ; même moteur de calcul que le Détail (`variant="summary"`).

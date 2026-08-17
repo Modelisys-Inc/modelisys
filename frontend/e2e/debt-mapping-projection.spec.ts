@@ -78,8 +78,8 @@ async function setupDebtPage(page: Page) {
             variable_costs: false,
             fixed_costs: false,
             variable_cost_revenue_link_code: null,
-            liability_remaining_years: 5,
-            liability_interest_rate: 4.5,
+            liability_remaining_years: null,
+            liability_interest_rate: null,
             product: null,
             customer: null,
             supplier: null,
@@ -133,18 +133,23 @@ async function setupDebtPage(page: Page) {
   })
 }
 
-test("debt hypothesis imports PLT mapping with balance, rate and duration", async ({ page }) => {
+test("debt hypothesis imports PLT mapping and flags undefined rate and duration", async ({ page }) => {
   await setupDebtPage(page)
   await page.goto("/projections/debt")
 
   const loanButton = page.getByRole("button", { name: /2500 — Emprunt bancaire/ })
   await expect(loanButton).toBeVisible({ timeout: 15000 })
-  await expect(page.getByText("4.5%")).toBeVisible()
+  await expect(page.getByTestId("debt-incomplete-hypotheses")).toBeVisible()
+  await expect(page.getByText("À définir").first()).toBeVisible()
   await expect(page.getByText(/Décembre \d{4}/)).toBeVisible()
 
   await loanButton.click()
   await expect(page.getByRole("heading", { name: /2500 — Emprunt bancaire/ })).toBeVisible()
-  await expect(page.getByLabel("Taux (%)")).toHaveValue("4.5")
-  await expect(page.getByLabel("Durée (mois)")).toHaveValue("60")
-  await expect(page.getByText("Capital et intérêt")).toBeVisible()
+  await page.getByLabel("Taux (%)").fill("4.5")
+  await page.getByLabel("Durée (mois)").fill("60")
+  await page.getByRole("button", { name: "Enregistrer" }).click()
+
+  await expect(page.getByTestId("debt-incomplete-hypotheses")).toHaveCount(0)
+  await expect(page.getByText("4.5%")).toBeVisible()
+  await expect(page.getByText("À définir")).toHaveCount(0)
 })

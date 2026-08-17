@@ -57,11 +57,7 @@ export function trialBalanceAmountAtMonth(
   return typeof raw === "number" && Number.isFinite(raw) ? raw : 0
 }
 
-export type PltMappingDebtSkipReason =
-  | "zero_balance"
-  | "missing_rate"
-  | "missing_duration"
-  | "no_tb_row"
+export type PltMappingDebtSkipReason = "zero_balance" | "no_tb_row"
 
 export type PltMappingDebtSkip = {
   accountNumber: string
@@ -102,15 +98,6 @@ export function buildDebtLoansFromPltMappings(opts: {
       linkCode,
     }
 
-    if (mapping.liability_interest_rate == null) {
-      skipped.push({ ...baseSkip, reason: "missing_rate" })
-      continue
-    }
-    if (mapping.liability_remaining_years == null) {
-      skipped.push({ ...baseSkip, reason: "missing_duration" })
-      continue
-    }
-
     const tbRow = tbByAccount.get(mapping.account_number)
     if (!tbRow) {
       skipped.push({ ...baseSkip, reason: "no_tb_row" })
@@ -124,16 +111,12 @@ export function buildDebtLoansFromPltMappings(opts: {
       continue
     }
 
-    const remainingYears = Number(mapping.liability_remaining_years)
-    const interestRate = Number(mapping.liability_interest_rate)
-    const remainingPayments = Math.max(1, Math.round(remainingYears * 12))
-
     loans.push({
       id: `plt-mapping-${mapping.id}`,
       name: loanNameFromMapping(mapping),
       principal,
-      interestRate,
-      remainingPayments,
+      interestRate: 0,
+      remainingPayments: 0,
       startMonth: 0,
       repaymentMode: "capital_and_interest",
       sourceType: "mapping",
@@ -142,6 +125,7 @@ export function buildDebtLoansFromPltMappings(opts: {
       sourceLinkCode: linkCode,
       referenceFiscalYear: referencePeriod.fiscalYear,
       referenceMonth: referencePeriod.month,
+      hypothesisDefined: false,
     })
   }
 
@@ -176,6 +160,14 @@ export function mergeDebtForecastLoans(
       name: prev.name,
       startMonth: prev.startMonth,
       repaymentMode: prev.repaymentMode ?? fresh.repaymentMode,
+      interestRate: prev.interestRate,
+      remainingPayments: prev.remainingPayments,
+      paymentAmount: prev.paymentAmount,
+      balloonAmount: prev.balloonAmount,
+      balloonMonth: prev.balloonMonth,
+      moratoriumMonths: prev.moratoriumMonths,
+      moratoriumScope: prev.moratoriumScope,
+      hypothesisDefined: prev.hypothesisDefined ?? prev.remainingPayments >= 1,
     }
   })
 
@@ -186,10 +178,6 @@ export function pltMappingDebtSkipLabel(reason: PltMappingDebtSkipReason): strin
   switch (reason) {
     case "zero_balance":
       return "solde nul à la date de référence"
-    case "missing_rate":
-      return "taux d'intérêt non renseigné dans le mapping"
-    case "missing_duration":
-      return "durée restante non renseignée dans le mapping"
     case "no_tb_row":
       return "absent de la balance de vérification"
   }

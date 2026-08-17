@@ -564,7 +564,7 @@ export function isComputedNetIncomeLinkCode(code: string): boolean {
   return code.trim() === NET_INCOME_BALANCE_LINK_CODE
 }
 
-/** Racines PLT éligibles à la saisie durée restante / taux d'intérêt (mapping comptable). */
+/** Racines PLT importées dans Financement (taux / durée saisis dans les hypothèses de projection). */
 export const MAPPING_LIABILITY_TERM_LINK_CODE_ROOTS = ["PLT-B", "PLT-G", "PLT-C", "PLT-D"] as const
 
 export function isMappingLiabilityTermLinkCode(code: string): boolean {
@@ -575,10 +575,9 @@ export function isMappingLiabilityTermLinkCode(code: string): boolean {
   )
 }
 
-export function showsMappingLiabilityTermOptions(linkCode: string | undefined): boolean {
-  const lc = linkCode?.trim()
-  if (!lc) return false
-  return isMappingLiabilityTermLinkCode(lc)
+/** Taux et durée restante ne se saisissent plus dans le mapping — uniquement dans Financement. */
+export function showsMappingLiabilityTermOptions(_linkCode?: string): boolean {
+  return false
 }
 
 export function sanitizeMappingLiabilityTermFields<
@@ -588,14 +587,11 @@ export function sanitizeMappingLiabilityTermFields<
     liabilityInterestRate?: number
   },
 >(draft: T): T {
-  if (!showsMappingLiabilityTermOptions(draft.linkCode)) {
-    return {
-      ...draft,
-      liabilityRemainingYears: undefined,
-      liabilityInterestRate: undefined,
-    }
+  return {
+    ...draft,
+    liabilityRemainingYears: undefined,
+    liabilityInterestRate: undefined,
   }
-  return draft
 }
 
 /** Racines Bilan affichées dans « Estimation des Capex annuels » (projections). */

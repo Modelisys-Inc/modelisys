@@ -46,6 +46,20 @@ export interface DebtForecastLoan {
   referenceFiscalYear?: number
   referenceMonth?: number
   sourceType?: "capex" | "manual" | "mapping"
+  /**
+   * Hypothèse (taux, durée, remboursement) confirmée dans Financement.
+   * Les emprunts mapping sans ce flag (ni terme déjà stocké) sont à définir.
+   */
+  hypothesisDefined?: boolean
+}
+
+export function isDebtHypothesisDefined(
+  loan: Pick<DebtForecastLoan, "sourceType" | "hypothesisDefined" | "remainingPayments">,
+): boolean {
+  if (loan.sourceType !== "mapping") return true
+  if (loan.hypothesisDefined === true) return true
+  if (loan.hypothesisDefined === false) return false
+  return loan.remainingPayments >= 1
 }
 
 export const DEBT_REPAYMENT_MODE_LABELS: Record<DebtRepaymentMode, string> = {

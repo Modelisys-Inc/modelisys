@@ -171,8 +171,8 @@ describe("mapping liability term options", () => {
     expect(isMappingLiabilityTermLinkCode("ACT-A.1")).toBe(false)
   })
 
-  it("shows options only for eligible codes and clears fields on sanitize", () => {
-    expect(showsMappingLiabilityTermOptions("PLT-B.1")).toBe(true)
+  it("does not show liability term fields in mapping (captured in Financement)", () => {
+    expect(showsMappingLiabilityTermOptions("PLT-B.1")).toBe(false)
     expect(showsMappingLiabilityTermOptions("CMV.1")).toBe(false)
 
     expect(
@@ -183,8 +183,8 @@ describe("mapping liability term options", () => {
       }),
     ).toEqual({
       linkCode: "PLT-B.1",
-      liabilityRemainingYears: 5,
-      liabilityInterestRate: 4.5,
+      liabilityRemainingYears: undefined,
+      liabilityInterestRate: undefined,
     })
 
     expect(

@@ -3,7 +3,7 @@
 import { formatCurrency } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
-import { Landmark, Plus, Trash2 } from "lucide-react"
+import { AlertTriangle, Landmark, Plus, Trash2 } from "lucide-react"
 import { Fragment, useState, useEffect, useRef, useCallback } from "react"
 import { listForecastConfigs, upsertForecastConfig, listAccountMappings, getTrialBalance } from "@/lib/api"
 import type { CapexDebtParams } from "@/lib/capex-financing-utils"
@@ -12,6 +12,7 @@ import {
   loanToCapexDebtParams,
 } from "@/lib/capex-financing-utils"
 import type { DebtForecastLoan } from "@/lib/debt-forecast-types"
+import { isDebtHypothesisDefined } from "@/lib/debt-forecast-types"
 import { calculateLoanYearAmortization } from "@/lib/debt-amortization-utils"
 import {
   buildDebtLoansFromPltMappings,
@@ -62,7 +63,7 @@ interface LoanYearData {
   endingBalance: number
 }
 
-const isForecastSection = (title?: string) => title === "Estimation des Dettes annuelles"
+const isForecastSection = (title?: string) => title === "Estimation du Financement annuel"
 
 export function DebtForecastDetail({
   period: _period,
@@ -72,7 +73,7 @@ export function DebtForecastDetail({
   divisionId,
   subDivisionId,
   companies = [],
-  title = "Estimation des Dettes annuelles",
+  title = "Estimation du Financement annuel",
   projectionYears = 5,
   projectionId,
   forecastBaseYear,
@@ -209,6 +210,15 @@ export function DebtForecastDetail({
     setHypothesisLoanId(loan.id)
     setDraftName(loan.name)
     setDraftPrincipal(loan.principal)
+    if (!isDebtHypothesisDefined(loan)) {
+      setDraftDebt({
+        interestRate: 5,
+        termMonths: 60,
+        repaymentMode: "capital_and_interest",
+        firstPaymentDate: { year: effectiveForecastBaseYear, month: 1 },
+      })
+      return
+    }
     setDraftDebt(loanToCapexDebtParams(loan, effectiveForecastBaseYear))
   }
 
@@ -217,11 +227,14 @@ export function DebtForecastDetail({
     setLoans((prev) =>
       prev.map((loan) => {
         if (loan.id !== hypothesisLoanId) return loan
-        return applyCapexDebtParamsToLoan(
-          { ...loan, name: draftName.trim() || loan.name, principal: Math.max(0, draftPrincipal) },
-          draftDebt,
-          effectiveForecastBaseYear,
-        )
+        return {
+          ...applyCapexDebtParamsToLoan(
+            { ...loan, name: draftName.trim() || loan.name, principal: Math.max(0, draftPrincipal) },
+            draftDebt,
+            effectiveForecastBaseYear,
+          ),
+          hypothesisDefined: true,
+        }
       }),
     )
     closeHypothesisPanel()
@@ -275,6 +288,11 @@ export function DebtForecastDetail({
     let totalEnding = 0
 
     loans.forEach((loan) => {
+      if (!isDebtHypothesisDefined(loan)) {
+        totalBeginning += loan.principal
+        totalEnding += loan.principal
+        return
+      }
       const yearData = calculateLoanYearData(loan, yearIndex)
       if (yearData !== null) {
         totalBeginning += yearData.beginningBalance
@@ -298,10 +316,16 @@ export function DebtForecastDetail({
   const yearColumnCount = yearLabels.length
   const tableColumnCount = 2 + yearColumnCount
   const hypothesisInlineActive = isForecast && hypothesisLoanId != null && draftDebt != null
+  const rankedLoans = [...loans].sort((a, b) => {
+    const aDefined = isDebtHypothesisDefined(a) ? 1 : 0
+    const bDefined = isDebtHypothesisDefined(b) ? 1 : 0
+    return aDefined - bDefined
+  })
+  const incompleteHypothesisLoans = rankedLoans.filter((loan) => !isDebtHypothesisDefined(loan))
   const visibleLoans =
     hypothesisInlineActive && hypothesisLoanId
-      ? loans.filter((loan) => loan.id === hypothesisLoanId)
-      : loans
+      ? rankedLoans.filter((loan) => loan.id === hypothesisLoanId)
+      : rankedLoans
 
   const renderYearCells = (
     loan: Loan,
@@ -341,7 +365,9 @@ export function DebtForecastDetail({
               {loan.name}
             </h3>
             <p className="mt-3 text-xs font-medium leading-relaxed text-blue-800">
-              Paramètres de l&apos;emprunt — mêmes options que le financement Capex.
+              {isDebtHypothesisDefined(loan)
+                ? "Paramètres de l'emprunt — mêmes options que le financement Capex."
+                : "Taux, durée et mode de remboursement à définir ici (plus dans le mapping comptable)."}
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -507,6 +533,33 @@ export function DebtForecastDetail({
                 ))}
               </ul>
             ) : null}
+            {incompleteHypothesisLoans.length > 0 ? (
+              <div
+                className="mt-3 flex flex-wrap items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-950"
+                data-testid="debt-incomplete-hypotheses"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold">
+                    {incompleteHypothesisLoans.length} emprunt
+                    {incompleteHypothesisLoans.length > 1 ? "s" : ""} sans hypothèse
+                  </p>
+                  <p className="mt-0.5 text-amber-800">
+                    Taux, durée et mode de remboursement se définissent ici — plus dans le mapping
+                    comptable.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0 border-amber-300 bg-white text-xs font-medium text-amber-950 hover:bg-amber-100"
+                  onClick={() => openHypothesisPanel(incompleteHypothesisLoans[0])}
+                >
+                  Définir
+                </Button>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -544,6 +597,7 @@ export function DebtForecastDetail({
               <tbody>
                 {visibleLoans.map((loan) => {
                   const isSelected = hypothesisLoanId === loan.id
+                  const hypothesisDefined = isDebtHypothesisDefined(loan)
 
                   return (
                     <Fragment key={loan.id}>
@@ -552,6 +606,7 @@ export function DebtForecastDetail({
                           "border-b border-slate-200 transition-colors duration-150 hover:bg-slate-50/90",
                           isSelected &&
                             "bg-blue-50/35 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.28)]",
+                          !hypothesisDefined && !isSelected && "bg-amber-50/50",
                         )}
                       >
                         <td className="min-w-[20rem] px-6 py-3 font-semibold text-slate-900">
@@ -561,6 +616,11 @@ export function DebtForecastDetail({
                             className="flex flex-wrap items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-slate-50"
                           >
                             <span>{loan.name}</span>
+                            {!hypothesisDefined ? (
+                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                                À définir
+                              </span>
+                            ) : null}
                             {loan.sourceType === "capex" ? (
                               <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-800">
                                 Capex
@@ -575,19 +635,36 @@ export function DebtForecastDetail({
                         </td>
                         {isForecast && view === "years" ? (
                           <td
-                            className="min-w-[6.5rem] cursor-pointer px-4 py-3 text-center text-purple-600"
+                            className={cn(
+                              "min-w-[6.5rem] cursor-pointer px-4 py-3 text-center",
+                              hypothesisDefined ? "text-purple-600" : "text-amber-700",
+                            )}
                             onClick={() => openHypothesisPanel(loan)}
                           >
-                            <span className="font-medium">{loan.interestRate.toFixed(1)}%</span>
+                            {hypothesisDefined ? (
+                              <span className="font-medium">{loan.interestRate.toFixed(1)}%</span>
+                            ) : (
+                              <span className="font-medium">À définir</span>
+                            )}
                           </td>
                         ) : null}
                         {view === "years"
-                          ? renderYearCells(
-                              loan,
-                              (d) => d.beginningBalance,
-                              "text-slate-900",
-                              () => openHypothesisPanel(loan),
-                            )
+                          ? hypothesisDefined
+                            ? renderYearCells(
+                                loan,
+                                (d) => d.beginningBalance,
+                                "text-slate-900",
+                                () => openHypothesisPanel(loan),
+                              )
+                            : yearLabels.map((_, yearIdx) => (
+                                <td
+                                  key={yearIdx}
+                                  className="min-w-[8rem] cursor-pointer px-4 py-2 text-right font-mono text-sm text-slate-400"
+                                  onClick={() => openHypothesisPanel(loan)}
+                                >
+                                  {formatCurrency(loan.principal)}
+                                </td>
+                              ))
                           : null}
                       </tr>
 
@@ -601,7 +678,7 @@ export function DebtForecastDetail({
                         </tr>
                       ) : null}
 
-                      {isForecast && view === "years" && !hypothesisInlineActive ? (
+                      {isForecast && view === "years" && !hypothesisInlineActive && hypothesisDefined ? (
                         <>
                           <tr className="border-b border-slate-200">
                             <td className="px-6 py-2 pl-12 text-sm text-slate-600">Versement global</td>

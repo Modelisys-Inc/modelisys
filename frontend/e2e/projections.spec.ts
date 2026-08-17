@@ -42,6 +42,16 @@ test.describe("Projections", () => {
     await expect(page).toHaveURL(/\/projections\/debt/);
   });
 
+  test("can navigate to tax projections", async ({ page }) => {
+    await page.goto("/projections/taxes");
+    await expect(page).toHaveURL(/\/projections\/taxes/);
+  });
+
+  test("can navigate to bilan projections", async ({ page }) => {
+    await page.goto("/projections/bilan");
+    await expect(page).toHaveURL(/\/projections\/bilan/);
+  });
+
   test("pro-forma page has projection controls", async ({ page }) => {
     await page.goto("/projections");
     // Should have projection year selector or similar controls
