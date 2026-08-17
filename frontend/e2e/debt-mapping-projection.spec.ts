@@ -137,11 +137,14 @@ test("debt hypothesis imports PLT mapping with balance, rate and duration", asyn
   await setupDebtPage(page)
   await page.goto("/projections/debt")
 
-  await expect(page.getByRole("button", { name: /2500 — Emprunt bancaire/ })).toBeVisible({
-    timeout: 15000,
-  })
+  const loanButton = page.getByRole("button", { name: /2500 — Emprunt bancaire/ })
+  await expect(loanButton).toBeVisible({ timeout: 15000 })
   await expect(page.getByText("4.5%")).toBeVisible()
-  await expect(page.getByText(/60 mois/)).toBeVisible()
-  await expect(page.getByText(/5 ans/)).toBeVisible()
   await expect(page.getByText(/Décembre \d{4}/)).toBeVisible()
+
+  await loanButton.click()
+  await expect(page.getByRole("heading", { name: /2500 — Emprunt bancaire/ })).toBeVisible()
+  await expect(page.getByLabel("Taux (%)")).toHaveValue("4.5")
+  await expect(page.getByLabel("Durée (mois)")).toHaveValue("60")
+  await expect(page.getByText("Capital et intérêt")).toBeVisible()
 })

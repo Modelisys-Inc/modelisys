@@ -456,14 +456,14 @@ test.describe("Projection capex estimation", () => {
     await expect(page.getByText("Hypothèse", { exact: true })).toBeVisible()
     await expect(page.getByRole("tab", { name: "Sommaire" })).toBeVisible()
     await expect(page.getByRole("tab", { name: "Ajustement" })).toBeVisible()
-    await expect(page.getByRole("tab", { name: "Décaissement" })).toBeVisible()
-    await page.getByRole("tab", { name: "Décaissement" }).click()
+    await expect(page.getByRole("tab", { name: "Décaissement" })).toHaveCount(0)
     await expect(page.getByText("Mode de financement")).toBeVisible()
-    await expect(page.getByText("Comptant")).toBeVisible()
-    await expect(page.getByText("Financement")).toBeVisible()
-    await expect(page.getByText("Mixte")).toBeVisible()
-    await expect(page.getByRole("button", { name: "Enregistrer le financement" })).toBeVisible()
-    await page.getByRole("tab", { name: "Ajustement" }).click()
+    await expect(page.getByText("Projet Capex")).toHaveCount(0)
+    await expect(page.getByText("Mois de mise en service")).toHaveCount(0)
+    await expect(page.getByText("Nom du projet")).toHaveCount(0)
+    await expect(page.getByText("Comptant", { exact: true })).toBeVisible()
+    await expect(page.getByText("Financement", { exact: true })).toBeVisible()
+    await expect(page.getByText("Mixte", { exact: true })).toBeVisible()
     await expect(page.getByText("Type d'ajustement")).toBeVisible()
     await expect(page.getByRole("button", { name: "Enregistrer l'ajustement" })).toBeVisible()
   })
@@ -499,7 +499,7 @@ test.describe("Projection capex estimation", () => {
     await firstProjectedYearCell.click()
 
     await expect(page.getByText("Hypothèse", { exact: true })).toBeVisible()
-    await page.locator('input[type="number"]').first().fill("75000")
+    await page.getByPlaceholder("0").fill("75000")
     await page.getByRole("button", { name: "Enregistrer l'ajustement" }).click()
 
     await expect(firstProjectedYearCell).toContainText("75")
@@ -534,7 +534,7 @@ test.describe("Projection capex estimation", () => {
     await firstProjectedYearCell.click()
 
     await expect(page.getByLabel("Appliquer le même ajustement aux années suivantes")).toBeVisible()
-    await page.locator('input[type="number"]').first().fill("50000")
+    await page.getByPlaceholder("0").fill("50000")
     await page.getByLabel("Appliquer le même ajustement aux années suivantes").check()
     await page.getByRole("button", { name: "Enregistrer l'ajustement" }).click()
 
@@ -543,7 +543,7 @@ test.describe("Projection capex estimation", () => {
     await expect(terrainsRow.locator("td").nth(5)).toContainText("50")
   })
 
-  test("shows disbursement calendar on decaissement tab when adjustment amount is set", async ({ page }) => {
+  test("shows disbursement calendar inside adjustment when amount is set", async ({ page }) => {
     test.setTimeout(60_000)
     await setupAuth(page)
 
@@ -570,15 +570,14 @@ test.describe("Projection capex estimation", () => {
     await terrainsRow.locator("td").nth(3).click()
 
     await expect(page.getByText("Hypothèse", { exact: true })).toBeVisible()
-    await page.locator('input[type="number"]').first().fill("100000")
-    await page.getByRole("button", { name: "Enregistrer l'ajustement" }).click()
+    await page.getByPlaceholder("0").fill("100000")
 
-    await terrainsRow.locator("td").nth(3).click()
-    await page.getByRole("tab", { name: "Décaissement" }).click()
-
-    await expect(page.getByText("Calendrier de décaissement")).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Calendrier de décaissement" })).toBeVisible()
     await expect(page.getByLabel("Calendrier de décaissement par mois")).toBeVisible()
-    await expect(page.getByRole("button", { name: "Enregistrer le financement" })).toBeEnabled()
+    await expect(page.getByTestId("forecast-seasonality-zero-all")).toBeVisible()
+    await page.getByTestId("forecast-seasonality-zero-all").click()
+    await expect(page.getByText(/Total des pourcentages\s*:\s*0\s*%/i)).toBeVisible()
+    await expect(page.getByRole("button", { name: "Enregistrer l'ajustement" })).toBeDisabled()
   })
 
   test("financed mode shows debt payments and hides disbursement calendar", async ({ page }) => {
@@ -602,20 +601,27 @@ test.describe("Projection capex estimation", () => {
 
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
     await terrainsRow.locator("td").nth(3).click()
-    await page.locator('input[type="number"]').first().fill("50000")
-    await page.getByRole("button", { name: "Enregistrer l'ajustement" }).click()
-
-    await terrainsRow.locator("td").nth(3).click()
-    await page.getByRole("tab", { name: "Décaissement" }).click()
-    await page.locator('input[name="capex-financing-mode"]').nth(1).click()
+    await page.getByPlaceholder("0").fill("50000")
+    await page.locator('label').filter({ hasText: /^Financement$/ }).click()
 
     await expect(page.getByText("Paramètres de la dette")).toBeVisible({ timeout: 10000 })
     await expect(page.getByText("Capital et intérêt")).toBeVisible()
+    await expect(page.getByText("Intérêts seulement", { exact: true })).toBeVisible()
+    await expect(page.getByText("Intérêts seulement avec paiement résiduel")).toHaveCount(0)
+    await expect(page.getByLabel("Moratoire", { exact: true })).toBeVisible()
+    await expect(page.getByText("Type de moratoire")).toHaveCount(0)
+    await page.getByLabel("Moratoire", { exact: true }).check()
+    await expect(page.getByText("Durée du moratoire (mois)")).toBeVisible()
+    await page.locator('label').filter({ hasText: /^Capital et intérêt$/ }).click()
+    await expect(page.getByText("Type de moratoire")).toBeVisible()
+    await expect(page.getByText(/Aucun paiement d.intérêts pendant/)).toBeVisible()
+    await expect(page.getByText(/Aucun remboursement de capital pendant/)).toBeVisible()
+    await expect(page.getByText(/Aucun paiement \(capital ni intérêts\)/)).toBeVisible()
     await expect(page.getByText("Décaissement total")).toHaveCount(0)
     await expect(page.getByText("Aucune mise de fonds")).toHaveCount(0)
     await expect(page.getByText(/Paiements de capital et d.intérêts/i)).toBeVisible()
-    await expect(page.getByText("Calendrier de décaissement")).toHaveCount(0)
-    await expect(page.getByRole("button", { name: "Enregistrer le financement" })).toBeEnabled()
+    await expect(page.getByRole("heading", { name: "Calendrier de décaissement" })).toHaveCount(0)
+    await expect(page.getByRole("button", { name: "Enregistrer l'ajustement" })).toBeEnabled()
   })
 
   test("opens rate hypothesis panel when clicking taux column", async ({ page }) => {

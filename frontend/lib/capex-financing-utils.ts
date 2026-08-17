@@ -5,7 +5,11 @@ import {
   calculatePreviewMonthlyPayment,
   type LoanYearAmortization,
 } from "@/lib/debt-amortization-utils"
-import type { DebtForecastLoan, DebtRepaymentMode } from "@/lib/debt-forecast-types"
+import type {
+  DebtForecastLoan,
+  DebtMoratoriumScope,
+  DebtRepaymentMode,
+} from "@/lib/debt-forecast-types"
 
 export type { LoanYearAmortization }
 
@@ -21,10 +25,16 @@ export interface CapexDebtParams {
   termMonths: number
   repaymentMode: DebtRepaymentMode
   firstPaymentDate: CapexProjectDate
-  /** Montant du paiement résiduel (mode interest_only_balloon). */
+  /** Paiement résiduel (option de « Intérêts seulement »). */
   balloonAmount?: number
-  /** Date du paiement résiduel (mode interest_only_balloon). */
   balloonPaymentDate?: CapexProjectDate
+  /** Mois sans paiement (à compter de firstPaymentDate). */
+  moratoriumMonths?: number
+  /**
+   * Portée du moratoire (Capital et intérêts).
+   * Intérêts seulement : toujours les intérêts (ignoré).
+   */
+  moratoriumScope?: DebtMoratoriumScope
 }
 
 export interface CapexFinancingConfig {
@@ -101,20 +111,33 @@ function parseDebtParams(raw: unknown): CapexDebtParams | null {
   const o = raw as Record<string, unknown>
   const firstPaymentDate = parseProjectDate(o.firstPaymentDate)
   if (!firstPaymentDate) return null
+  const legacyBalloonMode = o.repaymentMode === "interest_only_balloon" || o.repaymentMode === "balloon"
   const repaymentMode = parseRepaymentMode(o.repaymentMode)
   const balloonPaymentDate = parseProjectDate(o.balloonPaymentDate)
+  const balloonAmount = typeof o.balloonAmount === "number" ? o.balloonAmount : undefined
+  const moratoriumMonths =
+    typeof o.moratoriumMonths === "number" ? Math.max(0, Math.round(o.moratoriumMonths)) : 0
   return {
     interestRate: typeof o.interestRate === "number" ? o.interestRate : 5,
     termMonths: typeof o.termMonths === "number" ? o.termMonths : 60,
     repaymentMode,
     firstPaymentDate,
-    balloonAmount: typeof o.balloonAmount === "number" ? o.balloonAmount : undefined,
-    balloonPaymentDate: balloonPaymentDate ?? undefined,
+    balloonAmount,
+    balloonPaymentDate:
+      balloonPaymentDate ?? (legacyBalloonMode ? { ...firstPaymentDate } : undefined),
+    moratoriumMonths,
+    moratoriumScope: parseMoratoriumScope(o.moratoriumScope),
   }
 }
 
+function parseMoratoriumScope(raw: unknown): DebtMoratoriumScope {
+  if (raw === "interest" || raw === "capital" || raw === "both") return raw
+  return "both"
+}
+
 function parseRepaymentMode(raw: unknown): DebtRepaymentMode {
-  if (raw === "interest_only_balloon" || raw === "balloon") return "interest_only_balloon"
+  // Legacy : intérêts + résiduel → intérêts seulement (champs balloon conservés).
+  if (raw === "interest_only_balloon" || raw === "balloon") return "interest_only"
   if (
     raw === "capital_and_interest" ||
     raw === "constant_payment" ||
@@ -140,6 +163,60 @@ export function startMonthToProjectDate(
   const year = forecastBaseYear + Math.floor(startMonth / 12)
   const month = (startMonth % 12) + 1
   return { year, month }
+}
+
+export function loanToCapexDebtParams(
+  loan: Pick<
+    DebtForecastLoan,
+    | "interestRate"
+    | "remainingPayments"
+    | "startMonth"
+    | "repaymentMode"
+    | "balloonAmount"
+    | "balloonMonth"
+    | "moratoriumMonths"
+    | "moratoriumScope"
+  >,
+  forecastBaseYear: number,
+): CapexDebtParams {
+  const repaymentMode =
+    loan.repaymentMode === "capital_and_interest" ? "capital_and_interest" : "interest_only"
+  return {
+    interestRate: loan.interestRate,
+    termMonths: loan.remainingPayments,
+    repaymentMode,
+    firstPaymentDate: startMonthToProjectDate(loan.startMonth ?? 0, forecastBaseYear),
+    balloonAmount: loan.balloonAmount,
+    balloonPaymentDate:
+      loan.balloonMonth != null
+        ? startMonthToProjectDate(loan.balloonMonth, forecastBaseYear)
+        : undefined,
+    moratoriumMonths: loan.moratoriumMonths ?? 0,
+    moratoriumScope:
+      loan.moratoriumScope ?? (repaymentMode === "capital_and_interest" ? "both" : "interest"),
+  }
+}
+
+export function applyCapexDebtParamsToLoan(
+  loan: DebtForecastLoan,
+  debt: CapexDebtParams,
+  forecastBaseYear: number,
+): DebtForecastLoan {
+  const repaymentMode =
+    debt.repaymentMode === "capital_and_interest" ? "capital_and_interest" : "interest_only"
+  return {
+    ...loan,
+    interestRate: debt.interestRate,
+    remainingPayments: debt.termMonths,
+    startMonth: projectDateToStartMonth(debt.firstPaymentDate, forecastBaseYear),
+    repaymentMode,
+    balloonAmount: debt.balloonAmount,
+    balloonMonth: debt.balloonPaymentDate
+      ? projectDateToStartMonth(debt.balloonPaymentDate, forecastBaseYear)
+      : undefined,
+    moratoriumMonths: debt.moratoriumMonths ?? 0,
+    moratoriumScope: repaymentMode === "capital_and_interest" ? (debt.moratoriumScope ?? "both") : "interest",
+  }
 }
 
 export function computeFinancedAmount(config: CapexFinancingConfig): number {
@@ -202,7 +279,13 @@ function defaultDebtParams(serviceDate: CapexProjectDate): CapexDebtParams {
     firstPaymentDate: { ...serviceDate },
     balloonAmount: undefined,
     balloonPaymentDate: undefined,
+    moratoriumMonths: 0,
+    moratoriumScope: "both",
   }
+}
+
+export function debtHasResidualPayment(debt: CapexDebtParams): boolean {
+  return (debt.balloonAmount ?? 0) > 0 && debt.balloonPaymentDate != null
 }
 
 export function capexFinancingSaveOk(config: CapexFinancingConfig): boolean {
@@ -217,7 +300,8 @@ export function capexFinancingSaveOk(config: CapexFinancingConfig): boolean {
     const debt = config.debt
     if (!debt) return false
     if (debt.interestRate < 0 || debt.termMonths <= 0) return false
-    if (debt.repaymentMode === "interest_only_balloon") {
+    if ((debt.moratoriumMonths ?? 0) < 0) return false
+    if (debtHasResidualPayment(debt) || debt.repaymentMode === "interest_only_balloon") {
       if ((debt.balloonAmount ?? 0) <= 0) return false
       if (!debt.balloonPaymentDate) return false
     }
@@ -263,8 +347,10 @@ export function buildDebtLoanFromCapexFinancing(
 
   const startMonth = projectDateToStartMonth(config.debt.firstPaymentDate, forecastBaseYear)
 
+  const hasBalloon =
+    debtHasResidualPayment(config.debt) || config.debt.repaymentMode === "interest_only_balloon"
   const balloonMonth =
-    config.debt.repaymentMode === "interest_only_balloon" && config.debt.balloonPaymentDate
+    hasBalloon && config.debt.balloonPaymentDate
       ? projectDateToStartMonth(config.debt.balloonPaymentDate, forecastBaseYear)
       : undefined
 
@@ -275,9 +361,17 @@ export function buildDebtLoanFromCapexFinancing(
     interestRate: config.debt.interestRate,
     remainingPayments: config.debt.termMonths,
     startMonth,
-    repaymentMode: config.debt.repaymentMode,
-    balloonAmount: config.debt.balloonAmount,
+    repaymentMode:
+      config.debt.repaymentMode === "interest_only_balloon"
+        ? "interest_only"
+        : config.debt.repaymentMode,
+    balloonAmount: hasBalloon ? config.debt.balloonAmount : undefined,
     balloonMonth,
+    moratoriumMonths: Math.max(0, Math.round(config.debt.moratoriumMonths ?? 0)),
+    moratoriumScope:
+      config.debt.repaymentMode === "capital_and_interest"
+        ? (config.debt.moratoriumScope ?? "both")
+        : "interest",
     sourceCapexKey: capexKey,
     sourceType: "capex",
   }

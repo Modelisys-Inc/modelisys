@@ -281,6 +281,18 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   Type/Taux sur ces mois. Saisonnalité 2024/2025/moyenne = historique **du poste** ;
   avec ajustement = courbes + tableau Dépenses / Ajustement / Dépenses avec
   ajustement.
+  **Hypothèses Capex** : onglets Sommaire / Taux / Ajustement (plus d’onglet
+  Décaissement séparé). Chaque ajustement porte son propre financement
+  (`capexFinancing` : comptant / financement / mixte) et calendrier de
+  décaissement mensuel (`seasonalityMonthPercents`, « Tout à 0 % » pour un
+  décaissement ponctuel) ; plusieurs ajustements par année sont additionnés.
+  Dette : Intérêts seulement (option paiement résiduel) ou Capital et intérêt ;
+  date de 1er paiement ≥ première année projetée ; moratoire (mois) — intérêts
+  seulement pour IO, portée intérêts / capital / les deux pour C&I.
+  **Hypothèses Dettes** : même carte / tableau que Capex (Emprunt | Taux | années).
+  Clic sur un emprunt → panneau inline (nom, montant, `DebtParamsFields`) ; les
+  autres lignes sont masquées. Mapping PLT alimente le tableau ; paramètres
+  éditables dans le panneau (plus d’édition dans les cellules).
 - Cash flow is derived from income statement + balance sheet deltas
 - **Sommaire** trésorerie : lignes cochées « Annexe » (`showInSummary`) dans
   Détail → Paramètres ; même moteur de calcul que le Détail (`variant="summary"`).

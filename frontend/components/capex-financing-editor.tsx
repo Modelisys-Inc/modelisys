@@ -5,15 +5,20 @@ import {
   computeCashDisbursementAmount,
   computeCapexDebtPaymentPreview,
   computeFinancedAmount,
+  type CapexDebtParams,
   type CapexFinancingConfig,
   type CapexFinancingMode,
   type CapexProjectDate,
 } from "@/lib/capex-financing-utils"
 import {
   CAPEX_DEBT_REPAYMENT_MODES,
+  DEBT_MORATORIUM_SCOPE_HINTS,
+  DEBT_MORATORIUM_SCOPE_LABELS,
   DEBT_REPAYMENT_MODE_LABELS,
+  type DebtMoratoriumScope,
 } from "@/lib/debt-forecast-types"
 import { cn } from "@/lib/utils"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -33,43 +38,6 @@ const MONTH_LABELS = [
   "Novembre",
   "Décembre",
 ]
-
-function MonthOnlySelect({
-  label,
-  month,
-  yearLabel,
-  onMonthChange,
-  id,
-}: {
-  label: string
-  month: number
-  yearLabel: string
-  onMonthChange: (month: number) => void
-  id: string
-}) {
-  return (
-    <div>
-      <Label htmlFor={id} className="mb-2 block text-sm font-medium text-slate-700">
-        {label}
-      </Label>
-      <p className="mb-2 text-xs text-slate-500">
-        Année de l&apos;ajustement : <span className="font-medium text-slate-700">{yearLabel}</span>
-      </p>
-      <Select value={String(month)} onValueChange={(v) => onMonthChange(parseInt(v, 10))}>
-        <SelectTrigger id={id} className="w-full max-w-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {MONTH_LABELS.map((m, i) => (
-            <SelectItem key={m} value={String(i + 1)}>
-              {m}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  )
-}
 
 function ProjectDateSelects({
   label,
@@ -150,7 +118,19 @@ function ModeRadio({
   )
 }
 
-function DebtParamsFields({
+function clampProjectDateToYears(
+  date: CapexProjectDate,
+  yearOptions: number[],
+): CapexProjectDate {
+  if (yearOptions.length === 0) return date
+  const minY = yearOptions[0]!
+  const maxY = yearOptions[yearOptions.length - 1]!
+  if (date.year < minY) return { year: minY, month: date.month }
+  if (date.year > maxY) return { year: maxY, month: date.month }
+  return date
+}
+
+export function DebtParamsFields({
   debt,
   onChange,
   yearOptions,
@@ -163,6 +143,26 @@ function DebtParamsFields({
   idPrefix: string
   financedAmount?: number
 }) {
+  const isInterestOnly =
+    debt.repaymentMode === "interest_only" || debt.repaymentMode === "interest_only_balloon"
+  const withResidual =
+    isInterestOnly &&
+    ((debt.balloonAmount ?? 0) > 0 || debt.balloonPaymentDate != null || debt.repaymentMode === "interest_only_balloon")
+  const moratoriumMonths = Math.max(0, Math.round(debt.moratoriumMonths ?? 0))
+  const withMoratorium = moratoriumMonths > 0
+  const moratoriumScope: DebtMoratoriumScope = debt.moratoriumScope ?? "both"
+
+  const patchDebt = (partial: Partial<CapexDebtParams>) => {
+    const next = { ...debt, ...partial }
+    if (next.firstPaymentDate) {
+      next.firstPaymentDate = clampProjectDateToYears(next.firstPaymentDate, yearOptions)
+    }
+    if (next.balloonPaymentDate) {
+      next.balloonPaymentDate = clampProjectDateToYears(next.balloonPaymentDate, yearOptions)
+    }
+    onChange(next)
+  }
+
   return (
     <div className="mt-4 space-y-4 rounded-xl border border-slate-200/90 bg-slate-50/60 p-4">
       <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Paramètres de la dette</h4>
@@ -177,7 +177,7 @@ function DebtParamsFields({
             step="0.01"
             min={0}
             value={debt.interestRate}
-            onChange={(e) => onChange({ ...debt, interestRate: parseFloat(e.target.value) || 0 })}
+            onChange={(e) => patchDebt({ interestRate: parseFloat(e.target.value) || 0 })}
           />
         </div>
         <div>
@@ -190,7 +190,7 @@ function DebtParamsFields({
             min={1}
             step={1}
             value={debt.termMonths}
-            onChange={(e) => onChange({ ...debt, termMonths: parseInt(e.target.value, 10) || 1 })}
+            onChange={(e) => patchDebt({ termMonths: parseInt(e.target.value, 10) || 1 })}
           />
         </div>
         <div className="sm:col-span-2">
@@ -204,18 +204,25 @@ function DebtParamsFields({
                 <input
                   type="radio"
                   name={`${idPrefix}-repayment-mode`}
-                  checked={debt.repaymentMode === mode}
+                  checked={
+                    mode === "interest_only"
+                      ? isInterestOnly
+                      : debt.repaymentMode === mode
+                  }
                   onChange={() => {
-                    const next = { ...debt, repaymentMode: mode }
-                    if (mode === "interest_only_balloon") {
-                      if (!next.balloonAmount || next.balloonAmount <= 0) {
-                        next.balloonAmount = financedAmount > 0 ? financedAmount : next.balloonAmount
-                      }
-                      if (!next.balloonPaymentDate) {
-                        next.balloonPaymentDate = { ...debt.firstPaymentDate }
-                      }
+                    if (mode === "interest_only") {
+                      patchDebt({
+                        repaymentMode: "interest_only",
+                        moratoriumScope: "interest",
+                      })
+                    } else {
+                      patchDebt({
+                        repaymentMode: mode,
+                        balloonAmount: undefined,
+                        balloonPaymentDate: undefined,
+                        moratoriumScope: debt.moratoriumScope ?? "both",
+                      })
                     }
-                    onChange(next)
                   }}
                   className="mt-0.5 h-4 w-4 shrink-0 border-slate-300 text-blue-600 focus:ring-blue-500"
                 />
@@ -226,41 +233,195 @@ function DebtParamsFields({
             ))}
           </div>
         </div>
-        {debt.repaymentMode === "interest_only_balloon" ? (
-          <>
-            <div>
-              <Label htmlFor={`${idPrefix}-balloon`} className="mb-2 block text-sm font-medium text-slate-700">
-                Montant du paiement résiduel ($)
-              </Label>
-              <Input
-                id={`${idPrefix}-balloon`}
-                type="number"
-                min={0}
-                value={debt.balloonAmount ?? 0}
-                onChange={(e) => onChange({ ...debt, balloonAmount: parseFloat(e.target.value) || 0 })}
+
+        {isInterestOnly ? (
+          <div className="sm:col-span-2 space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+            <div className="flex items-start gap-2.5">
+              <Checkbox
+                id={`${idPrefix}-residual`}
+                checked={withResidual}
+                onCheckedChange={(v) => {
+                  const on = v === true
+                  if (on) {
+                    patchDebt({
+                      repaymentMode: "interest_only",
+                      balloonAmount: financedAmount > 0 ? financedAmount : debt.balloonAmount ?? 0,
+                      balloonPaymentDate: debt.balloonPaymentDate ?? { ...debt.firstPaymentDate },
+                    })
+                  } else {
+                    patchDebt({
+                      repaymentMode: "interest_only",
+                      balloonAmount: undefined,
+                      balloonPaymentDate: undefined,
+                    })
+                  }
+                }}
+                className="mt-0.5"
               />
+              <div className="min-w-0 flex-1 space-y-1">
+                <Label
+                  htmlFor={`${idPrefix}-residual`}
+                  className="cursor-pointer text-sm font-medium leading-snug text-slate-800"
+                >
+                  Paiement résiduel
+                </Label>
+                <p className="text-[11px] leading-relaxed text-slate-500">
+                  Option des intérêts seulement : un remboursement de capital à une date donnée
+                  (paiement ballon).
+                </p>
+              </div>
             </div>
-            <ProjectDateSelects
-              label="Date du paiement résiduel"
-              value={debt.balloonPaymentDate ?? debt.firstPaymentDate}
-              onChange={(balloonPaymentDate) => onChange({ ...debt, balloonPaymentDate })}
-              yearOptions={yearOptions}
-              idPrefix={`${idPrefix}-balloon-date`}
-            />
-          </>
+            {withResidual ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor={`${idPrefix}-balloon`} className="mb-2 block text-sm font-medium text-slate-700">
+                    Montant du paiement résiduel ($)
+                  </Label>
+                  <Input
+                    id={`${idPrefix}-balloon`}
+                    type="number"
+                    min={0}
+                    value={debt.balloonAmount ?? 0}
+                    onChange={(e) => patchDebt({ balloonAmount: parseFloat(e.target.value) || 0 })}
+                  />
+                </div>
+                <ProjectDateSelects
+                  label="Date du paiement résiduel"
+                  value={clampProjectDateToYears(
+                    debt.balloonPaymentDate ?? debt.firstPaymentDate,
+                    yearOptions,
+                  )}
+                  onChange={(balloonPaymentDate) => patchDebt({ balloonPaymentDate })}
+                  yearOptions={yearOptions}
+                  idPrefix={`${idPrefix}-balloon-date`}
+                />
+              </div>
+            ) : null}
+          </div>
         ) : null}
-        <div className={debt.repaymentMode === "interest_only_balloon" ? "sm:col-span-2" : ""}>
+
+        <div className="sm:col-span-2">
           <ProjectDateSelects
             label={
               debt.repaymentMode === "capital_and_interest"
                 ? "Date du premier paiement"
                 : "Date du premier paiement d'intérêts"
             }
-            value={debt.firstPaymentDate}
-            onChange={(firstPaymentDate) => onChange({ ...debt, firstPaymentDate })}
+            value={clampProjectDateToYears(debt.firstPaymentDate, yearOptions)}
+            onChange={(firstPaymentDate) => patchDebt({ firstPaymentDate })}
             yearOptions={yearOptions}
             idPrefix={`${idPrefix}-first-payment`}
           />
+          <p className="mt-1 text-[11px] text-slate-500">
+            À partir de {yearOptions[0] ?? "—"} (première année de projection).
+          </p>
+        </div>
+
+        <div className="sm:col-span-2 space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+          <div className="flex items-start gap-2.5">
+            <Checkbox
+              id={`${idPrefix}-moratorium-enabled`}
+              checked={withMoratorium}
+              onCheckedChange={(v) => {
+                const on = v === true
+                if (on) {
+                  patchDebt({
+                    moratoriumMonths: moratoriumMonths > 0 ? moratoriumMonths : 12,
+                    moratoriumScope: isInterestOnly ? "interest" : (debt.moratoriumScope ?? "both"),
+                  })
+                } else {
+                  patchDebt({ moratoriumMonths: 0 })
+                }
+              }}
+              className="mt-0.5"
+            />
+            <div className="min-w-0 flex-1 space-y-1">
+              <Label
+                htmlFor={`${idPrefix}-moratorium-enabled`}
+                className="cursor-pointer text-sm font-medium leading-snug text-slate-800"
+              >
+                Moratoire
+              </Label>
+              <p className="text-[11px] leading-relaxed text-slate-500">
+                {isInterestOnly
+                  ? "Période sans paiement d'intérêts avant le début des versements."
+                  : "Suspendre temporairement les intérêts, le capital, ou les deux."}
+              </p>
+            </div>
+          </div>
+
+          {withMoratorium ? (
+            isInterestOnly ? (
+              <div>
+                <Label htmlFor={`${idPrefix}-moratorium`} className="mb-2 block text-sm font-medium text-slate-700">
+                  Durée du moratoire (mois)
+                </Label>
+                <Input
+                  id={`${idPrefix}-moratorium`}
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={moratoriumMonths}
+                  onChange={(e) =>
+                    patchDebt({ moratoriumMonths: Math.max(1, parseInt(e.target.value, 10) || 1) })
+                  }
+                  className="max-w-[10rem]"
+                />
+              </div>
+            ) : (
+              <>
+                <div>
+                  <Label className="mb-2 block text-sm font-medium text-slate-700">Type de moratoire</Label>
+                  <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
+                    Choisissez ce qui est suspendu pendant la période de moratoire.
+                  </p>
+                  <div className="grid gap-2">
+                    {(["interest", "capital", "both"] as DebtMoratoriumScope[]).map((scope) => (
+                      <label
+                        key={scope}
+                        className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5 transition-colors hover:border-slate-300 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50/50"
+                      >
+                        <input
+                          type="radio"
+                          name={`${idPrefix}-moratorium-scope`}
+                          checked={moratoriumScope === scope}
+                          onChange={() => patchDebt({ moratoriumScope: scope })}
+                          className="mt-0.5 h-4 w-4 shrink-0 border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-medium leading-snug text-slate-800">
+                            {DEBT_MORATORIUM_SCOPE_LABELS[scope]}
+                          </span>
+                          <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500">
+                            {DEBT_MORATORIUM_SCOPE_HINTS[scope]}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor={`${idPrefix}-moratorium`} className="mb-2 block text-sm font-medium text-slate-700">
+                    Durée du moratoire (mois)
+                  </Label>
+                  <Input
+                    id={`${idPrefix}-moratorium`}
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={moratoriumMonths}
+                    onChange={(e) =>
+                      patchDebt({ moratoriumMonths: Math.max(1, parseInt(e.target.value, 10) || 1) })
+                    }
+                    className="max-w-[10rem]"
+                  />
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                    À compter de la date du premier paiement.
+                  </p>
+                </div>
+              </>
+            )
+          ) : null}
         </div>
       </div>
     </div>
@@ -294,13 +455,18 @@ function CapexDebtPaymentPreview({
       <p className="mt-2 text-xs leading-relaxed text-blue-900/80">
         Emprunt de {formatCurrency(financedAmount)} — le prêt sera synchronisé avec le menu Dette.
       </p>
-      {preview?.monthlyPayment != null && preview.monthlyPayment > 0 ? (
+          {preview?.monthlyPayment != null && preview.monthlyPayment > 0 ? (
         <p className="mt-3 text-sm text-blue-950">
           {preview.repaymentMode === "capital_and_interest"
             ? "Paiement mensuel (capital et intérêts)"
             : "Paiement mensuel d'intérêts"}
           :{" "}
           <span className="font-semibold tabular-nums">{formatCurrency(preview.monthlyPayment)}</span>
+        </p>
+      ) : preview && (config.debt?.moratoriumMonths ?? 0) > 0 ? (
+        <p className="mt-3 text-sm text-blue-950">
+          Moratoire ({DEBT_MORATORIUM_SCOPE_LABELS[config.debt?.moratoriumScope ?? "both"].toLowerCase()}
+          ) : {config.debt?.moratoriumMonths ?? 0} mois à compter du premier paiement.
         </p>
       ) : null}
       {preview?.yearData ? (
@@ -351,6 +517,8 @@ export type CapexFinancingEditorProps = {
   followingYearsLabel: string
   yearLabel: string
   linkedLoanId?: string
+  /** Masquer la case « appliquer aux années suivantes » (déjà gérée par l’ajustement parent). */
+  hideReplicateCalendar?: boolean
 }
 
 export function CapexFinancingEditor({
@@ -369,8 +537,9 @@ export function CapexFinancingEditor({
   followingYearsLabel,
   yearLabel,
   linkedLoanId,
+  hideReplicateCalendar = false,
 }: CapexFinancingEditorProps) {
-  const yearOptions = Array.from({ length: projectionYears + 2 }, (_, i) => forecastBaseYear - 1 + i)
+  const yearOptions = Array.from({ length: projectionYears }, (_, i) => forecastBaseYear + i)
   const effectiveConfig: CapexFinancingConfig = { ...config, totalAmount: adjustmentAmount }
   const cashOut = computeCashDisbursementAmount(effectiveConfig)
   const financed = computeFinancedAmount(effectiveConfig)
@@ -383,10 +552,6 @@ export function CapexFinancingEditor({
     onChange({ ...config, ...partial })
   }
 
-  const patchServiceMonth = (month: number) => {
-    patch({ serviceDate: { year: adjustmentCalendarYear, month } })
-  }
-
   const setMode = (mode: CapexFinancingMode) => {
     const next: CapexFinancingConfig = { ...config, mode }
     if (mode === "financed" || mode === "mixed") {
@@ -396,9 +561,11 @@ export function CapexFinancingEditor({
           termMonths: 60,
           repaymentMode: "interest_only",
           firstPaymentDate: {
-            year: adjustmentCalendarYear,
-            month: config.serviceDate.month,
+            year: Math.max(adjustmentCalendarYear, forecastBaseYear),
+            month: 1,
           },
+          moratoriumMonths: 0,
+          moratoriumScope: "interest",
         }
       }
     }
@@ -410,44 +577,14 @@ export function CapexFinancingEditor({
 
   return (
     <div className={cn("space-y-5", embedded && "min-w-0 max-w-full")}>
-      <div className="min-w-0 space-y-4 rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5">
-        <h3 className="border-b border-slate-200/70 pb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Projet Capex
-        </h3>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <Label htmlFor="capex-project-name" className="mb-2 block text-sm font-medium text-slate-700">
-              Nom du projet
-            </Label>
-            <Input
-              id="capex-project-name"
-              value={config.projectName}
-              onChange={(e) => patch({ projectName: e.target.value })}
-              placeholder="Ex. : Achat équipement production"
-            />
-          </div>
-          <MonthOnlySelect
-            label="Mois de mise en service"
-            month={config.serviceDate.month}
-            yearLabel={yearLabel}
-            onMonthChange={patchServiceMonth}
-            id="capex-service-month"
-          />
-        </div>
-        {adjustmentAmount <= 0 ? (
-          <p className="rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-900">
-            Aucun montant capex pour cette année. Définissez un ajustement dans l&apos;onglet Ajustement avant
-            d&apos;enregistrer le financement.
-          </p>
-        ) : (
-          <p className="text-xs text-slate-500">
-            Montant capex annuel (onglet Ajustement) :{" "}
-            <span className="font-semibold tabular-nums text-slate-800">{formatCurrency(adjustmentAmount)}</span>
-          </p>
-        )}
-      </div>
+      {adjustmentAmount <= 0 ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-900">
+          Saisissez d&apos;abord le montant de cet ajustement pour configurer le financement et le
+          décaissement.
+        </p>
+      ) : null}
 
-      <div className="min-w-0 space-y-3 rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5">
+      <div className="space-y-3">
         <h3 className="border-b border-slate-200/70 pb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
           Mode de financement
         </h3>
@@ -543,12 +680,13 @@ export function CapexFinancingEditor({
             embedded={embedded}
             yearLabel={yearLabel}
             followingYearsLabel={followingYearsLabel}
-            canReplicateToFollowingYears={canReplicateCalendar}
+            canReplicateToFollowingYears={!hideReplicateCalendar && canReplicateCalendar}
             replicateToFollowingYears={replicateCalendar}
             onReplicateChange={onReplicateCalendarChange}
             replicateCheckboxId="capex-disbursement-calendar-replicate"
             monthPercents={disbursementSeasonalityMonthPercents}
             onMonthPercentsChange={onDisbursementSeasonalityChange}
+            allowZeroMonthPercents
           />
         </div>
       ) : null}

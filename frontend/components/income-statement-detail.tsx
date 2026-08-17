@@ -7824,7 +7824,7 @@ export function IncomeStatementDetail({
                         className={cn(
                           "min-w-[8rem] px-4 py-4 text-right text-sm font-semibold whitespace-nowrap",
                           (forceForecastSection || isForecastSection) && idx === 0 
-                            ? "bg-slate-50 text-slate-900" 
+                            ? "bg-slate-50 text-slate-400" 
                             : "text-slate-900",
                           yearGroupStartClass(idx)
                         )}
@@ -7836,8 +7836,10 @@ export function IncomeStatementDetail({
                         <th
                           data-testid={yearPctCaHeaderTestId}
                           className={cn(
-                            "min-w-[4.5rem] px-2 py-4 text-right text-xs font-semibold whitespace-nowrap text-slate-500",
-                            (forceForecastSection || isForecastSection) && idx === 0 && "bg-slate-50"
+                            "min-w-[4.5rem] px-2 py-4 text-right text-xs font-semibold whitespace-nowrap",
+                            (forceForecastSection || isForecastSection) && idx === 0
+                              ? "bg-slate-50 text-slate-400"
+                              : "text-slate-500"
                           )}
                         >
                           % CA
@@ -7936,9 +7938,16 @@ export function IncomeStatementDetail({
               const shouldHideAmounts =
                 isSpacer || !!row.isSection || !!row.isAnnexPlaceholder || !!row.isAnnexTitle
               const isRevenueForecast = title === "Estimation des revenus annuels"
+              const isExpenseForecast = title === "Estimation des dépenses annuelles"
+              const isRevenueOrExpenseHypothesis = isRevenueForecast || isExpenseForecast
               const isRevenusHeaderRow = isRevenueForecast && view === "years" && normLabel(String(row.label ?? "")) === "revenus"
-              /** Hors Paramètres : libellé sous-total masqué (blanc) mais chiffres en noir. */
+              /** Hors Paramètres : libellé sous-total masqué (blanc) mais chiffres en noir (sauf année de référence). */
               const annexSubtotalDarkNumbers = row.isAnnexSubtotal && !showStructureCols
+              /** Titres d’annexe / spacers : cellules numériques vides (pas « - » ni 0 $). */
+              const blankHypothesisNumericCell =
+                isRevenueOrExpenseHypothesis &&
+                shouldHideAmounts &&
+                !(isRevenusHeaderRow && revenueHeaderYearTotals)
               const displayLabel = row.label
 
               const isBoldForStyle =
@@ -8605,14 +8614,17 @@ export function IncomeStatementDetail({
                             className={cn(
                               "min-w-[8rem] px-4 py-3 text-right",
                               amountWeightClass,
-                              shouldHideAmounts ? "text-white" : "",
-                              (forceForecastSection || isForecastSection) && valueIdx === 0 ? "bg-slate-50" : "",
+                              shouldHideAmounts && !blankHypothesisNumericCell ? "text-white" : "",
+                              (forceForecastSection || isForecastSection) && valueIdx === 0
+                                ? "bg-slate-50 text-slate-400"
+                                : "",
                               yearGroupStartClass(valueIdx),
                               isEditable && !isEditing && "hover:bg-slate-50 cursor-pointer",
                               showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && title === "Estimation des revenus annuels" ? "text-slate-900" : "",
                               showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate >= 0 && title !== "Estimation des revenus annuels" ? "text-emerald-600 font-semibold" : "",
                               showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate < 0 && title !== "Estimation des revenus annuels" ? "text-red-600 font-semibold" : "",
-                              annexSubtotalDarkNumbers && "text-slate-900",
+                              annexSubtotalDarkNumbers && valueIdx > 0 && "text-slate-900",
+                              blankHypothesisNumericCell && "text-transparent select-none",
                               isRevenueHypothesisSelected &&
                                 "z-[1] bg-orange-50 shadow-[inset_0_0_0_2px_rgb(224,116,45)]",
                               isExpenseHypothesisSelected &&
@@ -8648,7 +8660,9 @@ export function IncomeStatementDetail({
                               }
                             }}
                           >
-                            {shouldHideAmounts && !(isRevenusHeaderRow && revenueHeaderYearTotals) ? (
+                            {blankHypothesisNumericCell ? (
+                              "\u00A0"
+                            ) : shouldHideAmounts && !(isRevenusHeaderRow && revenueHeaderYearTotals) ? (
                               "-"
                             ) : isEditable && isEditing ? (
                               <Input
@@ -8706,16 +8720,21 @@ export function IncomeStatementDetail({
                               className={cn(
                                 "min-w-[4.5rem] px-2 py-3 text-right text-xs tabular-nums text-slate-500",
                                 amountWeightClass,
-                                (forceForecastSection || isForecastSection) && valueIdx === 0 ? "bg-slate-50" : "",
-                                annexSubtotalDarkNumbers && "text-slate-900"
+                                (forceForecastSection || isForecastSection) && valueIdx === 0
+                                  ? "bg-slate-50 text-slate-400"
+                                  : "",
+                                annexSubtotalDarkNumbers && valueIdx > 0 && "text-slate-900",
+                                blankHypothesisNumericCell && "text-transparent select-none"
                               )}
                             >
-                              {shouldHideAmounts && !(isRevenusHeaderRow && revenueHeaderYearTotals)
-                                ? "-"
-                                : formatShareOfRevenuePct(
-                                    effectiveValue,
-                                    getHypothesisCaForYearIndex(valueIdx),
-                                  )}
+                              {blankHypothesisNumericCell
+                                ? "\u00A0"
+                                : shouldHideAmounts && !(isRevenusHeaderRow && revenueHeaderYearTotals)
+                                  ? "-"
+                                  : formatShareOfRevenuePct(
+                                      effectiveValue,
+                                      getHypothesisCaForYearIndex(valueIdx),
+                                    )}
                             </td>
                           )}
                           </Fragment>

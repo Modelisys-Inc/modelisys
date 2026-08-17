@@ -425,6 +425,33 @@ test.describe("Projection expense estimation exclusions", () => {
     await expect(page.getByText("Stocks au début")).toHaveCount(0)
   })
 
+  test("greys reference year fully and blanks annex title amounts / % CA", async ({ page }) => {
+    test.setTimeout(60_000)
+    await setupAuth(page)
+    await openProFormaExpenses(page)
+
+    await expect(page.getByText(/Sous-total — Annexe B/i)).toBeVisible({ timeout: 15000 })
+
+    const annexTitleRow = page.locator("tr", { hasText: /Annexe B/ }).filter({ hasNotText: /Sous-total/ }).first()
+    await expect(annexTitleRow).toBeVisible()
+    const annexPctCells = annexTitleRow.getByTestId("expense-year-pct-ca")
+    expect(await annexPctCells.count()).toBeGreaterThanOrEqual(1)
+    for (let i = 0; i < (await annexPctCells.count()); i++) {
+      await expect(annexPctCells.nth(i)).toHaveText(/^\s*$/)
+    }
+    const firstYearAmount = annexTitleRow.locator("td.min-w-\\[8rem\\]").first()
+    await expect(firstYearAmount).toHaveText(/^\s*$/)
+
+    const subtotalRow = page.locator("tr", { hasText: /Sous-total — Annexe B/i }).first()
+    const subtotalRefAmount = subtotalRow.locator("td.min-w-\\[8rem\\].bg-slate-50").first()
+    await expect(subtotalRefAmount).toBeVisible()
+    await expect(subtotalRefAmount).toHaveClass(/text-slate-400/)
+    await expect(subtotalRefAmount).not.toHaveClass(/text-slate-900/)
+
+    const refYearHeader = page.locator("table thead th.bg-slate-50").first()
+    await expect(refYearHeader).toHaveClass(/text-slate-400/)
+  })
+
   test("shows % CA beside each year and hides the % des revenus toggle", async ({ page }) => {
     test.setTimeout(60_000)
     await setupAuth(page)

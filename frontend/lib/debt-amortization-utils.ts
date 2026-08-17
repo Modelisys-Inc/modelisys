@@ -1,4 +1,8 @@
-import type { DebtForecastLoan, DebtRepaymentMode } from "@/lib/debt-forecast-types"
+import type {
+  DebtForecastLoan,
+  DebtMoratoriumScope,
+  DebtRepaymentMode,
+} from "@/lib/debt-forecast-types"
 
 export type LoanYearAmortization = {
   beginningBalance: number
@@ -17,10 +21,50 @@ export type AmortizableLoan = Pick<
   | "repaymentMode"
   | "balloonAmount"
   | "balloonMonth"
+  | "moratoriumMonths"
+  | "moratoriumScope"
 >
 
 function effectiveRepaymentMode(loan: AmortizableLoan): DebtRepaymentMode {
-  return loan.repaymentMode ?? "interest_only"
+  const mode = loan.repaymentMode ?? "interest_only"
+  // Legacy balloon mode → intérêts seulement + résiduel
+  if (mode === "interest_only_balloon") return "interest_only"
+  return mode
+}
+
+function hasResidualBalloon(loan: AmortizableLoan): boolean {
+  const mode = loan.repaymentMode ?? "interest_only"
+  if (mode === "interest_only_balloon") return true
+  return (
+    effectiveRepaymentMode(loan) === "interest_only" &&
+    loan.balloonMonth != null &&
+    (loan.balloonAmount ?? 0) > 0
+  )
+}
+
+function effectiveMoratoriumScope(loan: AmortizableLoan): DebtMoratoriumScope {
+  if (effectiveRepaymentMode(loan) === "interest_only") return "interest"
+  return loan.moratoriumScope ?? "both"
+}
+
+function isInMoratorium(absoluteMonth: number, loan: AmortizableLoan): boolean {
+  const months = Math.max(0, Math.round(loan.moratoriumMonths ?? 0))
+  if (months <= 0) return false
+  if (absoluteMonth < loan.startMonth) return false
+  return absoluteMonth - loan.startMonth < months
+}
+
+/** Mois effectif du paiement résiduel (reporté après le moratoire capital si besoin). */
+export function effectiveBalloonMonth(loan: AmortizableLoan): number | null {
+  if (!hasResidualBalloon(loan) || loan.balloonMonth == null) return null
+  const moratoriumMonths = Math.max(0, Math.round(loan.moratoriumMonths ?? 0))
+  const scope = effectiveMoratoriumScope(loan)
+  const capitalBlocked = scope === "capital" || scope === "both"
+  if (moratoriumMonths > 0 && capitalBlocked) {
+    const firstAfter = loan.startMonth + moratoriumMonths
+    return Math.max(loan.balloonMonth, firstAfter)
+  }
+  return loan.balloonMonth
 }
 
 export function calculateMonthlyLoanPayment(
@@ -55,28 +99,37 @@ function processLoanMonth(
 
   const mode = effectiveRepaymentMode(loan)
   const monthlyRate = loan.interestRate / 100 / 12
-  const interest = currentBalance * monthlyRate
+  const accruedInterest = currentBalance * monthlyRate
+  const inMoratorium = isInMoratorium(absoluteMonth, loan)
+  const scope = effectiveMoratoriumScope(loan)
+  const skipInterestCash = inMoratorium && (scope === "interest" || scope === "both")
+  const skipPrincipal = inMoratorium && (scope === "capital" || scope === "both")
+
+  let interest = skipInterestCash ? 0 : accruedInterest
   let principal = 0
 
   if (mode === "capital_and_interest") {
-    const monthlyPayment = calculateMonthlyLoanPayment(
-      currentBalance,
-      loan.interestRate,
-      remainingPayments,
-    )
-    principal = Math.min(monthlyPayment - interest, currentBalance)
-  } else if (
-    mode === "interest_only_balloon" &&
-    loan.balloonMonth != null &&
-    absoluteMonth === loan.balloonMonth
-  ) {
-    principal = Math.min(loan.balloonAmount ?? currentBalance, currentBalance)
+    if (!skipPrincipal) {
+      const monthlyPayment = calculateMonthlyLoanPayment(
+        currentBalance,
+        loan.interestRate,
+        remainingPayments,
+      )
+      // Pendant un moratoire d'intérêts seul : on verse la portion capital du PMT.
+      principal = Math.min(Math.max(0, monthlyPayment - accruedInterest), currentBalance)
+    }
+  } else if (hasResidualBalloon(loan)) {
+    const balloonM = effectiveBalloonMonth(loan)
+    if (!skipPrincipal && balloonM != null && absoluteMonth === balloonM) {
+      principal = Math.min(loan.balloonAmount ?? currentBalance, currentBalance)
+    }
   }
 
   return {
     interest,
     principal,
     newBalance: Math.max(0, currentBalance - principal),
+    // Le moratoire consomme des mois de durée (fenêtre calendaire alignée sur termMonths).
     newRemaining: remainingPayments - 1,
   }
 }
@@ -107,6 +160,12 @@ export function calculateMonthlyInterestPayment(
 }
 
 export function calculatePreviewMonthlyPayment(loan: AmortizableLoan): number {
+  const moratoriumMonths = Math.max(0, Math.round(loan.moratoriumMonths ?? 0))
+  if (moratoriumMonths > 0) {
+    const scope = effectiveMoratoriumScope(loan)
+    if (scope === "both") return 0
+    if (effectiveRepaymentMode(loan) === "interest_only" && scope === "interest") return 0
+  }
   if (effectiveRepaymentMode(loan) === "capital_and_interest") {
     return Math.round(
       calculateMonthlyLoanPayment(loan.principal, loan.interestRate, loan.remainingPayments),

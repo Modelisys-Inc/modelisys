@@ -57,22 +57,20 @@ export default function DebtPage() {
           </div>
         </div>
 
-        <div className="rounded-xl overflow-hidden shadow-sm border border-slate-200">
-          <DebtForecastDetail
-            period="annual"
-            view="years"
-            companyId={selectedCompanyId}
-            divisionId={selectedDivisionId}
-            subDivisionId={selectedSubDivisionId}
-            companies={companies}
-            title="Estimation des Dettes annuelles"
-            projectionYears={projectionYears}
-            forecastBaseYear={new Date().getFullYear() + 1}
-            fiscalYear={new Date().getFullYear()}
-            referenceMonth={12}
-            projectionHorizon="annual"
-          />
-        </div>
+        <DebtForecastDetail
+          period="annual"
+          view="years"
+          companyId={selectedCompanyId}
+          divisionId={selectedDivisionId}
+          subDivisionId={selectedSubDivisionId}
+          companies={companies}
+          title="Estimation des Dettes annuelles"
+          projectionYears={projectionYears}
+          forecastBaseYear={new Date().getFullYear() + 1}
+          fiscalYear={new Date().getFullYear()}
+          referenceMonth={12}
+          projectionHorizon="annual"
+        />
       </main>
     </div>
   )

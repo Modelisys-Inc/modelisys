@@ -3,7 +3,11 @@
 export type DebtRepaymentMode =
   | "interest_only"
   | "capital_and_interest"
+  /** @deprecated Migré vers `interest_only` + champs balloon. Conservé pour lecture legacy. */
   | "interest_only_balloon"
+
+/** Portée du moratoire (Capital et intérêts). Intérêts seulement = toujours les intérêts. */
+export type DebtMoratoriumScope = "interest" | "capital" | "both"
 
 export interface DebtForecastLoan {
   id: string
@@ -18,10 +22,21 @@ export interface DebtForecastLoan {
   /** Mois de début (0 = janvier de la première année projetée). */
   startMonth: number
   repaymentMode?: DebtRepaymentMode
-  /** Montant du paiement résiduel (mode interest_only_balloon). */
+  /** Montant du paiement résiduel (intérêts seulement avec résiduel). */
   balloonAmount?: number
   /** Mois du paiement résiduel (0-based, aligné sur startMonth). */
   balloonMonth?: number
+  /**
+   * Mois de moratoire à compter de `startMonth` (inclus).
+   * Pendant cette fenêtre : pas de paiement selon `moratoriumScope`.
+   */
+  moratoriumMonths?: number
+  /**
+   * Portée du moratoire.
+   * - Intérêts seulement : toujours traité comme « interest ».
+   * - Capital et intérêts : interest | capital | both.
+   */
+  moratoriumScope?: DebtMoratoriumScope
   /** Clé capex source `${rowId}-${yearIndex}` si créé depuis un projet Capex. */
   sourceCapexKey?: string
   /** ID du mapping comptable source (passif PLT). */
@@ -36,11 +51,23 @@ export interface DebtForecastLoan {
 export const DEBT_REPAYMENT_MODE_LABELS: Record<DebtRepaymentMode, string> = {
   interest_only: "Intérêts seulement",
   capital_and_interest: "Capital et intérêt",
-  interest_only_balloon: "Intérêts seulement avec paiement résiduel",
+  interest_only_balloon: "Intérêts seulement",
 }
 
+/** Modes exposés dans l’UI Capex (le résiduel est une option de « Intérêts seulement »). */
 export const CAPEX_DEBT_REPAYMENT_MODES: DebtRepaymentMode[] = [
   "interest_only",
   "capital_and_interest",
-  "interest_only_balloon",
 ]
+
+export const DEBT_MORATORIUM_SCOPE_LABELS: Record<DebtMoratoriumScope, string> = {
+  interest: "Intérêts",
+  capital: "Capital",
+  both: "Capital et intérêts",
+}
+
+export const DEBT_MORATORIUM_SCOPE_HINTS: Record<DebtMoratoriumScope, string> = {
+  interest: "Aucun paiement d'intérêts pendant X mois ; le capital continue d'être remboursé.",
+  capital: "Aucun remboursement de capital pendant X mois ; les intérêts continuent d'être payés.",
+  both: "Aucun paiement (capital ni intérêts) pendant X mois.",
+}
