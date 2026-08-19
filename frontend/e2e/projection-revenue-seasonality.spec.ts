@@ -203,7 +203,8 @@ async function openRevenueSeasonality(page: Page, yearIndex: number) {
   })
   const row = page.locator("tr", { hasText: "Total Revenus" }).first()
   await expect(row).toBeVisible({ timeout: 15000 })
-  await row.locator("td").nth(1 + yearIndex * 2).click()
+  // Config yearIndex 1 = première année projetée ; N-1 inséré en tête (start_month ≠ clôture).
+  await row.locator("td").nth(1 + (yearIndex + 1) * 2).click()
   await page.getByRole("tab", { name: "Saisonnalité" }).click()
 }
 

@@ -22,7 +22,7 @@ export default function BilanProjectionsPage() {
     }
   }, [companies, selectedCompanyId])
 
-  const forecastBaseYear = new Date().getFullYear() + 1
+  const forecastBaseYear = new Date().getFullYear()
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">

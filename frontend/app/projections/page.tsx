@@ -8,7 +8,6 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { EntitySelector } from "@/components/entity-selector"
 import { Plus, FolderOpen, ArrowRight, FileText, Trash2 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
@@ -74,13 +73,10 @@ export default function ProjectionsPage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState("")
   const [deleting, setDeleting] = useState(false)
   const [newProjectionName, setNewProjectionName] = useState("")
-  const [newProjectionCompanyId, setNewProjectionCompanyId] = useState<string | null>(null)
-  const [newProjectionDivisionId, setNewProjectionDivisionId] = useState<string | null>(null)
-  const [newProjectionSubDivisionId, setNewProjectionSubDivisionId] = useState<string | null>(null)
   const [newProjectionYears, setNewProjectionYears] = useState<3 | 4 | 5>(5)
-  const [newProjectionHorizon, setNewProjectionHorizon] = useState<"annual" | "monthly">("annual")
   const [newProjectionStartYear, setNewProjectionStartYear] = useState<number>(() => new Date().getFullYear())
   const [newProjectionStartMonth, setNewProjectionStartMonth] = useState<number>(() => new Date().getMonth() + 1)
+  const companyIdForCreate = lockedCompanyId || companies[0]?.id || null
 
   const startYearOptions = Array.from({ length: 9 }, (_, i) => new Date().getFullYear() - 2 + i)
   const monthOptions = [
@@ -97,12 +93,6 @@ export default function ProjectionsPage() {
     { value: 11, label: "Novembre" },
     { value: 12, label: "Décembre" },
   ]
-
-  useEffect(() => {
-    if (!newProjectionCompanyId && companies.length > 0) {
-      setNewProjectionCompanyId(lockedCompanyId || companies[0]!.id)
-    }
-  }, [companies, lockedCompanyId, newProjectionCompanyId])
 
   useEffect(() => {
     setSelectedProjectionId((prev) => {
@@ -176,17 +166,17 @@ export default function ProjectionsPage() {
   }
 
   const handleCreateProjection = async () => {
-    if (!newProjectionName.trim() || !newProjectionCompanyId) return
+    if (!newProjectionName.trim() || !companyIdForCreate) return
     try {
-      const created = await createProjection(newProjectionCompanyId, {
+      const created = await createProjection(companyIdForCreate, {
         name: newProjectionName.trim(),
-        projection_years: newProjectionHorizon === "monthly" ? 1 : newProjectionYears,
+        projection_years: newProjectionYears,
         projection_mode: "account",
-        projection_horizon: newProjectionHorizon,
+        projection_horizon: "annual",
         start_year: newProjectionStartYear,
-        start_month: newProjectionHorizon === "monthly" ? newProjectionStartMonth : null,
-        division_id: newProjectionDivisionId || null,
-        sub_division_id: newProjectionSubDivisionId || null,
+        start_month: newProjectionStartMonth,
+        division_id: null,
+        sub_division_id: null,
       })
       const mapped = mapApiProjection(created)
       setSavedProjections((prev) => [mapped, ...prev])
@@ -343,14 +333,12 @@ export default function ProjectionsPage() {
                       <div className="grid gap-8 sm:grid-cols-2">
                         <div className="space-y-1">
                           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Période</p>
-                          <p className="text-sm font-medium text-slate-800">
-                            {selectedProjection.projectionHorizon === "monthly" ? "Mensuel" : "Annuel"}
-                          </p>
+                          <p className="text-sm font-medium text-slate-800">Annuel</p>
                         </div>
                         <div className="space-y-1">
                           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Projection</p>
                           <p className="text-sm font-medium text-slate-800">
-                            {selectedProjection.projectionHorizon === "monthly" ? "12 mois" : `${selectedProjection.projectionYears} ans`}
+                            {`${selectedProjection.projectionYears} ans`}
                           </p>
                         </div>
                         <div className="space-y-1">
@@ -364,15 +352,9 @@ export default function ProjectionsPage() {
                             Date de référence
                           </p>
                           <p className="text-sm font-medium text-slate-800">
-                            {selectedProjection.startYear ? (
-                              selectedProjection.projectionHorizon === "monthly" ? (
-                                `${monthLabel(selectedProjection.startMonth) ?? "—"} ${selectedProjection.startYear}`
-                              ) : (
-                                String(selectedProjection.startYear)
-                              )
-                            ) : (
-                              "—"
-                            )}
+                            {selectedProjection.startYear
+                              ? `${monthLabel(selectedProjection.startMonth) ?? "—"} ${selectedProjection.startYear}`
+                              : "—"}
                           </p>
                         </div>
                       </div>
@@ -453,7 +435,10 @@ export default function ProjectionsPage() {
       </AlertDialog>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="w-[calc(100vw-2rem)] sm:w-[min(50vw,960px)] max-w-none overflow-hidden p-0">
+        <DialogContent
+          className="w-[calc(100vw-2rem)] sm:w-[min(50vw,960px)] max-w-none overflow-hidden p-0"
+          data-testid="new-scenario-dialog"
+        >
           <div className="relative">
             <div className="h-1 w-full bg-gradient-to-r from-[#E0742D] via-[#E0742D]/35 to-transparent" />
             <div className="border-b border-slate-200/90 bg-gradient-to-r from-white to-slate-50/80 px-6 py-5 sm:px-8">
@@ -462,8 +447,8 @@ export default function ProjectionsPage() {
                   Nouveau scénario de projection
                 </DialogTitle>
                 <DialogDescription className="text-slate-600">
-                  Donnez un nom, choisissez l’entité, puis définissez la durée et le mode. Vous serez ensuite redirigé
-                  vers le Pro Forma.
+                  Donnez un nom, le nombre d’années et la date de référence. La projection est annuelle, avec une vue
+                  mensuelle possible ensuite. Vous serez redirigé vers le Pro Forma.
                 </DialogDescription>
               </DialogHeader>
             </div>
@@ -476,6 +461,7 @@ export default function ProjectionsPage() {
                 <div className="grid gap-2">
                   <label className="text-sm font-medium text-slate-700">Nom de la projection</label>
                   <Input
+                    data-testid="new-scenario-name"
                     value={newProjectionName}
                     onChange={(e) => setNewProjectionName(e.target.value)}
                     placeholder="Ex: Scénario réaliste, Scénario optimiste…"
@@ -488,64 +474,49 @@ export default function ProjectionsPage() {
               <div className="h-px w-full bg-gradient-to-r from-[#E0742D]/80 via-slate-200/40 to-transparent" aria-hidden />
 
               <div className="space-y-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Entité</p>
-                <EntitySelector
-                  companies={companies}
-                  selectedCompanyId={newProjectionCompanyId}
-                  selectedDivisionId={newProjectionDivisionId}
-                  selectedSubDivisionId={newProjectionSubDivisionId}
-                  onCompanyChange={(id) => {
-                    if (lockedCompanyId) return
-                    setNewProjectionCompanyId(id)
-                  }}
-                  onDivisionChange={setNewProjectionDivisionId}
-                  onSubDivisionChange={setNewProjectionSubDivisionId}
-                  disableCompanySelection={!!lockedCompanyId}
-                />
-              </div>
-
-              <div className="h-px w-full bg-gradient-to-r from-[#E0742D]/80 via-slate-200/40 to-transparent" aria-hidden />
-
-              <div className="space-y-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Paramètres</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-slate-700">Période</label>
-                    <Select value={newProjectionHorizon} onValueChange={(v) => setNewProjectionHorizon(v as "annual" | "monthly")}>
-                      <SelectTrigger className="w-full">
+                    <label className="text-sm font-medium text-slate-700">Nombre d&apos;années</label>
+                    <Select
+                      value={newProjectionYears.toString()}
+                      onValueChange={(v) => setNewProjectionYears(parseInt(v) as 3 | 4 | 5)}
+                    >
+                      <SelectTrigger className="w-full" data-testid="new-scenario-years">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="annual">Annuel</SelectItem>
-                        <SelectItem value="monthly">Mensuel</SelectItem>
+                        <SelectItem value="3">3 ans</SelectItem>
+                        <SelectItem value="4">4 ans</SelectItem>
+                        <SelectItem value="5">5 ans</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-slate-700">Nombre d'années</label>
-                    {newProjectionHorizon === "annual" ? (
-                      <Select value={newProjectionYears.toString()} onValueChange={(v) => setNewProjectionYears(parseInt(v) as 3 | 4 | 5)}>
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="3">3 ans</SelectItem>
-                          <SelectItem value="4">4 ans</SelectItem>
-                          <SelectItem value="5">5 ans</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <div className="h-10 rounded-md border border-slate-200 bg-slate-50 px-3 flex items-center text-sm text-slate-700">
-                        12 mois
-                      </div>
-                    )}
+                    <label className="text-sm font-medium text-slate-700">Mois de référence</label>
+                    <Select
+                      value={String(newProjectionStartMonth)}
+                      onValueChange={(v) => setNewProjectionStartMonth(parseInt(v))}
+                    >
+                      <SelectTrigger className="w-full" data-testid="new-scenario-start-month">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {monthOptions.map((m) => (
+                          <SelectItem key={m.value} value={String(m.value)}>
+                            {m.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium text-slate-700">
-                      {newProjectionHorizon === "monthly" ? "Début (année)" : "Année de référence (début)"}
-                    </label>
-                    <Select value={String(newProjectionStartYear)} onValueChange={(v) => setNewProjectionStartYear(parseInt(v))}>
-                      <SelectTrigger className="w-full">
+                    <label className="text-sm font-medium text-slate-700">Année de référence</label>
+                    <Select
+                      value={String(newProjectionStartYear)}
+                      onValueChange={(v) => setNewProjectionStartYear(parseInt(v))}
+                    >
+                      <SelectTrigger className="w-full" data-testid="new-scenario-start-year">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -557,23 +528,6 @@ export default function ProjectionsPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  {newProjectionHorizon === "monthly" && (
-                    <div className="grid gap-2 md:col-span-2">
-                      <label className="text-sm font-medium text-slate-700">Début (mois)</label>
-                      <Select value={String(newProjectionStartMonth)} onValueChange={(v) => setNewProjectionStartMonth(parseInt(v))}>
-                        <SelectTrigger className="w-full md:w-[320px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {monthOptions.map((m) => (
-                            <SelectItem key={m.value} value={String(m.value)}>
-                              {m.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -586,8 +540,9 @@ export default function ProjectionsPage() {
               </Button>
               <Button
                 type="button"
+                data-testid="new-scenario-submit"
                 onClick={handleCreateProjection}
-                disabled={!newProjectionName.trim() || !newProjectionCompanyId}
+                disabled={!newProjectionName.trim() || !companyIdForCreate}
                 className={cn("bg-[#E0742D] text-white hover:bg-[#c96526]")}
               >
                 Créer et ouvrir

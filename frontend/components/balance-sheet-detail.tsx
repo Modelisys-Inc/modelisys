@@ -17,16 +17,26 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { generateId } from "@/lib/seeded-random"
 import {
   BILAN_FORECAST_CONFIG_TYPE,
   BILAN_HYPOTHESIS_TITLE,
+  buildComptesClientsHistory,
+  buildForecastEndingCashTrend,
+  comptesClientsAmountFromDriver,
+  isComptesClientsBilanRow,
   isEncaisseBilanRow,
   parseBilanAdjustments,
   resolveBilanAdjustedValue,
+  resolveComptesClientsProjectedValue,
   resolveEncaisseFromEndingCash,
-  buildForecastEndingCashTrend,
+  revenueForComptesClientsYear,
+  comptesClientsCalendarYear,
+  revenueHypothesisYearIndexForCalendarYear,
   type BilanAdjustment,
+  type BilanAdjustmentType,
+  type ComptesClientsHistoryYear,
 } from "@/lib/bilan-forecast-utils"
 import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { Badge } from "@/components/ui/badge"
@@ -39,6 +49,7 @@ import {
 } from "@/components/balance-sheet-line-analysis"
 import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { useProjectedRevenueYearTotals } from "@/hooks/use-projected-revenue-year-totals"
 import { useBalanceSheetStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { useStandardLinkCodesFlat } from "@/hooks/use-standard-link-codes"
 import { buildStandardLinkCodeLabelMap } from "@/lib/standard-link-code-utils"
@@ -67,6 +78,8 @@ import type { IncomeStatementHorizonView } from "@/lib/income-statement-horizon-
 import {
   getPeriodLabels,
   reverseSeriesOrderForDisplay,
+  findRow,
+  findSeriesRowOrDetail,
 } from "@/lib/series-utils"
 import {
   calendarQuarterFromMonth,
@@ -78,7 +91,15 @@ import {
 } from "@/lib/financial-period-labels"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
-import { monthTrendFromReference, yearTrendFromReference } from "@/lib/series-reference-columns"
+import { monthTrendFromReference, yearTrendFromReference, balanceSheetYearTrendFromReference } from "@/lib/series-reference-columns"
+import {
+  type ForecastActualLayout,
+  forecastActualColumnCount,
+  forecastBalanceSheetYearTrend,
+  forecastDisplayYearCount,
+  forecastYearLabelsForLayout,
+  resolveForecastActualLayout,
+} from "@/lib/pro-forma-forecast-columns"
 import {
   balanceSheetQuarterTrendForBasis,
   balanceSheetYearTrendForBasis,
@@ -112,6 +133,31 @@ import {
   dashboardCardTitleClass,
 } from "@/lib/dashboard-card-style"
 
+function formatComptesClientsHistoryNumber(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "—"
+  return value.toLocaleString("fr-CA", { maximumFractionDigits: 1, minimumFractionDigits: 0 })
+}
+
+function averageHistoryMetric(
+  history: ComptesClientsHistoryYear[],
+  key: "collectionDays" | "revenuePercent",
+): number | null {
+  const values = history
+    .map((row) => row[key])
+    .filter((value): value is number => value != null && Number.isFinite(value))
+  if (values.length === 0) return null
+  return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function lastHistoryDriverValue(
+  history: ComptesClientsHistoryYear[],
+  type: "collectionDays" | "revenuePercent",
+): number {
+  const last = history[history.length - 1]
+  const raw = type === "revenuePercent" ? last?.revenuePercent : last?.collectionDays
+  return raw != null && Number.isFinite(raw) ? raw : 0
+}
+
 interface BalanceSheetDetailProps {
   period: "monthly" | "quarterly" | "annual"
   view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years"
@@ -139,6 +185,8 @@ interface BalanceSheetDetailProps {
   projectionYears?: 3 | 4 | 5
   forecastBaseYear?: number
   forecastUseSeriesActuals?: boolean
+  /** Pro Forma Bilan : N-1 (solde de clôture) + YTD si la date de référence n’est pas une FYE. */
+  forecastActualLayout?: ForecastActualLayout
   /** Annuel / trimestriel : Courant (même mois / T3M) ou Exercice (FYE / trimestres fiscaux). */
   periodBasis?: StatementPeriodBasis
   projectionId?: string | null
@@ -203,15 +251,23 @@ export function BalanceSheetDetail({
   projectionYears = 5,
   forecastBaseYear,
   forecastUseSeriesActuals = false,
+  forecastActualLayout = "single-prior-year",
   periodBasis = "current",
   projectionId = null,
 }: BalanceSheetDetailProps) {
   const isHypothesisSection = title === BILAN_HYPOTHESIS_TITLE
   const isForecastSection = title === "Bilan pro forma" || isHypothesisSection
-  const forecastYearColumnCount = projectionYears + 1
   const fiscalYearEndMonth = parseFiscalYearEndMonth(
     companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
   )
+  const forecastActualLayoutEffective = resolveForecastActualLayout(
+    forecastActualLayout,
+    refMonth,
+    fiscalYearEndMonth,
+  )
+  const forecastActualCols = forecastActualColumnCount(forecastActualLayoutEffective)
+  const forecastYearColumnCount = forecastDisplayYearCount(projectionYears, forecastActualLayoutEffective)
+  const isForecastHistoricalColumn = (idx: number) => isForecastSection && idx < forecastActualCols
 
   useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -219,6 +275,7 @@ export function BalanceSheetDetail({
   const [hypothesisRowId, setHypothesisRowId] = useState<string | null>(null)
   const [hypothesisYearIndex, setHypothesisYearIndex] = useState<number>(1)
   const [hypothesisRowLabel, setHypothesisRowLabel] = useState("")
+  const [draftType, setDraftType] = useState<BilanAdjustmentType>("amount")
   const [draftValue, setDraftValue] = useState(0)
   const [draftRecurring, setDraftRecurring] = useState(false)
   const [draftNote, setDraftNote] = useState("")
@@ -344,7 +401,17 @@ export function BalanceSheetDetail({
     setHypothesisYearIndex(yearIndex)
     setHypothesisRowLabel(rowLabel)
     setDraftAdjustmentId(existing?.id ?? null)
-    setDraftValue(existing?.value ?? 0)
+    if (isComptesClientsBilanRow({ rowId, label: rowLabel })) {
+      const driver =
+        existing?.type === "revenuePercent" || existing?.type === "collectionDays"
+          ? existing.type
+          : "collectionDays"
+      setDraftType(driver)
+      setDraftValue(existing?.value ?? 0)
+    } else {
+      setDraftType("amount")
+      setDraftValue(existing?.value ?? 0)
+    }
     setDraftRecurring(existing?.isRecurring ?? false)
     setDraftNote(existing?.note ?? "")
   }
@@ -356,14 +423,22 @@ export function BalanceSheetDetail({
       id,
       rowId: hypothesisRowId,
       yearIndex: hypothesisYearIndex,
-      type: "amount",
+      type: isComptesClientsBilanRow({ rowId: hypothesisRowId, label: hypothesisRowLabel })
+        ? draftType === "revenuePercent"
+          ? "revenuePercent"
+          : "collectionDays"
+        : "amount",
       value: draftValue,
       isRecurring: draftRecurring,
       note: draftNote,
     }
     setBilanAdjustments((prev) => {
       const list = (prev[hypothesisRowId] ?? []).filter((a) => a.yearIndex !== hypothesisYearIndex)
-      const keep = draftValue === 0 && !draftNote.trim() ? list : [...list, nextAdj]
+      const isClients = isComptesClientsBilanRow({
+        rowId: hypothesisRowId,
+        label: hypothesisRowLabel,
+      })
+      const keep = !isClients && draftValue === 0 && !draftNote.trim() ? list : [...list, nextAdj]
       return { ...prev, [hypothesisRowId]: keep }
     })
     closeBilanHypothesisPanel()
@@ -534,6 +609,104 @@ export function BalanceSheetDetail({
     structureVersion,
   })
 
+  const { rows: incomeStatementSeriesRows, periods: incomeStatementPeriods } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "income-statement",
+    fiscalYear: currentYear,
+    month: refMonth,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: isHypothesisSection && !!companyId,
+    structureVersion,
+  })
+
+  const buildComptesClientsHistoryForRow = useCallback(
+    (rowId?: string | null): ComptesClientsHistoryYear[] => {
+      const lastActualYear = refYear
+      const arByYear: Record<number, number> = {}
+      const revenueByYear: Record<number, number> = {}
+      const arRow =
+        (rowId ? findSeriesRowOrDetail(seriesRows, rowId) : undefined) ??
+        findRow(seriesRows, "ACT-B") ??
+        findRow(seriesRows, "comptes clients")
+      if (arRow && periods.length) {
+        const arTrend = balanceSheetYearTrendFromReference(arRow, periods, refMonth, lastActualYear, 2)
+        arByYear[lastActualYear] = arTrend[0] ?? 0
+        arByYear[lastActualYear - 1] = arTrend[1] ?? 0
+      }
+      const revRow =
+        findRow(incomeStatementSeriesRows, "REV") || findRow(incomeStatementSeriesRows, "revenus")
+      if (revRow && incomeStatementPeriods.length) {
+        const revTrend = yearTrendFromReference(revRow, incomeStatementPeriods, lastActualYear, 2)
+        revenueByYear[lastActualYear] = revTrend[0] ?? 0
+        revenueByYear[lastActualYear - 1] = revTrend[1] ?? 0
+      }
+      return buildComptesClientsHistory({ lastActualYear, arByYear, revenueByYear })
+    },
+    [
+      incomeStatementPeriods,
+      incomeStatementSeriesRows,
+      periods,
+      refMonth,
+      refYear,
+      seriesRows,
+    ],
+  )
+
+  const comptesClientsHistory = useMemo(
+    () => buildComptesClientsHistoryForRow(hypothesisRowId),
+    [buildComptesClientsHistoryForRow, hypothesisRowId],
+  )
+
+  const lastActualRevenue = useMemo(() => {
+    const revRow =
+      findRow(incomeStatementSeriesRows, "REV") || findRow(incomeStatementSeriesRows, "revenus")
+    if (!revRow || !incomeStatementPeriods.length) return 0
+    return yearTrendFromReference(revRow, incomeStatementPeriods, refYear, 1)[0] || 0
+  }, [incomeStatementPeriods, incomeStatementSeriesRows, refYear])
+
+  const { totals: projectedRevenueYearTotals } = useProjectedRevenueYearTotals({
+    companyId,
+    projectionId,
+    projectionYears,
+    fiscalYear: new Date().getFullYear(),
+    divisionId,
+    subDivisionId,
+    enabled: isHypothesisSection && !!companyId,
+  })
+
+  const getComptesClientsRevenue = useCallback(
+    (yearIndex: number) => {
+      const calendarYear = comptesClientsCalendarYear(yearIndex, forecastBaseYear ?? refYear + 1)
+      const revenueYearIndex = revenueHypothesisYearIndexForCalendarYear(
+        calendarYear,
+        new Date().getFullYear(),
+      )
+      return revenueForComptesClientsYear(
+        revenueYearIndex,
+        projectedRevenueYearTotals,
+        lastActualRevenue,
+      )
+    },
+    [forecastBaseYear, lastActualRevenue, projectedRevenueYearTotals, refYear],
+  )
+
+  useEffect(() => {
+    if (!hypothesisRowId || draftAdjustmentId) return
+    if (!isComptesClientsBilanRow({ rowId: hypothesisRowId, label: hypothesisRowLabel })) return
+    const driver = draftType === "revenuePercent" ? "revenuePercent" : "collectionDays"
+    const next = lastHistoryDriverValue(comptesClientsHistory, driver)
+    if (next === 0) return
+    setDraftValue((prev) => (prev === 0 ? next : prev))
+  }, [
+    comptesClientsHistory,
+    draftAdjustmentId,
+    draftType,
+    hypothesisRowId,
+    hypothesisRowLabel,
+  ])
+
   const endingCashTrend = useMemo(() => {
     if (!isHypothesisSection) return undefined
     const variationByYear = Array.from({ length: forecastYearColumnCount }, () => 0)
@@ -579,6 +752,14 @@ export function BalanceSheetDetail({
     if (!isHypothesisSection || !rowId) return trend[yearIndex] ?? fallback
     if (isEncaisseBilanRow({ rowId, label: rowLabel })) {
       return resolveEncaisseFromEndingCash(trend[0] ?? fallback, endingCashTrend, yearIndex)
+    }
+    if (isComptesClientsBilanRow({ rowId, label: rowLabel })) {
+      return resolveComptesClientsProjectedValue(
+        trend,
+        yearIndex,
+        bilanAdjustments[rowId] ?? [],
+        getComptesClientsRevenue(yearIndex),
+      )
     }
     return resolveBilanAdjustedValue(trend, yearIndex, bilanAdjustments[rowId] ?? [])
   }
@@ -845,19 +1026,18 @@ export function BalanceSheetDetail({
     if (!displayStructure) return []
     if (isForecastSection && forecastUseSeriesActuals) {
       const buildYearTrend = (row: SeriesRow) => {
-        const actual =
-          seriesRows.length && periods.length
-            ? balanceSheetYearTrendForBasis(
-                row,
-                periods as SeriesPeriod[],
-                refMonth,
-                refYear,
-                periodBasis,
-                fiscalYearEndMonth,
-                1,
-              )[0] || 0
-            : 0
-        return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+        if (!seriesRows.length || !periods.length) {
+          return Array.from({ length: forecastYearColumnCount }, () => 0)
+        }
+        return forecastBalanceSheetYearTrend(
+          forecastActualLayout,
+          row,
+          periods as SeriesPeriod[],
+          refMonth,
+          refYear,
+          fiscalYearEndMonth,
+          projectionYears,
+        )
       }
       return mapSeriesRowsDefinedOnly(seriesRows, displayStructure, buildYearTrend, forecastYearColumnCount)
     }
@@ -903,7 +1083,12 @@ export function BalanceSheetDetail({
 
   let data = getDetailData()
 
-  if (title === "Détail" && !isForecastSection && (displayStructure?.length ?? statementStructure?.length)) {
+  const shouldHideZeroDetailRows =
+    !isStructureStudio &&
+    !isHypothesisSection &&
+    (title === "Détail" || title === "Bilan pro forma") &&
+    !!(displayStructure?.length ?? statementStructure?.length)
+  if (shouldHideZeroDetailRows) {
     data = filterBalanceSheetDetailRowsForHorizon(
       data,
       displayStructure ?? statementStructure ?? [],
@@ -1111,11 +1296,14 @@ export function BalanceSheetDetail({
   const getYearLabels = (): string[] => {
     if (isForecastSection) {
       const baseYear = forecastBaseYear ?? refYear ?? new Date().getFullYear()
-      const labels: string[] = [`${baseYear - 1}`]
-      for (let i = 0; i < projectionYears; i++) {
-        labels.push(`${baseYear + i}`)
-      }
-      return labels
+      return forecastYearLabelsForLayout(
+        forecastActualLayoutEffective,
+        baseYear,
+        projectionYears,
+        refMonth,
+        refYear,
+        fiscalYearEndMonth,
+      )
     }
     return statementYearLabelsForBasis(
       refMonth,
@@ -1575,7 +1763,7 @@ export function BalanceSheetDetail({
                       key={idx}
                       className={cn(
                         "px-4 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap",
-                        isForecastSection && idx === 0 ? "bg-slate-50" : ""
+                        isForecastHistoricalColumn(idx) ? "bg-slate-50" : ""
                       )}
                     >
                       {label}
@@ -1614,6 +1802,7 @@ export function BalanceSheetDetail({
                     )
                   : undefined
               const canExpand =
+                !disableRowInteractions &&
                 !isHypothesisSection &&
                 balanceSheetDetailCanExpandGlAccounts(
                   matchedStructureRow,
@@ -1639,6 +1828,21 @@ export function BalanceSheetDetail({
               }
 
               const isHypothesisSelected = isHypothesisSection && hypothesisRowId === row.rowId
+              const isComptesClientsPanel = isComptesClientsBilanRow({
+                rowId: row.rowId,
+                label: row.label,
+              })
+              const ccDriver = draftType === "revenuePercent" ? "revenuePercent" : "collectionDays"
+              const ccProjectedAmount = comptesClientsAmountFromDriver({
+                type: ccDriver,
+                value: draftValue,
+                revenue: getComptesClientsRevenue(hypothesisYearIndex),
+              })
+              const ccSelectedYearRevenue = getComptesClientsRevenue(hypothesisYearIndex)
+              const ccSelectedYearLabel = getYearLabels()[hypothesisYearIndex]
+              const ccLastHistoryYear = comptesClientsHistory[comptesClientsHistory.length - 1]
+              const ccAverageDays = averageHistoryMetric(comptesClientsHistory, "collectionDays")
+              const ccAveragePercent = averageHistoryMetric(comptesClientsHistory, "revenuePercent")
 
               return (
                 <Fragment key={idx}>
@@ -1975,7 +2179,7 @@ export function BalanceSheetDetail({
                               row.isBold && !isExpanded ? "font-semibold font-bold" : "font-normal text-slate-600",
                               shouldHideAmounts ? "text-white" : "",
                               annexSubtotalDarkNumbers ? "text-slate-900" : "",
-                              isForecastSection && valueIdx === 0 ? "bg-slate-50" : "",
+                              isForecastHistoricalColumn(valueIdx) ? "bg-slate-50" : "",
                               canAdjust && "cursor-pointer hover:bg-slate-50/90",
                               isHypothesisSelected &&
                                 hypothesisYearIndex === valueIdx &&
@@ -2022,7 +2226,7 @@ export function BalanceSheetDetail({
                             className={cn(
                               "px-4 py-3 text-right font-semibold text-white",
                               annexSubtotalDarkNumbers ? "text-slate-900" : "",
-                              isForecastSection && view === "years" && idx === 0 ? "bg-slate-50" : ""
+                              isForecastSection && view === "years" && isForecastHistoricalColumn(idx) ? "bg-slate-50" : ""
                             )}
                           >
                             -
@@ -2072,25 +2276,265 @@ export function BalanceSheetDetail({
                                 </Button>
                               </div>
                             </div>
-                            <div className="mt-6 space-y-4 rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5">
-                              <div>
-                                <Label htmlFor="bilan-adj-value" className="mb-2 block text-sm font-medium text-slate-700">
-                                  Montant ($)
-                                </Label>
-                                <Input
-                                  id="bilan-adj-value"
-                                  type="number"
-                                  step={1}
-                                  value={draftValue}
-                                  onChange={(e) => setDraftValue(parseFloat(e.target.value) || 0)}
-                                />
-                              </div>
-                              <label className="flex items-center gap-2 text-sm text-slate-700">
+                            <div
+                              className={cn(
+                                "mt-6 space-y-5",
+                                !isComptesClientsPanel &&
+                                  "rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5",
+                              )}
+                            >
+                              {isComptesClientsPanel ? (
+                                <>
+                                  <div>
+                                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                      Méthode
+                                    </p>
+                                    <Tabs
+                                      value={ccDriver}
+                                      onValueChange={(value) => {
+                                        const next =
+                                          value === "revenuePercent" ? "revenuePercent" : "collectionDays"
+                                        setDraftType(next)
+                                        setDraftValue(lastHistoryDriverValue(comptesClientsHistory, next))
+                                      }}
+                                    >
+                                      <TabsList className="flex h-auto w-full max-w-xl flex-wrap gap-1 rounded-lg border border-slate-200/90 bg-slate-100/80 p-0.5 sm:inline-flex sm:w-fit">
+                                        <TabsTrigger
+                                          value="collectionDays"
+                                          className="h-8 flex-1 rounded-md px-3 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial"
+                                        >
+                                          Délai de collection des clients
+                                        </TabsTrigger>
+                                        <TabsTrigger
+                                          value="revenuePercent"
+                                          className="h-8 flex-1 rounded-md px-3 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial"
+                                        >
+                                          % des revenus
+                                        </TabsTrigger>
+                                      </TabsList>
+                                    </Tabs>
+                                  </div>
+
+                                  <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                    <div className="border-b border-slate-200 px-4 py-2.5 sm:px-5">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                        Exercices réels
+                                      </p>
+                                    </div>
+                                    <table className="w-full min-w-[28rem] border-collapse text-sm">
+                                      <thead>
+                                        <tr className="border-b border-slate-200 bg-slate-50/80">
+                                          <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 sm:px-5">
+                                            Indicateur
+                                          </th>
+                                          {comptesClientsHistory.map((yearRow) => (
+                                            <th
+                                              key={yearRow.year}
+                                              className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500 sm:px-5"
+                                            >
+                                              {yearRow.year}
+                                            </th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {(
+                                          [
+                                            {
+                                              key: "collectionDays" as const,
+                                              label: "Délai de collection des clients",
+                                              unit: "jours",
+                                            },
+                                            {
+                                              key: "revenuePercent" as const,
+                                              label: "% des revenus",
+                                              unit: "%",
+                                            },
+                                          ] as const
+                                        ).map((metric) => {
+                                          const selected = ccDriver === metric.key
+                                          return (
+                                            <tr
+                                              key={metric.key}
+                                              className={cn(
+                                                "border-b border-slate-100",
+                                                selected && "bg-[#E0742D]/[0.04]",
+                                              )}
+                                            >
+                                              <th
+                                                scope="row"
+                                                className={cn(
+                                                  "px-4 py-2.5 text-left font-medium sm:px-5",
+                                                  selected ? "text-[#2A2F3A]" : "text-slate-600",
+                                                )}
+                                              >
+                                                <span className="flex items-center gap-2">
+                                                  {selected ? (
+                                                    <span
+                                                      className="h-4 w-0.5 shrink-0 rounded-full bg-[#E0742D]"
+                                                      aria-hidden
+                                                    />
+                                                  ) : (
+                                                    <span className="w-0.5 shrink-0" aria-hidden />
+                                                  )}
+                                                  {metric.label}
+                                                </span>
+                                              </th>
+                                              {comptesClientsHistory.map((yearRow) => (
+                                                <td
+                                                  key={`${metric.key}-${yearRow.year}`}
+                                                  data-testid={`cc-history-${metric.key}-${yearRow.year}`}
+                                                  className={cn(
+                                                    "px-4 py-2.5 text-right tabular-nums sm:px-5",
+                                                    selected
+                                                      ? "font-semibold text-[#2A2F3A]"
+                                                      : "text-slate-700",
+                                                  )}
+                                                >
+                                                  {formatComptesClientsHistoryNumber(
+                                                    metric.key === "collectionDays"
+                                                      ? yearRow.collectionDays
+                                                      : yearRow.revenuePercent,
+                                                  )}
+                                                  <span className="ml-1 text-[11px] font-normal text-slate-400">
+                                                    {metric.unit}
+                                                  </span>
+                                                </td>
+                                              ))}
+                                            </tr>
+                                          )
+                                        })}
+                                        <tr className="border-b border-slate-100">
+                                          <th
+                                            scope="row"
+                                            className="px-4 py-2.5 text-left font-medium text-slate-600 sm:px-5"
+                                          >
+                                            <span className="pl-2.5">Comptes clients</span>
+                                          </th>
+                                          {comptesClientsHistory.map((yearRow) => (
+                                            <td
+                                              key={`ar-${yearRow.year}`}
+                                              className="px-4 py-2.5 text-right tabular-nums text-slate-700 sm:px-5"
+                                            >
+                                              {yearRow.ar ? formatCurrency(yearRow.ar) : "—"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                        <tr>
+                                          <th
+                                            scope="row"
+                                            className="px-4 py-2.5 text-left font-medium text-slate-600 sm:px-5"
+                                          >
+                                            <span className="pl-2.5">Revenus</span>
+                                          </th>
+                                          {comptesClientsHistory.map((yearRow) => (
+                                            <td
+                                              key={`rev-${yearRow.year}`}
+                                              className="px-4 py-2.5 text-right tabular-nums text-slate-700 sm:px-5"
+                                            >
+                                              {yearRow.revenue ? formatCurrency(yearRow.revenue) : "—"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      </tbody>
+                                    </table>
+                                  </div>
+
+                                  <div className="grid gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] lg:items-start">
+                                    <div>
+                                      <Label
+                                        htmlFor="bilan-adj-value"
+                                        className="mb-2 block text-sm font-medium text-slate-700"
+                                      >
+                                        {ccDriver === "revenuePercent"
+                                          ? "% des revenus"
+                                          : "Délai de collection (jours)"}
+                                      </Label>
+                                      <div className="relative">
+                                        <Input
+                                          id="bilan-adj-value"
+                                          type="number"
+                                          step={0.1}
+                                          min={0}
+                                          value={draftValue}
+                                          onChange={(e) => setDraftValue(parseFloat(e.target.value) || 0)}
+                                          className="h-11 pr-16 tabular-nums"
+                                        />
+                                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-400">
+                                          {ccDriver === "revenuePercent" ? "%" : "jours"}
+                                        </span>
+                                      </div>
+                                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                        {ccLastHistoryYear
+                                          ? `${ccLastHistoryYear.year} : ${formatComptesClientsHistoryNumber(
+                                              ccDriver === "revenuePercent"
+                                                ? ccLastHistoryYear.revenuePercent
+                                                : ccLastHistoryYear.collectionDays,
+                                            )} ${ccDriver === "revenuePercent" ? "%" : "jours"}`
+                                          : null}
+                                        {ccDriver === "revenuePercent" && ccAveragePercent != null
+                                          ? ` · Moyenne 2 ans : ${formatComptesClientsHistoryNumber(ccAveragePercent)} %`
+                                          : null}
+                                        {ccDriver === "collectionDays" && ccAverageDays != null
+                                          ? ` · Moyenne 2 ans : ${formatComptesClientsHistoryNumber(ccAverageDays)} jours`
+                                          : null}
+                                      </p>
+                                    </div>
+                                    <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3 sm:px-5">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                        Comptes clients projetés
+                                      </p>
+                                      <p
+                                        className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-[#2A2F3A]"
+                                        data-testid="bilan-cc-projected-amount"
+                                      >
+                                        {ccSelectedYearRevenue ? formatCurrency(ccProjectedAmount) : "—"}
+                                      </p>
+                                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                        {ccDriver === "revenuePercent"
+                                          ? "CA × % des revenus"
+                                          : "CA × délai / 365"}
+                                        {ccSelectedYearLabel
+                                          ? ` · CA ${hypothesisYearIndex > 0 ? "projeté" : "réel"} : ${ccSelectedYearLabel} (${formatCurrency(ccSelectedYearRevenue)})`
+                                          : " · CA projeté de l'année"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <div>
+                                  <Label htmlFor="bilan-adj-value" className="mb-2 block text-sm font-medium text-slate-700">
+                                    Montant ($)
+                                  </Label>
+                                  <Input
+                                    id="bilan-adj-value"
+                                    type="number"
+                                    step={1}
+                                    value={draftValue}
+                                    onChange={(e) => setDraftValue(parseFloat(e.target.value) || 0)}
+                                  />
+                                </div>
+                              )}
+                              <label className="flex items-start gap-2 text-sm text-slate-700">
                                 <Checkbox
                                   checked={draftRecurring}
                                   onCheckedChange={(v) => setDraftRecurring(v === true)}
+                                  className="mt-0.5"
+                                  data-testid="bilan-adj-recurring"
                                 />
-                                Appliquer aux années suivantes
+                                <span>
+                                  {isComptesClientsPanel
+                                    ? ccDriver === "revenuePercent"
+                                      ? "Appliquer le % des revenus aux années suivantes"
+                                      : "Appliquer le délai de collection aux années suivantes"
+                                    : "Appliquer aux années suivantes"}
+                                  {isComptesClientsPanel ? (
+                                    <span className="mt-1 block text-xs font-normal leading-relaxed text-slate-500">
+                                      Le délai ou le % est reporté. Le solde de chaque année suit le CA
+                                      projeté de cette année.
+                                    </span>
+                                  ) : null}
+                                </span>
                               </label>
                               <div>
                                 <Label htmlFor="bilan-adj-note" className="mb-2 block text-sm font-medium text-slate-700">
@@ -2260,7 +2704,7 @@ export function BalanceSheetDetail({
                                       key={valueIdx}
                                       className={cn(
                                         "px-4 py-2 text-right font-normal text-sm text-slate-700",
-                                        isForecastSection && view === "years" && valueIdx === 0 ? "bg-slate-50" : ""
+                                        isForecastSection && view === "years" && isForecastHistoricalColumn(valueIdx) ? "bg-slate-50" : ""
                                       )}
                                     >
                                       {accountTrendValue !== 0 ? formatCurrency(accountTrendValue) : "-"}
@@ -2286,7 +2730,7 @@ export function BalanceSheetDetail({
                                       key={emptyIdx} 
                                       className={cn(
                                         "px-4 py-2 text-right font-normal text-sm text-slate-400",
-                                        isForecastSection && view === "years" && emptyIdx === 0 ? "bg-slate-50" : ""
+                                        isForecastSection && view === "years" && isForecastHistoricalColumn(emptyIdx) ? "bg-slate-50" : ""
                                       )}
                                     >
                                       -

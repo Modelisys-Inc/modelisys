@@ -72,7 +72,27 @@ async function setupBilanPage(page: Page) {
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ notes: [] }) }),
   )
   await page.route(`**/api/companies/${COMPANY_ID}/forecast-configs**`, (route) => {
+    const url = route.request().url()
     if (route.request().method() === "GET") {
+      if (url.includes("income-statement-detail")) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            configs: [
+              {
+                id: "rev1",
+                config_type: "income-statement-detail",
+                data: {
+                  revenueValues: {
+                    "REV-1": 2_400_000,
+                  },
+                },
+              },
+            ],
+          }),
+        })
+      }
       return route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -88,6 +108,24 @@ async function setupBilanPage(page: Page) {
     }
     return route.continue()
   })
+  await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/income-statement`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        structure: [
+          {
+            label: "Revenus",
+            linkCode: "REV",
+            liaisonMode: "single",
+            defineMapping: true,
+            showInDetail: true,
+            posteNature: "revenus",
+          },
+        ],
+      }),
+    }),
+  )
   await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/balance-sheet`, (route) =>
     route.fulfill({
       status: 200,
@@ -103,8 +141,15 @@ async function setupBilanPage(page: Page) {
             showInDetail: true,
           },
           {
-            label: "Clients",
+            label: "Comptes clients",
             linkCode: "ACT-B.1",
+            liaisonMode: "single",
+            defineMapping: true,
+            showInDetail: true,
+          },
+          {
+            label: "Stocks",
+            linkCode: "ACT-C.1",
             liaisonMode: "single",
             defineMapping: true,
             showInDetail: true,
@@ -124,7 +169,7 @@ async function setupBilanPage(page: Page) {
   )
 
   const periods = []
-  for (let year = CURRENT_YEAR - 1; year <= CURRENT_YEAR + 5; year++) {
+  for (let year = CURRENT_YEAR - 2; year <= CURRENT_YEAR + 5; year++) {
     for (let month = 1; month <= 12; month++) {
       periods.push({ fiscalYear: year, fiscalMonth: month, label: `${month}/${year}` })
     }
@@ -153,7 +198,14 @@ async function setupBilanPage(page: Page) {
           },
           {
             id: "ACT-B.1",
-            label: "Clients",
+            label: "Comptes clients",
+            hasLiaisonCode: true,
+            amounts,
+            detailRows: [],
+          },
+          {
+            id: "ACT-C.1",
+            label: "Stocks",
             hasLiaisonCode: true,
             amounts,
             detailRows: [],
@@ -195,6 +247,33 @@ async function setupBilanPage(page: Page) {
       }),
     }),
   )
+
+  const revenueAmounts: Record<string, number> = {}
+  for (const p of periods) {
+    revenueAmounts[`${p.fiscalYear}-${p.fiscalMonth}`] = 100000
+  }
+
+  await page.route(`**/financial-statements/income-statement/series**`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        companyId: COMPANY_ID,
+        statementType: "income-statement",
+        fiscalYear: CURRENT_YEAR,
+        periods,
+        rows: [
+          {
+            id: "REV",
+            label: "Revenus",
+            hasLiaisonCode: true,
+            amounts: revenueAmounts,
+            detailRows: [],
+          },
+        ],
+      }),
+    }),
+  )
 }
 
 test("bilan hypothesis shows the balance sheet and opens an adjustment panel", async ({ page }) => {
@@ -213,12 +292,45 @@ test("bilan hypothesis shows the balance sheet and opens an adjustment panel", a
   await encaisseRow.locator("td").nth(2).click()
   await expect(page.getByRole("button", { name: /Enregistrer l'ajustement/ })).toHaveCount(0)
 
-  const clientsRow = page.locator("tr", { hasText: "Clients" }).first()
-  await clientsRow.locator("td").nth(2).click()
+  const stocksRow = page.locator("tr", { hasText: "Stocks" }).first()
+  await stocksRow.locator("td").nth(2).click()
 
-  await expect(page.getByRole("heading", { name: "Clients" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Stocks" })).toBeVisible()
   await expect(page.getByLabel("Montant ($)")).toBeVisible()
   await page.getByLabel("Montant ($)").fill("50000")
   await page.getByRole("button", { name: /Enregistrer l'ajustement/ }).click()
   await expect(page.getByText("50 000 $").first()).toBeVisible()
+})
+
+test("comptes clients hypotheses show collection delay and revenue percent for the last two years", async ({
+  page,
+}) => {
+  await setupBilanPage(page)
+  await page.goto("/projections/bilan")
+
+  await expect(page.getByText("Comptes clients").first()).toBeVisible({ timeout: 20000 })
+
+  const clientsRow = page.locator("tr", { hasText: "Comptes clients" }).first()
+  await clientsRow.locator("td").nth(2).click()
+
+  await expect(page.getByRole("heading", { name: "Comptes clients" })).toBeVisible()
+  await expect(page.getByRole("tab", { name: "Délai de collection des clients" })).toBeVisible()
+  await expect(page.getByRole("tab", { name: "% des revenus" })).toBeVisible()
+  await expect(page.getByText("Exercices réels")).toBeVisible()
+  await expect(page.getByText("Comptes clients projetés")).toBeVisible()
+  await expect(page.getByLabel("Montant ($)")).toHaveCount(0)
+
+  const priorYear = CURRENT_YEAR - 2
+  const lastActualYear = CURRENT_YEAR - 1
+  await expect(page.getByTestId(`cc-history-collectionDays-${priorYear}`)).toBeVisible()
+  await expect(page.getByTestId(`cc-history-collectionDays-${lastActualYear}`)).toContainText("36,5")
+  await expect(page.getByTestId(`cc-history-revenuePercent-${priorYear}`)).toBeVisible()
+  await expect(page.getByTestId(`cc-history-revenuePercent-${lastActualYear}`)).toContainText("10")
+
+  await page.getByLabel("Délai de collection (jours)").fill("73")
+  await page.getByTestId("bilan-adj-recurring").click()
+  await page.getByRole("button", { name: /Enregistrer l'ajustement/ }).click()
+  const clientsAmounts = page.locator("tr", { hasText: "Comptes clients" }).first()
+  await expect(clientsAmounts.locator("td").nth(2)).toHaveText(/240\s000/)
+  await expect(clientsAmounts.locator("td").nth(3)).toHaveText(/480\s000/)
 })

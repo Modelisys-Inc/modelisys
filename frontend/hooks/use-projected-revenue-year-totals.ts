@@ -8,8 +8,18 @@ import {
 } from "@/lib/series-utils"
 import {
   seriesRowBelongsToRevenueAnnexDetail,
+  structureHasRevenuePosteNatureRow,
+  findStructureRowForStatementLine,
+  isStructureRowDetailOnly,
+  isCodeMappingEnabled,
+  isShowInDetail,
+  ensureSeriesRowsForAnnexDetailScope,
+  structureRowBelongsToRevenueAnnexDetail,
+  resolveStructureAnnexLetter,
+  normLabel,
   syncDetailSubLinesFromStandard,
 } from "@/lib/income-statement-structure-utils"
+import { uniqueStatementRowsByStructureIndex } from "@/lib/income-statement-annex-detail"
 import { useStandardLinkCodesFlat } from "@/hooks/use-standard-link-codes"
 
 export type StoredRevenueAdjustment = {
@@ -87,6 +97,90 @@ export function computeProjectedRevenueRowValue(
   return calculatedValue
 }
 
+type RevenueHypothesisSeriesRow = {
+  id: string
+  label: string
+  isSection?: boolean
+  isResult?: boolean
+  amounts?: Record<string, number>
+}
+
+function isMappedDetailSeriesRow(
+  row: { id: string; label: string },
+  structure: Record<string, unknown>[],
+): boolean {
+  const sr = findStructureRowForStatementLine(row.id, row.label, structure)
+  return sr !== undefined && isShowInDetail(sr, structure) && isCodeMappingEnabled(sr)
+}
+
+function findTotalRevenueSeriesId(
+  seriesRows: RevenueHypothesisSeriesRow[],
+  structure: Record<string, unknown>[],
+): string | undefined {
+  const sorted = uniqueStatementRowsByStructureIndex(
+    seriesRows.filter((row) => isMappedDetailSeriesRow(row, structure)),
+    structure,
+  )
+  const revenueSeries =
+    sorted.find((r) => normLabel(r.label) === "revenus" && !r.isSection) ??
+    sorted.find((r) => normLabel(r.label) === "revenus") ??
+    sorted.find((r) => normLabel(r.label) === "total revenus" && !r.isSection) ??
+    sorted.find(
+      (r) =>
+        r.isResult &&
+        normLabel(r.label).includes("revenu") &&
+        (normLabel(r.label).includes("total") || normLabel(r.label).includes("totaux")),
+    )
+  return revenueSeries && !revenueSeries.isSection ? revenueSeries.id : undefined
+}
+
+/** Mêmes postes que le total CA d’Hypothèses Revenus (feuilles d’annexe, pas les totaux parents). */
+export function listRevenueHypothesisPostIds(
+  seriesRows: RevenueHypothesisSeriesRow[],
+  structure: Record<string, unknown>[],
+): string[] {
+  if (!structure.length) return []
+  if (structureHasRevenuePosteNatureRow(structure)) {
+    let rows = seriesRows
+      .filter((sr) => isMappedDetailSeriesRow(sr, structure))
+      .filter((sr) => seriesRowBelongsToRevenueAnnexDetail(sr, structure))
+    rows = uniqueStatementRowsByStructureIndex(
+      ensureSeriesRowsForAnnexDetailScope(
+        rows,
+        structure,
+        structureRowBelongsToRevenueAnnexDetail,
+        (structRow) => {
+          const id =
+            String(structRow.id ?? structRow.linkCode ?? "").trim() ||
+            String(structRow.label ?? "").trim()
+          const letter = resolveStructureAnnexLetter(structRow, structure)
+          return {
+            id,
+            label: String(structRow.label ?? "").trim() || id,
+            isSection: Boolean(structRow.isSection),
+            amounts: {},
+          }
+        },
+      ),
+      structure,
+    )
+    const ids: string[] = []
+    const seen = new Set<string>()
+    for (const sr of rows) {
+      if (sr.isSection) continue
+      const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
+      if (!structRow) continue
+      if (!isStructureRowDetailOnly(structRow)) continue
+      if (!sr.id || seen.has(sr.id)) continue
+      seen.add(sr.id)
+      ids.push(sr.id)
+    }
+    if (ids.length > 0) return ids
+  }
+  const totalId = findTotalRevenueSeriesId(seriesRows, structure)
+  return totalId ? [totalId] : []
+}
+
 export function computeProjectedRevenueYearTotalsFromSeries(
   seriesRows: SeriesRow[],
   periods: SeriesPeriod[],
@@ -99,19 +193,21 @@ export function computeProjectedRevenueYearTotalsFromSeries(
 
   const numYears = projectionYears + 1
   const defaultGrowthRate = 0.05
+  const postIds = listRevenueHypothesisPostIds(seriesRows, structure)
+  if (postIds.length === 0) return null
 
-  const revenuePosts = seriesRows.filter((sr) =>
-    seriesRowBelongsToRevenueAnnexDetail(sr, structure),
-  )
-  if (revenuePosts.length === 0) return null
-
+  const seriesById = new Map(seriesRows.map((sr) => [sr.id, sr]))
   const defaultTrendByRow = new Map<string, number[]>()
-  for (const sr of revenuePosts) {
-    const rawAmounts = getRowAmounts(sr, periods)
-    const { amounts: yearlyAmounts } = aggregateToYears(rawAmounts, periods)
-    const baseAmount = yearlyAmounts.length > 0 ? yearlyAmounts[yearlyAmounts.length - 1] : 0
+  for (const id of postIds) {
+    const sr = seriesById.get(id)
+    let baseAmount = 0
+    if (sr) {
+      const rawAmounts = getRowAmounts(sr, periods)
+      const { amounts: yearlyAmounts } = aggregateToYears(rawAmounts, periods)
+      baseAmount = yearlyAmounts.length > 0 ? yearlyAmounts[yearlyAmounts.length - 1] : 0
+    }
     defaultTrendByRow.set(
-      sr.id,
+      id,
       Array.from({ length: numYears }, (_, yearIndex) =>
         yearIndex === 0
           ? baseAmount
@@ -136,10 +232,10 @@ export function computeProjectedRevenueYearTotalsFromSeries(
   }
 
   return Array.from({ length: numYears }, (_, yearIndex) =>
-    revenuePosts.reduce((acc, sr) => {
-      const trend = defaultTrendByRow.get(sr.id)!
+    postIds.reduce((acc, id) => {
+      const trend = defaultTrendByRow.get(id)!
       const raw = trend[yearIndex] ?? 0
-      return acc + resolveRowValue(sr.id, yearIndex, raw)
+      return acc + resolveRowValue(id, yearIndex, raw)
     }, 0),
   )
 }

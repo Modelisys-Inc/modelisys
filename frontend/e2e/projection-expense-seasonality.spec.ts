@@ -294,8 +294,8 @@ async function openFixedExpenseSeasonality(page: Page, yearIndex: number) {
   const row = page.locator("tr", { hasText: "Achats" }).first()
   await expect(row).toBeVisible({ timeout: 15000 })
   await expect(row.getByText("Fixe", { exact: true })).toBeVisible({ timeout: 15000 })
-  // Compte, Type, Taux, then year/% CA pairs
-  await row.locator("td").nth(3 + yearIndex * 2).click()
+  // Compte, Type, Taux, then year/% CA pairs ; N-1 inséré en tête (start_month ≠ clôture).
+  await row.locator("td").nth(3 + (yearIndex + 1) * 2).click()
   await page.getByRole("tab", { name: "Saisonnalité" }).click()
 }
 

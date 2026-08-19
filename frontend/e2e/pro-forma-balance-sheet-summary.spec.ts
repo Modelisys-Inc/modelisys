@@ -27,7 +27,11 @@ function monthlyAmounts(fromYear: number, toYear: number, yearValues: Record<num
   return amounts
 }
 
-async function setupAuth(page: Page, structure: Record<string, unknown>[] = []) {
+async function setupAuth(
+  page: Page,
+  structure: Record<string, unknown>[] = [],
+  extraSeriesRows: Record<string, unknown>[] = [],
+) {
   await page.addInitScript(() => {
     localStorage.setItem("access_token", "fake-access-token")
     localStorage.setItem("refresh_token", "fake-refresh-token")
@@ -67,7 +71,7 @@ async function setupAuth(page: Page, structure: Record<string, unknown>[] = []) 
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          companies: [{ id: COMPANY_ID, name: "Test Co", divisions: [] }],
+          companies: [{ id: COMPANY_ID, name: "Test Co", fiscal_year_end: "12-31", divisions: [] }],
         }),
       })
     }
@@ -182,9 +186,78 @@ async function setupAuth(page: Page, structure: Record<string, unknown>[] = []) 
               }),
               detailRows: [],
             },
+            ...extraSeriesRows,
           ],
         }),
       }),
+  )
+
+  await page.route(`**/api/companies/${COMPANY_ID}/financial-statements/cash-flow-detail/series*`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        companyId: COMPANY_ID,
+        statementType: "cash-flow-detail",
+        fiscalYear: 2027,
+        periods,
+        rows: [
+          {
+            id: "row-operating",
+            label: "Flux d'exploitation",
+            isBold: true,
+            hasLiaisonCode: true,
+            amounts: monthlyAmounts(2023, 2028, {
+              2023: 100,
+              2024: 200,
+              2025: 300,
+              2026: 400,
+              2027: 500,
+              2028: 0,
+            }),
+            detailRows: [],
+          },
+          {
+            id: "row-net",
+            label: "Variation de trésorerie",
+            isBold: true,
+            isResult: true,
+            hasLiaisonCode: true,
+            amounts: monthlyAmounts(2023, 2028, {
+              2023: 1000,
+              2024: 1100,
+              2025: 1200,
+              2026: 1300,
+              2027: 1400,
+              2028: 0,
+            }),
+            detailRows: [],
+          },
+        ],
+      }),
+    }),
+  )
+
+  await page.route(`**/api/companies/${COMPANY_ID}/financial-statements/cash-flow-detail*`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ rows: [] }),
+    }),
+  )
+
+  await page.route(`**/api/companies/${COMPANY_ID}/financial-statements/cash-flow/series*`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        companyId: COMPANY_ID,
+        statementType: "cash-flow",
+        fiscalYear: 2027,
+        periods,
+        rows: [],
+      }),
+    }),
   )
 
   await page.route(`**/api/companies/${COMPANY_ID}/financial-statements/cash-flow*`, (route) =>
@@ -193,54 +266,6 @@ async function setupAuth(page: Page, structure: Record<string, unknown>[] = []) 
       contentType: "application/json",
       body: JSON.stringify({ rows: [] }),
     }),
-  )
-
-  await page.route(
-    `**/api/companies/${COMPANY_ID}/financial-statements/cash-flow/series*`,
-    (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          companyId: COMPANY_ID,
-          statementType: "cash-flow",
-          fiscalYear: 2027,
-          periods,
-          rows: [
-            {
-              id: "row-operating",
-              label: "Flux d'exploitation",
-              isBold: true,
-              hasLiaisonCode: true,
-              amounts: monthlyAmounts(2023, 2028, {
-                2023: 100,
-                2024: 200,
-                2025: 300,
-                2026: 400,
-                2027: 500,
-                2028: 0,
-              }),
-              detailRows: [],
-            },
-            {
-              id: "row-net",
-              label: "Variation de trésorerie",
-              isBold: true,
-              isResult: true,
-              hasLiaisonCode: true,
-              amounts: monthlyAmounts(2023, 2028, {
-                2023: 1000,
-                2024: 1100,
-                2025: 1200,
-                2026: 1300,
-                2027: 1400,
-                2028: 0,
-              }),
-              detailRows: [],
-            },
-          ],
-        }),
-      }),
   )
 
   await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/cash-flow-detail`, (route) =>
@@ -307,17 +332,23 @@ test.describe("Pro forma balance sheet", () => {
     await expect(page.getByText("Total des actifs").first()).toBeVisible({ timeout: 15000 })
 
     await expect(page.locator("table thead th").filter({ hasText: "2027" }).first()).toBeVisible()
+    await expect(page.locator("table thead th").filter({ hasText: "YTD 2028" }).first()).toBeVisible()
     await expect(page.locator("table thead th").filter({ hasText: "2028" }).first()).toBeVisible()
 
     await expect(page.getByTitle(/analyse et les notes/i)).toHaveCount(0)
+    await expect(page.getByTestId("balance-sheet-summary-expand-annex")).toHaveCount(0)
+    await expect(page.getByTestId("balance-sheet-summary-expand-gl")).toHaveCount(0)
+    await expect(page.locator("table tbody svg.lucide-chevron-right")).toHaveCount(0)
+    await expect(page.locator("table tbody svg.lucide-chevron-down")).toHaveCount(0)
 
     const shadedCells = page.locator("table tbody td.bg-slate-50")
     await expect(shadedCells.first()).toBeVisible({ timeout: 10000 })
     const shadedCount = await shadedCells.count()
     expect(shadedCount).toBeGreaterThan(1)
 
-    const firstYearHeader = page.locator("table thead th.bg-slate-50").first()
-    await expect(firstYearHeader).toBeVisible()
+    const firstYearHeader = page.locator("table thead th.bg-slate-50")
+    await expect(firstYearHeader.first()).toBeVisible()
+    await expect(firstYearHeader).toHaveCount(2)
   })
 
   test("detail hides note icons, shades the first forecast year column, and shows annex subtotals", async ({
@@ -350,15 +381,67 @@ test.describe("Pro forma balance sheet", () => {
     await expect(page.getByText(/Sous-total — Annexe 1/i)).toBeVisible({ timeout: 15000 })
 
     await expect(page.locator("table thead th").filter({ hasText: "2027" }).first()).toBeVisible()
+    await expect(page.locator("table thead th").filter({ hasText: "YTD 2028" }).first()).toBeVisible()
     await expect(page.locator("table thead th").filter({ hasText: "2028" }).first()).toBeVisible()
 
     await expect(page.getByTitle(/analyse et les notes/i)).toHaveCount(0)
+    await expect(page.locator("table tbody svg.lucide-chevron-right")).toHaveCount(0)
+    await expect(page.locator("table tbody svg.lucide-chevron-down")).toHaveCount(0)
 
     const shadedCells = page.locator("table tbody td.bg-slate-50")
     await expect(shadedCells.first()).toBeVisible({ timeout: 10000 })
     expect(await shadedCells.count()).toBeGreaterThan(1)
 
-    await expect(page.locator("table thead th.bg-slate-50").first()).toBeVisible()
+    await expect(page.locator("table thead th.bg-slate-50")).toHaveCount(2)
+  })
+
+  test("detail hides mapped rows that are 0 $ on every displayed year", async ({ page }) => {
+    test.setTimeout(60_000)
+    await setupAuth(
+      page,
+      [
+        {
+          label: "Encaisse",
+          linkCode: "ACT-A.1",
+          defineMapping: true,
+          showInDetail: true,
+        },
+        {
+          label: "Placements inactifs",
+          linkCode: "ACT-A.2",
+          defineMapping: true,
+          showInDetail: true,
+        },
+      ],
+      [
+        {
+          id: "ACT-A.1",
+          label: "Encaisse",
+          hasLiaisonCode: true,
+          amounts: monthlyAmounts(2023, 2028, {
+            2023: 100,
+            2024: 200,
+            2025: 300,
+            2026: 400,
+            2027: 500,
+            2028: 0,
+          }),
+          detailRows: [],
+        },
+        {
+          id: "ACT-A.2",
+          label: "Placements inactifs",
+          hasLiaisonCode: true,
+          amounts: monthlyAmounts(2023, 2028, {}),
+          detailRows: [],
+        },
+      ],
+    )
+
+    await openProFormaBalanceSheet(page, "detail")
+
+    await expect(page.getByText("Encaisse").first()).toBeVisible({ timeout: 15000 })
+    await expect(page.locator("table tbody").getByText("Placements inactifs")).toHaveCount(0)
   })
 })
 
@@ -370,9 +453,10 @@ test.describe("Pro forma cash flow", () => {
     await openProFormaCashFlow(page, "summary")
 
     await expect(page.getByText("Variation de trésorerie").first()).toBeVisible({ timeout: 15000 })
-    await expect(page.locator("table thead th").filter({ hasText: "2027" }).first()).toBeVisible()
-    await expect(page.locator("table thead th").filter({ hasText: "2028" }).first()).toBeVisible()
-    await expect(page.locator("table thead th.bg-slate-50").first()).toBeVisible()
+    await expect(page.locator("table thead th").filter({ hasText: /^2027$/ }).first()).toBeVisible()
+    await expect(page.locator("table thead th").filter({ hasText: "YTD 2028" }).first()).toBeVisible()
+    await expect(page.locator("table thead th").filter({ hasText: /^2028$/ }).first()).toBeVisible()
+    await expect(page.locator("table thead th.bg-slate-50")).toHaveCount(2)
     expect(await page.locator("table tbody td.bg-slate-50").count()).toBeGreaterThan(1)
   })
 
@@ -383,9 +467,10 @@ test.describe("Pro forma cash flow", () => {
     await openProFormaCashFlow(page, "detail")
 
     await expect(page.getByText("Variation de trésorerie").first()).toBeVisible({ timeout: 15000 })
-    await expect(page.locator("table thead th").filter({ hasText: "2027" }).first()).toBeVisible()
-    await expect(page.locator("table thead th").filter({ hasText: "2028" }).first()).toBeVisible()
-    await expect(page.locator("table thead th.bg-slate-50").first()).toBeVisible()
+    await expect(page.locator("table thead th").filter({ hasText: /^2027$/ }).first()).toBeVisible()
+    await expect(page.locator("table thead th").filter({ hasText: "YTD 2028" }).first()).toBeVisible()
+    await expect(page.locator("table thead th").filter({ hasText: /^2028$/ }).first()).toBeVisible()
+    await expect(page.locator("table thead th.bg-slate-50")).toHaveCount(2)
     expect(await page.locator("table tbody td.bg-slate-50").count()).toBeGreaterThan(1)
     await expect(page.getByText(/Les données affichées sont à titre informatif/i)).toBeVisible()
   })

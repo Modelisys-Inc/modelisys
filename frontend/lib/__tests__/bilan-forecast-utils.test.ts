@@ -1,10 +1,15 @@
 import { describe, it, expect } from "vitest"
 import {
+  buildComptesClientsHistory,
   buildForecastEndingCashTrend,
+  comptesClientsAmountFromDriver,
+  isComptesClientsBilanRow,
   isEncaisseBilanRow,
   parseBilanAdjustments,
   resolveBilanAdjustedValue,
+  resolveComptesClientsProjectedValue,
   resolveEncaisseFromEndingCash,
+  revenueForComptesClientsYear,
   type BilanAdjustment,
 } from "../bilan-forecast-utils"
 
@@ -27,6 +32,16 @@ describe("isEncaisseBilanRow", () => {
   })
 })
 
+describe("isComptesClientsBilanRow", () => {
+  it("matches ACT-B and Comptes clients", () => {
+    expect(isComptesClientsBilanRow({ linkCode: "ACT-B" })).toBe(true)
+    expect(isComptesClientsBilanRow({ rowId: "ACT-B.1" })).toBe(true)
+    expect(isComptesClientsBilanRow({ label: "Comptes clients" })).toBe(true)
+    expect(isComptesClientsBilanRow({ label: "Fournisseurs" })).toBe(false)
+    expect(isComptesClientsBilanRow({ linkCode: "ACT-A.1", label: "Encaisse" })).toBe(false)
+  })
+})
+
 describe("resolveBilanAdjustedValue", () => {
   const trend = [100, 100, 100, 100]
 
@@ -46,6 +61,50 @@ describe("resolveBilanAdjustedValue", () => {
     const list = [adj({ id: "a", yearIndex: 1, value: 25, isRecurring: true })]
     expect(resolveBilanAdjustedValue(trend, 1, list)).toBe(125)
     expect(resolveBilanAdjustedValue(trend, 2, list)).toBe(125)
+  })
+})
+
+describe("comptes clients drivers", () => {
+  it("builds history for the last two fiscal years", () => {
+    const history = buildComptesClientsHistory({
+      lastActualYear: 2025,
+      arByYear: { 2024: 120_000, 2025: 150_000 },
+      revenueByYear: { 2024: 1_200_000, 2025: 1_500_000 },
+    })
+    expect(history.map((row) => row.year)).toEqual([2024, 2025])
+    expect(history[0]?.revenuePercent).toBe(10)
+    expect(history[0]?.collectionDays).toBe(36.5)
+    expect(history[1]?.revenuePercent).toBe(10)
+  })
+
+  it("converts a collection delay into an AR amount", () => {
+    expect(comptesClientsAmountFromDriver({ type: "collectionDays", value: 36.5, revenue: 1_200_000 })).toBe(
+      120_000,
+    )
+    expect(comptesClientsAmountFromDriver({ type: "revenuePercent", value: 10, revenue: 1_500_000 })).toBe(
+      150_000,
+    )
+  })
+
+  it("projects AR from the selected driver", () => {
+    const trend = [120_000, 0, 0]
+    const list = [adj({ id: "a", yearIndex: 1, type: "revenuePercent", value: 12 })]
+    expect(resolveComptesClientsProjectedValue(trend, 0, list, 1_000_000)).toBe(120_000)
+    expect(resolveComptesClientsProjectedValue(trend, 1, list, 1_000_000)).toBe(120_000)
+  })
+
+  it("applies a recurring delay to later years using each year's revenue", () => {
+    const trend = [120_000, 0, 0]
+    const list = [adj({ id: "a", yearIndex: 1, type: "collectionDays", value: 36.5, isRecurring: true })]
+    expect(resolveComptesClientsProjectedValue(trend, 1, list, 1_200_000)).toBe(120_000)
+    expect(resolveComptesClientsProjectedValue(trend, 2, list, 2_400_000)).toBe(240_000)
+  })
+
+  it("uses projected revenue for later years and falls back to last actual", () => {
+    expect(revenueForComptesClientsYear(0, [10_000_000, 11_000_000], 1_200_000)).toBe(10_000_000)
+    expect(revenueForComptesClientsYear(1, [10_000_000, 11_000_000], 1_200_000)).toBe(11_000_000)
+    expect(revenueForComptesClientsYear(-1, [10_000_000], 1_200_000)).toBe(1_200_000)
+    expect(revenueForComptesClientsYear(1, null, 1_200_000)).toBe(1_200_000)
   })
 })
 
@@ -75,6 +134,14 @@ describe("parseBilanAdjustments", () => {
   it("returns an empty map for invalid input", () => {
     expect(parseBilanAdjustments(null)).toEqual({})
     expect(parseBilanAdjustments("nope")).toEqual({})
+  })
+
+  it("keeps collection-day drivers", () => {
+    const parsed = parseBilanAdjustments({
+      r1: [{ id: "a", yearIndex: 1, type: "collectionDays", value: 42 }],
+    })
+    expect(parsed.r1?.[0]?.type).toBe("collectionDays")
+    expect(parsed.r1?.[0]?.value).toBe(42)
   })
 
   it("stores legacy percentage rows as amount adjustments", () => {

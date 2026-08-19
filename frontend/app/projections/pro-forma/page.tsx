@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector } from "@/components/entity-selector"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -160,6 +159,9 @@ export default function ProFormaPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const projectionIdFromUrl = searchParams.get("projectionId")
+  const companyIdFromUrl = searchParams.get("companyId")
+  const lockedCompanyId =
+    companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
@@ -180,22 +182,30 @@ export default function ProFormaPage() {
   const [initialModalOpen, setInitialModalOpen] = useState(false)
   const [initialModalMode, setInitialModalMode] = useState<"choice" | "create" | "load">("choice")
   const [newProjectionName, setNewProjectionName] = useState("")
-  const [newProjectionCompanyId, setNewProjectionCompanyId] = useState<string | null>(null)
-  const [newProjectionDivisionId, setNewProjectionDivisionId] = useState<string | null>(null)
-  const [newProjectionSubDivisionId, setNewProjectionSubDivisionId] = useState<string | null>(null)
   const [newProjectionYears, setNewProjectionYears] = useState<3 | 4 | 5>(5)
   const [newProjectionMode, setNewProjectionMode] = useState<"gl" | "account">("gl")
+  const [newProjectionStartYear, setNewProjectionStartYear] = useState<number>(() => new Date().getFullYear())
+  const [newProjectionStartMonth, setNewProjectionStartMonth] = useState<number>(() => new Date().getMonth() + 1)
+  const companyIdForCreate = lockedCompanyId || companies[0]?.id || null
+  const startYearOptions = Array.from({ length: 9 }, (_, i) => new Date().getFullYear() - 2 + i)
+  const monthOptions = [
+    { value: 1, label: "Janvier" },
+    { value: 2, label: "Février" },
+    { value: 3, label: "Mars" },
+    { value: 4, label: "Avril" },
+    { value: 5, label: "Mai" },
+    { value: 6, label: "Juin" },
+    { value: 7, label: "Juillet" },
+    { value: 8, label: "Août" },
+    { value: 9, label: "Septembre" },
+    { value: 10, label: "Octobre" },
+    { value: 11, label: "Novembre" },
+    { value: 12, label: "Décembre" },
+  ]
   // Track which company the projections were loaded for
   const [loadedProjectionsCompanyId, setLoadedProjectionsCompanyId] = useState<string | null>(null)
   const [backDialogOpen, setBackDialogOpen] = useState(false)
   const [backPendingSave, setBackPendingSave] = useState(false)
-
-  // Auto-select first company for new projection form
-  useEffect(() => {
-    if (!newProjectionCompanyId && companies.length > 0) {
-      setNewProjectionCompanyId(companies[0].id)
-    }
-  }, [companies, newProjectionCompanyId])
 
   const selectedModuleData = allModules.find(m => m.id === selectedModule)
   const Icon = selectedModuleData?.icon || BarChart3
@@ -319,25 +329,27 @@ export default function ProFormaPage() {
   }, [projectionIdFromUrl, savedProjections])
 
   const handleCreateNewProjection = async () => {
-    if (!newProjectionName.trim() || !newProjectionCompanyId) return
+    if (!newProjectionName.trim() || !companyIdForCreate) return
 
     try {
-      const created = await createProjection(newProjectionCompanyId, {
+      const created = await createProjection(companyIdForCreate, {
         name: newProjectionName.trim(),
         projection_years: newProjectionYears,
         projection_mode: newProjectionMode,
-        division_id: newProjectionDivisionId || null,
-        sub_division_id: newProjectionSubDivisionId || null,
+        projection_horizon: "annual",
+        start_year: newProjectionStartYear,
+        start_month: newProjectionStartMonth,
+        division_id: null,
+        sub_division_id: null,
       })
       const mapped = mapApiProjection(created)
       setSavedProjections(prev => [...prev, mapped])
       loadProjection(mapped)
       setNewProjectionName("")
-      setNewProjectionCompanyId(null)
-      setNewProjectionDivisionId(null)
-      setNewProjectionSubDivisionId(null)
       setNewProjectionYears(5)
       setNewProjectionMode("gl")
+      setNewProjectionStartYear(new Date().getFullYear())
+      setNewProjectionStartMonth(new Date().getMonth() + 1)
       setInitialModalMode("choice")
     } catch (e) {
       console.error("Error creating projection:", e)
@@ -606,15 +618,9 @@ export default function ProFormaPage() {
                 <div className="whitespace-nowrap">
                   <span className="text-white/50">Date de référence</span>{" "}
                   <span className="font-medium text-slate-100">
-                    {projectionStartYear ? (
-                      projectionHorizon === "monthly" ? (
-                        `${monthLabel(projectionStartMonth) ?? "—"} ${projectionStartYear}`
-                      ) : (
-                        String(projectionStartYear)
-                      )
-                    ) : (
-                      "—"
-                    )}
+                    {projectionStartYear
+                      ? `${monthLabel(projectionStartMonth) ?? "—"} ${projectionStartYear}`
+                      : "—"}
                   </span>
                 </div>
               </div>
@@ -649,13 +655,12 @@ export default function ProFormaPage() {
               subDivisionId={subDivisionId}
               companies={companies}
               title="Estimation des revenus annuels"
-              fiscalYear={
-                projectionHorizon === "annual" && projectionStartYear ? projectionStartYear - 1 : projectionStartYear ?? undefined
-              }
+              fiscalYear={projectionStartYear ?? undefined}
               referenceMonth={projectionStartMonth ?? undefined}
               forceForecastSection
               forecastBaseYear={projectionStartYear ?? undefined}
               forecastUseSeriesActuals
+              forecastActualLayout="nMinusOne-and-ytd"
               projectionYears={projectionYears}
               projectionMode={projectionMode}
               projectionId={currentProjectionId}
@@ -670,13 +675,12 @@ export default function ProFormaPage() {
               subDivisionId={subDivisionId}
               companies={companies}
               title="Estimation des dépenses annuelles"
-              fiscalYear={
-                projectionHorizon === "annual" && projectionStartYear ? projectionStartYear - 1 : projectionStartYear ?? undefined
-              }
+              fiscalYear={projectionStartYear ?? undefined}
               referenceMonth={projectionStartMonth ?? undefined}
               forceForecastSection
               forecastBaseYear={projectionStartYear ?? undefined}
               forecastUseSeriesActuals
+              forecastActualLayout="nMinusOne-and-ytd"
               projectionYears={projectionYears}
               projectionMode={projectionMode}
               projectionId={currentProjectionId}
@@ -691,12 +695,11 @@ export default function ProFormaPage() {
               subDivisionId={subDivisionId}
               companies={companies}
               title="Estimation des Capex annuels"
-              fiscalYear={
-                projectionHorizon === "annual" && projectionStartYear
-                  ? projectionStartYear - 1
-                  : projectionStartYear ?? undefined
-              }
+              fiscalYear={projectionStartYear ?? undefined}
+              refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
               forecastBaseYear={projectionStartYear ?? undefined}
+              forecastUseSeriesActuals
+              forecastActualLayout="nMinusOne-and-ytd"
               projectionYears={projectionYears}
               projectionMode={projectionMode}
               projectionId={currentProjectionId}
@@ -785,13 +788,12 @@ export default function ProFormaPage() {
                 companies={companies}
                 projectionYears={projectionYears}
                 projectionId={currentProjectionId}
-                fiscalYear={
-                  projectionHorizon === "annual" && projectionStartYear ? projectionStartYear - 1 : projectionStartYear ?? undefined
-                }
+                fiscalYear={projectionStartYear ?? undefined}
                 referenceMonth={projectionStartMonth ?? undefined}
                 forceForecastSection
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
+                forecastActualLayout="nMinusOne-and-ytd"
               />
             ) : (
               <IncomeStatementDetail
@@ -804,12 +806,12 @@ export default function ProFormaPage() {
                 companies={companies}
                 hideHeaderIcon
                 disableRowInteractions
-                fiscalYear={
-                  projectionHorizon === "annual" && projectionStartYear ? projectionStartYear - 1 : projectionStartYear ?? undefined
-                }
+                fiscalYear={projectionStartYear ?? undefined}
+                referenceMonth={projectionStartMonth ?? undefined}
                 forceForecastSection
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
+                forecastActualLayout="nMinusOne-and-ytd"
                 projectionYears={projectionYears}
                 projectionMode={projectionMode}
                 projectionId={currentProjectionId}
@@ -826,20 +828,13 @@ export default function ProFormaPage() {
                 subDivisionId={subDivisionId}
                 companies={companies}
                 title="Bilan pro forma"
-                fiscalYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? undefined
-                }
+                fiscalYear={projectionStartYear ?? undefined}
                 refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
-                refYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? new Date().getFullYear()
-                }
+                refYear={projectionStartYear ?? new Date().getFullYear()}
                 projectionYears={projectionYears}
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
+                forecastActualLayout="nMinusOne-and-ytd"
                 disableRowInteractions
               />
             ) : (
@@ -852,20 +847,13 @@ export default function ProFormaPage() {
                 subDivisionId={subDivisionId}
                 companies={companies}
                 title="Bilan pro forma"
-                fiscalYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? undefined
-                }
+                fiscalYear={projectionStartYear ?? undefined}
                 refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
-                refYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? new Date().getFullYear()
-                }
+                refYear={projectionStartYear ?? new Date().getFullYear()}
                 projectionYears={projectionYears}
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
+                forecastActualLayout="nMinusOne-and-ytd"
                 disableRowInteractions
               />
             )
@@ -880,20 +868,13 @@ export default function ProFormaPage() {
                 subDivisionId={subDivisionId}
                 companies={companies}
                 title="Flux de trésorerie pro forma"
-                fiscalYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? undefined
-                }
+                fiscalYear={projectionStartYear ?? undefined}
                 refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
-                refYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? new Date().getFullYear()
-                }
+                refYear={projectionStartYear ?? new Date().getFullYear()}
                 projectionYears={projectionYears}
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
+                forecastActualLayout="nMinusOne-and-ytd"
               />
             ) : (
               <CashFlowDetail
@@ -905,20 +886,13 @@ export default function ProFormaPage() {
                 subDivisionId={subDivisionId}
                 companies={companies}
                 title="Flux de trésorerie pro forma"
-                fiscalYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? undefined
-                }
+                fiscalYear={projectionStartYear ?? undefined}
                 refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
-                refYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? new Date().getFullYear()
-                }
+                refYear={projectionStartYear ?? new Date().getFullYear()}
                 projectionYears={projectionYears}
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
+                forecastActualLayout="nMinusOne-and-ytd"
               />
             )
           ) : (
@@ -959,7 +933,7 @@ export default function ProFormaPage() {
               </DialogTitle>
               <DialogDescription>
                 {initialModalMode === "choice" && "Choisissez de charger une projection existante ou de créer une nouvelle projection financière."}
-                {initialModalMode === "create" && "Configurez votre nouvelle projection financière en sélectionnant l'entité, le nombre d'années et en donnant un nom à votre projection."}
+                {initialModalMode === "create" && "Donnez un nom, le nombre d’années et la date de référence. La projection est annuelle, avec une vue mensuelle possible ensuite."}
                 {initialModalMode === "load" && "Sélectionnez une projection sauvegardée à charger."}
               </DialogDescription>
             </DialogHeader>
@@ -1016,21 +990,6 @@ export default function ProFormaPage() {
 
                 <div>
                   <label className="text-sm font-medium text-slate-700 mb-2 block">
-                    Entité
-                  </label>
-                  <EntitySelector
-                    companies={companies}
-                    selectedCompanyId={newProjectionCompanyId}
-                    selectedDivisionId={newProjectionDivisionId}
-                    selectedSubDivisionId={newProjectionSubDivisionId}
-                    onCompanyChange={setNewProjectionCompanyId}
-                    onDivisionChange={setNewProjectionDivisionId}
-                    onSubDivisionChange={setNewProjectionSubDivisionId}
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-slate-700 mb-2 block">
                     Nombre d'années de projection
                   </label>
                   <Select
@@ -1046,6 +1005,49 @@ export default function ProFormaPage() {
                       <SelectItem value="5">5 ans</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 mb-2 block">
+                      Mois de référence
+                    </label>
+                    <Select
+                      value={String(newProjectionStartMonth)}
+                      onValueChange={(value) => setNewProjectionStartMonth(parseInt(value))}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {monthOptions.map((m) => (
+                          <SelectItem key={m.value} value={String(m.value)}>
+                            {m.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 mb-2 block">
+                      Année de référence
+                    </label>
+                    <Select
+                      value={String(newProjectionStartYear)}
+                      onValueChange={(value) => setNewProjectionStartYear(parseInt(value))}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {startYearOptions.map((y) => (
+                          <SelectItem key={y} value={String(y)}>
+                            {y}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
                 <div>
@@ -1080,7 +1082,7 @@ export default function ProFormaPage() {
                   </Button>
                   <Button
                     onClick={handleCreateNewProjection}
-                    disabled={!newProjectionName.trim() || !newProjectionCompanyId}
+                    disabled={!newProjectionName.trim() || !companyIdForCreate}
                   >
                     Créer la projection
                   </Button>

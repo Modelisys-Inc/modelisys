@@ -29,6 +29,7 @@ interface CashFlowSummaryProps {
   projectionYears?: 3 | 4 | 5
   forecastBaseYear?: number
   forecastUseSeriesActuals?: boolean
+  forecastActualLayout?: "single-prior-year" | "nMinusOne-and-ytd"
   periodBasis?: "current" | "fiscal"
 }
 

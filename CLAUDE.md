@@ -295,13 +295,45 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   (solde d’ouverture) ; taux / durée / remboursement se définissent dans le
   panneau, plus dans le mapping comptable. Emprunts mapping sans hypothèse
   flaggés « À définir » jusqu’à Enregistrer.
+  **Nouveau scénario de projection** (`/projections` + modal Pro Forma) : pas de
+  picker entité / division / sous-division (société = `companyId` d’URL ou première
+  de l’org ; `division_id` / `sub_division_id` nuls). Horizon toujours **annuel**
+  (`projection_horizon: "annual"`), avec vue mensuelle possible ensuite. Date de
+  référence = **mois + année** (`start_month` 1–12 + `start_year`).
+  **Pro Forma Résultats** (Sommaire + Détail) : colonnes réelles = **N-1** (exercice
+  fiscal complet clos avant la date de référence) puis **YTD** (cumul d’exercice
+  jusqu’au mois de référence), puis les années projetées. Ex. réf. mars 2026,
+  clôture 31 déc. → `2025` | `YTD 2026` | `2026` | `2027`… **Hypothèses Revenus,
+  Dépenses et Capex** reprennent les mêmes colonnes. Les configs gardent
+  l’index 0 = réel / 1+ = projeté ; N-1 est une colonne d’affichage supplémentaire
+  (clic d’hypothèse seulement sur les années projetées).
+  **Pro Forma Bilan** (Sommaire + Détail) : même idée, mais en **soldes** (snapshot),
+  pas des cumuls. N-1 = solde à la dernière clôture d’exercice ; **YTD seulement si**
+  le mois de référence ≠ mois de clôture (sinon pas de colonne intermédiaire).
+  Ex. réf. mars 2026, clôture 31 déc. → `2025` (31 déc. 2025) | `YTD 2026` (31 mars 2026)
+  | `2026` | `2027`… ; réf. décembre 2026 → `2025` puis années projetées.
+  **Pro Forma Trésorerie** (Sommaire + Détail) : mêmes colonnes que le Bilan
+  Pro forma (N-1 + YTD si le mois de référence ≠ clôture, puis années projetées).
+  Réel = cumul d’exercice (N-1 = exercice clos, YTD = jusqu’au mois de référence) ;
+  Variation = soldes à ces dates. Hypothèses trésorerie : une seule colonne réelle.
+  Détail Pro Forma : pas d’ouverture de lignes (GL / annexes) ; postes à 0 $ masqués
+  (même filtre d’horizon que le Détail historique). Sommaire Pro Forma : pas d’ouverture
+  de lignes non plus.
+  Hypothèses Bilan restent sur une seule colonne réelle.
   **Hypothèses Impôts** : taux unique (`tax-forecast`, défaut 26 %) applicable aux
   années projetées (poste IMP).
   **Hypothèses Bilan** : même tableau que le **Sommaire** du bilan (`Estimation du Bilan annuel`),
   sans les sous-lignes Détail / annexes ; clic sur une année projetée → panneau
   d’ajustement (Montant $ seulement, récurrent, note). Encaisse (ACT-A.1) n’est pas
   ajustable : elle suit la **Trésorerie à la fin** des projections (variation de
-  trésorerie reportée).
+  trésorerie reportée). Comptes clients (ACT-B) : **Délai de collection des clients**
+  ou **% des revenus**, avec les 2 derniers exercices réels sous chaque option ;
+  le montant projeté = CA × jours/365 ou CA × % (CA = revenus projetés **de
+  l’année civile de la colonne**, mêmes postes que Hypothèses Revenus — feuilles
+  d’annexe, jamais le total parent). « Appliquer aux années suivantes »
+  reporte le délai ou le %, pas le montant ; chaque année suivante applique
+  la même formule à son CA projeté. Première année projetée = année civile
+  courante (comme Revenus) ; les 2 exercices réels affichés sont N-2 et N-1.
 - Cash flow is derived from income statement + balance sheet deltas
 - **Sommaire** trésorerie : lignes cochées « Annexe » (`showInSummary`) dans
   Détail → Paramètres ; même moteur de calcul que le Détail (`variant="summary"`).

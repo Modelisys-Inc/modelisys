@@ -197,6 +197,7 @@ export type ReferenceMonthYearTrendOptions = {
   count?: number
   periodBasis?: StatementPeriodBasis
   fiscalYearEndMonth?: number
+  columnDates?: { month: number; year: number }[]
 }
 
 export type ReferenceQuarterMonthTrendOptions = {
@@ -222,6 +223,7 @@ function priorTrailingQuarterMonth(month: number, year: number): { month: number
 }
 
 function yearColumnSequence(options: ReferenceMonthYearTrendOptions): { month: number; year: number }[] {
+  if (options.columnDates?.length) return options.columnDates
   const count = options.count ?? 5
   if (options.periodBasis === "fiscal") {
     return fiscalYearAsOfSequenceFromReference(

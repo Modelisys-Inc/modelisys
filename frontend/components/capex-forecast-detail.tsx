@@ -53,6 +53,21 @@ import {
   parseSeasonalityMonthPercentsFromStorage,
 } from "@/lib/forecast-seasonality-utils"
 import { useProjectedRevenueYearTotals } from "@/hooks/use-projected-revenue-year-totals"
+import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
+import {
+  type ForecastActualLayout,
+  forecastActualColumnCount,
+  forecastBalanceSheetActualPrefixValues,
+  forecastConfigToDisplayYearIndex,
+  forecastDisplayToConfigYearIndex,
+  forecastDisplayTrendToConfigTrend,
+  forecastDisplayYearCount,
+  forecastTrendFromActualPrefix,
+  forecastYearLabelsForLayout,
+  isForecastProjectedDisplayColumn,
+  mergeConfigYearsOntoForecastDisplay,
+  resolveForecastActualLayout,
+} from "@/lib/pro-forma-forecast-columns"
 import {
   capexFinancingSaveOk,
   computeCashDisbursementAmount,
@@ -84,6 +99,9 @@ interface CapexForecastDetailProps {
   projectionId?: string | null
   fiscalYear?: number
   forecastBaseYear?: number
+  refMonth?: number
+  forecastUseSeriesActuals?: boolean
+  forecastActualLayout?: ForecastActualLayout
 }
 
 interface DetailRow extends BalanceSheetDetailRow {}
@@ -102,6 +120,9 @@ export function CapexForecastDetail({
   projectionId,
   fiscalYear,
   forecastBaseYear,
+  refMonth,
+  forecastUseSeriesActuals = false,
+  forecastActualLayout = "single-prior-year",
 }: CapexForecastDetailProps) {
   useNotesCache(companyId ?? null)
   const [balanceSheetStructure, setBalanceSheetStructure] = useState<Record<string, unknown>[] | null>(null)
@@ -173,6 +194,21 @@ export function CapexForecastDetail({
 
   const effectiveFiscalYear = fiscalYear ?? new Date().getFullYear()
   const effectiveForecastBaseYear = forecastBaseYear ?? effectiveFiscalYear + 1
+  const effectiveRefMonth = refMonth ?? new Date().getMonth() + 1
+  const fiscalYearEndMonth = parseFiscalYearEndMonth(
+    companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
+  )
+  const forecastActualLayoutEffective = resolveForecastActualLayout(
+    forecastActualLayout,
+    effectiveRefMonth,
+    fiscalYearEndMonth,
+  )
+  const forecastActualCols = forecastActualColumnCount(forecastActualLayoutEffective)
+  const forecastYearCount = forecastDisplayYearCount(projectionYears, forecastActualLayoutEffective)
+  const forecastConfigYearCount = projectionYears + 1
+  const isForecastHistoricalColumn = (idx: number) => isForecastSection && idx < forecastActualCols
+  const isForecastProjectedColumn = (idx: number) =>
+    isForecastSection && isForecastProjectedDisplayColumn(idx, forecastActualCols)
 
   useEffect(() => {
     if (!companyId || !isForecastSection) {
@@ -227,7 +263,8 @@ export function CapexForecastDetail({
     companyId: companyId || null,
     statementType: "balance-sheet",
     fiscalYear: effectiveFiscalYear,
-    months: 60, // 5 years of monthly data to aggregate into annual
+    month: effectiveRefMonth,
+    months: 72,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: !!companyId,
@@ -242,7 +279,7 @@ export function CapexForecastDetail({
     if (detailStructureRows.length === 0) return []
 
     return mapStructureRowsToBalanceSheetDetailRows(detailStructureRows, bsRows, bsPeriods, {
-      emptyTrendLength: projectionYears + 1,
+      emptyTrendLength: forecastYearCount,
       plainAnnexTitles: true,
       structureRowHasLiaisonCode,
       buildBalanceAccounts: (sr, periods) => {
@@ -259,7 +296,7 @@ export function CapexForecastDetail({
         })
       },
     })
-  }, [bsRows, bsPeriods, displayStructure, isForecastSection, projectionYears])
+  }, [bsRows, bsPeriods, displayStructure, isForecastSection, projectionYears, forecastYearCount])
 
   // Debounced save to API
   const saveConfigRef = useRef<NodeJS.Timeout>()
@@ -779,6 +816,27 @@ export function CapexForecastDetail({
     return resolveCapexRowValue(rowId, yearIndex, defaultValue, baseValue ?? defaultValue, builtTrend)
   }
 
+  const displayedCapexAmount = (
+    rowId: string | undefined,
+    displayIndex: number,
+    defaultValue: number,
+    trend?: number[],
+  ): number => {
+    if (!rowId || !isForecastSection) return defaultValue
+    const cfg = forecastDisplayToConfigYearIndex(displayIndex, forecastActualCols)
+    if (cfg == null) return defaultValue
+    const configTrend = trend
+      ? forecastDisplayTrendToConfigTrend(trend, forecastActualCols)
+      : undefined
+    return getCapexValue(
+      rowId,
+      cfg,
+      configTrend?.[cfg] ?? defaultValue,
+      configTrend?.[0],
+      configTrend,
+    )
+  }
+
   const formatAdjustmentTypeLabel = (type: CapexAdjustmentType): string => {
     switch (type) {
       case "amount":
@@ -813,7 +871,7 @@ export function CapexForecastDetail({
   const getYearsData = (): DetailRow[] => {
     if (!baseData || baseData.length === 0) return []
 
-    const numYears = projectionYears + 1
+    const numYears = forecastConfigYearCount
     const withTrends = baseData.map((row) => {
       if (
         row.isSection ||
@@ -827,19 +885,40 @@ export function CapexForecastDetail({
 
       const base = row.current
       const rowId = row.rowId
+      const seriesRow = rowId ? bsRows.find((r) => r.id === rowId) : undefined
+      const prefix =
+        seriesRow && forecastUseSeriesActuals
+          ? forecastBalanceSheetActualPrefixValues(
+              forecastActualLayoutEffective,
+              seriesRow,
+              bsPeriods,
+              effectiveRefMonth,
+              effectiveFiscalYear,
+              fiscalYearEndMonth,
+            )
+          : [base]
+      const displayBase = forecastTrendFromActualPrefix(prefix, projectionYears)
+      const actualBase = prefix[prefix.length - 1] ?? base
 
-      const trendValues: number[] = []
+      const configTrend: number[] = []
       for (let yearIndex = 0; yearIndex < numYears; yearIndex++) {
-        const defaultValue = yearIndex === 0 ? base : 0
-        trendValues.push(
-          rowId ? getCapexValue(rowId, yearIndex, defaultValue, base, trendValues) : defaultValue,
+        const defaultValue = yearIndex === 0 ? actualBase : 0
+        configTrend.push(
+          rowId ? getCapexValue(rowId, yearIndex, defaultValue, actualBase, configTrend) : defaultValue,
         )
       }
 
-      return { ...row, trendValues }
+      return {
+        ...row,
+        trendValues: mergeConfigYearsOntoForecastDisplay(
+          displayBase,
+          configTrend,
+          forecastActualCols,
+        ),
+      }
     })
 
-    return insertAnnexDetailPlaceholderRows(withTrends, numYears)
+    return insertAnnexDetailPlaceholderRows(withTrends, forecastYearCount)
   }
 
   const getDetailData = (): DetailRow[] => {
@@ -874,7 +953,7 @@ export function CapexForecastDetail({
     capexHypothesisInlineActive && editingAdjustment?.rowId
       ? data.findIndex((r) => r.rowId === editingAdjustment.rowId)
       : -1
-  const yearColumnCount = projectionYears + 1
+  const yearColumnCount = forecastYearCount
 
   const renderCapexHypothesisPanel = (embedded = false) => {
     if (!capexHypothesisPanelOpen || !editingAdjustment) return null
@@ -884,13 +963,15 @@ export function CapexForecastDetail({
     const yearLabels = getYearLabels()
     const adjustmentYearIndex = ensureCapexProjectedYearIndex(editingAdjustment.yearIndex)
     const yearLabel =
-      yearLabels[adjustmentYearIndex >= 0 && adjustmentYearIndex < yearLabels.length ? adjustmentYearIndex : 0] ||
+      yearLabels[forecastConfigToDisplayYearIndex(adjustmentYearIndex, forecastActualCols)] ||
       `${adjustmentYearIndex}`
     const existingAdjustments = getAdjustments(editingAdjustment.rowId, adjustmentYearIndex).filter(
       isCapexHypothesisGrowthAdjustment,
     )
-    const canReplicateToFollowingYears = adjustmentYearIndex < yearLabels.length - 1
-    const followingYearsLabel = yearLabels.slice(adjustmentYearIndex + 1).join(", ")
+    const canReplicateToFollowingYears = adjustmentYearIndex < forecastConfigYearCount - 1
+    const followingYearsLabel = yearLabels
+      .slice(forecastConfigToDisplayYearIndex(adjustmentYearIndex, forecastActualCols) + 1)
+      .join(", ")
     const capexDisbursementCalendarSaveOk =
       capexFinancingDraft.mode === "financed" ||
       capexDisbursementSeasonalityMonthPercents.reduce((a, b) => a + b, 0) === 100
@@ -1515,11 +1596,14 @@ export function CapexForecastDetail({
   const getYearLabels = (): string[] => {
     if (isForecastSection) {
       const baseYear = forecastBaseYear ?? effectiveFiscalYear + 1
-      const labels: string[] = [`${baseYear - 1}`]
-      for (let i = 0; i < projectionYears; i++) {
-        labels.push(`${baseYear + i}`)
-      }
-      return labels
+      return forecastYearLabelsForLayout(
+        forecastActualLayoutEffective,
+        baseYear,
+        projectionYears,
+        effectiveRefMonth,
+        effectiveFiscalYear,
+        fiscalYearEndMonth,
+      )
     }
     const currentYear = new Date().getFullYear()
     const labels: string[] = []
@@ -1638,8 +1722,8 @@ export function CapexForecastDetail({
                       key={idx} 
                       className={cn(
                         "min-w-[8rem] px-4 py-4 text-right text-sm font-semibold whitespace-nowrap",
-                        isForecastSection && idx === 0 
-                          ? "bg-slate-50 text-slate-900" 
+                        isForecastHistoricalColumn(idx)
+                          ? "bg-slate-50 text-slate-400"
                           : "text-slate-900"
                       )}
                     >
@@ -1811,18 +1895,21 @@ export function CapexForecastDetail({
                       <>
                         {row.trendValues.map((value, valueIdx) => {
                           const actualValue = isForecastSection && row.rowId 
-                            ? getCapexValue(row.rowId, valueIdx, value, row.trendValues?.[0])
+                            ? displayedCapexAmount(row.rowId, valueIdx, value, row.trendValues)
                             : value
                           
-                          // Check if this cell can have adjustments (forecast section, projected years, has rowId)
                           const canHaveAdjustment =
-                            isCapexProjectionCell && valueIdx > 0
+                            isCapexProjectionCell && isForecastProjectedColumn(valueIdx)
                           const isCellSelected =
-                            isCapexHypothesisSelected && editingAdjustment?.yearIndex === valueIdx
+                            isCapexHypothesisSelected &&
+                            forecastConfigToDisplayYearIndex(
+                              editingAdjustment?.yearIndex ?? -1,
+                              forecastActualCols,
+                            ) === valueIdx
                           
                           const previousValue = valueIdx > 0 && row.trendValues 
                             ? (isForecastSection && row.rowId 
-                                ? getCapexValue(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1], row.trendValues?.[0], row.trendValues)
+                                ? displayedCapexAmount(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1], row.trendValues)
                                 : row.trendValues[valueIdx - 1])
                             : null
                           
@@ -1835,7 +1922,7 @@ export function CapexForecastDetail({
                             } else {
                               displayValue = "-"
                             }
-                          } else if (showGrowthRate && isForecastSection && valueIdx === 0) {
+                          } else if (showGrowthRate && isForecastSection && isForecastHistoricalColumn(valueIdx)) {
                             displayValue = "-"
                           }
                           
@@ -1846,7 +1933,7 @@ export function CapexForecastDetail({
                                 "min-w-[8rem] px-4 py-3 text-right",
                                 row.isBold ? "font-semibold font-bold" : "text-slate-500",
                                 shouldHideAmounts ? "text-white" : "",
-                                isForecastSection && valueIdx === 0 && !shouldHideAmounts ? "bg-slate-50" : "",
+                                isForecastHistoricalColumn(valueIdx) && !shouldHideAmounts ? "bg-slate-50" : "",
                                 canHaveAdjustment && "cursor-pointer hover:bg-slate-50/90",
                                 isCellSelected &&
                                   "z-[1] bg-blue-50/50 shadow-[inset_0_0_0_2px_rgb(59,130,246)]",
@@ -1856,12 +1943,15 @@ export function CapexForecastDetail({
                               )}
                               onClick={() => {
                                 if (canHaveAdjustment && row.rowId) {
-                                  openCapexHypothesisPanel(
-                                    row.rowId,
-                                    valueIdx,
-                                    "adjustment",
-                                    displayLabel,
-                                  )
+                                  const cfg = forecastDisplayToConfigYearIndex(valueIdx, forecastActualCols)
+                                  if (cfg != null) {
+                                    openCapexHypothesisPanel(
+                                      row.rowId,
+                                      cfg,
+                                      "adjustment",
+                                      displayLabel,
+                                    )
+                                  }
                                 }
                               }}
                             >
@@ -1881,12 +1971,12 @@ export function CapexForecastDetail({
                     )}
                     {effectiveView === "years" && !row.trendValues && (
                       <>
-                        {Array.from({ length: isForecastSection && effectiveView === "years" ? projectionYears + 1 : 6 }).map((_, idx) => (
+                        {Array.from({ length: isForecastSection && effectiveView === "years" ? forecastYearCount : 6 }).map((_, idx) => (
                           <td 
                             key={idx} 
                             className={cn(
                               "min-w-[8rem] px-4 py-3 text-right text-white",
-                              isForecastSection && idx === 0 ? "bg-slate-50" : ""
+                              isForecastHistoricalColumn(idx) ? "bg-slate-50" : ""
                             )}
                           >
                             -
@@ -1933,13 +2023,13 @@ export function CapexForecastDetail({
                               {row.trendValues && row.trendValues.map((_, valueIdx) => {
                                 const accountValue = account.proportion 
                                   ? (isForecastSection && row.rowId
-                                      ? getCapexValue(row.rowId, valueIdx, row.trendValues![valueIdx], row.trendValues?.[0]) * account.proportion
+                                      ? displayedCapexAmount(row.rowId, valueIdx, row.trendValues![valueIdx], row.trendValues) * account.proportion
                                       : row.trendValues![valueIdx] * account.proportion)
                                   : 0
                                 
                                 const previousValue = valueIdx > 0 && row.trendValues 
                                   ? (isForecastSection && row.rowId 
-                                      ? getCapexValue(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1], row.trendValues?.[0]) * (account.proportion || 1)
+                                      ? displayedCapexAmount(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1], row.trendValues) * (account.proportion || 1)
                                       : row.trendValues[valueIdx - 1] * (account.proportion || 1))
                                   : null
                                 
@@ -1952,7 +2042,7 @@ export function CapexForecastDetail({
                                   } else {
                                     displayValue = "-"
                                   }
-                                } else if (showGrowthRate && isForecastSection && valueIdx === 0) {
+                                } else if (showGrowthRate && isForecastSection && isForecastHistoricalColumn(valueIdx)) {
                                   displayValue = "-"
                                 }
                                 
@@ -1961,7 +2051,7 @@ export function CapexForecastDetail({
                                     key={valueIdx}
                                     className={cn(
                                       "min-w-[8rem] px-4 py-2 text-right text-sm font-semibold",
-                                      isForecastSection && valueIdx === 0 ? "bg-slate-50 text-slate-700" : "text-slate-700",
+                                      isForecastHistoricalColumn(valueIdx) ? "bg-slate-50 text-slate-700" : "text-slate-700",
                                       showGrowthRate && isForecastSection && valueIdx > 0 && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate >= 0 ? "text-emerald-600 font-semibold" : "",
                                       showGrowthRate && isForecastSection && valueIdx > 0 && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate < 0 ? "text-red-600 font-semibold" : ""
                                     )}
@@ -1977,12 +2067,12 @@ export function CapexForecastDetail({
                                   {isForecastSection && (
                                     <td className="min-w-[6.5rem] px-4 py-2 text-center text-slate-700 text-sm">-</td>
                                   )}
-                                  {Array.from({ length: isForecastSection && effectiveView === "years" ? projectionYears + 1 : 6 }).map((_, idx) => (
+                                  {Array.from({ length: isForecastSection && effectiveView === "years" ? forecastYearCount : 6 }).map((_, idx) => (
                                     <td 
                                       key={idx} 
                                       className={cn(
                                         "min-w-[8rem] px-4 py-2 text-right text-sm text-white",
-                                        isForecastSection && idx === 0 ? "bg-slate-50" : ""
+                                        isForecastHistoricalColumn(idx) ? "bg-slate-50" : ""
                                       )}
                                     >
                                       -

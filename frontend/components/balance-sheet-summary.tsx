@@ -140,6 +140,14 @@ import {
   dashboardCardStructureSettingsButtonClass,
   dashboardCardTitleClass,
 } from "@/lib/dashboard-card-style"
+import {
+  type ForecastActualLayout,
+  forecastActualColumnCount,
+  forecastBalanceSheetYearTrend,
+  forecastDisplayYearCount,
+  forecastYearLabelsForLayout,
+  resolveForecastActualLayout,
+} from "@/lib/pro-forma-forecast-columns"
 
 interface BalanceSheetSummaryProps {
   period: "monthly" | "quarterly" | "annual"
@@ -171,6 +179,8 @@ interface BalanceSheetSummaryProps {
   forecastBaseYear?: number
   /** En projections : réel pour (baseYear - 1) depuis les séries, années projetées à 0. */
   forecastUseSeriesActuals?: boolean
+  /** Pro Forma Bilan : N-1 (solde de clôture) + YTD si la date de référence n’est pas une FYE. */
+  forecastActualLayout?: ForecastActualLayout
   /** Annuel / trimestriel : Courant (même mois / T3M) ou Exercice (FYE / trimestres fiscaux). */
   periodBasis?: StatementPeriodBasis
 }
@@ -278,13 +288,21 @@ export function BalanceSheetSummary({
   projectionYears = 5,
   forecastBaseYear,
   forecastUseSeriesActuals = false,
+  forecastActualLayout = "single-prior-year",
   periodBasis = "current",
 }: BalanceSheetSummaryProps) {
   const isForecastSection = title === "Bilan pro forma"
-  const forecastYearColumnCount = projectionYears + 1
   const fiscalYearEndMonth = parseFiscalYearEndMonth(
     companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
   )
+  const forecastActualLayoutEffective = resolveForecastActualLayout(
+    forecastActualLayout,
+    refMonth,
+    fiscalYearEndMonth,
+  )
+  const forecastActualCols = forecastActualColumnCount(forecastActualLayoutEffective)
+  const forecastYearColumnCount = forecastDisplayYearCount(projectionYears, forecastActualLayoutEffective)
+  const isForecastHistoricalColumn = (idx: number) => isForecastSection && idx < forecastActualCols
 
   useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -575,17 +593,15 @@ export function BalanceSheetSummary({
     const usedNested = new Set<string>()
     const buildYearTrendValues = (row: SeriesRow) => {
       if (isForecastSection && forecastUseSeriesActuals) {
-        const actual =
-          balanceSheetYearTrendForBasis(
-            row,
-            periods,
-            refMonth,
-            refYear,
-            periodBasis,
-            fiscalYearEndMonth,
-            1,
-          )[0] || 0
-        return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+        return forecastBalanceSheetYearTrend(
+          forecastActualLayout,
+          row,
+          periods,
+          refMonth,
+          refYear,
+          fiscalYearEndMonth,
+          projectionYears,
+        )
       }
       return balanceSheetYearTrendForBasis(
         row,
@@ -745,7 +761,17 @@ export function BalanceSheetSummary({
                   STATEMENT_QUARTER_COUNT,
                 )
               : view === "years"
-                ? balanceSheetYearTrendForBasis(
+                ? isForecastSection && forecastUseSeriesActuals
+                  ? forecastBalanceSheetYearTrend(
+                      forecastActualLayout,
+                      row,
+                      periods,
+                      refMonth,
+                      refYear,
+                      fiscalYearEndMonth,
+                      projectionYears,
+                    )
+                  : balanceSheetYearTrendForBasis(
                     row,
                     periods,
                     refMonth,
@@ -773,6 +799,7 @@ export function BalanceSheetSummary({
     fiscalYearEndMonth,
     isForecastSection,
     forecastUseSeriesActuals,
+    forecastActualLayout,
     projectionYears,
   ])
 
@@ -1066,11 +1093,14 @@ export function BalanceSheetSummary({
   const getYearLabels = (): string[] => {
     if (isForecastSection) {
       const baseYear = forecastBaseYear ?? refYear ?? new Date().getFullYear()
-      const labels: string[] = [`${baseYear - 1}`]
-      for (let i = 0; i < projectionYears; i++) {
-        labels.push(`${baseYear + i}`)
-      }
-      return labels
+      return forecastYearLabelsForLayout(
+        forecastActualLayoutEffective,
+        baseYear,
+        projectionYears,
+        refMonth,
+        refYear,
+        fiscalYearEndMonth,
+      )
     }
     return statementYearLabelsForBasis(
       refMonth,
@@ -2322,7 +2352,7 @@ export function BalanceSheetSummary({
                       key={idx}
                       className={cn(
                         "px-6 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap",
-                        isForecastSection && idx === 0 ? "bg-slate-50" : ""
+                        isForecastHistoricalColumn(idx) ? "bg-slate-50" : ""
                       )}
                     >
                       {label}
@@ -2439,17 +2469,15 @@ export function BalanceSheetSummary({
                         }
                         if (view === "years") {
                           if (isForecastSection && forecastUseSeriesActuals) {
-                            const actual =
-                              balanceSheetYearTrendForBasis(
-                                seriesRow,
-                                periods,
-                                refMonth,
-                                refYear,
-                                periodBasis,
-                                fiscalYearEndMonth,
-                                1,
-                              )[0] || 0
-                            return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+                            return forecastBalanceSheetYearTrend(
+                              forecastActualLayout,
+                              seriesRow,
+                              periods,
+                              refMonth,
+                              refYear,
+                              fiscalYearEndMonth,
+                              projectionYears,
+                            )
                           }
                           return balanceSheetYearTrendForBasis(
                             seriesRow,
@@ -2495,17 +2523,15 @@ export function BalanceSheetSummary({
                         }
                         if (view === "years") {
                           if (isForecastSection && forecastUseSeriesActuals) {
-                            const actual =
-                              balanceSheetYearTrendForBasis(
-                                seriesRow,
-                                periods,
-                                refMonth,
-                                refYear,
-                                periodBasis,
-                                fiscalYearEndMonth,
-                                1,
-                              )[0] || 0
-                            return [actual, ...Array.from({ length: projectionYears }, () => 0)]
+                            return forecastBalanceSheetYearTrend(
+                              forecastActualLayout,
+                              seriesRow,
+                              periods,
+                              refMonth,
+                              refYear,
+                              fiscalYearEndMonth,
+                              projectionYears,
+                            )
                           }
                           return balanceSheetYearTrendForBasis(
                             seriesRow,
@@ -2539,7 +2565,8 @@ export function BalanceSheetSummary({
                 isSection: !!row.isSection,
                 hasFormulaLiaison: structureRowHasFormulaLiaison(structRow),
               })
-              const canExpand = summaryExpandModeAllowsExpand(expandMode)
+              const canExpand =
+                !disableRowInteractions && summaryExpandModeAllowsExpand(expandMode)
               const expandChildren =
                 expandMode === "annex"
                   ? annexExpandChildren
@@ -2903,7 +2930,7 @@ export function BalanceSheetSummary({
                               "px-6 py-3 text-right",
                               isBoldRow ? "font-semibold font-bold" : "text-slate-500",
                               shouldHideAmounts ? "text-white" : "",
-                              isForecastSection && valueIdx === 0 ? "bg-slate-50" : ""
+                              isForecastHistoricalColumn(valueIdx) ? "bg-slate-50" : ""
                             )}
                           >
                             {columnMode === "variationAmount" || columnMode === "variationPercent"
@@ -2940,7 +2967,7 @@ export function BalanceSheetSummary({
                             key={idx}
                             className={cn(
                               "px-6 py-3 text-right font-semibold text-white",
-                              isForecastSection && view === "years" && idx === 0 ? "bg-slate-50" : ""
+                              isForecastSection && view === "years" && isForecastHistoricalColumn(idx) ? "bg-slate-50" : ""
                             )}
                           >
                             -
@@ -3048,7 +3075,7 @@ export function BalanceSheetSummary({
                             key={cellIdx}
                             className={cn(
                               "px-6 py-2 text-right text-sm font-normal text-slate-700",
-                              isForecastSection && view === "years" && cellIdx === 0 ? "bg-slate-50" : ""
+                              isForecastSection && view === "years" && isForecastHistoricalColumn(cellIdx) ? "bg-slate-50" : ""
                             )}
                           >
                             {value !== 0 ? formatCurrency(value) : "-"}
