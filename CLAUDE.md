@@ -144,6 +144,7 @@ Defined in `.env` at project root, loaded by Docker Compose:
 POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
 DATABASE_URL=postgresql://{user}:{password}@db:5432/{db}
 JWT_SECRET_KEY=<change-in-production>
+QBO_TOKEN_ENCRYPTION_KEY=<fernet key; REQUIRED when ENVIRONMENT=production>
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
@@ -153,13 +154,34 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - **GitHub Actions** deploys automatically on every push to `main`
 - Pipeline: test (pytest + pnpm build) -> build Docker images -> push to ACR -> deploy to Azure Container Apps
 - Workflow file: `.github/workflows/deploy.yml`
+- **The `Verify deployments` step is a real gate**: it polls until
+  `latestReadyRevisionName == latestRevisionName` and `/health` returns 200,
+  then fails the job (dumping container logs) if not. It used to only *print*
+  status, which let a crash-looping backend report a green deploy — production
+  was down from ~2026-05 to 2026-08-18 without the pipeline noticing.
+- **Adding a required field to `Settings` in `backend/app/config.py` is a
+  breaking infra change.** `Settings()` runs at import, so a missing var kills
+  the container before uvicorn starts. Add it to `infra/setup.sh` (secret +
+  `secretref:` env var) in the same commit. This is exactly how
+  `QBO_TOKEN_ENCRYPTION_KEY` took prod down.
+- Backend `CMD` is `alembic upgrade head && uvicorn ...`, so the running image
+  must contain every migration already applied to the prod DB. An image older
+  than the DB dies with `Can't locate revision identified by '<rev>'`.
+- Both apps run `--min-replicas 0` (cost). Backend cold start is ~25s
+  (alembic + uvicorn); warm is ~0.14s. Raise to 1 if that latency matters.
 
 ### Azure Resources
 - **Container Apps:** `modelisys-backend` (port 8000) + `modelisys-frontend` (port 3000) in `modelisys-env`
 - **Container Registry:** `modelisysacr` (Basic SKU)
 - **PostgreSQL:** `modelisys-db` (Flexible Server, Burstable B1ms, PostgreSQL 16)
 - **Resource Group:** `modelisys-rg` (East US)
-- **Domains:** `app.modelisys.com` (frontend), `api.modelisys.com` (backend)
+- **Domains:** `modelisys.com` + `www.modelisys.com` (frontend; www 301s to the apex).
+  `api.modelisys.com` is what the frontend bundle is built against (`--build-arg
+  NEXT_PUBLIC_API_URL` in deploy.yml) but is **not bound yet** — it needs a TXT
+  `asuid.api` + CNAME `api` at Namecheap, then `az containerapp hostname add/bind`.
+  Until then, browser-side API calls fail; only SSR works (it uses
+  `INTERNAL_API_URL` = the `*.azurecontainerapps.io` FQDN). DNS is hosted at
+  **Namecheap**, not Azure DNS, so records cannot be created with `az`.
 
 ### Infrastructure Scripts
 ```bash

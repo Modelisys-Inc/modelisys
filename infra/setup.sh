@@ -142,18 +142,33 @@ az containerapp env create \
 # --- Generate JWT Secret -----------------------------------------------------
 JWT_SECRET=$(openssl rand -hex 32)
 
+# --- Generate QBO token encryption key ---------------------------------------
+# Fernet key = urlsafe base64 of 32 random bytes. app/config.py REQUIRES
+# this when ENVIRONMENT=production; without it the backend crashes on
+# startup and the deploy silently serves a dead revision.
+QBO_ENCRYPTION_KEY=$(openssl rand 32 | base64 | tr '+/' '-_')
+
 # --- Backend Container App ---------------------------------------------------
 if az containerapp show --name "$BACKEND_APP" --resource-group "$RESOURCE_GROUP" >/dev/null 2>&1; then
   info "Backend container app already exists, updating..."
+  # Ensure the secret exists before an env var references it.
+  az containerapp secret set \
+    --resource-group "$RESOURCE_GROUP" \
+    --name "$BACKEND_APP" \
+    --secrets "qbo-token-encryption-key=$QBO_ENCRYPTION_KEY" \
+    --output none
   az containerapp update \
     --resource-group "$RESOURCE_GROUP" \
     --name "$BACKEND_APP" \
+    --min-replicas 0 \
+    --max-replicas 2 \
     --set-env-vars \
       "DATABASE_URL=secretref:database-url" \
       "JWT_SECRET_KEY=secretref:jwt-secret" \
+      "QBO_TOKEN_ENCRYPTION_KEY=secretref:qbo-token-encryption-key" \
       "ENVIRONMENT=production" \
-      "CORS_ORIGINS=https://app.modelisys.com" \
-      "FRONTEND_URL=https://app.modelisys.com" \
+      "CORS_ORIGINS=https://modelisys.com,https://www.modelisys.com,https://api.modelisys.com" \
+      "FRONTEND_URL=https://modelisys.com" \
     --output none
 else
   info "Creating backend container app: $BACKEND_APP"
@@ -174,12 +189,14 @@ else
     --secrets \
       "database-url=$DATABASE_URL" \
       "jwt-secret=$JWT_SECRET" \
+      "qbo-token-encryption-key=$QBO_ENCRYPTION_KEY" \
     --env-vars \
       "DATABASE_URL=secretref:database-url" \
       "JWT_SECRET_KEY=secretref:jwt-secret" \
+      "QBO_TOKEN_ENCRYPTION_KEY=secretref:qbo-token-encryption-key" \
       "ENVIRONMENT=production" \
-      "CORS_ORIGINS=https://app.modelisys.com" \
-      "FRONTEND_URL=https://app.modelisys.com" \
+      "CORS_ORIGINS=https://modelisys.com,https://www.modelisys.com,https://api.modelisys.com" \
+      "FRONTEND_URL=https://modelisys.com" \
     --output none
 fi
 
@@ -189,6 +206,8 @@ if az containerapp show --name "$FRONTEND_APP" --resource-group "$RESOURCE_GROUP
   az containerapp update \
     --resource-group "$RESOURCE_GROUP" \
     --name "$FRONTEND_APP" \
+    --min-replicas 0 \
+    --max-replicas 2 \
     --set-env-vars \
       "NEXT_PUBLIC_API_URL=https://api.modelisys.com" \
       "NODE_ENV=production" \
@@ -298,12 +317,12 @@ echo "  NEXT STEPS"
 echo "============================================================================="
 echo ""
 echo "  1. DNS: Add CNAME records in your domain registrar:"
-echo "     app.modelisys.com  ->  $FRONTEND_FQDN"
+echo "     modelisys.com + www.modelisys.com  ->  $FRONTEND_FQDN"
 echo "     api.modelisys.com  ->  $BACKEND_FQDN"
 echo ""
 echo "  2. Custom domains (run after DNS propagates):"
-echo "     az containerapp hostname add --resource-group $RESOURCE_GROUP --name $FRONTEND_APP --hostname app.modelisys.com"
-echo "     az containerapp hostname bind --resource-group $RESOURCE_GROUP --name $FRONTEND_APP --hostname app.modelisys.com --environment $CONTAINER_ENV --validation-method CNAME"
+echo "     az containerapp hostname add --resource-group $RESOURCE_GROUP --name $FRONTEND_APP --hostname www.modelisys.com"
+echo "     az containerapp hostname bind --resource-group $RESOURCE_GROUP --name $FRONTEND_APP --hostname www.modelisys.com --environment $CONTAINER_ENV --validation-method CNAME"
 echo "     az containerapp hostname add --resource-group $RESOURCE_GROUP --name $BACKEND_APP --hostname api.modelisys.com"
 echo "     az containerapp hostname bind --resource-group $RESOURCE_GROUP --name $BACKEND_APP --hostname api.modelisys.com --environment $CONTAINER_ENV --validation-method CNAME"
 echo ""

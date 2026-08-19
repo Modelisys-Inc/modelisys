@@ -133,27 +133,48 @@ jobs:
           az containerapp update \
             --name "${{ env.BACKEND_APP }}" \
             --resource-group "${{ env.RESOURCE_GROUP }}" \
-            --image "${{ env.BACKEND_IMAGE }}:${{ github.sha }}"
+            --image "${{ env.BACKEND_IMAGE }}:${{ github.sha }}" \
+            --min-replicas 0 \
+            --max-replicas 2
 
       - name: Deploy frontend
         run: |
           az containerapp update \
             --name "${{ env.FRONTEND_APP }}" \
             --resource-group "${{ env.RESOURCE_GROUP }}" \
-            --image "${{ env.FRONTEND_IMAGE }}:${{ github.sha }}"
+            --image "${{ env.FRONTEND_IMAGE }}:${{ github.sha }}" \
+            --min-replicas 0 \
+            --max-replicas 2
 
+      # Real gate: a revision that crash-loops must FAIL the deploy.
+      # The old version only printed status, so months of broken deploys
+      # reported green while production was down.
       - name: Verify deployments
         run: |
-          echo "Backend:"
-          az containerapp show \
-            --name "${{ env.BACKEND_APP }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            --query "{status:properties.runningStatus, fqdn:properties.configuration.ingress.fqdn, latestRevision:properties.latestRevisionName}" \
-            -o table
-          echo ""
-          echo "Frontend:"
-          az containerapp show \
-            --name "${{ env.FRONTEND_APP }}" \
-            --resource-group "${{ env.RESOURCE_GROUP }}" \
-            --query "{status:properties.runningStatus, fqdn:properties.configuration.ingress.fqdn, latestRevision:properties.latestRevisionName}" \
-            -o table
+          set -uo pipefail
+          check() {
+            app="$1"; path="$2"
+            fqdn=$(az containerapp show -n "$app" -g "$RESOURCE_GROUP"               --query "properties.configuration.ingress.fqdn" -o tsv)
+            for i in $(seq 1 30); do
+              latest=$(az containerapp show -n "$app" -g "$RESOURCE_GROUP"                 --query "properties.latestRevisionName" -o tsv)
+              ready=$(az containerapp show -n "$app" -g "$RESOURCE_GROUP"                 --query "properties.latestReadyRevisionName" -o tsv)
+              if [ "$latest" = "$ready" ]; then
+                code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "https://$fqdn$path" || echo 000)
+                if [ "$code" = "200" ]; then
+                  echo "OK: $app healthy (revision $latest, HTTP $code)"
+                  return 0
+                fi
+                echo "  $app: revision $latest ready but $path returned $code"
+              else
+                echo "  $app: waiting (latest=$latest ready=$ready)"
+              fi
+              sleep 10
+            done
+            echo "::error::$app never became healthy - failing the deploy"
+            az containerapp logs show -n "$app" -g "$RESOURCE_GROUP"               --tail 60 --type console || true
+            return 1
+          }
+          rc=0
+          check "$BACKEND_APP"  /health || rc=1
+          check "$FRONTEND_APP" /        || rc=1
+          exit $rc
