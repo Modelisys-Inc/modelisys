@@ -306,7 +306,11 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   clôture 31 déc. → `2025` | `YTD 2026` | `2026` | `2027`… **Hypothèses Revenus,
   Dépenses et Capex** reprennent les mêmes colonnes. Les configs gardent
   l’index 0 = réel / 1+ = projeté ; N-1 est une colonne d’affichage supplémentaire
-  (clic d’hypothèse seulement sur les années projetées).
+  (clic d’hypothèse seulement sur les années projetées). **Croissance % / $** de
+  la 1re année projetée (ex. 2026) s’applique sur le **dernier exercice complet
+  (N-1)**, pas sur le YTD (période partielle) ; les années suivantes croissent
+  sur l’année projetée précédente. Même règle pour les **dépenses fixes**
+  (inflation Type/Taux : composé depuis N-1, pas le YTD).
   **Pro Forma Bilan** (Sommaire + Détail) : même idée, mais en **soldes** (snapshot),
   pas des cumuls. N-1 = solde à la dernière clôture d’exercice ; **YTD seulement si**
   le mois de référence ≠ mois de clôture (sinon pas de colonne intermédiaire).
@@ -319,21 +323,55 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   Détail Pro Forma : pas d’ouverture de lignes (GL / annexes) ; postes à 0 $ masqués
   (même filtre d’horizon que le Détail historique). Sommaire Pro Forma : pas d’ouverture
   de lignes non plus.
-  Hypothèses Bilan restent sur une seule colonne réelle.
+  Hypothèses Bilan : N-1 + YTD (même date de référence que Revenus / Bilan pro forma).
   **Hypothèses Impôts** : taux unique (`tax-forecast`, défaut 26 %) applicable aux
   années projetées (poste IMP).
   **Hypothèses Bilan** : même tableau que le **Sommaire** du bilan (`Estimation du Bilan annuel`),
-  sans les sous-lignes Détail / annexes ; clic sur une année projetée → panneau
-  d’ajustement (Montant $ seulement, récurrent, note). Encaisse (ACT-A.1) n’est pas
-  ajustable : elle suit la **Trésorerie à la fin** des projections (variation de
-  trésorerie reportée). Comptes clients (ACT-B) : **Délai de collection des clients**
-  ou **% des revenus**, avec les 2 derniers exercices réels sous chaque option ;
-  le montant projeté = CA × jours/365 ou CA × % (CA = revenus projetés **de
-  l’année civile de la colonne**, mêmes postes que Hypothèses Revenus — feuilles
-  d’annexe, jamais le total parent). « Appliquer aux années suivantes »
+  sans les sous-lignes Détail / annexes ; colonnes = **même date de référence** que
+  Hypothèses Revenus (`nMinusOne-and-ytd` : N-1 + YTD puis années projetées — ex. réf.
+  mars 2026 → `2025` | `YTD 2026` | `2026` | …). Sous-totaux (Total ACT, Total de
+  l'actif, Total du passif, etc.) = **même logique que le Bilan Sommaire** :
+  `formula` (± refs) ou `liaisonMode: "sum"` + `liaisonSumCodes` (ex. ACT-* + ALT-*
+  pour Total de l'actif), sinon repli positionnel ; N-1 / YTD / années projetées ;
+  non cliquables. Titres de section (Actif, Passif…) : pas de clic ; montants à 0 $
+  invisibles. Clic sur une année projetée (postes) → panneau
+  d’ajustement (Montant $ ; comptes clients et stocks : drivers ; créditeurs :
+  délai de paiement / CMV ou % des revenus ; autres postes ACT : Montant $ ou
+  **% des revenus** ; récurrent, note). Encaisse (ACT-A / ACT-A.1) et **Découvert
+  bancaire** (PCT-A) ne sont pas ajustables : mention « Trésorerie à la fin » ;
+  montants projetés = solde réel + Δ de la Trésorerie à la fin. **Portion court
+  terme - Dette long terme** (PCT-H), **Portion court terme - Location-acquisition**
+  (PCT-I), **Dette à long terme** (PLT-C) et **Obligations de location-acquisition**
+  (PLT-D) : mention « Financement (Hypothèse Financement) » ; soldes projetés =
+  somme des `endingBalance` des emprunts `debt-forecast` dont `sourceLinkCode`
+  matche (0 $ sans hyp. définie). Comptes clients (ACT-C) : **Délai de collection des clients**
+  ou **% des revenus**, avec les 2 derniers exercices réels sous chaque option
+  (soldes de **clôture d’exercice** N-2 / N-1 — mêmes montants que la colonne N-1
+  du tableau, pas le mois de référence YTD) ;
+  le montant projeté = CA × jours/365 ou CA × % (CA = revenus projetés Hypothèses
+  Revenus, via `forecastDisplayToConfigYearIndex` — feuilles d’annexe, jamais le
+  total parent ; sans hypothèse revenus l’année vaut 0 $, pas de croissance
+  implicite).   Stocks (ACT-F) : **Délai de rotation des stocks** (base **CMV projeté** des
+  Hypothèses Dépenses — 0 $ si aucune dépense CMV projetée, jamais inventé depuis N-1 / CA)
+  ou **Stocks en % des revenus** (même CA projeté que comptes clients) ; historique N-2 / N-1
+  avec CMV + REV (clôtures d’exercice).   Créditeurs (PCT-C) et **Créditeurs - Apparentés** (PCT-D) : **Délai de paiement des créditeurs**
+  (Créditeurs = **CMV projeté** × jours / 365 ; 0 $ sans hyp. dépenses CMV)
+  ou **% des revenus** (même CA) ;
+  historique N-2 / N-1 avec AP + CMV + REV aux mêmes clôtures. **Immobilisations
+  corporelles / Biens loués / Actifs incorporels** (ALT-B / ALT-C / ALT-D) : non
+  ajustables — mention « Capex (Hypothèse Capex) » ; montants projetés = Hypothèses
+  Capex (`capex-forecast`, même moteur que Estimation des Capex). Parent en
+  `liaisonMode: "sum"` (ex. Immobilisations corporelles) : Capex prioritaire sur la
+  somme liaison (feuilles souvent `detailOnly` absentes du Sommaire) ; rollup =
+  somme des Capex des descendants (Terrains ALT-B.1, …) via `linkCode` stocké sur
+  l’ajustement. Autres ACT (ex. ACT-B Placements temporaires, ACT-D, ACT-J…) :
+  **Montant $** ou **% des revenus** (même CA) ; le % remplace le solde, le
+  montant s’ajoute à la base.
+  « Appliquer aux années suivantes »
   reporte le délai ou le %, pas le montant ; chaque année suivante applique
-  la même formule à son CA projeté. Première année projetée = année civile
-  courante (comme Revenus) ; les 2 exercices réels affichés sont N-2 et N-1.
+  la même formule (CA de l’année pour le % ; CMV projeté de l’année pour le délai). Première
+  année projetée = année civile courante (comme Revenus) ; les 2 exercices
+  réels affichés sont N-2 et N-1.
 - Cash flow is derived from income statement + balance sheet deltas
 - **Sommaire** trésorerie : lignes cochées « Annexe » (`showInSummary`) dans
   Détail → Paramètres ; même moteur de calcul que le Détail (`variant="summary"`).

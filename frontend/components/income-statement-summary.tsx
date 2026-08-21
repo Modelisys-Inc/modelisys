@@ -27,9 +27,11 @@ import {
   forecastActualColumnCount,
   forecastDisplayYearCount,
   forecastActualPrefixValues,
+  forecastGrowthPreviousConfigYearIndex,
   forecastTrendFromActualPrefix,
   forecastYearLabelsForLayout,
   mergeConfigYearsOntoForecastDisplay,
+  nMinusOneAndYtdActuals,
 } from "@/lib/pro-forma-forecast-columns"
 import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
 import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
@@ -591,9 +593,16 @@ export function IncomeStatementSummary({
 
     const yearCount = projectionYears + 1
     const rowActuals = new Map<string, number>()
+    const rowNMinusOne = new Map<string, number>()
     for (const sr of eligibleSeries) {
       const actual = yearTrendFromReference(sr, seriesPeriods, actualYear, 1)[0] || 0
       rowActuals.set(sr.id, actual)
+      if (forecastActualCols > 1) {
+        rowNMinusOne.set(
+          sr.id,
+          nMinusOneAndYtdActuals(sr, seriesPeriods, refMonth, refYear, fiscalYearEndMonth).nMinusOne,
+        )
+      }
     }
 
     const getLatestAdjustment = (rowId: string, yearIdx: number) => {
@@ -624,7 +633,13 @@ export function IncomeStatementSummary({
         if (adj.type === "amount") {
           v = Number(adj.value ?? 0)
         } else {
-          const prev = yearIdx > 0 ? computeRowValue(rowId, yearIdx - 1) : baseDefault
+          const growthPrev = forecastGrowthPreviousConfigYearIndex(yearIdx, forecastActualCols)
+          const prev =
+            growthPrev === "nMinusOne"
+              ? (rowNMinusOne.get(rowId) ?? 0)
+              : growthPrev != null
+                ? computeRowValue(rowId, growthPrev)
+                : baseDefault
           if (adj.type === "growthPercent") {
             v = Math.round(prev * (1 + Number(adj.value ?? 0) / 100))
           } else if (adj.type === "growthAmount") {
@@ -641,13 +656,17 @@ export function IncomeStatementSummary({
       eligibleSeries.reduce((sum, sr) => sum + computeRowValue(sr.id, yearIdx), 0)
     )
   }, [
+    forecastActualCols,
     forecastBaseYear,
     forecastRevenueAdjustments,
     forecastRevenueValues,
     forecastStructure,
     forecastUseSeriesActuals,
+    fiscalYearEndMonth,
     isForecastSection,
     projectionYears,
+    refMonth,
+    refYear,
     seriesPeriods,
     seriesRows,
     seriesRowBelongsToRevenueAnnexDetail,
@@ -707,8 +726,15 @@ export function IncomeStatementSummary({
 
     // Default actuals for year 0.
     const rowActuals = new Map<string, number>()
+    const rowNMinusOne = new Map<string, number>()
     for (const sr of seriesRows) {
       rowActuals.set(sr.id, yearTrendFromReference(sr, seriesPeriods, actualYear, 1)[0] || 0)
+      if (forecastActualCols > 1) {
+        rowNMinusOne.set(
+          sr.id,
+          nMinusOneAndYtdActuals(sr, seriesPeriods, refMonth, refYear, fiscalYearEndMonth).nMinusOne,
+        )
+      }
     }
 
     const memo = new Map<string, number>()
@@ -738,7 +764,13 @@ export function IncomeStatementSummary({
         if (adj.type === "amount") {
           v = Number(adj.value ?? 0)
         } else {
-          const prev = yearIdx > 0 ? computeRowValue(rowId, yearIdx - 1) : baseDefault
+          const growthPrev = forecastGrowthPreviousConfigYearIndex(yearIdx, forecastActualCols)
+          const prev =
+            growthPrev === "nMinusOne"
+              ? (rowNMinusOne.get(rowId) ?? 0)
+              : growthPrev != null
+                ? computeRowValue(rowId, growthPrev)
+                : baseDefault
           if (adj.type === "growthPercent") v = Math.round(prev * (1 + Number(adj.value ?? 0) / 100))
           else if (adj.type === "growthAmount") v = prev + Number(adj.value ?? 0)
         }

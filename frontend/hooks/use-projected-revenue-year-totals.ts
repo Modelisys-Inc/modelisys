@@ -21,6 +21,12 @@ import {
 } from "@/lib/income-statement-structure-utils"
 import { uniqueStatementRowsByStructureIndex } from "@/lib/income-statement-annex-detail"
 import { useStandardLinkCodesFlat } from "@/hooks/use-standard-link-codes"
+import {
+  forecastActualColumnCount,
+  forecastGrowthPreviousConfigYearIndex,
+  nMinusOneAndYtdActuals,
+  type ForecastActualLayout,
+} from "@/lib/pro-forma-forecast-columns"
 
 export type StoredRevenueAdjustment = {
   id: string
@@ -59,7 +65,8 @@ function getStoredRevenueBase(
 ): number {
   const key = `${rowId}-${yearIndex}`
   if (revenueValues[key] !== undefined) return revenueValues[key]!
-  if (baseValue !== undefined) return baseValue
+  // baseValue = réel (année 0) seulement — ne pas reporter le CA réel sur les années projetées.
+  if (yearIndex === 0 && baseValue !== undefined) return baseValue
   return defaultValue
 }
 
@@ -72,6 +79,12 @@ export function computeProjectedRevenueRowValue(
   baseValue?: number,
   defaultTrendValues?: number[],
   resolveRowValue?: (rowId: string, yearIndex: number, defaultValue: number) => number,
+  opts?: {
+    /** Colonnes réelles affichées (2 = N-1 + YTD) — growth de l’an 1 sur N-1. */
+    actualColumnCount?: number
+    /** Montant exercice complet N-1 (hors config) pour growthPercent / growthAmount. */
+    nMinusOneActual?: number
+  },
 ): number {
   let calculatedValue = getStoredRevenueBase(revenueValues, rowId, yearIndex, defaultValue, baseValue)
   const adjustments = getRevenueAdjustmentsForKey(revenueAdjustments, rowId, yearIndex)
@@ -82,11 +95,18 @@ export function computeProjectedRevenueRowValue(
     return Math.round(adjustment.value)
   }
 
-  const prevDefault = yearIndex > 0 ? (defaultTrendValues?.[yearIndex - 1] ?? defaultValue) : defaultValue
-  const previousValue =
-    yearIndex > 0 && resolveRowValue
-      ? resolveRowValue(rowId, yearIndex - 1, prevDefault)
-      : calculatedValue
+  const actualCols = opts?.actualColumnCount ?? 1
+  const growthPrev = forecastGrowthPreviousConfigYearIndex(yearIndex, actualCols)
+  let previousValue = calculatedValue
+  if (growthPrev === "nMinusOne") {
+    previousValue = opts?.nMinusOneActual ?? 0
+  } else if (growthPrev != null) {
+    const prevDefault = defaultTrendValues?.[growthPrev] ?? defaultValue
+    previousValue =
+      resolveRowValue != null
+        ? resolveRowValue(rowId, growthPrev, prevDefault)
+        : prevDefault
+  }
 
   if (adjustment.type === "growthPercent") {
     return Math.round(previousValue * (1 + adjustment.value / 100))
@@ -188,16 +208,27 @@ export function computeProjectedRevenueYearTotalsFromSeries(
   projectionYears: number,
   revenueValues: Record<string, number>,
   revenueAdjustments: Record<string, StoredRevenueAdjustment[]>,
+  opts?: {
+    forecastActualLayout?: ForecastActualLayout
+    refMonth?: number
+    refYear?: number
+    fiscalYearEndMonth?: number
+  },
 ): number[] | null {
   if (!seriesRows.length || !periods.length || !structure.length) return null
 
   const numYears = projectionYears + 1
-  const defaultGrowthRate = 0.05
   const postIds = listRevenueHypothesisPostIds(seriesRows, structure)
   if (postIds.length === 0) return null
 
+  const actualColumnCount = forecastActualColumnCount(opts?.forecastActualLayout ?? "single-prior-year")
+  const refMonth = opts?.refMonth ?? 12
+  const refYear = opts?.refYear ?? new Date().getFullYear()
+  const fiscalYearEndMonth = opts?.fiscalYearEndMonth ?? 12
+
   const seriesById = new Map(seriesRows.map((sr) => [sr.id, sr]))
   const defaultTrendByRow = new Map<string, number[]>()
+  const nMinusOneByRow = new Map<string, number>()
   for (const id of postIds) {
     const sr = seriesById.get(id)
     let baseAmount = 0
@@ -205,14 +236,17 @@ export function computeProjectedRevenueYearTotalsFromSeries(
       const rawAmounts = getRowAmounts(sr, periods)
       const { amounts: yearlyAmounts } = aggregateToYears(rawAmounts, periods)
       baseAmount = yearlyAmounts.length > 0 ? yearlyAmounts[yearlyAmounts.length - 1] : 0
+      if (actualColumnCount > 1) {
+        nMinusOneByRow.set(
+          id,
+          nMinusOneAndYtdActuals(sr, periods, refMonth, refYear, fiscalYearEndMonth).nMinusOne,
+        )
+      }
     }
+    // Aligné Hypothèses Revenus : années projetées à 0$ sans hypothèse (pas de +5 % implicite).
     defaultTrendByRow.set(
       id,
-      Array.from({ length: numYears }, (_, yearIndex) =>
-        yearIndex === 0
-          ? baseAmount
-          : Math.round(baseAmount * Math.pow(1 + defaultGrowthRate, yearIndex)),
-      ),
+      Array.from({ length: numYears }, (_, yearIndex) => (yearIndex === 0 ? baseAmount : 0)),
     )
   }
 
@@ -228,6 +262,10 @@ export function computeProjectedRevenueYearTotalsFromSeries(
       trend?.[0],
       trend,
       resolveRowValue,
+      {
+        actualColumnCount,
+        nMinusOneActual: nMinusOneByRow.get(rowId),
+      },
     )
   }
 
@@ -248,6 +286,9 @@ export function useProjectedRevenueYearTotals(opts: {
   divisionId?: string | null
   subDivisionId?: string | null
   enabled?: boolean
+  forecastActualLayout?: ForecastActualLayout
+  refMonth?: number
+  fiscalYearEndMonth?: number
 }): { totals: number[] | null; loading: boolean } {
   const {
     companyId,
@@ -257,6 +298,9 @@ export function useProjectedRevenueYearTotals(opts: {
     divisionId,
     subDivisionId,
     enabled = true,
+    forecastActualLayout = "single-prior-year",
+    refMonth,
+    fiscalYearEndMonth = 12,
   } = opts
 
   const [revenueValues, setRevenueValues] = useState<Record<string, number>>({})
@@ -318,11 +362,13 @@ export function useProjectedRevenueYearTotals(opts: {
   }, [companyId, projectionId, enabled])
 
   const effectiveFiscalYear = fiscalYear ?? new Date().getFullYear()
+  const effectiveRefMonth = refMonth ?? 12
   const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
     statementType: "income-statement",
     fiscalYear: effectiveFiscalYear,
-    months: 60,
+    month: effectiveRefMonth,
+    months: 72,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: enabled && !!companyId && displayStructure !== null,
@@ -337,6 +383,12 @@ export function useProjectedRevenueYearTotals(opts: {
       projectionYears,
       revenueValues,
       revenueAdjustments,
+      {
+        forecastActualLayout,
+        refMonth: effectiveRefMonth,
+        refYear: effectiveFiscalYear,
+        fiscalYearEndMonth,
+      },
     )
   }, [
     displayStructure,
@@ -345,6 +397,10 @@ export function useProjectedRevenueYearTotals(opts: {
     projectionYears,
     revenueValues,
     revenueAdjustments,
+    forecastActualLayout,
+    effectiveRefMonth,
+    effectiveFiscalYear,
+    fiscalYearEndMonth,
   ])
 
   return {

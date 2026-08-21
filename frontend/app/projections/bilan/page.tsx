@@ -23,6 +23,7 @@ export default function BilanProjectionsPage() {
   }, [companies, selectedCompanyId])
 
   const forecastBaseYear = new Date().getFullYear()
+  const forecastRefMonth = new Date().getMonth() + 1
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
@@ -72,12 +73,13 @@ export default function BilanProjectionsPage() {
           subDivisionId={selectedSubDivisionId}
           companies={companies}
           title={BILAN_HYPOTHESIS_TITLE}
-          fiscalYear={forecastBaseYear - 1}
-          refMonth={12}
-          refYear={forecastBaseYear - 1}
+          fiscalYear={forecastBaseYear}
+          refMonth={forecastRefMonth}
+          refYear={forecastBaseYear}
           projectionYears={projectionYears}
           forecastBaseYear={forecastBaseYear}
           forecastUseSeriesActuals
+          forecastActualLayout="nMinusOne-and-ytd"
           disableRowInteractions
         />
       </main>

@@ -47,6 +47,50 @@ export function lastCompletedFiscalYearEnd(
   return seq[1] ?? { month: fiscalYearEndMonth, year: refYear - 1 }
 }
 
+/**
+ * Les 2 dernières clôtures d’exercice (N-2, puis N-1), alignées sur la colonne « 2025 »
+ * du bilan hypothèse (solde de fin d’exercice — pas le mois de référence YTD).
+ */
+export function lastTwoCompletedFiscalYearEnds(
+  refMonth: number,
+  refYear: number,
+  fiscalYearEndMonth = 12,
+): [{ month: number; year: number }, { month: number; year: number }] {
+  const seq = fiscalYearAsOfSequenceFromReference(refMonth, refYear, 3, fiscalYearEndMonth)
+  const n1 = seq[1] ?? { month: fiscalYearEndMonth, year: refYear - 1 }
+  const n2 = seq[2] ?? { month: fiscalYearEndMonth, year: n1.year - 1 }
+  return [n2, n1]
+}
+
+/** Soldes bilan aux dates de clôture → map année → montant (pour l’historique DSO / DPO / stocks). */
+export function balanceSheetFiscalYearEndAmountsByYear(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  ends: { month: number; year: number }[],
+): Record<number, number> {
+  const amounts = snapshotTrendFromCalendarSequence(row, periods, ends)
+  const out: Record<number, number> = {}
+  ends.forEach((end, i) => {
+    out[end.year] = amounts[i] ?? 0
+  })
+  return out
+}
+
+/** Cumuls d’exercice (REV / CMV) aux mêmes clôtures N-2 / N-1. */
+export function incomeStatementFiscalYearTotalsByYear(
+  row: SeriesRow,
+  periods: SeriesPeriod[],
+  ends: { month: number; year: number }[],
+  fiscalYearEndMonth: number,
+): Record<number, number> {
+  const map = buildAmountsByCalendarMonth(row, periods)
+  const out: Record<number, number> = {}
+  for (const end of ends) {
+    out[end.year] = sumFiscalYearThrough(map, end.month, end.year, fiscalYearEndMonth)
+  }
+  return out
+}
+
 export function nMinusOneAndYtdActuals(
   row: SeriesRow,
   periods: SeriesPeriod[],
@@ -246,6 +290,34 @@ export function isForecastProjectedDisplayColumn(
   actualColumnCount: number,
 ): boolean {
   return displayIndex >= actualColumnCount
+}
+
+/**
+ * Base de croissance % / $ (index config).
+ * Avec N-1 + YTD, la 1re année projetée (index 1) croît sur l’exercice N-1 complet,
+ * pas sur le YTD (index 0, période partielle).
+ * `"nMinusOne"` → le montant N-1 vient de la série (colonne d’affichage hors config).
+ */
+export function forecastGrowthPreviousConfigYearIndex(
+  yearIndex: number,
+  actualColumnCount: number,
+): number | "nMinusOne" | null {
+  if (yearIndex <= 0) return null
+  if (yearIndex === 1 && actualColumnCount > 1) return "nMinusOne"
+  return yearIndex - 1
+}
+
+/**
+ * Colonne d’affichage servant de base au % croissance (tableau).
+ * 1re année projetée + YTD → N-1 (index 0), sinon année précédente.
+ */
+export function forecastGrowthBaseDisplayIndex(
+  displayIndex: number,
+  actualColumnCount: number,
+): number | null {
+  if (displayIndex <= 0) return null
+  if (actualColumnCount > 1 && displayIndex === actualColumnCount) return 0
+  return displayIndex - 1
 }
 
 export function forecastDisplayTrendToConfigTrend(

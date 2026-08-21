@@ -16,6 +16,7 @@ import {
   syncDetailSubLinesFromStandard,
 } from "@/lib/income-statement-structure-utils"
 import { useStandardLinkCodesFlat } from "@/hooks/use-standard-link-codes"
+import { isCapexProjectionLinkCode } from "@/lib/standard-link-code-utils"
 import {
   insertAnnexDetailPlaceholderRows,
   mapStructureRowsToBalanceSheetDetailRows,
@@ -151,6 +152,7 @@ export function CapexForecastDetail({
     type: CapexAdjustmentType
     value: number
     note: string
+    linkCode?: string
     seasonalityMonthPercents?: number[]
     /** @deprecated Ancien décaissement à délais ; le financement vit dans `capexFinancing`. */
     disbursementCash?: unknown
@@ -257,6 +259,9 @@ export function CapexForecastDetail({
     divisionId,
     subDivisionId,
     enabled: isForecastSection && !!companyId,
+    forecastActualLayout: forecastActualLayoutEffective,
+    refMonth: effectiveRefMonth,
+    fiscalYearEndMonth,
   })
 
   const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
@@ -339,6 +344,27 @@ export function CapexForecastDetail({
     }
     loadConfig()
   }, [companyId, isForecastSection, projectionId])
+
+  /** Enrichit les hyp. existantes avec linkCode (rollup Estimation du Bilan). */
+  useEffect(() => {
+    if (!isForecastSection || !baseData?.length) return
+    setCapexAdjustments((prev) => {
+      let changed = false
+      const next: typeof prev = {}
+      for (const [key, list] of Object.entries(prev)) {
+        next[key] = list.map((adj) => {
+          if (adj.linkCode?.trim()) return adj
+          const fromRow = baseData.find((r) => r.rowId === adj.rowId)?.linkCode?.trim()
+          const fallback = isCapexProjectionLinkCode(adj.rowId) ? adj.rowId : ""
+          const linkCode = fromRow || fallback
+          if (!linkCode) return adj
+          changed = true
+          return { ...adj, linkCode }
+        })
+      }
+      return changed ? next : prev
+    })
+  }, [baseData, isForecastSection])
 
   useEffect(() => {
     if (!isForecastSection) return
@@ -724,6 +750,11 @@ export function CapexForecastDetail({
         type: adjustmentType,
         value: adjustmentValue,
         note: adjustmentNote,
+        linkCode:
+          String(
+            baseData?.find((r) => r.rowId === rowId)?.linkCode ??
+              (isCapexProjectionLinkCode(rowId) ? rowId : ""),
+          ).trim() || undefined,
         seasonalityMonthPercents: seasonalitySaved,
         capexFinancing: financingSaved,
         hypothesisMetaOnly: false,

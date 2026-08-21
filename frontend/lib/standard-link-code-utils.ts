@@ -597,10 +597,24 @@ export function sanitizeMappingLiabilityTermFields<
 /** Racines Bilan affichées dans « Estimation des Capex annuels » (projections). */
 export const CAPEX_PROJECTION_LINK_CODE_ROOTS = ["ALT-B", "ALT-C", "ALT-D"] as const
 
+/**
+ * Postes bilan pilotés par Hypothèses Financement (debt-forecast) :
+ * portions CT dette / location + dettes LT / obligations location-acquisition.
+ */
+export const FINANCING_BILAN_LINK_CODE_ROOTS = ["PCT-H", "PCT-I", "PLT-C", "PLT-D"] as const
+
 export function isCapexProjectionLinkCode(code: string): boolean {
   const normalized = code.trim()
   if (!normalized) return false
   return CAPEX_PROJECTION_LINK_CODE_ROOTS.some(
+    (root) => normalized === root || normalized.startsWith(`${root}.`),
+  )
+}
+
+export function isFinancingBilanLinkCode(code: string): boolean {
+  const normalized = code.trim().toUpperCase()
+  if (!normalized) return false
+  return FINANCING_BILAN_LINK_CODE_ROOTS.some(
     (root) => normalized === root || normalized.startsWith(`${root}.`),
   )
 }

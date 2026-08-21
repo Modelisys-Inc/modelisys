@@ -745,20 +745,13 @@ export default function ProFormaPage() {
               subDivisionId={subDivisionId}
               companies={companies}
               title={BILAN_HYPOTHESIS_TITLE}
-              fiscalYear={
-                projectionHorizon === "annual" && projectionStartYear
-                  ? projectionStartYear - 1
-                  : projectionStartYear ?? undefined
-              }
+              fiscalYear={projectionStartYear ?? undefined}
               refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
-              refYear={
-                projectionHorizon === "annual" && projectionStartYear
-                  ? projectionStartYear - 1
-                  : projectionStartYear ?? new Date().getFullYear()
-              }
+              refYear={projectionStartYear ?? new Date().getFullYear()}
               projectionYears={projectionYears}
               forecastBaseYear={projectionStartYear ?? undefined}
               forecastUseSeriesActuals
+              forecastActualLayout="nMinusOne-and-ytd"
               disableRowInteractions
               projectionId={currentProjectionId}
             />

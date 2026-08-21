@@ -22,21 +22,42 @@ import { generateId } from "@/lib/seeded-random"
 import {
   BILAN_FORECAST_CONFIG_TYPE,
   BILAN_HYPOTHESIS_TITLE,
+  buildActRevenuePercentHistory,
   buildComptesClientsHistory,
+  buildCrediteursHistory,
   buildForecastEndingCashTrend,
+  buildStocksHistory,
   comptesClientsAmountFromDriver,
+  crediteursAmountFromDriver,
+  isCapexDrivenBilanRow,
   isComptesClientsBilanRow,
+  isCrediteursApparentesBilanRow,
+  isCrediteursLikeBilanRow,
+  isDecouvertBilanRow,
   isEncaisseBilanRow,
+  isExternalForecastDrivenBilanRow,
+  isFinancingDrivenBilanRow,
+  isHypothesisBilanSubtotalRow,
+  isOtherActBilanRow,
+  isHypothesisBilanSectionHeaderRow,
+  isStocksBilanRow,
+  isTreasuryEndingCashDrivenBilanRow,
   parseBilanAdjustments,
   resolveBilanAdjustedValue,
   resolveComptesClientsProjectedValue,
-  resolveEncaisseFromEndingCash,
+  resolveCrediteursProjectedValue,
+  resolveOtherActProjectedValue,
+  resolveStocksProjectedValue,
+  resolveTreasuryLineFromEndingCash,
+  recomputeBilanHypothesisSubtotalTrends,
   revenueForComptesClientsYear,
-  comptesClientsCalendarYear,
-  revenueHypothesisYearIndexForCalendarYear,
+  stocksAmountFromDriver,
+  type ActRevenuePercentHistoryYear,
   type BilanAdjustment,
   type BilanAdjustmentType,
   type ComptesClientsHistoryYear,
+  type CrediteursHistoryYear,
+  type StocksHistoryYear,
 } from "@/lib/bilan-forecast-utils"
 import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { Badge } from "@/components/ui/badge"
@@ -50,9 +71,16 @@ import {
 import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { useProjectedRevenueYearTotals } from "@/hooks/use-projected-revenue-year-totals"
+import { useProjectedCmvYearTotals } from "@/hooks/use-projected-cmv-year-totals"
+import { useCapexForecastForBilan } from "@/hooks/use-capex-forecast-for-bilan"
+import { useDebtForecastForBilan } from "@/hooks/use-debt-forecast-for-bilan"
 import { useBalanceSheetStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { useStandardLinkCodesFlat } from "@/hooks/use-standard-link-codes"
-import { buildStandardLinkCodeLabelMap } from "@/lib/standard-link-code-utils"
+import {
+  buildStandardLinkCodeLabelMap,
+  isCapexProjectionLinkCode,
+} from "@/lib/standard-link-code-utils"
+import type { CapexBilanPeerRow } from "@/lib/capex-forecast-resolve"
 import {
   collectDistinctLinkCodesFromStructure,
   mapLinkCodesToOwnerLabel,
@@ -69,6 +97,7 @@ import {
   isStructureRowDetailOnly,
   isStructureRowInDetailAnnexEditor,
   isSummaryAnnexRowLockedInDetailEdit,
+  isTruthySeparatorAbove,
   normLabel,
   normalizeAnnexLetter,
   syncDetailSubLinesFromStandard,
@@ -91,13 +120,19 @@ import {
 } from "@/lib/financial-period-labels"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
-import { monthTrendFromReference, yearTrendFromReference, balanceSheetYearTrendFromReference } from "@/lib/series-reference-columns"
+import { monthTrendFromReference, yearTrendFromReference } from "@/lib/series-reference-columns"
 import {
   type ForecastActualLayout,
+  balanceSheetFiscalYearEndAmountsByYear,
   forecastActualColumnCount,
   forecastBalanceSheetYearTrend,
+  forecastDisplayToConfigYearIndex,
   forecastDisplayYearCount,
   forecastYearLabelsForLayout,
+  incomeStatementFiscalYearTotalsByYear,
+  isForecastProjectedDisplayColumn,
+  lastCompletedFiscalYearEnd,
+  lastTwoCompletedFiscalYearEnds,
   resolveForecastActualLayout,
 } from "@/lib/pro-forma-forecast-columns"
 import {
@@ -139,11 +174,18 @@ function formatComptesClientsHistoryNumber(value: number | null): string {
 }
 
 function averageHistoryMetric(
-  history: ComptesClientsHistoryYear[],
-  key: "collectionDays" | "revenuePercent",
+  history: Array<
+    ComptesClientsHistoryYear | StocksHistoryYear | CrediteursHistoryYear | ActRevenuePercentHistoryYear
+  >,
+  key: "collectionDays" | "revenuePercent" | "inventoryDays" | "paymentDays",
 ): number | null {
   const values = history
-    .map((row) => row[key])
+    .map((row) => {
+      if (key === "inventoryDays") return "inventoryDays" in row ? row.inventoryDays : null
+      if (key === "paymentDays") return "paymentDays" in row ? row.paymentDays : null
+      if (key === "collectionDays") return "collectionDays" in row ? row.collectionDays : null
+      return row.revenuePercent
+    })
     .filter((value): value is number => value != null && Number.isFinite(value))
   if (values.length === 0) return null
   return values.reduce((sum, value) => sum + value, 0) / values.length
@@ -156,6 +198,49 @@ function lastHistoryDriverValue(
   const last = history[history.length - 1]
   const raw = type === "revenuePercent" ? last?.revenuePercent : last?.collectionDays
   return raw != null && Number.isFinite(raw) ? raw : 0
+}
+
+function lastStocksHistoryDriverValue(
+  history: StocksHistoryYear[],
+  type: "inventoryDays" | "revenuePercent",
+): number {
+  const last = history[history.length - 1]
+  const raw = type === "revenuePercent" ? last?.revenuePercent : last?.inventoryDays
+  return raw != null && Number.isFinite(raw) ? raw : 0
+}
+
+function lastCrediteursHistoryDriverValue(
+  history: CrediteursHistoryYear[],
+  type: "paymentDays" | "revenuePercent",
+): number {
+  const last = history[history.length - 1]
+  const raw = type === "revenuePercent" ? last?.revenuePercent : last?.paymentDays
+  return raw != null && Number.isFinite(raw) ? raw : 0
+}
+
+function lastActRevenuePercentHistoryValue(history: ActRevenuePercentHistoryYear[]): number {
+  const last = history[history.length - 1]
+  const raw = last?.revenuePercent
+  return raw != null && Number.isFinite(raw) ? raw : 0
+}
+
+/** Code de liaison effectif d’une ligne (poste mappé) — jamais le 1er code d’une somme. */
+function structureRowEffectiveLinkCode(sr: Record<string, unknown>): string {
+  return String(sr.linkCode ?? "").trim()
+}
+
+function findCmvSeriesRow(rows: SeriesRow[]): SeriesRow | undefined {
+  return (
+    findRow(rows, "CMV") ||
+    findRow(rows, "cout des produits vendus") ||
+    findRow(rows, "coût des produits vendus") ||
+    findRow(rows, "couts des produits vendus") ||
+    findRow(rows, "coûts des produits vendus") ||
+    rows.find((r) => {
+      const id = String(r.id ?? "").toUpperCase()
+      return id === "CMV" || id.startsWith("CMV.")
+    })
+  )
 }
 
 interface BalanceSheetDetailProps {
@@ -210,6 +295,8 @@ interface DetailRow {
   isBold?: boolean
   isSubtotal?: boolean
   isSection?: boolean
+  /** Trait au-dessus (Paramètres Sommaire), comme le Bilan Sommaire. */
+  separatorAbove?: boolean
   /** Titre d’annexe : montants masqués (le sous-total couvre). */
   isAnnexTitle?: boolean
   /** Mode Paramètres : ligne indicatif après un bloc d’annexe. */
@@ -221,11 +308,17 @@ interface DetailRow {
   // Balance accounts for this row
   balanceAccounts?: BalanceAccount[]
   rowId?: string // Unique ID for expansion
+  /** Code de liaison structure (ACT-D.1, …) — distinct du rowId série parfois UUID. */
+  linkCode?: string
   /** Pour identifier la ligne d’état associée (utile pour les annexes). */
   statementLabel?: string
   /** Lettre d’annexe (structure), pour regrouper et afficher les sections Annexe. */
   annexLetter?: string
   hasLiaisonCode?: boolean
+  /** Aligné Bilan Sommaire : formule ± refs ou liaison somme de codes. */
+  formula?: string[]
+  liaisonMode?: string
+  liaisonSumCodes?: string[]
 }
 
 export function BalanceSheetDetail({
@@ -274,7 +367,9 @@ export function BalanceSheetDetail({
   const [bilanAdjustments, setBilanAdjustments] = useState<Record<string, BilanAdjustment[]>>({})
   const [hypothesisRowId, setHypothesisRowId] = useState<string | null>(null)
   const [hypothesisYearIndex, setHypothesisYearIndex] = useState<number>(1)
+  // After layout resolves (N-1 + YTD), default open target = 1re année projetée.
   const [hypothesisRowLabel, setHypothesisRowLabel] = useState("")
+  const [hypothesisLinkCode, setHypothesisLinkCode] = useState<string | null>(null)
   const [draftType, setDraftType] = useState<BilanAdjustmentType>("amount")
   const [draftValue, setDraftValue] = useState(0)
   const [draftRecurring, setDraftRecurring] = useState(false)
@@ -391,21 +486,74 @@ export function BalanceSheetDetail({
 
   const closeBilanHypothesisPanel = () => {
     setHypothesisRowId(null)
+    setHypothesisLinkCode(null)
     setDraftAdjustmentId(null)
   }
 
-  const openBilanHypothesisPanel = (rowId: string, yearIndex: number, rowLabel: string) => {
-    if (isEncaisseBilanRow({ rowId, label: rowLabel })) return
+  const openBilanHypothesisPanel = (
+    rowId: string,
+    yearIndex: number,
+    rowLabel: string,
+    linkCode?: string | null,
+    opts?: {
+      isSection?: boolean
+      isSubtotal?: boolean
+      hasLiaisonCode?: boolean
+    },
+  ) => {
+    if (isTreasuryEndingCashDrivenBilanRow({ rowId, linkCode, label: rowLabel })) return
+    if (isExternalForecastDrivenBilanRow({ rowId, linkCode })) return
+    if (opts?.isSubtotal) return
+    if (
+      isHypothesisBilanSectionHeaderRow({
+        label: rowLabel,
+        isSection: opts?.isSection,
+        isSubtotal: opts?.isSubtotal,
+        hasLiaisonCode: opts?.hasLiaisonCode,
+        linkCode,
+      })
+    ) {
+      return
+    }
+    if (
+      isHypothesisBilanSubtotalRow({
+        label: rowLabel,
+        isSection: opts?.isSection,
+        hasLiaisonCode: opts?.hasLiaisonCode,
+        linkCode,
+      })
+    ) {
+      return
+    }
     const existing = (bilanAdjustments[rowId] ?? []).find((a) => a.yearIndex === yearIndex)
     setHypothesisRowId(rowId)
     setHypothesisYearIndex(yearIndex)
     setHypothesisRowLabel(rowLabel)
+    setHypothesisLinkCode(linkCode ?? null)
     setDraftAdjustmentId(existing?.id ?? null)
-    if (isComptesClientsBilanRow({ rowId, label: rowLabel })) {
+    if (isComptesClientsBilanRow({ rowId, linkCode, label: rowLabel })) {
       const driver =
         existing?.type === "revenuePercent" || existing?.type === "collectionDays"
           ? existing.type
           : "collectionDays"
+      setDraftType(driver)
+      setDraftValue(existing?.value ?? 0)
+    } else if (isStocksBilanRow({ rowId, linkCode, label: rowLabel })) {
+      const driver =
+        existing?.type === "revenuePercent" || existing?.type === "inventoryDays"
+          ? existing.type
+          : "inventoryDays"
+      setDraftType(driver)
+      setDraftValue(existing?.value ?? 0)
+    } else if (isCrediteursLikeBilanRow({ rowId, linkCode, label: rowLabel })) {
+      const driver =
+        existing?.type === "revenuePercent" || existing?.type === "paymentDays"
+          ? existing.type
+          : "paymentDays"
+      setDraftType(driver)
+      setDraftValue(existing?.value ?? 0)
+    } else if (isOtherActBilanRow({ rowId, linkCode, label: rowLabel })) {
+      const driver = existing?.type === "revenuePercent" ? "revenuePercent" : "amount"
       setDraftType(driver)
       setDraftValue(existing?.value ?? 0)
     } else {
@@ -419,26 +567,60 @@ export function BalanceSheetDetail({
   const saveBilanHypothesis = () => {
     if (!hypothesisRowId) return
     const id = draftAdjustmentId ?? generateId("bilan")
+    const isClients = isComptesClientsBilanRow({
+      rowId: hypothesisRowId,
+      linkCode: hypothesisLinkCode,
+      label: hypothesisRowLabel,
+    })
+    const isStocks = isStocksBilanRow({
+      rowId: hypothesisRowId,
+      linkCode: hypothesisLinkCode,
+      label: hypothesisRowLabel,
+    })
+    const isCrediteurs = isCrediteursLikeBilanRow({
+      rowId: hypothesisRowId,
+      linkCode: hypothesisLinkCode,
+      label: hypothesisRowLabel,
+    })
+    const isOtherAct = isOtherActBilanRow({
+      rowId: hypothesisRowId,
+      linkCode: hypothesisLinkCode,
+      label: hypothesisRowLabel,
+    })
     const nextAdj: BilanAdjustment = {
       id,
       rowId: hypothesisRowId,
       yearIndex: hypothesisYearIndex,
-      type: isComptesClientsBilanRow({ rowId: hypothesisRowId, label: hypothesisRowLabel })
+      type: isClients
         ? draftType === "revenuePercent"
           ? "revenuePercent"
           : "collectionDays"
-        : "amount",
+        : isStocks
+          ? draftType === "revenuePercent"
+            ? "revenuePercent"
+            : "inventoryDays"
+          : isCrediteurs
+            ? draftType === "revenuePercent"
+              ? "revenuePercent"
+              : "paymentDays"
+            : isOtherAct
+              ? draftType === "revenuePercent"
+                ? "revenuePercent"
+                : "amount"
+              : "amount",
       value: draftValue,
       isRecurring: draftRecurring,
       note: draftNote,
     }
     setBilanAdjustments((prev) => {
       const list = (prev[hypothesisRowId] ?? []).filter((a) => a.yearIndex !== hypothesisYearIndex)
-      const isClients = isComptesClientsBilanRow({
-        rowId: hypothesisRowId,
-        label: hypothesisRowLabel,
-      })
-      const keep = !isClients && draftValue === 0 && !draftNote.trim() ? list : [...list, nextAdj]
+      const keepDriver =
+        isClients ||
+        isStocks ||
+        isCrediteurs ||
+        (isOtherAct && nextAdj.type === "revenuePercent")
+      const keep =
+        !keepDriver && draftValue === 0 && !draftNote.trim() ? list : [...list, nextAdj]
       return { ...prev, [hypothesisRowId]: keep }
     })
     closeBilanHypothesisPanel()
@@ -454,15 +636,10 @@ export function BalanceSheetDetail({
   }
 
   const canInlineStructureEdit = !!showBalanceSheetStructureSettings && !!companyId && !isComparisonMode
-  const shouldLoadStandardLinkCodes = !!companyId && !isHypothesisSection
   const structEdit = useBalanceSheetStructureEdit(companyId ?? null, structureEditMode && canInlineStructureEdit)
-  const { codes: standardLinkCodes } = useStandardLinkCodesFlat(
-    false,
-    undefined,
-    shouldLoadStandardLinkCodes
-  )
+  const { codes: standardLinkCodes } = useStandardLinkCodesFlat(false, undefined, !!companyId)
 
-  /** Structure affichée : Sommaire pour l’hypothèse, Détail (sous-lignes standard) sinon. */
+  /** Structure affichée : Sommaire pour l’hypothèse ; Détail (+ sous-lignes standard) sinon. */
   const displayStructure = useMemo((): Record<string, unknown>[] | null => {
     if (statementStructure === null) return null
     if (isHypothesisSection) {
@@ -471,6 +648,14 @@ export function BalanceSheetDetail({
     if (standardLinkCodes.length === 0) return statementStructure
     return syncDetailSubLinesFromStandard(statementStructure, standardLinkCodes)
   }, [statementStructure, standardLinkCodes, isHypothesisSection])
+
+  /** Structure Capex (sous-lignes ALT injectées) pour relier hyp. Terrains → parent ALT-B. */
+  const capexAlignedStructure = useMemo((): Record<string, unknown>[] | null => {
+    if (statementStructure === null) return null
+    const base = statementStructure.filter((r) => !isBalanceSheetValidationStructureRow(r))
+    if (standardLinkCodes.length === 0) return base
+    return syncDetailSubLinesFromStandard(base, standardLinkCodes)
+  }, [statementStructure, standardLinkCodes])
 
   useEffect(() => {
     if (!structureEditMode || !canInlineStructureEdit || structEdit.loading) return
@@ -623,28 +808,80 @@ export function BalanceSheetDetail({
 
   const buildComptesClientsHistoryForRow = useCallback(
     (rowId?: string | null): ComptesClientsHistoryYear[] => {
-      const lastActualYear = refYear
-      const arByYear: Record<number, number> = {}
-      const revenueByYear: Record<number, number> = {}
+      // N-1 / N-2 = soldes de clôture d’exercice (même date que la colonne N-1 du tableau).
+      const [n2, n1] = lastTwoCompletedFiscalYearEnds(refMonth, refYear, fiscalYearEndMonth)
+      const lastActualYear = n1.year
+      const ends = [n2, n1]
+      let arByYear: Record<number, number> = {}
+      let revenueByYear: Record<number, number> = {}
       const arRow =
         (rowId ? findSeriesRowOrDetail(seriesRows, rowId) : undefined) ??
-        findRow(seriesRows, "ACT-B") ??
+        findRow(seriesRows, "ACT-C") ??
         findRow(seriesRows, "comptes clients")
       if (arRow && periods.length) {
-        const arTrend = balanceSheetYearTrendFromReference(arRow, periods, refMonth, lastActualYear, 2)
-        arByYear[lastActualYear] = arTrend[0] ?? 0
-        arByYear[lastActualYear - 1] = arTrend[1] ?? 0
+        arByYear = balanceSheetFiscalYearEndAmountsByYear(arRow, periods, ends)
       }
       const revRow =
         findRow(incomeStatementSeriesRows, "REV") || findRow(incomeStatementSeriesRows, "revenus")
       if (revRow && incomeStatementPeriods.length) {
-        const revTrend = yearTrendFromReference(revRow, incomeStatementPeriods, lastActualYear, 2)
-        revenueByYear[lastActualYear] = revTrend[0] ?? 0
-        revenueByYear[lastActualYear - 1] = revTrend[1] ?? 0
+        revenueByYear = incomeStatementFiscalYearTotalsByYear(
+          revRow,
+          incomeStatementPeriods,
+          ends,
+          fiscalYearEndMonth,
+        )
       }
       return buildComptesClientsHistory({ lastActualYear, arByYear, revenueByYear })
     },
     [
+      fiscalYearEndMonth,
+      incomeStatementPeriods,
+      incomeStatementSeriesRows,
+      periods,
+      refMonth,
+      refYear,
+      seriesRows,
+    ],
+  )
+
+  const buildStocksHistoryForRow = useCallback(
+    (rowId?: string | null): StocksHistoryYear[] => {
+      const [n2, n1] = lastTwoCompletedFiscalYearEnds(refMonth, refYear, fiscalYearEndMonth)
+      const lastActualYear = n1.year
+      const ends = [n2, n1]
+      let stocksByYear: Record<number, number> = {}
+      let cmvByYear: Record<number, number> = {}
+      let revenueByYear: Record<number, number> = {}
+      const stocksRow =
+        (rowId ? findSeriesRowOrDetail(seriesRows, rowId) : undefined) ??
+        findRow(seriesRows, "ACT-F") ??
+        findRow(seriesRows, "stocks")
+      if (stocksRow && periods.length) {
+        stocksByYear = balanceSheetFiscalYearEndAmountsByYear(stocksRow, periods, ends)
+      }
+      const cmvRow = findCmvSeriesRow(incomeStatementSeriesRows)
+      if (cmvRow && incomeStatementPeriods.length) {
+        cmvByYear = incomeStatementFiscalYearTotalsByYear(
+          cmvRow,
+          incomeStatementPeriods,
+          ends,
+          fiscalYearEndMonth,
+        )
+      }
+      const revRow =
+        findRow(incomeStatementSeriesRows, "REV") || findRow(incomeStatementSeriesRows, "revenus")
+      if (revRow && incomeStatementPeriods.length) {
+        revenueByYear = incomeStatementFiscalYearTotalsByYear(
+          revRow,
+          incomeStatementPeriods,
+          ends,
+          fiscalYearEndMonth,
+        )
+      }
+      return buildStocksHistory({ lastActualYear, stocksByYear, cmvByYear, revenueByYear })
+    },
+    [
+      fiscalYearEndMonth,
       incomeStatementPeriods,
       incomeStatementSeriesRows,
       periods,
@@ -659,52 +896,330 @@ export function BalanceSheetDetail({
     [buildComptesClientsHistoryForRow, hypothesisRowId],
   )
 
+  const stocksHistory = useMemo(
+    () => buildStocksHistoryForRow(hypothesisRowId),
+    [buildStocksHistoryForRow, hypothesisRowId],
+  )
+
+  const buildCrediteursHistoryForRow = useCallback(
+    (rowId?: string | null, linkCode?: string | null, label?: string | null): CrediteursHistoryYear[] => {
+      const [n2, n1] = lastTwoCompletedFiscalYearEnds(refMonth, refYear, fiscalYearEndMonth)
+      const lastActualYear = n1.year
+      const ends = [n2, n1]
+      let apByYear: Record<number, number> = {}
+      let cmvByYear: Record<number, number> = {}
+      let revenueByYear: Record<number, number> = {}
+      const isApparentes = isCrediteursApparentesBilanRow({ rowId, linkCode, label })
+      const apRow =
+        (rowId ? findSeriesRowOrDetail(seriesRows, rowId) : undefined) ??
+        (isApparentes
+          ? findRow(seriesRows, "PCT-D") ??
+            findRow(seriesRows, "apparent") ??
+            findRow(seriesRows, "créditeurs - apparentés") ??
+            findRow(seriesRows, "crediteurs - apparentes")
+          : findRow(seriesRows, "PCT-C") ??
+            findRow(seriesRows, "crediteurs") ??
+            findRow(seriesRows, "créditeurs") ??
+            findRow(seriesRows, "comptes fournisseurs") ??
+            findRow(seriesRows, "fournisseurs"))
+      if (apRow && periods.length) {
+        apByYear = balanceSheetFiscalYearEndAmountsByYear(apRow, periods, ends)
+      }
+      const cmvRow = findCmvSeriesRow(incomeStatementSeriesRows)
+      if (cmvRow && incomeStatementPeriods.length) {
+        cmvByYear = incomeStatementFiscalYearTotalsByYear(
+          cmvRow,
+          incomeStatementPeriods,
+          ends,
+          fiscalYearEndMonth,
+        )
+      }
+      const revRow =
+        findRow(incomeStatementSeriesRows, "REV") || findRow(incomeStatementSeriesRows, "revenus")
+      if (revRow && incomeStatementPeriods.length) {
+        revenueByYear = incomeStatementFiscalYearTotalsByYear(
+          revRow,
+          incomeStatementPeriods,
+          ends,
+          fiscalYearEndMonth,
+        )
+      }
+      return buildCrediteursHistory({ lastActualYear, apByYear, cmvByYear, revenueByYear })
+    },
+    [
+      fiscalYearEndMonth,
+      incomeStatementPeriods,
+      incomeStatementSeriesRows,
+      periods,
+      refMonth,
+      refYear,
+      seriesRows,
+    ],
+  )
+
+  const crediteursHistory = useMemo(
+    () => buildCrediteursHistoryForRow(hypothesisRowId, hypothesisLinkCode, hypothesisRowLabel),
+    [buildCrediteursHistoryForRow, hypothesisLinkCode, hypothesisRowId, hypothesisRowLabel],
+  )
+
+  const buildOtherActHistoryForRow = useCallback(
+    (rowId?: string | null): ActRevenuePercentHistoryYear[] => {
+      if (!rowId) return []
+      const [n2, n1] = lastTwoCompletedFiscalYearEnds(refMonth, refYear, fiscalYearEndMonth)
+      const lastActualYear = n1.year
+      const ends = [n2, n1]
+      let amountByYear: Record<number, number> = {}
+      let revenueByYear: Record<number, number> = {}
+      const actRow = findSeriesRowOrDetail(seriesRows, rowId) ?? findRow(seriesRows, rowId)
+      if (actRow && periods.length) {
+        amountByYear = balanceSheetFiscalYearEndAmountsByYear(actRow, periods, ends)
+      }
+      const revRow =
+        findRow(incomeStatementSeriesRows, "REV") || findRow(incomeStatementSeriesRows, "revenus")
+      if (revRow && incomeStatementPeriods.length) {
+        revenueByYear = incomeStatementFiscalYearTotalsByYear(
+          revRow,
+          incomeStatementPeriods,
+          ends,
+          fiscalYearEndMonth,
+        )
+      }
+      return buildActRevenuePercentHistory({ lastActualYear, amountByYear, revenueByYear })
+    },
+    [
+      fiscalYearEndMonth,
+      incomeStatementPeriods,
+      incomeStatementSeriesRows,
+      periods,
+      refMonth,
+      refYear,
+      seriesRows,
+    ],
+  )
+
+  const otherActHistory = useMemo(
+    () => buildOtherActHistoryForRow(hypothesisRowId),
+    [buildOtherActHistoryForRow, hypothesisRowId],
+  )
+
   const lastActualRevenue = useMemo(() => {
     const revRow =
       findRow(incomeStatementSeriesRows, "REV") || findRow(incomeStatementSeriesRows, "revenus")
     if (!revRow || !incomeStatementPeriods.length) return 0
-    return yearTrendFromReference(revRow, incomeStatementPeriods, refYear, 1)[0] || 0
-  }, [incomeStatementPeriods, incomeStatementSeriesRows, refYear])
+    const n1 = lastCompletedFiscalYearEnd(refMonth, refYear, fiscalYearEndMonth)
+    return (
+      incomeStatementFiscalYearTotalsByYear(
+        revRow,
+        incomeStatementPeriods,
+        [n1],
+        fiscalYearEndMonth,
+      )[n1.year] ?? 0
+    )
+  }, [fiscalYearEndMonth, incomeStatementPeriods, incomeStatementSeriesRows, refMonth, refYear])
+
+  /** CMV du dernier exercice complet — base du délai de rotation tant qu’il n’y a pas d’hyp. dépenses CMV. */
+  const lastActualCmv = useMemo(() => {
+    const cmvRow = findCmvSeriesRow(incomeStatementSeriesRows)
+    if (!cmvRow || !incomeStatementPeriods.length) return 0
+    const n1 = lastCompletedFiscalYearEnd(refMonth, refYear, fiscalYearEndMonth)
+    return (
+      incomeStatementFiscalYearTotalsByYear(
+        cmvRow,
+        incomeStatementPeriods,
+        [n1],
+        fiscalYearEndMonth,
+      )[n1.year] ?? 0
+    )
+  }, [fiscalYearEndMonth, incomeStatementPeriods, incomeStatementSeriesRows, refMonth, refYear])
+
+  /** Même année de départ que Hypothèses Revenus (1re année projetée = forecastBaseYear). */
+  const revenueProjectionRefYear = forecastBaseYear ?? refYear + 1
 
   const { totals: projectedRevenueYearTotals } = useProjectedRevenueYearTotals({
     companyId,
     projectionId,
     projectionYears,
-    fiscalYear: new Date().getFullYear(),
+    fiscalYear: revenueProjectionRefYear,
     divisionId,
     subDivisionId,
     enabled: isHypothesisSection && !!companyId,
+    forecastActualLayout: forecastActualLayoutEffective,
+    refMonth,
+    fiscalYearEndMonth,
   })
 
+  const { totals: projectedCmvYearTotals } = useProjectedCmvYearTotals({
+    companyId,
+    projectionId,
+    projectionYears,
+    fiscalYear: revenueProjectionRefYear,
+    divisionId,
+    subDivisionId,
+    enabled: isHypothesisSection && !!companyId,
+    forecastActualLayout: forecastActualLayoutEffective,
+    refMonth,
+    fiscalYearEndMonth,
+    lastActualCmv,
+    lastActualRevenue,
+  })
+
+  const { resolveProjectedAmount: resolveCapexBilanProjectedAmount } = useCapexForecastForBilan({
+    companyId,
+    projectionId,
+    projectionYears,
+    fiscalYear: revenueProjectionRefYear,
+    divisionId,
+    subDivisionId,
+    enabled: isHypothesisSection && !!companyId,
+    forecastActualLayout: forecastActualLayoutEffective,
+    refMonth,
+    fiscalYearEndMonth,
+  })
+
+  const { resolveProjectedAmount: resolveFinancingBilanProjectedAmount } = useDebtForecastForBilan({
+    companyId,
+    projectionId,
+    enabled: isHypothesisSection && !!companyId,
+  })
+
+  const capexPeerRows = useMemo((): CapexBilanPeerRow[] => {
+    if (!isHypothesisSection || !seriesRows.length || !periods.length) {
+      return []
+    }
+    const structureForPeers = capexAlignedStructure ?? displayStructure ?? statementStructure
+    if (!structureForPeers?.length) return []
+    const peers: CapexBilanPeerRow[] = []
+    for (const sr of structureForPeers) {
+      const linkCode = structureRowEffectiveLinkCode(sr)
+      const rowId = String(sr.id ?? linkCode ?? "").trim()
+      if (!rowId) continue
+      if (!isCapexProjectionLinkCode(linkCode) && !isCapexProjectionLinkCode(rowId)) continue
+      const seriesRow =
+        findSeriesRowOrDetail(seriesRows, rowId) ??
+        (linkCode ? findRow(seriesRows, linkCode) : undefined)
+      let actualBase = 0
+      if (seriesRow) {
+        const trend = forecastBalanceSheetYearTrend(
+          forecastActualLayoutEffective,
+          seriesRow,
+          periods as SeriesPeriod[],
+          refMonth,
+          refYear,
+          fiscalYearEndMonth,
+          projectionYears,
+        )
+        actualBase = trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? 0
+      }
+      peers.push({ rowId, linkCode: linkCode || rowId, actualBase })
+    }
+    return peers
+  }, [
+    capexAlignedStructure,
+    displayStructure,
+    fiscalYearEndMonth,
+    forecastActualCols,
+    forecastActualLayoutEffective,
+    isHypothesisSection,
+    periods,
+    projectionYears,
+    refMonth,
+    refYear,
+    seriesRows,
+    statementStructure,
+  ])
+
+  /**
+   * CA pour comptes clients / stocks % REV : colonnes bilan = index d’affichage,
+   * totaux Hypothèses Revenus = index config.
+   */
   const getComptesClientsRevenue = useCallback(
-    (yearIndex: number) => {
-      const calendarYear = comptesClientsCalendarYear(yearIndex, forecastBaseYear ?? refYear + 1)
-      const revenueYearIndex = revenueHypothesisYearIndexForCalendarYear(
-        calendarYear,
-        new Date().getFullYear(),
-      )
-      return revenueForComptesClientsYear(
-        revenueYearIndex,
-        projectedRevenueYearTotals,
-        lastActualRevenue,
-      )
+    (displayYearIndex: number) => {
+      const cfg = forecastDisplayToConfigYearIndex(displayYearIndex, forecastActualCols)
+      if (cfg == null) return lastActualRevenue
+      return revenueForComptesClientsYear(cfg, projectedRevenueYearTotals, lastActualRevenue)
     },
-    [forecastBaseYear, lastActualRevenue, projectedRevenueYearTotals, refYear],
+    [forecastActualCols, lastActualRevenue, projectedRevenueYearTotals],
+  )
+
+  /** CMV projeté (Hyp. Dépenses) pour délai stocks / créditeurs ; sans hyp. → 0 $ (jamais inventé). */
+  const getStocksCmv = useCallback(
+    (displayYearIndex: number) => {
+      const cfg = forecastDisplayToConfigYearIndex(displayYearIndex, forecastActualCols)
+      if (cfg == null) return lastActualCmv
+      if (cfg <= 0) {
+        const base = projectedCmvYearTotals?.[0]
+        return typeof base === "number" && Number.isFinite(base) ? base : lastActualCmv
+      }
+      const projected = projectedCmvYearTotals?.[cfg]
+      return typeof projected === "number" && Number.isFinite(projected) ? projected : 0
+    },
+    [forecastActualCols, lastActualCmv, projectedCmvYearTotals],
   )
 
   useEffect(() => {
     if (!hypothesisRowId || draftAdjustmentId) return
-    if (!isComptesClientsBilanRow({ rowId: hypothesisRowId, label: hypothesisRowLabel })) return
-    const driver = draftType === "revenuePercent" ? "revenuePercent" : "collectionDays"
-    const next = lastHistoryDriverValue(comptesClientsHistory, driver)
+    if (
+      isComptesClientsBilanRow({
+        rowId: hypothesisRowId,
+        linkCode: hypothesisLinkCode,
+        label: hypothesisRowLabel,
+      })
+    ) {
+      const driver = draftType === "revenuePercent" ? "revenuePercent" : "collectionDays"
+      const next = lastHistoryDriverValue(comptesClientsHistory, driver)
+      if (next === 0) return
+      setDraftValue((prev) => (prev === 0 ? next : prev))
+      return
+    }
+    if (
+      isStocksBilanRow({
+        rowId: hypothesisRowId,
+        linkCode: hypothesisLinkCode,
+        label: hypothesisRowLabel,
+      })
+    ) {
+      const driver = draftType === "revenuePercent" ? "revenuePercent" : "inventoryDays"
+      const next = lastStocksHistoryDriverValue(stocksHistory, driver)
+      if (next === 0) return
+      setDraftValue((prev) => (prev === 0 ? next : prev))
+      return
+    }
+    if (
+      isCrediteursLikeBilanRow({
+        rowId: hypothesisRowId,
+        linkCode: hypothesisLinkCode,
+        label: hypothesisRowLabel,
+      })
+    ) {
+      const driver = draftType === "revenuePercent" ? "revenuePercent" : "paymentDays"
+      const next = lastCrediteursHistoryDriverValue(crediteursHistory, driver)
+      if (next === 0) return
+      setDraftValue((prev) => (prev === 0 ? next : prev))
+      return
+    }
+    if (
+      !isOtherActBilanRow({
+        rowId: hypothesisRowId,
+        linkCode: hypothesisLinkCode,
+        label: hypothesisRowLabel,
+      })
+    ) {
+      return
+    }
+    if (draftType !== "revenuePercent") return
+    const next = lastActRevenuePercentHistoryValue(otherActHistory)
     if (next === 0) return
     setDraftValue((prev) => (prev === 0 ? next : prev))
   }, [
     comptesClientsHistory,
+    crediteursHistory,
     draftAdjustmentId,
     draftType,
+    hypothesisLinkCode,
     hypothesisRowId,
     hypothesisRowLabel,
+    otherActHistory,
+    stocksHistory,
   ])
 
   const endingCashTrend = useMemo(() => {
@@ -747,14 +1262,74 @@ export function BalanceSheetDetail({
     yearIndex: number,
     fallback: number,
     rowLabel?: string,
+    linkCode?: string | null,
+    opts?: { isSubtotal?: boolean },
   ) => {
     if (!trend) return fallback
     if (!isHypothesisSection || !rowId) return trend[yearIndex] ?? fallback
-    if (isEncaisseBilanRow({ rowId, label: rowLabel })) {
-      return resolveEncaisseFromEndingCash(trend[0] ?? fallback, endingCashTrend, yearIndex)
+    // N-1 / YTD : soldes série (comme le Bilan Sommaire), pas les drivers projetés.
+    if (!isForecastProjectedDisplayColumn(yearIndex, forecastActualCols)) {
+      return trend[yearIndex] ?? fallback
     }
-    if (isComptesClientsBilanRow({ rowId, label: rowLabel })) {
+    // Capex / Financement avant sous-totaux (feuilles souvent absentes du Sommaire).
+    if (isCapexDrivenBilanRow({ rowId, linkCode })) {
+      const cfg = forecastDisplayToConfigYearIndex(yearIndex, forecastActualCols)
+      if (cfg == null) return trend[yearIndex] ?? fallback
+      return resolveCapexBilanProjectedAmount(
+        rowId,
+        linkCode,
+        cfg,
+        trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? fallback,
+        capexPeerRows,
+      )
+    }
+    if (isFinancingDrivenBilanRow({ rowId, linkCode })) {
+      const cfg = forecastDisplayToConfigYearIndex(yearIndex, forecastActualCols)
+      if (cfg == null) return trend[yearIndex] ?? fallback
+      return resolveFinancingBilanProjectedAmount(
+        rowId,
+        linkCode,
+        cfg,
+        trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? fallback,
+      )
+    }
+    // Sous-totaux : montant déjà recalculé (somme liaison / formule / postes).
+    if (opts?.isSubtotal) return trend[yearIndex] ?? fallback
+    if (isTreasuryEndingCashDrivenBilanRow({ rowId, linkCode, label: rowLabel })) {
+      return resolveTreasuryLineFromEndingCash(
+        trend[0] ?? fallback,
+        endingCashTrend,
+        yearIndex,
+      )
+    }
+    if (isComptesClientsBilanRow({ rowId, linkCode, label: rowLabel })) {
       return resolveComptesClientsProjectedValue(
+        trend,
+        yearIndex,
+        bilanAdjustments[rowId] ?? [],
+        getComptesClientsRevenue(yearIndex),
+      )
+    }
+    if (isStocksBilanRow({ rowId, linkCode, label: rowLabel })) {
+      return resolveStocksProjectedValue(
+        trend,
+        yearIndex,
+        bilanAdjustments[rowId] ?? [],
+        getStocksCmv(yearIndex),
+        getComptesClientsRevenue(yearIndex),
+      )
+    }
+    if (isCrediteursLikeBilanRow({ rowId, linkCode, label: rowLabel })) {
+      return resolveCrediteursProjectedValue(
+        trend,
+        yearIndex,
+        bilanAdjustments[rowId] ?? [],
+        getStocksCmv(yearIndex),
+        getComptesClientsRevenue(yearIndex),
+      )
+    }
+    if (isOtherActBilanRow({ rowId, linkCode, label: rowLabel })) {
+      return resolveOtherActProjectedValue(
         trend,
         yearIndex,
         bilanAdjustments[rowId] ?? [],
@@ -790,11 +1365,43 @@ export function BalanceSheetDetail({
     row: FinancialStatementRow | undefined
   ): DetailRow => {
     if (isHypothesisSection) {
-      const isSection = row?.isSection ?? sr.isSection === true
+      const flaggedSection = row?.isSection ?? sr.isSection === true
       const isResult = row?.isResult ?? sr.isResult === true
       const isBold = row?.isBold ?? sr.isBold === true
+      const hasFormula = Array.isArray(sr.formula) && sr.formula.length > 0
+      const label = String(sr.label ?? row?.label ?? "")
+      const linkCode = structureRowEffectiveLinkCode(sr) || undefined
+      const hasLiaisonCode = row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr)
+      const liaisonMode = String(sr.liaisonMode ?? "").trim() || undefined
+      const liaisonSumCodes = Array.isArray(sr.liaisonSumCodes)
+        ? sr.liaisonSumCodes.map((c) => String(c ?? "").trim()).filter(Boolean)
+        : undefined
+      const formula = hasFormula
+        ? (sr.formula as unknown[]).map((c) => String(c ?? "").trim()).filter(Boolean)
+        : undefined
+      const isSubtotal =
+        isHypothesisBilanSubtotalRow({
+          label,
+          isSection: flaggedSection,
+          isResult,
+          isBold,
+          hasFormula,
+          hasLiaisonCode,
+          linkCode,
+        }) ||
+        (liaisonMode === "sum" && (liaisonSumCodes?.length ?? 0) > 0) ||
+        (formula?.length ?? 0) > 0
+      const isSection =
+        flaggedSection ||
+        isHypothesisBilanSectionHeaderRow({
+          label,
+          isSection: flaggedSection,
+          isSubtotal,
+          hasLiaisonCode,
+          linkCode,
+        })
       return {
-        label: String(sr.label ?? row?.label ?? ""),
+        label,
         statementLabel: row?.label ?? String(sr.linkCode ?? sr.label ?? ""),
         current: row?.current ?? 0,
         prior: row?.prior ?? 0,
@@ -805,10 +1412,15 @@ export function BalanceSheetDetail({
           indent: typeof sr.indent === "boolean" ? sr.indent : row?.indent,
         }),
         isBold,
-        isSubtotal: isResult,
+        isSubtotal,
         isSection,
+        separatorAbove: isTruthySeparatorAbove(sr.separatorAbove ?? row?.separatorAbove),
         rowId: row?.id ?? String(sr.linkCode ?? sr.id ?? ""),
-        hasLiaisonCode: row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr),
+        linkCode,
+        hasLiaisonCode,
+        formula,
+        liaisonMode,
+        liaisonSumCodes,
       }
     }
     const sub = isStructureRowDetailOnly(sr)
@@ -845,6 +1457,7 @@ export function BalanceSheetDetail({
       isAnnexTitle,
       balanceAccounts,
       rowId: row?.id ?? String(sr.linkCode ?? sr.id ?? ""),
+      linkCode: structureRowEffectiveLinkCode(sr) || undefined,
       hasLiaisonCode: row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr),
     })
   }
@@ -887,17 +1500,50 @@ export function BalanceSheetDetail({
     const lastAmount = trend[0] || 0
     const priorAmount = trend.length >= 2 ? trend[1] || 0 : 0
     if (isHypothesisSection) {
-      const isSection = row?.isSection ?? sr.isSection === true
+      const flaggedSection = row?.isSection ?? sr.isSection === true
       const isResult = row?.isResult ?? sr.isResult === true
       const isBold = row?.isBold ?? sr.isBold === true
+      const hasFormula = Array.isArray(sr.formula) && sr.formula.length > 0
+      const label = String(sr.label ?? row?.label ?? "")
+      const linkCode = structureRowEffectiveLinkCode(sr) || undefined
+      const hasLiaisonCode = row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr)
+      const liaisonMode = String(sr.liaisonMode ?? "").trim() || undefined
+      const liaisonSumCodes = Array.isArray(sr.liaisonSumCodes)
+        ? sr.liaisonSumCodes.map((c) => String(c ?? "").trim()).filter(Boolean)
+        : undefined
+      const formula = hasFormula
+        ? (sr.formula as unknown[]).map((c) => String(c ?? "").trim()).filter(Boolean)
+        : undefined
+      const isSubtotal =
+        isHypothesisBilanSubtotalRow({
+          label,
+          isSection: flaggedSection,
+          isResult,
+          isBold,
+          hasFormula,
+          hasLiaisonCode,
+          linkCode,
+        }) ||
+        (liaisonMode === "sum" && (liaisonSumCodes?.length ?? 0) > 0) ||
+        (formula?.length ?? 0) > 0
+      const isSection =
+        flaggedSection ||
+        isHypothesisBilanSectionHeaderRow({
+          label,
+          isSection: flaggedSection,
+          isSubtotal,
+          hasLiaisonCode,
+          linkCode,
+        })
       return {
-        label: String(sr.label ?? row?.label ?? ""),
+        label,
         statementLabel: row?.label ?? String(sr.linkCode ?? sr.label ?? ""),
         current: lastAmount,
         prior: priorAmount,
         isBold,
         isSection,
-        isSubtotal: isResult,
+        isSubtotal,
+        separatorAbove: isTruthySeparatorAbove(sr.separatorAbove ?? row?.separatorAbove),
         indent: indentForSummaryRow({
           isBold,
           isSection,
@@ -906,7 +1552,11 @@ export function BalanceSheetDetail({
         }),
         trendValues: isSection ? undefined : trend,
         rowId: row?.id ?? String(sr.linkCode ?? sr.id ?? ""),
-        hasLiaisonCode: row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr),
+        linkCode,
+        hasLiaisonCode,
+        formula,
+        liaisonMode,
+        liaisonSumCodes,
       }
     }
     const sub = isStructureRowDetailOnly(sr)
@@ -957,6 +1607,7 @@ export function BalanceSheetDetail({
       trendValues: trend,
       balanceAccounts,
       rowId: row?.id ?? String(sr.linkCode ?? sr.id ?? ""),
+      linkCode: structureRowEffectiveLinkCode(sr) || undefined,
       hasLiaisonCode: row?.hasLiaisonCode ?? structureRowHasLiaisonCode(sr),
     })
   }
@@ -1082,6 +1733,20 @@ export function BalanceSheetDetail({
   }
 
   let data = getDetailData()
+
+  if (isHypothesisSection) {
+    data = recomputeBilanHypothesisSubtotalTrends(data, (row, yearIndex) =>
+      getBilanDisplayValue(
+        row.rowId,
+        row.trendValues,
+        yearIndex,
+        row.trendValues?.[yearIndex] ?? 0,
+        row.label,
+        row.linkCode,
+        { isSubtotal: row.isSubtotal },
+      ),
+    )
+  }
 
   const shouldHideZeroDetailRows =
     !isStructureStudio &&
@@ -1784,13 +2449,49 @@ export function BalanceSheetDetail({
               const variation = row.current && row.prior ? calculateVariation(row.current, row.prior) : null
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const isSpacer = row.label === ""
-              const shouldHideAmounts = isSpacer || !!row.isSection || !!row.isAnnexPlaceholder || !!row.isAnnexTitle
-              const isEncaisseRow = isEncaisseBilanRow({ rowId: row.rowId, label: row.label })
+              const isSectionHeaderRow = isHypothesisBilanSectionHeaderRow({
+                label: row.label,
+                isSection: row.isSection,
+                isSubtotal: row.isSubtotal,
+                hasLiaisonCode: row.hasLiaisonCode,
+                linkCode: row.linkCode,
+              })
+              const shouldHideAmounts =
+                isSpacer ||
+                isSectionHeaderRow ||
+                !!row.isAnnexPlaceholder ||
+                !!row.isAnnexTitle
+              const isEncaisseRow =
+                !row.isSubtotal &&
+                isEncaisseBilanRow({
+                  rowId: row.rowId,
+                  linkCode: row.linkCode,
+                  label: row.label,
+                })
+              const isDecouvertRow =
+                !row.isSubtotal &&
+                isDecouvertBilanRow({
+                  rowId: row.rowId,
+                  linkCode: row.linkCode,
+                  label: row.label,
+                })
+              const isTreasuryEndingCashRow = isEncaisseRow || isDecouvertRow
+              const isCapexDrivenRow = isCapexDrivenBilanRow({
+                rowId: row.rowId,
+                linkCode: row.linkCode,
+              })
+              const isFinancingDrivenRow = isFinancingDrivenBilanRow({
+                rowId: row.rowId,
+                linkCode: row.linkCode,
+              })
+              const isExternalForecastDrivenRow = isCapexDrivenRow || isFinancingDrivenRow
               /** Hors Paramètres : libellé sous-total masqué (blanc) mais chiffres en noir. */
               const annexSubtotalDarkNumbers = !!row.isAnnexSubtotal
               const displayLabel = row.isSection ? capitalizeFirst(row.label) : row.label
-              /** Séparateur toujours juste au-dessus du sous-total (pas sous le poste précédent / GL). */
+              /** Séparateur : sous-total (Détail) ou separatorAbove (Sommaire). */
               const isSubtotalRow = !!row.isSubtotal || !!row.isAnnexSubtotal
+              const showSeparatorAbove =
+                isSubtotalRow || isTruthySeparatorAbove(row.separatorAbove)
               
               // Expansion GL : tout poste mappé avec ≥1 compte GL
               const matchedStructureRow =
@@ -1830,27 +2531,92 @@ export function BalanceSheetDetail({
               const isHypothesisSelected = isHypothesisSection && hypothesisRowId === row.rowId
               const isComptesClientsPanel = isComptesClientsBilanRow({
                 rowId: row.rowId,
+                linkCode: row.linkCode,
+                label: row.label,
+              })
+              const isStocksPanel = isStocksBilanRow({
+                rowId: row.rowId,
+                linkCode: row.linkCode,
+                label: row.label,
+              })
+              const isCrediteursPanel = isCrediteursLikeBilanRow({
+                rowId: row.rowId,
+                linkCode: row.linkCode,
+                label: row.label,
+              })
+              const isOtherActPanel = isOtherActBilanRow({
+                rowId: row.rowId,
+                linkCode: row.linkCode,
                 label: row.label,
               })
               const ccDriver = draftType === "revenuePercent" ? "revenuePercent" : "collectionDays"
+              const stocksDriver =
+                draftType === "revenuePercent" ? "revenuePercent" : "inventoryDays"
+              const crediteursDriver =
+                draftType === "revenuePercent" ? "revenuePercent" : "paymentDays"
+              const otherActDriver = draftType === "revenuePercent" ? "revenuePercent" : "amount"
               const ccProjectedAmount = comptesClientsAmountFromDriver({
                 type: ccDriver,
                 value: draftValue,
                 revenue: getComptesClientsRevenue(hypothesisYearIndex),
               })
+              const stocksProjectedAmount = stocksAmountFromDriver({
+                type: stocksDriver,
+                value: draftValue,
+                baseAmount:
+                  stocksDriver === "inventoryDays"
+                    ? getStocksCmv(hypothesisYearIndex)
+                    : getComptesClientsRevenue(hypothesisYearIndex),
+              })
+              const crediteursProjectedAmount = crediteursAmountFromDriver({
+                type: crediteursDriver,
+                value: draftValue,
+                baseAmount:
+                  crediteursDriver === "paymentDays"
+                    ? getStocksCmv(hypothesisYearIndex)
+                    : getComptesClientsRevenue(hypothesisYearIndex),
+              })
+              const otherActProjectedAmount = comptesClientsAmountFromDriver({
+                type: "revenuePercent",
+                value: draftValue,
+                revenue: getComptesClientsRevenue(hypothesisYearIndex),
+              })
               const ccSelectedYearRevenue = getComptesClientsRevenue(hypothesisYearIndex)
+              const stocksSelectedYearCmv = getStocksCmv(hypothesisYearIndex)
+              const stocksSelectedYearRevenue = getComptesClientsRevenue(hypothesisYearIndex)
+              const crediteursSelectedYearCmv = getStocksCmv(hypothesisYearIndex)
+              const crediteursSelectedYearRevenue = getComptesClientsRevenue(hypothesisYearIndex)
+              const otherActSelectedYearRevenue = getComptesClientsRevenue(hypothesisYearIndex)
               const ccSelectedYearLabel = getYearLabels()[hypothesisYearIndex]
               const ccLastHistoryYear = comptesClientsHistory[comptesClientsHistory.length - 1]
+              const stocksLastHistoryYear = stocksHistory[stocksHistory.length - 1]
+              const crediteursLastHistoryYear = crediteursHistory[crediteursHistory.length - 1]
+              const otherActLastHistoryYear = otherActHistory[otherActHistory.length - 1]
               const ccAverageDays = averageHistoryMetric(comptesClientsHistory, "collectionDays")
               const ccAveragePercent = averageHistoryMetric(comptesClientsHistory, "revenuePercent")
+              const stocksAverageDays = averageHistoryMetric(stocksHistory, "inventoryDays")
+              const stocksAveragePercent = averageHistoryMetric(stocksHistory, "revenuePercent")
+              const crediteursAverageDays = averageHistoryMetric(crediteursHistory, "paymentDays")
+              const crediteursAveragePercent = averageHistoryMetric(crediteursHistory, "revenuePercent")
+              const otherActAveragePercent = averageHistoryMetric(otherActHistory, "revenuePercent")
+              const isDriverPanel =
+                isComptesClientsPanel ||
+                isStocksPanel ||
+                isCrediteursPanel ||
+                (isOtherActPanel && otherActDriver === "revenuePercent")
 
               return (
                 <Fragment key={idx}>
-                  {isSubtotalRow && (
+                  {showSeparatorAbove && (
                     <tr aria-hidden data-testid="balance-sheet-detail-subtotal-separator">
                       <td
                         colSpan={detailTableColumnCount}
-                        className="border-0 p-0 align-top leading-none border-t-2 border-t-slate-900"
+                        className={cn(
+                          "border-0 p-0 align-top leading-none",
+                          isSubtotalRow
+                            ? "border-t-2 border-t-slate-900"
+                            : "border-t border-t-slate-600",
+                        )}
                       />
                     </tr>
                   )}
@@ -1898,9 +2664,19 @@ export function BalanceSheetDetail({
                             )}
                             {!canExpand && row.indent && <span className="w-4"></span>}
                             <span className="flex-1 whitespace-nowrap">{displayLabel}</span>
-                            {isHypothesisSection && isEncaisseRow && (
+                            {isHypothesisSection && isTreasuryEndingCashRow && (
                               <span className="text-[11px] font-medium text-slate-400">
                                 Trésorerie à la fin
+                              </span>
+                            )}
+                            {isHypothesisSection && isCapexDrivenRow && (
+                              <span className="text-[11px] font-medium text-slate-400">
+                                Capex (Hypothèse Capex)
+                              </span>
+                            )}
+                            {isHypothesisSection && isFinancingDrivenRow && (
+                              <span className="text-[11px] font-medium text-slate-400">
+                                Financement (Hypothèse Financement)
                               </span>
                             )}
                           </>
@@ -2164,13 +2940,20 @@ export function BalanceSheetDetail({
                           valueIdx,
                           value,
                           row.label,
+                          row.linkCode,
+                          { isSubtotal: row.isSubtotal },
                         )
                         const canAdjust =
                           isHypothesisSection &&
                           !!row.rowId &&
                           !shouldHideAmounts &&
-                          valueIdx > 0 &&
-                          !isEncaisseRow
+                          !isSectionHeaderRow &&
+                          !row.isSubtotal &&
+                          isForecastProjectedDisplayColumn(valueIdx, forecastActualCols) &&
+                          !isTreasuryEndingCashRow &&
+                          !isExternalForecastDrivenRow
+                        const formattedHypothesisAmount =
+                          displayValue !== 0 ? formatCurrency(displayValue) : ""
                         return (
                           <td
                             key={valueIdx}
@@ -2188,7 +2971,17 @@ export function BalanceSheetDetail({
                             onClick={(e) => {
                               if (!canAdjust || !row.rowId) return
                               e.stopPropagation()
-                              openBilanHypothesisPanel(row.rowId, valueIdx, displayLabel)
+                              openBilanHypothesisPanel(
+                                row.rowId,
+                                valueIdx,
+                                displayLabel,
+                                row.linkCode,
+                                {
+                                  isSection: row.isSection,
+                                  isSubtotal: row.isSubtotal,
+                                  hasLiaisonCode: row.hasLiaisonCode,
+                                },
+                              )
                             }}
                           >
                             {columnMode === "variationAmount" || columnMode === "variationPercent"
@@ -2202,7 +2995,13 @@ export function BalanceSheetDetail({
                                       ? `${trendVariationAmount >= 0 ? "+" : ""}${formatCurrency(trendVariationAmount)}`
                                       : "-"
                                   })()
-                                : (displayValue !== 0 ? formatCurrency(displayValue) : "-")}
+                                : isHypothesisSection
+                                  ? shouldHideAmounts
+                                    ? ""
+                                    : formattedHypothesisAmount
+                                  : displayValue !== 0
+                                    ? formatCurrency(displayValue)
+                                    : "-"}
                           </td>
                         )
                       })}
@@ -2224,12 +3023,13 @@ export function BalanceSheetDetail({
                           <td 
                             key={idx} 
                             className={cn(
-                              "px-4 py-3 text-right font-semibold text-white",
+                              "px-4 py-3 text-right font-semibold",
+                              isHypothesisSection ? "text-transparent" : "text-white",
                               annexSubtotalDarkNumbers ? "text-slate-900" : "",
                               isForecastSection && view === "years" && isForecastHistoricalColumn(idx) ? "bg-slate-50" : ""
                             )}
                           >
-                            -
+                            {isHypothesisSection ? "" : "-"}
                           </td>
                       ))}
                     </>
@@ -2279,7 +3079,7 @@ export function BalanceSheetDetail({
                             <div
                               className={cn(
                                 "mt-6 space-y-5",
-                                !isComptesClientsPanel &&
+                                !isDriverPanel &&
                                   "rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5",
                               )}
                             >
@@ -2495,11 +3295,694 @@ export function BalanceSheetDetail({
                                           ? "CA × % des revenus"
                                           : "CA × délai / 365"}
                                         {ccSelectedYearLabel
-                                          ? ` · CA ${hypothesisYearIndex > 0 ? "projeté" : "réel"} : ${ccSelectedYearLabel} (${formatCurrency(ccSelectedYearRevenue)})`
+                                          ? ` · CA ${isForecastProjectedDisplayColumn(hypothesisYearIndex, forecastActualCols) ? "projeté" : "réel"} : ${ccSelectedYearLabel} (${formatCurrency(ccSelectedYearRevenue)})`
                                           : " · CA projeté de l'année"}
                                       </p>
                                     </div>
                                   </div>
+                                </>
+                              ) : isStocksPanel ? (
+                                <>
+                                  <div>
+                                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                      Méthode
+                                    </p>
+                                    <Tabs
+                                      value={stocksDriver}
+                                      onValueChange={(value) => {
+                                        const next =
+                                          value === "revenuePercent" ? "revenuePercent" : "inventoryDays"
+                                        setDraftType(next)
+                                        setDraftValue(lastStocksHistoryDriverValue(stocksHistory, next))
+                                      }}
+                                    >
+                                      <TabsList className="flex h-auto w-full max-w-xl flex-wrap gap-1 rounded-lg border border-slate-200/90 bg-slate-100/80 p-0.5 sm:inline-flex sm:w-fit">
+                                        <TabsTrigger
+                                          value="inventoryDays"
+                                          className="h-8 flex-1 rounded-md px-3 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial"
+                                        >
+                                          Délai de rotation des stocks
+                                        </TabsTrigger>
+                                        <TabsTrigger
+                                          value="revenuePercent"
+                                          className="h-8 flex-1 rounded-md px-3 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial"
+                                        >
+                                          Stocks en % des revenus
+                                        </TabsTrigger>
+                                      </TabsList>
+                                    </Tabs>
+                                  </div>
+
+                                  <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                    <div className="border-b border-slate-200 px-4 py-2.5 sm:px-5">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                        Exercices réels
+                                      </p>
+                                    </div>
+                                    <table className="w-full min-w-[28rem] border-collapse text-sm">
+                                      <thead>
+                                        <tr className="border-b border-slate-200 bg-slate-50/80">
+                                          <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 sm:px-5">
+                                            Indicateur
+                                          </th>
+                                          {stocksHistory.map((yearRow) => (
+                                            <th
+                                              key={yearRow.year}
+                                              className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500 sm:px-5"
+                                            >
+                                              {yearRow.year}
+                                            </th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {(
+                                          [
+                                            {
+                                              key: "inventoryDays" as const,
+                                              label: "Délai de rotation des stocks",
+                                              unit: "jours",
+                                            },
+                                            {
+                                              key: "revenuePercent" as const,
+                                              label: "Stocks en % des revenus",
+                                              unit: "%",
+                                            },
+                                          ] as const
+                                        ).map((metric) => {
+                                          const selected = stocksDriver === metric.key
+                                          return (
+                                            <tr
+                                              key={metric.key}
+                                              className={cn(
+                                                "border-b border-slate-100",
+                                                selected && "bg-[#E0742D]/[0.04]",
+                                              )}
+                                            >
+                                              <th
+                                                scope="row"
+                                                className={cn(
+                                                  "px-4 py-2.5 text-left font-medium sm:px-5",
+                                                  selected ? "text-[#2A2F3A]" : "text-slate-600",
+                                                )}
+                                              >
+                                                <span className="flex items-center gap-2">
+                                                  {selected ? (
+                                                    <span
+                                                      className="h-4 w-0.5 shrink-0 rounded-full bg-[#E0742D]"
+                                                      aria-hidden
+                                                    />
+                                                  ) : (
+                                                    <span className="w-0.5 shrink-0" aria-hidden />
+                                                  )}
+                                                  {metric.label}
+                                                </span>
+                                              </th>
+                                              {stocksHistory.map((yearRow) => (
+                                                <td
+                                                  key={`${metric.key}-${yearRow.year}`}
+                                                  data-testid={`stocks-history-${metric.key}-${yearRow.year}`}
+                                                  className={cn(
+                                                    "px-4 py-2.5 text-right tabular-nums sm:px-5",
+                                                    selected
+                                                      ? "font-semibold text-[#2A2F3A]"
+                                                      : "text-slate-700",
+                                                  )}
+                                                >
+                                                  {formatComptesClientsHistoryNumber(
+                                                    metric.key === "inventoryDays"
+                                                      ? yearRow.inventoryDays
+                                                      : yearRow.revenuePercent,
+                                                  )}
+                                                  <span className="ml-1 text-[11px] font-normal text-slate-400">
+                                                    {metric.unit}
+                                                  </span>
+                                                </td>
+                                              ))}
+                                            </tr>
+                                          )
+                                        })}
+                                        <tr className="border-b border-slate-100">
+                                          <th
+                                            scope="row"
+                                            className="px-4 py-2.5 text-left font-medium text-slate-600 sm:px-5"
+                                          >
+                                            <span className="pl-2.5">Stocks</span>
+                                          </th>
+                                          {stocksHistory.map((yearRow) => (
+                                            <td
+                                              key={`st-${yearRow.year}`}
+                                              className="px-4 py-2.5 text-right tabular-nums text-slate-700 sm:px-5"
+                                            >
+                                              {yearRow.stocks ? formatCurrency(yearRow.stocks) : "—"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                        <tr className="border-b border-slate-100">
+                                          <th
+                                            scope="row"
+                                            className="px-4 py-2.5 text-left font-medium text-slate-600 sm:px-5"
+                                          >
+                                            <span className="pl-2.5">CMV</span>
+                                          </th>
+                                          {stocksHistory.map((yearRow) => (
+                                            <td
+                                              key={`cmv-${yearRow.year}`}
+                                              className="px-4 py-2.5 text-right tabular-nums text-slate-700 sm:px-5"
+                                            >
+                                              {yearRow.cmv ? formatCurrency(yearRow.cmv) : "—"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                        <tr>
+                                          <th
+                                            scope="row"
+                                            className="px-4 py-2.5 text-left font-medium text-slate-600 sm:px-5"
+                                          >
+                                            <span className="pl-2.5">Revenus</span>
+                                          </th>
+                                          {stocksHistory.map((yearRow) => (
+                                            <td
+                                              key={`rev-${yearRow.year}`}
+                                              className="px-4 py-2.5 text-right tabular-nums text-slate-700 sm:px-5"
+                                            >
+                                              {yearRow.revenue ? formatCurrency(yearRow.revenue) : "—"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      </tbody>
+                                    </table>
+                                  </div>
+
+                                  <div className="grid gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] lg:items-start">
+                                    <div>
+                                      <Label
+                                        htmlFor="bilan-adj-value"
+                                        className="mb-2 block text-sm font-medium text-slate-700"
+                                      >
+                                        {stocksDriver === "revenuePercent"
+                                          ? "Stocks en % des revenus"
+                                          : "Délai de rotation (jours)"}
+                                      </Label>
+                                      <div className="relative">
+                                        <Input
+                                          id="bilan-adj-value"
+                                          type="number"
+                                          step={0.1}
+                                          min={0}
+                                          value={draftValue}
+                                          onChange={(e) => setDraftValue(parseFloat(e.target.value) || 0)}
+                                          className="h-11 pr-16 tabular-nums"
+                                        />
+                                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-400">
+                                          {stocksDriver === "revenuePercent" ? "%" : "jours"}
+                                        </span>
+                                      </div>
+                                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                        {stocksLastHistoryYear
+                                          ? `${stocksLastHistoryYear.year} : ${formatComptesClientsHistoryNumber(
+                                              stocksDriver === "revenuePercent"
+                                                ? stocksLastHistoryYear.revenuePercent
+                                                : stocksLastHistoryYear.inventoryDays,
+                                            )} ${stocksDriver === "revenuePercent" ? "%" : "jours"}`
+                                          : null}
+                                        {stocksDriver === "revenuePercent" && stocksAveragePercent != null
+                                          ? ` · Moyenne 2 ans : ${formatComptesClientsHistoryNumber(stocksAveragePercent)} %`
+                                          : null}
+                                        {stocksDriver === "inventoryDays" && stocksAverageDays != null
+                                          ? ` · Moyenne 2 ans : ${formatComptesClientsHistoryNumber(stocksAverageDays)} jours`
+                                          : null}
+                                      </p>
+                                    </div>
+                                    <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3 sm:px-5">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                        Stocks projetés
+                                      </p>
+                                      <p
+                                        className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-[#2A2F3A]"
+                                        data-testid="bilan-stocks-projected-amount"
+                                      >
+                                        {(stocksDriver === "inventoryDays"
+                                          ? stocksSelectedYearCmv
+                                          : stocksSelectedYearRevenue)
+                                          ? formatCurrency(stocksProjectedAmount)
+                                          : "—"}
+                                      </p>
+                                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                        {stocksDriver === "revenuePercent"
+                                          ? "CA × % des revenus"
+                                          : "CMV × délai / 365"}
+                                        {ccSelectedYearLabel
+                                          ? stocksDriver === "inventoryDays"
+                                            ? ` · CMV projeté : ${formatCurrency(stocksSelectedYearCmv)}`
+                                            : ` · CA ${isForecastProjectedDisplayColumn(hypothesisYearIndex, forecastActualCols) ? "projeté" : "réel"} : ${ccSelectedYearLabel} (${formatCurrency(stocksSelectedYearRevenue)})`
+                                          : stocksDriver === "inventoryDays"
+                                            ? " · CMV de l'année"
+                                            : " · CA projeté de l'année"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : isCrediteursPanel ? (
+                                <>
+                                  <div>
+                                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                      Méthode
+                                    </p>
+                                    <Tabs
+                                      value={crediteursDriver}
+                                      onValueChange={(value) => {
+                                        const next =
+                                          value === "revenuePercent" ? "revenuePercent" : "paymentDays"
+                                        setDraftType(next)
+                                        setDraftValue(lastCrediteursHistoryDriverValue(crediteursHistory, next))
+                                      }}
+                                    >
+                                      <TabsList className="flex h-auto w-full max-w-xl flex-wrap gap-1 rounded-lg border border-slate-200/90 bg-slate-100/80 p-0.5 sm:inline-flex sm:w-fit">
+                                        <TabsTrigger
+                                          value="paymentDays"
+                                          className="h-8 flex-1 rounded-md px-3 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial"
+                                        >
+                                          Délai de paiement des créditeurs
+                                        </TabsTrigger>
+                                        <TabsTrigger
+                                          value="revenuePercent"
+                                          className="h-8 flex-1 rounded-md px-3 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial"
+                                        >
+                                          % des revenus
+                                        </TabsTrigger>
+                                      </TabsList>
+                                    </Tabs>
+                                  </div>
+
+                                  <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                    <div className="border-b border-slate-200 px-4 py-2.5 sm:px-5">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                        Exercices réels
+                                      </p>
+                                    </div>
+                                    <table className="w-full min-w-[28rem] border-collapse text-sm">
+                                      <thead>
+                                        <tr className="border-b border-slate-200 bg-slate-50/80">
+                                          <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 sm:px-5">
+                                            Indicateur
+                                          </th>
+                                          {crediteursHistory.map((yearRow) => (
+                                            <th
+                                              key={yearRow.year}
+                                              className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500 sm:px-5"
+                                            >
+                                              {yearRow.year}
+                                            </th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {(
+                                          [
+                                            {
+                                              key: "paymentDays" as const,
+                                              label: "Délai de paiement des créditeurs",
+                                              unit: "jours",
+                                            },
+                                            {
+                                              key: "revenuePercent" as const,
+                                              label: "% des revenus",
+                                              unit: "%",
+                                            },
+                                          ] as const
+                                        ).map((metric) => {
+                                          const selected = crediteursDriver === metric.key
+                                          return (
+                                            <tr
+                                              key={metric.key}
+                                              className={cn(
+                                                "border-b border-slate-100",
+                                                selected && "bg-[#E0742D]/[0.04]",
+                                              )}
+                                            >
+                                              <th
+                                                scope="row"
+                                                className={cn(
+                                                  "px-4 py-2.5 text-left font-medium sm:px-5",
+                                                  selected ? "text-[#2A2F3A]" : "text-slate-600",
+                                                )}
+                                              >
+                                                <span className="flex items-center gap-2">
+                                                  {selected ? (
+                                                    <span
+                                                      className="h-4 w-0.5 shrink-0 rounded-full bg-[#E0742D]"
+                                                      aria-hidden
+                                                    />
+                                                  ) : (
+                                                    <span className="w-0.5 shrink-0" aria-hidden />
+                                                  )}
+                                                  {metric.label}
+                                                </span>
+                                              </th>
+                                              {crediteursHistory.map((yearRow) => (
+                                                <td
+                                                  key={`${metric.key}-${yearRow.year}`}
+                                                  data-testid={`crediteurs-history-${metric.key}-${yearRow.year}`}
+                                                  className={cn(
+                                                    "px-4 py-2.5 text-right tabular-nums sm:px-5",
+                                                    selected
+                                                      ? "font-semibold text-[#2A2F3A]"
+                                                      : "text-slate-700",
+                                                  )}
+                                                >
+                                                  {formatComptesClientsHistoryNumber(
+                                                    metric.key === "paymentDays"
+                                                      ? yearRow.paymentDays
+                                                      : yearRow.revenuePercent,
+                                                  )}
+                                                  <span className="ml-1 text-[11px] font-normal text-slate-400">
+                                                    {metric.unit}
+                                                  </span>
+                                                </td>
+                                              ))}
+                                            </tr>
+                                          )
+                                        })}
+                                        <tr className="border-b border-slate-100">
+                                          <th
+                                            scope="row"
+                                            className="px-4 py-2.5 text-left font-medium text-slate-600 sm:px-5"
+                                          >
+                                            <span className="pl-2.5">Créditeurs</span>
+                                          </th>
+                                          {crediteursHistory.map((yearRow) => (
+                                            <td
+                                              key={`ap-${yearRow.year}`}
+                                              className="px-4 py-2.5 text-right tabular-nums text-slate-700 sm:px-5"
+                                            >
+                                              {yearRow.ap ? formatCurrency(yearRow.ap) : "—"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                        <tr className="border-b border-slate-100">
+                                          <th
+                                            scope="row"
+                                            className="px-4 py-2.5 text-left font-medium text-slate-600 sm:px-5"
+                                          >
+                                            <span className="pl-2.5">CMV</span>
+                                          </th>
+                                          {crediteursHistory.map((yearRow) => (
+                                            <td
+                                              key={`cmv-${yearRow.year}`}
+                                              className="px-4 py-2.5 text-right tabular-nums text-slate-700 sm:px-5"
+                                            >
+                                              {yearRow.cmv ? formatCurrency(yearRow.cmv) : "—"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                        <tr>
+                                          <th
+                                            scope="row"
+                                            className="px-4 py-2.5 text-left font-medium text-slate-600 sm:px-5"
+                                          >
+                                            <span className="pl-2.5">Revenus</span>
+                                          </th>
+                                          {crediteursHistory.map((yearRow) => (
+                                            <td
+                                              key={`rev-${yearRow.year}`}
+                                              className="px-4 py-2.5 text-right tabular-nums text-slate-700 sm:px-5"
+                                            >
+                                              {yearRow.revenue ? formatCurrency(yearRow.revenue) : "—"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      </tbody>
+                                    </table>
+                                  </div>
+
+                                  <div className="grid gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] lg:items-start">
+                                    <div>
+                                      <Label
+                                        htmlFor="bilan-adj-value"
+                                        className="mb-2 block text-sm font-medium text-slate-700"
+                                      >
+                                        {crediteursDriver === "revenuePercent"
+                                          ? "% des revenus"
+                                          : "Délai de paiement (jours)"}
+                                      </Label>
+                                      <div className="relative">
+                                        <Input
+                                          id="bilan-adj-value"
+                                          type="number"
+                                          step={0.1}
+                                          min={0}
+                                          value={draftValue}
+                                          onChange={(e) => setDraftValue(parseFloat(e.target.value) || 0)}
+                                          className="h-11 pr-16 tabular-nums"
+                                        />
+                                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-400">
+                                          {crediteursDriver === "revenuePercent" ? "%" : "jours"}
+                                        </span>
+                                      </div>
+                                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                        {crediteursLastHistoryYear
+                                          ? `${crediteursLastHistoryYear.year} : ${formatComptesClientsHistoryNumber(
+                                              crediteursDriver === "revenuePercent"
+                                                ? crediteursLastHistoryYear.revenuePercent
+                                                : crediteursLastHistoryYear.paymentDays,
+                                            )} ${crediteursDriver === "revenuePercent" ? "%" : "jours"}`
+                                          : null}
+                                        {crediteursDriver === "revenuePercent" &&
+                                        crediteursAveragePercent != null
+                                          ? ` · Moyenne 2 ans : ${formatComptesClientsHistoryNumber(crediteursAveragePercent)} %`
+                                          : null}
+                                        {crediteursDriver === "paymentDays" &&
+                                        crediteursAverageDays != null
+                                          ? ` · Moyenne 2 ans : ${formatComptesClientsHistoryNumber(crediteursAverageDays)} jours`
+                                          : null}
+                                      </p>
+                                    </div>
+                                    <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3 sm:px-5">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                        Créditeurs projetés
+                                      </p>
+                                      <p
+                                        className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-[#2A2F3A]"
+                                        data-testid="bilan-crediteurs-projected-amount"
+                                      >
+                                        {(crediteursDriver === "paymentDays"
+                                          ? crediteursSelectedYearCmv
+                                          : crediteursSelectedYearRevenue)
+                                          ? formatCurrency(crediteursProjectedAmount)
+                                          : "—"}
+                                      </p>
+                                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                        {crediteursDriver === "revenuePercent"
+                                          ? "CA × % des revenus"
+                                          : "CMV × délai / 365"}
+                                        {ccSelectedYearLabel
+                                          ? crediteursDriver === "paymentDays"
+                                            ? ` · CMV projeté : ${formatCurrency(crediteursSelectedYearCmv)}`
+                                            : ` · CA ${isForecastProjectedDisplayColumn(hypothesisYearIndex, forecastActualCols) ? "projeté" : "réel"} : ${ccSelectedYearLabel} (${formatCurrency(crediteursSelectedYearRevenue)})`
+                                          : crediteursDriver === "paymentDays"
+                                            ? " · CMV de l'année"
+                                            : " · CA projeté de l'année"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </>
+                              ) : isOtherActPanel ? (
+                                <>
+                                  <div>
+                                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                      Méthode
+                                    </p>
+                                    <Tabs
+                                      value={otherActDriver}
+                                      onValueChange={(value) => {
+                                        const next =
+                                          value === "revenuePercent" ? "revenuePercent" : "amount"
+                                        setDraftType(next)
+                                        if (next === "revenuePercent") {
+                                          setDraftValue(lastActRevenuePercentHistoryValue(otherActHistory))
+                                        } else {
+                                          setDraftValue(0)
+                                        }
+                                      }}
+                                    >
+                                      <TabsList className="flex h-auto w-full max-w-xl flex-wrap gap-1 rounded-lg border border-slate-200/90 bg-slate-100/80 p-0.5 sm:inline-flex sm:w-fit">
+                                        <TabsTrigger
+                                          value="amount"
+                                          className="h-8 flex-1 rounded-md px-3 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial"
+                                        >
+                                          Montant ($)
+                                        </TabsTrigger>
+                                        <TabsTrigger
+                                          value="revenuePercent"
+                                          className="h-8 flex-1 rounded-md px-3 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial"
+                                        >
+                                          % des revenus
+                                        </TabsTrigger>
+                                      </TabsList>
+                                    </Tabs>
+                                  </div>
+
+                                  {otherActDriver === "revenuePercent" ? (
+                                    <>
+                                      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                        <div className="border-b border-slate-200 px-4 py-2.5 sm:px-5">
+                                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                            Exercices réels
+                                          </p>
+                                        </div>
+                                        <table className="w-full min-w-[28rem] border-collapse text-sm">
+                                          <thead>
+                                            <tr className="border-b border-slate-200 bg-slate-50/80">
+                                              <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 sm:px-5">
+                                                Indicateur
+                                              </th>
+                                              {otherActHistory.map((yearRow) => (
+                                                <th
+                                                  key={yearRow.year}
+                                                  className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500 sm:px-5"
+                                                >
+                                                  {yearRow.year}
+                                                </th>
+                                              ))}
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            <tr className="border-b border-slate-100 bg-[#E0742D]/[0.04]">
+                                              <th
+                                                scope="row"
+                                                className="px-4 py-2.5 text-left font-medium text-[#2A2F3A] sm:px-5"
+                                              >
+                                                <span className="flex items-center gap-2">
+                                                  <span
+                                                    className="h-4 w-0.5 shrink-0 rounded-full bg-[#E0742D]"
+                                                    aria-hidden
+                                                  />
+                                                  % des revenus
+                                                </span>
+                                              </th>
+                                              {otherActHistory.map((yearRow) => (
+                                                <td
+                                                  key={`pct-${yearRow.year}`}
+                                                  data-testid={`act-history-revenuePercent-${yearRow.year}`}
+                                                  className="px-4 py-2.5 text-right font-semibold tabular-nums text-[#2A2F3A] sm:px-5"
+                                                >
+                                                  {formatComptesClientsHistoryNumber(yearRow.revenuePercent)}
+                                                  <span className="ml-1 text-[11px] font-normal text-slate-400">
+                                                    %
+                                                  </span>
+                                                </td>
+                                              ))}
+                                            </tr>
+                                            <tr className="border-b border-slate-100">
+                                              <th
+                                                scope="row"
+                                                className="px-4 py-2.5 text-left font-medium text-slate-600 sm:px-5"
+                                              >
+                                                <span className="pl-2.5">{hypothesisRowLabel || "Poste"}</span>
+                                              </th>
+                                              {otherActHistory.map((yearRow) => (
+                                                <td
+                                                  key={`amt-${yearRow.year}`}
+                                                  className="px-4 py-2.5 text-right tabular-nums text-slate-700 sm:px-5"
+                                                >
+                                                  {yearRow.amount ? formatCurrency(yearRow.amount) : "—"}
+                                                </td>
+                                              ))}
+                                            </tr>
+                                            <tr>
+                                              <th
+                                                scope="row"
+                                                className="px-4 py-2.5 text-left font-medium text-slate-600 sm:px-5"
+                                              >
+                                                <span className="pl-2.5">Revenus</span>
+                                              </th>
+                                              {otherActHistory.map((yearRow) => (
+                                                <td
+                                                  key={`rev-${yearRow.year}`}
+                                                  className="px-4 py-2.5 text-right tabular-nums text-slate-700 sm:px-5"
+                                                >
+                                                  {yearRow.revenue ? formatCurrency(yearRow.revenue) : "—"}
+                                                </td>
+                                              ))}
+                                            </tr>
+                                          </tbody>
+                                        </table>
+                                      </div>
+
+                                      <div className="grid gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] lg:items-start">
+                                        <div>
+                                          <Label
+                                            htmlFor="bilan-adj-value"
+                                            className="mb-2 block text-sm font-medium text-slate-700"
+                                          >
+                                            % des revenus
+                                          </Label>
+                                          <div className="relative">
+                                            <Input
+                                              id="bilan-adj-value"
+                                              type="number"
+                                              step={0.1}
+                                              min={0}
+                                              value={draftValue}
+                                              onChange={(e) =>
+                                                setDraftValue(parseFloat(e.target.value) || 0)
+                                              }
+                                              className="h-11 pr-16 tabular-nums"
+                                            />
+                                            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-400">
+                                              %
+                                            </span>
+                                          </div>
+                                          <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                            {otherActLastHistoryYear
+                                              ? `${otherActLastHistoryYear.year} : ${formatComptesClientsHistoryNumber(
+                                                  otherActLastHistoryYear.revenuePercent,
+                                                )} %`
+                                              : null}
+                                            {otherActAveragePercent != null
+                                              ? ` · Moyenne 2 ans : ${formatComptesClientsHistoryNumber(otherActAveragePercent)} %`
+                                              : null}
+                                          </p>
+                                        </div>
+                                        <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3 sm:px-5">
+                                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                            Montant projeté
+                                          </p>
+                                          <p
+                                            className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-[#2A2F3A]"
+                                            data-testid="bilan-act-projected-amount"
+                                          >
+                                            {otherActSelectedYearRevenue
+                                              ? formatCurrency(otherActProjectedAmount)
+                                              : "—"}
+                                          </p>
+                                          <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                            CA × % des revenus
+                                            {ccSelectedYearLabel
+                                              ? ` · CA ${isForecastProjectedDisplayColumn(hypothesisYearIndex, forecastActualCols) ? "projeté" : "réel"} : ${ccSelectedYearLabel} (${formatCurrency(otherActSelectedYearRevenue)})`
+                                              : " · CA projeté de l'année"}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div>
+                                      <Label
+                                        htmlFor="bilan-adj-value"
+                                        className="mb-2 block text-sm font-medium text-slate-700"
+                                      >
+                                        Montant ($)
+                                      </Label>
+                                      <Input
+                                        id="bilan-adj-value"
+                                        type="number"
+                                        step={1}
+                                        value={draftValue}
+                                        onChange={(e) => setDraftValue(parseFloat(e.target.value) || 0)}
+                                      />
+                                    </div>
+                                  )}
                                 </>
                               ) : (
                                 <div>
@@ -2527,11 +4010,40 @@ export function BalanceSheetDetail({
                                     ? ccDriver === "revenuePercent"
                                       ? "Appliquer le % des revenus aux années suivantes"
                                       : "Appliquer le délai de collection aux années suivantes"
-                                    : "Appliquer aux années suivantes"}
+                                    : isStocksPanel
+                                      ? stocksDriver === "revenuePercent"
+                                        ? "Appliquer le % des revenus aux années suivantes"
+                                        : "Appliquer le délai de rotation aux années suivantes"
+                                      : isCrediteursPanel
+                                        ? crediteursDriver === "revenuePercent"
+                                          ? "Appliquer le % des revenus aux années suivantes"
+                                          : "Appliquer le délai de paiement aux années suivantes"
+                                        : isOtherActPanel
+                                          ? otherActDriver === "revenuePercent"
+                                            ? "Appliquer le % des revenus aux années suivantes"
+                                            : "Appliquer aux années suivantes"
+                                          : "Appliquer aux années suivantes"}
                                   {isComptesClientsPanel ? (
                                     <span className="mt-1 block text-xs font-normal leading-relaxed text-slate-500">
                                       Le délai ou le % est reporté. Le solde de chaque année suit le CA
                                       projeté de cette année.
+                                    </span>
+                                  ) : isStocksPanel ? (
+                                    <span className="mt-1 block text-xs font-normal leading-relaxed text-slate-500">
+                                      {stocksDriver === "inventoryDays"
+                                        ? "Le délai est reporté. Le solde suit le CMV projeté de chaque année."
+                                        : "Le % est reporté. Le solde de chaque année suit le CA projeté de cette année."}
+                                    </span>
+                                  ) : isCrediteursPanel ? (
+                                    <span className="mt-1 block text-xs font-normal leading-relaxed text-slate-500">
+                                      {crediteursDriver === "paymentDays"
+                                        ? "Le délai est reporté. Le solde suit le CMV projeté de chaque année."
+                                        : "Le % est reporté. Le solde de chaque année suit le CA projeté de cette année."}
+                                    </span>
+                                  ) : isOtherActPanel && otherActDriver === "revenuePercent" ? (
+                                    <span className="mt-1 block text-xs font-normal leading-relaxed text-slate-500">
+                                      Le % est reporté. Le solde de chaque année suit le CA projeté de
+                                      cette année.
                                     </span>
                                   ) : null}
                                 </span>

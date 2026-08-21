@@ -9,11 +9,16 @@ import {
   forecastDisplayToConfigYearIndex,
   forecastDisplayTrendToConfigTrend,
   forecastDisplayYearCount,
+  forecastGrowthBaseDisplayIndex,
+  forecastGrowthPreviousConfigYearIndex,
   forecastTrendFromActualPrefix,
   forecastYearLabelsForLayout,
   forecastYtdColumnNeeded,
   isForecastProjectedDisplayColumn,
   lastCompletedFiscalYearEnd,
+  lastTwoCompletedFiscalYearEnds,
+  balanceSheetFiscalYearEndAmountsByYear,
+  incomeStatementFiscalYearTotalsByYear,
   mergeConfigYearsOntoForecastDisplay,
   nMinusOneAndYtdActuals,
   parseForecastColumnCalendarAnchor,
@@ -63,6 +68,34 @@ function makeRow(periods: SeriesPeriod[], monthly: (year: number, month: number)
   }
 }
 
+describe("forecastGrowthPreviousConfigYearIndex", () => {
+  it("uses N-1 for the first projected year when YTD is shown", () => {
+    expect(forecastGrowthPreviousConfigYearIndex(1, 2)).toBe("nMinusOne")
+    expect(forecastGrowthPreviousConfigYearIndex(2, 2)).toBe(1)
+    expect(forecastGrowthPreviousConfigYearIndex(1, 1)).toBe(0)
+    expect(forecastGrowthPreviousConfigYearIndex(0, 2)).toBeNull()
+  })
+})
+
+describe("forecastGrowthBaseDisplayIndex", () => {
+  it("points the first projected display column at N-1 when YTD is shown", () => {
+    expect(forecastGrowthBaseDisplayIndex(2, 2)).toBe(0)
+    expect(forecastGrowthBaseDisplayIndex(3, 2)).toBe(2)
+    expect(forecastGrowthBaseDisplayIndex(1, 1)).toBe(0)
+    expect(forecastGrowthBaseDisplayIndex(0, 2)).toBeNull()
+  })
+})
+
+describe("forecastDisplayToConfigYearIndex for comptes clients CA", () => {
+  it("maps the first projected display column to revenue config index 1 when YTD is shown", () => {
+    // Display: [N-1=0, YTD=1, 2026=2, 2027=3] → config: [réel=0, 2026=1, 2027=2]
+    expect(forecastDisplayToConfigYearIndex(2, 2)).toBe(1)
+    expect(forecastDisplayToConfigYearIndex(3, 2)).toBe(2)
+    expect(forecastDisplayToConfigYearIndex(0, 2)).toBeNull()
+    expect(forecastDisplayToConfigYearIndex(1, 1)).toBe(1)
+  })
+})
+
 describe("pro forma N-1 + YTD columns", () => {
   const periods = makePeriods()
 
@@ -70,6 +103,56 @@ describe("pro forma N-1 + YTD columns", () => {
     expect(lastCompletedFiscalYearEnd(3, 2026, 12)).toEqual({ month: 12, year: 2025 })
     expect(lastCompletedFiscalYearEnd(12, 2026, 12)).toEqual({ month: 12, year: 2025 })
     expect(lastCompletedFiscalYearEnd(3, 2026, 3)).toEqual({ month: 3, year: 2025 })
+  })
+
+  it("lists N-2 then N-1 fiscal year-ends for hypothesis history tables", () => {
+    expect(lastTwoCompletedFiscalYearEnds(8, 2026, 12)).toEqual([
+      { month: 12, year: 2024 },
+      { month: 12, year: 2025 },
+    ])
+    expect(lastTwoCompletedFiscalYearEnds(3, 2026, 3)).toEqual([
+      { month: 3, year: 2024 },
+      { month: 3, year: 2025 },
+    ])
+  })
+
+  it("reads bilan history at FYE (not mid-year ref month) to match the N-1 column", () => {
+    const periods = makePeriods()
+    // Déc 2024 = 100, Aoû 2025 = 50, Déc 2025 = 200, Aoû 2026 = 75
+    const row: SeriesRow = {
+      id: "PCT-C",
+      label: "Créditeurs",
+      amounts: Object.fromEntries(
+        periods.map((p) => {
+          const key = `${p.fiscalYear}-${p.fiscalMonth}`
+          if (p.fiscalYear === 2024 && p.fiscalMonth === 12) return [key, 100]
+          if (p.fiscalYear === 2025 && p.fiscalMonth === 8) return [key, 50]
+          if (p.fiscalYear === 2025 && p.fiscalMonth === 12) return [key, 200]
+          if (p.fiscalYear === 2026 && p.fiscalMonth === 8) return [key, 75]
+          return [key, 1]
+        }),
+      ),
+      detailRows: [],
+    }
+    const ends = lastTwoCompletedFiscalYearEnds(8, 2026, 12)
+    expect(balanceSheetFiscalYearEndAmountsByYear(row, periods, ends)).toEqual({
+      2024: 100,
+      2025: 200,
+    })
+    // Préfixe N-1 du tableau = même solde de clôture 2025
+    expect(
+      forecastBalanceSheetActualPrefixValues("nMinusOne-and-ytd", row, periods, 8, 2026, 12)[0],
+    ).toBe(200)
+  })
+
+  it("sums full fiscal years for REV/CMV history (not mid-year TTM)", () => {
+    const periods = makePeriods()
+    const row = makeRow(periods, (year) => (year === 2024 ? 10 : year === 2025 ? 20 : 1))
+    const ends = lastTwoCompletedFiscalYearEnds(8, 2026, 12)
+    expect(incomeStatementFiscalYearTotalsByYear(row, periods, ends, 12)).toEqual({
+      2024: 120,
+      2025: 240,
+    })
   })
 
   it("sums full prior fiscal year and YTD through the reference date (calendar FYE)", () => {

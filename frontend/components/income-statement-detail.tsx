@@ -73,9 +73,12 @@ import {
   forecastDisplayTrendToConfigTrend,
   forecastDisplayYearCount,
   forecastActualPrefixValues,
+  forecastGrowthBaseDisplayIndex,
+  forecastGrowthPreviousConfigYearIndex,
   forecastTrendFromActualPrefix,
   forecastYearLabelsForLayout,
   isForecastProjectedDisplayColumn,
+  nMinusOneAndYtdActuals,
   resolveForecastActualLayout,
 } from "@/lib/pro-forma-forecast-columns"
 import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
@@ -1804,13 +1807,42 @@ export function IncomeStatementDetail({
     return getFixedExpenseDefaultInflationRate(rowId)
   }
 
+  /** Exercice fiscal complet clos (N-1) — base inflation / croissance quand une colonne YTD est affichée. */
+  const nMinusOneActualForSeriesRow = (rowId: string): number => {
+    const sr = seriesRows.find((s) => s.id === rowId)
+    if (!sr || !seriesPeriods.length || forecastActualCols <= 1) return 0
+    return nMinusOneAndYtdActuals(sr, seriesPeriods, refMonth, refYear, fiscalYearEndMonth).nMinusOne
+  }
+
+  /** Année précédente (config) ou N-1 pour inflation / saisonnalité des dépenses fixes. */
+  const fixedExpensePreviousYearAmount = (
+    rowId: string,
+    yearIndex: number,
+    baseAmount: number,
+  ): { amount: number; seasonalityYearIndex: number } | null => {
+    const growthPrev = forecastGrowthPreviousConfigYearIndex(yearIndex, forecastActualCols)
+    if (growthPrev == null) return null
+    if (growthPrev === "nMinusOne") {
+      return {
+        amount: nMinusOneActualForSeriesRow(rowId),
+        seasonalityYearIndex: 0,
+      }
+    }
+    return {
+      amount: computeFixedExpenseYearValue(rowId, growthPrev, baseAmount),
+      seasonalityYearIndex: growthPrev,
+    }
+  }
+
   const computeFixedExpenseYearValue = (rowId: string, yearIndex: number, baseAmount: number): number => {
     if (yearIndex <= 0) {
       const baseKey = `${rowId}-0`
       return revenueValues[baseKey] !== undefined ? revenueValues[baseKey]! : baseAmount
     }
-    const prev = computeFixedExpenseYearValue(rowId, yearIndex - 1, baseAmount)
-    const seasonality = getExpenseStoredSeasonalityPercents(rowId, yearIndex - 1)
+    const previous = fixedExpensePreviousYearAmount(rowId, yearIndex, baseAmount)
+    if (!previous) return baseAmount
+    const prev = previous.amount
+    const seasonality = getExpenseStoredSeasonalityPercents(rowId, previous.seasonalityYearIndex)
     const prevMonthly = distributeAnnualRevenueBySeasonality(Math.abs(prev), seasonality)
     let sum = 0
     for (let m = 0; m < 12; m++) {
@@ -2014,9 +2046,11 @@ export function IncomeStatementDetail({
     avecAjustement: number[]
   } | null => {
     if (yearIndex < 1) return null
-    const prev = computeFixedExpenseYearValue(rowId, yearIndex - 1, baseAmount)
+    const previous = fixedExpensePreviousYearAmount(rowId, yearIndex, baseAmount)
+    if (!previous) return null
+    const prev = previous.amount
     const prevAbs = Math.abs(prev)
-    const prevSeasonality = getExpenseStoredSeasonalityPercents(rowId, yearIndex - 1)
+    const prevSeasonality = getExpenseStoredSeasonalityPercents(rowId, previous.seasonalityYearIndex)
     const prevMonthly = distributeAnnualRevenueBySeasonality(prevAbs, prevSeasonality)
     const defaultRate = getFixedExpenseDefaultInflationRate(rowId)
     const depensesFloats = prevMonthly.map((v) => v * (1 + defaultRate / 100))
@@ -3473,18 +3507,20 @@ export function IncomeStatementDetail({
         calculatedValue = adjustment.value
       }
     } else {
-      const prevDefault =
-        yearIndex > 0 ? (defaultTrendValues?.[yearIndex - 1] ?? defaultValue) : defaultValue
-      const previousValue =
-        yearIndex > 0
-          ? getProjectedRevenueRowValue(
-              revenueRowId,
-              yearIndex - 1,
-              prevDefault,
-              baseValue,
-              defaultTrendValues
-            )
-          : calculatedValue
+      const growthPrev = forecastGrowthPreviousConfigYearIndex(yearIndex, forecastActualCols)
+      let previousValue = calculatedValue
+      if (growthPrev === "nMinusOne") {
+        previousValue = nMinusOneActualForSeriesRow(revenueRowId)
+      } else if (growthPrev != null) {
+        const prevDefault = defaultTrendValues?.[growthPrev] ?? defaultValue
+        previousValue = getProjectedRevenueRowValue(
+          revenueRowId,
+          growthPrev,
+          prevDefault,
+          baseValue,
+          defaultTrendValues
+        )
+      }
 
       if (adjustment.type === "growthPercent") {
         calculatedValue = Math.round(previousValue * (1 + adjustment.value / 100))
@@ -3494,6 +3530,19 @@ export function IncomeStatementDetail({
     }
 
     return calculatedValue
+  }
+
+  /** Base affichée / calculée pour growth % et $ (N-1 si 1re année projetée + YTD). */
+  const revenueGrowthPreviousProjectedAmount = (
+    rowId: string,
+    yearIndex: number,
+    configTrend?: number[],
+  ): number => {
+    const growthPrev = forecastGrowthPreviousConfigYearIndex(yearIndex, forecastActualCols)
+    if (growthPrev === "nMinusOne") return nMinusOneActualForSeriesRow(rowId)
+    if (growthPrev == null) return 0
+    const prevDefault = configTrend?.[growthPrev] ?? 0
+    return getRevenueValue(rowId, growthPrev, prevDefault, undefined, configTrend)
   }
 
   const projectedRevenueForVariableExpenseLink = (
@@ -5755,8 +5804,7 @@ export function IncomeStatementDetail({
       return
     }
 
-    const defPrev = configTrend[y - 1] ?? 0
-    const prevProjected = getRevenueValue(row.rowId, y - 1, defPrev, undefined, configTrend)
+    const prevProjected = revenueGrowthPreviousProjectedAmount(row.rowId, y, configTrend)
 
     if (newType === "growthPercent") {
       const pct = calculateVariation(currentProjected, prevProjected)
@@ -5880,28 +5928,10 @@ export function IncomeStatementDetail({
       } else if (revenueAdjustmentType === "amount") {
         draftAnnualRevenueForSummary = Math.round(draftParsedForSummary ?? 0)
       } else if (revenueAdjustmentType === "growthPercent") {
-        const prevProjected =
-          yD > 0
-            ? getRevenueValue(
-                rowIdD,
-                yD - 1,
-                summaryTrendForDraft[yD - 1] ?? 0,
-                undefined,
-                summaryTrendForDraft
-              )
-            : getBaseValue(rowIdD, 0, summaryTrendForDraft[0] ?? 0, undefined)
+        const prevProjected = revenueGrowthPreviousProjectedAmount(rowIdD, yD, summaryTrendForDraft)
         draftAnnualRevenueForSummary = Math.round(prevProjected * (1 + (draftParsedForSummary ?? 0) / 100))
       } else {
-        const prevProjected =
-          yD > 0
-            ? getRevenueValue(
-                rowIdD,
-                yD - 1,
-                summaryTrendForDraft[yD - 1] ?? 0,
-                undefined,
-                summaryTrendForDraft
-              )
-            : getBaseValue(rowIdD, 0, summaryTrendForDraft[0] ?? 0, undefined)
+        const prevProjected = revenueGrowthPreviousProjectedAmount(rowIdD, yD, summaryTrendForDraft)
         draftAnnualRevenueForSummary = Math.round(prevProjected + (draftParsedForSummary ?? 0))
       }
     }
@@ -6175,8 +6205,12 @@ export function IncomeStatementDetail({
                             {revenueAdjustmentType === "amount"
                               ? "Montant annuel souhaité pour cette année"
                               : revenueAdjustmentType === "growthPercent"
-                                ? "Taux de croissance appliqué par rapport à l'année précédente."
-                                : "Variation en dollars par rapport au montant de l'année précédente."}
+                                ? forecastActualCols > 1 && yearIndex === 1
+                                  ? "Taux de croissance appliqué par rapport au dernier exercice complet (N-1), pas au YTD."
+                                  : "Taux de croissance appliqué par rapport à l'année précédente."
+                                : forecastActualCols > 1 && yearIndex === 1
+                                  ? "Variation en dollars par rapport au dernier exercice complet (N-1), pas au YTD."
+                                  : "Variation en dollars par rapport au montant de l'année précédente."}
                           </p>
                         </div>
                       )}
@@ -8695,20 +8729,29 @@ export function IncomeStatementDetail({
                             forecastActualCols,
                           ) === valueIdx
 
-                        // Get previous value for growth calculation
+                        // Get previous value for growth calculation (1re année projetée → N-1 si YTD)
+                        const growthBaseDisplayIdx = forecastGrowthBaseDisplayIndex(
+                          valueIdx,
+                          forecastActualCols,
+                        )
                         const previousValue =
-                          valueIdx > 0 && annexForecastTotalsForRow
-                            ? (annexForecastTotalsForRow[valueIdx - 1] ?? 0)
-                            : valueIdx > 0 && row.trendValues
+                          growthBaseDisplayIdx != null && annexForecastTotalsForRow
+                            ? (annexForecastTotalsForRow[growthBaseDisplayIdx] ?? 0)
+                            : growthBaseDisplayIdx != null && row.trendValues
                               ? isForecastSection && row.rowId
-                                ? displayedHypothesisAmount(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1], row.trendValues)
-                                : row.trendValues[valueIdx - 1]
+                                ? displayedHypothesisAmount(
+                                    row.rowId,
+                                    growthBaseDisplayIdx,
+                                    row.trendValues[growthBaseDisplayIdx],
+                                    row.trendValues,
+                                  )
+                                : row.trendValues[growthBaseDisplayIdx]
                               : null
                         
                         // Calculate growth rate if showGrowthRate is true and not first year
                         let displayValue: string | number = effectiveValue
                         let growthRate: number | null = null
-                        if (showGrowthRate && isForecastSection && valueIdx > 0 && previousValue !== null) {
+                        if (showGrowthRate && isForecastSection && growthBaseDisplayIdx != null && previousValue !== null) {
                           if (previousValue !== 0) {
                             growthRate = calculateVariation(effectiveValue, previousValue)
                             displayValue = growthRate !== null ? `${growthRate >= 0 ? "+" : ""}${growthRate.toFixed(1)}%` : "-"
@@ -8961,16 +9004,39 @@ export function IncomeStatementDetail({
                                   </Fragment>
                                 )
                               }
-                              const prevRaw = row.trendValues?.[valueIdx - 1] ?? 0
+                              const growthBaseDisplayIdx = forecastGrowthBaseDisplayIndex(
+                                valueIdx,
+                                forecastActualCols,
+                              )
+                              if (growthBaseDisplayIdx == null) {
+                                return (
+                                  <Fragment key={valueIdx}>
+                                    <td
+                                      className={cn(
+                                        "min-w-[8rem] px-4 py-2 text-right text-[12px] italic text-slate-400",
+                                        yearGroupStartClass(valueIdx),
+                                      )}
+                                    >
+                                      -
+                                    </td>
+                                    {showYearPctCa ? (
+                                      <td className="min-w-[4.5rem] px-2 py-2 text-right text-[12px] italic text-slate-400">
+                                        -
+                                      </td>
+                                    ) : null}
+                                  </Fragment>
+                                )
+                              }
+                              const prevRaw = row.trendValues?.[growthBaseDisplayIdx] ?? 0
                               const prev =
                                 isRevenusHeaderInner && revenueHeaderYearTotals
-                                  ? (revenueHeaderYearTotals[valueIdx - 1] ?? 0)
+                                  ? (revenueHeaderYearTotals[growthBaseDisplayIdx] ?? 0)
                                   : annexSubGrowthTotals
-                                    ? (annexSubGrowthTotals[valueIdx - 1] ?? 0)
+                                    ? (annexSubGrowthTotals[growthBaseDisplayIdx] ?? 0)
                                     : isForecastSection && row.rowId
                                       ? displayedHypothesisAmount(
                                           row.rowId,
-                                          valueIdx - 1,
+                                          growthBaseDisplayIdx,
                                           prevRaw,
                                           row.trendValues
                                         )
@@ -9292,22 +9358,31 @@ export function IncomeStatementDetail({
                                         ? Math.round(actualRowValue * account.proportion)
                                         : actualRowValue
                                   
-                                  // Get previous value for growth calculation
-                                  const previousRowValue = valueIdx > 0 && row.trendValues
+                                  // Get previous value for growth calculation (1re année projetée → N-1 si YTD)
+                                  const growthBaseDisplayIdx = forecastGrowthBaseDisplayIndex(
+                                    valueIdx,
+                                    forecastActualCols,
+                                  )
+                                  const previousRowValue =
+                                    growthBaseDisplayIdx != null && row.trendValues
                                     ? (isForecastSection && row.rowId
-                                        ? displayedHypothesisAmount(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1], row.trendValues)
-                                        : row.trendValues[valueIdx - 1])
+                                        ? displayedHypothesisAmount(
+                                            row.rowId,
+                                            growthBaseDisplayIdx,
+                                            row.trendValues[growthBaseDisplayIdx],
+                                            row.trendValues,
+                                          )
+                                        : row.trendValues[growthBaseDisplayIdx])
                                     : null
                                   
                                   // Calculate growth rate if showGrowthRate is true and not first year
                                   let displayValue: string | number = accountTrendValue
                                   let growthRate: number | null = null
-                                  if (showGrowthRate && isForecastSection && valueIdx > 0 && previousRowValue !== null) {
+                                  if (showGrowthRate && isForecastSection && growthBaseDisplayIdx != null && previousRowValue !== null) {
                                     const previousAccountValue =
                                       account.trendValues != null &&
-                                      valueIdx > 0 &&
-                                      account.trendValues[valueIdx - 1] !== undefined
-                                        ? account.trendValues[valueIdx - 1]!
+                                      account.trendValues[growthBaseDisplayIdx] !== undefined
+                                        ? account.trendValues[growthBaseDisplayIdx]!
                                         : account.proportion !== undefined
                                           ? Math.round(previousRowValue * account.proportion)
                                           : previousRowValue
