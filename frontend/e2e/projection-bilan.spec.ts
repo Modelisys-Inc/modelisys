@@ -113,6 +113,10 @@ async function setupBilanPage(page: Page) {
                 id: "capex1",
                 config_type: "capex-forecast",
                 data: {
+                  depreciationRates: {
+                    "ALT-C.1": 0,
+                    "detail-terrains-row": 0,
+                  },
                   capexAdjustments: {
                     "ALT-C.1-1": [
                       {
@@ -322,6 +326,34 @@ async function setupBilanPage(page: Page) {
             showInDetail: true,
           },
           {
+            label: "Bénéfices non répartis",
+            linkCode: "CAP-C",
+            liaisonMode: "single",
+            defineMapping: true,
+            showInDetail: true,
+          },
+          {
+            label: "Actif d'impôts exigibles",
+            linkCode: "ACT-H.1",
+            liaisonMode: "single",
+            defineMapping: true,
+            showInDetail: true,
+          },
+          {
+            label: "Passif d'impôts exigibles",
+            linkCode: "PCT-FF.1",
+            liaisonMode: "single",
+            defineMapping: true,
+            showInDetail: true,
+          },
+          {
+            label: "Produits reportés",
+            linkCode: "PCT-PD.1",
+            liaisonMode: "single",
+            defineMapping: true,
+            showInDetail: true,
+          },
+          {
             label: "Total de l'actif",
             isBold: true,
             isResult: true,
@@ -445,6 +477,34 @@ async function setupBilanPage(page: Page) {
             amounts,
             detailRows: [],
           },
+          {
+            id: "CAP-C",
+            label: "Bénéfices non répartis",
+            hasLiaisonCode: true,
+            amounts,
+            detailRows: [],
+          },
+          {
+            id: "ACT-H.1",
+            label: "Actif d'impôts exigibles",
+            hasLiaisonCode: true,
+            amounts,
+            detailRows: [],
+          },
+          {
+            id: "PCT-FF.1",
+            label: "Passif d'impôts exigibles",
+            hasLiaisonCode: true,
+            amounts,
+            detailRows: [],
+          },
+          {
+            id: "PCT-PD.1",
+            label: "Produits reportés",
+            hasLiaisonCode: true,
+            amounts,
+            detailRows: [],
+          },
         ],
       }),
     }),
@@ -485,9 +545,11 @@ async function setupBilanPage(page: Page) {
 
   const revenueAmounts: Record<string, number> = {}
   const cmvAmounts: Record<string, number> = {}
+  const netIncomeAmounts: Record<string, number> = {}
   for (const p of periods) {
     revenueAmounts[`${p.fiscalYear}-${p.fiscalMonth}`] = 100000
     cmvAmounts[`${p.fiscalYear}-${p.fiscalMonth}`] = 100000
+    netIncomeAmounts[`${p.fiscalYear}-${p.fiscalMonth}`] = 20000
   }
 
   await page.route(`**/financial-statements/income-statement/series**`, (route) =>
@@ -514,6 +576,14 @@ async function setupBilanPage(page: Page) {
             amounts: cmvAmounts,
             detailRows: [],
           },
+          {
+            id: "NI",
+            label: "Bénéfice net",
+            isResult: true,
+            hasLiaisonCode: true,
+            amounts: netIncomeAmounts,
+            detailRows: [],
+          },
         ],
       }),
     }),
@@ -530,11 +600,11 @@ test("bilan hypothesis shows the balance sheet and opens an adjustment panel", a
   await expect(page.getByText("Encaisse").first()).toBeVisible({ timeout: 20000 })
   await expect(page.getByText("Terrains")).toHaveCount(0)
   await expect(page.getByText("Trésorerie à la fin").first()).toBeVisible()
-  await expect(page.getByText("Capex (Hypothèse Capex)").first()).toBeVisible()
+  await expect(page.getByText("Hypothèse Capex").first()).toBeVisible()
   // Sous-totaux (Total de l'actif, …) : pas de mention Trésorerie / Capex / Financement
   const totalActifLabel = page.locator("tr", { hasText: "Total de l'actif" }).first()
   await expect(totalActifLabel.getByText("Trésorerie à la fin")).toHaveCount(0)
-  await expect(totalActifLabel.getByText("Capex (Hypothèse Capex)")).toHaveCount(0)
+  await expect(totalActifLabel.getByText("Hypothèse Capex")).toHaveCount(0)
   await expect(page.getByText("% du solde")).toHaveCount(0)
 
   const actifRow = page.locator("tr", { hasText: /^Actif$/ }).first()
@@ -553,28 +623,28 @@ test("bilan hypothesis shows the balance sheet and opens an adjustment panel", a
   await expect(page.getByRole("button", { name: /Enregistrer l'ajustement/ })).toHaveCount(0)
 
   const detteLtRow = page.locator("tr", { hasText: "Dette à long terme" }).first()
-  await expect(detteLtRow.getByText("Financement (Hypothèse Financement)")).toBeVisible()
+  await expect(detteLtRow.getByText("Hypothèse Financement")).toBeVisible()
   await detteLtRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
   await expect(page.getByRole("button", { name: /Enregistrer l'ajustement/ })).toHaveCount(0)
   await expect(detteLtRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText(/300\s000/)
 
   const portionCtRow = page.locator("tr", { hasText: "Portion court terme - Dette long terme" }).first()
-  await expect(portionCtRow.getByText("Financement (Hypothèse Financement)")).toBeVisible()
-  // Sans emprunt PCT-H → 0 $ (cellule vide)
+  await expect(portionCtRow.getByText("Hypothèse Financement")).toBeVisible()
+  // Intérêts seulement à 0 % → pas de P+I sur les 12 prochains mois
   await expect(portionCtRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText("")
 
-  // Terrains (detailOnly) masqué ; parent ALT-B somme Capex = 400 k$
+  // Terrains (detailOnly) masqué ; parent ALT-B = VNC ouverture 120k + ajout 400k (taux 0)
   await expect(page.getByText("Terrains")).toHaveCount(0)
   const immoRow = page.locator("tr", { hasText: "Immobilisations corporelles" }).first()
-  await expect(immoRow.getByText("Capex (Hypothèse Capex)")).toBeVisible()
+  await expect(immoRow.getByText("Hypothèse Capex")).toBeVisible()
   await immoRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
   await expect(page.getByRole("button", { name: /Enregistrer l'ajustement/ })).toHaveCount(0)
-  await expect(immoRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText(/400\s000/)
+  await expect(immoRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText(/520\s000/)
 
   const equipementRow = page.locator("tr", { hasText: "Équipement" }).first()
   await equipementRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
   await expect(page.getByRole("button", { name: /Enregistrer l'ajustement/ })).toHaveCount(0)
-  await expect(equipementRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText(/80\s000/)
+  await expect(equipementRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText(/200\s000/)
 
   const placementsRow = page.locator("tr", { hasText: "Placement temporaire" }).first()
   await placementsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
@@ -590,13 +660,13 @@ test("bilan hypothesis shows the balance sheet and opens an adjustment panel", a
 
   // Total de l'actif = liaison sum ACT+ALT
   // N-1 / YTD : 120k × 6 postes (encaisse, clients, stocks, placement, équipement, immo) = 720k
-  // Projeté : encaisse 120k + placement 50k + équipement 80k + immo Capex 400k + clients 0 + stocks 0 = 650k
+  // Projeté : encaisse 120k + placement 50k + équipement 200k + immo 520k + clients 0 + stocks 0 = 890k
   const totalActif = page.locator("tr", { hasText: "Total de l'actif" }).first()
   await expect(totalActif).toBeVisible()
   await totalActif.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
   await expect(page.getByRole("button", { name: /Enregistrer l'ajustement/ })).toHaveCount(0)
   await expect(totalActif.locator("td").nth(1)).toHaveText(/720\s000/)
-  await expect(totalActif.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText(/650\s000/)
+  await expect(totalActif.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText(/890\s000/)
 })
 
 test("other ACT posts can be driven as a percent of revenue", async ({ page }) => {
@@ -760,4 +830,62 @@ test("crediteurs apparentes hypotheses mirror crediteurs payment delay drivers",
   await page.getByRole("button", { name: /Enregistrer l'ajustement/ }).click()
   // Sans hyp. Dépenses CMV → 0 $
   await expect(row.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText("")
+})
+
+test("retained earnings shows period earnings read-only and editable dividends", async ({ page }) => {
+  await setupBilanPage(page)
+  await page.goto("/projections/bilan")
+
+  await expect(page.getByText("Bénéfices non répartis").first()).toBeVisible({ timeout: 20000 })
+
+  const reRow = page.locator("tr", { hasText: "Bénéfices non répartis" }).first()
+  await reRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
+
+  await expect(page.getByRole("heading", { name: "Bénéfices non répartis" })).toBeVisible()
+  await expect(page.getByText("Exercices réels")).toBeVisible()
+  await expect(page.getByRole("rowheader", { name: "Bénéfice de la période" })).toBeVisible()
+  await expect(page.getByTestId("bilan-re-period-earnings")).toBeVisible()
+  await expect(page.getByTestId("bilan-re-dividends")).toBeVisible()
+  await expect(page.getByLabel("Montant ($)")).toHaveCount(0)
+
+  await page.getByTestId("bilan-re-dividends").fill("25000")
+  await page.getByRole("button", { name: /Enregistrer l'ajustement/ }).click()
+  await expect(page.getByRole("heading", { name: "Bénéfices non répartis" })).toHaveCount(0)
+})
+
+test("tax balance sheet rows show Hypothèse Impôts and are not adjustable", async ({ page }) => {
+  await setupBilanPage(page)
+  await page.goto("/projections/bilan")
+
+  const taxAssetRow = page.locator("tr", { hasText: "Actif d'impôts exigibles" }).first()
+  await expect(taxAssetRow).toBeVisible({ timeout: 20000 })
+  await expect(taxAssetRow.getByText("Hypothèse Impôts")).toBeVisible()
+  await taxAssetRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
+  await expect(page.getByRole("button", { name: /Enregistrer l'ajustement/ })).toHaveCount(0)
+
+  const taxLiabRow = page.locator("tr", { hasText: "Passif d'impôts exigibles" }).first()
+  await expect(taxLiabRow.getByText("Hypothèse Impôts")).toBeVisible()
+  await taxLiabRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
+  await expect(page.getByRole("button", { name: /Enregistrer l'ajustement/ })).toHaveCount(0)
+})
+
+test("produits reportés can be driven as a percent of revenue", async ({ page }) => {
+  await setupBilanPage(page)
+  await page.goto("/projections/bilan")
+
+  const pdRow = page.locator("tr", { hasText: "Produits reportés" }).first()
+  await expect(pdRow).toBeVisible({ timeout: 20000 })
+  await pdRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
+
+  await expect(page.getByRole("heading", { name: "Produits reportés" })).toBeVisible()
+  await expect(page.getByRole("tab", { name: "Montant ($)" })).toBeVisible()
+  await expect(page.getByRole("tab", { name: "% des revenus" })).toBeVisible()
+
+  await page.getByRole("tab", { name: "% des revenus" }).click()
+  await expect(page.getByText("Exercices réels")).toBeVisible()
+  await expect(page.getByTestId("bilan-act-projected-amount")).toBeVisible()
+
+  await page.getByRole("spinbutton", { name: "% des revenus" }).fill("15")
+  await page.getByRole("button", { name: /Enregistrer l'ajustement/ }).click()
+  await expect(pdRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText(/180\s000/)
 })

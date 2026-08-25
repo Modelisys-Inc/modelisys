@@ -4,7 +4,10 @@ import {
   buildComptesClientsHistory,
   buildCrediteursHistory,
   buildForecastEndingCashTrend,
+  buildRetainedEarningsHistory,
   buildStocksHistory,
+  dividendsFromRetainedEarningsFlow,
+  lastRetainedEarningsHistoryDividends,
   comptesClientsAmountFromDriver,
   crediteursAmountFromDriver,
   isCapexDrivenBilanRow,
@@ -29,6 +32,12 @@ import {
   resolveOtherActProjectedValue,
   resolveStocksProjectedValue,
   resolveTreasuryLineFromEndingCash,
+  resolveRetainedEarningsProjectedValue,
+  dividendsForBilanYear,
+  isRetainedEarningsBilanRow,
+  isProduitsReportesBilanRow,
+  isRevenuePercentAdjustableBilanRow,
+  isTaxDrivenBilanRow,
   revenueForComptesClientsYear,
   stocksAmountFromDriver,
   type BilanAdjustment,
@@ -195,6 +204,30 @@ describe("isFinancingDrivenBilanRow", () => {
     expect(isFinancingDrivenBilanRow({ linkCode: "PLT-D.1" })).toBe(true)
     expect(isFinancingDrivenBilanRow({ linkCode: "PLT-B" })).toBe(false)
     expect(isFinancingDrivenBilanRow({ linkCode: "PCT-A" })).toBe(false)
+  })
+})
+
+describe("isTaxDrivenBilanRow / isProduitsReportesBilanRow", () => {
+  it("matches tax asset and liability link codes and labels", () => {
+    expect(isTaxDrivenBilanRow({ linkCode: "ACT-H" })).toBe(true)
+    expect(isTaxDrivenBilanRow({ linkCode: "ACT-H.1" })).toBe(true)
+    expect(isTaxDrivenBilanRow({ linkCode: "PCT-FF" })).toBe(true)
+    expect(isTaxDrivenBilanRow({ linkCode: "PCT-FF.1" })).toBe(true)
+    expect(isTaxDrivenBilanRow({ label: "Actif d'impôts exigibles" })).toBe(true)
+    expect(isTaxDrivenBilanRow({ label: "Passif d'impôts exigibles" })).toBe(true)
+    expect(isTaxDrivenBilanRow({ linkCode: "ACT-C" })).toBe(false)
+  })
+
+  it("matches produits reportés and includes them in revenue-percent adjustable rows", () => {
+    expect(isProduitsReportesBilanRow({ linkCode: "PCT-PD" })).toBe(true)
+    expect(isProduitsReportesBilanRow({ linkCode: "PCT-PD.1" })).toBe(true)
+    expect(isProduitsReportesBilanRow({ linkCode: "PD" })).toBe(true)
+    expect(isProduitsReportesBilanRow({ label: "Produits reportés" })).toBe(true)
+    expect(isProduitsReportesBilanRow({ linkCode: "PCT-C" })).toBe(false)
+    expect(
+      isRevenuePercentAdjustableBilanRow({ linkCode: "PCT-PD.1", label: "Produits reportés" }),
+    ).toBe(true)
+    expect(isRevenuePercentAdjustableBilanRow({ linkCode: "ACT-B.1" })).toBe(true)
   })
 })
 
@@ -551,5 +584,92 @@ describe("recomputeBilanHypothesisSubtotalTrends", () => {
     expect(out[3]?.trendValues).toEqual([100, 10])
     expect(out[6]?.trendValues).toEqual([400, 40])
     expect(out[7]?.trendValues).toEqual([500, 50])
+  })
+})
+
+describe("isRetainedEarningsBilanRow", () => {
+  it("matches CAP-C and the Bénéfices non répartis label", () => {
+    expect(isRetainedEarningsBilanRow({ linkCode: "CAP-C" })).toBe(true)
+    expect(isRetainedEarningsBilanRow({ label: "Bénéfices non répartis" })).toBe(true)
+    expect(isRetainedEarningsBilanRow({ linkCode: "CAP-C.1" })).toBe(false)
+    expect(isRetainedEarningsBilanRow({ linkCode: "CAP-C.2" })).toBe(false)
+  })
+})
+
+describe("resolveRetainedEarningsProjectedValue", () => {
+  it("rolls opening RE + period NI − dividends across projected years", () => {
+    const adjustments: BilanAdjustment[] = [
+      adj({ id: "d1", yearIndex: 1, type: "dividends", value: 20_000 }),
+      adj({ id: "d2", yearIndex: 2, type: "dividends", value: 10_000, isRecurring: false }),
+    ]
+    // display: [N-1=500k], projected years 1 and 2
+    const baseTrend = [500_000, 0, 0]
+    const ni = [0, 100_000, 80_000]
+    expect(
+      resolveRetainedEarningsProjectedValue({
+        baseTrend,
+        yearIndex: 1,
+        adjustments,
+        periodNetIncomeByDisplayYear: ni,
+        forecastActualCols: 1,
+      }),
+    ).toBe(580_000) // 500k + 100k - 20k
+    expect(
+      resolveRetainedEarningsProjectedValue({
+        baseTrend,
+        yearIndex: 2,
+        adjustments,
+        periodNetIncomeByDisplayYear: ni,
+        forecastActualCols: 1,
+      }),
+    ).toBe(650_000) // 580k + 80k - 10k
+  })
+
+  it("reads recurring dividends on later years", () => {
+    expect(
+      dividendsForBilanYear(
+        [adj({ id: "d", yearIndex: 1, type: "dividends", value: 5_000, isRecurring: true })],
+        3,
+      ),
+    ).toBe(5_000)
+  })
+})
+
+describe("buildRetainedEarningsHistory", () => {
+  it("derives dividends from RE roll-forward when not explicit", () => {
+    const history = buildRetainedEarningsHistory({
+      lastActualYear: 2025,
+      reByYear: { 2024: 400_000, 2025: 500_000 },
+      netIncomeByYear: { 2024: 80_000, 2025: 100_000 },
+    })
+    expect(history).toHaveLength(2)
+    expect(history[0]?.year).toBe(2024)
+    expect(history[0]?.dividends).toBeNull()
+    expect(history[1]?.dividends).toBe(0) // 400k + 100k - 500k = 0
+  })
+
+  it("prefers explicit dividends over derived", () => {
+    const history = buildRetainedEarningsHistory({
+      lastActualYear: 2025,
+      reByYear: { 2024: 400_000, 2025: 480_000 },
+      netIncomeByYear: { 2024: 80_000, 2025: 100_000 },
+      dividendsByYear: { 2025: 20_000 },
+    })
+    expect(history[1]?.dividends).toBe(20_000)
+  })
+
+  it("lastRetainedEarningsHistoryDividends returns last year value", () => {
+    const history = buildRetainedEarningsHistory({
+      lastActualYear: 2025,
+      reByYear: { 2024: 400_000, 2025: 500_000 },
+      netIncomeByYear: { 2024: 80_000, 2025: 100_000 },
+      dividendsByYear: { 2025: 15_000 },
+    })
+    expect(lastRetainedEarningsHistoryDividends(history)).toBe(15_000)
+  })
+
+  it("dividendsFromRetainedEarningsFlow clamps negative to zero", () => {
+    expect(dividendsFromRetainedEarningsFlow(500_000, 50_000, 600_000)).toBe(0)
+    expect(dividendsFromRetainedEarningsFlow(500_000, 100_000, 550_000)).toBe(50_000)
   })
 })

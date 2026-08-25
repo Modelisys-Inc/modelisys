@@ -10,6 +10,7 @@ import type {
   DebtMoratoriumScope,
   DebtRepaymentMode,
 } from "@/lib/debt-forecast-types"
+import { debtLinkCodeFromCapexAssetLinkCode, isCapexProjectionLinkCode } from "@/lib/standard-link-code-utils"
 
 export type { LoanYearAmortization }
 
@@ -226,6 +227,32 @@ export function computeFinancedAmount(config: CapexFinancingConfig): number {
   return Math.max(0, config.totalAmount - down)
 }
 
+/**
+ * Code actif Capex (ALT-B/C/D…) pour rattacher la dette à PLT-C/D.
+ * Préfère le linkCode de la ligne ; sinon rowId s’il est déjà un code ALT ;
+ * sinon cherche dans la structure bilan (rowId = UUID détail).
+ */
+export function resolveCapexAssetLinkCodeForDebt(
+  rowId: string,
+  opts?: {
+    rowLinkCode?: string | null
+    structureRows?: Array<Record<string, unknown>> | null
+  },
+): string | undefined {
+  const fromRow = String(opts?.rowLinkCode ?? "").trim()
+  if (fromRow && (isCapexProjectionLinkCode(fromRow) || debtLinkCodeFromCapexAssetLinkCode(fromRow))) {
+    return fromRow
+  }
+  const id = String(rowId ?? "").trim()
+  if (id && isCapexProjectionLinkCode(id)) return id
+  for (const sr of opts?.structureRows ?? []) {
+    if (String(sr.id ?? "").trim() !== id) continue
+    const lc = String(sr.linkCode ?? "").trim()
+    if (lc) return lc
+  }
+  return fromRow || undefined
+}
+
 export function computeCashDisbursementAmount(config: CapexFinancingConfig): number {
   if (config.mode === "cash") return config.totalAmount
   if (config.mode === "mixed") return config.downPayment ?? 0
@@ -341,6 +368,8 @@ export function buildDebtLoanFromCapexFinancing(
   capexKey: string,
   forecastBaseYear: number,
   existingLoanId?: string,
+  assetLinkCode?: string | null,
+  existingSourceLinkCode?: string | null,
 ): DebtForecastLoan | null {
   const financed = computeFinancedAmount(config)
   if (financed <= 0 || !config.debt) return null
@@ -353,6 +382,10 @@ export function buildDebtLoanFromCapexFinancing(
     hasBalloon && config.debt.balloonPaymentDate
       ? projectDateToStartMonth(config.debt.balloonPaymentDate, forecastBaseYear)
       : undefined
+
+  const sourceLinkCode =
+    debtLinkCodeFromCapexAssetLinkCode(assetLinkCode) ??
+    (existingSourceLinkCode?.trim() || undefined)
 
   return {
     id: existingLoanId ?? generateId(),
@@ -374,6 +407,8 @@ export function buildDebtLoanFromCapexFinancing(
         : "interest",
     sourceCapexKey: capexKey,
     sourceType: "capex",
+    sourceLinkCode,
+    hypothesisDefined: true,
   }
 }
 
@@ -384,8 +419,10 @@ export async function syncCapexFinancingToDebtForecast(opts: {
   capexKey: string
   financing: CapexFinancingConfig
   forecastBaseYear: number
+  /** Code de liaison Capex (ALT-B / ALT-C / ALT-D…) → PLT-C ou PLT-D. */
+  assetLinkCode?: string | null
 }): Promise<CapexFinancingConfig> {
-  const { companyId, projectionId, capexKey, financing, forecastBaseYear } = opts
+  const { companyId, projectionId, capexKey, financing, forecastBaseYear, assetLinkCode } = opts
   const normalized = normalizeCapexFinancing(financing, forecastBaseYear)
   const financed = computeFinancedAmount(normalized)
 
@@ -405,6 +442,7 @@ export async function syncCapexFinancingToDebtForecast(opts: {
   const existingIdx = loans.findIndex(
     (l) => l.id === normalized.linkedLoanId || l.sourceCapexKey === capexKey,
   )
+  const existingLoan = existingIdx >= 0 ? loans[existingIdx] : undefined
 
   if (financed <= 0 || !normalized.debt) {
     if (existingIdx >= 0) {
@@ -422,7 +460,9 @@ export async function syncCapexFinancingToDebtForecast(opts: {
     normalized,
     capexKey,
     forecastBaseYear,
-    existingIdx >= 0 ? loans[existingIdx]?.id : normalized.linkedLoanId,
+    existingLoan?.id ?? normalized.linkedLoanId,
+    assetLinkCode,
+    existingLoan?.sourceLinkCode,
   )
   if (!loan) return normalized
 

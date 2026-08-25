@@ -58,7 +58,11 @@ async function setupTaxesPage(page: Page) {
       return route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ id: "fc1", config_type: "tax-forecast", data: { taxRate: 30 } }),
+        body: JSON.stringify({
+          id: "fc1",
+          config_type: "tax-forecast",
+          data: { taxRate: 30, taxPaymentFrequency: "quarterly" },
+        }),
       })
     }
     return route.continue()
@@ -76,4 +80,33 @@ test("tax hypothesis page lets the user set an applicable rate", async ({ page }
   await expect(rate).toHaveValue("26")
   await rate.fill("30")
   await expect(page.getByText("30.0 %")).toBeVisible()
+})
+
+test("tax hypothesis page lets the user set payment frequency", async ({ page }) => {
+  await setupTaxesPage(page)
+  await page.goto("/projections/taxes")
+
+  await expect(page.getByRole("heading", { name: "Estimation des Impôts" })).toBeVisible({
+    timeout: 15000,
+  })
+  await expect(page.getByTestId("tax-forecast-payment-frequency")).toBeVisible()
+  await expect(page.getByTestId("tax-forecast-payment-annual")).toHaveAttribute(
+    "data-state",
+    "active",
+  )
+
+  const putPromise = page.waitForRequest(
+    (req) =>
+      req.url().includes(`/api/companies/${COMPANY_ID}/forecast-configs`) &&
+      req.method() === "PUT",
+  )
+  await page.getByTestId("tax-forecast-payment-quarterly").click()
+  const put = await putPromise
+  const body = put.postDataJSON() as { data?: { taxPaymentFrequency?: string; taxRate?: number } }
+  expect(body.data?.taxPaymentFrequency).toBe("quarterly")
+  expect(body.data?.taxRate).toBe(26)
+  await expect(page.getByTestId("tax-forecast-payment-quarterly")).toHaveAttribute(
+    "data-state",
+    "active",
+  )
 })

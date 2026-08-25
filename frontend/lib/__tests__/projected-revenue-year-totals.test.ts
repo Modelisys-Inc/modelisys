@@ -4,6 +4,7 @@ import {
   computeProjectedRevenueRowValue,
   computeProjectedRevenueYearTotalsFromSeries,
   listRevenueHypothesisPostIds,
+  listRevenueHypothesisPostIdsFromConfigKeys,
 } from "@/hooks/use-projected-revenue-year-totals"
 
 function monthlyPeriods(fromYear: number, toYear: number): SeriesPeriod[] {
@@ -51,6 +52,18 @@ describe("listRevenueHypothesisPostIds", () => {
       { id: "REV.1", label: "Ventes" },
     ]
     expect(listRevenueHypothesisPostIds(rows, structure)).toEqual(["REV.1"])
+  })
+})
+
+describe("listRevenueHypothesisPostIdsFromConfigKeys", () => {
+  it("collects series ids present in revenue adjustment keys", () => {
+    expect(
+      listRevenueHypothesisPostIdsFromConfigKeys(
+        [{ id: "REV-A.1" }, { id: "REV-A.2" }, { id: "CMV" }],
+        { "REV-A.1-1": [], "REV-A.2-1": [] },
+        {},
+      ),
+    ).toEqual(["REV-A.1", "REV-A.2"])
   })
 })
 

@@ -282,16 +282,54 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   avec ajustement = courbes + tableau Dépenses / Ajustement / Dépenses avec
   ajustement.
   **Hypothèses Capex** : onglets Sommaire / Taux / Ajustement (plus d’onglet
-  Décaissement séparé). Chaque ajustement porte son propre financement
+  Décaissement séparé). Colonnes comme Revenus / Bilan :
+  **Taux** | **N-1** | **YTD** (si mois de réf. ≠ clôture) | années projetées
+  (`nMinusOne-and-ytd` — ex. réf. mars 2026 → `Taux` | `2025` | `YTD 2026` |
+  `2026` | `2027`…). **En-tête (Taux + années) et colonne Compte figés** au
+  défilement vertical/horizontal de la carte (`max-h` + `sticky`, comme Hypothèses
+  Bilan). Affichage projeté = **valeur comptable** (Coût − Amortissement cumulé) :
+  Coût et Amort. cumulé issus du mapping (`alt_asset_cost` /
+  `alt_accumulated_amortization`) ; sans ajustement, la VNC se projette quand même
+  via la dotation annuelle (taux linéaire sur le coût / dégressif sur la VNC).
+  Panneau Ajustement : tableau Coût / Amort. cumulé / VNC ; le montant d’ajustement
+  **augmente le Coût**, puis la dotation augmente l’amortissement cumulé.
+  Cellules projetées **avec ajustement** : point bleu et infobulle
+  (montant ajouté au coût) — distinctes de la VNC après amortissement seul.
+  Bouton **Ajustements** à droite du titre : n’affiche que le montant d’ajout
+  de chaque cellule projetée (« - » sinon) ; **Valeur comptable** revient à la VNC.
+  Chaque ajustement porte son propre financement
   (`capexFinancing` : comptant / financement / mixte) et calendrier de
   décaissement mensuel (`seasonalityMonthPercents`, « Tout à 0 % » pour un
   décaissement ponctuel) ; plusieurs ajustements par année sont additionnés.
   Dette : Intérêts seulement (option paiement résiduel) ou Capital et intérêt ;
   date de 1er paiement ≥ première année projetée ; moratoire (mois) — intérêts
   seulement pour IO, portée intérêts / capital / les deux pour C&I.
+  Capex financé → `debt-forecast` avec `sourceLinkCode` : ALT-B / ALT-D
+  (immos corporelles / incorporels) → **PLT-C** ; ALT-C (biens loués) → **PLT-D**
+  (`debtLinkCodeFromCapexAssetLinkCode`, résolution via `linkCode` structure même si
+  `rowId` est un UUID) — mêmes sections Hypothèses Financement et montants Bilan
+  (PCT-H/I, PLT-C/D) que les emprunts mapping. Pas de section « Autres emprunts »
+  (prêts sans code PLT exclus de l’affichage Financement).
+  **Pro Forma Résultats** (Sommaire + Détail) : `title="États des résultats pro forma"` ;
+  montants projetés = moteurs Hypothèses Revenus + Dépenses (`income-statement-detail`)
+  sur les postes annexes / codes hyp. ; formules de liaison au Sommaire.
+  **Détail Pro Forma** = même structure d’annexes que États des résultats → Détail
+  (Annexe A/B…, sous-lignes `detailOnly`, sous-totaux + ligne vide) ; pas le flat
+  Hypothèses Revenus/Dépenses ; **sans Annexe Impôts** (famille IMP / Exigibles —
+  le montant impôts n’apparaît qu’au Sommaire).
+  **Sommaire Pro Forma** : poste propriétaire d’annexe (CMV, Frais d’administration,
+  Frais financiers…) = somme des sous-lignes `detailOnly` de l’annexe (même montant
+  que Sous-total — Annexe X au Détail). Cascade résultat projetée (comme N-1 / YTD) :
+  **Bénéfice brut** = Revenus − CMV ; **Total des charges** = postes de la section
+  Charges ; **Bénéfice avant impôts** = brut − total charges ; **Impôts** = taux
+  Hypothèses Impôts (`tax-forecast`) × max(0, BAI) (infobulle à côté du libellé) ;
+  **Bénéfice net** = BAI − Impôts ; **BAIIA** projeté = REV − total des postes
+  Hypothèses Dépenses (somme des sous-totaux d’annexes de cette section).
   **Hypothèses Financement** : même carte / tableau que Capex (Emprunt | Taux | années).
   Clic sur un emprunt → panneau inline (nom, montant, `DebtParamsFields`) ; les
-  autres lignes sont masquées. Mapping PLT (PLT-B/G/C/D) alimente le tableau
+  autres lignes sont masquées. Emprunts issus du Capex financé : badge Capex +
+  mention « Hypothèse Capex », cellules non éditables (params gérés dans Capex).
+  Mapping PLT (PLT-B/C/D — pas PLT-G « Dues ») alimente le tableau
   (solde d’ouverture) ; taux / durée / remboursement se définissent dans le
   panneau, plus dans le mapping comptable. Emprunts mapping sans hypothèse
   flaggés « À définir » jusqu’à Enregistrer.
@@ -325,7 +363,10 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   de lignes non plus.
   Hypothèses Bilan : N-1 + YTD (même date de référence que Revenus / Bilan pro forma).
   **Hypothèses Impôts** : taux unique (`tax-forecast`, défaut 26 %) applicable aux
-  années projetées (poste IMP).
+  années projetées (poste IMP) + **Paiement des impôts** (`taxPaymentFrequency` :
+  Mensuel / Trimestriel / Semestriel / Annuel, défaut Annuel). **Actif d'impôts
+  exigibles** (ACT-H) et **Passif d'impôts exigibles** (PCT-FF) : mention
+  « Hypothèse Impôts », non ajustables au bilan.
   **Hypothèses Bilan** : même tableau que le **Sommaire** du bilan (`Estimation du Bilan annuel`),
   sans les sous-lignes Détail / annexes ; colonnes = **même date de référence** que
   Hypothèses Revenus (`nMinusOne-and-ytd` : N-1 + YTD puis années projetées — ex. réf.
@@ -336,15 +377,20 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   non cliquables. Titres de section (Actif, Passif…) : pas de clic ; montants à 0 $
   invisibles. Clic sur une année projetée (postes) → panneau
   d’ajustement (Montant $ ; comptes clients et stocks : drivers ; créditeurs :
-  délai de paiement / CMV ou % des revenus ; autres postes ACT : Montant $ ou
-  **% des revenus** ; récurrent, note). Encaisse (ACT-A / ACT-A.1) et **Découvert
+  délai de paiement / CMV ou % des revenus ; **Bénéfices non répartis** (CAP-C) :
+  panneau **Bénéfice de la période** (lecture seule = BN projeté aligné Résultats
+  pro forma / hyp. revenus) + **Dividendes** (modifiable) ; solde projeté =
+  ouverture + BN − dividendes ; autres postes ACT : Montant $ ou
+  **% des revenus** ; **Produits reportés** (PCT-PD) : Montant $ ou **% des revenus** ;
+  récurrent, note). Encaisse (ACT-A / ACT-A.1) et **Découvert
   bancaire** (PCT-A) ne sont pas ajustables : mention « Trésorerie à la fin » ;
   montants projetés = solde réel + Δ de la Trésorerie à la fin. **Portion court
   terme - Dette long terme** (PCT-H), **Portion court terme - Location-acquisition**
   (PCT-I), **Dette à long terme** (PLT-C) et **Obligations de location-acquisition**
-  (PLT-D) : mention « Financement (Hypothèse Financement) » ; soldes projetés =
-  somme des `endingBalance` des emprunts `debt-forecast` dont `sourceLinkCode`
-  matche (0 $ sans hyp. définie). Comptes clients (ACT-C) : **Délai de collection des clients**
+  (PLT-D) : mention « Hypothèse Financement » ; emprunts mappés sur PLT-C/D.
+  **PCT-H / PCT-I** = capital + intérêts des **12 prochains mois** (amortYear + 1) ;
+  **PLT-C / PLT-D** = `endingBalance` − capital des 12 prochains mois (jamais négatif ;
+  0 $ sans hyp. définie). Comptes clients (ACT-C) : **Délai de collection des clients**
   ou **% des revenus**, avec les 2 derniers exercices réels sous chaque option
   (soldes de **clôture d’exercice** N-2 / N-1 — mêmes montants que la colonne N-1
   du tableau, pas le mois de référence YTD) ;
@@ -359,8 +405,9 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   ou **% des revenus** (même CA) ;
   historique N-2 / N-1 avec AP + CMV + REV aux mêmes clôtures. **Immobilisations
   corporelles / Biens loués / Actifs incorporels** (ALT-B / ALT-C / ALT-D) : non
-  ajustables — mention « Capex (Hypothèse Capex) » ; montants projetés = Hypothèses
-  Capex (`capex-forecast`, même moteur que Estimation des Capex). Parent en
+  ajustables — mention « Hypothèse Capex » ; montants projetés = **valeur comptable**
+  Hypothèses Capex (`capex-forecast`, même moteur que Estimation des Capex —
+  amortissement + ajouts au coût). Parent en
   `liaisonMode: "sum"` (ex. Immobilisations corporelles) : Capex prioritaire sur la
   somme liaison (feuilles souvent `detailOnly` absentes du Sommaire) ; rollup =
   somme des Capex des descendants (Terrains ALT-B.1, …) via `linkCode` stocké sur

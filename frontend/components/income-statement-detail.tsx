@@ -111,12 +111,15 @@ import {
   seriesRowBelongsToRevenueAnnexDetail,
   seriesRowBelongsToDepensesAnnexDetail,
   seriesRowUsesExcludedProjectionExpenseLinkCode,
+  seriesRowBelongsToImpotsAnnexDetail,
   structureRowBelongsToRevenueAnnexDetail,
   structureRowBelongsToDepensesAnnexDetail,
+  structureRowBelongsToImpotsAnnexDetail,
   ensureSeriesRowsForAnnexDetailScope,
   resolveStructureAnnexLetter,
 } from "@/lib/income-statement-structure-utils"
 import { filterIncomeStatementDetailRowsForHorizon } from "@/lib/income-statement-horizon-filter"
+import { listRevenueHypothesisPostIdsFromConfigKeys } from "@/hooks/use-projected-revenue-year-totals"
 import {
   annexGroupShouldShowSubtotal,
   omitAnnexTitleRowsWithoutAmountPosts,
@@ -1217,9 +1220,14 @@ export function IncomeStatementDetail({
 
   // Check if this is a forecast section (Revenus, Dépenses, or États des résultats pro forma)
   const isForecastSection =
+    forceForecastSection ||
     title === "Estimation des revenus annuels" ||
     title === "Estimation des dépenses annuelles" ||
     title === "États des résultats pro forma"
+  const isProFormaResultsTitle = title === "États des résultats pro forma"
+  /** Moteur Hypothèses Dépenses (types, taux, CA lié) — aussi sur Résultats Pro Forma. */
+  const appliesExpenseHypothesisEngine =
+    title === "Estimation des dépenses annuelles" || isProFormaResultsTitle
   const isForecastHistoricalColumn = (idx: number) =>
     (forceForecastSection || isForecastSection) && idx < forecastActualCols
   const isForecastProjectedColumn = (idx: number) =>
@@ -1585,7 +1593,7 @@ export function IncomeStatementDetail({
 
   // Get expense type for a row (defaults to "variable")
   const getExpenseType = (rowId: string | undefined): "variable" | "fixe" => {
-    if (!rowId || title !== "Estimation des dépenses annuelles") return "variable"
+    if (!rowId || !appliesExpenseHypothesisEngine) return "variable"
     return expenseTypes[rowId] || "variable"
   }
 
@@ -1854,7 +1862,7 @@ export function IncomeStatementDetail({
 
   // Get variable rate for a row (defaults to 0 if not set)
   const getVariableRate = (rowId: string | undefined): number => {
-    if (!rowId || title !== "Estimation des dépenses annuelles") return 0
+    if (!rowId || !appliesExpenseHypothesisEngine) return 0
     return variableRates[rowId] || 0
   }
 
@@ -3216,7 +3224,9 @@ export function IncomeStatementDetail({
 
   /** Postes détail des Hypothèses revenus (même périmètre que la colonne CA / ligne Revenus). */
   const listRevenueHypothesisPostIds = (): string[] => {
-    if (!incomeStatementStructure?.length) return []
+    if (!incomeStatementStructure?.length) {
+      return listRevenueHypothesisPostIdsFromConfigKeys(seriesRows, revenueAdjustments, revenueValues)
+    }
     if (structureHasRevenuePosteNatureRow(incomeStatementStructure)) {
       let rows = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure).filter((sr) =>
         seriesRowBelongsToRevenueAnnexDetail(sr, incomeStatementStructure)
@@ -3258,8 +3268,14 @@ export function IncomeStatementDetail({
         seen.add(sr.id)
         ids.push(sr.id)
       }
-      return ids
+      if (ids.length > 0) return ids
     }
+    const fromConfig = listRevenueHypothesisPostIdsFromConfigKeys(
+      seriesRows,
+      revenueAdjustments,
+      revenueValues,
+    )
+    if (fromConfig.length > 0) return fromConfig
     const sorted = filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
     const revenueSeries =
       sorted.find((r) => normLabel(r.label) === "revenus" && !r.isSection) ??
@@ -3301,7 +3317,7 @@ export function IncomeStatementDetail({
   const resolveVariableExpenseRevenueSource = (
     yearIndex: number
   ): { revenueRowId: string; defaultValue: number; baseAmount: number; projectedAmount?: number } | null => {
-    if (title !== "Estimation des dépenses annuelles") return null
+    if (!appliesExpenseHypothesisEngine) return null
     const defaultGrowthRate = 0.05
 
     const fromSeriesId = (revenueSeriesId: string) => {
@@ -3428,7 +3444,7 @@ export function IncomeStatementDetail({
     // Anciennes configs pouvaient enregistrer 0 sur les années projetées : pour les fixes, recalculer plutôt que d’afficher 0$
     if (revenueValues[key] !== undefined) {
       const phantomZeroFixe =
-        title === "Estimation des dépenses annuelles" &&
+        appliesExpenseHypothesisEngine &&
         getExpenseType(rowId) === "fixe" &&
         yearIndex > 0 &&
         revenueValues[key] === 0
@@ -3438,7 +3454,7 @@ export function IncomeStatementDetail({
     }
     
     // For fixed expenses, recalculate based on inflation if not manually edited
-    if (title === "Estimation des dépenses annuelles" && getExpenseType(rowId) === "fixe" && yearIndex > 0) {
+    if (appliesExpenseHypothesisEngine && getExpenseType(rowId) === "fixe" && yearIndex > 0) {
       // Get the base value (year 0) - either edited, provided, or default
       const baseKey = `${rowId}-0`
       const actualBase =
@@ -3578,16 +3594,39 @@ export function IncomeStatementDetail({
   ): number => {
     if (!rowId || !isForecastSection) return defaultValue
 
+    const seriesRowForId = seriesRows.find((r) => r.id === rowId)
+    const hasRevenueConfigKeys =
+      Object.keys(revenueAdjustments).some((k) => k.startsWith(`${rowId}-`)) ||
+      Object.keys(revenueValues).some((k) => k.startsWith(`${rowId}-`))
+    const hasExpenseConfigKeys =
+      expenseTypes[rowId] != null ||
+      variableRates[rowId] != null ||
+      Object.keys(expenseAdjustments).some((k) => k.startsWith(`${rowId}-`))
+    const isRevenueHypothesisRow =
+      title === "Estimation des revenus annuels" ||
+      (isProFormaResultsTitle &&
+        ((!!incomeStatementStructure?.length &&
+          !!seriesRowForId &&
+          seriesRowBelongsToRevenueAnnexDetail(seriesRowForId, incomeStatementStructure)) ||
+          hasRevenueConfigKeys))
+    const isExpenseHypothesisRow =
+      title === "Estimation des dépenses annuelles" ||
+      (isProFormaResultsTitle &&
+        ((!!incomeStatementStructure?.length &&
+          !!seriesRowForId &&
+          seriesRowBelongsToDepensesAnnexDetail(seriesRowForId, incomeStatementStructure)) ||
+          hasExpenseConfigKeys))
+
     // Dépenses fixes : la base année 0 doit servir au composé — sinon baseValue manquant utilisait le mauvais défaut (même année)
     const effectiveBase =
-      title === "Estimation des dépenses annuelles" &&
+      isExpenseHypothesisRow &&
       baseValue === undefined &&
       defaultTrendValues &&
       defaultTrendValues.length > 0
         ? defaultTrendValues[0]
         : baseValue
 
-    if (title === "Estimation des revenus annuels") {
+    if (isRevenueHypothesisRow) {
       return getProjectedRevenueRowValue(
         rowId,
         yearIndex,
@@ -3599,7 +3638,7 @@ export function IncomeStatementDetail({
 
     let calculatedValue = getBaseValue(rowId, yearIndex, defaultValue, effectiveBase)
 
-    if (title === "Estimation des dépenses annuelles") {
+    if (isExpenseHypothesisRow) {
       const expenseIsVariable = getExpenseType(rowId) === "variable"
       const directAdjustments = getAdjustments(rowId, yearIndex).filter(isExpenseHypothesisGrowthAdjustment)
       const recurringAdjustments = getRecurringAdjustments(rowId, yearIndex).filter(
@@ -3701,7 +3740,11 @@ export function IncomeStatementDetail({
 
         // Check if this is a fixed expense and use inflation rate instead
         let effectiveGrowthRate = growthRate
-        if (title === "Estimation des dépenses annuelles" && rowId && getExpenseType(rowId) === "fixe") {
+        if (
+          (title === "Estimation des dépenses annuelles" || isProFormaResultsTitle) &&
+          rowId &&
+          getExpenseType(rowId) === "fixe"
+        ) {
           effectiveGrowthRate = 0 // Will be handled separately
         }
 
@@ -3711,9 +3754,17 @@ export function IncomeStatementDetail({
           defaultValue = base
         } else {
           // For fixed expenses with inflation, use compound inflation with year-specific rates
-          if (title === "Estimation des dépenses annuelles" && rowId && getExpenseType(rowId) === "fixe") {
+          if (
+            (title === "Estimation des dépenses annuelles" || isProFormaResultsTitle) &&
+            rowId &&
+            getExpenseType(rowId) === "fixe"
+          ) {
             defaultValue = computeFixedExpenseYearValue(rowId, yearIndex, base)
-          } else if (title === "Estimation des dépenses annuelles" && rowId && getExpenseType(rowId) === "variable") {
+          } else if (
+            (title === "Estimation des dépenses annuelles" || isProFormaResultsTitle) &&
+            rowId &&
+            getExpenseType(rowId) === "variable"
+          ) {
             const variableRate = getVariableRate(rowId)
             if (variableRate > 0) {
               const revenueValue = variableExpenseRevenueAmount(yearIndex)
@@ -3748,6 +3799,11 @@ export function IncomeStatementDetail({
         !!incomeStatementStructure &&
         incomeStatementStructure.length > 0 &&
         structureHasDepensesPosteNatureRow(incomeStatementStructure)
+      /** Même structure d’annexes / sous-totaux que États des résultats → Détail. */
+      const useProFormaDetailAnnexShape =
+        isProFormaResultsTitle &&
+        !!incomeStatementStructure &&
+        incomeStatementStructure.length > 0
       const belongsToAnnexScope = useRevenueDetailScope
         ? seriesRowBelongsToRevenueAnnexDetail
         : useExpenseDetailScope
@@ -3757,12 +3813,20 @@ export function IncomeStatementDetail({
         ? filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure).filter((sr) =>
             belongsToAnnexScope(sr, incomeStatementStructure)
           )
-        : seriesRows
+        : useProFormaDetailAnnexShape
+          ? filterSeriesRowsDefinedOnly(seriesRows, incomeStatementStructure)
+          : seriesRows
 
-      if ((useRevenueDetailScope || useExpenseDetailScope) && incomeStatementStructure) {
+      if ((useRevenueDetailScope || useExpenseDetailScope || useProFormaDetailAnnexShape) && incomeStatementStructure) {
         const belongsStruct = useExpenseDetailScope
           ? structureRowBelongsToDepensesAnnexDetail
-          : structureRowBelongsToRevenueAnnexDetail
+          : useRevenueDetailScope
+            ? structureRowBelongsToRevenueAnnexDetail
+            : (structRow: Record<string, unknown>, structure: Record<string, unknown>[]) =>
+                isShowInDetail(structRow, structure) &&
+                isCodeMappingEnabled(structRow) &&
+                // Impôts : Hypothèses Impôts au Sommaire — pas d’annexe Exigibles au Détail Pro Forma.
+                !structureRowBelongsToImpotsAnnexDetail(structRow, structure)
         seriesForForecast = uniqueStatementRowsByStructureIndex(
           ensureSeriesRowsForAnnexDetailScope(
             seriesForForecast,
@@ -3796,7 +3860,11 @@ export function IncomeStatementDetail({
           ? seriesForForecast.filter(
               (sr) => !seriesRowUsesExcludedProjectionExpenseLinkCode(sr, incomeStatementStructure)
             )
-          : seriesForForecast
+          : useProFormaDetailAnnexShape && incomeStatementStructure?.length
+            ? seriesForForecast.filter(
+                (sr) => !seriesRowBelongsToImpotsAnnexDetail(sr, incomeStatementStructure)
+              )
+            : seriesForForecast
 
       const collectRevenueTrendForVariableExpense = (): { trend: number[]; rowId: string } | null => {
         if (!incomeStatementStructure || incomeStatementStructure.length === 0) return null
@@ -3864,13 +3932,14 @@ export function IncomeStatementDetail({
         return { trend, rowId }
       }
 
-      if (useExpenseDetailScope) {
+      if (useExpenseDetailScope || isProFormaResultsTitle) {
         expenseRevenueForecastFallbackRef.current = collectRevenueTrendForVariableExpense()
       } else {
         expenseRevenueForecastFallbackRef.current = null
       }
 
-      const useAnnexDetailRowShape = useRevenueDetailScope || useExpenseDetailScope
+      const useAnnexDetailRowShape =
+        useRevenueDetailScope || useExpenseDetailScope || useProFormaDetailAnnexShape
 
       for (const sr of seriesForForecastFiltered) {
         // Get real amounts and aggregate to yearly totals
@@ -3900,7 +3969,9 @@ export function IncomeStatementDetail({
 
         /** Dépenses fixes : `rowId` requis pour base × (1 + inflation)^année (les lignes en gras n’étaient pas `indent` → inflation ignorée). */
         const forecastRowIdForTrend =
-          title === "Estimation des dépenses annuelles" && !isSection && !isAnnexTitle
+          (title === "Estimation des dépenses annuelles" || isProFormaResultsTitle) &&
+          !isSection &&
+          !isAnnexTitle
             ? rowId
             : useAnnexDetailRowShape && structRow
               ? sub
@@ -3911,7 +3982,7 @@ export function IncomeStatementDetail({
                 : undefined
 
         // Generate projected trend values
-        const trendValues =
+        let trendValues =
           isSection
             ? undefined
             : (forceForecastSection && forecastUseSeriesActuals)
@@ -3930,6 +4001,30 @@ export function IncomeStatementDetail({
                   return forecastTrendFromActualPrefix(prefix, projectionYears)
                 })()
               : generateForecastTrend(baseAmount, defaultGrowthRate, forecastRowIdForTrend)
+
+        // Pro forma / hyp. : matérialiser les montants projetés dans trendValues (sinon totaux / résultats restent à 0).
+        if (
+          trendValues &&
+          forecastRowIdForTrend &&
+          !isSection &&
+          !isResult &&
+          (isProFormaResultsTitle ||
+            title === "Estimation des revenus annuels" ||
+            title === "Estimation des dépenses annuelles")
+        ) {
+          const configTrend = forecastDisplayTrendToConfigTrend(trendValues, forecastActualCols)
+          trendValues = trendValues.map((raw, displayIdx) => {
+            const cfg = forecastDisplayToConfigYearIndex(displayIdx, forecastActualCols)
+            if (cfg == null) return raw
+            return getRevenueValue(
+              forecastRowIdForTrend,
+              cfg,
+              configTrend[cfg] ?? raw,
+              undefined,
+              configTrend,
+            )
+          })
+        }
 
         let balanceAccounts: BalanceAccount[] | undefined
         if (projectionMode === "gl" && (sr.detailRows?.length ?? 0) > 0) {
@@ -3975,9 +4070,11 @@ export function IncomeStatementDetail({
               ? forecastRowIdForTrend
               : useAnnexDetailRowShape && structRow
                 ? rowId
-                : indent
-                  ? rowId
-                  : undefined,
+                : isProFormaResultsTitle
+                  ? forecastRowIdForTrend
+                  : indent
+                    ? rowId
+                    : undefined,
           balanceAccounts,
           ...(useAnnexDetailRowShape && structRow
             ? {
@@ -3992,8 +4089,8 @@ export function IncomeStatementDetail({
           useAnnexDetailRowShape && structRow ? zeroAmountsForAnnexTitleRow(detailPayload) : detailPayload
         )
 
-        // Recalculate subtotal trend values from child rows
-        if (isResult && trendValues) {
+        // Recalculate subtotal trend values from child rows (pas Pro Forma : annexes + formules IS Détail).
+        if (isResult && trendValues && !isProFormaResultsTitle) {
           // Find child rows (non-section, non-result rows above this result)
           const childRows: DetailRow[] = []
           for (let j = rows.length - 2; j >= 0; j--) {
@@ -4021,7 +4118,8 @@ export function IncomeStatementDetail({
           withoutEmptyTitles,
           trendLen > 0 ? trendLen : undefined,
           {
-            includeIndicatifAfterAnnex: false,
+            // Pro Forma = même Détail IS (sous-total + ligne vide) ; Hyp. Revenus/Dépenses sans indicatif.
+            includeIndicatifAfterAnnex: isProFormaResultsTitle,
           },
         )
       }
@@ -4901,7 +4999,7 @@ export function IncomeStatementDetail({
   }, [data, displayedHypothesisAmount, isForecastSection, showStructureCols, title, view])
 
   const getHypothesisCaForYearIndex = (yearIndex: number): number | null => {
-    if (title === "Estimation des dépenses annuelles") {
+    if (title === "Estimation des dépenses annuelles" || isProFormaResultsTitle) {
       const cfg = forecastDisplayToConfigYearIndex(yearIndex, forecastActualCols)
       if (cfg == null) {
         const n1 = expenseRevenueForecastFallbackRef.current?.nMinusOne
@@ -7743,49 +7841,42 @@ export function IncomeStatementDetail({
               className={cn(
                 showStructureCols && "w-full min-w-0",
                 tableUsesHorizontalSlider &&
-                  (forecastHypothesisTableWidthLock ? "w-full min-w-0" : "w-max min-w-full")
+                  (forecastHypothesisTableWidthLock ? "w-max min-w-full" : "w-max min-w-full")
               )}
             >
         <table
           className={cn(
-            "w-full min-w-0 border-separate border-spacing-0",
-            showStructureCols && "table-fixed",
+            "border-separate border-spacing-0",
+            showStructureCols && "w-full min-w-0 table-fixed",
+            !showStructureCols && !forecastHypothesisTableWidthLock && "w-full min-w-0",
             tableUsesHorizontalSlider && !forecastHypothesisTableWidthLock && "min-w-max",
-            forecastHypothesisTableWidthLock && "table-fixed min-w-0"
+            // Largeurs col (rem) + min-w-max : le panneau n’écrase plus les colonnes année.
+            forecastHypothesisTableWidthLock && "table-fixed min-w-max",
           )}
         >
           {forecastHypothesisTableWidthLock && !showStructureCols && view === "years" && (() => {
             const yearLabels = getYearLabels()
-            const n = Math.max(1, yearLabels.length)
+            // Largeurs fixes (rem) : avec table-fixed + %, les années sont écrasées et
+            // des montants type « 3 849 675 $ » sont coupés par le cadre de sélection.
             if (title === "Estimation des dépenses annuelles") {
-              const wFirst = 22
-              const wType = 9
-              const wTaux = 9
-              const remaining = 100 - wFirst - wType - wTaux
-              const wYear = remaining * 0.62 / n
-              const wPct = remaining * 0.38 / n
               return (
                 <colgroup key="hypothesis-width-lock-expense">
-                  <col style={{ width: `${wFirst}%` }} />
-                  <col style={{ width: `${wType}%` }} />
-                  <col style={{ width: `${wTaux}%` }} />
+                  <col style={{ width: "20rem" }} />
+                  <col style={{ width: "6.5rem" }} />
+                  <col style={{ width: "6.5rem" }} />
                   {yearLabels.flatMap((_, i) => [
-                    <col key={`year-${i}`} style={{ width: `${wYear}%` }} />,
-                    <col key={`pct-ca-${i}`} style={{ width: `${wPct}%` }} />,
+                    <col key={`year-${i}`} style={{ width: "10rem" }} />,
+                    <col key={`pct-ca-${i}`} style={{ width: "4.75rem" }} />,
                   ])}
                 </colgroup>
               )
             }
-            const wFirst = 28
-            const remaining = 100 - wFirst
-            const wYear = remaining * 0.62 / n
-            const wPct = remaining * 0.38 / n
             return (
               <colgroup key="hypothesis-width-lock-revenue">
-                <col style={{ width: `${wFirst}%` }} />
+                <col style={{ width: "20rem" }} />
                 {yearLabels.flatMap((_, i) => [
-                  <col key={`year-${i}`} style={{ width: `${wYear}%` }} />,
-                  <col key={`pct-ca-${i}`} style={{ width: `${wPct}%` }} />,
+                  <col key={`year-${i}`} style={{ width: "10rem" }} />,
+                  <col key={`pct-ca-${i}`} style={{ width: "4.75rem" }} />,
                 ])}
               </colgroup>
             )
@@ -7961,7 +8052,7 @@ export function IncomeStatementDetail({
                     <Fragment key={idx}>
                       <th 
                         className={cn(
-                          "min-w-[8rem] px-4 py-4 text-right text-sm font-semibold whitespace-nowrap",
+                          "min-w-[10rem] px-4 py-4 text-right text-sm font-semibold whitespace-nowrap",
                           isForecastHistoricalColumn(idx) 
                             ? "bg-slate-50 text-slate-400" 
                             : "text-slate-900",
@@ -8172,12 +8263,18 @@ export function IncomeStatementDetail({
                         ? cn(
                             detailParamRowHover && "hover:[&>td]:bg-slate-100/70",
                             row.isAnnexHeader && "[&>td]:bg-amber-50/90",
-                            annexSubtotalDarkNumbers && "[&>td]:bg-white"
+                            annexSubtotalDarkNumbers && "[&>td:first-child]:bg-white"
                           )
                         : cn(
                             row.label === "" && !row.isAnnexPlaceholder ? "h-2" : "",
-                            row.isAnnexPlaceholder && "[&>td]:bg-white [&>td:first-child]:bg-white",
-                            annexSubtotalDarkNumbers && "[&>td]:bg-white [&>td:first-child]:bg-white",
+                            row.isAnnexPlaceholder &&
+                              (title === "Estimation des dépenses annuelles"
+                                ? "[&>td:first-child]:bg-white [&>td:nth-child(2)]:bg-white [&>td:nth-child(3)]:bg-white"
+                                : "[&>td:first-child]:bg-white"),
+                            annexSubtotalDarkNumbers &&
+                              (title === "Estimation des dépenses annuelles"
+                                ? "[&>td:first-child]:bg-white [&>td:nth-child(2)]:bg-white [&>td:nth-child(3)]:bg-white"
+                                : "[&>td:first-child]:bg-white"),
                             row.isAnnexHeader && "[&>td]:bg-amber-50/90 [&>td:first-child]:bg-amber-50/90",
                             !isSpacer &&
                               (row.isAnnexHeader
@@ -8766,9 +8863,11 @@ export function IncomeStatementDetail({
                           <Fragment key={valueIdx}>
                           <td
                             className={cn(
-                              "min-w-[8rem] px-4 py-3 text-right",
+                              "min-w-[10rem] px-3 py-3 text-right whitespace-nowrap tabular-nums",
                               amountWeightClass,
-                              shouldHideAmounts && !blankHypothesisNumericCell ? "text-white" : "",
+                              shouldHideAmounts && !blankHypothesisNumericCell
+                                ? "text-transparent"
+                                : "",
                               isForecastHistoricalColumn(valueIdx)
                                 ? "bg-slate-50 text-slate-400"
                                 : "",
@@ -8914,7 +9013,7 @@ export function IncomeStatementDetail({
                         <td 
                           className={cn(
                             view === "years" && "min-w-[8rem]",
-                            "px-4 py-3 text-right text-sm text-slate-400",
+                            "px-4 py-3 text-right text-sm text-transparent",
                             (forceForecastSection || isForecastSection) && view === "years" && isForecastHistoricalColumn(idx) ? "bg-slate-50" : "",
                             view === "years" ? yearGroupStartClass(idx) : undefined
                           )}
@@ -8924,7 +9023,7 @@ export function IncomeStatementDetail({
                         {showYearPctCa && view === "years" && (
                           <td
                             className={cn(
-                              "min-w-[4.5rem] px-2 py-3 text-right text-xs text-slate-400",
+                              "min-w-[4.5rem] px-2 py-3 text-right text-xs text-transparent",
                               isForecastHistoricalColumn(idx) ? "bg-slate-50" : ""
                             )}
                           >

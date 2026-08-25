@@ -1511,6 +1511,56 @@ export function isExcludedProjectionComputedExpenseLinkCode(code: string): boole
   )
 }
 
+/** Famille IMP (Impôts) — calculée via Hypothèses Impôts, pas saisie en annexe Détail Pro Forma. */
+export function isImpotsFamilyLinkCode(code: string | null | undefined): boolean {
+  const normalized = String(code ?? "")
+    .trim()
+    .toUpperCase()
+  if (!normalized) return false
+  return normalized === "IMP" || normalized.startsWith("IMP.") || normalized.startsWith("IMP-")
+}
+
+function labelLooksLikeImpots(label: string): boolean {
+  const lab = normLabel(label)
+  return (
+    lab === "impôts" ||
+    lab === "impots" ||
+    lab.startsWith("impôts ") ||
+    lab.startsWith("impots ") ||
+    lab.startsWith("impôt ") ||
+    lab.startsWith("impot ")
+  )
+}
+
+/** Poste / annexe Impôts (titre ou sous-ligne Exigibles, etc.). */
+export function structureRowBelongsToImpotsAnnexDetail(
+  structRow: Record<string, unknown>,
+  structure: Record<string, unknown>[],
+): boolean {
+  if (collectLinkCodesFromStructureRow(structRow).some(isImpotsFamilyLinkCode)) return true
+  if (labelLooksLikeImpots(String(structRow.label ?? ""))) return true
+  const letter = resolveStructureAnnexLetter(structRow, structure)
+  if (!letter) return false
+  for (const row of structure) {
+    if (isStructureRowDetailOnly(row)) continue
+    if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== letter) continue
+    if (collectLinkCodesFromStructureRow(row).some(isImpotsFamilyLinkCode)) return true
+    if (labelLooksLikeImpots(String(row.label ?? ""))) return true
+  }
+  return false
+}
+
+export function seriesRowBelongsToImpotsAnnexDetail(
+  sr: { id: string; label: string; linkCode?: string | null },
+  structure: Record<string, unknown>[],
+): boolean {
+  if (isImpotsFamilyLinkCode(sr.id) || isImpotsFamilyLinkCode(sr.linkCode)) return true
+  if (labelLooksLikeImpots(sr.label)) return true
+  const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
+  if (!structRow) return false
+  return structureRowBelongsToImpotsAnnexDetail(structRow, structure)
+}
+
 /** Tous les codes de liaison référencés par une ligne de structure (unique, somme, soustraction). */
 export function collectLinkCodesFromStructureRow(row: Record<string, unknown>): string[] {
   const codes: string[] = []

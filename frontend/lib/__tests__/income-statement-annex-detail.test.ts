@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   annexGroupShouldShowSubtotal,
+  listAnnexDetailSeriesIdsForOwner,
   omitAnnexTitleRowsWithoutAmountPosts,
   resolveDetailAnnexMeta,
   uniqueStatementRowsByStructureIndex,
@@ -12,20 +13,54 @@ const structure: Record<string, unknown>[] = [
     label: "Revenus annexés",
     annexLetter: "A",
     detailOnly: false,
+    defineMapping: true,
+    showInDetail: true,
+    linkCode: "REV",
   },
   {
     id: "rev-a-1",
     label: "Ventes détail",
     annexLetter: "A",
     detailOnly: true,
+    defineMapping: true,
+    showInDetail: true,
+    linkCode: "REV-A.1",
   },
   {
     id: "rev-solo",
     label: "Poste seul",
     annexLetter: "B",
     detailOnly: false,
+    defineMapping: true,
+    showInDetail: true,
+    linkCode: "AUT",
   },
 ]
+
+describe("listAnnexDetailSeriesIdsForOwner", () => {
+  it("lists detailOnly posts under an annex owner (Sous-total Annexe)", () => {
+    expect(
+      listAnnexDetailSeriesIdsForOwner(
+        { id: "rev-a", label: "Revenus annexés" },
+        [
+          { id: "rev-a", label: "Revenus annexés" },
+          { id: "rev-a-1", label: "Ventes détail" },
+        ],
+        structure,
+      ),
+    ).toEqual(["rev-a-1"])
+  })
+
+  it("returns empty when the owner has no detailOnly children", () => {
+    expect(
+      listAnnexDetailSeriesIdsForOwner(
+        { id: "rev-solo", label: "Poste seul" },
+        [{ id: "rev-solo", label: "Poste seul" }],
+        structure,
+      ),
+    ).toEqual([])
+  })
+})
 
 describe("resolveDetailAnnexMeta", () => {
   it("reprend la lettre structure sur une sous-ligne série sans annexLetter", () => {

@@ -4,7 +4,7 @@ import { formatCurrency } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
 import { AlertTriangle, Landmark, Plus, Trash2 } from "lucide-react"
-import { Fragment, useState, useEffect, useRef, useCallback } from "react"
+import { Fragment, useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { listForecastConfigs, upsertForecastConfig, listAccountMappings, getTrialBalance } from "@/lib/api"
 import type { CapexDebtParams } from "@/lib/capex-financing-utils"
 import {
@@ -15,11 +15,18 @@ import type { DebtForecastLoan } from "@/lib/debt-forecast-types"
 import { isDebtHypothesisDefined } from "@/lib/debt-forecast-types"
 import { calculateLoanYearAmortization } from "@/lib/debt-amortization-utils"
 import {
+  computeDebtForecastYearTotals,
+  type DebtForecastYearTotals,
+} from "@/lib/debt-forecast-totals"
+import {
   buildDebtLoansFromPltMappings,
+  debtForecastLoanGroupHeading,
   formatDebtOpeningReferenceLabel,
+  groupDebtForecastLoansByLiabilityRoot,
   mergeDebtForecastLoans,
   pltMappingDebtSkipLabel,
   resolveDebtOpeningReferencePeriod,
+  type DebtForecastLoanGroup,
   type PltMappingDebtSkip,
 } from "@/lib/debt-mapping-utils"
 import { DebtParamsFields } from "@/components/capex-financing-editor"
@@ -55,13 +62,7 @@ interface DebtForecastDetailProps {
 
 type Loan = DebtForecastLoan
 
-interface LoanYearData {
-  beginningBalance: number
-  totalPayment: number
-  principalPayment: number
-  interestPayment: number
-  endingBalance: number
-}
+interface LoanYearTotals extends DebtForecastYearTotals {}
 
 const isForecastSection = (title?: string) => title === "Estimation du Financement annuel"
 
@@ -187,7 +188,7 @@ export function DebtForecastDetail({
     saveConfig({ loans })
   }, [loans, saveConfig, isForecast])
 
-  const calculateLoanYearData = (loan: Loan, yearIndex: number): LoanYearData | null => {
+  const calculateLoanYearData = (loan: Loan, yearIndex: number): LoanYearTotals | null => {
     const result = calculateLoanYearAmortization(loan, yearIndex)
     if (!result) return null
     return {
@@ -207,6 +208,7 @@ export function DebtForecastDetail({
   }
 
   const openHypothesisPanel = (loan: Loan) => {
+    if (loan.sourceType === "capex") return
     setHypothesisLoanId(loan.id)
     setDraftName(loan.name)
     setDraftPrincipal(loan.principal)
@@ -250,6 +252,8 @@ export function DebtForecastDetail({
       startMonth: 0,
       repaymentMode: "interest_only",
       sourceType: "manual",
+      sourceLinkCode: "PLT-C",
+      hypothesisDefined: true,
     }
     setLoans([...loans, newLoan])
     openHypothesisPanel(newLoan)
@@ -280,56 +284,33 @@ export function DebtForecastDetail({
     return "Courant"
   }
 
-  const getYearTotals = (yearIndex: number) => {
-    let totalBeginning = 0
-    let totalPayment = 0
-    let totalPrincipal = 0
-    let totalInterest = 0
-    let totalEnding = 0
-
-    loans.forEach((loan) => {
-      if (!isDebtHypothesisDefined(loan)) {
-        totalBeginning += loan.principal
-        totalEnding += loan.principal
-        return
-      }
-      const yearData = calculateLoanYearData(loan, yearIndex)
-      if (yearData !== null) {
-        totalBeginning += yearData.beginningBalance
-        totalPayment += yearData.totalPayment
-        totalPrincipal += yearData.principalPayment
-        totalInterest += yearData.interestPayment
-        totalEnding += yearData.endingBalance
-      }
-    })
-
-    return {
-      beginningBalance: totalBeginning,
-      totalPayment,
-      principalPayment: totalPrincipal,
-      interestPayment: totalInterest,
-      endingBalance: totalEnding,
-    }
-  }
+  const getYearTotals = (yearIndex: number, subset: Loan[] = loans): LoanYearTotals =>
+    computeDebtForecastYearTotals(subset, yearIndex, calculateLoanYearData)
 
   const yearLabels = getYearLabels()
   const yearColumnCount = yearLabels.length
   const tableColumnCount = 2 + yearColumnCount
   const hypothesisInlineActive = isForecast && hypothesisLoanId != null && draftDebt != null
-  const rankedLoans = [...loans].sort((a, b) => {
-    const aDefined = isDebtHypothesisDefined(a) ? 1 : 0
-    const bDefined = isDebtHypothesisDefined(b) ? 1 : 0
-    return aDefined - bDefined
-  })
-  const incompleteHypothesisLoans = rankedLoans.filter((loan) => !isDebtHypothesisDefined(loan))
-  const visibleLoans =
-    hypothesisInlineActive && hypothesisLoanId
-      ? rankedLoans.filter((loan) => loan.id === hypothesisLoanId)
-      : rankedLoans
+  const loanGroups = useMemo(() => groupDebtForecastLoansByLiabilityRoot(loans), [loans])
+  const incompleteHypothesisLoans = useMemo(
+    () => loans.filter((loan) => loan.sourceType !== "capex" && !isDebtHypothesisDefined(loan)),
+    [loans],
+  )
+  const visibleGroups = useMemo((): DebtForecastLoanGroup[] => {
+    if (hypothesisInlineActive && hypothesisLoanId) {
+      return loanGroups
+        .map((group) => ({
+          ...group,
+          loans: group.loans.filter((loan) => loan.id === hypothesisLoanId),
+        }))
+        .filter((group) => group.loans.length > 0)
+    }
+    return loanGroups
+  }, [hypothesisInlineActive, hypothesisLoanId, loanGroups])
 
   const renderYearCells = (
     loan: Loan,
-    pick: (data: LoanYearData) => number,
+    pick: (data: LoanYearTotals) => number,
     className: string,
     onCellClick?: () => void,
   ) =>
@@ -350,6 +331,244 @@ export function DebtForecastDetail({
         </td>
       )
     })
+
+  const renderLoanRows = (groupLoans: Loan[]) =>
+    groupLoans.map((loan) => {
+      const isSelected = hypothesisLoanId === loan.id
+      const hypothesisDefined = isDebtHypothesisDefined(loan)
+      const isCapexLoan = loan.sourceType === "capex"
+      const canEditHypothesis = !isCapexLoan
+
+      return (
+        <Fragment key={loan.id}>
+          <tr
+            className={cn(
+              "border-b border-slate-200 transition-colors duration-150",
+              canEditHypothesis && "hover:bg-slate-50/90",
+              isSelected &&
+                "bg-blue-50/35 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.28)]",
+              !hypothesisDefined && !isSelected && "bg-amber-50/50",
+            )}
+          >
+            <td className="min-w-[20rem] px-6 py-3 pl-10 font-semibold text-slate-900">
+              {canEditHypothesis ? (
+                <button
+                  type="button"
+                  onClick={() => openHypothesisPanel(loan)}
+                  className="flex flex-wrap items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-slate-50"
+                >
+                  <span>{loan.name}</span>
+                  {!hypothesisDefined ? (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                      À définir
+                    </span>
+                  ) : null}
+                  {loan.sourceType === "mapping" ? (
+                    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
+                      Mapping
+                    </span>
+                  ) : null}
+                </button>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2 px-1 py-0.5">
+                  <span>{loan.name}</span>
+                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-800">
+                    Capex
+                  </span>
+                  <span className="text-[10px] font-medium text-slate-500">
+                    Hypothèse Capex
+                  </span>
+                </div>
+              )}
+            </td>
+            {isForecast && view === "years" ? (
+              <td
+                className={cn(
+                  "min-w-[6.5rem] px-4 py-3 text-center",
+                  hypothesisDefined ? "text-purple-600" : "text-amber-700",
+                  canEditHypothesis && "cursor-pointer",
+                )}
+                onClick={canEditHypothesis ? () => openHypothesisPanel(loan) : undefined}
+              >
+                {hypothesisDefined ? (
+                  <span className="font-medium">{loan.interestRate.toFixed(1)}%</span>
+                ) : (
+                  <span className="font-medium">À définir</span>
+                )}
+              </td>
+            ) : null}
+            {view === "years"
+              ? hypothesisDefined
+                ? renderYearCells(
+                    loan,
+                    (d) => d.beginningBalance,
+                    "text-slate-900",
+                    canEditHypothesis ? () => openHypothesisPanel(loan) : undefined,
+                  )
+                : yearLabels.map((_, yearIdx) => (
+                    <td
+                      key={yearIdx}
+                      className={cn(
+                        "min-w-[8rem] px-4 py-2 text-right font-mono text-sm text-slate-400",
+                        canEditHypothesis && "cursor-pointer",
+                      )}
+                      onClick={canEditHypothesis ? () => openHypothesisPanel(loan) : undefined}
+                    >
+                      {formatCurrency(loan.principal)}
+                    </td>
+                  ))
+              : null}
+          </tr>
+
+          {hypothesisInlineActive && isSelected ? (
+            <tr className="border-b-2 border-blue-200/90 bg-slate-50/95">
+              <td colSpan={tableColumnCount} className="min-w-0 p-0 align-top">
+                <div className="min-w-0 max-w-full overflow-x-auto px-3 py-3 sm:px-5 sm:py-4">
+                  {renderHypothesisPanel()}
+                </div>
+              </td>
+            </tr>
+          ) : null}
+
+          {isForecast && view === "years" && !hypothesisInlineActive && hypothesisDefined ? (
+            <>
+              <tr className="border-b border-slate-200">
+                <td className="px-6 py-2 pl-16 text-sm text-slate-600">Versement global</td>
+                <td className="px-4 py-2" />
+                {renderYearCells(loan, (d) => d.totalPayment, "text-slate-700")}
+              </tr>
+              <tr className="border-b border-slate-200">
+                <td className="px-6 py-2 pl-16 text-sm text-slate-600">Capital</td>
+                <td className="px-4 py-2" />
+                {renderYearCells(loan, (d) => d.principalPayment, "text-slate-700")}
+              </tr>
+              <tr className="border-b border-slate-200">
+                <td className="px-6 py-2 pl-16 text-sm text-slate-600">Intérêts</td>
+                <td className="px-4 py-2" />
+                {renderYearCells(loan, (d) => d.interestPayment, "text-slate-700")}
+              </tr>
+              <tr className="border-b-2 border-slate-300">
+                <td className="px-6 py-2 pl-16 text-sm font-semibold text-slate-900">Solde fin</td>
+                <td className="px-4 py-2" />
+                {renderYearCells(loan, (d) => d.endingBalance, "font-semibold text-slate-900")}
+              </tr>
+            </>
+          ) : null}
+        </Fragment>
+      )
+    })
+
+  const renderTotalsBlock = (
+    groupLoans: Loan[],
+    label: string,
+    variant: "group" | "grand",
+  ) => {
+    const isGrand = variant === "grand"
+    return (
+      <>
+        <tr
+          className={cn(
+            "border-t-2 border-b-2 border-slate-300 bg-slate-50",
+            isGrand && "bg-slate-100",
+          )}
+        >
+          <td
+            className={cn(
+              "px-6 py-3 font-bold text-slate-900",
+              !isGrand && "pl-8",
+            )}
+          >
+            {label}
+          </td>
+          <td className="px-4 py-3" />
+          {yearLabels.map((_, yearIdx) => (
+            <td
+              key={yearIdx}
+              className="min-w-[8rem] px-4 py-3 text-right font-mono text-sm font-bold text-slate-900"
+            >
+              {formatCurrency(getYearTotals(yearIdx, groupLoans).beginningBalance)}
+            </td>
+          ))}
+        </tr>
+        <tr className="border-b border-slate-200">
+          <td
+            className={cn(
+              "px-6 py-2 text-sm font-semibold text-slate-600",
+              isGrand ? "pl-12" : "pl-14",
+            )}
+          >
+            Versement global
+          </td>
+          <td className="px-4 py-2" />
+          {yearLabels.map((_, yearIdx) => (
+            <td
+              key={yearIdx}
+              className="min-w-[8rem] px-4 py-2 text-right font-mono text-sm font-semibold text-slate-700"
+            >
+              {formatCurrency(getYearTotals(yearIdx, groupLoans).totalPayment)}
+            </td>
+          ))}
+        </tr>
+        <tr className="border-b border-slate-200">
+          <td
+            className={cn(
+              "px-6 py-2 text-sm font-semibold text-slate-600",
+              isGrand ? "pl-12" : "pl-14",
+            )}
+          >
+            Capital
+          </td>
+          <td className="px-4 py-2" />
+          {yearLabels.map((_, yearIdx) => (
+            <td
+              key={yearIdx}
+              className="min-w-[8rem] px-4 py-2 text-right font-mono text-sm font-semibold text-slate-700"
+            >
+              {formatCurrency(getYearTotals(yearIdx, groupLoans).principalPayment)}
+            </td>
+          ))}
+        </tr>
+        <tr className="border-b border-slate-200">
+          <td
+            className={cn(
+              "px-6 py-2 text-sm font-semibold text-slate-600",
+              isGrand ? "pl-12" : "pl-14",
+            )}
+          >
+            Intérêts
+          </td>
+          <td className="px-4 py-2" />
+          {yearLabels.map((_, yearIdx) => (
+            <td
+              key={yearIdx}
+              className="min-w-[8rem] px-4 py-2 text-right font-mono text-sm font-semibold text-slate-700"
+            >
+              {formatCurrency(getYearTotals(yearIdx, groupLoans).interestPayment)}
+            </td>
+          ))}
+        </tr>
+        <tr className={cn("border-b-2 border-slate-300", isGrand && "border-slate-400")}>
+          <td
+            className={cn(
+              "px-6 py-2 text-sm font-bold text-slate-900",
+              isGrand ? "pl-12" : "pl-14",
+            )}
+          >
+            Solde fin
+          </td>
+          <td className="px-4 py-2" />
+          {yearLabels.map((_, yearIdx) => (
+            <td
+              key={yearIdx}
+              className="min-w-[8rem] px-4 py-2 text-right font-mono text-sm font-bold text-slate-900"
+            >
+              {formatCurrency(getYearTotals(yearIdx, groupLoans).endingBalance)}
+            </td>
+          ))}
+        </tr>
+      </>
+    )
+  }
 
   const renderHypothesisPanel = () => {
     if (!hypothesisLoanId || !draftDebt) return null
@@ -512,7 +731,7 @@ export function DebtForecastDetail({
         {isForecast ? (
           <div className="border-b border-slate-200 bg-white px-6 py-3 sm:px-7">
             <p className="text-xs text-slate-600">
-              Soldes d&apos;ouverture issus du mapping comptable (codes PLT-B, PLT-G, PLT-C, PLT-D) à la
+              Soldes d&apos;ouverture issus du mapping comptable (codes PLT-B, PLT-C, PLT-D) à la
               date de référence{" "}
               <span className="font-semibold text-slate-800">{openingReferenceLabel || "—"}</span>
               {loans.some((l) => l.sourceType === "mapping") ? (
@@ -595,181 +814,41 @@ export function DebtForecastDetail({
                 </tr>
               </thead>
               <tbody>
-                {visibleLoans.map((loan) => {
-                  const isSelected = hypothesisLoanId === loan.id
-                  const hypothesisDefined = isDebtHypothesisDefined(loan)
-
-                  return (
-                    <Fragment key={loan.id}>
+                {visibleGroups.map((group) => (
+                  <Fragment key={group.root}>
+                    {visibleGroups.length > 0 ? (
                       <tr
-                        className={cn(
-                          "border-b border-slate-200 transition-colors duration-150 hover:bg-slate-50/90",
-                          isSelected &&
-                            "bg-blue-50/35 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.28)]",
-                          !hypothesisDefined && !isSelected && "bg-amber-50/50",
-                        )}
+                        className="border-b border-slate-200 bg-slate-100/90"
+                        data-testid={`debt-group-${group.root}`}
                       >
-                        <td className="min-w-[20rem] px-6 py-3 font-semibold text-slate-900">
-                          <button
-                            type="button"
-                            onClick={() => openHypothesisPanel(loan)}
-                            className="flex flex-wrap items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-slate-50"
-                          >
-                            <span>{loan.name}</span>
-                            {!hypothesisDefined ? (
-                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
-                                À définir
-                              </span>
-                            ) : null}
-                            {loan.sourceType === "capex" ? (
-                              <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-800">
-                                Capex
-                              </span>
-                            ) : null}
-                            {loan.sourceType === "mapping" ? (
-                              <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-800">
-                                Mapping
-                              </span>
-                            ) : null}
-                          </button>
+                        <td
+                          colSpan={tableColumnCount}
+                          className="px-6 py-2.5 text-sm font-bold tracking-tight text-slate-900"
+                        >
+                          {debtForecastLoanGroupHeading(group)}
                         </td>
-                        {isForecast && view === "years" ? (
-                          <td
-                            className={cn(
-                              "min-w-[6.5rem] cursor-pointer px-4 py-3 text-center",
-                              hypothesisDefined ? "text-purple-600" : "text-amber-700",
-                            )}
-                            onClick={() => openHypothesisPanel(loan)}
-                          >
-                            {hypothesisDefined ? (
-                              <span className="font-medium">{loan.interestRate.toFixed(1)}%</span>
-                            ) : (
-                              <span className="font-medium">À définir</span>
-                            )}
-                          </td>
-                        ) : null}
-                        {view === "years"
-                          ? hypothesisDefined
-                            ? renderYearCells(
-                                loan,
-                                (d) => d.beginningBalance,
-                                "text-slate-900",
-                                () => openHypothesisPanel(loan),
-                              )
-                            : yearLabels.map((_, yearIdx) => (
-                                <td
-                                  key={yearIdx}
-                                  className="min-w-[8rem] cursor-pointer px-4 py-2 text-right font-mono text-sm text-slate-400"
-                                  onClick={() => openHypothesisPanel(loan)}
-                                >
-                                  {formatCurrency(loan.principal)}
-                                </td>
-                              ))
-                          : null}
                       </tr>
+                    ) : null}
 
-                      {hypothesisInlineActive && isSelected ? (
-                        <tr className="border-b-2 border-blue-200/90 bg-slate-50/95">
-                          <td colSpan={tableColumnCount} className="min-w-0 p-0 align-top">
-                            <div className="min-w-0 max-w-full overflow-x-auto px-3 py-3 sm:px-5 sm:py-4">
-                              {renderHypothesisPanel()}
-                            </div>
-                          </td>
-                        </tr>
-                      ) : null}
+                    {renderLoanRows(group.loans)}
 
-                      {isForecast && view === "years" && !hypothesisInlineActive && hypothesisDefined ? (
-                        <>
-                          <tr className="border-b border-slate-200">
-                            <td className="px-6 py-2 pl-12 text-sm text-slate-600">Versement global</td>
-                            <td className="px-4 py-2" />
-                            {renderYearCells(loan, (d) => d.totalPayment, "text-slate-700")}
-                          </tr>
-                          <tr className="border-b border-slate-200">
-                            <td className="px-6 py-2 pl-12 text-sm text-slate-600">Capital</td>
-                            <td className="px-4 py-2" />
-                            {renderYearCells(loan, (d) => d.principalPayment, "text-slate-700")}
-                          </tr>
-                          <tr className="border-b border-slate-200">
-                            <td className="px-6 py-2 pl-12 text-sm text-slate-600">Intérêts</td>
-                            <td className="px-4 py-2" />
-                            {renderYearCells(loan, (d) => d.interestPayment, "text-slate-700")}
-                          </tr>
-                          <tr className="border-b-2 border-slate-300">
-                            <td className="px-6 py-2 pl-12 text-sm font-semibold text-slate-900">Solde fin</td>
-                            <td className="px-4 py-2" />
-                            {renderYearCells(loan, (d) => d.endingBalance, "font-semibold text-slate-900")}
-                          </tr>
-                        </>
-                      ) : null}
-                    </Fragment>
-                  )
-                })}
+                    {isForecast &&
+                    view === "years" &&
+                    group.loans.length > 0 &&
+                    !hypothesisInlineActive &&
+                    visibleGroups.length > 1
+                      ? renderTotalsBlock(group.loans, `Sous-total — ${group.label}`, "group")
+                      : null}
+                  </Fragment>
+                ))}
 
-                {isForecast && view === "years" && loans.length > 0 && !hypothesisInlineActive ? (
-                  <>
-                    <tr className="border-t-2 border-b-2 border-slate-300 bg-slate-50">
-                      <td className="px-6 py-3 font-bold text-slate-900">Total</td>
-                      <td className="px-4 py-3" />
-                      {yearLabels.map((_, yearIdx) => (
-                        <td
-                          key={yearIdx}
-                          className="min-w-[8rem] px-4 py-3 text-right font-mono text-sm font-bold text-slate-900"
-                        >
-                          {formatCurrency(getYearTotals(yearIdx).beginningBalance)}
-                        </td>
-                      ))}
-                    </tr>
-                    <tr className="border-b border-slate-200">
-                      <td className="px-6 py-2 pl-12 text-sm font-semibold text-slate-600">Versement global</td>
-                      <td className="px-4 py-2" />
-                      {yearLabels.map((_, yearIdx) => (
-                        <td
-                          key={yearIdx}
-                          className="min-w-[8rem] px-4 py-2 text-right font-mono text-sm font-semibold text-slate-700"
-                        >
-                          {formatCurrency(getYearTotals(yearIdx).totalPayment)}
-                        </td>
-                      ))}
-                    </tr>
-                    <tr className="border-b border-slate-200">
-                      <td className="px-6 py-2 pl-12 text-sm font-semibold text-slate-600">Capital</td>
-                      <td className="px-4 py-2" />
-                      {yearLabels.map((_, yearIdx) => (
-                        <td
-                          key={yearIdx}
-                          className="min-w-[8rem] px-4 py-2 text-right font-mono text-sm font-semibold text-slate-700"
-                        >
-                          {formatCurrency(getYearTotals(yearIdx).principalPayment)}
-                        </td>
-                      ))}
-                    </tr>
-                    <tr className="border-b border-slate-200">
-                      <td className="px-6 py-2 pl-12 text-sm font-semibold text-slate-600">Intérêts</td>
-                      <td className="px-4 py-2" />
-                      {yearLabels.map((_, yearIdx) => (
-                        <td
-                          key={yearIdx}
-                          className="min-w-[8rem] px-4 py-2 text-right font-mono text-sm font-semibold text-slate-700"
-                        >
-                          {formatCurrency(getYearTotals(yearIdx).interestPayment)}
-                        </td>
-                      ))}
-                    </tr>
-                    <tr className="border-b-2 border-slate-300">
-                      <td className="px-6 py-2 pl-12 text-sm font-bold text-slate-900">Solde fin</td>
-                      <td className="px-4 py-2" />
-                      {yearLabels.map((_, yearIdx) => (
-                        <td
-                          key={yearIdx}
-                          className="min-w-[8rem] px-4 py-2 text-right font-mono text-sm font-bold text-slate-900"
-                        >
-                          {formatCurrency(getYearTotals(yearIdx).endingBalance)}
-                        </td>
-                      ))}
-                    </tr>
-                  </>
-                ) : null}
+                {isForecast && view === "years" && loans.length > 0 && !hypothesisInlineActive
+                  ? renderTotalsBlock(
+                      loanGroups.flatMap((g) => g.loans),
+                      "Total",
+                      "grand",
+                    )
+                  : null}
               </tbody>
             </table>
           </div>

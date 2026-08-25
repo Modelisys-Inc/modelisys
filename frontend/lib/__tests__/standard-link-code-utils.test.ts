@@ -161,10 +161,10 @@ describe("showsMappingCostTypeOptions", () => {
 })
 
 describe("mapping liability term options", () => {
-  it("matches PLT-B/G/C/D roots and descendants", () => {
+  it("matches PLT-B/C/D roots and descendants (not PLT-G Dues)", () => {
     expect(isMappingLiabilityTermLinkCode("PLT-B")).toBe(true)
     expect(isMappingLiabilityTermLinkCode("PLT-B.1")).toBe(true)
-    expect(isMappingLiabilityTermLinkCode("PLT-G.2")).toBe(true)
+    expect(isMappingLiabilityTermLinkCode("PLT-G.2")).toBe(false)
     expect(isMappingLiabilityTermLinkCode("PLT-C.1")).toBe(true)
     expect(isMappingLiabilityTermLinkCode("PLT-D.3")).toBe(true)
     expect(isMappingLiabilityTermLinkCode("PLT-A.1")).toBe(false)

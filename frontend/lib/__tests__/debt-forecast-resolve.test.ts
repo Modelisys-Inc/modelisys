@@ -3,6 +3,8 @@ import type { DebtForecastLoan } from "../debt-forecast-types"
 import {
   debtAmortYearIndexFromBilanConfigYear,
   debtLoanMatchesBilanLinkCode,
+  financingBilanLoanMatchCode,
+  isFinancingBilanCurrentPortionCode,
   parseDebtForecastLoans,
   resolveFinancingDrivenBilanProjectedAmount,
 } from "../debt-forecast-resolve"
@@ -29,6 +31,26 @@ describe("debtLoanMatchesBilanLinkCode", () => {
   })
 })
 
+describe("financingBilanLoanMatchCode", () => {
+  it("maps current portion rows to long-term loan roots", () => {
+    expect(financingBilanLoanMatchCode("PCT-H")).toBe("PLT-C")
+    expect(financingBilanLoanMatchCode("PCT-H.1")).toBe("PLT-C.1")
+    expect(financingBilanLoanMatchCode("PCT-I")).toBe("PLT-D")
+    expect(financingBilanLoanMatchCode("PCT-I.2")).toBe("PLT-D.2")
+    expect(financingBilanLoanMatchCode("PLT-C.1")).toBe("PLT-C.1")
+    expect(financingBilanLoanMatchCode("PLT-D")).toBe("PLT-D")
+  })
+})
+
+describe("isFinancingBilanCurrentPortionCode", () => {
+  it("flags PCT-H/I only", () => {
+    expect(isFinancingBilanCurrentPortionCode("PCT-H")).toBe(true)
+    expect(isFinancingBilanCurrentPortionCode("PCT-I.1")).toBe(true)
+    expect(isFinancingBilanCurrentPortionCode("PLT-C")).toBe(false)
+    expect(isFinancingBilanCurrentPortionCode("PLT-D.1")).toBe(false)
+  })
+})
+
 describe("debtAmortYearIndexFromBilanConfigYear", () => {
   it("maps bilan config years to debt amort years", () => {
     expect(debtAmortYearIndexFromBilanConfigYear(0)).toBeNull()
@@ -49,7 +71,95 @@ describe("resolveFinancingDrivenBilanProjectedAmount", () => {
     ).toBe(250_000)
   })
 
-  it("sums ending balances of matching defined loans", () => {
+  it("splits LT debt into current portion (next 12m P+I) and LT balance", () => {
+    const pltLoan = loan({
+      id: "1",
+      sourceLinkCode: "PLT-C.1",
+      principal: 120_000,
+      interestRate: 0,
+      remainingPayments: 24,
+      repaymentMode: "capital_and_interest",
+    })
+    const loans = [pltLoan]
+
+    const pctH = resolveFinancingDrivenBilanProjectedAmount({
+      linkCode: "PCT-H",
+      configYearIndex: 1,
+      actualBase: 0,
+      loans,
+    })
+    const pltC = resolveFinancingDrivenBilanProjectedAmount({
+      linkCode: "PLT-C",
+      configYearIndex: 1,
+      actualBase: 0,
+      loans,
+    })
+
+    // Year 0 ending = 60k ; year 1 payments = 60k (0 % C&I)
+    expect(pctH).toBe(60_000)
+    expect(pltC).toBe(0)
+    expect(pctH + pltC).toBe(60_000)
+  })
+
+  it("keeps PLT non-negative when next-year interest would otherwise overshoot principal", () => {
+    const loans = [
+      loan({
+        id: "1",
+        sourceLinkCode: "PLT-D.1",
+        principal: 26_164,
+        interestRate: 5,
+        remainingPayments: 36,
+        repaymentMode: "capital_and_interest",
+      }),
+    ]
+
+    for (let configYearIndex = 1; configYearIndex <= 5; configYearIndex++) {
+      const pltD = resolveFinancingDrivenBilanProjectedAmount({
+        linkCode: "PLT-D",
+        configYearIndex,
+        actualBase: 0,
+        loans,
+      })
+      const pctI = resolveFinancingDrivenBilanProjectedAmount({
+        linkCode: "PCT-I",
+        configYearIndex,
+        actualBase: 0,
+        loans,
+      })
+      expect(pltD).toBeGreaterThanOrEqual(0)
+      expect(pctI).toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  it("derives PCT-H from PLT-C loans (no direct PCT-H mapping)", () => {
+    const loans = [
+      loan({
+        id: "1",
+        sourceLinkCode: "PLT-C.1",
+        principal: 300_000,
+        interestRate: 6,
+        remainingPayments: 60,
+        repaymentMode: "capital_and_interest",
+      }),
+    ]
+    const pctH = resolveFinancingDrivenBilanProjectedAmount({
+      linkCode: "PCT-H",
+      configYearIndex: 1,
+      actualBase: 0,
+      loans,
+    })
+    const pltC = resolveFinancingDrivenBilanProjectedAmount({
+      linkCode: "PLT-C",
+      configYearIndex: 1,
+      actualBase: 0,
+      loans,
+    })
+    expect(pctH).toBeGreaterThan(0)
+    expect(pltC).toBeGreaterThan(0)
+    expect(pctH + pltC).toBeGreaterThan(0)
+  })
+
+  it("interest_only at 0 % keeps full balance on PLT-C and 0 on PCT-H", () => {
     const loans = [
       loan({
         id: "1",
@@ -68,7 +178,6 @@ describe("resolveFinancingDrivenBilanProjectedAmount", () => {
         repaymentMode: "interest_only",
       }),
     ]
-    // interest_only, rate 0 → ending = principal after year 0
     expect(
       resolveFinancingDrivenBilanProjectedAmount({
         linkCode: "PLT-C",
@@ -85,6 +194,22 @@ describe("resolveFinancingDrivenBilanProjectedAmount", () => {
         loans,
       }),
     ).toBe(50_000)
+    expect(
+      resolveFinancingDrivenBilanProjectedAmount({
+        linkCode: "PCT-H",
+        configYearIndex: 1,
+        actualBase: 0,
+        loans,
+      }),
+    ).toBe(0)
+    expect(
+      resolveFinancingDrivenBilanProjectedAmount({
+        linkCode: "PCT-I",
+        configYearIndex: 1,
+        actualBase: 0,
+        loans,
+      }),
+    ).toBe(0)
   })
 
   it("returns 0 when no matching hyp or undefined mapping loans", () => {

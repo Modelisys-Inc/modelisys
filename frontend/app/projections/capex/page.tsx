@@ -21,6 +21,10 @@ export default function CapexProjectionsPage() {
     }
   }, [companies, selectedCompanyId])
 
+  /** Même ancrage que Hypothèses Revenus / Bilan : N-1 + YTD + années projetées. */
+  const forecastBaseYear = new Date().getFullYear()
+  const forecastRefMonth = new Date().getMonth() + 1
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
       <DashboardHeader title="Projection des Capex" description="Estimez vos dépenses en capital et investissements futurs" />
@@ -58,15 +62,20 @@ export default function CapexProjectionsPage() {
         </div>
 
         <CapexForecastDetail
-            companyId={selectedCompanyId}
-            divisionId={selectedDivisionId}
-            subDivisionId={selectedSubDivisionId}
-            companies={companies}
-            title="Estimation des Capex annuels"
-            period="annual"
-            view="years"
-            projectionYears={projectionYears}
-          />
+          companyId={selectedCompanyId}
+          divisionId={selectedDivisionId}
+          subDivisionId={selectedSubDivisionId}
+          companies={companies}
+          title="Estimation des Capex annuels"
+          period="annual"
+          view="years"
+          fiscalYear={forecastBaseYear}
+          refMonth={forecastRefMonth}
+          forecastBaseYear={forecastBaseYear}
+          forecastUseSeriesActuals
+          forecastActualLayout="nMinusOne-and-ytd"
+          projectionYears={projectionYears}
+        />
       </main>
     </div>
   )

@@ -5,6 +5,7 @@ import {
   computeProjectedCmvYearTotalsFromSeries,
   isCmvFamilyLinkCode,
   listCmvHypothesisPostIds,
+  listExpenseHypothesisPostIds,
   parseExpenseForecastConfig,
 } from "../projected-cmv-year-totals"
 
@@ -36,7 +37,15 @@ describe("isCmvFamilyLinkCode", () => {
 describe("listCmvHypothesisPostIds", () => {
   it("lists CMV detail-only expense posts", () => {
     const structure = [
-      { label: "Coûts des produits vendus", linkCode: "CMV", posteNature: "depenses", isBold: true },
+      {
+        label: "Coûts des produits vendus",
+        linkCode: "CMV",
+        posteNature: "depenses",
+        isBold: true,
+        annexLetter: "B",
+        defineMapping: true,
+        showInDetail: true,
+      },
       {
         label: "Achats",
         id: "CMV.2",
@@ -60,6 +69,42 @@ describe("listCmvHypothesisPostIds", () => {
       makeRow("CMV.2", "Achats", 100_000),
       makeRow("CMV.11", "Amortissement", 10_000),
     ]
+    expect(listCmvHypothesisPostIds(rows, structure)).toEqual(["CMV.2"])
+  })
+})
+
+describe("listExpenseHypothesisPostIds", () => {
+  it("lists all Hypothèses Dépenses posts (annex leaves + owner without children)", () => {
+    const structure = [
+      {
+        label: "Coûts des produits vendus",
+        linkCode: "CMV",
+        posteNature: "depenses",
+        annexLetter: "B",
+        defineMapping: true,
+        showInDetail: true,
+      },
+      {
+        label: "Achats",
+        id: "CMV.2",
+        linkCode: "CMV.2",
+        detailOnly: true,
+        defineMapping: true,
+        showInDetail: true,
+        annexLetter: "B",
+      },
+      {
+        label: "Salaires",
+        id: "EXP.1",
+        linkCode: "EXP.1",
+        posteNature: "depenses",
+        annexLetter: "C",
+        defineMapping: true,
+        showInDetail: true,
+      },
+    ]
+    const rows = [makeRow("CMV.2", "Achats", 100_000), makeRow("EXP.1", "Salaires", 50_000)]
+    expect(listExpenseHypothesisPostIds(rows, structure)).toEqual(["CMV.2", "EXP.1"])
     expect(listCmvHypothesisPostIds(rows, structure)).toEqual(["CMV.2"])
   })
 })

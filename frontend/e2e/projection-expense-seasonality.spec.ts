@@ -425,4 +425,35 @@ test.describe("Projection fixed expense seasonality actual years", () => {
     await expect(page.getByTestId("fixed-inflation-start-month")).toBeVisible()
     await expect(page.getByText(/Mois de début/)).toBeVisible()
   })
+
+  test("keeps year amount columns wide enough when the hypothesis panel is open", async ({ page }) => {
+    test.setTimeout(90_000)
+    await setupAuth(page)
+    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
+    await expect(page.getByRole("heading", { name: "Pro Forma" })).toBeVisible({ timeout: 15000 })
+    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
+    await page.getByRole("button", { name: "Dépenses", exact: true }).click()
+    await expect(page.getByRole("heading", { name: "Estimation des dépenses annuelles" })).toBeVisible({
+      timeout: 15000,
+    })
+
+    const row = page.locator("tr", { hasText: "Achats" }).first()
+    await expect(row.getByText("Fixe", { exact: true })).toBeVisible({ timeout: 15000 })
+    // Compte, Type, Taux, N-1/%, YTD/% → 1re année projetée = index 7
+    const amountCell = row.locator("td").nth(7)
+    await amountCell.click()
+    await expect(page.getByText("Hypothèse", { exact: true })).toBeVisible({ timeout: 10000 })
+
+    const table = page.locator("table").filter({ hasText: "Achats" }).first()
+    await expect(table).toHaveClass(/min-w-max/)
+
+    const cellWidth = await amountCell.evaluate((el) => (el as HTMLElement).getBoundingClientRect().width)
+    expect(cellWidth).toBeGreaterThanOrEqual(140)
+
+    const textFits = await amountCell.evaluate((el) => {
+      const node = el as HTMLElement
+      return node.scrollWidth <= node.clientWidth + 2
+    })
+    expect(textFits).toBe(true)
+  })
 })

@@ -7,7 +7,7 @@ const PLT_LINK_CODES = [
     code: "PLT-B",
     family: "PLT",
     parent_code: null,
-    label: "Emprunts bancaires",
+    label: "Billet à payer",
     label_account: null,
     label_sub_account: null,
     is_leaf: false,

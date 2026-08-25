@@ -1,13 +1,20 @@
 import { useEffect, useMemo, useState } from "react"
 import { listForecastConfigs } from "@/lib/api"
 import { useProjectedRevenueYearTotals } from "@/hooks/use-projected-revenue-year-totals"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import type { ForecastActualLayout } from "@/lib/pro-forma-forecast-columns"
+import {
+  forecastActualColumnCount,
+  forecastBalanceSheetYearTrend,
+  resolveForecastActualLayout,
+} from "@/lib/pro-forma-forecast-columns"
 import {
   CAPEX_FORECAST_CONFIG_TYPE,
   parseCapexForecastConfig,
   resolveCapexDrivenBilanProjectedAmount,
   type CapexAdjustment,
   type CapexBilanPeerRow,
+  type CapexDepreciationMethod,
 } from "@/lib/capex-forecast-resolve"
 
 export function useCapexForecastForBilan(opts: {
@@ -23,6 +30,9 @@ export function useCapexForecastForBilan(opts: {
   fiscalYearEndMonth?: number
 }): {
   adjustments: Record<string, CapexAdjustment[]>
+  depreciationRates: Record<string, number>
+  depreciationMethods: Record<string, CapexDepreciationMethod>
+  costByRowId: Record<string, number>
   projectedRevenueYearTotals: number[] | null
   configYearCount: number
   resolveProjectedAmount: (
@@ -31,6 +41,7 @@ export function useCapexForecastForBilan(opts: {
     configYearIndex: number,
     actualBase: number,
     peerRows: CapexBilanPeerRow[],
+    opts?: { actualCostBase?: number; label?: string },
   ) => number
   loading: boolean
 } {
@@ -48,6 +59,10 @@ export function useCapexForecastForBilan(opts: {
   } = opts
 
   const [adjustments, setAdjustments] = useState<Record<string, CapexAdjustment[]>>({})
+  const [depreciationRates, setDepreciationRates] = useState<Record<string, number>>({})
+  const [depreciationMethods, setDepreciationMethods] = useState<
+    Record<string, CapexDepreciationMethod>
+  >({})
   const [configLoading, setConfigLoading] = useState(false)
 
   const { totals: projectedRevenueYearTotals, loading: revenueLoading } =
@@ -64,9 +79,63 @@ export function useCapexForecastForBilan(opts: {
       fiscalYearEndMonth,
     })
 
+  const effectiveRefMonth = refMonth ?? 12
+  const effectiveFiscalYear = fiscalYear ?? new Date().getFullYear()
+
+  const { rows: costRows, periods: costPeriods, loading: costLoading } =
+    useFinancialStatementSeries({
+      companyId: companyId || null,
+      statementType: "balance-sheet",
+      fiscalYear: effectiveFiscalYear,
+      month: effectiveRefMonth,
+      months: 72,
+      divisionId: divisionId || null,
+      subDivisionId: subDivisionId || null,
+      enabled: enabled && !!companyId,
+      altAssetCostOnly: true,
+    })
+
+  const forecastActualLayoutEffective = resolveForecastActualLayout(
+    forecastActualLayout,
+    effectiveRefMonth,
+    fiscalYearEndMonth,
+  )
+  const forecastActualCols = forecastActualColumnCount(forecastActualLayoutEffective)
+
+  const costByRowId = useMemo(() => {
+    const out: Record<string, number> = {}
+    if (!costRows.length || !costPeriods.length) return out
+    for (const row of costRows) {
+      const trend = forecastBalanceSheetYearTrend(
+        forecastActualLayoutEffective,
+        row,
+        costPeriods,
+        effectiveRefMonth,
+        effectiveFiscalYear,
+        fiscalYearEndMonth,
+        projectionYears,
+      )
+      const opening = trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? 0
+      if (row.id) out[row.id] = opening
+      // Also index by amounts keys? link codes often match id.
+    }
+    return out
+  }, [
+    costPeriods,
+    costRows,
+    effectiveFiscalYear,
+    effectiveRefMonth,
+    fiscalYearEndMonth,
+    forecastActualCols,
+    forecastActualLayoutEffective,
+    projectionYears,
+  ])
+
   useEffect(() => {
     if (!enabled || !companyId) {
       setAdjustments({})
+      setDepreciationRates({})
+      setDepreciationMethods({})
       setConfigLoading(false)
       return
     }
@@ -78,10 +147,17 @@ export function useCapexForecastForBilan(opts: {
     })
       .then((cfgs) => {
         if (cancelled) return
-        setAdjustments(parseCapexForecastConfig(cfgs[0]?.data ?? {}).capexAdjustments)
+        const parsed = parseCapexForecastConfig(cfgs[0]?.data ?? {})
+        setAdjustments(parsed.capexAdjustments)
+        setDepreciationRates(parsed.depreciationRates)
+        setDepreciationMethods(parsed.depreciationMethods)
       })
       .catch(() => {
-        if (!cancelled) setAdjustments({})
+        if (!cancelled) {
+          setAdjustments({})
+          setDepreciationRates({})
+          setDepreciationMethods({})
+        }
       })
       .finally(() => {
         if (!cancelled) setConfigLoading(false)
@@ -100,24 +176,45 @@ export function useCapexForecastForBilan(opts: {
       configYearIndex: number,
       actualBase: number,
       peerRows: CapexBilanPeerRow[],
-    ) =>
-      resolveCapexDrivenBilanProjectedAmount({
+      resolveOpts?: { actualCostBase?: number; label?: string },
+    ) => {
+      const peersWithCost = peerRows.map((p) => ({
+        ...p,
+        actualCostBase: p.actualCostBase ?? costByRowId[p.rowId] ?? p.actualBase,
+      }))
+      return resolveCapexDrivenBilanProjectedAmount({
         rowId,
         linkCode,
         configYearIndex,
         configYearCount,
         actualBase,
+        actualCostBase:
+          resolveOpts?.actualCostBase ?? costByRowId[rowId] ?? actualBase,
+        label: resolveOpts?.label,
         adjustments,
+        depreciationRates,
+        depreciationMethods,
         projectedRevenueYearTotals,
-        peerRows,
+        peerRows: peersWithCost,
       })
-  }, [adjustments, configYearCount, projectedRevenueYearTotals])
+    }
+  }, [
+    adjustments,
+    configYearCount,
+    costByRowId,
+    depreciationMethods,
+    depreciationRates,
+    projectedRevenueYearTotals,
+  ])
 
   return {
     adjustments,
+    depreciationRates,
+    depreciationMethods,
+    costByRowId,
     projectedRevenueYearTotals,
     configYearCount,
     resolveProjectedAmount,
-    loading: configLoading || revenueLoading,
+    loading: configLoading || revenueLoading || costLoading,
   }
 }

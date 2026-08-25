@@ -769,7 +769,7 @@ export default function ProFormaPage() {
               projectionMode={projectionMode}
               projectionId={currentProjectionId}
             />
-          ) : selectedModule === "income-statement" ? (
+            ) : selectedModule === "income-statement" ? (
             section === "summary" ? (
               <IncomeStatementSummary
                 period={period}
@@ -779,6 +779,7 @@ export default function ProFormaPage() {
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
                 companies={companies}
+                title="États des résultats pro forma"
                 projectionYears={projectionYears}
                 projectionId={currentProjectionId}
                 fiscalYear={projectionStartYear ?? undefined}
@@ -797,6 +798,7 @@ export default function ProFormaPage() {
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
                 companies={companies}
+                title="États des résultats pro forma"
                 hideHeaderIcon
                 disableRowInteractions
                 fiscalYear={projectionStartYear ?? undefined}

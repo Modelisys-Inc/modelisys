@@ -154,6 +154,36 @@ function findTotalRevenueSeriesId(
   return revenueSeries && !revenueSeries.isSection ? revenueSeries.id : undefined
 }
 
+/**
+ * Postes dont les clés Hypothèses Revenus (`rowId-yearIndex`) sont présentes
+ * dans revenueAdjustments / revenueValues — repli si la structure n’a pas encore
+ * de nature « Revenus » / annexe complète.
+ */
+export function listRevenueHypothesisPostIdsFromConfigKeys(
+  seriesRows: { id: string }[],
+  revenueAdjustments: Record<string, unknown>,
+  revenueValues: Record<string, number>,
+): string[] {
+  const keyed = new Set<string>()
+  for (const key of Object.keys(revenueAdjustments)) {
+    const m = /^(.*)-(\d+)$/.exec(key)
+    if (m?.[1]) keyed.add(m[1])
+  }
+  for (const key of Object.keys(revenueValues)) {
+    const m = /^(.*)-(\d+)$/.exec(key)
+    if (m?.[1]) keyed.add(m[1])
+  }
+  if (keyed.size === 0) return []
+  const ids: string[] = []
+  const seen = new Set<string>()
+  for (const sr of seriesRows) {
+    if (!sr.id || seen.has(sr.id) || !keyed.has(sr.id)) continue
+    seen.add(sr.id)
+    ids.push(sr.id)
+  }
+  return ids
+}
+
 /** Mêmes postes que le total CA d’Hypothèses Revenus (feuilles d’annexe, pas les totaux parents). */
 export function listRevenueHypothesisPostIds(
   seriesRows: RevenueHypothesisSeriesRow[],

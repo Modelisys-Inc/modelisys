@@ -8,11 +8,16 @@ import {
   isShowInDetail,
   isStructureRowDetailOnly,
   seriesRowBelongsToDepensesAnnexDetail,
+  structureHasDepensesPosteNatureRow,
   structureRowBelongsToDepensesAnnexDetail,
+  structureRowUsesExcludedProjectionExpenseLinkCode,
   syncDetailSubLinesFromStandard,
   resolveStructureAnnexLetter,
 } from "@/lib/income-statement-structure-utils"
-import { uniqueStatementRowsByStructureIndex } from "@/lib/income-statement-annex-detail"
+import {
+  listAnnexDetailSeriesIdsForOwner,
+  uniqueStatementRowsByStructureIndex,
+} from "@/lib/income-statement-annex-detail"
 import {
   forecastActualColumnCount,
   forecastGrowthPreviousConfigYearIndex,
@@ -69,7 +74,22 @@ export function listCmvHypothesisPostIds(
   seriesRows: CmvHypothesisSeriesRow[],
   structure: Record<string, unknown>[],
 ): string[] {
-  if (!structure.length) return []
+  return listExpenseHypothesisPostIds(seriesRows, structure).filter((id) => {
+    const sr = seriesRows.find((row) => row.id === id)
+    const structRow = findStructureRowForStatementLine(id, sr?.label ?? id, structure)
+    return structRow ? structureRowIsCmvFamily(structRow) : isCmvFamilyLinkCode(id)
+  })
+}
+
+/**
+ * Postes des Hypothèses Dépenses qui alimentent les sous-totaux d’annexe :
+ * feuilles `detailOnly`, ou poste propriétaire mappé sans sous-lignes (ex. Salaires EXP.1).
+ */
+export function listExpenseHypothesisPostIds(
+  seriesRows: CmvHypothesisSeriesRow[],
+  structure: Record<string, unknown>[],
+): string[] {
+  if (!structure.length || !structureHasDepensesPosteNatureRow(structure)) return []
   let rows = seriesRows
     .filter((sr) => isMappedDetailSeriesRow(sr, structure))
     .filter((sr) => seriesRowBelongsToDepensesAnnexDetail(sr, structure))
@@ -99,9 +119,17 @@ export function listCmvHypothesisPostIds(
     if (sr.isSection) continue
     const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
     if (!structRow) continue
-    if (!isStructureRowDetailOnly(structRow)) continue
-    if (!structureRowIsCmvFamily(structRow)) continue
     if (!sr.id || seen.has(sr.id)) continue
+    if (structureRowUsesExcludedProjectionExpenseLinkCode(structRow)) continue
+    if (isStructureRowDetailOnly(structRow)) {
+      seen.add(sr.id)
+      ids.push(sr.id)
+      continue
+    }
+    // Propriétaire d’annexe sans feuilles : le montant est sur le poste lui-même.
+    const childIds = listAnnexDetailSeriesIdsForOwner(sr, rows, structure)
+    if (childIds.length > 0) continue
+    if (!isShowInDetail(structRow, structure) || !isCodeMappingEnabled(structRow)) continue
     seen.add(sr.id)
     ids.push(sr.id)
   }

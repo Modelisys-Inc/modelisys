@@ -7,6 +7,7 @@ import { Company } from "@/components/entity-selector"
 import { listForecastConfigs, upsertForecastConfig } from "@/lib/api"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   dashboardCardAccentClass,
   dashboardCardBodyMutedClass,
@@ -17,10 +18,16 @@ import {
   dashboardCardTitleClass,
 } from "@/lib/dashboard-card-style"
 import {
+  DEFAULT_TAX_PAYMENT_FREQUENCY,
   DEFAULT_TAX_RATE,
   TAX_FORECAST_CONFIG_TYPE,
   TAX_FORECAST_TITLE,
+  TAX_PAYMENT_FREQUENCIES,
+  TAX_PAYMENT_FREQUENCY_LABELS,
+  parseTaxForecastData,
+  parseTaxPaymentFrequency,
   parseTaxRate,
+  type TaxPaymentFrequency,
 } from "@/lib/tax-forecast-utils"
 
 interface TaxForecastDetailProps {
@@ -43,18 +50,21 @@ export function TaxForecastDetail({
   projectionYears = 5,
 }: TaxForecastDetailProps) {
   const [taxRate, setTaxRate] = useState(DEFAULT_TAX_RATE)
+  const [taxPaymentFrequency, setTaxPaymentFrequency] = useState<TaxPaymentFrequency>(
+    DEFAULT_TAX_PAYMENT_FREQUENCY,
+  )
   const [loaded, setLoaded] = useState(false)
   const saveConfigRef = useRef<ReturnType<typeof setTimeout>>()
 
   const saveConfig = useCallback(
-    (rate: number) => {
+    (rate: number, frequency: TaxPaymentFrequency) => {
       if (!companyId) return
       clearTimeout(saveConfigRef.current)
       saveConfigRef.current = setTimeout(async () => {
         try {
           await upsertForecastConfig(companyId, {
             config_type: TAX_FORECAST_CONFIG_TYPE,
-            data: { taxRate: rate },
+            data: { taxRate: rate, taxPaymentFrequency: frequency },
             projection_id: projectionId ?? undefined,
           })
         } catch (err) {
@@ -68,6 +78,7 @@ export function TaxForecastDetail({
   useEffect(() => {
     if (!companyId) {
       setTaxRate(DEFAULT_TAX_RATE)
+      setTaxPaymentFrequency(DEFAULT_TAX_PAYMENT_FREQUENCY)
       setLoaded(false)
       return
     }
@@ -79,13 +90,15 @@ export function TaxForecastDetail({
           projection_id: projectionId ?? undefined,
         })
         if (cancelled) return
-        const data = configs[0]?.data as Record<string, unknown> | undefined
-        setTaxRate(parseTaxRate(data?.taxRate))
+        const parsed = parseTaxForecastData(configs[0]?.data)
+        setTaxRate(parsed.taxRate)
+        setTaxPaymentFrequency(parsed.taxPaymentFrequency)
         setLoaded(true)
       } catch (err) {
         console.error("Error loading tax forecast config:", err)
         if (!cancelled) {
           setTaxRate(DEFAULT_TAX_RATE)
+          setTaxPaymentFrequency(DEFAULT_TAX_PAYMENT_FREQUENCY)
           setLoaded(true)
         }
       }
@@ -99,7 +112,13 @@ export function TaxForecastDetail({
   const updateRate = (raw: number) => {
     const next = parseTaxRate(raw)
     setTaxRate(next)
-    saveConfig(next)
+    saveConfig(next, taxPaymentFrequency)
+  }
+
+  const updatePaymentFrequency = (raw: string) => {
+    const next = parseTaxPaymentFrequency(raw)
+    setTaxPaymentFrequency(next)
+    saveConfig(taxRate, next)
   }
 
   return (
@@ -158,10 +177,11 @@ export function TaxForecastDetail({
         ) : (
           <div className="space-y-6 bg-white px-6 py-6 sm:px-7">
             <p className="max-w-2xl text-sm text-slate-600">
-              Choisissez le taux d&apos;impôt applicable aux années projetées. Il s&apos;applique au bénéfice
-              avant impôts (poste IMP), distinct des montants historiques issus de la balance.
+              Choisissez le taux d&apos;impôt applicable aux années projetées et la fréquence de paiement.
+              Le taux s&apos;applique au bénéfice avant impôts (poste IMP), distinct des montants historiques
+              issus de la balance.
             </p>
-            <div className="max-w-md space-y-4 rounded-2xl border border-slate-200/90 bg-slate-50/60 p-5">
+            <div className="max-w-md space-y-5 rounded-2xl border border-slate-200/90 bg-slate-50/60 p-5">
               <div className="flex items-end justify-between gap-4">
                 <div className="flex-1">
                   <Label htmlFor="tax-forecast-rate" className="mb-2 block text-sm font-medium text-slate-700">
@@ -195,6 +215,31 @@ export function TaxForecastDetail({
               <div className="flex justify-between text-xs text-slate-400">
                 <span>0 %</span>
                 <span>50 %</span>
+              </div>
+
+              <div>
+                <p className="mb-2 text-sm font-medium text-slate-700">Paiement des impôts</p>
+                <Tabs
+                  value={taxPaymentFrequency}
+                  onValueChange={updatePaymentFrequency}
+                >
+                  <TabsList
+                    className="flex h-auto w-full flex-wrap gap-1 rounded-lg border border-slate-200/90 bg-white p-0.5"
+                    data-testid="tax-forecast-payment-frequency"
+                  >
+                    {TAX_PAYMENT_FREQUENCIES.map((frequency) => (
+                      <TabsTrigger
+                        key={frequency}
+                        value={frequency}
+                        disabled={!loaded}
+                        className="h-8 flex-1 rounded-md px-2 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-[#E0742D] data-[state=active]:text-white data-[state=active]:shadow-sm sm:px-3"
+                        data-testid={`tax-forecast-payment-${frequency}`}
+                      >
+                        {TAX_PAYMENT_FREQUENCY_LABELS[frequency]}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
               </div>
             </div>
           </div>

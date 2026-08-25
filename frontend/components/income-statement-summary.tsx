@@ -53,10 +53,13 @@ import type { IncomeStatementHorizonView } from "@/lib/income-statement-horizon-
 import { isStructuralIncomeStatementRowAlwaysVisible } from "@/lib/income-statement-horizon-visibility"
 import {
   TOTAL_CHARGES_LABEL,
+  CHARGES_SECTION_LABEL,
   collectDistinctLinkCodesFromStructure,
   mapLinkCodesToOwnerLabel,
   findStructureRowForStatementLine,
+  findChargeLineRange,
   seriesRowBelongsToRevenueAnnexDetail,
+  seriesRowBelongsToDepensesAnnexDetail,
   extractGroupePrefixFromCompositeLinkCode,
   isAnnexLetterInputEditable,
   isBaiiaStructureRow,
@@ -70,6 +73,23 @@ import {
   normalizeAnnexLetter,
   normalizeLiaisonMode,
 } from "@/lib/income-statement-structure-utils"
+import { listAnnexDetailSeriesIdsForOwner } from "@/lib/income-statement-annex-detail"
+import {
+  computeProjectedRevenueRowValue,
+  listRevenueHypothesisPostIds,
+  listRevenueHypothesisPostIdsFromConfigKeys,
+  type StoredRevenueAdjustment,
+} from "@/hooks/use-projected-revenue-year-totals"
+import {
+  computeProjectedCmvRowValue,
+  listExpenseHypothesisPostIds,
+  parseExpenseForecastConfig,
+} from "@/lib/projected-cmv-year-totals"
+import {
+  DEFAULT_TAX_RATE,
+  TAX_FORECAST_CONFIG_TYPE,
+  parseTaxForecastData,
+} from "@/lib/tax-forecast-utils"
 import { IncomeStatementLiaisonCell } from "@/components/income-statement-liaison-cell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -102,6 +122,7 @@ import {
   EyeOff,
   Hash,
   IndentIncrease,
+  Info,
   LayoutList,
   Link2,
   Loader2,
@@ -243,9 +264,21 @@ export function IncomeStatementSummary({
 
   const [forecastRevenueValues, setForecastRevenueValues] = useState<Record<string, number>>({})
   const [forecastRevenueAdjustments, setForecastRevenueAdjustments] = useState<
-    Record<string, Array<{ id: string; type: "amount" | "growthPercent" | "growthAmount"; value: number; note?: string }>>
+    Record<string, StoredRevenueAdjustment[]>
+  >({})
+  const [forecastExpenseTypes, setForecastExpenseTypes] = useState<
+    Record<string, "variable" | "fixe">
+  >({})
+  const [forecastVariableRates, setForecastVariableRates] = useState<Record<string, number>>({})
+  const [forecastInflationRate, setForecastInflationRate] = useState(2)
+  const [forecastSpecificInflationRates, setForecastSpecificInflationRates] = useState<
+    Record<string, number>
+  >({})
+  const [forecastExpenseAdjustments, setForecastExpenseAdjustments] = useState<
+    ReturnType<typeof parseExpenseForecastConfig>["expenseAdjustments"]
   >({})
   const [forecastStructure, setForecastStructure] = useState<Record<string, unknown>[] | null>(null)
+  const [forecastTaxRate, setForecastTaxRate] = useState(DEFAULT_TAX_RATE)
 
   useEffect(() => {
     if (!isForecastSection || !companyId || !projectionId) return
@@ -253,8 +286,12 @@ export function IncomeStatementSummary({
 
     const load = async () => {
       try {
-        const [cfgs, struct] = await Promise.all([
+        const [cfgs, taxCfgs, struct] = await Promise.all([
           listForecastConfigs(companyId, { config_type: "income-statement-detail", projection_id: projectionId }),
+          listForecastConfigs(companyId, {
+            config_type: TAX_FORECAST_CONFIG_TYPE,
+            projection_id: projectionId,
+          }),
           getStatementStructure(companyId, "income-statement"),
         ])
         if (cancelled) return
@@ -262,27 +299,39 @@ export function IncomeStatementSummary({
         const rv = (data.revenueValues ?? {}) as Record<string, number>
         const ra = (data.revenueAdjustments ?? {}) as Record<string, unknown>
 
-        const parsedAdjustments: Record<
-          string,
-          Array<{ id: string; type: "amount" | "growthPercent" | "growthAmount"; value: number; note?: string }>
-        > = {}
+        const parsedAdjustments: Record<string, StoredRevenueAdjustment[]> = {}
         if (ra && typeof ra === "object" && !Array.isArray(ra)) {
           for (const [k, v] of Object.entries(ra)) {
             if (Array.isArray(v)) {
-              parsedAdjustments[k] = v as typeof parsedAdjustments[string]
+              parsedAdjustments[k] = v as StoredRevenueAdjustment[]
             } else if (v && typeof v === "object") {
-              parsedAdjustments[k] = [v as typeof parsedAdjustments[string][number]]
+              parsedAdjustments[k] = [v as StoredRevenueAdjustment]
             }
           }
         }
 
+        const expenseCfg = parseExpenseForecastConfig(data)
+        const taxParsed = parseTaxForecastData(taxCfgs[0]?.data)
+
         setForecastRevenueValues(rv ?? {})
         setForecastRevenueAdjustments(parsedAdjustments)
+        setForecastExpenseTypes(expenseCfg.expenseTypes)
+        setForecastVariableRates(expenseCfg.variableRates)
+        setForecastInflationRate(expenseCfg.inflationRate)
+        setForecastSpecificInflationRates(expenseCfg.specificInflationRates)
+        setForecastExpenseAdjustments(expenseCfg.expenseAdjustments)
+        setForecastTaxRate(taxParsed.taxRate)
         setForecastStructure(struct?.structure ?? [])
       } catch {
         if (!cancelled) {
           setForecastRevenueValues({})
           setForecastRevenueAdjustments({})
+          setForecastExpenseTypes({})
+          setForecastVariableRates({})
+          setForecastInflationRate(2)
+          setForecastSpecificInflationRates({})
+          setForecastExpenseAdjustments({})
+          setForecastTaxRate(DEFAULT_TAX_RATE)
           setForecastStructure([])
         }
       }
@@ -582,10 +631,21 @@ export function IncomeStatementSummary({
     if (!forecastBaseYear) return null
     if (!forecastStructure || forecastStructure.length === 0) return null
 
-    // Eligible series rows = the same annex/detail scope as Hypothèses Revenus, keyed by seriesRow.id (rowId in detail).
-    const eligibleSeries = seriesRows.filter((sr) =>
-      seriesRowBelongsToRevenueAnnexDetail(sr, forecastStructure)
-    )
+    // Même périmètre que Hypothèses Revenus ; repli sur les clés de config si structure sans nature.
+    let eligibleIds = listRevenueHypothesisPostIds(seriesRows, forecastStructure)
+    if (eligibleIds.length === 0) {
+      eligibleIds = listRevenueHypothesisPostIdsFromConfigKeys(
+        seriesRows,
+        forecastRevenueAdjustments,
+        forecastRevenueValues,
+      )
+    }
+    if (eligibleIds.length === 0) return null
+
+    const eligibleSeries = eligibleIds
+      .map((id) => seriesRows.find((sr) => sr.id === id))
+      .filter((sr): sr is (typeof seriesRows)[number] => !!sr)
+
     if (eligibleSeries.length === 0) return null
 
     const baseYear = forecastBaseYear
@@ -669,7 +729,6 @@ export function IncomeStatementSummary({
     refYear,
     seriesPeriods,
     seriesRows,
-    seriesRowBelongsToRevenueAnnexDetail,
     view,
   ])
 
@@ -745,10 +804,118 @@ export function IncomeStatementSummary({
       return arr[arr.length - 1]!
     }
 
+    const revenueEligibleIds = (() => {
+      const fromAnnex = listRevenueHypothesisPostIds(seriesRows, forecastStructure)
+      if (fromAnnex.length > 0) return fromAnnex
+      return listRevenueHypothesisPostIdsFromConfigKeys(
+        seriesRows,
+        forecastRevenueAdjustments,
+        forecastRevenueValues,
+      )
+    })()
+
+    const expenseEligibleIds = listExpenseHypothesisPostIds(seriesRows, forecastStructure)
+
+    const computeRevenuePostValue = (rowId: string, yearIdx: number): number => {
+      const mkey = `rev:${rowId}-${yearIdx}`
+      const cached = memo.get(mkey)
+      if (cached !== undefined) return cached
+      const baseDefault = yearIdx === 0 ? (rowActuals.get(rowId) ?? 0) : 0
+      const v = computeProjectedRevenueRowValue(
+        rowId,
+        yearIdx,
+        baseDefault,
+        forecastRevenueValues,
+        forecastRevenueAdjustments,
+        yearIdx === 0 ? rowActuals.get(rowId) : undefined,
+        undefined,
+        (id, y) => computeRevenuePostValue(id, y),
+        {
+          actualColumnCount: forecastActualCols,
+          nMinusOneActual: rowNMinusOne.get(rowId),
+        },
+      )
+      memo.set(mkey, v)
+      return v
+    }
+
+    const projectedRevenueTotal = (yearIdx: number): number => {
+      if (yearIdx <= 0) {
+        return revenueEligibleIds.reduce((sum, id) => sum + (rowActuals.get(id) ?? 0), 0)
+      }
+      return revenueEligibleIds.reduce((sum, id) => sum + computeRevenuePostValue(id, yearIdx), 0)
+    }
+
+    /** Somme des sous-totaux Hypothèses Dépenses (tous postes d’annexe dépenses). */
+    const projectedExpenseHypothesisTotal = (yearIdx: number): number => {
+      if (yearIdx <= 0) {
+        return expenseEligibleIds.reduce((sum, id) => sum + (rowActuals.get(id) ?? 0), 0)
+      }
+      return expenseEligibleIds.reduce((sum, id) => sum + computeRowValue(id, yearIdx), 0)
+    }
+
     const computeRowValue = (rowId: string, yearIdx: number): number => {
       const mkey = `${rowId}-${yearIdx}`
       const cached = memo.get(mkey)
       if (cached !== undefined) return cached
+
+      const sr = seriesRows.find((x) => x.id === rowId)
+      const baseDefault = yearIdx === 0 ? (rowActuals.get(rowId) ?? 0) : 0
+
+      // Poste sommaire propriétaire d’annexe (CMV, Frais d’admin…) =
+      // même montant que Sous-total — Annexe X (somme des detailOnly).
+      if (sr) {
+        const annexChildIds = listAnnexDetailSeriesIdsForOwner(sr, seriesRows, forecastStructure)
+        if (annexChildIds.length > 0) {
+          const v = annexChildIds.reduce((sum, id) => sum + computeRowValue(id, yearIdx), 0)
+          memo.set(mkey, v)
+          return v
+        }
+      }
+
+      const hasRevenueHyp =
+        (sr != null && seriesRowBelongsToRevenueAnnexDetail(sr, forecastStructure)) ||
+        Object.keys(forecastRevenueAdjustments).some((k) => k.startsWith(`${rowId}-`)) ||
+        forecastRevenueValues[`${rowId}-${yearIdx}`] !== undefined
+
+      const hasExpenseHyp =
+        (sr != null && seriesRowBelongsToDepensesAnnexDetail(sr, forecastStructure)) ||
+        forecastExpenseTypes[rowId] != null ||
+        forecastVariableRates[rowId] != null ||
+        Object.keys(forecastExpenseAdjustments).some((k) => k.startsWith(`${rowId}-`))
+
+      if (hasRevenueHyp && !hasExpenseHyp) {
+        const v = computeRevenuePostValue(rowId, yearIdx)
+        memo.set(mkey, v)
+        return v
+      }
+
+      if (hasExpenseHyp) {
+        const v = computeProjectedCmvRowValue(
+          rowId,
+          yearIdx,
+          rowActuals.get(rowId) ?? 0,
+          projectedRevenueTotal(yearIdx),
+          {
+            expenseTypes: forecastExpenseTypes,
+            variableRates: forecastVariableRates,
+            inflationRate: forecastInflationRate,
+            specificInflationRates: forecastSpecificInflationRates,
+            revenueValues: forecastRevenueValues,
+            expenseAdjustments: forecastExpenseAdjustments,
+            actualColumnCount: forecastActualCols,
+            nMinusOneActual: rowNMinusOne.get(rowId),
+          },
+        )
+        memo.set(mkey, v)
+        return v
+      }
+
+      if (hasRevenueHyp) {
+        const v = computeRevenuePostValue(rowId, yearIdx)
+        memo.set(mkey, v)
+        return v
+      }
 
       const directKey = `${rowId}-${yearIdx}`
       if (forecastRevenueValues[directKey] !== undefined) {
@@ -757,7 +924,6 @@ export function IncomeStatementSummary({
         return v
       }
 
-      const baseDefault = yearIdx === 0 ? (rowActuals.get(rowId) ?? 0) : 0
       let v = baseDefault
       const adj = getLatestAdjustment(rowId, yearIdx)
       if (adj) {
@@ -799,15 +965,167 @@ export function IncomeStatementSummary({
       return sr ? computeRowValue(sr.id, yearIdx) : 0
     }
 
-    // Build formula values by label norm (structure label).
+    const parseFormulaRefs = (formula: unknown[]): Array<{ sign: 1 | -1; ref: string }> => {
+      const out: Array<{ sign: 1 | -1; ref: string }> = []
+      for (const raw of formula) {
+        const token = String(raw ?? "").trim()
+        if (!token) continue
+        if (token.startsWith("+")) out.push({ sign: 1, ref: token.slice(1).trim() })
+        else if (token.startsWith("-")) out.push({ sign: -1, ref: token.slice(1).trim() })
+        else out.push({ sign: 1, ref: token })
+      }
+      return out
+    }
+
+    // Build formula / liaison values by label (same order as income-statement Sommaire / backend).
     const computedByLabelNorm = new Map<string, number[]>()
+    const valuesByRef = new Map<string, number[]>()
+
+    const publishComputed = (r: Record<string, unknown>, sums: number[]) => {
+      const label = normLabel(String(r.label ?? ""))
+      if (label) computedByLabelNorm.set(label, sums)
+      const id = String(r.id ?? "").trim()
+      const code = String(r.linkCode ?? "").trim()
+      if (id) valuesByRef.set(id, sums)
+      if (code) valuesByRef.set(code, sums)
+      if (label) valuesByRef.set(label, sums)
+    }
+
+    const resolveFormulaRef = (ref: string, yearIdx: number): number => {
+      const t = String(ref ?? "").trim()
+      if (!t) return 0
+      const fromRef =
+        valuesByRef.get(t) ??
+        valuesByRef.get(normLabel(t)) ??
+        valuesByRef.get(t.toUpperCase())
+      if (fromRef) return fromRef[yearIdx] ?? 0
+      const byCode = codeValue(t, yearIdx)
+      if (byCode !== 0) return byCode
+      const sr =
+        seriesRows.find((x) => x.id === t) ??
+        seriesRows.find((x) => String((x as { linkCode?: string }).linkCode ?? "").trim() === t) ??
+        seriesRows.find((x) => normLabel(x.label) === normLabel(t))
+      return sr ? computeRowValue(sr.id, yearIdx) : 0
+    }
+
+    const chargeRange = findChargeLineRange(forecastStructure)
+
+    /** Montant d’un poste sommaire déjà publié, sinon calcul liaison / série (une seule fois). */
+    const summaryPostProjectedAmount = (
+      post: Record<string, unknown>,
+      yearIdx: number,
+    ): number => {
+      const postLabel = normLabel(String(post.label ?? ""))
+      if (!postLabel) return 0
+      const published =
+        computedByLabelNorm.get(postLabel) ??
+        valuesByRef.get(postLabel) ??
+        valuesByRef.get(String(post.linkCode ?? "").trim()) ??
+        valuesByRef.get(String(post.id ?? "").trim())
+      if (published) return published[yearIdx] ?? 0
+
+      const code = String(post.linkCode ?? "").trim()
+      if (code) {
+        const srs = byLinkCode.get(code) ?? []
+        const owner =
+          srs.find((sr) => {
+            const st = findStructureRowForStatementLine(sr.id, sr.label, forecastStructure)
+            return st != null && !isStructureRowDetailOnly(st)
+          }) ?? srs[0]
+        if (owner) return computeRowValue(owner.id, yearIdx)
+        return codeValue(code, yearIdx)
+      }
+
+      const sr =
+        seriesRows.find((x) => String(x.id ?? "").trim() === String(post.id ?? "").trim()) ??
+        seriesRows.find((x) => normLabel(x.label) === postLabel)
+      return sr ? computeRowValue(sr.id, yearIdx) : 0
+    }
+
+    /** Total des charges = somme des postes de la section (comme le Sommaire IS affiché). */
+    const totalChargesFromSection = (yearIdx: number): number => {
+      if (!chargeRange || yearIdx <= 0) return 0
+      let total = 0
+      for (let i = chargeRange.start; i < chargeRange.end; i++) {
+        const post = forecastStructure[i]!
+        if (isStructureRowEmptyLabel(post) || isStructureRowHidden(post)) continue
+        if (isStructureRowDetailOnly(post)) continue
+        if (post.isSection) continue
+        const postLabel = normLabel(String(post.label ?? ""))
+        if (postLabel === normLabel(CHARGES_SECTION_LABEL)) continue
+        if (postLabel === normLabel(TOTAL_CHARGES_LABEL)) continue
+        total += summaryPostProjectedAmount(post, yearIdx)
+      }
+      return total
+    }
+
+    const amountByLabelCandidates = (yearIdx: number, labels: string[]): number => {
+      for (const lab of labels) {
+        const n = normLabel(lab)
+        const published = computedByLabelNorm.get(n) ?? valuesByRef.get(n)
+        if (published) return published[yearIdx] ?? 0
+      }
+      for (const lab of labels) {
+        const n = normLabel(lab)
+        const post = forecastStructure.find((row) => normLabel(String(row.label ?? "")) === n)
+        if (post) return summaryPostProjectedAmount(post, yearIdx)
+      }
+      return 0
+    }
+
+    const isImpotsLabel = (labelNorm: string, linkCode: string) => {
+      const code = linkCode.trim().toUpperCase()
+      if (code === "IMP" || code.startsWith("IMP.") || code.startsWith("IMP-")) return true
+      return (
+        labelNorm === "impôts" ||
+        labelNorm === "impots" ||
+        labelNorm.startsWith("impôts ") ||
+        labelNorm.startsWith("impots ") ||
+        labelNorm.startsWith("impôt ") ||
+        labelNorm.startsWith("impot ")
+      )
+    }
+
     for (const r of forecastStructure) {
       if (isStructureRowEmptyLabel(r) || isStructureRowHidden(r)) continue
-      if (!isCodeMappingEnabled(r)) continue
-      const mode = normalizeLiaisonMode(r)
-      if (mode === "na") continue
+      if (isStructureRowDetailOnly(r)) continue
 
-      const codesSingle = String(r.linkCode ?? "").trim()
+      const formula = Array.isArray(r.formula) ? (r.formula as unknown[]) : null
+      const hasFormula = !!formula && formula.length > 0
+      const mode = normalizeLiaisonMode(r)
+      const hasLiaison = isCodeMappingEnabled(r) && mode !== "na"
+      const labelNorm = normLabel(String(r.label ?? ""))
+      const linkCode = String(r.linkCode ?? "").trim()
+      const isTotalCharges = labelNorm === normLabel(TOTAL_CHARGES_LABEL)
+      const isBeneficeBrut = labelNorm === "bénéfice brut" || labelNorm === "benefice brut"
+      const isBeneficeAvantImpots =
+        labelNorm === "bénéfice avant impôts" ||
+        labelNorm === "benefice avant impots" ||
+        ((labelNorm.includes("bénéfice avant") || labelNorm.includes("benefice avant")) &&
+          (labelNorm.includes("impôt") || labelNorm.includes("impot")))
+      const isImpots = isImpotsLabel(labelNorm, linkCode)
+      const isBaiia = isBaiiaStructureRow(r) || !!r.isEBITA || labelNorm === "baiia"
+      const isBeneficeNet =
+        labelNorm === "bénéfice net" ||
+        labelNorm === "benefice net" ||
+        labelNorm === "bénéfices nets" ||
+        labelNorm === "benefices nets" ||
+        !!r.isNetIncome
+
+      if (
+        !hasFormula &&
+        !hasLiaison &&
+        !isTotalCharges &&
+        !isBeneficeBrut &&
+        !isBeneficeAvantImpots &&
+        !isImpots &&
+        !isBeneficeNet &&
+        !isBaiia
+      ) {
+        continue
+      }
+
+      const codesSingle = linkCode
       const sumCodes = (mode === "sum" ? (Array.isArray(r.liaisonSumCodes) ? r.liaisonSumCodes : []) : []) as unknown[]
       const numCodes = (mode === "difference" ? (Array.isArray(r.liaisonNumeratorCodes) ? r.liaisonNumeratorCodes : []) : []) as unknown[]
       const denCodes = (mode === "difference" ? (Array.isArray(r.liaisonDenominatorCodes) ? r.liaisonDenominatorCodes : []) : []) as unknown[]
@@ -817,14 +1135,78 @@ export function IncomeStatementSummary({
 
       const sums = Array.from({ length: yearCount }, (_, yearIdx) => {
         if (yearIdx === 0) return 0 // keep real year intact downstream
-        if (mode === "single") return codeValue(codesSingle, yearIdx)
-        if (mode === "sum") return normalizeList(sumCodes).reduce((a, c) => a + codeValue(c, yearIdx), 0)
-        // difference
-        const nsum = normalizeList(numCodes).reduce((a, c) => a + codeValue(c, yearIdx), 0)
-        const dsum = normalizeList(denCodes).reduce((a, c) => a + codeValue(c, yearIdx), 0)
-        return nsum - dsum
+
+        // Cascade Sommaire (années projetées) — alignée N-1 / YTD affichés.
+        if (isTotalCharges) {
+          return totalChargesFromSection(yearIdx)
+        }
+        if (isBeneficeBrut) {
+          const revenus = amountByLabelCandidates(yearIdx, ["revenus", "revenu"])
+          const cmv = amountByLabelCandidates(yearIdx, [
+            "coût des produits vendus",
+            "coûts des produits vendus",
+            "cout des produits vendus",
+            "couts des produits vendus",
+          ])
+          return revenus - cmv
+        }
+        if (isBeneficeAvantImpots) {
+          const brut = amountByLabelCandidates(yearIdx, ["bénéfice brut", "benefice brut"])
+          const charges = amountByLabelCandidates(yearIdx, [TOTAL_CHARGES_LABEL, "total des charges"])
+          return brut - charges
+        }
+        if (isImpots) {
+          const bai = amountByLabelCandidates(yearIdx, [
+            "bénéfice avant impôts",
+            "benefice avant impots",
+            "bénéfice avant impôts",
+          ])
+          return Math.round((Math.max(0, bai) * forecastTaxRate) / 100)
+        }
+        if (isBeneficeNet) {
+          const bai = amountByLabelCandidates(yearIdx, [
+            "bénéfice avant impôts",
+            "benefice avant impots",
+          ])
+          // Impôts : poste suivant / label impôts (pas une autre ligne « impôt différé » hors cascade).
+          let taxes = 0
+          for (const row of forecastStructure) {
+            if (isStructureRowEmptyLabel(row) || isStructureRowHidden(row)) continue
+            if (isStructureRowDetailOnly(row)) continue
+            const ln = normLabel(String(row.label ?? ""))
+            const lc = String(row.linkCode ?? "").trim()
+            if (!isImpotsLabel(ln, lc)) continue
+            taxes += amountByLabelCandidates(yearIdx, [String(row.label ?? ""), lc].filter(Boolean))
+            break
+          }
+          return bai - taxes
+        }
+        // BAIIA opérationnel projeté = REV − total Hypothèses Dépenses (sous-totaux d’annexes).
+        if (isBaiia) {
+          return projectedRevenueTotal(yearIdx) - projectedExpenseHypothesisTotal(yearIdx)
+        }
+
+        // formula (± refs)
+        if (hasFormula) {
+          return parseFormulaRefs(formula!).reduce(
+            (acc, { sign, ref }) => acc + sign * resolveFormulaRef(ref, yearIdx),
+            0,
+          )
+        }
+
+        // liaison codes
+        if (hasLiaison) {
+          if (mode === "single") return codeValue(codesSingle, yearIdx)
+          if (mode === "sum") return normalizeList(sumCodes).reduce((a, c) => a + codeValue(c, yearIdx), 0)
+          const nsum = normalizeList(numCodes).reduce((a, c) => a + codeValue(c, yearIdx), 0)
+          const dsum = normalizeList(denCodes).reduce((a, c) => a + codeValue(c, yearIdx), 0)
+          return nsum - dsum
+        }
+
+        return 0
       })
-      computedByLabelNorm.set(normLabel(String(r.label ?? "")), sums)
+
+      publishComputed(r, sums)
     }
 
     // Merge into displayData (projected years only).
@@ -848,12 +1230,20 @@ export function IncomeStatementSummary({
     displayData,
     forecastActualCols,
     forecastBaseYear,
+    forecastExpenseAdjustments,
+    forecastExpenseTypes,
+    forecastInflationRate,
     forecastRevenueAdjustments,
     forecastRevenueValues,
+    forecastSpecificInflationRates,
     forecastStructure,
+    forecastTaxRate,
+    forecastVariableRates,
     isForecastSection,
     projectionYears,
+    refMonth,
     refYear,
+    fiscalYearEndMonth,
     seriesPeriods,
     seriesRows,
     view,
@@ -1944,6 +2334,20 @@ export function IncomeStatementSummary({
               const variationAmount = row.current && row.prior ? row.current - row.prior : 0
               const isBoldRow = shouldBeBold(row.label, row)
               const displayLabel = row.label ? capitalizeFirst(row.label) : ""
+              const linkCodeForTaxHint = String(row.linkCode ?? "").trim().toUpperCase()
+              const labelNormForTaxHint = normLabel(row.label ?? "")
+              const showImpotsCalcHint =
+                isForecastSection &&
+                !showStructureCols &&
+                (linkCodeForTaxHint === "IMP" ||
+                  linkCodeForTaxHint.startsWith("IMP.") ||
+                  linkCodeForTaxHint.startsWith("IMP-") ||
+                  labelNormForTaxHint === "impôts" ||
+                  labelNormForTaxHint === "impots" ||
+                  labelNormForTaxHint.startsWith("impôts ") ||
+                  labelNormForTaxHint.startsWith("impots ") ||
+                  labelNormForTaxHint.startsWith("impôt ") ||
+                  labelNormForTaxHint.startsWith("impot "))
               const isSpacer = row.label === ""
               const sectionExceptions = ["revenus", "coût des produits vendus"]
               const isSectionException = sectionExceptions.includes(row.label.toLowerCase())
@@ -2050,6 +2454,30 @@ export function IncomeStatementSummary({
                           )}
                         />
                       )
+                    ) : showImpotsCalcHint ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        {displayLabel}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="shrink-0 rounded-full text-slate-400 outline-none transition-colors hover:text-slate-600 focus-visible:ring-2 focus-visible:ring-slate-400/40"
+                              aria-label="Origine du calcul des impôts projetés"
+                              data-testid="pro-forma-impots-calc-hint"
+                            >
+                              <Info className="h-3.5 w-3.5" aria-hidden />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent
+                            side="top"
+                            sideOffset={6}
+                            className="max-w-[280px] border border-slate-200 bg-white px-3 py-2 text-xs leading-relaxed text-slate-700 shadow-md"
+                          >
+                            Calcul projeté : taux des Hypothèses Impôts × max(0, Bénéfice avant
+                            impôts).
+                          </TooltipContent>
+                        </Tooltip>
+                      </span>
                     ) : (
                       displayLabel
                     )}

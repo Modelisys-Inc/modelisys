@@ -17,6 +17,9 @@ import {
   resolveStructureAnnexLetter,
   seriesRowBelongsToDepensesAnnexDetail,
   structureRowBelongsToDepensesAnnexDetail,
+  seriesRowBelongsToImpotsAnnexDetail,
+  structureRowBelongsToImpotsAnnexDetail,
+  isImpotsFamilyLinkCode,
   ensureSeriesRowsForAnnexDetailScope,
   isExcludedProjectionComputedExpenseLinkCode,
 } from "../income-statement-structure-utils"
@@ -634,5 +637,36 @@ describe("expense annex detail posts (hypothèses Dépenses)", () => {
       annexLetter: "E",
     }
     expect(structureRowBelongsToDepensesAnnexDetail(autRow, [autRow])).toBe(false)
+  })
+
+  it("detects Impôts annex (IMP family + Exigibles under same letter)", () => {
+    expect(isImpotsFamilyLinkCode("IMP")).toBe(true)
+    expect(isImpotsFamilyLinkCode("IMP.1")).toBe(true)
+    expect(isImpotsFamilyLinkCode("CMV.2")).toBe(false)
+    const owner: Row = {
+      label: "Impôts",
+      linkCode: "IMP",
+      defineMapping: true,
+      showInDetail: true,
+      annexLetter: "F",
+    }
+    const leaf: Row = {
+      id: "IMP.1",
+      label: "Exigibles",
+      linkCode: "IMP.1",
+      detailOnly: true,
+      defineMapping: true,
+      showInDetail: true,
+      annexLetter: "F",
+    }
+    const structure = [owner, leaf]
+    expect(structureRowBelongsToImpotsAnnexDetail(owner, structure)).toBe(true)
+    expect(structureRowBelongsToImpotsAnnexDetail(leaf, structure)).toBe(true)
+    expect(seriesRowBelongsToImpotsAnnexDetail({ id: "IMP.1", label: "Exigibles", linkCode: "IMP.1" }, structure)).toBe(
+      true,
+    )
+    expect(seriesRowBelongsToImpotsAnnexDetail({ id: "CMV.2", label: "Achats", linkCode: "CMV.2" }, structure)).toBe(
+      false,
+    )
   })
 })

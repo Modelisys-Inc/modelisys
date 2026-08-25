@@ -1,9 +1,12 @@
 import {
   findStructureRowForStatementLine,
   getStructureRowGlobalIndex,
+  isCodeMappingEnabled,
+  isShowInDetail,
   isStructureRowDetailOnly,
   normalizeAnnexLetter,
   resolveStructureAnnexLetter,
+  structureRowUsesExcludedProjectionExpenseLinkCode,
 } from "@/lib/income-statement-structure-utils"
 
 export type AnnexSourceRow = {
@@ -19,6 +22,51 @@ export type DetailAnnexMeta = {
   sub: boolean
   annexLetter: string
   isAnnexTitle: boolean
+}
+
+/**
+ * Sous-lignes `detailOnly` d’une annexe dont `owner` est le poste sommaire
+ * (ex. CMV → Achats CMV.2… = contenu du Sous-total — Annexe B).
+ */
+export function listAnnexDetailSeriesIdsForOwner(
+  owner: { id: string; label: string },
+  seriesRows: { id: string; label: string }[],
+  structure: Record<string, unknown>[],
+): string[] {
+  if (!structure.length || !owner.id) return []
+  const ownerStruct = findStructureRowForStatementLine(owner.id, owner.label, structure)
+  if (!ownerStruct || isStructureRowDetailOnly(ownerStruct)) return []
+  const letter = normalizeAnnexLetter(resolveStructureAnnexLetter(ownerStruct, structure))
+  if (!letter) return []
+
+  const ids: string[] = []
+  const seen = new Set<string>()
+
+  const tryAdd = (id: string, label: string) => {
+    const trimmedId = String(id ?? "").trim()
+    if (!trimmedId || seen.has(trimmedId)) return
+    const cs = findStructureRowForStatementLine(trimmedId, label, structure)
+    if (!cs || !isStructureRowDetailOnly(cs)) return
+    if (!isShowInDetail(cs, structure) || !isCodeMappingEnabled(cs)) return
+    if (structureRowUsesExcludedProjectionExpenseLinkCode(cs)) return
+    const childLetter = normalizeAnnexLetter(resolveStructureAnnexLetter(cs, structure))
+    if (childLetter !== letter) return
+    seen.add(trimmedId)
+    ids.push(trimmedId)
+  }
+
+  for (const sr of seriesRows) {
+    tryAdd(sr.id, sr.label)
+  }
+  for (const row of structure) {
+    if (!isStructureRowDetailOnly(row)) continue
+    const id =
+      String(row.id ?? "").trim() ||
+      String(row.linkCode ?? "").trim() ||
+      String(row.label ?? "").trim()
+    tryAdd(id, String(row.label ?? "").trim() || id)
+  }
+  return ids
 }
 
 /**

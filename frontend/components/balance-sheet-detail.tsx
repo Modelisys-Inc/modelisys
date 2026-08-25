@@ -26,7 +26,9 @@ import {
   buildComptesClientsHistory,
   buildCrediteursHistory,
   buildForecastEndingCashTrend,
+  buildRetainedEarningsHistory,
   buildStocksHistory,
+  lastRetainedEarningsHistoryDividends,
   comptesClientsAmountFromDriver,
   crediteursAmountFromDriver,
   isCapexDrivenBilanRow,
@@ -38,15 +40,19 @@ import {
   isExternalForecastDrivenBilanRow,
   isFinancingDrivenBilanRow,
   isHypothesisBilanSubtotalRow,
-  isOtherActBilanRow,
+  isRevenuePercentAdjustableBilanRow,
+  isTaxDrivenBilanRow,
   isHypothesisBilanSectionHeaderRow,
+  isRetainedEarningsBilanRow,
   isStocksBilanRow,
   isTreasuryEndingCashDrivenBilanRow,
+  dividendsForBilanYear,
   parseBilanAdjustments,
   resolveBilanAdjustedValue,
   resolveComptesClientsProjectedValue,
   resolveCrediteursProjectedValue,
   resolveOtherActProjectedValue,
+  resolveRetainedEarningsProjectedValue,
   resolveStocksProjectedValue,
   resolveTreasuryLineFromEndingCash,
   recomputeBilanHypothesisSubtotalTrends,
@@ -57,7 +63,9 @@ import {
   type BilanAdjustmentType,
   type ComptesClientsHistoryYear,
   type CrediteursHistoryYear,
+  type RetainedEarningsHistoryYear,
   type StocksHistoryYear,
+  DIVIDENDS_LINK_CODE,
 } from "@/lib/bilan-forecast-utils"
 import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { Badge } from "@/components/ui/badge"
@@ -72,6 +80,7 @@ import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import { useProjectedRevenueYearTotals } from "@/hooks/use-projected-revenue-year-totals"
 import { useProjectedCmvYearTotals } from "@/hooks/use-projected-cmv-year-totals"
+import { useProjectedNetIncomeYearTotals } from "@/hooks/use-projected-net-income-year-totals"
 import { useCapexForecastForBilan } from "@/hooks/use-capex-forecast-for-bilan"
 import { useDebtForecastForBilan } from "@/hooks/use-debt-forecast-for-bilan"
 import { useBalanceSheetStructureEdit } from "@/hooks/use-income-statement-structure-edit"
@@ -120,7 +129,7 @@ import {
 } from "@/lib/financial-period-labels"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
 import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
-import { monthTrendFromReference, yearTrendFromReference } from "@/lib/series-reference-columns"
+import { monthTrendFromReference, yearTrendFromReference, fiscalYearAsOfSequenceFromReference } from "@/lib/series-reference-columns"
 import {
   type ForecastActualLayout,
   balanceSheetFiscalYearEndAmountsByYear,
@@ -135,6 +144,7 @@ import {
   lastTwoCompletedFiscalYearEnds,
   resolveForecastActualLayout,
 } from "@/lib/pro-forma-forecast-columns"
+import { findNetIncomeSeriesRow } from "@/lib/projected-net-income-year-totals"
 import {
   balanceSheetQuarterTrendForBasis,
   balanceSheetYearTrendForBasis,
@@ -502,7 +512,7 @@ export function BalanceSheetDetail({
     },
   ) => {
     if (isTreasuryEndingCashDrivenBilanRow({ rowId, linkCode, label: rowLabel })) return
-    if (isExternalForecastDrivenBilanRow({ rowId, linkCode })) return
+    if (isExternalForecastDrivenBilanRow({ rowId, linkCode, label: rowLabel })) return
     if (opts?.isSubtotal) return
     if (
       isHypothesisBilanSectionHeaderRow({
@@ -552,10 +562,17 @@ export function BalanceSheetDetail({
           : "paymentDays"
       setDraftType(driver)
       setDraftValue(existing?.value ?? 0)
-    } else if (isOtherActBilanRow({ rowId, linkCode, label: rowLabel })) {
+    } else if (isRevenuePercentAdjustableBilanRow({ rowId, linkCode, label: rowLabel })) {
       const driver = existing?.type === "revenuePercent" ? "revenuePercent" : "amount"
       setDraftType(driver)
       setDraftValue(existing?.value ?? 0)
+    } else if (isRetainedEarningsBilanRow({ rowId, linkCode, label: rowLabel })) {
+      setDraftType("dividends")
+      setDraftValue(
+        existing?.type === "dividends"
+          ? existing.value
+          : dividendsForBilanYear(bilanAdjustments[rowId] ?? [], yearIndex),
+      )
     } else {
       setDraftType("amount")
       setDraftValue(existing?.value ?? 0)
@@ -582,7 +599,12 @@ export function BalanceSheetDetail({
       linkCode: hypothesisLinkCode,
       label: hypothesisRowLabel,
     })
-    const isOtherAct = isOtherActBilanRow({
+    const isRevenuePercentAdjustable = isRevenuePercentAdjustableBilanRow({
+      rowId: hypothesisRowId,
+      linkCode: hypothesisLinkCode,
+      label: hypothesisRowLabel,
+    })
+    const isRetainedEarnings = isRetainedEarningsBilanRow({
       rowId: hypothesisRowId,
       linkCode: hypothesisLinkCode,
       label: hypothesisRowLabel,
@@ -603,22 +625,29 @@ export function BalanceSheetDetail({
             ? draftType === "revenuePercent"
               ? "revenuePercent"
               : "paymentDays"
-            : isOtherAct
+            : isRevenuePercentAdjustable
               ? draftType === "revenuePercent"
                 ? "revenuePercent"
                 : "amount"
-              : "amount",
+              : isRetainedEarnings
+                ? "dividends"
+                : "amount",
       value: draftValue,
       isRecurring: draftRecurring,
       note: draftNote,
     }
     setBilanAdjustments((prev) => {
       const list = (prev[hypothesisRowId] ?? []).filter((a) => a.yearIndex !== hypothesisYearIndex)
+      if (isRetainedEarnings) {
+        const keep =
+          draftValue === 0 && !draftNote.trim() && !draftRecurring ? list : [...list, nextAdj]
+        return { ...prev, [hypothesisRowId]: keep }
+      }
       const keepDriver =
         isClients ||
         isStocks ||
         isCrediteurs ||
-        (isOtherAct && nextAdj.type === "revenuePercent")
+        (isRevenuePercentAdjustable && nextAdj.type === "revenuePercent")
       const keep =
         !keepDriver && draftValue === 0 && !draftNote.trim() ? list : [...list, nextAdj]
       return { ...prev, [hypothesisRowId]: keep }
@@ -962,6 +991,70 @@ export function BalanceSheetDetail({
     [buildCrediteursHistoryForRow, hypothesisLinkCode, hypothesisRowId, hypothesisRowLabel],
   )
 
+  const buildRetainedEarningsHistoryForRow = useCallback(
+    (rowId?: string | null): RetainedEarningsHistoryYear[] => {
+      const [n2, n1] = lastTwoCompletedFiscalYearEnds(refMonth, refYear, fiscalYearEndMonth)
+      const lastActualYear = n1.year
+      const seq = fiscalYearAsOfSequenceFromReference(refMonth, refYear, 4, fiscalYearEndMonth)
+      const n3 = seq[3] ?? { month: fiscalYearEndMonth, year: n2.year - 1 }
+      const reEnds = [n3, n2, n1]
+      const niEnds = [n2, n1]
+      let reByYear: Record<number, number> = {}
+      let netIncomeByYear: Record<number, number> = {}
+      let dividendsByYear: Record<number, number> = {}
+      const reRow =
+        (rowId ? findSeriesRowOrDetail(seriesRows, rowId) : undefined) ??
+        findRow(seriesRows, "CAP-C") ??
+        findRow(seriesRows, "benefices non repartis")
+      if (reRow && periods.length) {
+        reByYear = balanceSheetFiscalYearEndAmountsByYear(reRow, periods, reEnds)
+      }
+      const niRow = findNetIncomeSeriesRow(incomeStatementSeriesRows)
+      if (niRow && incomeStatementPeriods.length) {
+        netIncomeByYear = incomeStatementFiscalYearTotalsByYear(
+          niRow,
+          incomeStatementPeriods,
+          niEnds,
+          fiscalYearEndMonth,
+        )
+      }
+      const divRow =
+        findRow(incomeStatementSeriesRows, DIVIDENDS_LINK_CODE) ??
+        findRow(incomeStatementSeriesRows, "dividendes")
+      if (divRow && incomeStatementPeriods.length) {
+        const raw = incomeStatementFiscalYearTotalsByYear(
+          divRow,
+          incomeStatementPeriods,
+          niEnds,
+          fiscalYearEndMonth,
+        )
+        for (const [year, amount] of Object.entries(raw)) {
+          dividendsByYear[Number(year)] = Math.abs(amount)
+        }
+      }
+      return buildRetainedEarningsHistory({
+        lastActualYear,
+        reByYear,
+        netIncomeByYear,
+        dividendsByYear,
+      })
+    },
+    [
+      fiscalYearEndMonth,
+      incomeStatementPeriods,
+      incomeStatementSeriesRows,
+      periods,
+      refMonth,
+      refYear,
+      seriesRows,
+    ],
+  )
+
+  const retainedEarningsHistory = useMemo(
+    () => buildRetainedEarningsHistoryForRow(hypothesisRowId),
+    [buildRetainedEarningsHistoryForRow, hypothesisRowId],
+  )
+
   const buildOtherActHistoryForRow = useCallback(
     (rowId?: string | null): ActRevenuePercentHistoryYear[] => {
       if (!rowId) return []
@@ -1063,6 +1156,20 @@ export function BalanceSheetDetail({
     lastActualRevenue,
   })
 
+  const { totals: projectedNetIncomeYearTotals } = useProjectedNetIncomeYearTotals({
+    companyId,
+    projectionId,
+    projectionYears,
+    fiscalYear: revenueProjectionRefYear,
+    divisionId,
+    subDivisionId,
+    enabled: isHypothesisSection && !!companyId,
+    forecastActualLayout: forecastActualLayoutEffective,
+    refMonth,
+    fiscalYearEndMonth,
+    lastActualRevenue,
+  })
+
   const { resolveProjectedAmount: resolveCapexBilanProjectedAmount } = useCapexForecastForBilan({
     companyId,
     projectionId,
@@ -1110,7 +1217,12 @@ export function BalanceSheetDetail({
         )
         actualBase = trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? 0
       }
-      peers.push({ rowId, linkCode: linkCode || rowId, actualBase })
+      peers.push({
+        rowId,
+        linkCode: linkCode || rowId,
+        actualBase,
+        label: String(sr.label ?? "").trim() || undefined,
+      })
     }
     return peers
   }, [
@@ -1198,7 +1310,19 @@ export function BalanceSheetDetail({
       return
     }
     if (
-      !isOtherActBilanRow({
+      isRetainedEarningsBilanRow({
+        rowId: hypothesisRowId,
+        linkCode: hypothesisLinkCode,
+        label: hypothesisRowLabel,
+      })
+    ) {
+      const next = lastRetainedEarningsHistoryDividends(retainedEarningsHistory)
+      if (next === 0) return
+      setDraftValue((prev) => (prev === 0 ? next : prev))
+      return
+    }
+    if (
+      !isRevenuePercentAdjustableBilanRow({
         rowId: hypothesisRowId,
         linkCode: hypothesisLinkCode,
         label: hypothesisRowLabel,
@@ -1219,6 +1343,7 @@ export function BalanceSheetDetail({
     hypothesisRowId,
     hypothesisRowLabel,
     otherActHistory,
+    retainedEarningsHistory,
     stocksHistory,
   ])
 
@@ -1256,6 +1381,14 @@ export function BalanceSheetDetail({
     refMonth,
   ])
 
+  const periodNetIncomeByDisplayYear = useMemo(() => {
+    return Array.from({ length: forecastYearColumnCount }, (_, displayYearIndex) => {
+      const cfg = forecastDisplayToConfigYearIndex(displayYearIndex, forecastActualCols)
+      if (cfg == null) return 0
+      return projectedNetIncomeYearTotals?.[cfg] ?? 0
+    })
+  }, [forecastYearColumnCount, forecastActualCols, projectedNetIncomeYearTotals])
+
   const getBilanDisplayValue = (
     rowId: string | undefined,
     trend: number[] | undefined,
@@ -1281,6 +1414,7 @@ export function BalanceSheetDetail({
         cfg,
         trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? fallback,
         capexPeerRows,
+        { label: rowLabel },
       )
     }
     if (isFinancingDrivenBilanRow({ rowId, linkCode })) {
@@ -1292,6 +1426,15 @@ export function BalanceSheetDetail({
         cfg,
         trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? fallback,
       )
+    }
+    if (isRetainedEarningsBilanRow({ rowId, linkCode, label: rowLabel })) {
+      return resolveRetainedEarningsProjectedValue({
+        baseTrend: trend,
+        yearIndex,
+        adjustments: bilanAdjustments[rowId] ?? [],
+        periodNetIncomeByDisplayYear,
+        forecastActualCols,
+      })
     }
     // Sous-totaux : montant déjà recalculé (somme liaison / formule / postes).
     if (opts?.isSubtotal) return trend[yearIndex] ?? fallback
@@ -1328,7 +1471,7 @@ export function BalanceSheetDetail({
         getComptesClientsRevenue(yearIndex),
       )
     }
-    if (isOtherActBilanRow({ rowId, linkCode, label: rowLabel })) {
+    if (isRevenuePercentAdjustableBilanRow({ rowId, linkCode, label: rowLabel })) {
       return resolveOtherActProjectedValue(
         trend,
         yearIndex,
@@ -2484,7 +2627,13 @@ export function BalanceSheetDetail({
                 rowId: row.rowId,
                 linkCode: row.linkCode,
               })
-              const isExternalForecastDrivenRow = isCapexDrivenRow || isFinancingDrivenRow
+              const isTaxDrivenRow = isTaxDrivenBilanRow({
+                rowId: row.rowId,
+                linkCode: row.linkCode,
+                label: row.label,
+              })
+              const isExternalForecastDrivenRow =
+                isCapexDrivenRow || isFinancingDrivenRow || isTaxDrivenRow
               /** Hors Paramètres : libellé sous-total masqué (blanc) mais chiffres en noir. */
               const annexSubtotalDarkNumbers = !!row.isAnnexSubtotal
               const displayLabel = row.isSection ? capitalizeFirst(row.label) : row.label
@@ -2544,7 +2693,12 @@ export function BalanceSheetDetail({
                 linkCode: row.linkCode,
                 label: row.label,
               })
-              const isOtherActPanel = isOtherActBilanRow({
+              const isOtherActPanel = isRevenuePercentAdjustableBilanRow({
+                rowId: row.rowId,
+                linkCode: row.linkCode,
+                label: row.label,
+              })
+              const isRetainedEarningsPanel = isRetainedEarningsBilanRow({
                 rowId: row.rowId,
                 linkCode: row.linkCode,
                 label: row.label,
@@ -2599,11 +2753,38 @@ export function BalanceSheetDetail({
               const crediteursAverageDays = averageHistoryMetric(crediteursHistory, "paymentDays")
               const crediteursAveragePercent = averageHistoryMetric(crediteursHistory, "revenuePercent")
               const otherActAveragePercent = averageHistoryMetric(otherActHistory, "revenuePercent")
+              const reLastHistoryYear = retainedEarningsHistory[retainedEarningsHistory.length - 1]
               const isDriverPanel =
                 isComptesClientsPanel ||
                 isStocksPanel ||
                 isCrediteursPanel ||
+                isRetainedEarningsPanel ||
                 (isOtherActPanel && otherActDriver === "revenuePercent")
+
+              const retainedEarningsPeriodNi =
+                periodNetIncomeByDisplayYear[hypothesisYearIndex] ?? 0
+              const retainedEarningsProjectedAmount = isRetainedEarningsPanel
+                ? resolveRetainedEarningsProjectedValue({
+                    baseTrend: row.trendValues ?? [],
+                    yearIndex: hypothesisYearIndex,
+                    adjustments: [
+                      ...(bilanAdjustments[row.rowId!] ?? []).filter(
+                        (a) => a.yearIndex !== hypothesisYearIndex,
+                      ),
+                      {
+                        id: "draft",
+                        rowId: row.rowId!,
+                        yearIndex: hypothesisYearIndex,
+                        type: "dividends",
+                        value: draftValue,
+                        isRecurring: draftRecurring,
+                        note: draftNote,
+                      },
+                    ],
+                    periodNetIncomeByDisplayYear,
+                    forecastActualCols,
+                  })
+                : 0
 
               return (
                 <Fragment key={idx}>
@@ -2671,12 +2852,17 @@ export function BalanceSheetDetail({
                             )}
                             {isHypothesisSection && isCapexDrivenRow && (
                               <span className="text-[11px] font-medium text-slate-400">
-                                Capex (Hypothèse Capex)
+                                Hypothèse Capex
                               </span>
                             )}
                             {isHypothesisSection && isFinancingDrivenRow && (
                               <span className="text-[11px] font-medium text-slate-400">
-                                Financement (Hypothèse Financement)
+                                Hypothèse Financement
+                              </span>
+                            )}
+                            {isHypothesisSection && isTaxDrivenRow && (
+                              <span className="text-[11px] font-medium text-slate-400">
+                                Hypothèse Impôts
                               </span>
                             )}
                           </>
@@ -3984,6 +4170,149 @@ export function BalanceSheetDetail({
                                     </div>
                                   )}
                                 </>
+                              ) : isRetainedEarningsPanel ? (
+                                <>
+                                  <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                                    <div className="border-b border-slate-200 px-4 py-2.5 sm:px-5">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                        Exercices réels
+                                      </p>
+                                    </div>
+                                    <table className="w-full min-w-[28rem] border-collapse text-sm">
+                                      <thead>
+                                        <tr className="border-b border-slate-200 bg-slate-50/80">
+                                          <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400 sm:px-5">
+                                            Indicateur
+                                          </th>
+                                          {retainedEarningsHistory.map((yearRow) => (
+                                            <th
+                                              key={yearRow.year}
+                                              className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wider text-slate-500 sm:px-5"
+                                            >
+                                              {yearRow.year}
+                                            </th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        <tr className="border-b border-slate-100">
+                                          <th
+                                            scope="row"
+                                            className="px-4 py-2.5 text-left font-medium text-slate-600 sm:px-5"
+                                          >
+                                            Bénéfice de la période
+                                          </th>
+                                          {retainedEarningsHistory.map((yearRow) => (
+                                            <td
+                                              key={`ni-${yearRow.year}`}
+                                              data-testid={`re-history-netIncome-${yearRow.year}`}
+                                              className="px-4 py-2.5 text-right tabular-nums text-slate-700 sm:px-5"
+                                            >
+                                              {yearRow.netIncome ? formatCurrency(yearRow.netIncome) : "—"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                        <tr className="border-b border-slate-100 bg-[#E0742D]/[0.04]">
+                                          <th
+                                            scope="row"
+                                            className="px-4 py-2.5 text-left font-medium text-[#2A2F3A] sm:px-5"
+                                          >
+                                            <span className="flex items-center gap-2">
+                                              <span
+                                                className="h-4 w-0.5 shrink-0 rounded-full bg-[#E0742D]"
+                                                aria-hidden
+                                              />
+                                              Dividendes
+                                            </span>
+                                          </th>
+                                          {retainedEarningsHistory.map((yearRow) => (
+                                            <td
+                                              key={`div-${yearRow.year}`}
+                                              data-testid={`re-history-dividends-${yearRow.year}`}
+                                              className="px-4 py-2.5 text-right font-semibold tabular-nums text-[#2A2F3A] sm:px-5"
+                                            >
+                                              {yearRow.dividends != null
+                                                ? formatCurrency(yearRow.dividends)
+                                                : "—"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                        <tr>
+                                          <th
+                                            scope="row"
+                                            className="px-4 py-2.5 text-left font-medium text-slate-600 sm:px-5"
+                                          >
+                                            <span className="pl-2.5">Bénéfices non répartis</span>
+                                          </th>
+                                          {retainedEarningsHistory.map((yearRow) => (
+                                            <td
+                                              key={`re-${yearRow.year}`}
+                                              className="px-4 py-2.5 text-right tabular-nums text-slate-700 sm:px-5"
+                                            >
+                                              {yearRow.retainedEarnings
+                                                ? formatCurrency(yearRow.retainedEarnings)
+                                                : "—"}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      </tbody>
+                                    </table>
+                                  </div>
+
+                                  <div className="grid gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] lg:items-start">
+                                    <div>
+                                      <Label
+                                        htmlFor="bilan-adj-value"
+                                        className="mb-2 block text-sm font-medium text-slate-700"
+                                      >
+                                        Dividendes ($)
+                                      </Label>
+                                      <Input
+                                        id="bilan-adj-value"
+                                        type="number"
+                                        min={0}
+                                        step={1}
+                                        value={draftValue}
+                                        onChange={(e) =>
+                                          setDraftValue(Math.max(0, parseFloat(e.target.value) || 0))
+                                        }
+                                        className="h-11 tabular-nums"
+                                        data-testid="bilan-re-dividends"
+                                      />
+                                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                        {reLastHistoryYear?.dividends != null
+                                          ? `${reLastHistoryYear.year} : ${formatCurrency(reLastHistoryYear.dividends)}`
+                                          : null}
+                                      </p>
+                                    </div>
+                                    <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3 sm:px-5">
+                                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                        Bénéfices non répartis projetés
+                                      </p>
+                                      <p
+                                        className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-[#2A2F3A]"
+                                        data-testid="bilan-re-projected-amount"
+                                      >
+                                        {formatCurrency(retainedEarningsProjectedAmount)}
+                                      </p>
+                                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                                        Ouverture +{" "}
+                                        <span
+                                          className="font-medium text-slate-700"
+                                          data-testid="bilan-re-period-earnings"
+                                        >
+                                          {retainedEarningsPeriodNi
+                                            ? formatCurrency(retainedEarningsPeriodNi)
+                                            : "—"}
+                                        </span>{" "}
+                                        (bénéfice de la période) − dividendes
+                                        {ccSelectedYearLabel
+                                          ? ` · ${ccSelectedYearLabel}`
+                                          : null}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </>
                               ) : (
                                 <div>
                                   <Label htmlFor="bilan-adj-value" className="mb-2 block text-sm font-medium text-slate-700">
@@ -4018,7 +4347,9 @@ export function BalanceSheetDetail({
                                         ? crediteursDriver === "revenuePercent"
                                           ? "Appliquer le % des revenus aux années suivantes"
                                           : "Appliquer le délai de paiement aux années suivantes"
-                                        : isOtherActPanel
+                                        : isRetainedEarningsPanel
+                                          ? "Appliquer aux années suivantes"
+                                          : isOtherActPanel
                                           ? otherActDriver === "revenuePercent"
                                             ? "Appliquer le % des revenus aux années suivantes"
                                             : "Appliquer aux années suivantes"
@@ -4045,9 +4376,14 @@ export function BalanceSheetDetail({
                                       Le % est reporté. Le solde de chaque année suit le CA projeté de
                                       cette année.
                                     </span>
+                                  ) : isRetainedEarningsPanel ? (
+                                    <span className="mt-1 block text-xs font-normal leading-relaxed text-slate-500">
+                                      Même montant de dividendes sur les années suivantes.
+                                    </span>
                                   ) : null}
                                 </span>
                               </label>
+                              {!isRetainedEarningsPanel ? (
                               <div>
                                 <Label htmlFor="bilan-adj-note" className="mb-2 block text-sm font-medium text-slate-700">
                                   Note explicative
@@ -4059,6 +4395,7 @@ export function BalanceSheetDetail({
                                   placeholder="Optionnel"
                                 />
                               </div>
+                              ) : null}
                               {draftAdjustmentId ? (
                                 <div className="flex justify-end border-t border-slate-200/70 pt-4">
                                   <Button

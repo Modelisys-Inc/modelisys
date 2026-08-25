@@ -3,6 +3,9 @@ import { test, expect, Page } from "@playwright/test"
 const COMPANY_ID = "11111111-1111-1111-1111-111111111111"
 const PROJECTION_ID = "22222222-2222-2222-2222-222222222222"
 
+/** Compte | Taux | N-1 | YTD | 1re année projetée | … */
+const FIRST_PROJECTED_TD_INDEX = 4
+
 function buildMonthlyPeriods(fromYear: number, toYear: number) {
   const periods: { fiscalYear: number; fiscalMonth: number; label: string }[] = []
   for (let year = fromYear; year <= toYear; year++) {
@@ -56,6 +59,17 @@ const MOCK_STANDARD_ALT_CODES = [
     label_account: "Immobilisations corporelles",
     label_sub_account: "Bâtisses",
     label: "Bâtisses",
+  },
+  {
+    id: "slc-alt-b-3",
+    code: "ALT-B.3",
+    family: "ALT",
+    parent_code: "ALT-B",
+    is_leaf: true,
+    sort_order: 3,
+    label_account: "Immobilisations corporelles",
+    label_sub_account: "Équipement",
+    label: "Équipement",
   },
   {
     id: "slc-alt-c",
@@ -122,6 +136,7 @@ const BALANCE_STRUCTURE = [
   },
   {
     label: "Terrains",
+    id: "detail-uuid-terrains",
     linkCode: "ALT-B.1",
     annexLetter: "B",
     detailOnly: true,
@@ -131,6 +146,7 @@ const BALANCE_STRUCTURE = [
   },
   {
     label: "Bâtisses",
+    id: "detail-uuid-batisses",
     linkCode: "ALT-B.2",
     annexLetter: "B",
     detailOnly: true,
@@ -139,7 +155,18 @@ const BALANCE_STRUCTURE = [
     showInDetail: true,
   },
   {
+    label: "Équipement",
+    id: "detail-uuid-equipement",
+    linkCode: "ALT-B.3",
+    annexLetter: "B",
+    detailOnly: true,
+    liaisonMode: "single",
+    defineMapping: true,
+    showInDetail: true,
+  },
+  {
     label: "Biens loués - Location-acquisition",
+    id: "detail-uuid-biens-loues",
     linkCode: "ALT-C",
     annexLetter: "C",
     liaisonMode: "single",
@@ -148,6 +175,7 @@ const BALANCE_STRUCTURE = [
   },
   {
     label: "Actifs incorporels",
+    id: "detail-uuid-incorporels",
     linkCode: "ALT-D",
     annexLetter: "D",
     liaisonMode: "single",
@@ -156,6 +184,7 @@ const BALANCE_STRUCTURE = [
   },
   {
     label: "Autres immobilisations",
+    id: "detail-uuid-autres-immo",
     linkCode: "ALT-A",
     liaisonMode: "single",
     defineMapping: true,
@@ -284,7 +313,7 @@ async function setupAuth(page: Page) {
               detailRows: [],
             },
             {
-              id: "ALT-B.1",
+              id: "detail-uuid-terrains",
               label: "Terrains",
               annexLetter: "B",
               detailOnly: true,
@@ -293,7 +322,7 @@ async function setupAuth(page: Page) {
               detailRows: [],
             },
             {
-              id: "ALT-B.2",
+              id: "detail-uuid-batisses",
               label: "Bâtisses",
               annexLetter: "B",
               detailOnly: true,
@@ -302,7 +331,16 @@ async function setupAuth(page: Page) {
               detailRows: [],
             },
             {
-              id: "ALT-C",
+              id: "detail-uuid-equipement",
+              label: "Équipement",
+              annexLetter: "B",
+              detailOnly: true,
+              hasLiaisonCode: true,
+              amounts: amount(150_000),
+              detailRows: [],
+            },
+            {
+              id: "detail-uuid-biens-loues",
               label: "Biens loués - Location-acquisition",
               annexLetter: "C",
               hasLiaisonCode: true,
@@ -310,7 +348,7 @@ async function setupAuth(page: Page) {
               detailRows: [],
             },
             {
-              id: "ALT-D",
+              id: "detail-uuid-incorporels",
               label: "Actifs incorporels",
               annexLetter: "D",
               hasLiaisonCode: true,
@@ -318,7 +356,7 @@ async function setupAuth(page: Page) {
               detailRows: [],
             },
             {
-              id: "ALT-A",
+              id: "detail-uuid-autres-immo",
               label: "Autres immobilisations",
               hasLiaisonCode: true,
               amounts: amount(40_000),
@@ -491,19 +529,51 @@ test.describe("Projection capex estimation", () => {
       timeout: 15000,
     })
 
+    const scrollContainer = page.getByTestId("capex-forecast-table-scroll")
+    await expect(scrollContainer).toBeVisible()
+    await expect(scrollContainer).toHaveClass(/max-h-\[min\(72vh,56rem\)\]/)
+    await expect(scrollContainer).toHaveClass(/overflow-auto/)
+
+    const headerRow = page.locator("thead tr").first()
+    await expect(headerRow.getByRole("columnheader", { name: "Taux" })).toBeVisible()
+    await expect(headerRow.getByRole("columnheader", { name: "2027" })).toBeVisible()
+    await expect(headerRow.getByRole("columnheader", { name: "YTD 2028" })).toBeVisible()
+    await expect(headerRow.getByRole("columnheader", { name: "2028", exact: true })).toBeVisible()
+    await expect(headerRow.getByRole("columnheader", { name: "2032" })).toBeVisible()
+
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
     await expect(terrainsRow).toBeVisible()
 
-    // Column layout: Compte | Taux | année référence | T | T+1 | …
-    const firstProjectedYearCell = terrainsRow.locator("td").nth(3)
+    // Column layout: Compte | Taux | N-1 | YTD | T | T+1 | …
+    const firstProjectedYearCell = terrainsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)
     await firstProjectedYearCell.click()
 
     await expect(page.getByText("Hypothèse", { exact: true })).toBeVisible()
+    const rollforward = page.getByTestId("capex-asset-rollforward-table")
+    await expect(rollforward).toBeVisible()
+    await expect(rollforward.getByText("Coût", { exact: true })).toBeVisible()
+    await expect(rollforward.getByText("Amortissement cumulé", { exact: true })).toBeVisible()
+    await expect(rollforward.getByText("Valeur comptable")).toBeVisible()
+
     await page.getByPlaceholder("0").fill("75000")
     await page.getByRole("button", { name: "Enregistrer l'ajustement" }).click()
 
     await expect(firstProjectedYearCell).toContainText("75")
-    await expect(terrainsRow.locator("td").nth(4)).toHaveText("-")
+    await expect(firstProjectedYearCell.getByTestId("capex-adjustment-marker")).toBeVisible()
+    // Terrains : taux 0 % → la VNC se maintient les années suivantes sans nouvel ajout
+    const nextYearCell = terrainsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX + 1)
+    await expect(nextYearCell).toContainText("75")
+    await expect(nextYearCell.getByTestId("capex-adjustment-marker")).toHaveCount(0)
+
+    const viewToggle = page.getByTestId("capex-view-toggle")
+    await expect(viewToggle).toHaveText("Ajustements")
+    await viewToggle.click()
+    await expect(viewToggle).toHaveText("Valeur comptable")
+    await expect(firstProjectedYearCell).toContainText("75")
+    await expect(nextYearCell).toHaveText("-")
+    await viewToggle.click()
+    await expect(viewToggle).toHaveText("Ajustements")
+    await expect(nextYearCell).toContainText("75")
   })
 
   test("replicates capex adjustment to following years when checkbox is checked", async ({ page }) => {
@@ -530,7 +600,7 @@ test.describe("Projection capex estimation", () => {
     })
 
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
-    const firstProjectedYearCell = terrainsRow.locator("td").nth(3)
+    const firstProjectedYearCell = terrainsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)
     await firstProjectedYearCell.click()
 
     await expect(page.getByLabel("Appliquer le même ajustement aux années suivantes")).toBeVisible()
@@ -539,8 +609,14 @@ test.describe("Projection capex estimation", () => {
     await page.getByRole("button", { name: "Enregistrer l'ajustement" }).click()
 
     await expect(firstProjectedYearCell).toContainText("50")
-    await expect(terrainsRow.locator("td").nth(4)).toContainText("50")
-    await expect(terrainsRow.locator("td").nth(5)).toContainText("50")
+    await expect(firstProjectedYearCell.getByTestId("capex-adjustment-marker")).toBeVisible()
+    // Ajouts répliqués → Coût cumulatif (taux Terrains 0 %) : 50k, 100k, 150k
+    const year2Cell = terrainsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX + 1)
+    const year3Cell = terrainsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX + 2)
+    await expect(year2Cell).toContainText("100")
+    await expect(year3Cell).toContainText("150")
+    await expect(year2Cell.getByTestId("capex-adjustment-marker")).toBeVisible()
+    await expect(year3Cell.getByTestId("capex-adjustment-marker")).toBeVisible()
   })
 
   test("shows disbursement calendar inside adjustment when amount is set", async ({ page }) => {
@@ -567,7 +643,7 @@ test.describe("Projection capex estimation", () => {
     })
 
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
-    await terrainsRow.locator("td").nth(3).click()
+    await terrainsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
 
     await expect(page.getByText("Hypothèse", { exact: true })).toBeVisible()
     await page.getByPlaceholder("0").fill("100000")
@@ -600,7 +676,7 @@ test.describe("Projection capex estimation", () => {
     await page.getByRole("button", { name: "Capex", exact: true }).click()
 
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
-    await terrainsRow.locator("td").nth(3).click()
+    await terrainsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
     await page.getByPlaceholder("0").fill("50000")
     await page.locator('label').filter({ hasText: /^Financement$/ }).click()
 
@@ -622,6 +698,67 @@ test.describe("Projection capex estimation", () => {
     await expect(page.getByText(/Paiements de capital et d.intérêts/i)).toBeVisible()
     await expect(page.getByRole("heading", { name: "Calendrier de décaissement" })).toHaveCount(0)
     await expect(page.getByRole("button", { name: "Enregistrer l'ajustement" })).toBeEnabled()
+  })
+
+  test("financed Capex syncs debt-forecast under PLT-C for ALT-B assets", async ({ page }) => {
+    test.setTimeout(60_000)
+    await setupAuth(page)
+
+    const debtPuts: {
+      config_type?: string
+      data?: { loans?: Array<{ sourceLinkCode?: string; sourceType?: string; principal?: number }> }
+    }[] = []
+
+    await page.route(`**/api/companies/${COMPANY_ID}/forecast-configs**`, async (route) => {
+      const method = route.request().method()
+      if (method === "GET") {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ configs: [] }),
+        })
+      }
+      if (method === "PUT" || method === "POST") {
+        const body = route.request().postDataJSON() as (typeof debtPuts)[number]
+        if (body?.config_type === "debt-forecast") debtPuts.push(body)
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            id: "fc-debt",
+            config_type: body?.config_type ?? "debt-forecast",
+            data: body?.data ?? {},
+            ok: true,
+          }),
+        })
+      }
+      return route.continue()
+    })
+
+    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
+    await expect(page.getByRole("heading", { name: "Pro Forma" })).toBeVisible({ timeout: 15000 })
+    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
+    await page.getByRole("button", { name: "Capex", exact: true }).click()
+
+    const equipementRow = page.locator("tr").filter({ hasText: "Équipement" }).first()
+    await equipementRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
+    await page.getByPlaceholder("0").fill("75000")
+    await page.locator("label").filter({ hasText: /^Financement$/ }).click()
+    await expect(page.getByText("Paramètres de la dette")).toBeVisible({ timeout: 10000 })
+    await page.getByRole("button", { name: "Enregistrer l'ajustement" }).click()
+    await expect(page.getByText("Hypothèse", { exact: true })).toHaveCount(0, { timeout: 15000 })
+
+    await expect
+      .poll(() =>
+        debtPuts
+          .flatMap((p) => p.data?.loans ?? [])
+          .find((l) => l.sourceType === "capex" && l.sourceLinkCode === "PLT-C"),
+      )
+      .toBeTruthy()
+    const loan = debtPuts
+      .flatMap((p) => p.data?.loans ?? [])
+      .find((l) => l.sourceType === "capex" && l.sourceLinkCode === "PLT-C")
+    expect(loan?.principal).toBe(75000)
   })
 
   test("opens rate hypothesis panel when clicking taux column", async ({ page }) => {

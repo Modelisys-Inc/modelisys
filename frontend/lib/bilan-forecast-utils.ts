@@ -13,6 +13,18 @@ export const STOCKS_LINK_CODE_ROOT = "ACT-F"
 export const CREDITEURS_LINK_CODE_ROOT = "PCT-C"
 /** Plan standard : PCT-D = Créditeurs - Apparentés. */
 export const CREDITEURS_APPARENTES_LINK_CODE_ROOT = "PCT-D"
+/** Plan standard : CAP-C = Bénéfices non répartis. */
+export const RETAINED_EARNINGS_LINK_CODE_ROOT = "CAP-C"
+
+/** Plan standard : CAP-C.2 = Dividendes (saisie via le panneau CAP-C). */
+export const DIVIDENDS_LINK_CODE = "CAP-C.2"
+
+/** Plan standard : ACT-H = Actif d'impôts exigibles (Hypothèses Impôts). */
+export const TAX_ASSET_LINK_CODE_ROOT = "ACT-H"
+/** Plan standard : PCT-FF = Passif d'impôts exigibles (Hypothèses Impôts). */
+export const TAX_LIABILITY_LINK_CODE_ROOT = "PCT-FF"
+/** Plan standard : PCT-PD = Produits reportés. */
+export const PRODUITS_REPORTES_LINK_CODE_ROOT = "PCT-PD"
 
 export type BilanAdjustmentType =
   | "amount"
@@ -20,6 +32,7 @@ export type BilanAdjustmentType =
   | "revenuePercent"
   | "inventoryDays"
   | "paymentDays"
+  | "dividends"
 
 export interface BilanAdjustment {
   id: string
@@ -62,6 +75,13 @@ export type ActRevenuePercentHistoryYear = {
   amount: number
   revenue: number
   revenuePercent: number | null
+}
+
+export type RetainedEarningsHistoryYear = {
+  year: number
+  retainedEarnings: number
+  netIncome: number
+  dividends: number | null
 }
 
 function stripAccents(value: string): string {
@@ -243,8 +263,134 @@ export function isFinancingDrivenBilanRow(params: {
 export function isExternalForecastDrivenBilanRow(params: {
   linkCode?: string | null
   rowId?: string | null
+  label?: string | null
 }): boolean {
-  return isCapexDrivenBilanRow(params) || isFinancingDrivenBilanRow(params)
+  return (
+    isCapexDrivenBilanRow(params) ||
+    isFinancingDrivenBilanRow(params) ||
+    isTaxDrivenBilanRow(params)
+  )
+}
+
+/** Actif / passif d’impôts exigibles — pilotés par Hypothèses Impôts (non ajustables au bilan). */
+export function isTaxDrivenBilanRow(params: {
+  linkCode?: string | null
+  rowId?: string | null
+  label?: string | null
+}): boolean {
+  const codes = [params.linkCode, params.rowId]
+    .map((value) => String(value ?? "").trim().toUpperCase())
+    .filter(Boolean)
+  if (
+    codes.some(
+      (code) =>
+        code === TAX_ASSET_LINK_CODE_ROOT ||
+        code.startsWith(`${TAX_ASSET_LINK_CODE_ROOT}.`) ||
+        code === TAX_LIABILITY_LINK_CODE_ROOT ||
+        code.startsWith(`${TAX_LIABILITY_LINK_CODE_ROOT}.`),
+    )
+  ) {
+    return true
+  }
+  const label = stripAccents(String(params.label ?? "").trim().toLowerCase())
+  return (
+    label.includes("impots exigibles") ||
+    label.includes("impot exigible") ||
+    label.includes("impots a payer") ||
+    label.includes("impot a payer")
+  )
+}
+
+/** Produits reportés (PCT-PD / PD) — Montant $ ou % des revenus. */
+export function isProduitsReportesBilanRow(params: {
+  linkCode?: string | null
+  rowId?: string | null
+  label?: string | null
+}): boolean {
+  const codes = [params.linkCode, params.rowId]
+    .map((value) => String(value ?? "").trim().toUpperCase())
+    .filter(Boolean)
+  if (
+    codes.some(
+      (code) =>
+        code === PRODUITS_REPORTES_LINK_CODE_ROOT ||
+        code.startsWith(`${PRODUITS_REPORTES_LINK_CODE_ROOT}.`) ||
+        code === "PD" ||
+        code.startsWith("PD."),
+    )
+  ) {
+    return true
+  }
+  const label = stripAccents(String(params.label ?? "").trim().toLowerCase())
+  return label === "produits reportes" || label.startsWith("produits reportes")
+}
+
+/**
+ * Postes ACT (hors encaisse / clients / stocks) ou Produits reportés :
+ * Montant $ ou % des revenus.
+ */
+export function isRevenuePercentAdjustableBilanRow(params: {
+  linkCode?: string | null
+  rowId?: string | null
+  label?: string | null
+}): boolean {
+  return isOtherActBilanRow(params) || isProduitsReportesBilanRow(params)
+}
+
+/** Bénéfices non répartis (CAP-C) — bénéfice de la période + dividendes. */
+export function isRetainedEarningsBilanRow(params: {
+  linkCode?: string | null
+  rowId?: string | null
+  label?: string | null
+}): boolean {
+  const codes = [params.linkCode, params.rowId]
+    .map((value) => String(value ?? "").trim().toUpperCase())
+    .filter(Boolean)
+  // Exact CAP-C only (pas CAP-C.1 bénéfice net calculé, ni CAP-C.2 feuilles).
+  if (codes.some((code) => code === RETAINED_EARNINGS_LINK_CODE_ROOT)) return true
+  const label = stripAccents(String(params.label ?? "").trim().toLowerCase())
+  return label === "benefices non repartis" || label === "benefice non reparti"
+}
+
+/**
+ * Dividendes applicables à une année d’affichage (dernier driver `dividends`).
+ */
+export function dividendsForBilanYear(
+  adjustments: BilanAdjustment[],
+  yearIndex: number,
+): number {
+  if (yearIndex <= 0) return 0
+  const driver = [...adjustments]
+    .filter((adj) => adjustmentAppliesToYear(adj, yearIndex) && adj.type === "dividends")
+    .reverse()[0]
+  return driver && Number.isFinite(driver.value) ? Math.max(0, driver.value) : 0
+}
+
+/**
+ * Solde projeté Bénéfices non répartis :
+ * RE_t = RE_{t-1} + Bénéfice de la période_t − Dividendes_t
+ * (enchaîné depuis la dernière colonne réelle).
+ */
+export function resolveRetainedEarningsProjectedValue(params: {
+  baseTrend: number[]
+  yearIndex: number
+  adjustments: BilanAdjustment[]
+  /** Bénéfice net de la période par index d’affichage. */
+  periodNetIncomeByDisplayYear: number[]
+  forecastActualCols: number
+}): number {
+  const { baseTrend, yearIndex, adjustments, periodNetIncomeByDisplayYear, forecastActualCols } =
+    params
+  const actualCols = Math.max(1, forecastActualCols)
+  if (yearIndex < actualCols) return baseTrend[yearIndex] ?? 0
+
+  let re = baseTrend[actualCols - 1] ?? baseTrend[0] ?? 0
+  for (let y = actualCols; y <= yearIndex; y++) {
+    const ni = periodNetIncomeByDisplayYear[y] ?? 0
+    const div = dividendsForBilanYear(adjustments, y)
+    re = re + ni - div
+  }
+  return re
 }
 
 /**
@@ -465,6 +611,42 @@ export function buildActRevenuePercentHistory(params: {
       revenuePercent: revenuePercentFromArAndRevenue(amount, revenue),
     }
   })
+}
+
+/** Dividendes implicites : RE_{t−1} + BN_t − RE_t (≥ 0). */
+export function dividendsFromRetainedEarningsFlow(
+  priorRetainedEarnings: number | undefined,
+  netIncome: number,
+  retainedEarnings: number,
+): number | null {
+  if (priorRetainedEarnings == null || !Number.isFinite(priorRetainedEarnings)) return null
+  const derived = priorRetainedEarnings + netIncome - retainedEarnings
+  return Number.isFinite(derived) ? Math.max(0, derived) : null
+}
+
+export function buildRetainedEarningsHistory(params: {
+  lastActualYear: number
+  reByYear: Record<number, number>
+  netIncomeByYear: Record<number, number>
+  dividendsByYear?: Record<number, number>
+}): RetainedEarningsHistoryYear[] {
+  return lastTwoFiscalYears(params.lastActualYear).map((year) => {
+    const retainedEarnings = params.reByYear[year] ?? 0
+    const netIncome = params.netIncomeByYear[year] ?? 0
+    const explicit = params.dividendsByYear?.[year]
+    const dividends =
+      explicit != null && Number.isFinite(explicit)
+        ? Math.max(0, explicit)
+        : dividendsFromRetainedEarningsFlow(params.reByYear[year - 1], netIncome, retainedEarnings)
+    return { year, retainedEarnings, netIncome, dividends }
+  })
+}
+
+export function lastRetainedEarningsHistoryDividends(
+  history: RetainedEarningsHistoryYear[],
+): number {
+  const last = history[history.length - 1]
+  return last?.dividends != null && Number.isFinite(last.dividends) ? last.dividends : 0
 }
 
 export function adjustmentAppliesToYear(adj: BilanAdjustment, yearIndex: number): boolean {
@@ -851,7 +1033,8 @@ function parseAdjustmentType(raw: unknown): BilanAdjustmentType {
     raw === "collectionDays" ||
     raw === "revenuePercent" ||
     raw === "inventoryDays" ||
-    raw === "paymentDays"
+    raw === "paymentDays" ||
+    raw === "dividends"
   ) {
     return raw
   }
