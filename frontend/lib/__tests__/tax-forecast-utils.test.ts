@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  annualTaxPaidFromPriorExpense,
   DEFAULT_TAX_PAYMENT_FREQUENCY,
   DEFAULT_TAX_RATE,
   parseTaxForecastData,
@@ -37,5 +38,14 @@ describe("parseTaxForecastData", () => {
       taxRate: DEFAULT_TAX_RATE,
       taxPaymentFrequency: DEFAULT_TAX_PAYMENT_FREQUENCY,
     })
+  })
+})
+
+describe("annualTaxPaidFromPriorExpense", () => {
+  it("pays the full prior-year tax on annual horizon regardless of frequency", () => {
+    expect(annualTaxPaidFromPriorExpense(766_252, "annual")).toBe(766_252)
+    expect(annualTaxPaidFromPriorExpense(766_252, "monthly")).toBe(766_252)
+    expect(annualTaxPaidFromPriorExpense(766_252, "quarterly")).toBe(766_252)
+    expect(annualTaxPaidFromPriorExpense(-50_000, "semiannual")).toBe(50_000)
   })
 })

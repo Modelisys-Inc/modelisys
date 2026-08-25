@@ -87,6 +87,7 @@ import {
   resolveCapexAdditionsForYear,
   resolveCapexDepreciationMethod,
   resolveCapexDepreciationRate,
+  rollupCapexParentTrendsFromLeafRows,
   type CapexAssetYearState,
   type CapexDepreciationMethod,
 } from "@/lib/capex-forecast-resolve"
@@ -1256,7 +1257,10 @@ export function CapexForecastDetail({
       }
     })
 
-    return insertAnnexDetailPlaceholderRows(withTrends, forecastYearCount)
+    return insertAnnexDetailPlaceholderRows(
+      rollupCapexParentTrendsFromLeafRows(withTrends),
+      forecastYearCount,
+    )
   }
 
   const getDetailData = (): DetailRow[] => {

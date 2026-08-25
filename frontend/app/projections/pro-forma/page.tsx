@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils"
 import { IncomeStatementDetail } from "@/components/income-statement-detail"
 import { IncomeStatementSummary } from "@/components/income-statement-summary"
 import { BalanceSheetDetail } from "@/components/balance-sheet-detail"
-import { BalanceSheetSummary } from "@/components/balance-sheet-summary"
 import { CashFlowDetail } from "@/components/cash-flow-detail"
 import { CashFlowSummary } from "@/components/cash-flow-summary"
 import { CapexForecastDetail } from "@/components/capex-forecast-detail"
@@ -422,6 +421,8 @@ export default function ProFormaPage() {
   const setFinancialStatementModule = (m: Exclude<TopNav, "assumptions">) => {
     setTopNav(m)
     setSelectedModule(m)
+    // Bilan pro forma : Sommaire seulement (pas de vue Détail).
+    if (m === "balance-sheet") setSection("summary")
   }
 
   const setAssumptionsModule = (m: AssumptionsNav) => {
@@ -504,8 +505,8 @@ export default function ProFormaPage() {
           <div className="mb-6">
             <div className="rounded-2xl border border-white/10 bg-[#2A2F3A]/45 px-3 py-3 backdrop-blur-sm sm:px-4">
               <div className="flex flex-wrap items-center gap-3">
-                {/* États financiers: Vue (Sommaire / Détail) */}
-                {!isAssumptions && isFinancialStatementModule && (
+                {/* États financiers: Vue (Sommaire / Détail) — pas de Détail pour Bilan pro forma */}
+                {!isAssumptions && isFinancialStatementModule && selectedModule !== "balance-sheet" && (
                   <div className="flex items-center gap-2">
                     <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
                       <Button
@@ -813,26 +814,6 @@ export default function ProFormaPage() {
               />
             )
           ) : selectedModule === "balance-sheet" ? (
-            section === "summary" ? (
-              <BalanceSheetSummary
-                period={period}
-                view={view}
-                columnMode={columnMode}
-                companyId={companyId}
-                divisionId={divisionId}
-                subDivisionId={subDivisionId}
-                companies={companies}
-                title="Bilan pro forma"
-                fiscalYear={projectionStartYear ?? undefined}
-                refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
-                refYear={projectionStartYear ?? new Date().getFullYear()}
-                projectionYears={projectionYears}
-                forecastBaseYear={projectionStartYear ?? undefined}
-                forecastUseSeriesActuals
-                forecastActualLayout="nMinusOne-and-ytd"
-                disableRowInteractions
-              />
-            ) : (
               <BalanceSheetDetail
                 period={period}
                 view={view}
@@ -850,8 +831,9 @@ export default function ProFormaPage() {
                 forecastUseSeriesActuals
                 forecastActualLayout="nMinusOne-and-ytd"
                 disableRowInteractions
+                projectionId={currentProjectionId}
+                forceBilanHypothesisAmounts
               />
-            )
           ) : selectedModule === "cash-flow" ? (
             section === "summary" ? (
               <CashFlowSummary

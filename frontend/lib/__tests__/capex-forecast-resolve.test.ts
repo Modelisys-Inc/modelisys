@@ -9,6 +9,7 @@ import {
   resolveCapexAdditionsForYear,
   resolveCapexDrivenBilanProjectedAmount,
   resolveCapexDrivenDepreciationExpense,
+  rollupCapexParentTrendsFromLeafRows,
   isCapexDrivenAmortizationIsLinkCode,
   capexAssetRootsForAmortIsLinkCode,
   capexAmortIsLinkCodeOptionsForAsset,
@@ -208,6 +209,56 @@ describe("resolveCapexDrivenBilanProjectedAmount", () => {
         ],
       }),
     ).toBe(100_000)
+  })
+
+  it("includes unadjusted sibling leaves in parent rollup (not only hyps)", () => {
+    const adjustments = {
+      "ALT-B.1-1": [adj({ id: "a", rowId: "ALT-B.1", yearIndex: 1, type: "amount", value: 40_000 })],
+    }
+    expect(
+      resolveCapexDrivenBilanProjectedAmount({
+        rowId: "ALT-B",
+        linkCode: "ALT-B",
+        configYearIndex: 1,
+        configYearCount: 3,
+        actualBase: 500_000,
+        adjustments,
+        depreciationRates: { "ALT-B.1": 0, "ALT-B.2": 0 },
+        peerRows: [
+          { rowId: "ALT-B.1", linkCode: "ALT-B.1", actualBase: 100_000 },
+          { rowId: "ALT-B.2", linkCode: "ALT-B.2", actualBase: 200_000 },
+        ],
+      }),
+    ).toBe(340_000) // (100k+40k) + 200k
+  })
+
+  it("rollupCapexParentTrendsFromLeafRows sums leaf VNC onto parent", () => {
+    const rows = [
+      {
+        rowId: "ALT-B",
+        linkCode: "ALT-B",
+        trendValues: [1_000_000, 920_000],
+        current: 1_000_000,
+        prior: 920_000,
+      },
+      {
+        rowId: "ALT-B.1",
+        linkCode: "ALT-B.1",
+        trendValues: [100_000, 140_000],
+        current: 100_000,
+        prior: 140_000,
+      },
+      {
+        rowId: "ALT-B.2",
+        linkCode: "ALT-B.2",
+        trendValues: [200_000, 200_000],
+        current: 200_000,
+        prior: 200_000,
+      },
+    ]
+    const out = rollupCapexParentTrendsFromLeafRows(rows)
+    expect(out[0]?.trendValues).toEqual([300_000, 340_000])
+    expect(out[1]?.trendValues).toEqual([100_000, 140_000])
   })
 
   it("rolls UUID-keyed Terrains Capex into ALT-B parent via stored linkCode", () => {

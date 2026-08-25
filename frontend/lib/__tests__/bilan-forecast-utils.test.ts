@@ -39,6 +39,9 @@ import {
   isProduitsReportesBilanRow,
   isRevenuePercentAdjustableBilanRow,
   isTaxDrivenBilanRow,
+  isTaxAssetBilanRow,
+  isTaxLiabilityBilanRow,
+  resolveTaxExigibleProjectedValue,
   revenueForComptesClientsYear,
   stocksAmountFromDriver,
   type BilanAdjustment,
@@ -217,6 +220,10 @@ describe("isTaxDrivenBilanRow / isProduitsReportesBilanRow", () => {
     expect(isTaxDrivenBilanRow({ label: "Actif d'impôts exigibles" })).toBe(true)
     expect(isTaxDrivenBilanRow({ label: "Passif d'impôts exigibles" })).toBe(true)
     expect(isTaxDrivenBilanRow({ linkCode: "ACT-C" })).toBe(false)
+    expect(isTaxAssetBilanRow({ linkCode: "ACT-H.1" })).toBe(true)
+    expect(isTaxLiabilityBilanRow({ linkCode: "PCT-FF.1" })).toBe(true)
+    expect(isTaxAssetBilanRow({ linkCode: "PCT-FF" })).toBe(false)
+    expect(isTaxLiabilityBilanRow({ linkCode: "ACT-H" })).toBe(false)
   })
 
   it("matches produits reportés and includes them in revenue-percent adjustable rows", () => {
@@ -229,6 +236,138 @@ describe("isTaxDrivenBilanRow / isProduitsReportesBilanRow", () => {
       isRevenuePercentAdjustableBilanRow({ linkCode: "PCT-PD.1", label: "Produits reportés" }),
     ).toBe(true)
     expect(isRevenuePercentAdjustableBilanRow({ linkCode: "ACT-B.1" })).toBe(true)
+  })
+})
+
+describe("resolveTaxExigibleProjectedValue", () => {
+  it("places positive net on liability after subtracting N-1 tax paid", () => {
+    // Impôts 725_465 + Passif N-1 20_434 − Actif 0 − Impôts N-1 payés 766_252 = −20_353 → actif
+    expect(
+      resolveTaxExigibleProjectedValue({
+        side: "liability",
+        yearIndex: 2,
+        forecastActualCols: 2,
+        taxExpenseByDisplayYear: [766_252, 0, 725_465],
+        taxPaidByDisplayYear: [0, 0, 766_252],
+        assetBaseTrend: [0, 0, 0],
+        liabilityBaseTrend: [20_434, 15_000, 0],
+      }),
+    ).toBe(0)
+    expect(
+      resolveTaxExigibleProjectedValue({
+        side: "asset",
+        yearIndex: 2,
+        forecastActualCols: 2,
+        taxExpenseByDisplayYear: [766_252, 0, 725_465],
+        taxPaidByDisplayYear: [0, 0, 766_252],
+        assetBaseTrend: [0, 0, 0],
+        liabilityBaseTrend: [20_434, 15_000, 0],
+      }),
+    ).toBe(20_353)
+  })
+
+  it("places positive net on liability when current tax exceeds prior tax paid", () => {
+    // 800_000 + 20_434 − 0 − 100_000 = 720_434 → passif
+    expect(
+      resolveTaxExigibleProjectedValue({
+        side: "liability",
+        yearIndex: 2,
+        forecastActualCols: 2,
+        taxExpenseByDisplayYear: [100_000, 0, 800_000],
+        taxPaidByDisplayYear: [0, 0, 100_000],
+        assetBaseTrend: [0, 0, 0],
+        liabilityBaseTrend: [20_434, 15_000, 0],
+      }),
+    ).toBe(720_434)
+    expect(
+      resolveTaxExigibleProjectedValue({
+        side: "asset",
+        yearIndex: 2,
+        forecastActualCols: 2,
+        taxExpenseByDisplayYear: [100_000, 0, 800_000],
+        taxPaidByDisplayYear: [0, 0, 100_000],
+        assetBaseTrend: [0, 0, 0],
+        liabilityBaseTrend: [20_434, 15_000, 0],
+      }),
+    ).toBe(0)
+  })
+
+  it("places negative net on asset as a positive amount", () => {
+    expect(
+      resolveTaxExigibleProjectedValue({
+        side: "asset",
+        yearIndex: 1,
+        forecastActualCols: 1,
+        taxExpenseByDisplayYear: [500_000, 100_000],
+        taxPaidByDisplayYear: [0, 500_000],
+        assetBaseTrend: [0],
+        liabilityBaseTrend: [0],
+      }),
+    ).toBe(400_000)
+    expect(
+      resolveTaxExigibleProjectedValue({
+        side: "liability",
+        yearIndex: 1,
+        forecastActualCols: 1,
+        taxExpenseByDisplayYear: [500_000, 100_000],
+        taxPaidByDisplayYear: [0, 500_000],
+        assetBaseTrend: [0],
+        liabilityBaseTrend: [0],
+      }),
+    ).toBe(0)
+  })
+
+  it("chains from prior projected balances and prior-year tax paid", () => {
+    const taxExpenseByDisplayYear = [20_000, 0, 100_000, 50_000]
+    const taxPaidByDisplayYear = [0, 0, 20_000, 100_000]
+    const assetBaseTrend = [0, 0, 0, 0]
+    const liabilityBaseTrend = [20_000, 10_000, 0, 0]
+    // 2026: 100k + 20k − 0 − 20k = 100k passif
+    const liability2026 = resolveTaxExigibleProjectedValue({
+      side: "liability",
+      yearIndex: 2,
+      forecastActualCols: 2,
+      taxExpenseByDisplayYear,
+      taxPaidByDisplayYear,
+      assetBaseTrend,
+      liabilityBaseTrend,
+    })
+    expect(liability2026).toBe(100_000)
+    // 2027: 50k + 100k − 0 − 100k = 50k passif
+    expect(
+      resolveTaxExigibleProjectedValue({
+        side: "liability",
+        yearIndex: 3,
+        forecastActualCols: 2,
+        taxExpenseByDisplayYear,
+        taxPaidByDisplayYear,
+        assetBaseTrend,
+        liabilityBaseTrend,
+      }),
+    ).toBe(50_000)
+  })
+
+  it("falls back to N-1 tax at index 0 when taxPaidByDisplayYear is omitted", () => {
+    expect(
+      resolveTaxExigibleProjectedValue({
+        side: "liability",
+        yearIndex: 1,
+        forecastActualCols: 1,
+        taxExpenseByDisplayYear: [766_252, 725_465],
+        assetBaseTrend: [0],
+        liabilityBaseTrend: [20_434],
+      }),
+    ).toBe(0)
+    expect(
+      resolveTaxExigibleProjectedValue({
+        side: "asset",
+        yearIndex: 1,
+        forecastActualCols: 1,
+        taxExpenseByDisplayYear: [766_252, 725_465],
+        assetBaseTrend: [0],
+        liabilityBaseTrend: [20_434],
+      }),
+    ).toBe(20_353)
   })
 })
 

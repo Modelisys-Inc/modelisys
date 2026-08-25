@@ -17,11 +17,19 @@ import {
   prepareCmvDisplayStructure,
 } from "@/lib/projected-cmv-year-totals"
 import {
-  computeProjectedNetIncomeYearTotals,
+  computeProjectedBaiTaxAndNetIncomeYearTotals,
   findNetIncomeSeriesRow,
+  findTaxExpenseSeriesRow,
   lastActualAnnualAmount,
+  lastCompletedFiscalYearTaxExpense,
 } from "@/lib/projected-net-income-year-totals"
-import { DEFAULT_TAX_RATE, parseTaxForecastData, TAX_FORECAST_CONFIG_TYPE } from "@/lib/tax-forecast-utils"
+import {
+  DEFAULT_TAX_PAYMENT_FREQUENCY,
+  DEFAULT_TAX_RATE,
+  parseTaxForecastData,
+  TAX_FORECAST_CONFIG_TYPE,
+  type TaxPaymentFrequency,
+} from "@/lib/tax-forecast-utils"
 
 const CAPEX_AMORT_IS_CODES = [
   ...CAPEX_CORPORELLES_AMORT_IS_LINK_CODES,
@@ -40,7 +48,14 @@ export function useProjectedNetIncomeYearTotals(opts: {
   refMonth?: number
   fiscalYearEndMonth?: number
   lastActualRevenue: number
-}): { totals: number[] | null; lastActualNetIncome: number; loading: boolean } {
+}): {
+  totals: number[] | null
+  taxExpenseTotals: number[] | null
+  lastActualNetIncome: number
+  lastActualTaxExpense: number
+  taxPaymentFrequency: TaxPaymentFrequency
+  loading: boolean
+} {
   const {
     companyId,
     projectionId,
@@ -60,6 +75,9 @@ export function useProjectedNetIncomeYearTotals(opts: {
   const [expenseConfig, setExpenseConfig] = useState(() => parseExpenseForecastConfig({}))
   const [structure, setStructure] = useState<Record<string, unknown>[] | null>(null)
   const [taxRate, setTaxRate] = useState(DEFAULT_TAX_RATE)
+  const [taxPaymentFrequency, setTaxPaymentFrequency] = useState<TaxPaymentFrequency>(
+    DEFAULT_TAX_PAYMENT_FREQUENCY,
+  )
   const [configLoading, setConfigLoading] = useState(false)
 
   const { codes: standardLinkCodes } = useStandardLinkCodesFlat(
@@ -111,6 +129,7 @@ export function useProjectedNetIncomeYearTotals(opts: {
       setExpenseConfig(parseExpenseForecastConfig({}))
       setStructure(null)
       setTaxRate(DEFAULT_TAX_RATE)
+      setTaxPaymentFrequency(DEFAULT_TAX_PAYMENT_FREQUENCY)
       setConfigLoading(false)
       return
     }
@@ -130,13 +149,16 @@ export function useProjectedNetIncomeYearTotals(opts: {
       .then(([expenseCfgs, taxCfgs, structRes]) => {
         if (cancelled) return
         setExpenseConfig(parseExpenseForecastConfig((expenseCfgs[0]?.data ?? {}) as Record<string, unknown>))
-        setTaxRate(parseTaxForecastData(taxCfgs[0]?.data ?? {}).taxRate)
+        const taxParsed = parseTaxForecastData(taxCfgs[0]?.data ?? {})
+        setTaxRate(taxParsed.taxRate)
+        setTaxPaymentFrequency(taxParsed.taxPaymentFrequency)
         setStructure(Array.isArray(structRes.structure) ? structRes.structure : [])
       })
       .catch(() => {
         if (!cancelled) {
           setExpenseConfig(parseExpenseForecastConfig({}))
           setTaxRate(DEFAULT_TAX_RATE)
+          setTaxPaymentFrequency(DEFAULT_TAX_PAYMENT_FREQUENCY)
           setStructure([])
         }
       })
@@ -162,6 +184,18 @@ export function useProjectedNetIncomeYearTotals(opts: {
   const lastActualNetIncome = useMemo(
     () => lastActualAnnualAmount(findNetIncomeSeriesRow(rows), periods),
     [rows, periods],
+  )
+
+  const lastActualTaxExpense = useMemo(
+    () =>
+      lastCompletedFiscalYearTaxExpense(
+        findTaxExpenseSeriesRow(rows),
+        periods,
+        effectiveRefMonth,
+        effectiveFiscalYear,
+        fiscalYearEndMonth,
+      ),
+    [rows, periods, effectiveRefMonth, effectiveFiscalYear, fiscalYearEndMonth],
   )
 
   const projectedExpenseHypothesisYearTotals = useMemo(() => {
@@ -215,9 +249,9 @@ export function useProjectedNetIncomeYearTotals(opts: {
     })
   }, [projectionYears, resolveInterestExpense])
 
-  const totals = useMemo(() => {
+  const projected = useMemo(() => {
     if (!enabled || !companyId || projectedExpenseHypothesisYearTotals == null) return null
-    return computeProjectedNetIncomeYearTotals({
+    return computeProjectedBaiTaxAndNetIncomeYearTotals({
       projectionYears,
       lastActualNetIncome,
       projectedRevenueYearTotals,
@@ -239,8 +273,11 @@ export function useProjectedNetIncomeYearTotals(opts: {
   ])
 
   return {
-    totals,
+    totals: projected?.netIncome ?? null,
+    taxExpenseTotals: projected?.taxExpense ?? null,
     lastActualNetIncome,
+    lastActualTaxExpense,
+    taxPaymentFrequency,
     loading:
       configLoading || seriesLoading || revenueLoading || capexLoading || debtLoading,
   }

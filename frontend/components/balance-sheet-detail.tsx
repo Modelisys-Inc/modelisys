@@ -42,6 +42,9 @@ import {
   isHypothesisBilanSubtotalRow,
   isRevenuePercentAdjustableBilanRow,
   isTaxDrivenBilanRow,
+  isTaxAssetBilanRow,
+  isTaxLiabilityBilanRow,
+  resolveTaxExigibleProjectedValue,
   isHypothesisBilanSectionHeaderRow,
   isRetainedEarningsBilanRow,
   isStocksBilanRow,
@@ -82,15 +85,14 @@ import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-ser
 import { useProjectedRevenueYearTotals } from "@/hooks/use-projected-revenue-year-totals"
 import { useProjectedCmvYearTotals } from "@/hooks/use-projected-cmv-year-totals"
 import { useProjectedNetIncomeYearTotals } from "@/hooks/use-projected-net-income-year-totals"
+import { annualTaxPaidFromPriorExpense } from "@/lib/tax-forecast-utils"
 import { useCapexForecastForBilan } from "@/hooks/use-capex-forecast-for-bilan"
 import { useDebtForecastForBilan } from "@/hooks/use-debt-forecast-for-bilan"
 import { useBalanceSheetStructureEdit } from "@/hooks/use-income-statement-structure-edit"
 import { useStandardLinkCodesFlat } from "@/hooks/use-standard-link-codes"
 import {
   buildStandardLinkCodeLabelMap,
-  isCapexProjectionLinkCode,
 } from "@/lib/standard-link-code-utils"
-import type { CapexBilanPeerRow } from "@/lib/capex-forecast-resolve"
 import {
   collectDistinctLinkCodesFromStructure,
   mapLinkCodesToOwnerLabel,
@@ -293,6 +295,11 @@ interface BalanceSheetDetailProps {
   /** Annuel / trimestriel : Courant (même mois / T3M) ou Exercice (FYE / trimestres fiscaux). */
   periodBasis?: StatementPeriodBasis
   projectionId?: string | null
+  /**
+   * Pro Forma Bilan Sommaire : mêmes montants projetés qu’Estimation du Bilan annuel
+   * (moteur d’hypothèses), même si le titre reste « Bilan pro forma ».
+   */
+  forceBilanHypothesisAmounts?: boolean
 }
 
 interface BalanceAccount {
@@ -365,8 +372,12 @@ export function BalanceSheetDetail({
   forecastActualLayout = "single-prior-year",
   periodBasis = "current",
   projectionId = null,
+  forceBilanHypothesisAmounts = false,
 }: BalanceSheetDetailProps) {
-  const isHypothesisSection = title === BILAN_HYPOTHESIS_TITLE
+  // Montants = Estimation du Bilan ; édition seulement sur la carte Hypothèses Bilan.
+  const isHypothesisSection =
+    title === BILAN_HYPOTHESIS_TITLE || forceBilanHypothesisAmounts
+  const isHypothesisEditable = title === BILAN_HYPOTHESIS_TITLE
   const isForecastSection = title === "Bilan pro forma" || isHypothesisSection
   const fiscalYearEndMonth = parseFiscalYearEndMonth(
     companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
@@ -394,7 +405,7 @@ export function BalanceSheetDetail({
   const [draftNote, setDraftNote] = useState("")
   const [draftAdjustmentId, setDraftAdjustmentId] = useState<string | null>(null)
   const [bilanConfigLoaded, setBilanConfigLoaded] = useState(false)
-  const bilanSaveRef = useRef<ReturnType<typeof setTimeout>>()
+  const bilanSaveRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const [statementStructure, setStatementStructure] = useState<Record<string, unknown>[] | null>(null)
   const [cashFlowStructure, setCashFlowStructure] = useState<Record<string, unknown>[] | null>(null)
   const [structureEditMode, setStructureEditMode] = useState(false)
@@ -486,7 +497,7 @@ export function BalanceSheetDetail({
   }, [companyId, isHypothesisSection, projectionId])
 
   useEffect(() => {
-    if (!companyId || !isHypothesisSection || !bilanConfigLoaded) return
+    if (!companyId || !isHypothesisEditable || !bilanConfigLoaded) return
     clearTimeout(bilanSaveRef.current)
     bilanSaveRef.current = setTimeout(async () => {
       try {
@@ -500,7 +511,7 @@ export function BalanceSheetDetail({
       }
     }, 500)
     return () => clearTimeout(bilanSaveRef.current)
-  }, [bilanAdjustments, bilanConfigLoaded, companyId, isHypothesisSection, projectionId])
+  }, [bilanAdjustments, bilanConfigLoaded, companyId, isHypothesisEditable, projectionId])
 
   const closeBilanHypothesisPanel = () => {
     setHypothesisRowId(null)
@@ -685,14 +696,6 @@ export function BalanceSheetDetail({
     if (standardLinkCodes.length === 0) return statementStructure
     return syncDetailSubLinesFromStandard(statementStructure, standardLinkCodes)
   }, [statementStructure, standardLinkCodes, isHypothesisSection])
-
-  /** Structure Capex (sous-lignes ALT injectées) pour relier hyp. Terrains → parent ALT-B. */
-  const capexAlignedStructure = useMemo((): Record<string, unknown>[] | null => {
-    if (statementStructure === null) return null
-    const base = statementStructure.filter((r) => !isBalanceSheetValidationStructureRow(r))
-    if (standardLinkCodes.length === 0) return base
-    return syncDetailSubLinesFromStandard(base, standardLinkCodes)
-  }, [statementStructure, standardLinkCodes])
 
   useEffect(() => {
     if (!structureEditMode || !canInlineStructureEdit || structEdit.loading) return
@@ -1164,7 +1167,12 @@ export function BalanceSheetDetail({
     lastActualRevenue,
   })
 
-  const { totals: projectedNetIncomeYearTotals } = useProjectedNetIncomeYearTotals({
+  const {
+    totals: projectedNetIncomeYearTotals,
+    taxExpenseTotals: projectedTaxExpenseYearTotals,
+    lastActualTaxExpense,
+    taxPaymentFrequency,
+  } = useProjectedNetIncomeYearTotals({
     companyId,
     projectionId,
     projectionYears,
@@ -1178,7 +1186,10 @@ export function BalanceSheetDetail({
     lastActualRevenue,
   })
 
-  const { resolveProjectedAmount: resolveCapexBilanProjectedAmount } = useCapexForecastForBilan({
+  const {
+    resolveProjectedAmount: resolveCapexBilanProjectedAmount,
+    peerRows: capexPeerRows,
+  } = useCapexForecastForBilan({
     companyId,
     projectionId,
     projectionYears,
@@ -1196,57 +1207,6 @@ export function BalanceSheetDetail({
     projectionId,
     enabled: isHypothesisSection && !!companyId,
   })
-
-  const capexPeerRows = useMemo((): CapexBilanPeerRow[] => {
-    if (!isHypothesisSection || !seriesRows.length || !periods.length) {
-      return []
-    }
-    const structureForPeers = capexAlignedStructure ?? displayStructure ?? statementStructure
-    if (!structureForPeers?.length) return []
-    const peers: CapexBilanPeerRow[] = []
-    for (const sr of structureForPeers) {
-      const linkCode = structureRowEffectiveLinkCode(sr)
-      const rowId = String(sr.id ?? linkCode ?? "").trim()
-      if (!rowId) continue
-      if (!isCapexProjectionLinkCode(linkCode) && !isCapexProjectionLinkCode(rowId)) continue
-      const seriesRow =
-        findSeriesRowOrDetail(seriesRows, rowId) ??
-        (linkCode ? findRow(seriesRows, linkCode) : undefined)
-      let actualBase = 0
-      if (seriesRow) {
-        const trend = forecastBalanceSheetYearTrend(
-          forecastActualLayoutEffective,
-          seriesRow,
-          periods as SeriesPeriod[],
-          refMonth,
-          refYear,
-          fiscalYearEndMonth,
-          projectionYears,
-        )
-        actualBase = trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? 0
-      }
-      peers.push({
-        rowId,
-        linkCode: linkCode || rowId,
-        actualBase,
-        label: String(sr.label ?? "").trim() || undefined,
-      })
-    }
-    return peers
-  }, [
-    capexAlignedStructure,
-    displayStructure,
-    fiscalYearEndMonth,
-    forecastActualCols,
-    forecastActualLayoutEffective,
-    isHypothesisSection,
-    periods,
-    projectionYears,
-    refMonth,
-    refYear,
-    seriesRows,
-    statementStructure,
-  ])
 
   /**
    * CA pour comptes clients / stocks % REV : colonnes bilan = index d’affichage,
@@ -1397,6 +1357,82 @@ export function BalanceSheetDetail({
     })
   }, [forecastYearColumnCount, forecastActualCols, projectedNetIncomeYearTotals])
 
+  const periodTaxExpenseByDisplayYear = useMemo(() => {
+    return Array.from({ length: forecastYearColumnCount }, (_, displayYearIndex) => {
+      // Colonne N-1 : impôts réels de l’exercice complet (base des acomptes de la 1re année projetée).
+      if (displayYearIndex === 0) return lastActualTaxExpense
+      const cfg = forecastDisplayToConfigYearIndex(displayYearIndex, forecastActualCols)
+      if (cfg == null || cfg <= 0) return 0
+      return projectedTaxExpenseYearTotals?.[cfg] ?? 0
+    })
+  }, [
+    forecastYearColumnCount,
+    forecastActualCols,
+    lastActualTaxExpense,
+    projectedTaxExpenseYearTotals,
+  ])
+
+  /** Impôts de la période précédente payés durant l’année (horizon annuel = 100 %). */
+  const periodTaxPaidByDisplayYear = useMemo(() => {
+    return Array.from({ length: forecastYearColumnCount }, (_, displayYearIndex) => {
+      if (!isForecastProjectedDisplayColumn(displayYearIndex, forecastActualCols)) return 0
+      const priorTax =
+        displayYearIndex === forecastActualCols
+          ? (periodTaxExpenseByDisplayYear[0] ?? 0)
+          : (periodTaxExpenseByDisplayYear[displayYearIndex - 1] ?? 0)
+      return annualTaxPaidFromPriorExpense(priorTax, taxPaymentFrequency)
+    })
+  }, [
+    forecastYearColumnCount,
+    forecastActualCols,
+    periodTaxExpenseByDisplayYear,
+    taxPaymentFrequency,
+  ])
+
+  const taxExigibleBaseTrends = useMemo(() => {
+    const empty = { asset: [] as number[], liability: [] as number[] }
+    if (!isHypothesisSection || !seriesRows.length || !periods.length) return empty
+
+    const buildTrend = (row: SeriesRow | undefined): number[] => {
+      if (!row) return Array.from({ length: forecastYearColumnCount }, () => 0)
+      return forecastBalanceSheetYearTrend(
+        forecastActualLayoutEffective,
+        row,
+        periods as SeriesPeriod[],
+        refMonth,
+        refYear,
+        fiscalYearEndMonth,
+        projectionYears,
+      )
+    }
+
+    const assetRow =
+      seriesRows.find((r) => isTaxAssetBilanRow({ rowId: r.id, label: r.label })) ??
+      findRow(seriesRows, "ACT-H") ??
+      findRow(seriesRows, "actif d'impots exigibles") ??
+      findRow(seriesRows, "actif d'impôts exigibles")
+    const liabilityRow =
+      seriesRows.find((r) => isTaxLiabilityBilanRow({ rowId: r.id, label: r.label })) ??
+      findRow(seriesRows, "PCT-FF") ??
+      findRow(seriesRows, "passif d'impots exigibles") ??
+      findRow(seriesRows, "passif d'impôts exigibles")
+
+    return {
+      asset: buildTrend(assetRow),
+      liability: buildTrend(liabilityRow),
+    }
+  }, [
+    fiscalYearEndMonth,
+    forecastActualLayoutEffective,
+    forecastYearColumnCount,
+    isHypothesisSection,
+    periods,
+    projectionYears,
+    refMonth,
+    refYear,
+    seriesRows,
+  ])
+
   const getBilanDisplayValue = (
     rowId: string | undefined,
     trend: number[] | undefined,
@@ -1434,6 +1470,22 @@ export function BalanceSheetDetail({
         cfg,
         trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? fallback,
       )
+    }
+    if (isTaxDrivenBilanRow({ rowId, linkCode, label: rowLabel })) {
+      const side = isTaxAssetBilanRow({ rowId, linkCode, label: rowLabel })
+        ? "asset"
+        : "liability"
+      return resolveTaxExigibleProjectedValue({
+        side,
+        yearIndex,
+        forecastActualCols,
+        taxExpenseByDisplayYear: periodTaxExpenseByDisplayYear,
+        taxPaidByDisplayYear: periodTaxPaidByDisplayYear,
+        assetBaseTrend:
+          side === "asset" && trend.length > 0 ? trend : taxExigibleBaseTrends.asset,
+        liabilityBaseTrend:
+          side === "liability" && trend.length > 0 ? trend : taxExigibleBaseTrends.liability,
+      })
     }
     if (isRetainedEarningsBilanRow({ rowId, linkCode, label: rowLabel })) {
       return resolveRetainedEarningsProjectedValue({
@@ -2993,22 +3045,22 @@ export function BalanceSheetDetail({
                             )}
                             {!canExpand && row.indent && <span className="w-4"></span>}
                             <span className="flex-1 whitespace-nowrap">{displayLabel}</span>
-                            {isHypothesisSection && isTreasuryEndingCashRow && (
+                            {isHypothesisEditable && isTreasuryEndingCashRow && (
                               <span className="text-[11px] font-medium text-slate-400">
                                 Trésorerie à la fin
                               </span>
                             )}
-                            {isHypothesisSection && isCapexDrivenRow && (
+                            {isHypothesisEditable && isCapexDrivenRow && (
                               <span className="text-[11px] font-medium text-slate-400">
                                 Hypothèse Capex
                               </span>
                             )}
-                            {isHypothesisSection && isFinancingDrivenRow && (
+                            {isHypothesisEditable && isFinancingDrivenRow && (
                               <span className="text-[11px] font-medium text-slate-400">
                                 Hypothèse Financement
                               </span>
                             )}
-                            {isHypothesisSection && isTaxDrivenRow && (
+                            {isHypothesisEditable && isTaxDrivenRow && (
                               <span className="text-[11px] font-medium text-slate-400">
                                 Hypothèse Impôts
                               </span>
@@ -3278,7 +3330,7 @@ export function BalanceSheetDetail({
                           { isSubtotal: row.isSubtotal },
                         )
                         const canAdjust =
-                          isHypothesisSection &&
+                          isHypothesisEditable &&
                           !!row.rowId &&
                           !shouldHideAmounts &&
                           !isSectionHeaderRow &&

@@ -519,10 +519,11 @@ function bookTrendForCapexKey(params: {
 
 /**
  * Montant projeté bilan pour un poste Capex = valeur comptable projetée :
- * - rollforward propre (rowId / linkCode) ;
- * - sinon somme des VNC des descendants ayant une hyp. (ou toujours leurs VNC si
- *   la map d’ajustements les relie) ;
- * - sinon VNC propre après amortissement seul.
+ * - rollforward propre si le poste a une hyp. ;
+ * - sinon somme des VNC de **toutes** les feuilles Capex descendantes (même sans hyp.,
+ *   comme Hypothèses Capex feuille par feuille) ;
+ * - sinon repli sur la map d’ajustements (UUID sans peer) ;
+ * - sinon VNC propre après amortissement seul (parent sans feuilles).
  */
 export function resolveCapexDrivenBilanProjectedAmount(params: {
   rowId: string
@@ -601,6 +602,31 @@ export function resolveCapexDrivenBilanProjectedAmount(params: {
     return tryBook(rowId, actualBase, openingCost, label)
   }
 
+  const resolvePeerBookKey = (peer: CapexBilanPeerRow): string => {
+    if (hasCapexGrowthAdjustment(adjustments, peer.rowId, configYearIndex)) return peer.rowId
+    if (peer.linkCode && hasCapexGrowthAdjustment(adjustments, peer.linkCode, configYearIndex)) {
+      return peer.linkCode
+    }
+    return peer.rowId
+  }
+
+  // Priorité : toutes les feuilles Capex sous ce parent (avec ou sans hyp.).
+  const leafPeers = peerRows.filter((peer) => {
+    if (peer.rowId === rowId) return false
+    const peerCode = normalizeLinkCode(peer.linkCode) || normalizeLinkCode(peer.rowId)
+    if (!peerCode) return false
+    if (peerCode !== parentCode && !linkCodeDescendsFrom(peerCode, parentCode)) return false
+    return isCapexPeerLeafAmongPeers(peer, peerRows)
+  })
+
+  if (leafPeers.length > 0) {
+    return leafPeers.reduce((sum, peer) => {
+      const cost = peer.actualCostBase ?? peer.actualBase
+      return sum + tryBook(resolvePeerBookKey(peer), peer.actualBase, cost, peer.label ?? "")
+    }, 0)
+  }
+
+  // Repli : map d’ajustements (ex. UUID sans peerRows).
   let sum = 0
   let any = false
   const seen = new Set<string>()
@@ -630,29 +656,51 @@ export function resolveCapexDrivenBilanProjectedAmount(params: {
 
   if (any) return sum
 
-  // Repli peers (structure sync) si la map d’ajustements n’a pas pu être reliée.
-  for (const peer of peerRows) {
-    if (peer.rowId === rowId) continue
-    if (!linkCodeDescendsFrom(peer.linkCode, parentCode)) continue
-    const peerHasHyp = Object.keys(adjustments).some((key) => {
-      const parsed = parseCapexAdjustmentStorageKey(key)
-      if (!parsed) return false
-      if (parsed.rowId !== peer.rowId && parsed.rowId !== peer.linkCode) return false
-      return adjustments[key]?.some(isCapexHypothesisGrowthAdjustment)
-    })
-    if (!peerHasHyp) continue
-    const cost = peer.actualCostBase ?? peer.actualBase
-    const resolveKey = hasCapexGrowthAdjustment(adjustments, peer.rowId, configYearIndex)
-      ? peer.rowId
-      : peer.linkCode && hasCapexGrowthAdjustment(adjustments, peer.linkCode, configYearIndex)
-        ? peer.linkCode
-        : peer.rowId
-    sum += tryBook(resolveKey, peer.actualBase, cost, peer.label ?? "")
-    any = true
-  }
-  if (any) return sum
-
   return tryBook(rowId, actualBase, openingCost, label)
+}
+
+/**
+ * Remplace la VNC d’un parent Capex (ALT-B/C/D…) par la somme des VNC de ses feuilles
+ * déjà calculées — même total qu’Estimation du Bilan.
+ */
+export function rollupCapexParentTrendsFromLeafRows<
+  T extends {
+    rowId?: string
+    linkCode?: string | null
+    trendValues?: number[]
+    current?: number
+    prior?: number
+  },
+>(rows: T[]): T[] {
+  return rows.map((row) => {
+    const parentCode = normalizeLinkCode(row.linkCode) || normalizeLinkCode(row.rowId)
+    if (!parentCode || !isCapexProjectionLinkCode(parentCode)) return row
+    if (!row.trendValues?.length) return row
+
+    const leafChildren = rows.filter((other) => {
+      if (!other.rowId || other.rowId === row.rowId || !other.trendValues?.length) return false
+      const childCode = normalizeLinkCode(other.linkCode) || normalizeLinkCode(other.rowId)
+      if (!childCode || !linkCodeDescendsFrom(childCode, parentCode)) return false
+      const hasDescendant = rows.some((desc) => {
+        if (!desc.rowId || desc.rowId === other.rowId) return false
+        const descCode = normalizeLinkCode(desc.linkCode) || normalizeLinkCode(desc.rowId)
+        return !!descCode && linkCodeDescendsFrom(descCode, childCode)
+      })
+      return !hasDescendant
+    })
+
+    if (leafChildren.length === 0) return row
+
+    const trendValues = row.trendValues.map((_, idx) =>
+      leafChildren.reduce((sum, child) => sum + (child.trendValues?.[idx] ?? 0), 0),
+    )
+    return {
+      ...row,
+      trendValues,
+      current: trendValues[0] ?? row.current,
+      prior: trendValues[1] ?? row.prior,
+    }
+  })
 }
 
 /** Codes CDR (Détail) sélectionnables pour la dotation Capex — immobilisations corporelles / biens loués. */

@@ -278,14 +278,40 @@ export function isTaxDrivenBilanRow(params: {
   rowId?: string | null
   label?: string | null
 }): boolean {
+  return isTaxAssetBilanRow(params) || isTaxLiabilityBilanRow(params)
+}
+
+export function isTaxAssetBilanRow(params: {
+  linkCode?: string | null
+  rowId?: string | null
+  label?: string | null
+}): boolean {
   const codes = [params.linkCode, params.rowId]
     .map((value) => String(value ?? "").trim().toUpperCase())
     .filter(Boolean)
   if (
     codes.some(
       (code) =>
-        code === TAX_ASSET_LINK_CODE_ROOT ||
-        code.startsWith(`${TAX_ASSET_LINK_CODE_ROOT}.`) ||
+        code === TAX_ASSET_LINK_CODE_ROOT || code.startsWith(`${TAX_ASSET_LINK_CODE_ROOT}.`),
+    )
+  ) {
+    return true
+  }
+  const label = stripAccents(String(params.label ?? "").trim().toLowerCase())
+  return label.includes("actif") && label.includes("impot") && label.includes("exigib")
+}
+
+export function isTaxLiabilityBilanRow(params: {
+  linkCode?: string | null
+  rowId?: string | null
+  label?: string | null
+}): boolean {
+  const codes = [params.linkCode, params.rowId]
+    .map((value) => String(value ?? "").trim().toUpperCase())
+    .filter(Boolean)
+  if (
+    codes.some(
+      (code) =>
         code === TAX_LIABILITY_LINK_CODE_ROOT ||
         code.startsWith(`${TAX_LIABILITY_LINK_CODE_ROOT}.`),
     )
@@ -294,11 +320,72 @@ export function isTaxDrivenBilanRow(params: {
   }
   const label = stripAccents(String(params.label ?? "").trim().toLowerCase())
   return (
-    label.includes("impots exigibles") ||
-    label.includes("impot exigible") ||
+    (label.includes("passif") && label.includes("impot") && label.includes("exigib")) ||
     label.includes("impots a payer") ||
     label.includes("impot a payer")
   )
+}
+
+/**
+ * Soldes projetés Actif / Passif d’impôts exigibles (liés) :
+ * net_t = Impôts_pro_forma_t + Passif_{t-1} − Actif_{t-1} − Impôts_{t-1} payés
+ * (ouverture 1re année = N-1 / exercice complet, comme BNR ;
+ *  impôts payés = charge N-1 complète pour la 1re année projetée, puis charge
+ *  projetée de l’année précédente — horizon annuel = 100 % versé).
+ * net > 0 → Passif = net, Actif = 0 ;
+ * net < 0 → Actif = |net|, Passif = 0.
+ */
+export function resolveTaxExigibleProjectedValue(params: {
+  side: "asset" | "liability"
+  yearIndex: number
+  forecastActualCols: number
+  taxExpenseByDisplayYear: number[]
+  assetBaseTrend: number[]
+  liabilityBaseTrend: number[]
+  /** Impôts de la période précédente payés dans l’année (par index d’affichage projeté). */
+  taxPaidByDisplayYear?: number[]
+}): number {
+  const {
+    side,
+    yearIndex,
+    forecastActualCols,
+    taxExpenseByDisplayYear,
+    assetBaseTrend,
+    liabilityBaseTrend,
+    taxPaidByDisplayYear,
+  } = params
+  const actualCols = Math.max(1, forecastActualCols)
+  if (yearIndex < actualCols) {
+    return side === "asset"
+      ? (assetBaseTrend[yearIndex] ?? 0)
+      : (liabilityBaseTrend[yearIndex] ?? 0)
+  }
+
+  let asset = Math.abs(assetBaseTrend[0] ?? 0)
+  let liability = Math.abs(liabilityBaseTrend[0] ?? 0)
+  for (let y = actualCols; y <= yearIndex; y++) {
+    const tax = taxExpenseByDisplayYear[y] ?? 0
+    const taxPaid =
+      taxPaidByDisplayYear?.[y] ??
+      // Repli : 1re année projetée = impôts N-1 (colonne 0) ; sinon charge de l’année précédente.
+      Math.abs(
+        y === actualCols
+          ? (taxExpenseByDisplayYear[0] ?? 0)
+          : (taxExpenseByDisplayYear[y - 1] ?? 0),
+      )
+    const net = tax + liability - asset - taxPaid
+    if (net > 0) {
+      liability = net
+      asset = 0
+    } else if (net < 0) {
+      asset = -net
+      liability = 0
+    } else {
+      asset = 0
+      liability = 0
+    }
+  }
+  return side === "asset" ? asset : liability
 }
 
 /** Produits reportés (PCT-PD / PD) — Montant $ ou % des revenus. */

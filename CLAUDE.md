@@ -366,6 +366,11 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   le mois de référence ≠ mois de clôture (sinon pas de colonne intermédiaire).
   Ex. réf. mars 2026, clôture 31 déc. → `2025` (31 déc. 2025) | `YTD 2026` (31 mars 2026)
   | `2026` | `2027`… ; réf. décembre 2026 → `2025` puis années projetées.
+  **Sommaire Pro Forma Bilan** = mêmes montants projetés qu’**Estimation du Bilan
+  annuel** (moteur d’hypothèses + config `balance-sheet-forecast`), en lecture
+  seule (`forceBilanHypothesisAmounts`, pas de panneau d’ajustement ni pastilles
+  « Hypothèse Capex / Impôts / … »). Pas de vue **Détail** pour le Bilan pro forma
+  (bascule Sommaire/Détail masquée).
   **Pro Forma Trésorerie** (Sommaire + Détail) : mêmes colonnes que le Bilan
   Pro forma (N-1 + YTD si le mois de référence ≠ clôture, puis années projetées).
   Réel = cumul d’exercice (N-1 = exercice clos, YTD = jusqu’au mois de référence) ;
@@ -378,7 +383,13 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   années projetées (poste IMP) + **Paiement des impôts** (`taxPaymentFrequency` :
   Mensuel / Trimestriel / Semestriel / Annuel, défaut Annuel). **Actif d'impôts
   exigibles** (ACT-H) et **Passif d'impôts exigibles** (PCT-FF) : mention
-  « Hypothèse Impôts », non ajustables au bilan.
+  « Hypothèse Impôts », non ajustables au bilan ; soldes projetés liés =
+  Impôts pro forma de l’année + Passif ouverture − Actif ouverture
+  − Impôts de la période précédente payés (1re année = charge N-1 réelle ;
+  ensuite = impôts projetés de l’année précédente). Horizon annuel = 100 %
+  versé quelle que soit la fréquence (acomptes utiles en mensuel). Ouverture
+  1re année = N-1 / exercice complet, puis soldes projetés précédents ; si
+  net > 0 → Passif, si net < 0 → Actif = |net|.
   **Hypothèses Bilan** : même tableau que le **Sommaire** du bilan (`Estimation du Bilan annuel`),
   sans les sous-lignes Détail / annexes ; **ligne Validation** au-dessus de la section Actif
   (écart = Total actif − Total passifs et capitaux propres, comme le Bilan Sommaire ;
@@ -425,11 +436,11 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   corporelles / Biens loués / Actifs incorporels** (ALT-B / ALT-C / ALT-D) : non
   ajustables — mention « Hypothèse Capex » ; montants projetés = **valeur comptable**
   Hypothèses Capex (`capex-forecast`, même moteur que Estimation des Capex —
-  amortissement + ajouts au coût). Parent en
-  `liaisonMode: "sum"` (ex. Immobilisations corporelles) : Capex prioritaire sur la
+  amortissement + ajouts au coût).   Parent en `liaisonMode: "sum"` (ex. Immobilisations corporelles) : Capex prioritaire sur la
   somme liaison (feuilles souvent `detailOnly` absentes du Sommaire) ; rollup =
-  somme des Capex des descendants (Terrains ALT-B.1, …) via `linkCode` stocké sur
-  l’ajustement. Autres ACT (ex. ACT-B Placements temporaires, ACT-D, ACT-J…) :
+  somme des VNC Capex de **toutes** les feuilles descendantes (avec ou sans
+  ajustement — même total qu’Hypothèses Capex après rollup parent) via `linkCode`
+  stocké sur l’ajustement / peers Capex. Autres ACT (ex. ACT-B Placements temporaires, ACT-D, ACT-J…) :
   **Montant $** ou **% des revenus** (même CA) ; le % remplace le solde, le
   montant s’ajoute à la base.
   « Appliquer aux années suivantes »

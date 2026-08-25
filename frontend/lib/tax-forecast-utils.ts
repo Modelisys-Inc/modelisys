@@ -45,3 +45,16 @@ export function parseTaxForecastData(raw: unknown): TaxForecastData {
     taxPaymentFrequency: parseTaxPaymentFrequency(data.taxPaymentFrequency),
   }
 }
+
+/**
+ * Montant d’impôts de la période précédente payé au cours de l’année (horizon annuel).
+ * Sur une projection annuelle en fin d’exercice, 100 % de la charge N-1 est versée
+ * quel que soit le calendrier d’acomptes (mensuel / trimestriel / semestriel / annuel).
+ * La fréquence servira aux projections mensuelles.
+ */
+export function annualTaxPaidFromPriorExpense(
+  priorYearTaxExpense: number,
+  _frequency: TaxPaymentFrequency = DEFAULT_TAX_PAYMENT_FREQUENCY,
+): number {
+  return Math.abs(Number.isFinite(priorYearTaxExpense) ? priorYearTaxExpense : 0)
+}

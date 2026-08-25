@@ -185,6 +185,21 @@ async function setupBilanPage(page: Page) {
           }),
         })
       }
+      if (url.includes("tax-forecast")) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            configs: [
+              {
+                id: "tax1",
+                config_type: "tax-forecast",
+                data: { taxRate: 26, taxPaymentFrequency: "annual" },
+              },
+            ],
+          }),
+        })
+      }
       return route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -395,8 +410,12 @@ async function setupBilanPage(page: Page) {
     }
   }
   const amounts: Record<string, number> = {}
+  const taxAssetAmounts: Record<string, number> = {}
+  const taxLiabilityAmounts: Record<string, number> = {}
   for (const p of periods) {
     amounts[`${p.fiscalYear}-${p.fiscalMonth}`] = 120000
+    taxAssetAmounts[`${p.fiscalYear}-${p.fiscalMonth}`] = 0
+    taxLiabilityAmounts[`${p.fiscalYear}-${p.fiscalMonth}`] = 20434
   }
 
   await page.route(`**/financial-statements/balance-sheet/series**`, (route) =>
@@ -504,14 +523,14 @@ async function setupBilanPage(page: Page) {
             id: "ACT-H.1",
             label: "Actif d'impôts exigibles",
             hasLiaisonCode: true,
-            amounts,
+            amounts: taxAssetAmounts,
             detailRows: [],
           },
           {
             id: "PCT-FF.1",
             label: "Passif d'impôts exigibles",
             hasLiaisonCode: true,
-            amounts,
+            amounts: taxLiabilityAmounts,
             detailRows: [],
           },
           {
@@ -895,11 +914,16 @@ test("tax balance sheet rows show Hypothèse Impôts and are not adjustable", as
   await expect(taxAssetRow.getByText("Hypothèse Impôts")).toBeVisible()
   await taxAssetRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
   await expect(page.getByRole("button", { name: /Enregistrer l'ajustement/ })).toHaveCount(0)
+  // Impôts pro forma + Passif N-1 (20 434) − Actif N-1 (0) ≥ 0 → actif à 0 $
+  await expect(taxAssetRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText("")
 
   const taxLiabRow = page.locator("tr", { hasText: "Passif d'impôts exigibles" }).first()
   await expect(taxLiabRow.getByText("Hypothèse Impôts")).toBeVisible()
   await taxLiabRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
   await expect(page.getByRole("button", { name: /Enregistrer l'ajustement/ })).toHaveCount(0)
+  // Solde passif projeté = Impôts + 20 434 − 0 (non vide)
+  const liabText = await taxLiabRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).innerText()
+  expect(liabText.replace(/\s/g, "").length).toBeGreaterThan(0)
 })
 
 test("produits reportés can be driven as a percent of revenue", async ({ page }) => {
