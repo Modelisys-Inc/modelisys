@@ -93,6 +93,7 @@ import {
 } from "@/lib/income-statement-period-basis"
 import {
   collectDistinctLinkCodesFromStructure,
+  collectLinkCodesFromStructureRow,
   mapLinkCodesToOwnerLabel,
   detailLineLabelForDisplay,
   findStructureRowForStatementLine,
@@ -126,6 +127,10 @@ import {
   resolveDetailAnnexMeta,
   uniqueStatementRowsByStructureIndex,
 } from "@/lib/income-statement-annex-detail"
+import { useCapexForecastForBilan } from "@/hooks/use-capex-forecast-for-bilan"
+import { useDebtForecastForBilan } from "@/hooks/use-debt-forecast-for-bilan"
+import { isCapexDrivenAmortizationIsLinkCode } from "@/lib/capex-forecast-resolve"
+import { isDebtDrivenInterestIsLinkCode } from "@/lib/debt-forecast-resolve"
 import type { IncomeStatementHorizonView } from "@/lib/income-statement-horizon-visibility"
 import {
   dashboardCardAccentBarClass,
@@ -1228,6 +1233,23 @@ export function IncomeStatementDetail({
   /** Moteur Hypothèses Dépenses (types, taux, CA lié) — aussi sur Résultats Pro Forma. */
   const appliesExpenseHypothesisEngine =
     title === "Estimation des dépenses annuelles" || isProFormaResultsTitle
+  const { resolveDepreciationExpense: resolveCapexDepreciationExpense } = useCapexForecastForBilan({
+    companyId,
+    projectionId,
+    projectionYears,
+    fiscalYear: refYear,
+    divisionId,
+    subDivisionId,
+    enabled: isProFormaResultsTitle && !!companyId,
+    forecastActualLayout: forecastActualLayoutEffective,
+    refMonth,
+    fiscalYearEndMonth,
+  })
+  const { resolveInterestExpense: resolveDebtInterestExpense } = useDebtForecastForBilan({
+    companyId,
+    projectionId,
+    enabled: isProFormaResultsTitle && !!companyId,
+  })
   const isForecastHistoricalColumn = (idx: number) =>
     (forceForecastSection || isForecastSection) && idx < forecastActualCols
   const isForecastProjectedColumn = (idx: number) =>
@@ -3595,6 +3617,50 @@ export function IncomeStatementDetail({
     if (!rowId || !isForecastSection) return defaultValue
 
     const seriesRowForId = seriesRows.find((r) => r.id === rowId)
+    const structRowForComputed =
+      incomeStatementStructure?.length && seriesRowForId
+        ? findStructureRowForStatementLine(
+            seriesRowForId.id,
+            seriesRowForId.label,
+            incomeStatementStructure,
+          )
+        : incomeStatementStructure?.length
+          ? findStructureRowForStatementLine(rowId, "", incomeStatementStructure)
+          : undefined
+    const capexAmortLinkCode = (() => {
+      if (structRowForComputed) {
+        const fromStruct = collectLinkCodesFromStructureRow(structRowForComputed).find(
+          isCapexDrivenAmortizationIsLinkCode,
+        )
+        if (fromStruct) return fromStruct
+      }
+      if (isCapexDrivenAmortizationIsLinkCode(rowId)) return rowId
+      if (seriesRowForId && isCapexDrivenAmortizationIsLinkCode(seriesRowForId.id)) {
+        return seriesRowForId.id
+      }
+      return null
+    })()
+    if (isProFormaResultsTitle && yearIndex > 0 && capexAmortLinkCode) {
+      return resolveCapexDepreciationExpense(capexAmortLinkCode, yearIndex)
+    }
+
+    const debtInterestLinkCode = (() => {
+      if (structRowForComputed) {
+        const fromStruct = collectLinkCodesFromStructureRow(structRowForComputed).find(
+          isDebtDrivenInterestIsLinkCode,
+        )
+        if (fromStruct) return fromStruct
+      }
+      if (isDebtDrivenInterestIsLinkCode(rowId)) return rowId
+      if (seriesRowForId && isDebtDrivenInterestIsLinkCode(seriesRowForId.id)) {
+        return seriesRowForId.id
+      }
+      return null
+    })()
+    if (isProFormaResultsTitle && yearIndex > 0 && debtInterestLinkCode) {
+      return resolveDebtInterestExpense(debtInterestLinkCode, yearIndex)
+    }
+
     const hasRevenueConfigKeys =
       Object.keys(revenueAdjustments).some((k) => k.startsWith(`${rowId}-`)) ||
       Object.keys(revenueValues).some((k) => k.startsWith(`${rowId}-`))

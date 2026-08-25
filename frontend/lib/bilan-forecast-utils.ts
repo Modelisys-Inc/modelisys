@@ -367,9 +367,32 @@ export function dividendsForBilanYear(
 }
 
 /**
+ * Solde d’ouverture BNR pour une année d’affichage projetée :
+ * - 1re année projetée : clôture du dernier exercice complet
+ *   (index 0 = N-1 si colonnes N-1+YTD partiel ; sinon l’unique colonne réelle = exercice complet / « YTD 12 mois »)
+ * - années suivantes : BNR projeté de l’année précédente (ex. 2027 ← solde 2026)
+ */
+export function retainedEarningsOpeningForProjectedYear(params: {
+  baseTrend: number[]
+  yearIndex: number
+  adjustments: BilanAdjustment[]
+  periodNetIncomeByDisplayYear: number[]
+  forecastActualCols: number
+}): number {
+  const { baseTrend, yearIndex, forecastActualCols } = params
+  const actualCols = Math.max(1, forecastActualCols)
+  if (yearIndex < actualCols) return baseTrend[yearIndex] ?? 0
+  if (yearIndex === actualCols) return baseTrend[0] ?? 0
+  return resolveRetainedEarningsProjectedValue({
+    ...params,
+    yearIndex: yearIndex - 1,
+  })
+}
+
+/**
  * Solde projeté Bénéfices non répartis :
- * RE_t = RE_{t-1} + Bénéfice de la période_t − Dividendes_t
- * (enchaîné depuis la dernière colonne réelle).
+ * RE_t = ouverture_t + Bénéfice de la période_t − Dividendes_t
+ * (enchaîné : 1re année depuis l’exercice complet, puis depuis le BNR projeté précédent).
  */
 export function resolveRetainedEarningsProjectedValue(params: {
   baseTrend: number[]
@@ -384,7 +407,8 @@ export function resolveRetainedEarningsProjectedValue(params: {
   const actualCols = Math.max(1, forecastActualCols)
   if (yearIndex < actualCols) return baseTrend[yearIndex] ?? 0
 
-  let re = baseTrend[actualCols - 1] ?? baseTrend[0] ?? 0
+  // Exercice complet avant projection (N-1, ou seule colonne réelle si réf. = clôture).
+  let re = baseTrend[0] ?? 0
   for (let y = actualCols; y <= yearIndex; y++) {
     const ni = periodNetIncomeByDisplayYear[y] ?? 0
     const div = dividendsForBilanYear(adjustments, y)

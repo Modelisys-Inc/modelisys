@@ -129,3 +129,71 @@ export function resolveFinancingDrivenBilanProjectedAmount(params: {
   }
   return any ? sum : 0
 }
+
+/** Codes CDR (Frais financiers) alimentés par les intérêts Hypothèses Financement. */
+export const DEBT_DRIVEN_INTEREST_IS_LINK_CODES = ["FIN.3", "FIN.4"] as const
+
+const DEBT_INTEREST_IS_TO_PLT: Record<string, "PLT-C" | "PLT-D"> = {
+  "FIN.3": "PLT-C",
+  "FIN.4": "PLT-D",
+}
+
+export function isDebtDrivenInterestIsLinkCode(code: string | null | undefined): boolean {
+  const normalized = normalizeLinkCode(code)
+  if (!normalized) return false
+  return DEBT_DRIVEN_INTEREST_IS_LINK_CODES.some(
+    (root) => normalized === root || normalized.startsWith(`${root}.`),
+  )
+}
+
+/** FIN.3 → PLT-C ; FIN.4 → PLT-D. */
+export function debtLinkCodeForInterestIsLinkCode(
+  isLinkCode: string | null | undefined,
+): "PLT-C" | "PLT-D" | null {
+  const normalized = normalizeLinkCode(isLinkCode)
+  if (!normalized) return null
+  for (const [fin, plt] of Object.entries(DEBT_INTEREST_IS_TO_PLT)) {
+    if (normalized === fin || normalized.startsWith(`${fin}.`)) return plt
+  }
+  return null
+}
+
+/** PLT-C* → FIN.3 ; PLT-D* → FIN.4. */
+export function interestIsLinkCodeForDebtLinkCode(
+  debtLinkCode: string | null | undefined,
+): "FIN.3" | "FIN.4" | null {
+  const normalized = normalizeLinkCode(debtLinkCode)
+  if (!normalized) return null
+  if (normalized === "PLT-C" || normalized.startsWith("PLT-C.")) return "FIN.3"
+  if (normalized === "PLT-D" || normalized.startsWith("PLT-D.")) return "FIN.4"
+  return null
+}
+
+/**
+ * Intérêts de période (pas le capital) pour un code CDR Frais financiers :
+ * somme des `interestPayment` des emprunts PLT-C (FIN.3) ou PLT-D (FIN.4).
+ */
+export function resolveDebtDrivenInterestExpense(params: {
+  isLinkCode: string | null | undefined
+  configYearIndex: number
+  loans: DebtForecastLoan[]
+}): number {
+  const { isLinkCode, configYearIndex, loans } = params
+  if (configYearIndex <= 0) return 0
+
+  const pltRoot = debtLinkCodeForInterestIsLinkCode(isLinkCode)
+  if (!pltRoot) return 0
+
+  const amortYear = debtAmortYearIndexFromBilanConfigYear(configYearIndex)
+  if (amortYear == null) return 0
+
+  let sum = 0
+  for (const loan of loans) {
+    if (!isDebtHypothesisDefined(loan)) continue
+    if (!debtLoanMatchesBilanLinkCode(loan.sourceLinkCode, pltRoot)) continue
+    const year = calculateLoanYearAmortization(loan, amortYear)
+    if (!year) continue
+    sum += year.interestPayment
+  }
+  return Math.round(sum)
+}

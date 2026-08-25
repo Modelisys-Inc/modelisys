@@ -6,7 +6,11 @@
  * Sans ajustement, la VNC se projette quand même via l’amortissement annuel.
  */
 
-import { isCapexProjectionLinkCode } from "@/lib/standard-link-code-utils"
+import {
+  CAPEX_PROJECTION_LINK_CODE_ROOTS,
+  capexProjectionParentRoot,
+  isCapexProjectionLinkCode,
+} from "@/lib/standard-link-code-utils"
 
 export const CAPEX_FORECAST_CONFIG_TYPE = "capex-forecast"
 
@@ -84,16 +88,29 @@ export function parseCapexDepreciationMethods(
   return out
 }
 
+/** Codes CDR (amortissement) choisis par poste Capex → Pro Forma Résultats. */
+export function parseCapexAmortizationLinkCodes(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const code = String(value ?? "").trim().toUpperCase()
+    if (code) out[key] = code
+  }
+  return out
+}
+
 export function parseCapexForecastConfig(data: unknown): {
   capexAdjustments: Record<string, CapexAdjustment[]>
   depreciationRates: Record<string, number>
   depreciationMethods: Record<string, CapexDepreciationMethod>
+  amortizationLinkCodes: Record<string, string>
 } {
   const raw = data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : {}
   return {
     capexAdjustments: parseCapexAdjustments(raw.capexAdjustments),
     depreciationRates: parseCapexDepreciationRates(raw.depreciationRates),
     depreciationMethods: parseCapexDepreciationMethods(raw.depreciationMethods),
+    amortizationLinkCodes: parseCapexAmortizationLinkCodes(raw.amortizationLinkCodes),
   }
 }
 
@@ -130,16 +147,23 @@ export function resolveCapexDepreciationRate(
   rowId: string,
   label: string,
   rates: Record<string, number>,
+  linkCode?: string | null,
 ): number {
   if (rates[rowId] !== undefined) return rates[rowId]!
+  const lc = String(linkCode ?? "").trim()
+  if (lc && rates[lc] !== undefined) return rates[lc]!
   return defaultCapexDepreciationRate(label)
 }
 
 export function resolveCapexDepreciationMethod(
   rowId: string,
   methods: Record<string, CapexDepreciationMethod>,
+  linkCode?: string | null,
 ): CapexDepreciationMethod {
-  return methods[rowId] ?? "linear"
+  if (methods[rowId]) return methods[rowId]!
+  const lc = String(linkCode ?? "").trim()
+  if (lc && methods[lc]) return methods[lc]!
+  return "linear"
 }
 
 /**
@@ -629,4 +653,207 @@ export function resolveCapexDrivenBilanProjectedAmount(params: {
   if (any) return sum
 
   return tryBook(rowId, actualBase, openingCost, label)
+}
+
+/** Codes CDR (Détail) sélectionnables pour la dotation Capex — immobilisations corporelles / biens loués. */
+export const CAPEX_CORPORELLES_AMORT_IS_LINK_CODES = ["CMV.11", "EXP.20", "ADM.20"] as const
+
+/** Codes CDR (Détail) sélectionnables pour la dotation Capex — actifs incorporels. */
+export const CAPEX_INCORPORELS_AMORT_IS_LINK_CODES = ["EXP.21", "ADM.21"] as const
+
+const CAPEX_AMORT_IS_LINK_CODES = [
+  ...CAPEX_CORPORELLES_AMORT_IS_LINK_CODES,
+  ...CAPEX_INCORPORELS_AMORT_IS_LINK_CODES,
+] as const
+
+export const CAPEX_AMORT_IS_LINK_CODE_LABELS: Record<string, string> = {
+  "CMV.11": "Amortissement - Immobilisations corporelles",
+  "EXP.20": "Amortissement - Immobilisations corporelles",
+  "ADM.20": "Amortissement - Immobilisations corporelles",
+  "EXP.21": "Amortissement - Actifs incorporels",
+  "ADM.21": "Amortissement - Actifs incorporels",
+}
+
+export function isCapexDrivenAmortizationIsLinkCode(code: string | null | undefined): boolean {
+  const normalized = normalizeLinkCode(code)
+  if (!normalized) return false
+  return CAPEX_AMORT_IS_LINK_CODES.some(
+    (root) => normalized === root || normalized.startsWith(`${root}.`),
+  )
+}
+
+/** Options de code CDR selon la famille Capex (ALT-B/C vs ALT-D). */
+export function capexAmortIsLinkCodeOptionsForAsset(
+  assetLinkCode: string | null | undefined,
+): readonly string[] {
+  const root = capexProjectionParentRoot(String(assetLinkCode ?? ""))
+  if (root === "ALT-D") return CAPEX_INCORPORELS_AMORT_IS_LINK_CODES
+  if (root === "ALT-B" || root === "ALT-C") return CAPEX_CORPORELLES_AMORT_IS_LINK_CODES
+  return CAPEX_AMORT_IS_LINK_CODES
+}
+
+/** @deprecated Prefer per-row amortizationLinkCodes; kept for tests / docs. */
+export function capexAssetRootsForAmortIsLinkCode(
+  code: string | null | undefined,
+): Array<(typeof CAPEX_PROJECTION_LINK_CODE_ROOTS)[number]> {
+  const normalized = normalizeLinkCode(code)
+  if (!normalized) return []
+  if (
+    CAPEX_CORPORELLES_AMORT_IS_LINK_CODES.some(
+      (root) => normalized === root || normalized.startsWith(`${root}.`),
+    )
+  ) {
+    return ["ALT-B", "ALT-C"]
+  }
+  if (
+    CAPEX_INCORPORELS_AMORT_IS_LINK_CODES.some(
+      (root) => normalized === root || normalized.startsWith(`${root}.`),
+    )
+  ) {
+    return ["ALT-D"]
+  }
+  return []
+}
+
+export function resolveCapexAmortizationLinkCode(
+  rowId: string,
+  linkCode: string | null | undefined,
+  map: Record<string, string>,
+): string {
+  const fromRow = normalizeLinkCode(map[rowId])
+  if (fromRow) return fromRow
+  const lc = normalizeLinkCode(linkCode)
+  if (lc) {
+    const fromLink = normalizeLinkCode(map[lc])
+    if (fromLink) return fromLink
+  }
+  return ""
+}
+
+function isCapexPeerLeafAmongPeers(peer: CapexBilanPeerRow, peerRows: CapexBilanPeerRow[]): boolean {
+  const parent = normalizeLinkCode(peer.linkCode) || normalizeLinkCode(peer.rowId)
+  if (!parent) return false
+  return !peerRows.some((other) => {
+    if (other.rowId === peer.rowId) return false
+    const child = normalizeLinkCode(other.linkCode) || normalizeLinkCode(other.rowId)
+    return !!child && linkCodeDescendsFrom(child, parent)
+  })
+}
+
+function depreciationExpenseForCapexKey(params: {
+  key: string
+  linkCode?: string | null
+  openingBook: number
+  openingCost: number
+  label: string
+  configYearIndex: number
+  configYearCount: number
+  adjustments: Record<string, CapexAdjustment[]>
+  depreciationRates: Record<string, number>
+  depreciationMethods: Record<string, CapexDepreciationMethod>
+  projectedRevenueYearTotals?: number[] | null
+}): number {
+  if (params.configYearIndex <= 0) return 0
+  const states = buildCapexAssetYearStates({
+    rowId: params.key,
+    configYearCount: params.configYearCount,
+    openingCost: params.openingCost,
+    openingBookValue: params.openingBook,
+    adjustments: params.adjustments,
+    ratePercent: resolveCapexDepreciationRate(
+      params.key,
+      params.label,
+      params.depreciationRates,
+      params.linkCode,
+    ),
+    method: resolveCapexDepreciationMethod(params.key, params.depreciationMethods, params.linkCode),
+    projectedRevenueYearTotals: params.projectedRevenueYearTotals,
+  })
+  return states[params.configYearIndex]?.depreciationExpense ?? 0
+}
+
+/**
+ * Dotation d’exercice (pas l’amort. cumulé) projetée pour un code amortissement CDR
+ * = somme des dotations des postes Capex feuilles dont le Code sélectionné = ce code CDR.
+ */
+export function resolveCapexDrivenDepreciationExpense(params: {
+  isLinkCode: string | null | undefined
+  configYearIndex: number
+  configYearCount: number
+  adjustments: Record<string, CapexAdjustment[]>
+  depreciationRates?: Record<string, number>
+  depreciationMethods?: Record<string, CapexDepreciationMethod>
+  amortizationLinkCodes?: Record<string, string>
+  projectedRevenueYearTotals?: number[] | null
+  peerRows: CapexBilanPeerRow[]
+}): number {
+  const {
+    isLinkCode,
+    configYearIndex,
+    configYearCount,
+    adjustments,
+    depreciationRates = {},
+    depreciationMethods = {},
+    amortizationLinkCodes = {},
+    projectedRevenueYearTotals,
+    peerRows,
+  } = params
+
+  const target = normalizeLinkCode(isLinkCode)
+  if (!target || configYearIndex <= 0) return 0
+
+  const leafPeers = peerRows.filter((p) => isCapexPeerLeafAmongPeers(p, peerRows))
+  const peerByKey = new Map<string, CapexBilanPeerRow>()
+  for (const peer of leafPeers) {
+    peerByKey.set(peer.rowId, peer)
+    const lc = normalizeLinkCode(peer.linkCode)
+    if (lc) peerByKey.set(lc, peer)
+  }
+
+  let sum = 0
+  const seen = new Set<string>()
+
+  const addPeerDep = (peer: CapexBilanPeerRow) => {
+    if (seen.has(peer.rowId)) return
+    seen.add(peer.rowId)
+    const resolveKey = hasCapexGrowthAdjustment(adjustments, peer.rowId, configYearIndex)
+      ? peer.rowId
+      : peer.linkCode && hasCapexGrowthAdjustment(adjustments, peer.linkCode, configYearIndex)
+        ? peer.linkCode
+        : peer.rowId
+    const cost = peer.actualCostBase ?? peer.actualBase
+    sum += depreciationExpenseForCapexKey({
+      key: resolveKey,
+      linkCode: peer.linkCode,
+      openingBook: peer.actualBase,
+      openingCost: cost,
+      label: peer.label ?? "",
+      configYearIndex,
+      configYearCount,
+      adjustments,
+      depreciationRates,
+      depreciationMethods,
+      projectedRevenueYearTotals,
+    })
+  }
+
+  // 1) Partir des codes enregistrés (clés = rowId Capex et/ou linkCode ALT-*).
+  for (const [key, code] of Object.entries(amortizationLinkCodes)) {
+    if (normalizeLinkCode(code) !== target) continue
+    const peer = peerByKey.get(key) ?? peerByKey.get(normalizeLinkCode(key))
+    if (peer) addPeerDep(peer)
+  }
+
+  // 2) Repli : peers dont le code résolu matche (si seule une clé alias est présente).
+  for (const peer of leafPeers) {
+    const assigned = resolveCapexAmortizationLinkCode(
+      peer.rowId,
+      peer.linkCode,
+      amortizationLinkCodes,
+    )
+    if (!assigned || assigned !== target) continue
+    addPeerDep(peer)
+  }
+
+  return Math.round(sum)
 }

@@ -3,8 +3,9 @@ import { test, expect, Page } from "@playwright/test"
 const COMPANY_ID = "11111111-1111-1111-1111-111111111111"
 const PROJECTION_ID = "22222222-2222-2222-2222-222222222222"
 
-/** Compte | Taux | N-1 | YTD | 1re année projetée | … */
-const FIRST_PROJECTED_TD_INDEX = 4
+/** Compte | Code | Taux | N-1 | YTD | 1re année projetée | … */
+const FIRST_PROJECTED_TD_INDEX = 5
+const TAUX_TD_INDEX = 2
 
 function buildMonthlyPeriods(fromYear: number, toYear: number) {
   const periods: { fiscalYear: number; fiscalMonth: number; label: string }[] = []
@@ -535,6 +536,7 @@ test.describe("Projection capex estimation", () => {
     await expect(scrollContainer).toHaveClass(/overflow-auto/)
 
     const headerRow = page.locator("thead tr").first()
+    await expect(headerRow.getByRole("columnheader", { name: "Code" })).toBeVisible()
     await expect(headerRow.getByRole("columnheader", { name: "Taux" })).toBeVisible()
     await expect(headerRow.getByRole("columnheader", { name: "2027" })).toBeVisible()
     await expect(headerRow.getByRole("columnheader", { name: "YTD 2028" })).toBeVisible()
@@ -544,7 +546,7 @@ test.describe("Projection capex estimation", () => {
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
     await expect(terrainsRow).toBeVisible()
 
-    // Column layout: Compte | Taux | N-1 | YTD | T | T+1 | …
+    // Column layout: Compte | Code | Taux | N-1 | YTD | T | T+1 | …
     const firstProjectedYearCell = terrainsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)
     await firstProjectedYearCell.click()
 
@@ -775,10 +777,32 @@ test.describe("Projection capex estimation", () => {
     })
 
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
-    await terrainsRow.locator("td").nth(1).click()
+    await terrainsRow.locator("td").nth(TAUX_TD_INDEX).click()
 
     await expect(page.getByText("Hypothèse", { exact: true })).toBeVisible()
     await expect(page.getByRole("tab", { name: "Taux" })).toBeVisible()
     await expect(page.getByRole("button", { name: "Enregistrer le taux" })).toBeVisible()
+  })
+
+  test("allows selecting amortization IS code per Capex row", async ({ page }) => {
+    test.setTimeout(60_000)
+    await setupAuth(page)
+
+    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
+    await expect(page.getByRole("heading", { name: "Pro Forma" })).toBeVisible({ timeout: 15000 })
+    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
+    await page.getByRole("button", { name: "Capex", exact: true }).click()
+
+    await expect(page.getByRole("heading", { name: "Estimation des Capex annuels" })).toBeVisible({
+      timeout: 15000,
+    })
+
+    const batissesRow = page.locator("tr").filter({ hasText: "Bâtisses" }).first()
+    await expect(batissesRow).toBeVisible()
+    const codeTrigger = batissesRow.getByTestId(/capex-amort-code-/)
+    await expect(codeTrigger).toBeVisible()
+    await codeTrigger.click()
+    await page.getByRole("option", { name: /ADM\.20/ }).click()
+    await expect(codeTrigger).toContainText("ADM.20")
   })
 })

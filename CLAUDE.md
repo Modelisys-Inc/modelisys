@@ -283,9 +283,9 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   ajustement.
   **Hypothèses Capex** : onglets Sommaire / Taux / Ajustement (plus d’onglet
   Décaissement séparé). Colonnes comme Revenus / Bilan :
-  **Taux** | **N-1** | **YTD** (si mois de réf. ≠ clôture) | années projetées
-  (`nMinusOne-and-ytd` — ex. réf. mars 2026 → `Taux` | `2025` | `YTD 2026` |
-  `2026` | `2027`…). **En-tête (Taux + années) et colonne Compte figés** au
+  **Code** | **Taux** | **N-1** | **YTD** (si mois de réf. ≠ clôture) | années projetées
+  (`nMinusOne-and-ytd` — ex. réf. mars 2026 → `Code` | `Taux` | `2025` | `YTD 2026` |
+  `2026` | `2027`…). **En-tête (Code + Taux + années) et colonne Compte figés** au
   défilement vertical/horizontal de la carte (`max-h` + `sticky`, comme Hypothèses
   Bilan). Affichage projeté = **valeur comptable** (Coût − Amortissement cumulé) :
   Coût et Amort. cumulé issus du mapping (`alt_asset_cost` /
@@ -313,6 +313,18 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   **Pro Forma Résultats** (Sommaire + Détail) : `title="États des résultats pro forma"` ;
   montants projetés = moteurs Hypothèses Revenus + Dépenses (`income-statement-detail`)
   sur les postes annexes / codes hyp. ; formules de liaison au Sommaire.
+  **Dotation Capex → CDR** : dans Hypothèses Capex, colonne **Code** (à gauche de
+  Taux) — sélection du code amortissement CDR par poste (`amortizationLinkCodes` :
+  CMV.11 / EXP.20 / ADM.20 pour ALT-B/C ; EXP.21 / ADM.21 pour ALT-D). La dotation
+  de période (`depreciationExpense`) est injectée au Détail + Sommaire Pro Forma
+  sur le code choisi (somme des postes Capex feuilles mappés vers ce code). Sans
+  code sélectionné = 0 $ sur les lignes amort. Inclus dans le rollup annexe
+  Sommaire ; exclus des Hypothèses Dépenses. BAIIA reste REV − hyp. Dépenses.
+  **Intérêts Financement → CDR** : somme des `interestPayment` (portion intérêts
+  uniquement) des emprunts Hypothèses Financement — PLT-C → **FIN.3** (Intérêts
+  sur la dette à long terme) ; PLT-D → **FIN.4** (Intérêts sur les contrats de
+  location-acquisition). Injecté au Détail + Sommaire Pro Forma ; inclus au
+  rollup annexe Frais financiers ; exclus des Hypothèses Dépenses.
   **Détail Pro Forma** = même structure d’annexes que États des résultats → Détail
   (Annexe A/B…, sous-lignes `detailOnly`, sous-totaux + ligne vide) ; pas le flat
   Hypothèses Revenus/Dépenses ; **sans Annexe Impôts** (famille IMP / Exigibles —
@@ -368,7 +380,9 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   exigibles** (ACT-H) et **Passif d'impôts exigibles** (PCT-FF) : mention
   « Hypothèse Impôts », non ajustables au bilan.
   **Hypothèses Bilan** : même tableau que le **Sommaire** du bilan (`Estimation du Bilan annuel`),
-  sans les sous-lignes Détail / annexes ; colonnes = **même date de référence** que
+  sans les sous-lignes Détail / annexes ; **ligne Validation** au-dessus de la section Actif
+  (écart = Total actif − Total passifs et capitaux propres, comme le Bilan Sommaire ;
+  bandeau ambre si déséquilibré) ; colonnes = **même date de référence** que
   Hypothèses Revenus (`nMinusOne-and-ytd` : N-1 + YTD puis années projetées — ex. réf.
   mars 2026 → `2025` | `YTD 2026` | `2026` | …). Sous-totaux (Total ACT, Total de
   l'actif, Total du passif, etc.) = **même logique que le Bilan Sommaire** :
@@ -379,8 +393,12 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   d’ajustement (Montant $ ; comptes clients et stocks : drivers ; créditeurs :
   délai de paiement / CMV ou % des revenus ; **Bénéfices non répartis** (CAP-C) :
   panneau **Bénéfice de la période** (lecture seule = BN projeté aligné Résultats
-  pro forma / hyp. revenus) + **Dividendes** (modifiable) ; solde projeté =
-  ouverture + BN − dividendes ; autres postes ACT : Montant $ ou
+  pro forma : REV − hyp. Dépenses − dotation Capex − intérêts Financement − impôts) +
+  **Dividendes** (modifiable) ; solde projeté =
+  ouverture du **dernier exercice complet** pour la 1re année projetée
+  (N-1 si YTD partiel ; sinon la seule colonne réelle = exercice complet),
+  puis ouverture = BNR projeté de l’année précédente ; + BN − dividendes ;
+  autres postes ACT : Montant $ ou
   **% des revenus** ; **Produits reportés** (PCT-PD) : Montant $ ou **% des revenus** ;
   récurrent, note). Encaisse (ACT-A / ACT-A.1) et **Découvert
   bancaire** (PCT-A) ne sont pas ajustables : mention « Trésorerie à la fin » ;

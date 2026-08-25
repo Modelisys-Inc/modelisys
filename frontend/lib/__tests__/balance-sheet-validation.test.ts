@@ -29,6 +29,13 @@ describe("balance-sheet-validation labels", () => {
     expect(isBalanceSheetTotalAssetsLabel("total actif")).toBe(true)
   })
 
+  it("rejects section / partial asset totals", () => {
+    expect(isBalanceSheetTotalAssetsLabel("Total ACT")).toBe(false)
+    expect(isBalanceSheetTotalAssetsLabel("Total de l'actif à court terme")).toBe(false)
+    expect(isBalanceSheetTotalAssetsLabel("Total de l'actif à long terme")).toBe(false)
+    expect(isBalanceSheetTotalAssetsLabel("Total des actifs courants")).toBe(false)
+  })
+
   it("recognizes total liabilities + equity label variants", () => {
     expect(isBalanceSheetTotalLiabilitiesEquityLabel("Total passifs et capitaux propres")).toBe(true)
     expect(
@@ -54,6 +61,24 @@ describe("balanceSheetValidationEcart", () => {
     expect(findBalanceSheetTotalLiabilitiesEquityRow(rows)?.current).toBe(480)
   })
 
+  it("prefers grand Total de l'actif over section totals that appear first", () => {
+    const rows = [
+      { label: "Total ACT", current: 100 },
+      { label: "Total de l'actif à court terme", current: 6_473_839 },
+      { label: "Total de l'actif", current: 9_942_523 },
+      { label: "Total du passif", current: 4_000_000 },
+      { label: "Total du passif et des capitaux propres", current: 9_942_523 },
+    ]
+    expect(findBalanceSheetTotalAssetsRow(rows)?.current).toBe(9_942_523)
+    expect(findBalanceSheetTotalLiabilitiesEquityRow(rows)?.current).toBe(9_942_523)
+    expect(
+      balanceSheetValidationEcart(
+        findBalanceSheetTotalAssetsRow(rows)?.current,
+        findBalanceSheetTotalLiabilitiesEquityRow(rows)?.current,
+      ),
+    ).toBe(0)
+  })
+
   it("treats |ecart| < 1 as balanced", () => {
     expect(isBalanceSheetBalanced(0)).toBe(true)
     expect(isBalanceSheetBalanced(0.5)).toBe(true)
@@ -70,6 +95,18 @@ describe("validation formula", () => {
 
   it("builds default formula from total labels", () => {
     expect(defaultBalanceSheetValidationFormula(structure)).toEqual([
+      "+total-actif",
+      "-total-passif-cp",
+    ])
+  })
+
+  it("default formula skips section asset totals that appear before the grand total", () => {
+    const withSectionTotals = [
+      { id: "total-act-ct", label: "Total de l'actif à court terme", isResult: true },
+      { id: "total-actif", label: "Total de l'actif", isResult: true },
+      { id: "total-passif-cp", label: "Total du passif et des capitaux propres", isResult: true },
+    ]
+    expect(defaultBalanceSheetValidationFormula(withSectionTotals)).toEqual([
       "+total-actif",
       "-total-passif-cp",
     ])

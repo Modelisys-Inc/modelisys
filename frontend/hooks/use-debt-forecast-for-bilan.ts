@@ -4,6 +4,7 @@ import type { DebtForecastLoan } from "@/lib/debt-forecast-types"
 import {
   DEBT_FORECAST_CONFIG_TYPE,
   parseDebtForecastLoans,
+  resolveDebtDrivenInterestExpense,
   resolveFinancingDrivenBilanProjectedAmount,
 } from "@/lib/debt-forecast-resolve"
 
@@ -18,6 +19,10 @@ export function useDebtForecastForBilan(opts: {
     linkCode: string | null | undefined,
     configYearIndex: number,
     actualBase: number,
+  ) => number
+  resolveInterestExpense: (
+    isLinkCode: string | null | undefined,
+    configYearIndex: number,
   ) => number
   loading: boolean
 } {
@@ -68,5 +73,14 @@ export function useDebtForecastForBilan(opts: {
       })
   }, [loans])
 
-  return { loans, resolveProjectedAmount, loading }
+  const resolveInterestExpense = useMemo(() => {
+    return (isLinkCode: string | null | undefined, configYearIndex: number) =>
+      resolveDebtDrivenInterestExpense({
+        isLinkCode,
+        configYearIndex,
+        loans,
+      })
+  }, [loans])
+
+  return { loans, resolveProjectedAmount, resolveInterestExpense, loading }
 }

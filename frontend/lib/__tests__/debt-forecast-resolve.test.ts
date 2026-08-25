@@ -3,9 +3,13 @@ import type { DebtForecastLoan } from "../debt-forecast-types"
 import {
   debtAmortYearIndexFromBilanConfigYear,
   debtLoanMatchesBilanLinkCode,
+  debtLinkCodeForInterestIsLinkCode,
   financingBilanLoanMatchCode,
+  interestIsLinkCodeForDebtLinkCode,
+  isDebtDrivenInterestIsLinkCode,
   isFinancingBilanCurrentPortionCode,
   parseDebtForecastLoans,
+  resolveDebtDrivenInterestExpense,
   resolveFinancingDrivenBilanProjectedAmount,
 } from "../debt-forecast-resolve"
 
@@ -245,5 +249,87 @@ describe("parseDebtForecastLoans", () => {
       1,
     )
     expect(parseDebtForecastLoans({})).toEqual([])
+  })
+})
+
+describe("debt interest → income statement mapping", () => {
+  it("maps FIN.3 ↔ PLT-C and FIN.4 ↔ PLT-D", () => {
+    expect(isDebtDrivenInterestIsLinkCode("FIN.3")).toBe(true)
+    expect(isDebtDrivenInterestIsLinkCode("FIN.4")).toBe(true)
+    expect(isDebtDrivenInterestIsLinkCode("FIN.2")).toBe(false)
+    expect(debtLinkCodeForInterestIsLinkCode("FIN.3")).toBe("PLT-C")
+    expect(debtLinkCodeForInterestIsLinkCode("FIN.4")).toBe("PLT-D")
+    expect(interestIsLinkCodeForDebtLinkCode("PLT-C.1")).toBe("FIN.3")
+    expect(interestIsLinkCodeForDebtLinkCode("PLT-D")).toBe("FIN.4")
+  })
+})
+
+describe("resolveDebtDrivenInterestExpense", () => {
+  it("sums interestPayment for PLT-C loans into FIN.3", () => {
+    const pltC = loan({
+      id: "1",
+      sourceLinkCode: "PLT-C",
+      principal: 100_000,
+      interestRate: 12,
+      remainingPayments: 24,
+      repaymentMode: "interest_only",
+    })
+    const pltD = loan({
+      id: "2",
+      sourceLinkCode: "PLT-D",
+      principal: 50_000,
+      interestRate: 12,
+      remainingPayments: 24,
+      repaymentMode: "interest_only",
+    })
+    const year1 = resolveDebtDrivenInterestExpense({
+      isLinkCode: "FIN.3",
+      configYearIndex: 1,
+      loans: [pltC, pltD],
+    })
+    // Interest-only 12% on 100k ≈ 12_000 (PLT-D excluded)
+    expect(year1).toBe(12_000)
+    expect(
+      resolveDebtDrivenInterestExpense({
+        isLinkCode: "FIN.4",
+        configYearIndex: 1,
+        loans: [pltC, pltD],
+      }),
+    ).toBe(6_000)
+  })
+
+  it("returns 0 on year 0 and when no matching loans", () => {
+    expect(
+      resolveDebtDrivenInterestExpense({
+        isLinkCode: "FIN.3",
+        configYearIndex: 0,
+        loans: [loan({ id: "1", sourceLinkCode: "PLT-C", interestRate: 10 })],
+      }),
+    ).toBe(0)
+    expect(
+      resolveDebtDrivenInterestExpense({
+        isLinkCode: "FIN.3",
+        configYearIndex: 1,
+        loans: [loan({ id: "1", sourceLinkCode: "PLT-D", interestRate: 10 })],
+      }),
+    ).toBe(0)
+  })
+
+  it("skips mapping loans without defined hypothesis", () => {
+    expect(
+      resolveDebtDrivenInterestExpense({
+        isLinkCode: "FIN.3",
+        configYearIndex: 1,
+        loans: [
+          loan({
+            id: "1",
+            sourceLinkCode: "PLT-C",
+            interestRate: 12,
+            hypothesisDefined: false,
+            remainingPayments: 0,
+          }),
+        ],
+      }),
+    ).toBe(0)
   })
 })

@@ -7,7 +7,10 @@ import {
   normalizeAnnexLetter,
   resolveStructureAnnexLetter,
   structureRowUsesExcludedProjectionExpenseLinkCode,
+  collectLinkCodesFromStructureRow,
 } from "@/lib/income-statement-structure-utils"
+import { isCapexDrivenAmortizationIsLinkCode } from "@/lib/capex-forecast-resolve"
+import { isDebtDrivenInterestIsLinkCode } from "@/lib/debt-forecast-resolve"
 
 export type AnnexSourceRow = {
   id?: string
@@ -48,7 +51,17 @@ export function listAnnexDetailSeriesIdsForOwner(
     const cs = findStructureRowForStatementLine(trimmedId, label, structure)
     if (!cs || !isStructureRowDetailOnly(cs)) return
     if (!isShowInDetail(cs, structure) || !isCodeMappingEnabled(cs)) return
-    if (structureRowUsesExcludedProjectionExpenseLinkCode(cs)) return
+    // Amort. Capex / intérêts Financement : exclus des hyp. Dépenses mais inclus
+    // au rollup annexe Pro Forma une fois injectés.
+    if (
+      structureRowUsesExcludedProjectionExpenseLinkCode(cs) &&
+      !collectLinkCodesFromStructureRow(cs).some(
+        (code) =>
+          isCapexDrivenAmortizationIsLinkCode(code) || isDebtDrivenInterestIsLinkCode(code),
+      )
+    ) {
+      return
+    }
     const childLetter = normalizeAnnexLetter(resolveStructureAnnexLetter(cs, structure))
     if (childLetter !== letter) return
     seen.add(trimmedId)

@@ -8,6 +8,10 @@ import {
   normalizeCapexOpeningBalances,
   resolveCapexAdditionsForYear,
   resolveCapexDrivenBilanProjectedAmount,
+  resolveCapexDrivenDepreciationExpense,
+  isCapexDrivenAmortizationIsLinkCode,
+  capexAssetRootsForAmortIsLinkCode,
+  capexAmortIsLinkCodeOptionsForAsset,
   resolveCapexRowValue,
   type CapexAdjustment,
 } from "../capex-forecast-resolve"
@@ -282,6 +286,177 @@ describe("resolveCapexDrivenBilanProjectedAmount", () => {
         peerRows: [],
       }),
     ).toBe(9_000)
+  })
+})
+
+describe("capex amort → income statement mapping", () => {
+  it("maps corporelles / loués codes to ALT-B + ALT-C and incorporels to ALT-D", () => {
+    expect(isCapexDrivenAmortizationIsLinkCode("ADM.20")).toBe(true)
+    expect(isCapexDrivenAmortizationIsLinkCode("EXP.21")).toBe(true)
+    expect(isCapexDrivenAmortizationIsLinkCode("EXP.1")).toBe(false)
+    expect(capexAssetRootsForAmortIsLinkCode("CMV.11")).toEqual(["ALT-B", "ALT-C"])
+    expect(capexAssetRootsForAmortIsLinkCode("ADM.21")).toEqual(["ALT-D"])
+  })
+
+  it("filters picker options by Capex asset family", () => {
+    expect(capexAmortIsLinkCodeOptionsForAsset("ALT-B.2")).toEqual(["CMV.11", "EXP.20", "ADM.20"])
+    expect(capexAmortIsLinkCodeOptionsForAsset("ALT-C.1")).toEqual(["CMV.11", "EXP.20", "ADM.20"])
+    expect(capexAmortIsLinkCodeOptionsForAsset("ALT-D")).toEqual(["EXP.21", "ADM.21"])
+  })
+})
+
+describe("resolveCapexDrivenDepreciationExpense", () => {
+  it("sums period depreciation only for Capex rows assigned to that IS code", () => {
+    expect(
+      resolveCapexDrivenDepreciationExpense({
+        isLinkCode: "ADM.20",
+        configYearIndex: 1,
+        configYearCount: 3,
+        adjustments: {},
+        depreciationRates: { "ALT-B.2": 10, "ALT-B.3": 20 },
+        depreciationMethods: { "ALT-B.2": "linear", "ALT-B.3": "linear" },
+        amortizationLinkCodes: {
+          "ALT-B.2": "ADM.20",
+          "ALT-B.3": "EXP.20",
+        },
+        peerRows: [
+          {
+            rowId: "ALT-B",
+            linkCode: "ALT-B",
+            actualBase: 150_000,
+            actualCostBase: 150_000,
+            label: "Immobilisations corporelles",
+          },
+          {
+            rowId: "ALT-B.2",
+            linkCode: "ALT-B.2",
+            actualBase: 100_000,
+            actualCostBase: 100_000,
+            label: "Bâtisses",
+          },
+          {
+            rowId: "ALT-B.3",
+            linkCode: "ALT-B.3",
+            actualBase: 50_000,
+            actualCostBase: 50_000,
+            label: "Équipement",
+          },
+        ],
+      }),
+    ).toBe(10_000) // only ALT-B.2 → ADM.20
+  })
+
+  it("includes ALT-C leaf when its selected code matches", () => {
+    expect(
+      resolveCapexDrivenDepreciationExpense({
+        isLinkCode: "EXP.20",
+        configYearIndex: 1,
+        configYearCount: 3,
+        adjustments: {},
+        depreciationRates: { "ALT-C.1": 10 },
+        depreciationMethods: { "ALT-C.1": "linear" },
+        amortizationLinkCodes: { "ALT-C.1": "EXP.20" },
+        peerRows: [
+          {
+            rowId: "ALT-C.1",
+            linkCode: "ALT-C.1",
+            actualBase: 80_000,
+            actualCostBase: 80_000,
+            label: "Équipement loué",
+          },
+        ],
+      }),
+    ).toBe(8_000)
+  })
+
+  it("maps ALT-D depreciation to selected EXP.21", () => {
+    expect(
+      resolveCapexDrivenDepreciationExpense({
+        isLinkCode: "EXP.21",
+        configYearIndex: 1,
+        configYearCount: 3,
+        adjustments: {},
+        depreciationRates: { "ALT-D": 10 },
+        depreciationMethods: { "ALT-D": "linear" },
+        amortizationLinkCodes: { "ALT-D": "EXP.21" },
+        peerRows: [
+          {
+            rowId: "ALT-D",
+            linkCode: "ALT-D",
+            actualBase: 40_000,
+            actualCostBase: 40_000,
+            label: "Actifs incorporels",
+          },
+        ],
+      }),
+    ).toBe(4_000)
+  })
+
+  it("returns 0 when no Capex row selected that IS code", () => {
+    expect(
+      resolveCapexDrivenDepreciationExpense({
+        isLinkCode: "ADM.20",
+        configYearIndex: 1,
+        configYearCount: 3,
+        adjustments: {},
+        depreciationRates: { "ALT-B.2": 10 },
+        amortizationLinkCodes: {},
+        peerRows: [
+          {
+            rowId: "ALT-B.2",
+            linkCode: "ALT-B.2",
+            actualBase: 100_000,
+            actualCostBase: 100_000,
+          },
+        ],
+      }),
+    ).toBe(0)
+  })
+
+  it("resolves when Capex saved under series UUID and peer keyed the same", () => {
+    expect(
+      resolveCapexDrivenDepreciationExpense({
+        isLinkCode: "ADM.20",
+        configYearIndex: 1,
+        configYearCount: 3,
+        adjustments: {},
+        depreciationRates: { "uuid-batisses": 10 },
+        depreciationMethods: { "uuid-batisses": "linear" },
+        amortizationLinkCodes: { "uuid-batisses": "ADM.20", "ALT-B.2": "ADM.20" },
+        peerRows: [
+          {
+            rowId: "uuid-batisses",
+            linkCode: "ALT-B.2",
+            actualBase: 100_000,
+            actualCostBase: 100_000,
+            label: "Bâtisses",
+          },
+        ],
+      }),
+    ).toBe(10_000)
+  })
+
+  it("resolves when Capex saved only under linkCode alias", () => {
+    expect(
+      resolveCapexDrivenDepreciationExpense({
+        isLinkCode: "ADM.20",
+        configYearIndex: 1,
+        configYearCount: 3,
+        adjustments: {},
+        depreciationRates: { "ALT-B.2": 10 },
+        depreciationMethods: { "ALT-B.2": "linear" },
+        amortizationLinkCodes: { "ALT-B.2": "ADM.20" },
+        peerRows: [
+          {
+            rowId: "uuid-batisses",
+            linkCode: "ALT-B.2",
+            actualBase: 100_000,
+            actualCostBase: 100_000,
+            label: "Bâtisses",
+          },
+        ],
+      }),
+    ).toBe(10_000)
   })
 })
 

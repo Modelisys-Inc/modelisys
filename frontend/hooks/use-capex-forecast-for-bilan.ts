@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { listForecastConfigs } from "@/lib/api"
+import { getStatementStructure, listForecastConfigs, listStandardLinkCodesFlat } from "@/lib/api"
 import { useProjectedRevenueYearTotals } from "@/hooks/use-projected-revenue-year-totals"
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import type { ForecastActualLayout } from "@/lib/pro-forma-forecast-columns"
@@ -12,10 +12,51 @@ import {
   CAPEX_FORECAST_CONFIG_TYPE,
   parseCapexForecastConfig,
   resolveCapexDrivenBilanProjectedAmount,
+  resolveCapexDrivenDepreciationExpense,
   type CapexAdjustment,
   type CapexBilanPeerRow,
   type CapexDepreciationMethod,
 } from "@/lib/capex-forecast-resolve"
+import { isCapexProjectionLinkCode } from "@/lib/standard-link-code-utils"
+import {
+  listStructureRowsForCapexDetailDisplay,
+  syncDetailSubLinesFromStandard,
+} from "@/lib/income-statement-structure-utils"
+import { findRow, findSeriesRowOrDetail } from "@/lib/series-utils"
+import type { SeriesPeriod, StandardLinkCode } from "@/lib/api"
+
+function structureRowEffectiveLinkCode(sr: Record<string, unknown>): string {
+  return String(sr.linkCode ?? "").trim()
+}
+
+/**
+ * Même identité de poste que Hypothèses Capex (`mapStructureRowsToBalanceSheetDetailRows`) :
+ * id série API en priorité, sinon linkCode / id structure.
+ */
+function resolveCapexPeerIdentity(
+  sr: Record<string, unknown>,
+  bookRows: { id: string; label: string; amounts?: Record<string, number>; detailRows?: unknown[] }[],
+): { rowId: string; linkCode: string; label: string } | null {
+  const linkCode = structureRowEffectiveLinkCode(sr)
+  const structId = String(sr.id ?? "").trim()
+  if (!isCapexProjectionLinkCode(linkCode) && !isCapexProjectionLinkCode(structId)) {
+    return null
+  }
+  const seriesRow =
+    (structId ? findSeriesRowOrDetail(bookRows, structId) : undefined) ??
+    (linkCode ? findRow(bookRows, linkCode) : undefined) ??
+    (linkCode ? findSeriesRowOrDetail(bookRows, linkCode) : undefined)
+  const rowId =
+    String(seriesRow?.id ?? "").trim() ||
+    linkCode ||
+    structId
+  if (!rowId) return null
+  return {
+    rowId,
+    linkCode: linkCode || rowId,
+    label: String(sr.label ?? seriesRow?.label ?? "").trim(),
+  }
+}
 
 export function useCapexForecastForBilan(opts: {
   companyId?: string | null
@@ -32,7 +73,9 @@ export function useCapexForecastForBilan(opts: {
   adjustments: Record<string, CapexAdjustment[]>
   depreciationRates: Record<string, number>
   depreciationMethods: Record<string, CapexDepreciationMethod>
+  amortizationLinkCodes: Record<string, string>
   costByRowId: Record<string, number>
+  peerRows: CapexBilanPeerRow[]
   projectedRevenueYearTotals: number[] | null
   configYearCount: number
   resolveProjectedAmount: (
@@ -42,6 +85,10 @@ export function useCapexForecastForBilan(opts: {
     actualBase: number,
     peerRows: CapexBilanPeerRow[],
     opts?: { actualCostBase?: number; label?: string },
+  ) => number
+  resolveDepreciationExpense: (
+    isLinkCode: string | null | undefined,
+    configYearIndex: number,
   ) => number
   loading: boolean
 } {
@@ -63,7 +110,10 @@ export function useCapexForecastForBilan(opts: {
   const [depreciationMethods, setDepreciationMethods] = useState<
     Record<string, CapexDepreciationMethod>
   >({})
+  const [amortizationLinkCodes, setAmortizationLinkCodes] = useState<Record<string, string>>({})
   const [configLoading, setConfigLoading] = useState(false)
+  const [bsStructure, setBsStructure] = useState<Record<string, unknown>[]>([])
+  const [standardLinkCodes, setStandardLinkCodes] = useState<StandardLinkCode[]>([])
 
   const { totals: projectedRevenueYearTotals, loading: revenueLoading } =
     useProjectedRevenueYearTotals({
@@ -95,6 +145,18 @@ export function useCapexForecastForBilan(opts: {
       altAssetCostOnly: true,
     })
 
+  const { rows: bookRows, periods: bookPeriods, loading: bookLoading } =
+    useFinancialStatementSeries({
+      companyId: companyId || null,
+      statementType: "balance-sheet",
+      fiscalYear: effectiveFiscalYear,
+      month: effectiveRefMonth,
+      months: 72,
+      divisionId: divisionId || null,
+      subDivisionId: subDivisionId || null,
+      enabled: enabled && !!companyId,
+    })
+
   const forecastActualLayoutEffective = resolveForecastActualLayout(
     forecastActualLayout,
     effectiveRefMonth,
@@ -117,7 +179,8 @@ export function useCapexForecastForBilan(opts: {
       )
       const opening = trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? 0
       if (row.id) out[row.id] = opening
-      // Also index by amounts keys? link codes often match id.
+      const lc = String((row as { linkCode?: string }).linkCode ?? "").trim()
+      if (lc) out[lc] = opening
     }
     return out
   }, [
@@ -133,9 +196,55 @@ export function useCapexForecastForBilan(opts: {
 
   useEffect(() => {
     if (!enabled || !companyId) {
+      setBsStructure([])
+      return
+    }
+    let cancelled = false
+    getStatementStructure(companyId, "balance-sheet")
+      .then((res) => {
+        if (cancelled) return
+        const raw = Array.isArray(res?.structure) ? res.structure : []
+        setBsStructure(raw as Record<string, unknown>[])
+      })
+      .catch(() => {
+        if (!cancelled) setBsStructure([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, enabled])
+
+  useEffect(() => {
+    if (!enabled || !companyId) {
+      setStandardLinkCodes([])
+      return
+    }
+    let cancelled = false
+    listStandardLinkCodesFlat()
+      .then((codes) => {
+        if (!cancelled) setStandardLinkCodes(Array.isArray(codes) ? codes : [])
+      })
+      .catch(() => {
+        if (!cancelled) setStandardLinkCodes([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, enabled])
+
+  /** Même structure affichée que Hypothèses Capex (sous-lignes ALT-B.1… injectées). */
+  const capexAlignedStructure = useMemo(() => {
+    if (!bsStructure.length) return []
+    if (!standardLinkCodes.length) return bsStructure
+    return syncDetailSubLinesFromStandard(bsStructure, standardLinkCodes)
+  }, [bsStructure, standardLinkCodes])
+
+  useEffect(() => {
+    if (!enabled || !companyId) {
       setAdjustments({})
       setDepreciationRates({})
       setDepreciationMethods({})
+      setAmortizationLinkCodes({})
       setConfigLoading(false)
       return
     }
@@ -151,12 +260,14 @@ export function useCapexForecastForBilan(opts: {
         setAdjustments(parsed.capexAdjustments)
         setDepreciationRates(parsed.depreciationRates)
         setDepreciationMethods(parsed.depreciationMethods)
+        setAmortizationLinkCodes(parsed.amortizationLinkCodes)
       })
       .catch(() => {
         if (!cancelled) {
           setAdjustments({})
           setDepreciationRates({})
           setDepreciationMethods({})
+          setAmortizationLinkCodes({})
         }
       })
       .finally(() => {
@@ -169,16 +280,70 @@ export function useCapexForecastForBilan(opts: {
 
   const configYearCount = projectionYears + 1
 
+  const peerRows = useMemo((): CapexBilanPeerRow[] => {
+    if (!capexAlignedStructure.length) return []
+    const detailRows = listStructureRowsForCapexDetailDisplay(capexAlignedStructure)
+    const peers: CapexBilanPeerRow[] = []
+    const seen = new Set<string>()
+
+    for (const sr of detailRows) {
+      const identity = resolveCapexPeerIdentity(sr, bookRows)
+      if (!identity) continue
+      if (seen.has(identity.rowId)) continue
+      seen.add(identity.rowId)
+
+      const seriesRow =
+        bookRows.length > 0
+          ? findSeriesRowOrDetail(bookRows, identity.rowId) ?? findRow(bookRows, identity.linkCode)
+          : undefined
+      let actualBase = 0
+      if (seriesRow && bookPeriods.length > 0) {
+        const trend = forecastBalanceSheetYearTrend(
+          forecastActualLayoutEffective,
+          seriesRow,
+          bookPeriods as SeriesPeriod[],
+          effectiveRefMonth,
+          effectiveFiscalYear,
+          fiscalYearEndMonth,
+          projectionYears,
+        )
+        actualBase = trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? 0
+      }
+      peers.push({
+        rowId: identity.rowId,
+        linkCode: identity.linkCode,
+        actualBase,
+        actualCostBase:
+          costByRowId[identity.rowId] ??
+          costByRowId[identity.linkCode] ??
+          actualBase,
+        label: identity.label || undefined,
+      })
+    }
+    return peers
+  }, [
+    bookPeriods,
+    bookRows,
+    capexAlignedStructure,
+    costByRowId,
+    effectiveFiscalYear,
+    effectiveRefMonth,
+    fiscalYearEndMonth,
+    forecastActualCols,
+    forecastActualLayoutEffective,
+    projectionYears,
+  ])
+
   const resolveProjectedAmount = useMemo(() => {
     return (
       rowId: string,
       linkCode: string | null | undefined,
       configYearIndex: number,
       actualBase: number,
-      peerRows: CapexBilanPeerRow[],
+      resolvePeerRows: CapexBilanPeerRow[],
       resolveOpts?: { actualCostBase?: number; label?: string },
     ) => {
-      const peersWithCost = peerRows.map((p) => ({
+      const peersWithCost = resolvePeerRows.map((p) => ({
         ...p,
         actualCostBase: p.actualCostBase ?? costByRowId[p.rowId] ?? p.actualBase,
       }))
@@ -207,14 +372,40 @@ export function useCapexForecastForBilan(opts: {
     projectedRevenueYearTotals,
   ])
 
+  const resolveDepreciationExpense = useMemo(() => {
+    return (isLinkCode: string | null | undefined, configYearIndex: number) =>
+      resolveCapexDrivenDepreciationExpense({
+        isLinkCode,
+        configYearIndex,
+        configYearCount,
+        adjustments,
+        depreciationRates,
+        depreciationMethods,
+        amortizationLinkCodes,
+        projectedRevenueYearTotals,
+        peerRows,
+      })
+  }, [
+    adjustments,
+    amortizationLinkCodes,
+    configYearCount,
+    depreciationMethods,
+    depreciationRates,
+    peerRows,
+    projectedRevenueYearTotals,
+  ])
+
   return {
     adjustments,
     depreciationRates,
     depreciationMethods,
+    amortizationLinkCodes,
     costByRowId,
+    peerRows,
     projectedRevenueYearTotals,
     configYearCount,
     resolveProjectedAmount,
-    loading: configLoading || revenueLoading || costLoading,
+    resolveDepreciationExpense,
+    loading: configLoading || revenueLoading || costLoading || bookLoading,
   }
 }

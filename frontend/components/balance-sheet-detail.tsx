@@ -53,6 +53,7 @@ import {
   resolveCrediteursProjectedValue,
   resolveOtherActProjectedValue,
   resolveRetainedEarningsProjectedValue,
+  retainedEarningsOpeningForProjectedYear,
   resolveStocksProjectedValue,
   resolveTreasuryLineFromEndingCash,
   recomputeBilanHypothesisSubtotalTrends,
@@ -69,7 +70,7 @@ import {
 } from "@/lib/bilan-forecast-utils"
 import { IncomeStatementStructureStudioCols } from "@/components/income-statement-structure-studio-cols"
 import { Badge } from "@/components/ui/badge"
-import { ChevronRight, ChevronDown, ListTree, Loader2, Settings, Sparkles } from "lucide-react"
+import { AlertTriangle, ChevronRight, ChevronDown, ListTree, Loader2, Settings, Sparkles } from "lucide-react"
 import {
   BalanceSheetLineAnalysisAside,
   BalanceSheetLineAnalysisTriggerButton,
@@ -154,7 +155,14 @@ import {
   type StatementPeriodBasis,
 } from "@/lib/income-statement-period-basis"
 import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
-import { isBalanceSheetValidationStructureRow } from "@/lib/balance-sheet-validation"
+import {
+  balanceSheetValidationEcart,
+  findBalanceSheetTotalAssetsRow,
+  findBalanceSheetTotalLiabilitiesEquityRow,
+  isBalanceSheetAssetsSectionLabel,
+  isBalanceSheetBalanced,
+  isBalanceSheetValidationStructureRow,
+} from "@/lib/balance-sheet-validation"
 import {
   buildNetCashByPeriodKey,
   isCashFlowNetVariationStructureRow,
@@ -1891,6 +1899,53 @@ export function BalanceSheetDetail({
     )
   }
 
+  /** Validation (Total actif − Total passifs+CP) — même logique que le Bilan Sommaire. */
+  const hypothesisTotalAssetsRow = isHypothesisSection
+    ? findBalanceSheetTotalAssetsRow(data)
+    : undefined
+  const hypothesisTotalLiabilitiesEquityRow = isHypothesisSection
+    ? findBalanceSheetTotalLiabilitiesEquityRow(data)
+    : undefined
+  const hypothesisValidationTrendEcarts: (number | null)[] = (() => {
+    if (!isHypothesisSection) return []
+    const assets = hypothesisTotalAssetsRow
+    const liabilities = hypothesisTotalLiabilitiesEquityRow
+    const len =
+      assets?.trendValues?.length ?? liabilities?.trendValues?.length ?? 0
+    if (len <= 0 || !assets || !liabilities) return []
+    return Array.from({ length: len }, (_, i) =>
+      balanceSheetValidationEcart(
+        getBilanDisplayValue(
+          assets.rowId,
+          assets.trendValues,
+          i,
+          assets.trendValues?.[i] ?? 0,
+          assets.label,
+          assets.linkCode,
+          { isSubtotal: true },
+        ),
+        getBilanDisplayValue(
+          liabilities.rowId,
+          liabilities.trendValues,
+          i,
+          liabilities.trendValues?.[i] ?? 0,
+          liabilities.label,
+          liabilities.linkCode,
+          { isSubtotal: true },
+        ),
+      ),
+    )
+  })()
+  const hypothesisBalanceMismatchEcart =
+    hypothesisValidationTrendEcarts.find(
+      (ecart) => ecart !== null && !isBalanceSheetBalanced(ecart),
+    ) ?? null
+  const showHypothesisValidationRow =
+    isHypothesisSection &&
+    view === "years" &&
+    hypothesisValidationTrendEcarts.length > 0 &&
+    hypothesisValidationTrendEcarts.some((e) => e !== null)
+
   const shouldHideZeroDetailRows =
     !isStructureStudio &&
     !isHypothesisSection &&
@@ -2239,10 +2294,61 @@ export function BalanceSheetDetail({
     )
   }
 
+  const renderHypothesisValidationEcartCell = (
+    ecart: number | null | undefined,
+    colIdx: number,
+  ) => {
+    if (ecart === null || ecart === undefined) {
+      return (
+        <td
+          key={colIdx}
+          className={cn(
+            "px-4 py-3 text-right text-sm text-slate-400",
+            isForecastHistoricalColumn(colIdx) ? "bg-slate-50" : "",
+          )}
+        >
+          —
+        </td>
+      )
+    }
+    const balanced = isBalanceSheetBalanced(ecart)
+    return (
+      <td
+        key={colIdx}
+        className={cn(
+          "px-4 py-3 text-right text-sm font-semibold tabular-nums",
+          balanced ? "text-emerald-700" : "text-amber-700",
+          isForecastHistoricalColumn(colIdx) ? "bg-slate-50" : "",
+        )}
+        title={
+          balanced
+            ? "Bilan équilibré"
+            : `Le bilan ne balance pas (écart ${formatCurrency(ecart)})`
+        }
+      >
+        {formatCurrency(ecart)}
+      </td>
+    )
+  }
+
   return (
     <div className={cn("w-full", dashboardCardFrameStaticClass)}>
       <div className={dashboardCardRingClass} aria-hidden />
       <div className="relative">
+      {hypothesisBalanceMismatchEcart !== null && (
+        <div
+          role="alert"
+          className="flex items-start gap-2.5 border-b border-amber-200 bg-amber-50 px-6 py-3 text-sm text-amber-900 sm:px-7"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden />
+          <p className="leading-snug">
+            <span className="font-semibold">Le bilan n’est pas équilibré.</span>{" "}
+            La ligne Validation affiche un écart de{" "}
+            {formatCurrency(Math.abs(hypothesisBalanceMismatchEcart))} (Total actif − Total
+            passifs et capitaux propres).
+          </p>
+        </div>
+      )}
       {/* Header */}
       <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -2763,6 +2869,34 @@ export function BalanceSheetDetail({
 
               const retainedEarningsPeriodNi =
                 periodNetIncomeByDisplayYear[hypothesisYearIndex] ?? 0
+              const retainedEarningsOpening = isRetainedEarningsPanel
+                ? retainedEarningsOpeningForProjectedYear({
+                    baseTrend: row.trendValues ?? [],
+                    yearIndex: hypothesisYearIndex,
+                    adjustments: [
+                      ...(bilanAdjustments[row.rowId!] ?? []).filter(
+                        (a) => a.yearIndex !== hypothesisYearIndex,
+                      ),
+                      {
+                        id: "draft",
+                        rowId: row.rowId!,
+                        yearIndex: hypothesisYearIndex,
+                        type: "dividends",
+                        value: draftValue,
+                        isRecurring: draftRecurring,
+                        note: draftNote,
+                      },
+                    ],
+                    periodNetIncomeByDisplayYear,
+                    forecastActualCols,
+                  })
+                : 0
+              const retainedEarningsOpeningLabel =
+                hypothesisYearIndex === forecastActualCols
+                  ? forecastActualCols > 1
+                    ? "Ouverture N-1"
+                    : "Ouverture"
+                  : "Ouverture"
               const retainedEarningsProjectedAmount = isRetainedEarningsPanel
                 ? resolveRetainedEarningsProjectedValue({
                     baseTrend: row.trendValues ?? [],
@@ -2788,6 +2922,20 @@ export function BalanceSheetDetail({
 
               return (
                 <Fragment key={idx}>
+                  {showHypothesisValidationRow &&
+                    isBalanceSheetAssetsSectionLabel(row.label) && (
+                      <tr
+                        data-testid="balance-sheet-validation-row"
+                        className="[&_td]:border-slate-300 [&>td]:bg-slate-50 [&>td:first-child]:bg-slate-50"
+                      >
+                        <td className="whitespace-nowrap px-6 py-3 text-sm font-semibold text-slate-800">
+                          Validation
+                        </td>
+                        {hypothesisValidationTrendEcarts.map((ecart, colIdx) =>
+                          renderHypothesisValidationEcartCell(ecart, colIdx),
+                        )}
+                      </tr>
+                    )}
                   {showSeparatorAbove && (
                     <tr aria-hidden data-testid="balance-sheet-detail-subtotal-separator">
                       <td
@@ -4296,7 +4444,16 @@ export function BalanceSheetDetail({
                                         {formatCurrency(retainedEarningsProjectedAmount)}
                                       </p>
                                       <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                                        Ouverture +{" "}
+                                        {retainedEarningsOpeningLabel}{" "}
+                                        <span
+                                          className="font-medium text-slate-700"
+                                          data-testid="bilan-re-opening"
+                                        >
+                                          {retainedEarningsOpening
+                                            ? formatCurrency(retainedEarningsOpening)
+                                            : "—"}
+                                        </span>
+                                        {" + "}
                                         <span
                                           className="font-medium text-slate-700"
                                           data-testid="bilan-re-period-earnings"
@@ -4305,7 +4462,7 @@ export function BalanceSheetDetail({
                                             ? formatCurrency(retainedEarningsPeriodNi)
                                             : "—"}
                                         </span>{" "}
-                                        (bénéfice de la période) − dividendes
+                                        (bénéfice net pro forma) − dividendes
                                         {ccSelectedYearLabel
                                           ? ` · ${ccSelectedYearLabel}`
                                           : null}

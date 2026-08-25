@@ -81,6 +81,8 @@ import {
 } from "@/lib/capex-financing-utils"
 import {
   buildCapexAssetYearStates,
+  capexAmortIsLinkCodeOptionsForAsset,
+  CAPEX_AMORT_IS_LINK_CODE_LABELS,
   isCapexHypothesisGrowthAdjustment,
   resolveCapexAdditionsForYear,
   resolveCapexDepreciationMethod,
@@ -179,6 +181,7 @@ export function CapexForecastDetail({
 
   const [depreciationRates, setDepreciationRates] = useState<Record<string, number>>({})
   const [depreciationMethods, setDepreciationMethods] = useState<Record<string, CapexDepreciationMethod>>({})
+  const [amortizationLinkCodes, setAmortizationLinkCodes] = useState<Record<string, string>>({})
   const [draftDepreciationMethod, setDraftDepreciationMethod] = useState<CapexDepreciationMethod>("linear")
   const [draftDepreciationRate, setDraftDepreciationRate] = useState<number>(0)
   const [capexHypothesisEditorTab, setCapexHypothesisEditorTab] = useState<
@@ -357,6 +360,9 @@ export function CapexForecastDetail({
           if (data.depreciationMethods) {
             setDepreciationMethods(data.depreciationMethods as typeof depreciationMethods)
           }
+          if (data.amortizationLinkCodes) {
+            setAmortizationLinkCodes(data.amortizationLinkCodes as typeof amortizationLinkCodes)
+          }
           if (data.capexAdjustments) setCapexAdjustments(data.capexAdjustments as typeof capexAdjustments)
         }
       } catch (err) {
@@ -492,12 +498,27 @@ export function CapexForecastDetail({
       Object.keys(capexValues).length === 0 &&
       Object.keys(depreciationRates).length === 0 &&
       Object.keys(depreciationMethods).length === 0 &&
+      Object.keys(amortizationLinkCodes).length === 0 &&
       Object.keys(capexAdjustments).length === 0
     ) {
       return
     }
-    saveConfig({ capexValues, depreciationRates, depreciationMethods, capexAdjustments })
-  }, [capexValues, depreciationRates, depreciationMethods, capexAdjustments, saveConfig, isForecastSection])
+    saveConfig({
+      capexValues,
+      depreciationRates,
+      depreciationMethods,
+      amortizationLinkCodes,
+      capexAdjustments,
+    })
+  }, [
+    capexValues,
+    depreciationRates,
+    depreciationMethods,
+    amortizationLinkCodes,
+    capexAdjustments,
+    saveConfig,
+    isForecastSection,
+  ])
 
   useEffect(() => {
     setCapexHypothesisPanelOpen(false)
@@ -599,6 +620,70 @@ export function CapexForecastDetail({
   const getDepreciationMethod = (rowId: string | undefined): CapexDepreciationMethod => {
     if (!rowId) return "linear"
     return resolveCapexDepreciationMethod(rowId, depreciationMethods)
+  }
+
+  const getAmortizationLinkCode = (rowId: string | undefined): string => {
+    if (!rowId) return ""
+    return String(amortizationLinkCodes[rowId] ?? "").trim()
+  }
+
+  const setAmortizationLinkCodeForRow = (
+    rowId: string,
+    code: string,
+    assetLinkCode?: string | null,
+  ) => {
+    setAmortizationLinkCodes((prev) => {
+      const next = { ...prev }
+      const trimmed = code.trim()
+      const alias = String(assetLinkCode ?? "").trim()
+      if (!trimmed) {
+        delete next[rowId]
+        if (alias && alias !== rowId) delete next[alias]
+      } else {
+        next[rowId] = trimmed
+        // Clé stable par code de liaison (résolution Pro Forma même si rowId = UUID série).
+        if (alias && alias !== rowId) next[alias] = trimmed
+      }
+      return next
+    })
+  }
+
+  const renderAmortizationLinkCodeCell = (
+    rowId: string | undefined,
+    assetLinkCode: string | null | undefined,
+  ) => {
+    if (!rowId) return null
+    const options = capexAmortIsLinkCodeOptionsForAsset(assetLinkCode)
+    const value = getAmortizationLinkCode(rowId) || getAmortizationLinkCode(assetLinkCode ?? undefined)
+    return (
+      <Select
+        value={value || "__none__"}
+        onValueChange={(v) =>
+          setAmortizationLinkCodeForRow(rowId, v === "__none__" ? "" : v, assetLinkCode)
+        }
+      >
+        <SelectTrigger
+          data-testid={`capex-amort-code-${rowId}`}
+          className="h-8 w-full min-w-[5.5rem] border-slate-200 bg-white text-xs font-medium text-slate-800"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <SelectValue placeholder="—" />
+        </SelectTrigger>
+        <SelectContent onClick={(e) => e.stopPropagation()}>
+          <SelectItem value="__none__" className="text-xs text-slate-500">
+            —
+          </SelectItem>
+          {options.map((code) => (
+            <SelectItem key={code} value={code} className="text-xs">
+              <span className="font-medium">{code}</span>
+              <span className="ml-1.5 text-slate-500">
+                {CAPEX_AMORT_IS_LINK_CODE_LABELS[code] ?? ""}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    )
   }
 
   const renderDepreciationRateCell = (rowId: string | undefined, label: string) => {
@@ -746,8 +831,13 @@ export function CapexForecastDetail({
   const saveDepreciationHypothesis = () => {
     if (!editingAdjustment?.rowId) return
     const rowId = editingAdjustment.rowId
+    const linkCode = baseData?.find((r) => r.rowId === rowId)?.linkCode?.trim()
     const nextRates = { ...depreciationRates, [rowId]: draftDepreciationRate }
     const nextMethods = { ...depreciationMethods, [rowId]: draftDepreciationMethod }
+    if (linkCode && linkCode !== rowId) {
+      nextRates[linkCode] = draftDepreciationRate
+      nextMethods[linkCode] = draftDepreciationMethod
+    }
     setDepreciationRates(nextRates)
     setDepreciationMethods(nextMethods)
     closeCapexHypothesisPanel()
@@ -1205,7 +1295,7 @@ export function CapexForecastDetail({
   const forecastTableStickyScroll = isForecastSection && effectiveView === "years"
   const forecastTableColumnCount =
     effectiveView === "years"
-      ? (isForecastSection ? 2 : 1) + yearColumnCount
+      ? (isForecastSection ? 3 : 1) + yearColumnCount
       : 1
 
   const renderCapexHypothesisPanel = (embedded = false) => {
@@ -2127,9 +2217,14 @@ export function CapexForecastDetail({
             <tr>
               <th className="min-w-[20rem] px-6 py-4 text-left text-sm font-semibold text-slate-900">Compte</th>
               {effectiveView === "years" && isForecastSection && (
-                <th className="min-w-[6.5rem] px-4 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900">
-                  Taux
-                </th>
+                <>
+                  <th className="min-w-[7.5rem] px-3 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900">
+                    Code
+                  </th>
+                  <th className="min-w-[6.5rem] px-4 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900">
+                    Taux
+                  </th>
+                </>
               )}
               {effectiveView === "years" && (
                 <>
@@ -2231,7 +2326,7 @@ export function CapexForecastDetail({
                       forecastTableStickyScroll
                         ? cn(
                             annexSubtotalDarkNumbers &&
-                              "[&>td:first-child]:bg-white [&>td:nth-child(2)]:bg-white",
+                              "[&>td:first-child]:bg-white [&>td:nth-child(2)]:bg-white [&>td:nth-child(3)]:bg-white",
                             row.isAnnexHeader && "[&>td]:bg-amber-50/90 [&>td:first-child]:bg-amber-50/90",
                             !isSpacer &&
                               (row.isAnnexHeader
@@ -2311,34 +2406,50 @@ export function CapexForecastDetail({
                     </td>
 
                     {effectiveView === "years" && isForecastSection && (
-                      <td
-                        className={cn(
-                          "min-w-[6.5rem] px-4 py-3 text-center text-slate-700",
-                          row.rowId && !shouldHideAmounts && "cursor-pointer hover:bg-slate-50/90",
-                          capexHypothesisPanelOpen &&
-                            editingAdjustment?.rowId === row.rowId &&
-                            capexHypothesisMode === "rate" &&
-                            "z-[1] bg-orange-50/50 shadow-[inset_0_0_0_2px_rgb(224,116,45)]",
-                        )}
-                        onClick={() => {
-                          if (row.rowId && !shouldHideAmounts) {
-                            openCapexHypothesisPanel(
-                              row.rowId,
-                              CAPEX_HYPOTHESIS_RATE_YEAR_INDEX,
-                              "rate",
-                              displayLabel,
-                            )
-                          }
-                        }}
-                      >
-                        {shouldHideAmounts ? (
-                          "-"
-                        ) : row.rowId ? (
-                          renderDepreciationRateCell(row.rowId, displayLabel)
-                        ) : (
-                          "-"
-                        )}
-                      </td>
+                      <>
+                        <td
+                          className={cn(
+                            "min-w-[7.5rem] px-3 py-3 text-center text-slate-700",
+                          )}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {shouldHideAmounts ? (
+                            "-"
+                          ) : row.rowId ? (
+                            renderAmortizationLinkCodeCell(row.rowId, row.linkCode)
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td
+                          className={cn(
+                            "min-w-[6.5rem] px-4 py-3 text-center text-slate-700",
+                            row.rowId && !shouldHideAmounts && "cursor-pointer hover:bg-slate-50/90",
+                            capexHypothesisPanelOpen &&
+                              editingAdjustment?.rowId === row.rowId &&
+                              capexHypothesisMode === "rate" &&
+                              "z-[1] bg-orange-50/50 shadow-[inset_0_0_0_2px_rgb(224,116,45)]",
+                          )}
+                          onClick={() => {
+                            if (row.rowId && !shouldHideAmounts) {
+                              openCapexHypothesisPanel(
+                                row.rowId,
+                                CAPEX_HYPOTHESIS_RATE_YEAR_INDEX,
+                                "rate",
+                                displayLabel,
+                              )
+                            }
+                          }}
+                        >
+                          {shouldHideAmounts ? (
+                            "-"
+                          ) : row.rowId ? (
+                            renderDepreciationRateCell(row.rowId, displayLabel)
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                      </>
                     )}
 
                     {effectiveView === "years" && row.trendValues && (

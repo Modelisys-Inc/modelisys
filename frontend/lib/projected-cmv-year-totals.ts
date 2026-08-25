@@ -391,6 +391,97 @@ export function computeProjectedCmvYearTotalsFromSeries(
   })
 }
 
+/**
+ * Totaux Hypothèses Dépenses (toutes annexes) par index config — même moteur que
+ * les postes CMV, sans filtre famille. Sert au BAIIA / BAI pro forma (CAP-C).
+ */
+export function computeProjectedExpenseHypothesisYearTotalsFromSeries(
+  seriesRows: SeriesRow[],
+  periods: SeriesPeriod[],
+  structure: Record<string, unknown>[],
+  projectionYears: number,
+  config: ReturnType<typeof parseExpenseForecastConfig>,
+  projectedRevenueYearTotals: number[] | null | undefined,
+  opts?: {
+    forecastActualLayout?: ForecastActualLayout
+    refMonth?: number
+    refYear?: number
+    fiscalYearEndMonth?: number
+  },
+): number[] {
+  const numYears = projectionYears + 1
+  const zeros = (): number[] => Array.from({ length: numYears }, () => 0)
+  if (!seriesRows.length || !periods.length || !structure.length) return zeros()
+
+  const postIds = listExpenseHypothesisPostIds(seriesRows, structure)
+  if (postIds.length === 0) return zeros()
+
+  const actualColumnCount = forecastActualColumnCount(
+    opts?.forecastActualLayout ?? "single-prior-year",
+  )
+  const refMonth = opts?.refMonth ?? 12
+  const refYear = opts?.refYear ?? new Date().getFullYear()
+  const fiscalYearEndMonth = opts?.fiscalYearEndMonth ?? 12
+
+  const seriesById = new Map(seriesRows.map((sr) => [sr.id, sr]))
+  const baseByRow = new Map<string, number>()
+  const nMinusOneByRow = new Map<string, number>()
+  for (const id of postIds) {
+    const sr = seriesById.get(id)
+    let baseAmount = 0
+    if (sr) {
+      const rawAmounts = getRowAmounts(sr, periods)
+      const { amounts: yearlyAmounts } = aggregateToYears(rawAmounts, periods)
+      baseAmount = yearlyAmounts.length > 0 ? yearlyAmounts[yearlyAmounts.length - 1]! : 0
+      if (actualColumnCount > 1) {
+        nMinusOneByRow.set(
+          id,
+          nMinusOneAndYtdActuals(sr, periods, refMonth, refYear, fiscalYearEndMonth).nMinusOne,
+        )
+      }
+    }
+    baseByRow.set(id, baseAmount)
+  }
+
+  return Array.from({ length: numYears }, (_, yearIndex) => {
+    if (yearIndex <= 0) {
+      return postIds.reduce((acc, id) => {
+        const projectedRevenue = projectedRevenueYearTotals?.[yearIndex] ?? 0
+        return (
+          acc +
+          computeProjectedCmvRowValue(id, yearIndex, baseByRow.get(id) ?? 0, projectedRevenue, {
+            expenseTypes: config.expenseTypes,
+            variableRates: config.variableRates,
+            inflationRate: config.inflationRate,
+            specificInflationRates: config.specificInflationRates,
+            revenueValues: config.revenueValues,
+            expenseAdjustments: config.expenseAdjustments,
+            actualColumnCount,
+            nMinusOneActual: nMinusOneByRow.get(id),
+          })
+        )
+      }, 0)
+    }
+
+    const projectedRevenue = projectedRevenueYearTotals?.[yearIndex] ?? 0
+    return postIds.reduce((acc, id) => {
+      return (
+        acc +
+        computeProjectedCmvRowValue(id, yearIndex, baseByRow.get(id) ?? 0, projectedRevenue, {
+          expenseTypes: config.expenseTypes,
+          variableRates: config.variableRates,
+          inflationRate: config.inflationRate,
+          specificInflationRates: config.specificInflationRates,
+          revenueValues: config.revenueValues,
+          expenseAdjustments: config.expenseAdjustments,
+          actualColumnCount,
+          nMinusOneActual: nMinusOneByRow.get(id),
+        })
+      )
+    }, 0)
+  })
+}
+
 export function prepareCmvDisplayStructure(
   structure: Record<string, unknown>[] | null,
   standardLinkCodes: Parameters<typeof syncDetailSubLinesFromStandard>[1],

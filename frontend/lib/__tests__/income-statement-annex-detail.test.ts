@@ -60,6 +60,59 @@ describe("listAnnexDetailSeriesIdsForOwner", () => {
       ),
     ).toEqual([])
   })
+
+  it("includes Capex amort detailOnly posts (ADM.20) in annex owner rollup", () => {
+    const withAmort: Record<string, unknown>[] = [
+      {
+        id: "adm",
+        label: "Frais d'administration",
+        annexLetter: "D",
+        detailOnly: false,
+        defineMapping: true,
+        showInDetail: true,
+        linkCode: "ADM",
+      },
+      {
+        id: "ADM.1",
+        label: "Salaires admin",
+        annexLetter: "D",
+        detailOnly: true,
+        defineMapping: true,
+        showInDetail: true,
+        linkCode: "ADM.1",
+      },
+      {
+        id: "ADM.20",
+        label: "Amortissement - Immobilisations corporelles",
+        annexLetter: "D",
+        detailOnly: true,
+        defineMapping: true,
+        showInDetail: true,
+        linkCode: "ADM.20",
+      },
+      {
+        id: "IMP.1",
+        label: "Exigibles",
+        annexLetter: "D",
+        detailOnly: true,
+        defineMapping: true,
+        showInDetail: true,
+        linkCode: "IMP.1",
+      },
+    ]
+    expect(
+      listAnnexDetailSeriesIdsForOwner(
+        { id: "adm", label: "Frais d'administration" },
+        [
+          { id: "adm", label: "Frais d'administration" },
+          { id: "ADM.1", label: "Salaires admin" },
+          { id: "ADM.20", label: "Amortissement - Immobilisations corporelles" },
+          { id: "IMP.1", label: "Exigibles" },
+        ],
+        withAmort,
+      ),
+    ).toEqual(["ADM.1", "ADM.20"])
+  })
 })
 
 describe("resolveDetailAnnexMeta", () => {

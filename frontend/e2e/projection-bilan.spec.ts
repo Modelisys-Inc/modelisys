@@ -367,6 +367,22 @@ async function setupBilanPage(page: Page) {
               "ALT-C",
             ],
           },
+          {
+            label: "Total passifs et capitaux propres",
+            isBold: true,
+            isResult: true,
+            liaisonMode: "sum",
+            liaisonSumCodes: [
+              "PCT-A",
+              "PCT-C",
+              "PCT-D",
+              "PCT-H",
+              "PCT-FF",
+              "PCT-PD",
+              "PLT-C",
+              "CAP-C",
+            ],
+          },
         ],
       }),
     }),
@@ -598,6 +614,17 @@ test("bilan hypothesis shows the balance sheet and opens an adjustment panel", a
     timeout: 20000,
   })
   await expect(page.getByText("Encaisse").first()).toBeVisible({ timeout: 20000 })
+
+  const validationRow = page.getByTestId("balance-sheet-validation-row")
+  await expect(validationRow).toBeVisible()
+  await expect(validationRow.getByText("Validation", { exact: true })).toBeVisible()
+  const actifRow = page.locator("tr", { hasText: /^Actif$/ }).first()
+  await expect(actifRow).toBeVisible()
+  const validationBeforeActif = await validationRow.evaluate((el, actif) => {
+    return !!(el.compareDocumentPosition(actif as Node) & Node.DOCUMENT_POSITION_FOLLOWING)
+  }, await actifRow.elementHandle())
+  expect(validationBeforeActif).toBe(true)
+
   await expect(page.getByText("Terrains")).toHaveCount(0)
   await expect(page.getByText("Trésorerie à la fin").first()).toBeVisible()
   await expect(page.getByText("Hypothèse Capex").first()).toBeVisible()
@@ -607,9 +634,7 @@ test("bilan hypothesis shows the balance sheet and opens an adjustment panel", a
   await expect(totalActifLabel.getByText("Hypothèse Capex")).toHaveCount(0)
   await expect(page.getByText("% du solde")).toHaveCount(0)
 
-  const actifRow = page.locator("tr", { hasText: /^Actif$/ }).first()
-  await expect(actifRow).toBeVisible()
-  await actifRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
+  await actifRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click({ force: true })
   await expect(page.getByRole("button", { name: /Enregistrer l'ajustement/ })).toHaveCount(0)
   await expect(actifRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText("")
 
@@ -845,12 +870,20 @@ test("retained earnings shows period earnings read-only and editable dividends",
   await expect(page.getByText("Exercices réels")).toBeVisible()
   await expect(page.getByRole("rowheader", { name: "Bénéfice de la période" })).toBeVisible()
   await expect(page.getByTestId("bilan-re-period-earnings")).toBeVisible()
+  await expect(page.getByTestId("bilan-re-opening")).toBeVisible()
   await expect(page.getByTestId("bilan-re-dividends")).toBeVisible()
   await expect(page.getByLabel("Montant ($)")).toHaveCount(0)
 
+  // Ouverture = solde N-1 (120k mock) ; BN = moteur Pro Forma ; − dividendes
+  await expect(page.getByTestId("bilan-re-opening")).toHaveText(/120\s000/)
+  const periodNiText = await page.getByTestId("bilan-re-period-earnings").innerText()
   await page.getByTestId("bilan-re-dividends").fill("25000")
+  await expect(page.getByTestId("bilan-re-projected-amount")).not.toHaveText(/^\s*—\s*$/)
   await page.getByRole("button", { name: /Enregistrer l'ajustement/ }).click()
   await expect(page.getByRole("heading", { name: "Bénéfices non répartis" })).toHaveCount(0)
+  // 120k + BN − 25k (BN mock non nul via hyp. revenus / impôts)
+  expect(periodNiText.trim().length).toBeGreaterThan(0)
+  await expect(reRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).not.toHaveText("")
 })
 
 test("tax balance sheet rows show Hypothèse Impôts and are not adjustable", async ({ page }) => {

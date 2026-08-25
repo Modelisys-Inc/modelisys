@@ -1,7 +1,8 @@
 /**
  * Bénéfice net projeté pour Estimation du Bilan (CAP-C).
- * Aligné sur les hypothèses Revenus : marge nette × CA projeté
- * (même base que Résultats pro forma tant que les hyp. revenus sont la source principale).
+ * Aligné États des résultats pro forma :
+ * BAI ≈ REV − Hyp. Dépenses − dotation Capex − intérêts Financement ;
+ * Impôts = taux × max(0, BAI) ; BN = BAI − Impôts.
  */
 
 import type { SeriesPeriod, SeriesRow } from "@/lib/api"
@@ -42,28 +43,37 @@ export function lastActualAnnualAmount(
 
 /**
  * Totaux bénéfice net par index config (0 = réel N-1, 1+ = projeté).
- * Années projetées = CA projeté × (BN N-1 / CA N-1), sinon BN N-1.
+ * Années projetées = même cascade que le Sommaire Pro Forma (BAI − impôts).
  */
 export function computeProjectedNetIncomeYearTotals(params: {
   projectionYears: number
   lastActualNetIncome: number
-  lastActualRevenue: number
   projectedRevenueYearTotals: number[] | null | undefined
+  projectedExpenseHypothesisYearTotals: number[] | null | undefined
+  projectedAmortizationYearTotals?: number[] | null | undefined
+  projectedInterestYearTotals?: number[] | null | undefined
+  taxRate: number
 }): number[] {
-  const { projectionYears, lastActualNetIncome, lastActualRevenue, projectedRevenueYearTotals } =
-    params
+  const {
+    projectionYears,
+    lastActualNetIncome,
+    projectedRevenueYearTotals,
+    projectedExpenseHypothesisYearTotals,
+    projectedAmortizationYearTotals,
+    projectedInterestYearTotals,
+    taxRate,
+  } = params
   const numYears = projectionYears + 1
-  const margin =
-    lastActualRevenue !== 0 && Number.isFinite(lastActualRevenue)
-      ? lastActualNetIncome / lastActualRevenue
-      : 0
+  const rate = Number.isFinite(taxRate) ? Math.min(100, Math.max(0, taxRate)) : 0
 
   return Array.from({ length: numYears }, (_, yearIndex) => {
     if (yearIndex <= 0) return lastActualNetIncome
-    const rev = projectedRevenueYearTotals?.[yearIndex]
-    if (typeof rev === "number" && Number.isFinite(rev) && lastActualRevenue !== 0) {
-      return Math.round(rev * margin)
-    }
-    return lastActualNetIncome
+    const rev = projectedRevenueYearTotals?.[yearIndex] ?? 0
+    const exp = projectedExpenseHypothesisYearTotals?.[yearIndex] ?? 0
+    const amort = projectedAmortizationYearTotals?.[yearIndex] ?? 0
+    const interest = projectedInterestYearTotals?.[yearIndex] ?? 0
+    const bai = rev - exp - amort - interest
+    const tax = Math.round((Math.max(0, bai) * rate) / 100)
+    return bai - tax
   })
 }

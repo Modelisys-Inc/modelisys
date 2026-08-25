@@ -55,6 +55,7 @@ import {
   TOTAL_CHARGES_LABEL,
   CHARGES_SECTION_LABEL,
   collectDistinctLinkCodesFromStructure,
+  collectLinkCodesFromStructureRow,
   mapLinkCodesToOwnerLabel,
   findStructureRowForStatementLine,
   findChargeLineRange,
@@ -74,6 +75,10 @@ import {
   normalizeLiaisonMode,
 } from "@/lib/income-statement-structure-utils"
 import { listAnnexDetailSeriesIdsForOwner } from "@/lib/income-statement-annex-detail"
+import { useCapexForecastForBilan } from "@/hooks/use-capex-forecast-for-bilan"
+import { useDebtForecastForBilan } from "@/hooks/use-debt-forecast-for-bilan"
+import { isCapexDrivenAmortizationIsLinkCode } from "@/lib/capex-forecast-resolve"
+import { isDebtDrivenInterestIsLinkCode } from "@/lib/debt-forecast-resolve"
 import {
   computeProjectedRevenueRowValue,
   listRevenueHypothesisPostIds,
@@ -367,6 +372,23 @@ export function IncomeStatementSummary({
   const forecastActualCols = forecastActualColumnCount(forecastActualLayout)
   const forecastYearCount = forecastDisplayYearCount(projectionYears, forecastActualLayout)
   const isForecastHistoricalColumn = (idx: number) => isForecastSection && idx < forecastActualCols
+  const { resolveDepreciationExpense: resolveCapexDepreciationExpense } = useCapexForecastForBilan({
+    companyId,
+    projectionId,
+    projectionYears,
+    fiscalYear: refYear,
+    divisionId,
+    subDivisionId,
+    enabled: isForecastSection && !!companyId,
+    forecastActualLayout,
+    refMonth,
+    fiscalYearEndMonth,
+  })
+  const { resolveInterestExpense: resolveDebtInterestExpense } = useDebtForecastForBilan({
+    companyId,
+    projectionId,
+    enabled: isForecastSection && !!companyId,
+  })
 
   // Determine months needed for series API based on view
   const isMultiPeriodView = view === "12months" || view === "24months" || view === "quarters" || view === "years"
@@ -878,6 +900,46 @@ export function IncomeStatementSummary({
         Object.keys(forecastRevenueAdjustments).some((k) => k.startsWith(`${rowId}-`)) ||
         forecastRevenueValues[`${rowId}-${yearIdx}`] !== undefined
 
+      const capexAmortLinkCode = (() => {
+        if (sr && forecastStructure.length) {
+          const structRow = findStructureRowForStatementLine(sr.id, sr.label, forecastStructure)
+          if (structRow) {
+            const fromStruct = collectLinkCodesFromStructureRow(structRow).find(
+              isCapexDrivenAmortizationIsLinkCode,
+            )
+            if (fromStruct) return fromStruct
+          }
+        }
+        if (isCapexDrivenAmortizationIsLinkCode(rowId)) return rowId
+        if (sr && isCapexDrivenAmortizationIsLinkCode(sr.id)) return sr.id
+        return null
+      })()
+      if (yearIdx > 0 && capexAmortLinkCode) {
+        const v = resolveCapexDepreciationExpense(capexAmortLinkCode, yearIdx)
+        memo.set(mkey, v)
+        return v
+      }
+
+      const debtInterestLinkCode = (() => {
+        if (sr && forecastStructure.length) {
+          const structRow = findStructureRowForStatementLine(sr.id, sr.label, forecastStructure)
+          if (structRow) {
+            const fromStruct = collectLinkCodesFromStructureRow(structRow).find(
+              isDebtDrivenInterestIsLinkCode,
+            )
+            if (fromStruct) return fromStruct
+          }
+        }
+        if (isDebtDrivenInterestIsLinkCode(rowId)) return rowId
+        if (sr && isDebtDrivenInterestIsLinkCode(sr.id)) return sr.id
+        return null
+      })()
+      if (yearIdx > 0 && debtInterestLinkCode) {
+        const v = resolveDebtInterestExpense(debtInterestLinkCode, yearIdx)
+        memo.set(mkey, v)
+        return v
+      }
+
       const hasExpenseHyp =
         (sr != null && seriesRowBelongsToDepensesAnnexDetail(sr, forecastStructure)) ||
         forecastExpenseTypes[rowId] != null ||
@@ -1244,6 +1306,8 @@ export function IncomeStatementSummary({
     refMonth,
     refYear,
     fiscalYearEndMonth,
+    resolveCapexDepreciationExpense,
+    resolveDebtInterestExpense,
     seriesPeriods,
     seriesRows,
     view,

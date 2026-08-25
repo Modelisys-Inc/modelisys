@@ -33,6 +33,7 @@ import {
   resolveStocksProjectedValue,
   resolveTreasuryLineFromEndingCash,
   resolveRetainedEarningsProjectedValue,
+  retainedEarningsOpeningForProjectedYear,
   dividendsForBilanYear,
   isRetainedEarningsBilanRow,
   isProduitsReportesBilanRow,
@@ -623,6 +624,88 @@ describe("resolveRetainedEarningsProjectedValue", () => {
         forecastActualCols: 1,
       }),
     ).toBe(650_000) // 580k + 80k - 10k
+  })
+
+  it("opens from N-1 (not YTD) when nMinusOne-and-ytd columns are present", () => {
+    // [N-1=3_798_738, YTD=4_500_000, 2026, 2027]
+    const baseTrend = [3_798_738, 4_500_000, 0, 0]
+    const ni = [0, 0, 2_064_786, 1_000_000]
+    expect(
+      resolveRetainedEarningsProjectedValue({
+        baseTrend,
+        yearIndex: 2,
+        adjustments: [],
+        periodNetIncomeByDisplayYear: ni,
+        forecastActualCols: 2,
+      }),
+    ).toBe(3_798_738 + 2_064_786)
+    expect(
+      resolveRetainedEarningsProjectedValue({
+        baseTrend,
+        yearIndex: 2,
+        adjustments: [adj({ id: "d", yearIndex: 2, type: "dividends", value: 25_000 })],
+        periodNetIncomeByDisplayYear: ni,
+        forecastActualCols: 2,
+      }),
+    ).toBe(3_798_738 + 2_064_786 - 25_000)
+  })
+
+  it("uses prior projected RE as opening after the first projected year", () => {
+    const baseTrend = [3_798_738, 4_500_000, 0, 0]
+    const ni = [0, 0, 2_064_786, 1_000_000]
+    const adjustments = [adj({ id: "d", yearIndex: 2, type: "dividends", value: 25_000 })]
+    const re2026 = 3_798_738 + 2_064_786 - 25_000
+    expect(
+      retainedEarningsOpeningForProjectedYear({
+        baseTrend,
+        yearIndex: 2,
+        adjustments,
+        periodNetIncomeByDisplayYear: ni,
+        forecastActualCols: 2,
+      }),
+    ).toBe(3_798_738)
+    expect(
+      retainedEarningsOpeningForProjectedYear({
+        baseTrend,
+        yearIndex: 3,
+        adjustments,
+        periodNetIncomeByDisplayYear: ni,
+        forecastActualCols: 2,
+      }),
+    ).toBe(re2026)
+    expect(
+      resolveRetainedEarningsProjectedValue({
+        baseTrend,
+        yearIndex: 3,
+        adjustments,
+        periodNetIncomeByDisplayYear: ni,
+        forecastActualCols: 2,
+      }),
+    ).toBe(re2026 + 1_000_000)
+  })
+
+  it("opens from the sole actual column when it is a complete fiscal year", () => {
+    // Réf. = clôture : une seule colonne réelle (exercice complet), pas de YTD partiel
+    const baseTrend = [500_000, 0, 0]
+    const ni = [0, 100_000, 80_000]
+    expect(
+      retainedEarningsOpeningForProjectedYear({
+        baseTrend,
+        yearIndex: 1,
+        adjustments: [],
+        periodNetIncomeByDisplayYear: ni,
+        forecastActualCols: 1,
+      }),
+    ).toBe(500_000)
+    expect(
+      resolveRetainedEarningsProjectedValue({
+        baseTrend,
+        yearIndex: 1,
+        adjustments: [],
+        periodNetIncomeByDisplayYear: ni,
+        forecastActualCols: 1,
+      }),
+    ).toBe(600_000)
   })
 
   it("reads recurring dividends on later years", () => {
