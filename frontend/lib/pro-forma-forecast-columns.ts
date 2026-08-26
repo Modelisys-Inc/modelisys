@@ -328,6 +328,19 @@ export function forecastDisplayTrendToConfigTrend(
   return extra > 0 ? displayTrend.slice(extra) : displayTrend
 }
 
+/**
+ * Solde d’ouverture pour moteurs Capex / Bilan projetés.
+ * Avec N-1 + YTD : toujours l’exercice N-1 complet (`display[0]` / `prefix[0]`),
+ * jamais le YTD partiel. Sinon : unique colonne réelle.
+ */
+export function forecastProjectionOpeningFromActuals(
+  actuals: number[] | undefined,
+  fallback = 0,
+): number {
+  const v = actuals?.[0]
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback
+}
+
 export function mergeConfigYearsOntoForecastDisplay(
   displayTrend: number[],
   configTrend: number[],

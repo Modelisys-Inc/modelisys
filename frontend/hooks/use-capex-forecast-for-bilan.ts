@@ -4,8 +4,8 @@ import { useProjectedRevenueYearTotals } from "@/hooks/use-projected-revenue-yea
 import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
 import type { ForecastActualLayout } from "@/lib/pro-forma-forecast-columns"
 import {
-  forecastActualColumnCount,
   forecastBalanceSheetYearTrend,
+  forecastProjectionOpeningFromActuals,
   resolveForecastActualLayout,
 } from "@/lib/pro-forma-forecast-columns"
 import {
@@ -162,7 +162,6 @@ export function useCapexForecastForBilan(opts: {
     effectiveRefMonth,
     fiscalYearEndMonth,
   )
-  const forecastActualCols = forecastActualColumnCount(forecastActualLayoutEffective)
 
   const costByRowId = useMemo(() => {
     const out: Record<string, number> = {}
@@ -177,7 +176,7 @@ export function useCapexForecastForBilan(opts: {
         fiscalYearEndMonth,
         projectionYears,
       )
-      const opening = trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? 0
+      const opening = forecastProjectionOpeningFromActuals(trend, 0)
       if (row.id) out[row.id] = opening
       const lc = String((row as { linkCode?: string }).linkCode ?? "").trim()
       if (lc) out[lc] = opening
@@ -189,7 +188,6 @@ export function useCapexForecastForBilan(opts: {
     effectiveFiscalYear,
     effectiveRefMonth,
     fiscalYearEndMonth,
-    forecastActualCols,
     forecastActualLayoutEffective,
     projectionYears,
   ])
@@ -307,7 +305,7 @@ export function useCapexForecastForBilan(opts: {
           fiscalYearEndMonth,
           projectionYears,
         )
-        actualBase = trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? 0
+        actualBase = forecastProjectionOpeningFromActuals(trend, 0)
       }
       peers.push({
         rowId: identity.rowId,
@@ -329,7 +327,6 @@ export function useCapexForecastForBilan(opts: {
     effectiveFiscalYear,
     effectiveRefMonth,
     fiscalYearEndMonth,
-    forecastActualCols,
     forecastActualLayoutEffective,
     projectionYears,
   ])

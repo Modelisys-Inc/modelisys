@@ -23,6 +23,7 @@ import {
   nMinusOneAndYtdActuals,
   parseForecastColumnCalendarAnchor,
   resolveForecastActualLayout,
+  forecastProjectionOpeningFromActuals,
 } from "@/lib/pro-forma-forecast-columns"
 
 const ABBREVS = [
@@ -194,6 +195,9 @@ describe("pro forma N-1 + YTD columns", () => {
     expect(isForecastProjectedDisplayColumn(1, 2)).toBe(false)
     expect(isForecastProjectedDisplayColumn(2, 2)).toBe(true)
     expect(forecastDisplayTrendToConfigTrend([1200, 30, 0, 0], 2)).toEqual([30, 0, 0])
+    expect(forecastProjectionOpeningFromActuals([1200, 30])).toBe(1200)
+    expect(forecastProjectionOpeningFromActuals([1200])).toBe(1200)
+    expect(forecastProjectionOpeningFromActuals([], 42)).toBe(42)
     expect(forecastDisplayToConfigYearIndex(0, 1)).toBe(0)
     expect(forecastConfigToDisplayYearIndex(1, 1)).toBe(1)
   })

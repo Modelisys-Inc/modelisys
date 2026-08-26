@@ -402,7 +402,7 @@ test.describe("Projection capex estimation", () => {
     await expect(page.getByText("Immobilisations corporelles").first()).toBeVisible()
     await expect(page.getByText("Terrains").first()).toBeVisible()
     await expect(page.getByText("Bâtisses").first()).toBeVisible()
-    await expect(page.getByText(/Sous-total — Annexe B/i)).toBeVisible()
+    await expect(page.getByTestId("capex-annex-subtotal-B")).toBeAttached()
     await expect(page.getByText("Autres immobilisations")).toHaveCount(0)
   })
 
@@ -463,15 +463,16 @@ test.describe("Projection capex estimation", () => {
     await expect(page.getByText("Immobilisations corporelles").first()).toBeVisible()
     await expect(page.getByText("Terrains").first()).toBeVisible()
     await expect(page.getByText("Bâtisses").first()).toBeVisible()
-    await expect(page.getByText(/Sous-total — Annexe B/i)).toBeVisible()
+    await expect(page.getByTestId("capex-annex-subtotal-B")).toBeAttached()
 
     await expect(page.getByText("Biens loués - Location-acquisition").first()).toBeVisible()
-    await expect(page.getByText(/Sous-total — Annexe C/i)).toBeVisible()
+    await expect(page.getByTestId("capex-annex-subtotal-C")).toBeAttached()
 
     await expect(page.getByText("Actifs incorporels").first()).toBeVisible()
-    await expect(page.getByText(/Sous-total — Annexe D/i)).toBeVisible()
+    await expect(page.getByTestId("capex-annex-subtotal-D")).toBeAttached()
 
     await expect(page.getByText("Autres immobilisations")).toHaveCount(0)
+    await expect(page.getByText(/Sous-total — Annexe/i)).toHaveCount(0)
   })
 
   test("opens inline hypothesis panel when clicking projected capex cell", async ({ page }) => {
@@ -567,15 +568,28 @@ test.describe("Projection capex estimation", () => {
     await expect(nextYearCell).toContainText("75")
     await expect(nextYearCell.getByTestId("capex-adjustment-marker")).toHaveCount(0)
 
-    const viewToggle = page.getByTestId("capex-view-toggle")
-    await expect(viewToggle).toHaveText("Ajustements")
-    await viewToggle.click()
-    await expect(viewToggle).toHaveText("Valeur comptable")
+    const viewAdjustments = page.getByTestId("capex-view-adjustments")
+    const viewBook = page.getByTestId("capex-view-book")
+    const viewDepreciation = page.getByTestId("capex-view-depreciation")
+    await expect(viewAdjustments).toBeVisible()
+    await viewAdjustments.click()
     await expect(firstProjectedYearCell).toContainText("75")
     await expect(nextYearCell).toHaveText("-")
-    await viewToggle.click()
-    await expect(viewToggle).toHaveText("Ajustements")
+
+    // Parents de catégorie : pas de montants ; totaux uniquement sur Sous-total (libellé masqué)
+    const corpRow = page.locator("tr").filter({ hasText: "Immobilisations corporelles" }).first()
+    await expect(corpRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText("-")
+    const annexSubtotalRow = page.getByTestId("capex-annex-subtotal-B").locator("xpath=ancestor::tr[1]")
+    await expect(annexSubtotalRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toContainText("75")
+
+    await viewDepreciation.click()
+    await expect(corpRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText("-")
+    await expect(annexSubtotalRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText("-")
+
+    await viewBook.click()
     await expect(nextYearCell).toContainText("75")
+    await expect(corpRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toHaveText("-")
+    await expect(annexSubtotalRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)).toContainText("75")
   })
 
   test("replicates capex adjustment to following years when checkbox is checked", async ({ page }) => {

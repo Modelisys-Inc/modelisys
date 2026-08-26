@@ -139,6 +139,7 @@ import {
   forecastBalanceSheetYearTrend,
   forecastDisplayToConfigYearIndex,
   forecastDisplayYearCount,
+  forecastProjectionOpeningFromActuals,
   forecastYearLabelsForLayout,
   incomeStatementFiscalYearTotalsByYear,
   isForecastProjectedDisplayColumn,
@@ -1506,7 +1507,7 @@ export function BalanceSheetDetail({
         rowId,
         linkCode,
         cfg,
-        trend[Math.max(0, forecastActualCols - 1)] ?? trend[0] ?? fallback,
+        forecastProjectionOpeningFromActuals(trend, fallback),
         capexPeerRows,
         { label: rowLabel },
       )

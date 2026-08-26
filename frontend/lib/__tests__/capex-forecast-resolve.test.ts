@@ -10,6 +10,7 @@ import {
   resolveCapexDrivenBilanProjectedAmount,
   resolveCapexDrivenDepreciationExpense,
   rollupCapexParentTrendsFromLeafRows,
+  capexLeafChildrenOfParent,
   isCapexDrivenAmortizationIsLinkCode,
   capexAssetRootsForAmortIsLinkCode,
   capexAmortIsLinkCodeOptionsForAsset,
@@ -305,9 +306,38 @@ describe("resolveCapexDrivenBilanProjectedAmount", () => {
         prior: 200_000,
       },
     ]
+    expect(capexLeafChildrenOfParent(rows, rows[0]!)).toHaveLength(2)
     const out = rollupCapexParentTrendsFromLeafRows(rows)
     expect(out[0]?.trendValues).toEqual([300_000, 340_000])
     expect(out[1]?.trendValues).toEqual([100_000, 140_000])
+  })
+
+  it("rollupCapexParentTrendsFromLeafRows builds parent trends when parent seed is empty", () => {
+    const rows = [
+      {
+        rowId: "ALT-B",
+        linkCode: "ALT-B",
+        trendValues: [0, 0, 0],
+        current: 0,
+        prior: 0,
+      },
+      {
+        rowId: "ALT-B.1",
+        linkCode: "ALT-B.1",
+        trendValues: [100_000, 90_000, 80_000],
+        current: 100_000,
+        prior: 90_000,
+      },
+      {
+        rowId: "ALT-B.2",
+        linkCode: "ALT-B.2",
+        trendValues: [50_000, 40_000, 30_000],
+        current: 50_000,
+        prior: 40_000,
+      },
+    ]
+    const out = rollupCapexParentTrendsFromLeafRows(rows)
+    expect(out[0]?.trendValues).toEqual([150_000, 130_000, 110_000])
   })
 
   it("rolls UUID-keyed Terrains Capex into ALT-B parent via stored linkCode", () => {

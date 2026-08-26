@@ -289,14 +289,21 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   défilement vertical/horizontal de la carte (`max-h` + `sticky`, comme Hypothèses
   Bilan). Affichage projeté = **valeur comptable** (Coût − Amortissement cumulé) :
   Coût et Amort. cumulé issus du mapping (`alt_asset_cost` /
-  `alt_accumulated_amortization`) ; sans ajustement, la VNC se projette quand même
-  via la dotation annuelle (taux linéaire sur le coût / dégressif sur la VNC).
+  `alt_accumulated_amortization`) ; **ouverture de la 1re année projetée** =
+  soldes de **clôture N-1** (exercice complet — `forecastProjectionOpeningFromActuals`),
+  jamais le YTD partiel ; N-1 / YTD restent des colonnes série. Sans ajustement,
+  la VNC se projette quand même via la dotation annuelle (taux linéaire sur le
+  coût / dégressif sur la VNC).
   Panneau Ajustement : tableau Coût / Amort. cumulé / VNC ; le montant d’ajustement
   **augmente le Coût**, puis la dotation augmente l’amortissement cumulé.
   Cellules projetées **avec ajustement** : point bleu et infobulle
   (montant ajouté au coût) — distinctes de la VNC après amortissement seul.
-  Bouton **Ajustements** à droite du titre : n’affiche que le montant d’ajout
-  de chaque cellule projetée (« - » sinon) ; **Valeur comptable** revient à la VNC.
+  Sélecteur d’affichage à droite du titre : **Valeur comptable** | **Ajustements**
+  | **Amortissement** (dotation de période par poste / année). Totaux de catégorie
+  via les lignes **Sous-total — Annexe X** (somme des feuilles ; libellé masqué,
+  montants visibles) — pas sur les titres parents ALT-B / ALT-C / ALT-D
+  (Immobilisations corporelles, etc.). Colonnes N-1 / YTD : « - » en modes
+  Ajustements / Amortissement.
   Chaque ajustement porte son propre financement
   (`capexFinancing` : comptant / financement / mixte) et calendrier de
   décaissement mensuel (`seasonalityMonthPercents`, « Tout à 0 % » pour un

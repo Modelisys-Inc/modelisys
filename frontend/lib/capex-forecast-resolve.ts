@@ -726,6 +726,34 @@ export function resolveCapexDrivenBilanProjectedAmount(params: {
 }
 
 /**
+ * Feuilles Capex directement sous un parent (ex. ALT-B.1 sous ALT-B) —
+ * mêmes critères que le rollup VNC.
+ */
+export function capexLeafChildrenOfParent<
+  T extends {
+    rowId?: string
+    linkCode?: string | null
+    trendValues?: number[]
+  },
+>(rows: T[], parent: T): T[] {
+  const parentCode = normalizeLinkCode(parent.linkCode) || normalizeLinkCode(parent.rowId)
+  if (!parentCode || !isCapexProjectionLinkCode(parentCode)) return []
+
+  return rows.filter((other) => {
+    if (!other.rowId || other.rowId === parent.rowId) return false
+    if (parent.trendValues?.length && !other.trendValues?.length) return false
+    const childCode = normalizeLinkCode(other.linkCode) || normalizeLinkCode(other.rowId)
+    if (!childCode || !linkCodeDescendsFrom(childCode, parentCode)) return false
+    const hasDescendant = rows.some((desc) => {
+      if (!desc.rowId || desc.rowId === other.rowId) return false
+      const descCode = normalizeLinkCode(desc.linkCode) || normalizeLinkCode(desc.rowId)
+      return !!descCode && linkCodeDescendsFrom(descCode, childCode)
+    })
+    return !hasDescendant
+  })
+}
+
+/**
  * Remplace la VNC d’un parent Capex (ALT-B/C/D…) par la somme des VNC de ses feuilles
  * déjà calculées — même total qu’Estimation du Bilan.
  */
@@ -739,25 +767,16 @@ export function rollupCapexParentTrendsFromLeafRows<
   },
 >(rows: T[]): T[] {
   return rows.map((row) => {
-    const parentCode = normalizeLinkCode(row.linkCode) || normalizeLinkCode(row.rowId)
-    if (!parentCode || !isCapexProjectionLinkCode(parentCode)) return row
-    if (!row.trendValues?.length) return row
-
-    const leafChildren = rows.filter((other) => {
-      if (!other.rowId || other.rowId === row.rowId || !other.trendValues?.length) return false
-      const childCode = normalizeLinkCode(other.linkCode) || normalizeLinkCode(other.rowId)
-      if (!childCode || !linkCodeDescendsFrom(childCode, parentCode)) return false
-      const hasDescendant = rows.some((desc) => {
-        if (!desc.rowId || desc.rowId === other.rowId) return false
-        const descCode = normalizeLinkCode(desc.linkCode) || normalizeLinkCode(desc.rowId)
-        return !!descCode && linkCodeDescendsFrom(descCode, childCode)
-      })
-      return !hasDescendant
-    })
-
+    const leafChildren = capexLeafChildrenOfParent(rows, row)
     if (leafChildren.length === 0) return row
 
-    const trendValues = row.trendValues.map((_, idx) =>
+    const trendLen = Math.max(
+      row.trendValues?.length ?? 0,
+      ...leafChildren.map((child) => child.trendValues?.length ?? 0),
+    )
+    if (trendLen === 0) return row
+
+    const trendValues = Array.from({ length: trendLen }, (_, idx) =>
       leafChildren.reduce((sum, child) => sum + (child.trendValues?.[idx] ?? 0), 0),
     )
     return {
