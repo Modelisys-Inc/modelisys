@@ -852,6 +852,8 @@ export default function ProFormaPage() {
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
                 forecastActualLayout="nMinusOne-and-ytd"
+                projectionId={currentProjectionId}
+                disableRowInteractions
               />
             ) : (
               <CashFlowDetail
@@ -870,6 +872,8 @@ export default function ProFormaPage() {
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
                 forecastActualLayout="nMinusOne-and-ytd"
+                projectionId={currentProjectionId}
+                disableRowInteractions
               />
             )
           ) : (

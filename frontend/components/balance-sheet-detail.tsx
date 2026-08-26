@@ -25,7 +25,6 @@ import {
   buildActRevenuePercentHistory,
   buildComptesClientsHistory,
   buildCrediteursHistory,
-  buildForecastEndingCashTrend,
   buildRetainedEarningsHistory,
   buildStocksHistory,
   lastRetainedEarningsHistoryDividends,
@@ -165,11 +164,9 @@ import {
   isBalanceSheetBalanced,
   isBalanceSheetValidationStructureRow,
 } from "@/lib/balance-sheet-validation"
-import {
-  buildNetCashByPeriodKey,
-  isCashFlowNetVariationStructureRow,
-  periodKey,
-} from "@/lib/cash-flow-treasury-rows"
+import { computeProFormaEndingCashTrend } from "@/lib/pro-forma-ending-cash"
+import { useProFormaCashFlowProjected } from "@/hooks/use-pro-forma-cash-flow-projected"
+import { structureUsesCashFlowTinCostMode } from "@/lib/cash-flow-detail-settings"
 import {
   insertAnnexDetailPlaceholderRows,
   zeroAmountsForAnnexTitleRow,
@@ -590,7 +587,11 @@ export function BalanceSheetDetail({
       setDraftValue(
         existing?.type === "dividends"
           ? existing.value
-          : dividendsForBilanYear(bilanAdjustments[rowId] ?? [], yearIndex),
+          : dividendsForBilanYear(
+              bilanAdjustments[rowId] ?? [],
+              yearIndex,
+              forecastActualCols,
+            ),
       )
     } else {
       setDraftType("amount")
@@ -809,18 +810,25 @@ export function BalanceSheetDetail({
   const isMultiPeriod = view === "12months" || view === "quarters" || view === "years"
   const currentYear = fiscalYear || new Date().getFullYear()
   const monthsNeeded = view === "years" ? 72 : view === "quarters" ? 15 : 12
+  /** +1 mois : même profondeur que CashFlowDetail pour ACT-A − PCT-A (début). */
+  const treasuryBsMonths = isHypothesisSection ? monthsNeeded + 1 : monthsNeeded
 
   const { rows: seriesRows, periods, loading: seriesLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
     statementType: "balance-sheet",
     fiscalYear: currentYear,
     month: refMonth,
-    months: monthsNeeded,
+    months: treasuryBsMonths,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: isMultiPeriod && (!isForecastSection || forecastUseSeriesActuals),
     structureVersion,
   })
+
+  const needsTinCostData = useMemo(
+    () => (cashFlowStructure ? structureUsesCashFlowTinCostMode(cashFlowStructure) : false),
+    [cashFlowStructure],
+  )
 
   const { rows: cashFlowSeriesRows, periods: cashFlowPeriods } = useFinancialStatementSeries({
     companyId: companyId || null,
@@ -831,6 +839,19 @@ export function BalanceSheetDetail({
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: isHypothesisSection && !!companyId,
+    structureVersion,
+  })
+
+  const { rows: cashFlowCostSeriesRows } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "cash-flow-detail",
+    fiscalYear: currentYear,
+    month: refMonth,
+    months: monthsNeeded,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: isHypothesisSection && !!companyId && needsTinCostData,
+    altAssetCostOnly: true,
     structureVersion,
   })
 
@@ -1139,6 +1160,22 @@ export function BalanceSheetDetail({
   /** Même année de départ que Hypothèses Revenus (1re année projetée = forecastBaseYear). */
   const revenueProjectionRefYear = forecastBaseYear ?? refYear + 1
 
+  const proFormaCfProjected = useProFormaCashFlowProjected({
+    companyId,
+    projectionId,
+    projectionYears,
+    // Même ancre que CashFlowDetail (refYear), pas revenueProjectionRefYear.
+    fiscalYear: refYear,
+    refMonth,
+    fiscalYearEndMonth,
+    divisionId,
+    subDivisionId,
+    forecastActualLayout: forecastActualLayoutEffective,
+    enabled: isHypothesisSection && !!companyId,
+    // Ajustements live → Encaisse / WC / dividendes CF se mettent à jour immédiatement.
+    bilanAdjustmentsOverride: isHypothesisSection ? bilanAdjustments : null,
+  })
+
   const { totals: projectedRevenueYearTotals } = useProjectedRevenueYearTotals({
     companyId,
     projectionId,
@@ -1317,36 +1354,49 @@ export function BalanceSheetDetail({
 
   const endingCashTrend = useMemo(() => {
     if (!isHypothesisSection) return undefined
-    const variationByYear = Array.from({ length: forecastYearColumnCount }, () => 0)
-    if (cashFlowStructure?.length && cashFlowSeriesRows.length && cashFlowPeriods.length) {
-      const variationSr = cashFlowStructure.find(isCashFlowNetVariationStructureRow)
-      if (variationSr) {
-        const used = new Set<number>()
-        const usedNested = new Set<string>()
-        const variationRow = findStatementApiRowForStructureRow(
-          variationSr,
-          cashFlowSeriesRows,
-          used,
-          usedNested,
-        )
-        if (variationRow) {
-          variationByYear[0] = yearTrendFromReference(variationRow, cashFlowPeriods, refYear, 1)[0] || 0
-        }
-      }
+    if (!cashFlowStructure?.length || !cashFlowSeriesRows.length || !cashFlowPeriods.length) {
+      return undefined
     }
-    const netByPeriod = seriesRows.length ? buildNetCashByPeriodKey(seriesRows) : new Map<string, number>()
-    const beginningActual =
-      netByPeriod.get(periodKey(refYear - 1, refMonth)) ?? netByPeriod.get(periodKey(refYear, refMonth)) ?? 0
-    return buildForecastEndingCashTrend(beginningActual, variationByYear)
+    const trendLabels = forecastYearLabelsForLayout(
+      forecastActualLayoutEffective,
+      forecastBaseYear ?? refYear,
+      projectionYears,
+      refMonth,
+      refYear,
+      fiscalYearEndMonth,
+    )
+    return computeProFormaEndingCashTrend({
+      structure: cashFlowStructure,
+      cfSeriesRows: cashFlowSeriesRows,
+      cfPeriods: cashFlowPeriods,
+      costSeriesRows: needsTinCostData ? cashFlowCostSeriesRows : undefined,
+      bsSeriesRows: seriesRows,
+      trendLabels,
+      forecastActualLayout: forecastActualLayoutEffective,
+      forecastActualCols,
+      projectionYears,
+      refMonth,
+      refYear,
+      fiscalYearEndMonth,
+      forecastBaseYear: forecastBaseYear ?? refYear,
+      projected: proFormaCfProjected,
+    })
   }, [
     isHypothesisSection,
-    forecastYearColumnCount,
     cashFlowStructure,
     cashFlowSeriesRows,
     cashFlowPeriods,
+    cashFlowCostSeriesRows,
+    needsTinCostData,
     seriesRows,
-    refYear,
+    forecastActualLayoutEffective,
+    forecastBaseYear,
+    projectionYears,
     refMonth,
+    refYear,
+    fiscalYearEndMonth,
+    forecastActualCols,
+    proFormaCfProjected,
   ])
 
   const periodNetIncomeByDisplayYear = useMemo(() => {
@@ -1499,10 +1549,19 @@ export function BalanceSheetDetail({
     // Sous-totaux : montant déjà recalculé (somme liaison / formule / postes).
     if (opts?.isSubtotal) return trend[yearIndex] ?? fallback
     if (isTreasuryEndingCashDrivenBilanRow({ rowId, linkCode, label: rowLabel })) {
+      // N-1 / YTD : soldes réels ; projeté = split signe de la Trésorerie à la fin.
+      if (!isForecastProjectedDisplayColumn(yearIndex, forecastActualCols)) {
+        return trend[yearIndex] ?? fallback
+      }
+      const side = isDecouvertBilanRow({ rowId, linkCode, label: rowLabel })
+        ? "decouvert"
+        : "encaisse"
       return resolveTreasuryLineFromEndingCash(
-        trend[0] ?? fallback,
+        trend[yearIndex] ?? fallback,
         endingCashTrend,
         yearIndex,
+        forecastActualCols,
+        side,
       )
     }
     if (isComptesClientsBilanRow({ rowId, linkCode, label: rowLabel })) {

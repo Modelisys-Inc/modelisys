@@ -375,6 +375,24 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   Pro forma (N-1 + YTD si le mois de référence ≠ clôture, puis années projetées).
   Réel = cumul d’exercice (N-1 = exercice clos, YTD = jusqu’au mois de référence) ;
   Variation = soldes à ces dates. Hypothèses trésorerie : une seule colonne réelle.
+  **Pro Forma Trésorerie — montants projetés** : Bénéfice net = BN Résultats pro forma ;
+  postes Réel IS (amort. corporelles/incorporelles → intérêts / AUT jusqu’aux pertes
+  (gain) litige) = mêmes montants que le Détail Résultats pro forma (via codes
+  attachés TEX→IS + Capex/Financement) ; **colonnes réelles (N-1 / YTD)** = montants
+  déjà calculés du **Cashflow Détail** (`preserveForecastActualColumnsFromBase`) —
+  l’injection pro forma ne touche que les années projetées ;
+  **Variation du FDR / investissement /
+  financement** = `variation_nn1` / `variation_n1n` sur soldes **Bilan pro forma** :
+  1re année projetée vs **N-1** (jamais le YTD) ; années suivantes vs l’année
+  projetée précédente. Sans driver d’hypothèse bilan, le solde projeté **reporte**
+  l’ouverture (N-1 puis année précédente) pour une variation 0 $ (ex. capital-actions) ;
+  N-1/YTD série CF ne comble que les soldes encore vides (n’écrase pas un stock BS).
+  **Trésorerie au début** projetée = **Trésorerie à la fin** de N-1 (exercice complet,
+  jamais le YTD) ; années suivantes = fin de l’année précédente
+  (`chainProFormaBeginningCashTrend`). **Dispositions (acquisitions)** ALT-B / ALT-C /
+  ALT-D = ± somme des **ajustements Hypothèses Capex** de la famille (pas le Δ VNC) ;
+  **Variation des impôts exigibles** = Δ(Passif PCT-FF − Actif ACT-H) via le moteur
+  Impôts. Pas d’ouverture de lignes (GL) sur le CF pro forma (`disableRowInteractions`).
   Détail Pro Forma : pas d’ouverture de lignes (GL / annexes) ; postes à 0 $ masqués
   (même filtre d’horizon que le Détail historique). Sommaire Pro Forma : pas d’ouverture
   de lignes non plus.
@@ -395,7 +413,12 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   (écart = Total actif − Total passifs et capitaux propres, comme le Bilan Sommaire ;
   bandeau ambre si déséquilibré) ; colonnes = **même date de référence** que
   Hypothèses Revenus (`nMinusOne-and-ytd` : N-1 + YTD puis années projetées — ex. réf.
-  mars 2026 → `2025` | `YTD 2026` | `2026` | …). Sous-totaux (Total ACT, Total de
+  mars 2026 → `2025` | `YTD 2026` | `2026` | …). Ajustements live
+  (`bilanAdjustmentsOverride` → `useProFormaCashFlowProjected`) : Encaisse / Découvert
+  se recalculent immédiatement (WC + Trésorerie à la fin). **Dividendes** (CAP-C) →
+  CF pro forma « Versement de dividendes » (CAP-C.2 / libellé) = −|dividendes| sur les
+  années projetées (`isCashFlowDividendPaymentRow` / `buildProFormaDividendPaymentTrend`).
+  Sous-totaux (Total ACT, Total de
   l'actif, Total du passif, etc.) = **même logique que le Bilan Sommaire** :
   `formula` (± refs) ou `liaisonMode: "sum"` + `liaisonSumCodes` (ex. ACT-* + ALT-*
   pour Total de l'actif), sinon repli positionnel ; N-1 / YTD / années projetées ;
@@ -413,7 +436,12 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   **% des revenus** ; **Produits reportés** (PCT-PD) : Montant $ ou **% des revenus** ;
   récurrent, note). Encaisse (ACT-A / ACT-A.1) et **Découvert
   bancaire** (PCT-A) ne sont pas ajustables : mention « Trésorerie à la fin » ;
-  montants projetés = solde réel + Δ de la Trésorerie à la fin. **Portion court
+  montants projetés = split de la **Trésorerie à la fin** du CF pro forma
+  (`buildProFormaCashFlowYearRows` / `computeProFormaEndingCashTrend` — **même builder**
+  que CashFlowDetail pro forma années : TIN Coût, TTM fiscal, reconcile GL, inject
+  WC/IS/Capex, formules, trésorerie fixe) : fin > 0 → Encaisse = fin et Découvert = 0 $ ;
+  fin < 0 → Encaisse = 0 $ et Découvert = |fin| ; fin = 0 → les deux à 0 $.
+  **Portion court
   terme - Dette long terme** (PCT-H), **Portion court terme - Location-acquisition**
   (PCT-I), **Dette à long terme** (PLT-C) et **Obligations de location-acquisition**
   (PLT-D) : mention « Hypothèse Financement » ; emprunts mappés sur PLT-C/D.

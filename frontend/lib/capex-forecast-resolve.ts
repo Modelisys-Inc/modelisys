@@ -452,6 +452,72 @@ export function linkCodeDescendsFrom(child: string, parent: string): boolean {
   return c.startsWith(`${p}.`) || c.startsWith(`${p}-`)
 }
 
+/** True si le code est la racine ou un descendant (ALT-B, ALT-B.1, …). */
+export function linkCodeMatchesAssetRoot(code: string, root: string): boolean {
+  const c = normalizeLinkCode(code)
+  const r = normalizeLinkCode(root)
+  if (!c || !r) return false
+  return c === r || linkCodeDescendsFrom(c, r)
+}
+
+/**
+ * Somme des ajouts Hypothèses Capex (ajustements) pour une famille ALT-B / ALT-C / ALT-D
+ * à un index config (année 0 = 0).
+ */
+export function sumCapexAdditionsForAssetRoot(params: {
+  root: string
+  configYearIndex: number
+  peerRows: CapexBilanPeerRow[]
+  adjustments: Record<string, CapexAdjustment[]>
+  projectedRevenueYearTotals?: number[] | null
+}): number {
+  const { root, configYearIndex, peerRows, adjustments, projectedRevenueYearTotals } = params
+  if (configYearIndex <= 0) return 0
+  const rootNorm = normalizeLinkCode(root)
+  if (!rootNorm || !isCapexProjectionLinkCode(rootNorm)) return 0
+
+  const underRoot = peerRows.filter((peer) => {
+    const code = normalizeLinkCode(peer.linkCode) || normalizeLinkCode(peer.rowId)
+    return !!code && linkCodeMatchesAssetRoot(code, rootNorm)
+  })
+  const leaves = underRoot.filter((peer) => isCapexPeerLeafAmongPeers(peer, peerRows))
+  const targets = leaves.length > 0 ? leaves : underRoot
+
+  return targets.reduce((sum, peer) => {
+    const openingCost = peer.actualCostBase ?? peer.actualBase
+    return (
+      sum +
+      resolveCapexAdditionsForYear(
+        peer.rowId,
+        configYearIndex,
+        0,
+        openingCost,
+        adjustments,
+        projectedRevenueYearTotals,
+      )
+    )
+  }, 0)
+}
+
+/**
+ * Racine Capex unique déduite des codes attachés CF (ALT-B / ALT-C / ALT-D).
+ * Retourne null si aucun ou plusieurs racines distinctes.
+ */
+export function uniqueCapexAssetRootFromAttachedCodes(
+  attachedLinkCodes: string[],
+): (typeof CAPEX_PROJECTION_LINK_CODE_ROOTS)[number] | null {
+  const roots = new Set<(typeof CAPEX_PROJECTION_LINK_CODE_ROOTS)[number]>()
+  for (const raw of attachedLinkCodes) {
+    const code = normalizeLinkCode(raw)
+    if (!code) continue
+    for (const root of CAPEX_PROJECTION_LINK_CODE_ROOTS) {
+      if (linkCodeMatchesAssetRoot(code, root)) roots.add(root)
+    }
+  }
+  if (roots.size !== 1) return null
+  return [...roots][0]!
+}
+
 export type CapexBilanPeerRow = {
   rowId: string
   linkCode: string

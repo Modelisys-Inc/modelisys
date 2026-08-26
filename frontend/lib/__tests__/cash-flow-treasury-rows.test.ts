@@ -8,6 +8,7 @@ import {
   buildNetCashByPeriodKey,
   cashFlowTreasuryValidationEcart,
   cashFlowTreasuryValidationTrendEcarts,
+  chainProFormaBeginningCashTrend,
   comparisonAnchorMonth,
   endingBookNetCashForDisplayPeriods,
   findBalanceSheetRowByLinkCode,
@@ -154,5 +155,42 @@ describe("cash-flow-treasury-rows", () => {
     })
     expect(ending).toHaveLength(PERFORMANCE_CHART_YEAR_COUNT)
     expect(beginning).toHaveLength(PERFORMANCE_CHART_YEAR_COUNT)
+  })
+
+  it("chains pro forma beginning cash from N-1 ending, never YTD", () => {
+    // N-1 début 100 + var 20 = fin 120 ; YTD var 5 ; projeté 2026/2027
+    expect(
+      chainProFormaBeginningCashTrend({
+        beginningTrend: [100, 120, 0, 0],
+        variationTrend: [20, 5, 10, -3],
+        forecastActualCols: 2,
+      }),
+    ).toEqual([100, 120, 120, 130])
+
+    const structure = [
+      { label: "Variation de trésorerie" },
+      { label: "Trésorerie au début" },
+      { label: "Trésorerie à la fin" },
+    ]
+    const detailRows = [
+      {
+        label: "Variation de trésorerie",
+        current: 20,
+        prior: 5,
+        trendValues: [20, 5, 10, -3],
+      },
+      {
+        label: "Trésorerie au début",
+        current: 100,
+        prior: 120,
+        trendValues: [100, 120, 0, 0],
+      },
+      { label: "Trésorerie à la fin", current: 0, prior: 0 },
+    ]
+    const out = applyCashFlowFixedTreasuryRows(detailRows, structure, {
+      beginningTrend: [100, 120, 0, 0],
+    }, { forecastActualCols: 2 })
+    expect(out[1]?.trendValues).toEqual([100, 120, 120, 130])
+    expect(out[2]?.trendValues).toEqual([120, 125, 130, 127])
   })
 })

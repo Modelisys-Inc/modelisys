@@ -14,6 +14,8 @@ import {
   capexAssetRootsForAmortIsLinkCode,
   capexAmortIsLinkCodeOptionsForAsset,
   resolveCapexRowValue,
+  sumCapexAdditionsForAssetRoot,
+  uniqueCapexAssetRootFromAttachedCodes,
   type CapexAdjustment,
 } from "../capex-forecast-resolve"
 
@@ -30,6 +32,53 @@ describe("linkCodeDescendsFrom", () => {
     expect(linkCodeDescendsFrom("ALT-B-2", "ALT-B")).toBe(true)
     expect(linkCodeDescendsFrom("ALT-C.1", "ALT-B")).toBe(false)
     expect(linkCodeDescendsFrom("ALT-B", "ALT-B")).toBe(false)
+  })
+})
+
+describe("sumCapexAdditionsForAssetRoot / uniqueCapexAssetRootFromAttachedCodes", () => {
+  it("resolves a single Capex family from attached CF codes", () => {
+    expect(uniqueCapexAssetRootFromAttachedCodes(["ALT-B.1", "ALT-B.2"])).toBe("ALT-B")
+    expect(uniqueCapexAssetRootFromAttachedCodes(["ALT-C"])).toBe("ALT-C")
+    expect(uniqueCapexAssetRootFromAttachedCodes(["ALT-D.1"])).toBe("ALT-D")
+    expect(uniqueCapexAssetRootFromAttachedCodes(["ALT-B", "ALT-C"])).toBeNull()
+    expect(uniqueCapexAssetRootFromAttachedCodes(["ACT-C"])).toBeNull()
+  })
+
+  it("sums Capex hypothesis adjustments for an ALT family", () => {
+    const adjustments = {
+      "ALT-B.1-1": [adj({ id: "a", rowId: "ALT-B.1", yearIndex: 1, type: "amount", value: 40_000 })],
+      "ALT-B.2-1": [adj({ id: "b", rowId: "ALT-B.2", yearIndex: 1, type: "amount", value: 60_000 })],
+      "ALT-C.1-1": [adj({ id: "c", rowId: "ALT-C.1", yearIndex: 1, type: "amount", value: 99_000 })],
+    }
+    const peerRows = [
+      { rowId: "ALT-B.1", linkCode: "ALT-B.1", actualBase: 0 },
+      { rowId: "ALT-B.2", linkCode: "ALT-B.2", actualBase: 0 },
+      { rowId: "ALT-C.1", linkCode: "ALT-C.1", actualBase: 0 },
+    ]
+    expect(
+      sumCapexAdditionsForAssetRoot({
+        root: "ALT-B",
+        configYearIndex: 1,
+        peerRows,
+        adjustments,
+      }),
+    ).toBe(100_000)
+    expect(
+      sumCapexAdditionsForAssetRoot({
+        root: "ALT-C",
+        configYearIndex: 1,
+        peerRows,
+        adjustments,
+      }),
+    ).toBe(99_000)
+    expect(
+      sumCapexAdditionsForAssetRoot({
+        root: "ALT-B",
+        configYearIndex: 0,
+        peerRows,
+        adjustments,
+      }),
+    ).toBe(0)
   })
 })
 

@@ -78,6 +78,21 @@ import {
 } from "@/lib/cash-flow-treasury-rows"
 import { filterCashFlowDetailRowsWithStructureForHorizon } from "@/lib/cash-flow-horizon-filter"
 import { getHorizonModeLabel } from "@/lib/financial-statement-horizon-labels"
+import { buildProFormaCashFlowYearRows } from "@/lib/pro-forma-ending-cash"
+import { useProFormaCashFlowProjected } from "@/hooks/use-pro-forma-cash-flow-projected"
+import {
+  applyProFormaVariationFromBilanBalances,
+  buildProjectedIsDrivenConfigTrend,
+  applyProFormaCapexAdditionsToTrend,
+  carryForwardBilanBalancesWithoutProjection,
+  isCashFlowIsDrivenActualRow,
+  isCashFlowNetIncomeRow,
+  isCashFlowWorkingCapitalVariationRow,
+  mergeProjectedAmountsOntoDisplayTrend,
+  mergeSeriesSnapshotsIntoBilanBalanceTrend,
+  preserveForecastActualColumnsFromBase,
+  resolveAttachedLinkCodesForStructureRow,
+} from "@/lib/pro-forma-cash-flow-inject"
 import {
   calendarQuarterFromMonth,
   formatCalendarMonthYear,
@@ -153,6 +168,9 @@ interface CashFlowDetailProps {
   forecastActualLayout?: ForecastActualLayout
   /** Annuel / trimestriel : Courant (TTM / T3M) ou Exercice (YTD / QTD). */
   periodBasis?: StatementPeriodBasis
+  projectionId?: string | null
+  /** Pro Forma : pas d’expansion GL / notes. */
+  disableRowInteractions?: boolean
 }
 
 interface GlAccount {
@@ -299,6 +317,8 @@ export function CashFlowDetail({
   forecastUseSeriesActuals = false,
   forecastActualLayout = "single-prior-year",
   periodBasis = "current",
+  projectionId = null,
+  disableRowInteractions = false,
 }: CashFlowDetailProps) {
   const isForecastSection = title?.endsWith("pro forma") ?? false
   const effectiveRefMonth = refMonth ?? new Date().getMonth() + 1
@@ -317,6 +337,19 @@ export function CashFlowDetail({
     forecastActualLayoutEffective,
   )
   const isForecastHistoricalColumn = (idx: number) => isForecastSection && idx < forecastActualCols
+
+  const proFormaProjected = useProFormaCashFlowProjected({
+    companyId,
+    projectionId,
+    projectionYears,
+    fiscalYear: effectiveRefYear,
+    refMonth: effectiveRefMonth,
+    fiscalYearEndMonth,
+    divisionId,
+    subDivisionId,
+    forecastActualLayout: forecastActualLayoutEffective,
+    enabled: isForecastSection && !!companyId,
+  })
 
   const effectiveShowStructureSettings = showDetailStructureSettings ?? showCashFlowStructureSettings
   const effectiveStructureVersion = detailStructureVersion || structureVersion
@@ -1005,19 +1038,148 @@ export function CashFlowDetail({
       const tinMode: CashFlowTinDisplayMode =
         tinDisplayModeByCode.get(code) ?? readRowCashFlowTinDisplayMode(sr)
       const row = pickTinApiRow(sr, apiRows, usedIndices, usedNestedIds)
-      const trendValues = pickTinTrendValues(row, tinMode)
+      let trendValues = pickTinTrendValues(row, tinMode)
       const seriesRow = pickTinSeriesRow(row, tinMode)
-      return structureRowToDetailRow(
+      let calendar =
+        seriesRow && periods.length ? buildAmountsByCalendarMonth(seriesRow, periods) : undefined
+
+      const calcMode = readRowCashFlowCalcMode(sr)
+      const attached = resolveAttachedLinkCodesForStructureRow(
+        sr,
+        proFormaProjected.attachedByCfCode,
+      )
+      const label = detailLineLabelForDisplay(sr, row?.label ?? "")
+      const isNi = isCashFlowNetIncomeRow({
+        label,
+        linkCode: code,
+        attachedLinkCodes: attached,
+      })
+      const isIsDriven = isCashFlowIsDrivenActualRow({
+        label,
+        attachedLinkCodes: attached,
+        calcMode,
+      })
+
+      if (
+        isForecastSection &&
+        view === "years" &&
+        calendar &&
+        isCashFlowWorkingCapitalVariationRow(calcMode)
+      ) {
+        // Pas d’injection calendaire ici : la variation Pro Forma est recalculée
+        // après coup avec ancre N-1 (pas YTD) puis enchaînement année pleine.
+      }
+
+      let detail = structureRowToDetailRow(
         sr,
         row,
         trendValues,
         seriesRow?.detailRows,
         calcContext,
-        seriesRow && periods.length ? buildAmountsByCalendarMonth(seriesRow, periods) : undefined,
+        calendar,
         calcModeByCode,
         undefined,
         true,
       )
+
+      if (
+        isForecastSection &&
+        view === "years" &&
+        isCashFlowWorkingCapitalVariationRow(calcMode)
+      ) {
+        const labels = calcContext?.trendLabels ?? getYearLabels()
+        const balanceCodes = attached.length > 0 ? attached : code ? [code] : []
+        const capexAdditions =
+          proFormaProjected.capexAdditionsByConfigYearForAttachedCodes(balanceCodes)
+        if (capexAdditions) {
+          const baseTrend =
+            detail.trendValues ??
+            Array.from({ length: forecastActualCols + projectionYears }, () => 0)
+          const varied = applyProFormaCapexAdditionsToTrend({
+            baseTrend,
+            forecastActualCols,
+            mode: calcMode,
+            additionsByConfigYear: capexAdditions,
+          })
+          // N-1 / YTD = Cashflow Détail ; seules les années projetées = ajouts Capex.
+          const merged = preserveForecastActualColumnsFromBase({
+            baseTrend: detail.trendValues,
+            overrideTrend: varied,
+            forecastActualCols,
+          })
+          detail = {
+            ...detail,
+            trendValues: merged,
+            current: merged[0] ?? detail.current,
+            prior: merged[1] ?? detail.prior,
+          }
+        } else {
+          let bilanTrend = proFormaProjected.bilanBalanceTrendForAttachedCodes(balanceCodes)
+          const isTaxExigible =
+            proFormaProjected.attachedCodesIncludeTaxExigible(balanceCodes)
+          if (calendar && !isTaxExigible) {
+            bilanTrend = mergeSeriesSnapshotsIntoBilanBalanceTrend({
+              bilanBalanceByDisplayYear: bilanTrend,
+              amountByCalendarMonth: calendar,
+              trendLabels: labels,
+              forecastActualCols,
+              fiscalYearEndMonth,
+              forecastRefMonth: effectiveRefMonth,
+            })
+          }
+          // Après N-1/YTD série : reporter le stock si pas d’hypothèse (sinon 1re année = 0 − stock).
+          // Impôts exigibles : déjà Passif − Actif projetés — pas de merge/report série.
+          if (!isTaxExigible) {
+            bilanTrend = carryForwardBilanBalancesWithoutProjection({
+              balances: bilanTrend,
+              forecastActualCols,
+              yearHasExplicitProjection:
+                proFormaProjected.attachedCodesHaveExplicitProjection(balanceCodes),
+            })
+          }
+          const varied = applyProFormaVariationFromBilanBalances({
+            mode: calcMode,
+            bilanBalanceByDisplayYear: bilanTrend,
+            forecastActualCols,
+          })
+          // N-1 / YTD = Cashflow Détail (déjà justes) ; injection seulement sur le projeté.
+          const merged = preserveForecastActualColumnsFromBase({
+            baseTrend: detail.trendValues,
+            overrideTrend: varied,
+            forecastActualCols,
+          })
+          detail = {
+            ...detail,
+            trendValues: merged,
+            current: merged[0] ?? detail.current,
+            prior: merged[1] ?? detail.prior,
+          }
+        }
+      }
+
+      if (isForecastSection && view === "years" && detail.trendValues && (isNi || isIsDriven)) {
+        const configTrend = buildProjectedIsDrivenConfigTrend({
+          projectionYears,
+          attachedLinkCodes: attached,
+          netIncomeByConfigYear: proFormaProjected.netIncomeByConfigYear,
+          resolveDepreciationExpense: proFormaProjected.resolveDepreciationExpense,
+          resolveInterestExpense: proFormaProjected.resolveInterestExpense,
+          forceNetIncome: isNi,
+        })
+        const merged = mergeProjectedAmountsOntoDisplayTrend(
+          detail.trendValues,
+          configTrend,
+          forecastActualCols,
+        )
+        detail = {
+          ...detail,
+          trendValues: merged,
+          current: merged[0] ?? detail.current,
+          prior: merged[1] ?? detail.prior,
+        }
+      }
+
+      return detail
     }
 
     const usedIndices = new Set<number>()
@@ -1112,6 +1274,7 @@ export function CashFlowDetail({
       }),
       displayRows,
       treasuryContext,
+      isForecastSection && view === "years" ? { forecastActualCols } : undefined,
     )
   }
 
@@ -1193,6 +1356,34 @@ export function CashFlowDetail({
   const buildSeriesDetailRows = (): DetailRow[] => {
     const calcContext = resolveCashFlowCalcContext()
     if (statementStructure?.length) {
+      // Pro forma années : même builder que Encaisse / Hypothèses Bilan.
+      if (
+        isForecastSection &&
+        forecastUseSeriesActuals &&
+        view === "years" &&
+        seriesRows.length &&
+        periods.length &&
+        calcContext?.trendLabels?.length &&
+        (!hasFixedTreasuryRows || bsSeriesRows.length > 0)
+      ) {
+        const built = buildProFormaCashFlowYearRows({
+          structure: statementStructure,
+          cfSeriesRows: seriesRows,
+          cfPeriods: periods,
+          costSeriesRows: needsTinCostData && costSeriesRows.length ? costSeriesRows : undefined,
+          bsSeriesRows,
+          trendLabels: calcContext.trendLabels,
+          forecastActualLayout: forecastActualLayoutEffective,
+          forecastActualCols,
+          projectionYears,
+          refMonth: effectiveRefMonth,
+          refYear: effectiveRefYear,
+          fiscalYearEndMonth,
+          forecastBaseYear: forecastBaseYear ?? effectiveRefYear,
+          projected: proFormaProjected,
+        })
+        return built.rows as DetailRow[]
+      }
       if (!seriesRows.length || !seriesPeriodsForBuild.length) {
         return mapRowsFromDetailStructure([], undefined, undefined, calcContext)
       }
@@ -2087,6 +2278,7 @@ export function CashFlowDetail({
                   ? findStructureRowForStatementLine(row.rowId, row.label, statementStructure)
                   : undefined
               const canExpand =
+                !disableRowInteractions &&
                 !isSummaryVariant &&
                 !!row.rowId &&
                 !!row.balanceAccounts &&

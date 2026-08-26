@@ -31,6 +31,8 @@ interface CashFlowSummaryProps {
   forecastUseSeriesActuals?: boolean
   forecastActualLayout?: "single-prior-year" | "nMinusOne-and-ytd"
   periodBasis?: "current" | "fiscal"
+  projectionId?: string | null
+  disableRowInteractions?: boolean
 }
 
 /**

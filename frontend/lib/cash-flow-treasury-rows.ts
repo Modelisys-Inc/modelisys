@@ -421,11 +421,31 @@ function findTreasuryRowIndices(structureRows: Record<string, unknown>[]): {
   return { variationIndex, beginningIndex, endingIndex }
 }
 
+/**
+ * Pro forma : Trésorerie au début de la 1re année projetée = Trésorerie à la fin de N-1
+ * (exercice complet — jamais le YTD) ; années suivantes = fin de l’année précédente.
+ */
+export function chainProFormaBeginningCashTrend(params: {
+  beginningTrend: number[]
+  variationTrend: number[]
+  forecastActualCols: number
+}): number[] {
+  const { beginningTrend, variationTrend, forecastActualCols } = params
+  const actualCols = Math.max(1, forecastActualCols)
+  const out = beginningTrend.map((b) => b)
+  const endingAt = (i: number) => (out[i] ?? 0) + (variationTrend[i] ?? 0)
+  for (let i = actualCols; i < out.length; i++) {
+    out[i] = i === actualCols ? endingAt(0) : endingAt(i - 1)
+  }
+  return out
+}
+
 /** Trésorerie début = ACT-A − PCT-A (N−1) ; fin = variation + début. */
 export function applyCashFlowFixedTreasuryRows<T extends CashFlowDisplayAmountRow>(
   detailRows: T[],
   structureRows: Record<string, unknown>[],
   treasury: CashFlowTreasuryContext | undefined,
+  opts?: { forecastActualCols?: number },
 ): T[] {
   if (!treasury || detailRows.length !== structureRows.length) return detailRows
 
@@ -433,6 +453,7 @@ export function applyCashFlowFixedTreasuryRows<T extends CashFlowDisplayAmountRo
   if (beginningIndex < 0 && endingIndex < 0) return detailRows
 
   const out = [...detailRows]
+  const forecastActualCols = opts?.forecastActualCols
 
   if (beginningIndex >= 0 && (treasury.beginning || treasury.beginningTrend)) {
     out[beginningIndex] = {
@@ -445,6 +466,27 @@ export function applyCashFlowFixedTreasuryRows<T extends CashFlowDisplayAmountRo
         : {}),
       hasLiaisonCode: true,
       ...(treasury.beginningTrend ? { trendValues: treasury.beginningTrend } : {}),
+    }
+  }
+
+  // Pro forma : début projeté = fin N-1 (jamais YTD), puis fin de l’année précédente.
+  if (
+    forecastActualCols != null &&
+    beginningIndex >= 0 &&
+    variationIndex >= 0 &&
+    out[beginningIndex]?.trendValues &&
+    out[variationIndex]?.trendValues
+  ) {
+    const chained = chainProFormaBeginningCashTrend({
+      beginningTrend: out[beginningIndex]!.trendValues!,
+      variationTrend: out[variationIndex]!.trendValues!,
+      forecastActualCols,
+    })
+    out[beginningIndex] = {
+      ...out[beginningIndex]!,
+      trendValues: chained,
+      current: chained[0] ?? out[beginningIndex]!.current,
+      prior: chained[1] ?? out[beginningIndex]!.prior,
     }
   }
 

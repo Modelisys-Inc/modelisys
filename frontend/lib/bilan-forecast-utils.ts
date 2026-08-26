@@ -1,4 +1,5 @@
 import { isCapexProjectionLinkCode, isFinancingBilanLinkCode } from "@/lib/standard-link-code-utils"
+import { isForecastProjectedDisplayColumn } from "@/lib/pro-forma-forecast-columns"
 
 export const BILAN_FORECAST_CONFIG_TYPE = "balance-sheet-forecast"
 export const BILAN_HYPOTHESIS_TITLE = "Estimation du Bilan annuel"
@@ -441,16 +442,38 @@ export function isRetainedEarningsBilanRow(params: {
 
 /**
  * Dividendes applicables à une année d’affichage (dernier driver `dividends`).
+ * Colonnes réelles (index 0, et YTD si présent) → 0.
  */
 export function dividendsForBilanYear(
   adjustments: BilanAdjustment[],
   yearIndex: number,
+  forecastActualCols = 1,
 ): number {
-  if (yearIndex <= 0) return 0
+  if (!isForecastProjectedDisplayColumn(yearIndex, forecastActualCols)) return 0
   const driver = [...adjustments]
     .filter((adj) => adjustmentAppliesToYear(adj, yearIndex) && adj.type === "dividends")
     .reverse()[0]
   return driver && Number.isFinite(driver.value) ? Math.max(0, driver.value) : 0
+}
+
+/** Dividendes hyp. BNR dans la map d’ajustements (clé = rowId CAP-C ou code). */
+export function dividendsFromBilanAdjustmentsMap(
+  adjustments: Record<string, BilanAdjustment[]>,
+  displayYearIndex: number,
+  forecastActualCols = 1,
+): number {
+  let fromRe = 0
+  let fromAny = 0
+  for (const [key, list] of Object.entries(adjustments)) {
+    const d = dividendsForBilanYear(list, displayYearIndex, forecastActualCols)
+    if (!d) continue
+    if (isRetainedEarningsBilanRow({ rowId: key, linkCode: key })) {
+      fromRe = d
+    } else {
+      fromAny = d
+    }
+  }
+  return fromRe || fromAny
 }
 
 /**
@@ -498,7 +521,7 @@ export function resolveRetainedEarningsProjectedValue(params: {
   let re = baseTrend[0] ?? 0
   for (let y = actualCols; y <= yearIndex; y++) {
     const ni = periodNetIncomeByDisplayYear[y] ?? 0
-    const div = dividendsForBilanYear(adjustments, y)
+    const div = dividendsForBilanYear(adjustments, y, actualCols)
     re = re + ni - div
   }
   return re
@@ -923,26 +946,48 @@ export function buildForecastEndingCashTrend(
   return out
 }
 
-/** Encaisse projetée = Encaisse réelle + Δ de la Trésorerie à la fin. */
-export function resolveEncaisseFromEndingCash(
-  actualEncaisse: number,
-  endingCashTrend: number[] | undefined,
-  yearIndex: number,
-): number {
-  if (yearIndex <= 0) return actualEncaisse
-  if (!endingCashTrend?.length) return actualEncaisse
-  const actualEnding = endingCashTrend[0] ?? actualEncaisse
-  const projectedEnding = endingCashTrend[yearIndex] ?? actualEnding
-  return actualEncaisse + (projectedEnding - actualEnding)
-}
+/**
+ * Encaisse et Découvert se partagent la Trésorerie à la fin (années projetées) :
+ * - fin > 0 → Encaisse = fin, Découvert = 0
+ * - fin < 0 → Encaisse = 0, Découvert = |fin|
+ * - fin = 0 → les deux à 0
+ * Colonnes réelles (N-1 / YTD) : soldes inchangés.
+ */
+export type TreasuryEndingCashSide = "encaisse" | "decouvert"
 
-/** Encaisse / Découvert projetés = solde réel + Δ de la Trésorerie à la fin. */
 export function resolveTreasuryLineFromEndingCash(
   actualAmount: number,
   endingCashTrend: number[] | undefined,
   yearIndex: number,
+  forecastActualCols = 1,
+  side: TreasuryEndingCashSide = "encaisse",
 ): number {
-  return resolveEncaisseFromEndingCash(actualAmount, endingCashTrend, yearIndex)
+  if (!isForecastProjectedDisplayColumn(yearIndex, forecastActualCols)) {
+    return actualAmount
+  }
+  if (!endingCashTrend?.length) return actualAmount
+  const projectedEnding = endingCashTrend[yearIndex]
+  if (projectedEnding == null || !Number.isFinite(projectedEnding)) return actualAmount
+  if (side === "encaisse") {
+    return projectedEnding > 0 ? projectedEnding : 0
+  }
+  return projectedEnding < 0 ? -projectedEnding : 0
+}
+
+/** Alias Encaisse (côté positif de la Trésorerie à la fin). */
+export function resolveEncaisseFromEndingCash(
+  actualEncaisse: number,
+  endingCashTrend: number[] | undefined,
+  yearIndex: number,
+  forecastActualCols = 1,
+): number {
+  return resolveTreasuryLineFromEndingCash(
+    actualEncaisse,
+    endingCashTrend,
+    yearIndex,
+    forecastActualCols,
+    "encaisse",
+  )
 }
 
 type BilanRollupRow = {

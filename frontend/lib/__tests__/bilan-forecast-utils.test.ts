@@ -35,6 +35,7 @@ import {
   resolveRetainedEarningsProjectedValue,
   retainedEarningsOpeningForProjectedYear,
   dividendsForBilanYear,
+  dividendsFromBilanAdjustmentsMap,
   isRetainedEarningsBilanRow,
   isProduitsReportesBilanRow,
   isRevenuePercentAdjustableBilanRow,
@@ -503,23 +504,37 @@ describe("other ACT revenue-percent driver", () => {
   })
 })
 
-describe("resolveEncaisseFromEndingCash", () => {
-  it("keeps the actual Encaisse on the reference year", () => {
+describe("resolveEncaisseFromEndingCash / resolveTreasuryLineFromEndingCash", () => {
+  it("keeps the actual amount on real columns", () => {
     expect(resolveEncaisseFromEndingCash(120, [80, 90, 100], 0)).toBe(120)
+    expect(resolveTreasuryLineFromEndingCash(40, [80, 90, -50], 1, 2, "decouvert")).toBe(40)
   })
 
-  it("applies the ending-cash delta to Encaisse on projected years", () => {
-    expect(resolveEncaisseFromEndingCash(120, [80, 90, 70], 1)).toBe(130)
-    expect(resolveEncaisseFromEndingCash(120, [80, 90, 70], 2)).toBe(110)
+  it("puts positive ending cash on Encaisse and zeroes Découvert", () => {
+    expect(resolveEncaisseFromEndingCash(120, [80, 150], 1)).toBe(150)
+    expect(resolveTreasuryLineFromEndingCash(40, [80, 150], 1, 1, "decouvert")).toBe(0)
   })
 
-  it("falls back to actual Encaisse when ending cash is missing", () => {
+  it("puts negative ending cash on Découvert (absolute) and zeroes Encaisse", () => {
+    expect(resolveEncaisseFromEndingCash(120, [80, -60], 1)).toBe(0)
+    expect(resolveTreasuryLineFromEndingCash(40, [80, -60], 1, 1, "decouvert")).toBe(60)
+  })
+
+  it("zeroes both when ending cash is 0", () => {
+    expect(resolveEncaisseFromEndingCash(120, [80, 0], 1)).toBe(0)
+    expect(resolveTreasuryLineFromEndingCash(40, [80, 0], 1, 1, "decouvert")).toBe(0)
+  })
+
+  it("respects N-1+YTD layout (only projected columns)", () => {
+    expect(resolveEncaisseFromEndingCash(120, [80, 95, 100, -40], 1, 2)).toBe(120)
+    expect(resolveEncaisseFromEndingCash(120, [80, 95, 100, -40], 2, 2)).toBe(100)
+    expect(resolveTreasuryLineFromEndingCash(40, [80, 95, 100, -40], 3, 2, "decouvert")).toBe(40)
+    expect(resolveEncaisseFromEndingCash(120, [80, 95, 100, -40], 3, 2)).toBe(0)
+  })
+
+  it("falls back to actual when ending cash is missing", () => {
     expect(resolveEncaisseFromEndingCash(120, undefined, 1)).toBe(120)
     expect(resolveEncaisseFromEndingCash(120, [], 1)).toBe(120)
-  })
-
-  it("resolveTreasuryLineFromEndingCash mirrors Encaisse for Découvert", () => {
-    expect(resolveTreasuryLineFromEndingCash(40, [80, 90, 70], 1)).toBe(50)
   })
 })
 
@@ -852,8 +867,26 @@ describe("resolveRetainedEarningsProjectedValue", () => {
       dividendsForBilanYear(
         [adj({ id: "d", yearIndex: 1, type: "dividends", value: 5_000, isRecurring: true })],
         3,
+        1,
       ),
     ).toBe(5_000)
+  })
+
+  it("skips dividends on N-1 / YTD display columns", () => {
+    expect(
+      dividendsForBilanYear(
+        [adj({ id: "d", yearIndex: 2, type: "dividends", value: 50_000 })],
+        1,
+        2,
+      ),
+    ).toBe(0)
+    expect(
+      dividendsFromBilanAdjustmentsMap(
+        { "CAP-C": [adj({ id: "d", yearIndex: 2, type: "dividends", value: 50_000 })] },
+        2,
+        2,
+      ),
+    ).toBe(50_000)
   })
 })
 

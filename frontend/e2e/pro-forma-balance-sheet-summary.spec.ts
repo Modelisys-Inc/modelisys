@@ -510,5 +510,8 @@ test.describe("Pro forma cash flow", () => {
     await expect(page.locator("table thead th.bg-slate-50")).toHaveCount(2)
     expect(await page.locator("table tbody td.bg-slate-50").count()).toBeGreaterThan(1)
     await expect(page.getByText(/Les données affichées sont à titre informatif/i)).toBeVisible()
+    // Pro forma : pas d’ouverture de lignes
+    await expect(page.getByTestId("cash-flow-detail-expandable-row")).toHaveCount(0)
+    await expect(page.locator("table tbody svg.lucide-chevron-right")).toHaveCount(0)
   })
 })
