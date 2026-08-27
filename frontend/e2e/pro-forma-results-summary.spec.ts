@@ -361,7 +361,7 @@ test.describe("Pro forma Résultats Sommaire presentation", () => {
     await setup(page)
 
     await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`)
-    await expect(page.getByRole("heading", { name: "Pro Forma", exact: true })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole("heading", { name: "Résultats projetés", exact: true })).toBeVisible({ timeout: 15000 })
     await page.getByRole("button", { name: "Résultats", exact: true }).click()
     await page.getByRole("button", { name: "Sommaire", exact: true }).click()
 
@@ -403,6 +403,16 @@ test.describe("Pro forma Résultats Sommaire presentation", () => {
 
     expect(grossProfitIdx).toBeGreaterThanOrEqual(0)
     expect(chargesIdx).toBeGreaterThan(grossProfitIdx + 1)
+
+    // % des revenus sous Bénéfice brut / Bénéfice net / BAIIA
+    const marginAfter = (anchorRe: RegExp) => {
+      const anchorIdx = labels.findIndex((l) => anchorRe.test(l))
+      expect(anchorIdx).toBeGreaterThanOrEqual(0)
+      expect(labels[anchorIdx + 1] ?? "").toMatch(/% des revenus/i)
+    }
+    marginAfter(/bénéfice brut/i)
+    marginAfter(/bénéfice net/i)
+    marginAfter(/^baiia/i)
   })
 
   test("applies Hypothèses Revenus and Dépenses to projected years", async ({ page }) => {
@@ -410,7 +420,7 @@ test.describe("Pro forma Résultats Sommaire presentation", () => {
     await setup(page)
 
     await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`)
-    await expect(page.getByRole("heading", { name: "Pro Forma", exact: true })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole("heading", { name: "Résultats projetés", exact: true })).toBeVisible({ timeout: 15000 })
     await page.getByRole("button", { name: "Résultats", exact: true }).click()
     await page.getByRole("button", { name: "Sommaire", exact: true }).click()
 
@@ -454,7 +464,7 @@ test.describe("Pro forma Résultats Sommaire presentation", () => {
     await setup(page)
 
     await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`)
-    await expect(page.getByRole("heading", { name: "Pro Forma", exact: true })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole("heading", { name: "Résultats projetés", exact: true })).toBeVisible({ timeout: 15000 })
     await page.getByRole("button", { name: "Résultats", exact: true }).click()
     await page.getByRole("button", { name: "Détail", exact: true }).click()
 

@@ -51,6 +51,8 @@ export function useProjectedNetIncomeYearTotals(opts: {
 }): {
   totals: number[] | null
   taxExpenseTotals: number[] | null
+  /** Total Hypothèses Dépenses par année config (pour BAIIA = REV − dépenses). */
+  expenseHypothesisTotals: number[] | null
   lastActualNetIncome: number
   lastActualTaxExpense: number
   taxPaymentFrequency: TaxPaymentFrequency
@@ -275,6 +277,7 @@ export function useProjectedNetIncomeYearTotals(opts: {
   return {
     totals: projected?.netIncome ?? null,
     taxExpenseTotals: projected?.taxExpense ?? null,
+    expenseHypothesisTotals: projectedExpenseHypothesisYearTotals,
     lastActualNetIncome,
     lastActualTaxExpense,
     taxPaymentFrequency,

@@ -1818,7 +1818,8 @@ export function CashFlowDetail({
     treasuryContext,
   ])
 
-  const showTreasuryValidation = hasFixedTreasuryRows && treasuryValidation != null
+  const showTreasuryValidation =
+    !isForecastSection && hasFixedTreasuryRows && treasuryValidation != null
   const showTreasuryMismatch =
     showTreasuryValidation &&
     treasuryValidation.current != null &&

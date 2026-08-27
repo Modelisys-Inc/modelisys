@@ -17,8 +17,10 @@ import { CashFlowSummary } from "@/components/cash-flow-summary"
 import { CapexForecastDetail } from "@/components/capex-forecast-detail"
 import { DebtForecastDetail } from "@/components/debt-forecast-detail"
 import { TaxForecastDetail } from "@/components/tax-forecast-detail"
+import { ProFormaFinancialImpactPanel } from "@/components/pro-forma-financial-impact-panel"
 import { BILAN_HYPOTHESIS_TITLE } from "@/lib/bilan-forecast-utils"
 import { TAX_FORECAST_TITLE } from "@/lib/tax-forecast-utils"
+import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
 import { FDRForecastDetail } from "@/components/fdr-forecast-detail"
 import { useCompanies } from "@/hooks/use-companies"
 import { useSearchParams } from "next/navigation"
@@ -205,6 +207,13 @@ export default function ProFormaPage() {
   const [loadedProjectionsCompanyId, setLoadedProjectionsCompanyId] = useState<string | null>(null)
   const [backDialogOpen, setBackDialogOpen] = useState(false)
   const [backPendingSave, setBackPendingSave] = useState(false)
+  const [impactRefreshKey, setImpactRefreshKey] = useState(0)
+
+  useEffect(() => {
+    const onConfigChanged = () => setImpactRefreshKey((k) => k + 1)
+    window.addEventListener("modelisys:forecast-config-changed", onConfigChanged)
+    return () => window.removeEventListener("modelisys:forecast-config-changed", onConfigChanged)
+  }, [])
 
   const selectedModuleData = allModules.find(m => m.id === selectedModule)
   const Icon = selectedModuleData?.icon || BarChart3
@@ -399,6 +408,17 @@ export default function ProFormaPage() {
   const isFinancialStatementModule =
     selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow"
   const isAssumptions = topNav === "assumptions"
+  const fiscalYearEndMonth = parseFiscalYearEndMonth(
+    companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
+  )
+  const heroTitle =
+    topNav === "income-statement"
+      ? "Résultats projetés"
+      : topNav === "balance-sheet"
+        ? "Bilan projeté"
+        : topNav === "cash-flow"
+          ? "Trésorerie projetée"
+          : "Hypothèses"
   const monthLabel = (m: number | null) => {
     if (!m) return null
     const labels = [
@@ -453,7 +473,7 @@ export default function ProFormaPage() {
             <div className="w-2 flex-shrink-0" />
             <div className="flex-1">
               <div className="mb-2">
-                <h2 className="text-4xl font-semibold tracking-tight text-[#E6D6C3]">Pro Forma</h2>
+                <h2 className="text-4xl font-semibold tracking-tight text-[#E6D6C3]">{heroTitle}</h2>
               </div>
               <p className="text-base text-[#C9B8A5]/90 mb-6">
                 Générez vos états financiers pro forma basés sur vos projections et hypothèses
@@ -645,7 +665,14 @@ export default function ProFormaPage() {
 
         {/* Module Content - Only show if projection is active */}
         {currentProjectionId && (
-        <div className="space-y-6">
+        <div
+          className={cn(
+            isAssumptions
+              ? "flex flex-col gap-6 lg:flex-row lg:items-start"
+              : "space-y-6",
+          )}
+        >
+          <div className={cn("min-w-0", isAssumptions ? "flex-1 space-y-6" : "contents")}>
           {selectedModule === "revenue" ? (
             <IncomeStatementDetail
               period={period}
@@ -892,6 +919,19 @@ export default function ProFormaPage() {
                 {/* Module-specific content placeholder removed — components render above */}
               </CardContent>
             </Card>
+          )}
+          </div>
+          {isAssumptions && projectionStartYear != null && (
+            <ProFormaFinancialImpactPanel
+              key={impactRefreshKey}
+              companyId={companyId}
+              projectionId={currentProjectionId}
+              projectionYears={projectionYears}
+              forecastBaseYear={projectionStartYear}
+              refMonth={projectionStartMonth ?? 12}
+              fiscalYearEndMonth={fiscalYearEndMonth}
+              forecastActualLayout="nMinusOne-and-ytd"
+            />
           )}
         </div>
         )}

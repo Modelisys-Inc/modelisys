@@ -215,7 +215,7 @@ async function setupProFormaBalanceSheet(page: Page, startMonth: number) {
 
 async function openProFormaBilan(page: Page, section: "summary" | "detail") {
   await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`)
-  await expect(page.getByRole("heading", { name: "Pro Forma" })).toBeVisible({ timeout: 15000 })
+  await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
   await page.getByRole("button", { name: "Bilan", exact: true }).click()
   if (section === "summary") {
     await page.getByRole("button", { name: "Sommaire", exact: true }).click()

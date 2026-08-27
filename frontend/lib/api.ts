@@ -1338,10 +1338,16 @@ export async function upsertForecastConfig(
   companyId: string,
   config: ForecastConfigUpsert
 ): Promise<ForecastConfigData> {
-  return apiFetch<ForecastConfigData>(
+  const result = await apiFetch<ForecastConfigData>(
     `/api/companies/${companyId}/forecast-configs`,
     { method: "PUT", body: config }
   )
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("modelisys:forecast-config-changed", { detail: { companyId } }),
+    )
+  }
+  return result
 }
 
 export async function deleteForecastConfig(

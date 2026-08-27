@@ -392,7 +392,7 @@ async function setupAuth(
 
 async function openProFormaExpenses(page: Page) {
   await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-  await expect(page.getByRole("heading", { name: "Pro Forma" })).toBeVisible({ timeout: 15000 })
+  await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
   await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
   await page.getByRole("button", { name: "Dépenses", exact: true }).click()
   await expect(page.getByRole("heading", { name: "Estimation des dépenses annuelles" })).toBeVisible({

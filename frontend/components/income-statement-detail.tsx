@@ -906,10 +906,8 @@ export function IncomeStatementDetail({
   /** Cible le haut du panneau d’analyse (pas la colonne pleine hauteur) pour le scroll à l’ouverture. */
   const lineAnalysisPanelTopRef = useRef<HTMLDivElement | null>(null)
   /** Scroll horizontal du tableau (vue années) — ref pour le curseur sous le tableau. */
-  const detailTableHScrollRef = useRef<HTMLDivElement | null>(null)
   /** Zone tableau + panneau hypothèses dépenses : scrollIntoView à l’ouverture pour garder le panneau visible. */
   const expenseHypothesisScrollAnchorRef = useRef<HTMLDivElement | null>(null)
-  const [detailTableHScrollNonce, setDetailTableHScrollNonce] = useState(0)
 
   const refMonth = referenceMonth ?? new Date().getMonth() + 1
   const refYear = fiscalYear ?? new Date().getFullYear()
@@ -4592,7 +4590,7 @@ export function IncomeStatementDetail({
   const showStructureCols =
     isStructureStudio && !structEdit.loading && detailAnnexEditorGlobalIndices.length > 0
 
-  /** Vue « années » : slider horizontal (Radix) pour faire défiler le tableau sans réduire les colonnes. */
+  /** Vue « années » : colonnes à largeur fixe + défilement horizontal natif. */
   const tableUsesHorizontalSlider = view === "years" && !showStructureCols
 
   /** Hypothèses revenus : panneau pleine largeur sous la ligne du poste (plus d’aside à droite). */
@@ -4622,34 +4620,9 @@ export function IncomeStatementDetail({
       ? data.findIndex((r) => r.rowId === editingAdjustment.rowId)
       : -1
 
-  const hypothesisDesktopAsideOpen = false
-
   /** Vue années + hypothèse inline : le panneau ne doit pas gonfler le tableau (sinon `w-max` / `min-w-max` suivent le max-content). */
   const forecastHypothesisTableWidthLock =
     tableUsesHorizontalSlider && (revenueHypothesisInlineActive || expenseHypothesisInlineActive)
-
-  useEffect(() => {
-    if (!tableUsesHorizontalSlider) return
-    const el = detailTableHScrollRef.current
-    if (!el) return
-    const sync = () => setDetailTableHScrollNonce((n) => n + 1)
-    el.addEventListener("scroll", sync, { passive: true })
-    const ro = new ResizeObserver(sync)
-    ro.observe(el)
-    sync()
-    return () => {
-      el.removeEventListener("scroll", sync)
-      ro.disconnect()
-    }
-  }, [
-    tableUsesHorizontalSlider,
-    showStructureCols,
-    hypothesisDesktopAsideOpen,
-    data.length,
-    title,
-    view,
-    projectionYears,
-  ])
 
   // Helper function to calculate percentage of revenue
   const getRevenuePercentage = (value: number, isPrior: boolean): number => {
@@ -7893,13 +7866,9 @@ export function IncomeStatementDetail({
       <div ref={expenseHypothesisScrollAnchorRef} className="relative border-t border-slate-200/80">
         <div className="min-w-0 w-full">
           <div
-            ref={detailTableHScrollRef}
             className={cn(
               "min-w-0 w-full max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
               tableUsesHorizontalSlider && "[scrollbar-width:thin]",
-              /* Réserve la largeur du panneau hypothèses (overlay) pour que le scroll horizontal s’active et que la barre / le curseur « Défilement » apparaissent. */
-              hypothesisDesktopAsideOpen && "lg:pr-[min(22rem,38vw)]",
-              hypothesisDesktopAsideOpen && "lg:overflow-x-scroll",
               isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
             )}
           >
@@ -9622,37 +9591,6 @@ export function IncomeStatementDetail({
         </table>
             </div>
           </div>
-          {tableUsesHorizontalSlider &&
-            title !== "Estimation des dépenses annuelles" &&
-            (() => {
-              void detailTableHScrollNonce
-              const el = detailTableHScrollRef.current
-              const max = el ? Math.max(0, el.scrollWidth - el.clientWidth) : 0
-              if (!el || max <= 0) return null
-              return (
-                <div
-                  className={cn(
-                    "relative z-30 flex items-center gap-3 border-t border-slate-200/90 bg-slate-50/95 px-3 py-2",
-                    hypothesisDesktopAsideOpen && "lg:mr-[min(22rem,38vw)]"
-                  )}
-                >
-                  <span className="shrink-0 text-xs font-medium text-slate-500">Défilement</span>
-                  <input
-                    type="range"
-                    className="h-2 w-full min-w-0 cursor-pointer accent-emerald-600"
-                    min={0}
-                    max={max}
-                    step={1}
-                    value={el.scrollLeft}
-                    aria-label="Défilement horizontal du tableau"
-                    onChange={(e) => {
-                      el.scrollLeft = Number(e.target.value)
-                      setDetailTableHScrollNonce((n) => n + 1)
-                    }}
-                  />
-                </div>
-              )
-            })()}
         </div>
 
       </div>

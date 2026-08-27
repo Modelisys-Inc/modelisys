@@ -282,7 +282,7 @@ async function setupAuth(
 
 async function openFixedExpenseSeasonality(page: Page, yearIndex: number) {
   await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-  await expect(page.getByRole("heading", { name: "Pro Forma" })).toBeVisible({ timeout: 15000 })
+  await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
   await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
   await expect(page.getByRole("button", { name: "Dépenses", exact: true })).toBeVisible({
     timeout: 15000,
@@ -360,7 +360,7 @@ test.describe("Projection fixed expense seasonality actual years", () => {
       },
     })
     await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Pro Forma" })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
     await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
     await page.getByRole("button", { name: "Dépenses", exact: true }).click()
     await expect(page.getByRole("heading", { name: "Estimation des dépenses annuelles" })).toBeVisible({
@@ -402,7 +402,7 @@ test.describe("Projection fixed expense seasonality actual years", () => {
     test.setTimeout(90_000)
     await setupAuth(page)
     await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Pro Forma" })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
     await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
     await page.getByRole("button", { name: "Dépenses", exact: true }).click()
     await expect(page.getByRole("heading", { name: "Estimation des dépenses annuelles" })).toBeVisible({
@@ -430,7 +430,7 @@ test.describe("Projection fixed expense seasonality actual years", () => {
     test.setTimeout(90_000)
     await setupAuth(page)
     await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Pro Forma" })).toBeVisible({ timeout: 15000 })
+    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
     await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
     await page.getByRole("button", { name: "Dépenses", exact: true }).click()
     await expect(page.getByRole("heading", { name: "Estimation des dépenses annuelles" })).toBeVisible({

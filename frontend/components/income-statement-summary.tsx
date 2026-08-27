@@ -1722,7 +1722,62 @@ export function IncomeStatementSummary({
       }
     }
 
-    return ordered.length > 0 ? ordered : filtered
+    const baseOrdered = ordered.length > 0 ? ordered : filtered
+    if (!isForecastSection) return baseOrdered
+
+    // Pro Forma Sommaire : ligne « % des revenus » sous Bénéfice brut / Bénéfice net / BAIIA.
+    const revenueRow = baseOrdered.find((r) => normLabel(r.label) === "revenus")
+    if (!revenueRow) return baseOrdered
+
+    const isMarginAnchorLabel = (label: string): boolean => {
+      const n = normLabel(label)
+      if (n === "bénéfice brut" || n === "benefice brut") return true
+      if (
+        n === "bénéfice net" ||
+        n === "benefice net" ||
+        n === "bénéfices nets" ||
+        n === "benefices nets"
+      ) {
+        return true
+      }
+      if (n === "baiia" || n.startsWith("baiia ")) return true
+      return false
+    }
+
+    const pctOfRevenue = (amount: number, revenue: number): number => {
+      if (!Number.isFinite(amount) || !Number.isFinite(revenue) || Math.abs(revenue) < 1e-9) return 0
+      return (amount / Math.abs(revenue)) * 100
+    }
+
+    const buildMarginRow = (anchor: (typeof baseOrdered)[number]): SummaryRow => {
+      const revTrend = revenueRow.trendValues
+      const numTrend = anchor.trendValues
+      let trendValues: number[] | undefined
+      if (revTrend?.length && numTrend?.length) {
+        const len = Math.max(revTrend.length, numTrend.length)
+        trendValues = Array.from({ length: len }, (_, i) =>
+          pctOfRevenue(numTrend[i] ?? 0, revTrend[i] ?? 0),
+        )
+      }
+      return {
+        label: "% des revenus",
+        current: pctOfRevenue(anchor.current ?? 0, revenueRow.current ?? 0),
+        prior: pctOfRevenue(anchor.prior ?? 0, revenueRow.prior ?? 0),
+        trendValues,
+        isMargin: true,
+        indent: true,
+        isBold: false,
+      }
+    }
+
+    const withMargins: typeof baseOrdered = []
+    for (const row of baseOrdered) {
+      withMargins.push(row)
+      if (isMarginAnchorLabel(row.label)) {
+        withMargins.push(buildMarginRow(row) as (typeof baseOrdered)[number])
+      }
+    }
+    return withMargins
   }, [
     showStructureCols,
     structEdit.structure,
@@ -1730,6 +1785,7 @@ export function IncomeStatementSummary({
     backendRows,
     horizonView,
     standardCodesForFilter,
+    isForecastSection,
   ])
 
   const tableRowCount = showStructureCols

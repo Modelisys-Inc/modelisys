@@ -343,7 +343,9 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   Charges ; **Bénéfice avant impôts** = brut − total charges ; **Impôts** = taux
   Hypothèses Impôts (`tax-forecast`) × max(0, BAI) (infobulle à côté du libellé) ;
   **Bénéfice net** = BAI − Impôts ; **BAIIA** projeté = REV − total des postes
-  Hypothèses Dépenses (somme des sous-totaux d’annexes de cette section).
+  Hypothèses Dépenses (somme des sous-totaux d’annexes de cette section). Sous
+  **Bénéfice brut**, **Bénéfice net** et **BAIIA** (ex. BAIIA opérationnel) :
+  ligne indentée **% des revenus** = montant ÷ Revenus (colonne par colonne).
   **Hypothèses Financement** : même carte / tableau que Capex (Emprunt | Taux | années).
   Clic sur un emprunt → panneau inline (nom, montant, `DebtParamsFields`) ; les
   autres lignes sont masquées. Emprunts issus du Capex financé : badge Capex +
@@ -357,6 +359,12 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   de l’org ; `division_id` / `sub_division_id` nuls). Horizon toujours **annuel**
   (`projection_horizon: "annual"`), avec vue mensuelle possible ensuite. Date de
   référence = **mois + année** (`start_month` 1–12 + `start_year`).
+  **Impact financier** (Hypothèses) : panneau sticky à droite
+  (`ProFormaFinancialImpactPanel`) — Revenus, Bénéfice brut (+ % des revenus indenté),
+  Bénéfice net (+ %), BAIIA opérationnel (+ %), trésorerie Exploitation / Investissement /
+  Financement / à la fin — **sélecteur d’année projetée** ; variation vs année précédente
+  ($ et %) sous chaque poste (2026 vs N-1, 2027 vs 2026…) ; bouton masquer / rouvrir
+  (`localStorage`) ; rafraîchi après `upsertForecastConfig`.
   **Pro Forma Résultats** (Sommaire + Détail) : colonnes réelles = **N-1** (exercice
   fiscal complet clos avant la date de référence) puis **YTD** (cumul d’exercice
   jusqu’au mois de référence), puis les années projetées. Ex. réf. mars 2026,

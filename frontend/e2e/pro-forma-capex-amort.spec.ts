@@ -353,7 +353,7 @@ test.describe("Pro Forma Capex amortization bridge", () => {
     await setup(page)
 
     await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`)
-    await expect(page.getByRole("heading", { name: "Pro Forma", exact: true })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "Résultats projetés", exact: true })).toBeVisible({
       timeout: 15000,
     })
     await page.getByRole("button", { name: "Résultats", exact: true }).click()
