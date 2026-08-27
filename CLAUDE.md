@@ -363,7 +363,9 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   (`ProFormaFinancialImpactPanel`) — Revenus, Bénéfice brut (+ % des revenus indenté),
   Bénéfice net (+ %), BAIIA opérationnel (+ %), trésorerie Exploitation / Investissement /
   Financement / à la fin — **sélecteur d’année projetée** ; variation vs année précédente
-  ($ et %) sous chaque poste (2026 vs N-1, 2027 vs 2026…) ; bouton masquer / rouvrir
+  ($ et % sous les montants ; pour « % des revenus », uniquement l’écart en points
+  affiché en %, ex. +0,5 %) — 1re année projetée vs **N-1** (exercice complet, jamais
+  le YTD) ; années suivantes vs l’année projetée précédente ; bouton masquer / rouvrir
   (`localStorage`) ; rafraîchi après `upsertForecastConfig`.
   **Pro Forma Résultats** (Sommaire + Détail) : colonnes réelles = **N-1** (exercice
   fiscal complet clos avant la date de référence) puis **YTD** (cumul d’exercice

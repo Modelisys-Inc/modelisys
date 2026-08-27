@@ -44,12 +44,14 @@ function formatSignedNumber(value: number, digits = 1): string {
 function formatYoyDelta(metric: ProFormaImpactMetric): string | null {
   if (metric.yoyDelta == null || !Number.isFinite(metric.yoyDelta)) return null
   if (Math.abs(metric.yoyDelta) < 1e-9) return null
-  if (metric.isPercent) return `${formatSignedNumber(metric.yoyDelta)} pts`
+  // Marges : écart en points de % affiché comme +0,5 % (pas « pts » ni % relatif).
+  if (metric.isPercent) return `${formatSignedNumber(metric.yoyDelta)} %`
   const sign = metric.yoyDelta > 0 ? "+" : metric.yoyDelta < 0 ? "−" : ""
   return `${sign}${formatCurrency(Math.abs(metric.yoyDelta))}`
 }
 
 function formatYoyPct(metric: ProFormaImpactMetric): string | null {
+  if (metric.isPercent) return null
   if (metric.yoyPct == null || !Number.isFinite(metric.yoyPct)) return null
   if (Math.abs(metric.yoyPct) < 1e-9) return null
   return `${formatSignedNumber(metric.yoyPct)} %`

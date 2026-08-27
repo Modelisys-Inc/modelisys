@@ -59,6 +59,36 @@ describe("pro-forma-financial-impact", () => {
     expect(metrics.find((m) => m.id === "grossProfitMargin")?.label).toBe("% des revenus")
     expect(metrics.find((m) => m.id === "revenue")?.yoyDelta).toBe(100_000)
     expect(metrics.find((m) => m.id === "grossProfitMargin")?.yoyDelta).toBeCloseTo(0, 5)
+    expect(metrics.find((m) => m.id === "grossProfitMargin")?.yoyPct).toBeNull()
+  })
+
+  it("shows margin YoY as point change only (e.g. 49.5% vs 49% → +0.5)", () => {
+    const metrics = buildProFormaImpactMetrics(
+      {
+        revenue: 1_000_000,
+        cmv: 505_000,
+        netIncome: 100_000,
+        expenseHypothesisTotal: 700_000,
+        cashOperating: null,
+        cashInvesting: null,
+        cashFinancing: null,
+        endingCash: null,
+      },
+      {
+        revenue: 1_000_000,
+        cmv: 510_000,
+        netIncome: 90_000,
+        expenseHypothesisTotal: 700_000,
+        cashOperating: null,
+        cashInvesting: null,
+        cashFinancing: null,
+        endingCash: null,
+      },
+    )
+    const margin = metrics.find((m) => m.id === "grossProfitMargin")
+    expect(margin?.value).toBeCloseTo(49.5, 5)
+    expect(margin?.yoyDelta).toBeCloseTo(0.5, 5)
+    expect(margin?.yoyPct).toBeNull()
   })
 
   it("computes YoY delta and pct", () => {
@@ -162,6 +192,38 @@ describe("pro-forma-financial-impact", () => {
     expect(out.investing).toEqual([-50, -60, -70])
     expect(out.financing).toEqual([11, 22, 33])
     expect(out.ending).toEqual([500, 600, 700])
+  })
+
+  it("uses direct grossProfit override when revenue − cmv is unavailable", () => {
+    const metrics = buildProFormaImpactMetrics(
+      {
+        revenue: 1_000_000,
+        cmv: 500_000,
+        netIncome: null,
+        expenseHypothesisTotal: null,
+        cashOperating: null,
+        cashInvesting: null,
+        cashFinancing: null,
+        endingCash: null,
+      },
+      {
+        revenue: 900_000,
+        cmv: null,
+        netIncome: null,
+        expenseHypothesisTotal: null,
+        cashOperating: null,
+        cashInvesting: null,
+        cashFinancing: null,
+        endingCash: null,
+        grossProfit: 440_000,
+      },
+    )
+    expect(metrics.find((m) => m.id === "grossProfit")?.value).toBe(500_000)
+    expect(metrics.find((m) => m.id === "grossProfit")?.yoyDelta).toBe(60_000)
+    expect(metrics.find((m) => m.id === "grossProfitMargin")?.yoyDelta).toBeCloseTo(
+      50 - (440_000 / 900_000) * 100,
+      5,
+    )
   })
 
   it("maps first projected display index after actual cols", () => {

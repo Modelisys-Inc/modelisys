@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
-import { TrendingUp, TrendingDown, Calculator, CreditCard, BarChart3, Scale, Waves, Save, FolderOpen, X, Plus, Wallet, Percent } from "lucide-react"
+import { TrendingUp, TrendingDown, Calculator, CreditCard, BarChart3, Scale, Waves, Save, FolderOpen, X, Plus, Wallet, Percent, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { IncomeStatementDetail } from "@/components/income-statement-detail"
 import { IncomeStatementSummary } from "@/components/income-statement-summary"
@@ -479,43 +479,52 @@ export default function ProFormaPage() {
                 Générez vos états financiers pro forma basés sur vos projections et hypothèses
               </p>
 
-              {/* Menu principal (Résultats / Bilan / Trésorerie / Hypothèses) — style income-statement */}
-              <div className="flex flex-wrap items-end gap-2 mb-2">
-                <div className="flex flex-wrap items-end gap-8">
-                  {[
-                    { id: "income-statement" as const, label: "Résultats" },
-                    { id: "balance-sheet" as const, label: "Bilan" },
-                    { id: "cash-flow" as const, label: "Trésorerie" },
-                  ].map((item) => {
-                    const isActive = topNav === item.id
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setFinancialStatementModule(item.id)}
-                        className={cn(
-                          "relative inline-block rounded-md px-3 py-1.5 -mx-1 pb-4 border-b border-slate-600/30 text-sm font-normal text-slate-200 transition-colors",
-                          !isActive ? "hover:bg-white/5 hover:text-slate-100" : "hover:bg-white/[0.04]"
-                        )}
-                      >
-                        {item.label}
-                        {isActive && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10" />}
-                      </button>
-                    )
-                  })}
+              {/* Menu principal : Hypothèses → Résultats / Bilan / Trésorerie */}
+              <div className="mb-2 flex flex-wrap items-end gap-2">
+                <div className="flex flex-wrap items-end gap-2">
                   <button
                     type="button"
                     onClick={() => setAssumptionsModule("revenue")}
                     className={cn(
-                      "relative inline-block rounded-md px-3 py-1.5 -mx-1 pb-4 border-b border-slate-600/30 text-sm font-normal text-slate-200 transition-colors",
-                      topNav !== "assumptions" ? "hover:bg-white/5 hover:text-slate-100" : "hover:bg-white/[0.04]"
+                      "relative -mx-1 inline-block rounded-md border-b border-slate-600/30 px-3 py-1.5 pb-4 text-sm font-normal text-slate-200 transition-colors",
+                      topNav !== "assumptions" ? "hover:bg-white/5 hover:text-slate-100" : "hover:bg-white/[0.04]",
                     )}
                   >
                     Hypothèses
                     {topNav === "assumptions" && (
-                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10" />
+                      <div className="absolute bottom-0 left-0 right-0 z-10 h-0.5 bg-[#E0742D]" />
                     )}
                   </button>
+                  <ChevronRight
+                    className="mb-4 h-3.5 w-3.5 shrink-0 self-end text-[#E0742D]/75"
+                    strokeWidth={2.25}
+                    aria-hidden
+                  />
+                  <div className="flex flex-wrap items-end gap-8">
+                    {[
+                      { id: "income-statement" as const, label: "Résultats" },
+                      { id: "balance-sheet" as const, label: "Bilan" },
+                      { id: "cash-flow" as const, label: "Trésorerie" },
+                    ].map((item) => {
+                      const isActive = topNav === item.id
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setFinancialStatementModule(item.id)}
+                          className={cn(
+                            "relative -mx-1 inline-block rounded-md border-b border-slate-600/30 px-3 py-1.5 pb-4 text-sm font-normal text-slate-200 transition-colors",
+                            !isActive ? "hover:bg-white/5 hover:text-slate-100" : "hover:bg-white/[0.04]",
+                          )}
+                        >
+                          {item.label}
+                          {isActive && (
+                            <div className="absolute bottom-0 left-0 right-0 z-10 h-0.5 bg-[#E0742D]" />
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
             </div>

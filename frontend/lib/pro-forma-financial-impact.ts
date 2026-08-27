@@ -44,6 +44,11 @@ export type ProFormaImpactRawAmounts = {
   cashInvesting: number | null
   cashFinancing: number | null
   endingCash: number | null
+  /**
+   * Montant bénéfice brut direct (ex. série N-1 « Bénéfice brut »).
+   * Prioritaire sur revenue − cmv quand fourni.
+   */
+  grossProfit?: number | null
 }
 
 export function pctOfRevenue(amount: number | null | undefined, revenue: number | null | undefined): number | null {
@@ -96,7 +101,7 @@ export function pickConfigYearAmount(
   return typeof v === "number" && Number.isFinite(v) ? v : null
 }
 
-/** Montant config ou repli N-1 (colonne d’affichage 0) pour le panneau d’impact. */
+/** Montant config ou repli N-1 (exercice fiscal complet — jamais le YTD partiel). */
 export function pickImpactConfigAmount(
   totals: number[] | null | undefined,
   displayIndex: number,
@@ -105,10 +110,14 @@ export function pickImpactConfigAmount(
   nMinusOneFallback: number | null,
 ): number | null {
   const configIdx = configIndexForDisplay(displayIndex, forecastActualCols)
-  if (configIdx != null) return pickConfigYearAmount(totals, configIdx)
-  if (displayIndex === 0 && forecastActualExtraColumnCount(forecastActualCols) > 0) {
+  // Colonne N-1 (index 0) : toujours l’exercice complet fourni en repli.
+  const isNMinusOneDisplay =
+    displayIndex === 0 &&
+    (forecastActualExtraColumnCount(forecastActualCols) > 0 || configIdx === 0)
+  if (isNMinusOneDisplay && nMinusOneFallback != null && Number.isFinite(nMinusOneFallback)) {
     return nMinusOneFallback
   }
+  if (configIdx != null) return pickConfigYearAmount(totals, configIdx)
   return null
 }
 
@@ -151,6 +160,10 @@ function withYoY(
   previousValue: number | null | undefined,
 ): ProFormaImpactMetric {
   const { delta, pct } = computeImpactYoY(metric.value, previousValue)
+  // Marges « % des revenus » : uniquement l’écart en points (affiché +0,5 %), pas le % relatif.
+  if (metric.isPercent) {
+    return { ...metric, yoyDelta: delta, yoyPct: null }
+  }
   return { ...metric, yoyDelta: delta, yoyPct: pct }
 }
 
@@ -276,19 +289,27 @@ export function extractCashFlowImpactTrends(params: {
   }
 }
 
+function resolveGrossProfit(amounts: ProFormaImpactRawAmounts): number | null {
+  if (amounts.grossProfit != null && Number.isFinite(amounts.grossProfit)) {
+    return amounts.grossProfit
+  }
+  if (amounts.revenue != null && amounts.cmv != null) {
+    return amounts.revenue - amounts.cmv
+  }
+  return null
+}
+
 export function buildProFormaImpactMetrics(
   current: ProFormaImpactRawAmounts,
   previous?: ProFormaImpactRawAmounts | null,
 ): ProFormaImpactMetric[] {
-  const grossProfit =
-    current.revenue != null && current.cmv != null ? current.revenue - current.cmv : null
+  const grossProfit = resolveGrossProfit(current)
   const baiia =
     current.revenue != null && current.expenseHypothesisTotal != null
       ? current.revenue - current.expenseHypothesisTotal
       : null
 
-  const prevGrossProfit =
-    previous?.revenue != null && previous?.cmv != null ? previous.revenue - previous.cmv : null
+  const prevGrossProfit = previous ? resolveGrossProfit(previous) : null
   const prevBaiia =
     previous?.revenue != null && previous?.expenseHypothesisTotal != null
       ? previous.revenue - previous.expenseHypothesisTotal

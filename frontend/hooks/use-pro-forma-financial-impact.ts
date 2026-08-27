@@ -13,6 +13,7 @@ import {
 } from "@/lib/pro-forma-ending-cash"
 import {
   forecastActualColumnCount,
+  forecastActualExtraColumnCount,
   forecastDisplayToConfigYearIndex,
   forecastYearLabelsForLayout,
   incomeStatementFiscalYearTotalsByYear,
@@ -33,6 +34,8 @@ import {
   type ProFormaImpactRawAmounts,
 } from "@/lib/pro-forma-financial-impact"
 import { findRow } from "@/lib/series-utils"
+import { findNetIncomeSeriesRow } from "@/lib/projected-net-income-year-totals"
+import { normLabel } from "@/lib/income-statement-structure-utils"
 import type { SeriesPeriod, SeriesRow } from "@/lib/api"
 
 function nMinusOneFiscalYearAmount(
@@ -46,6 +49,34 @@ function nMinusOneFiscalYearAmount(
   const n1 = lastCompletedFiscalYearEnd(refMonth, refYear, fiscalYearEndMonth)
   const v = incomeStatementFiscalYearTotalsByYear(row, periods, [n1], fiscalYearEndMonth)[n1.year]
   return typeof v === "number" && Number.isFinite(v) ? v : null
+}
+
+/** CMV parent (libellés singulier/pluriel, avec/sans accents). */
+function findCmvSeriesRow(rows: SeriesRow[]): SeriesRow | undefined {
+  return (
+    findRow(rows, "CMV") ||
+    findRow(rows, "cout des produits vendus") ||
+    findRow(rows, "coût des produits vendus") ||
+    findRow(rows, "couts des produits vendus") ||
+    findRow(rows, "coûts des produits vendus") ||
+    rows.find((r) => {
+      const id = String(r.id ?? "").toUpperCase()
+      if (id === "CMV") return true
+      const n = normLabel(String(r.label ?? ""))
+      return n.includes("cout des produits vendus") || n.includes("couts des produits vendus")
+    })
+  )
+}
+
+function findGrossProfitSeriesRow(rows: SeriesRow[]): SeriesRow | undefined {
+  return (
+    findRow(rows, "bénéfice brut") ||
+    findRow(rows, "benefice brut") ||
+    rows.find((r) => {
+      const n = normLabel(String(r.label ?? ""))
+      return n === "benefice brut" || n === "benefices bruts"
+    })
+  )
 }
 
 /**
@@ -166,6 +197,85 @@ export function useProFormaFinancialImpact(opts: {
     refMonth,
   ])
 
+  /** N-1 = dernier exercice fiscal complet (jamais le YTD partiel). */
+  const nMinusOneCmv = useMemo(
+    () =>
+      nMinusOneFiscalYearAmount(
+        findCmvSeriesRow(incomeStatementSeriesRows),
+        incomeStatementPeriods,
+        refMonth,
+        forecastBaseYear,
+        fiscalYearEndMonth,
+      ),
+    [
+      fiscalYearEndMonth,
+      forecastBaseYear,
+      incomeStatementPeriods,
+      incomeStatementSeriesRows,
+      refMonth,
+    ],
+  )
+
+  const nMinusOneGrossProfit = useMemo(
+    () =>
+      nMinusOneFiscalYearAmount(
+        findGrossProfitSeriesRow(incomeStatementSeriesRows),
+        incomeStatementPeriods,
+        refMonth,
+        forecastBaseYear,
+        fiscalYearEndMonth,
+      ),
+    [
+      fiscalYearEndMonth,
+      forecastBaseYear,
+      incomeStatementPeriods,
+      incomeStatementSeriesRows,
+      refMonth,
+    ],
+  )
+
+  const nMinusOneNetIncome = useMemo(
+    () =>
+      nMinusOneFiscalYearAmount(
+        findNetIncomeSeriesRow(incomeStatementSeriesRows) ?? undefined,
+        incomeStatementPeriods,
+        refMonth,
+        forecastBaseYear,
+        fiscalYearEndMonth,
+      ),
+    [
+      fiscalYearEndMonth,
+      forecastBaseYear,
+      incomeStatementPeriods,
+      incomeStatementSeriesRows,
+      refMonth,
+    ],
+  )
+
+  const nMinusOneBaiia = useMemo(
+    () =>
+      nMinusOneFiscalYearAmount(
+        findRow(incomeStatementSeriesRows, "BAIIA") ||
+          incomeStatementSeriesRows.find((r) => r.isEBITA === true),
+        incomeStatementPeriods,
+        refMonth,
+        forecastBaseYear,
+        fiscalYearEndMonth,
+      ),
+    [
+      fiscalYearEndMonth,
+      forecastBaseYear,
+      incomeStatementPeriods,
+      incomeStatementSeriesRows,
+      refMonth,
+    ],
+  )
+
+  const nMinusOneExpenseHypothesis = useMemo(() => {
+    if (lastActualRevenue == null || nMinusOneBaiia == null) return null
+    return lastActualRevenue - nMinusOneBaiia
+  }, [lastActualRevenue, nMinusOneBaiia])
+
   const { totals: cmvTotals, loading: cmvLoading } = useProjectedCmvYearTotals({
     companyId,
     projectionId,
@@ -175,14 +285,13 @@ export function useProFormaFinancialImpact(opts: {
     forecastActualLayout: layoutEffective,
     refMonth,
     fiscalYearEndMonth,
-    lastActualCmv: 0,
+    lastActualCmv: nMinusOneCmv ?? 0,
     lastActualRevenue,
   })
 
   const {
     totals: netIncomeTotals,
     expenseHypothesisTotals,
-    lastActualNetIncome,
     loading: niLoading,
   } = useProjectedNetIncomeYearTotals({
     companyId,
@@ -320,84 +429,47 @@ export function useProFormaFinancialImpact(opts: {
     projected,
   ])
 
-  const nMinusOneCmv = useMemo(
-    () =>
-      nMinusOneFiscalYearAmount(
-        findRow(incomeStatementSeriesRows, "CMV") ||
-          findRow(incomeStatementSeriesRows, "coût des produits vendus"),
-        incomeStatementPeriods,
-        refMonth,
-        forecastBaseYear,
-        fiscalYearEndMonth,
-      ),
-    [
-      fiscalYearEndMonth,
-      forecastBaseYear,
-      incomeStatementPeriods,
-      incomeStatementSeriesRows,
-      refMonth,
-    ],
-  )
-
-  const nMinusOneBaiia = useMemo(
-    () =>
-      nMinusOneFiscalYearAmount(
-        findRow(incomeStatementSeriesRows, "BAIIA") ||
-          incomeStatementSeriesRows.find((r) => r.isEBITA === true),
-        incomeStatementPeriods,
-        refMonth,
-        forecastBaseYear,
-        fiscalYearEndMonth,
-      ),
-    [
-      fiscalYearEndMonth,
-      forecastBaseYear,
-      incomeStatementPeriods,
-      incomeStatementSeriesRows,
-      refMonth,
-    ],
-  )
-
-  const nMinusOneExpenseHypothesis = useMemo(() => {
-    if (lastActualRevenue == null || nMinusOneBaiia == null) return null
-    return lastActualRevenue - nMinusOneBaiia
-  }, [lastActualRevenue, nMinusOneBaiia])
-
   const buildRawAmountsAtDisplayIndex = useMemo(() => {
-    return (index: number): ProFormaImpactRawAmounts => ({
-      revenue: pickImpactConfigAmount(
-        revenueTotals,
-        index,
-        forecastActualCols,
-        forecastDisplayToConfigYearIndex,
-        lastActualRevenue,
-      ),
-      cmv: pickImpactConfigAmount(
-        cmvTotals,
-        index,
-        forecastActualCols,
-        forecastDisplayToConfigYearIndex,
-        nMinusOneCmv,
-      ),
-      netIncome: pickImpactConfigAmount(
-        netIncomeTotals,
-        index,
-        forecastActualCols,
-        forecastDisplayToConfigYearIndex,
-        lastActualNetIncome,
-      ),
-      expenseHypothesisTotal: pickImpactConfigAmount(
-        expenseHypothesisTotals,
-        index,
-        forecastActualCols,
-        forecastDisplayToConfigYearIndex,
-        nMinusOneExpenseHypothesis,
-      ),
-      cashOperating: pickDisplayYearAmount(cashTrends.operating, index),
-      cashInvesting: pickDisplayYearAmount(cashTrends.investing, index),
-      cashFinancing: pickDisplayYearAmount(cashTrends.financing, index),
-      endingCash: pickDisplayYearAmount(cashTrends.ending, index),
-    })
+    return (index: number): ProFormaImpactRawAmounts => {
+      const isNMinusOneCol =
+        index === 0 && forecastActualExtraColumnCount(forecastActualCols) > 0
+      return {
+        revenue: pickImpactConfigAmount(
+          revenueTotals,
+          index,
+          forecastActualCols,
+          forecastDisplayToConfigYearIndex,
+          lastActualRevenue,
+        ),
+        cmv: pickImpactConfigAmount(
+          cmvTotals,
+          index,
+          forecastActualCols,
+          forecastDisplayToConfigYearIndex,
+          nMinusOneCmv,
+        ),
+        netIncome: pickImpactConfigAmount(
+          netIncomeTotals,
+          index,
+          forecastActualCols,
+          forecastDisplayToConfigYearIndex,
+          nMinusOneNetIncome,
+        ),
+        expenseHypothesisTotal: pickImpactConfigAmount(
+          expenseHypothesisTotals,
+          index,
+          forecastActualCols,
+          forecastDisplayToConfigYearIndex,
+          nMinusOneExpenseHypothesis,
+        ),
+        // Priorité à la ligne série « Bénéfice brut » pour N-1 (évite CMV introuvable).
+        grossProfit: isNMinusOneCol ? nMinusOneGrossProfit : undefined,
+        cashOperating: pickDisplayYearAmount(cashTrends.operating, index),
+        cashInvesting: pickDisplayYearAmount(cashTrends.investing, index),
+        cashFinancing: pickDisplayYearAmount(cashTrends.financing, index),
+        endingCash: pickDisplayYearAmount(cashTrends.ending, index),
+      }
+    }
   }, [
     revenueTotals,
     cmvTotals,
@@ -407,8 +479,9 @@ export function useProFormaFinancialImpact(opts: {
     forecastActualCols,
     lastActualRevenue,
     nMinusOneCmv,
-    lastActualNetIncome,
+    nMinusOneNetIncome,
     nMinusOneExpenseHypothesis,
+    nMinusOneGrossProfit,
   ])
 
   const prevDisplayIdx = previousImpactDisplayIndex(displayIdx, forecastActualCols)
