@@ -166,6 +166,13 @@ import {
   isBalanceSheetValidationStructureRow,
 } from "@/lib/balance-sheet-validation"
 import { computeProFormaEndingCashTrend } from "@/lib/pro-forma-ending-cash"
+import {
+  buildProFormaMonthlyProjectedLabels,
+  expandBilanHypothesisRowsToMonthly,
+  expandConfigYearTotalsToMonthly,
+  interpolateProjectedAnnualTrendToMonthly,
+  type ProFormaIsColumnHorizon,
+} from "@/lib/pro-forma-monthly-bs"
 import { useProFormaCashFlowProjected } from "@/hooks/use-pro-forma-cash-flow-projected"
 import { structureUsesCashFlowTinCostMode } from "@/lib/cash-flow-detail-settings"
 import {
@@ -298,6 +305,8 @@ interface BalanceSheetDetailProps {
    * (moteur d’hypothèses), même si le titre reste « Bilan pro forma ».
    */
   forceBilanHypothesisAmounts?: boolean
+  /** Pro Forma Bilan : colonnes annuelles ou mensuelles (années projetées). */
+  forecastColumnHorizon?: import("@/lib/pro-forma-monthly-bs").ProFormaIsColumnHorizon
 }
 
 interface BalanceAccount {
@@ -371,6 +380,7 @@ export function BalanceSheetDetail({
   periodBasis = "current",
   projectionId = null,
   forceBilanHypothesisAmounts = false,
+  forecastColumnHorizon = "annual",
 }: BalanceSheetDetailProps) {
   // Montants = Estimation du Bilan ; édition seulement sur la carte Hypothèses Bilan.
   const isHypothesisSection =
@@ -387,7 +397,10 @@ export function BalanceSheetDetail({
   )
   const forecastActualCols = forecastActualColumnCount(forecastActualLayoutEffective)
   const forecastYearColumnCount = forecastDisplayYearCount(projectionYears, forecastActualLayoutEffective)
-  const isForecastHistoricalColumn = (idx: number) => isForecastSection && idx < forecastActualCols
+  const isForecastHistoricalColumn = (idx: number) =>
+    isForecastSection && forecastColumnHorizon !== "monthly" && idx < forecastActualCols
+  const isProFormaMonthlyYearsView =
+    isForecastSection && forecastColumnHorizon === "monthly" && view === "years"
 
   useNotesCache(companyId ?? null)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
@@ -1227,6 +1240,12 @@ export function BalanceSheetDetail({
   const {
     resolveProjectedAmount: resolveCapexBilanProjectedAmount,
     peerRows: capexPeerRows,
+    adjustments: capexAdjustments,
+    depreciationRates: capexDepreciationRates,
+    depreciationMethods: capexDepreciationMethods,
+    costByRowId: capexCostByRowId,
+    configYearCount: capexConfigYearCount,
+    projectedRevenueYearTotals: capexProjectedRevenueYearTotals,
   } = useCapexForecastForBilan({
     companyId,
     projectionId,
@@ -1439,6 +1458,38 @@ export function BalanceSheetDetail({
     periodTaxExpenseByDisplayYear,
     taxPaymentFrequency,
   ])
+
+  const projectedRevenueMonthly = useMemo(
+    () => expandConfigYearTotalsToMonthly(projectedRevenueYearTotals, projectionYears),
+    [projectedRevenueYearTotals, projectionYears],
+  )
+
+  const projectedCmvMonthly = useMemo(
+    () => expandConfigYearTotalsToMonthly(projectedCmvYearTotals, projectionYears),
+    [projectedCmvYearTotals, projectionYears],
+  )
+
+  const periodNetIncomeMonthly = useMemo(
+    () =>
+      interpolateProjectedAnnualTrendToMonthly(
+        periodNetIncomeByDisplayYear,
+        forecastActualCols,
+        projectionYears,
+      ),
+    [periodNetIncomeByDisplayYear, forecastActualCols, projectionYears],
+  )
+
+  const endingCashMonthly = useMemo(
+    () =>
+      endingCashTrend?.length
+        ? interpolateProjectedAnnualTrendToMonthly(
+            endingCashTrend,
+            forecastActualCols,
+            projectionYears,
+          )
+        : [],
+    [endingCashTrend, forecastActualCols, projectionYears],
+  )
 
   const taxExigibleBaseTrends = useMemo(() => {
     const empty = { asset: [] as number[], liability: [] as number[] }
@@ -2009,6 +2060,30 @@ export function BalanceSheetDetail({
         { isSubtotal: row.isSubtotal },
       ),
     )
+    if (isProFormaMonthlyYearsView && title === "Bilan pro forma") {
+      const annualRows = data
+      data = expandBilanHypothesisRowsToMonthly(annualRows, {
+        forecastActualCols,
+        projectionYears,
+        configYearCount: capexConfigYearCount,
+        bilanAdjustments,
+        projectedRevenueMonthly,
+        projectedCmvMonthly,
+        periodNetIncomeMonthly,
+        endingCashMonthly,
+        periodTaxExpenseByDisplayYear,
+        periodTaxPaidByDisplayYear,
+        taxExigibleBaseTrends,
+        capexAdjustments,
+        capexDepreciationRates,
+        capexDepreciationMethods,
+        projectedRevenueYearTotals: capexProjectedRevenueYearTotals,
+        capexPeerRows,
+        costByRowId: capexCostByRowId,
+        getAnnualDisplayAmount: (row, displayYearIndex) =>
+          row.trendValues?.[displayYearIndex] ?? 0,
+      })
+    }
   }
 
   /** Validation (Total actif − Total passifs+CP) — même logique que le Bilan Sommaire. */
@@ -2271,6 +2346,9 @@ export function BalanceSheetDetail({
   const getYearLabels = (): string[] => {
     if (isForecastSection) {
       const baseYear = forecastBaseYear ?? refYear ?? new Date().getFullYear()
+      if (forecastColumnHorizon === "monthly") {
+        return buildProFormaMonthlyProjectedLabels(baseYear, projectionYears)
+      }
       return forecastYearLabelsForLayout(
         forecastActualLayoutEffective,
         baseYear,
@@ -2714,7 +2792,9 @@ export function BalanceSheetDetail({
               <th
                 className={cn(
                   "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
-                  view === "12months" ? "min-w-[20rem] sm:min-w-[24rem] lg:min-w-[30rem]" : "w-2/5"
+                  view === "12months" || isProFormaMonthlyYearsView
+                  ? "min-w-[20rem] sm:min-w-[24rem] lg:min-w-[30rem]"
+                  : "w-2/5"
                 )}
               >
                 Compte

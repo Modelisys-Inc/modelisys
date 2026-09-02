@@ -138,24 +138,6 @@ export default function ResourcesPage() {
                     {"Valeur = \u03A3 FCF/(1+r)^t"}
                   </p>
                 </div>
-                <div className="rounded-lg border border-slate-200 p-4">
-                  <h4 className="font-semibold text-foreground mb-1">CCF (Capitalisation des flux)</h4>
-                  <p className="text-sm text-muted-foreground mb-2">
-                    Capitalisation d&apos;un flux de trésorerie normalisé à un taux de capitalisation.
-                  </p>
-                  <p className="text-xs font-mono bg-slate-50 rounded px-2 py-1 text-slate-600 inline-block">
-                    Valeur = Flux normalisé / Taux de capitalisation
-                  </p>
-                </div>
-                <div className="rounded-lg border border-slate-200 p-4 sm:col-span-2">
-                  <h4 className="font-semibold text-foreground mb-1">VCA (Valeur Comptable Ajustée)</h4>
-                  <p className="text-sm text-muted-foreground mb-2">
-                    Ajustement de la valeur comptable des actifs et passifs à leur juste valeur marchande.
-                  </p>
-                  <p className="text-xs font-mono bg-slate-50 rounded px-2 py-1 text-slate-600 inline-block">
-                    Valeur comptable ajustée à la JVM
-                  </p>
-                </div>
               </div>
             </CardContent>
           </Card>

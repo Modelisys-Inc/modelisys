@@ -12,19 +12,9 @@ import { Calculator, DollarSign, TrendingUp, Filter, AlertTriangle, Percent, Act
 import { formatCurrency } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
+import { ValuationPlanBackButton } from "@/components/valuation-plan-back-button"
 import { getIncomeStatement, listCompanies, listForecastConfigs, upsertForecastConfig, type Company as ApiCompany } from "@/lib/api"
-
-const evaluationNav = [
-  { label: "Modele d'affaires", href: "/evaluation/business-model" },
-  { label: "Multiple du BAIIA", href: "/evaluation/ebitda-multiple" },
-  { label: "Actif Corporel Net", href: "/evaluation/net-tangible-assets" },
-  { label: "DCF", href: "/evaluation/dcf" },
-  { label: "CCF", href: "/evaluation/ccf" },
-  { label: "VCA", href: "/evaluation/vca" },
-]
 
 interface YearData {
   year: number
@@ -49,7 +39,6 @@ const DEFAULT_ASSUMPTIONS: DcfAssumptions = {
 
 export default function DCFPage() {
   const { companies } = useCompanies()
-  const pathname = usePathname()
   const [hasAcceptedDisclaimer, setHasAcceptedDisclaimer] = useState<boolean>(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
@@ -419,38 +408,13 @@ export default function DCFPage() {
           <div className="flex items-start gap-3 mb-8">
             <div className="w-2"></div>
             <div className="flex-1">
-              <h2 className="text-4xl font-normal text-white mb-2 tracking-tight">Actualisation des flux de tresorerie (DCF)</h2>
+              <ValuationPlanBackButton className="text-slate-300 hover:bg-white/5 hover:text-white" />
+              <h2 className="text-4xl font-normal text-white mb-2 tracking-tight">Actualisation</h2>
               <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
                 Evaluez la valeur de votre entreprise en actualisant les flux de tresorerie disponibles (Free Cash Flow)
                 projetes sur un horizon de 5 ans, puis en ajoutant la valeur terminale actualisee. Ajustez le CMPC,
                 le taux de croissance terminal et les hypotheses fiscales pour affiner votre estimation.
               </p>
-              {/* Navigation Menu */}
-              <div className="flex items-end gap-8 mb-2">
-                {evaluationNav.map((item) => {
-                  const isActive = pathname === item.href
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className="relative pb-4 border-b border-slate-600/30"
-                    >
-                      <span
-                        className={`text-sm font-normal transition-colors ${
-                          isActive
-                            ? "text-white"
-                            : "text-slate-300 hover:text-white"
-                        }`}
-                      >
-                        {item.label}
-                      </span>
-                      {isActive && (
-                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
-                      )}
-                    </Link>
-                  )
-                })}
-              </div>
             </div>
           </div>
 

@@ -5,6 +5,12 @@ import {
   isCompanyConfigurationLinkActive,
   isCompanyConfigurationPath,
 } from "@/lib/company-configuration-navigation"
+import {
+  COMPANY_REPORT_NAV_ITEMS,
+  appendReportNavHref,
+  isReportNavLinkActive,
+  isReportNavPath,
+} from "@/lib/company-module-navigation"
 import { FINANCIAL_TOOLS_NAV_ITEMS } from "@/lib/financial-tools-navigation"
 
 describe("company configuration navigation", () => {
@@ -49,5 +55,28 @@ describe("financial tools navigation", () => {
       "Valorisation",
       "Documentation",
     ])
+  })
+})
+
+describe("report navigation", () => {
+  it("expose Diagnostic et Pilotage sans Planification", () => {
+    expect(COMPANY_REPORT_NAV_ITEMS.map((i) => i.label)).toEqual(["Diagnostic", "Pilotage"])
+    expect(COMPANY_REPORT_NAV_ITEMS.map((i) => i.label)).not.toContain("Planification")
+  })
+
+  it("construit les hrefs avec companyId", () => {
+    const id = "11111111-1111-1111-1111-111111111111"
+    expect(appendReportNavHref("/modules/diagnostic", { companyId: id })).toBe(
+      `/modules/diagnostic?companyId=${id}`,
+    )
+  })
+
+  it("détecte les pages actives du menu Rapport", () => {
+    expect(isReportNavPath("/modules/diagnostic")).toBe(true)
+    expect(isReportNavPath("/modules/diagnostic/abc")).toBe(true)
+    expect(isReportNavPath("/modules/pilotage")).toBe(true)
+    expect(isReportNavPath("/modules/planification")).toBe(false)
+    expect(isReportNavLinkActive("/modules/pilotage", { href: "/modules/pilotage" })).toBe(true)
+    expect(isReportNavLinkActive("/modules/diagnostic", { href: "/modules/pilotage" })).toBe(false)
   })
 })

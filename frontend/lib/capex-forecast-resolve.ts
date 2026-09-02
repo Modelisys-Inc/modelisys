@@ -2,8 +2,10 @@
  * Résolution Hypothèses Capex (Estimation Capex ↔ Estimation du Bilan).
  *
  * Affichage projeté = valeur comptable (Coût − Amortissement cumulé).
- * Ajustement = ajout au Coût ; la dotation suit le taux / la méthode du poste.
- * Sans ajustement, la VNC se projette quand même via l’amortissement annuel.
+ * Ajustement = ajout au Coût ; la dotation suit le taux / la méthode du poste
+ * via une **simulation mensuelle** (taux/12 après chaque mois d’ajout) — même
+ * logique que le Sommaire Hypothèse Capex ; l’annuel = somme / clôture des mois.
+ * Sans ajustement, la VNC se projette quand même via l’amortissement mensuel.
  */
 
 import {
@@ -11,6 +13,12 @@ import {
   capexProjectionParentRoot,
   isCapexProjectionLinkCode,
 } from "@/lib/standard-link-code-utils"
+import { simulateCapexAssetYearMonths } from "@/lib/capex-asset-monthly"
+import { distributeAnnualBySeasonality } from "@/lib/forecast-hypothesis-summary-utils"
+import {
+  createDefaultForecastSeasonalityMonthPercents,
+  normalizeForecastSeasonalityMonthPercents,
+} from "@/lib/forecast-seasonality-utils"
 
 export const CAPEX_FORECAST_CONFIG_TYPE = "capex-forecast"
 
@@ -132,14 +140,18 @@ export function hasCapexGrowthAdjustment(
 
 /** Taux d’amortissement par défaut selon le libellé du poste (aligné UI Capex). */
 export function defaultCapexDepreciationRate(label: string): number {
-  if (label.includes("Location-acquisition") || label.includes("Biens loués")) return 0
-  if (label.includes("Terrains")) return 0
-  if (label.includes("Constructions") || label.includes("Terrains et constructions")) return 2.5
-  if (label.includes("Matériel") || label.includes("équipement")) return 10
-  if (label.includes("Véhicules")) return 20
-  if (label.includes("Brevets") || label.includes("licences")) return 5
-  if (label.includes("Logiciels") || label.includes("développement")) return 33.33
-  if (label.includes("Fonds commercial")) return 0
+  const n = String(label ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+  if (n.includes("location-acquisition") || n.includes("biens loues")) return 0
+  if (n.includes("terrains") && !n.includes("constructions")) return 0
+  if (n.includes("constructions") || n.includes("terrains et constructions")) return 2.5
+  if (n.includes("materiel") || n.includes("equipement")) return 10
+  if (n.includes("vehicules")) return 20
+  if (n.includes("brevets") || n.includes("licences")) return 5
+  if (n.includes("logiciels") || n.includes("developpement")) return 33.33
+  if (n.includes("fonds commercial")) return 0
   return 8
 }
 
@@ -167,7 +179,8 @@ export function resolveCapexDepreciationMethod(
 }
 
 /**
- * Dotation annuelle.
+ * Dotation annuelle (une fois) — conservée pour compat / affichages ponctuels.
+ * Le moteur projeté (`buildCapexAssetYearStates`) utilise `simulateCapexAssetYearMonths`.
  * - Linéaire : taux × coût brut (plafonné à la VNC avant dotation).
  * - Dégressif : taux × VNC avant dotation.
  */
@@ -185,6 +198,55 @@ export function computeCapexDepreciationExpense(params: {
       ? Math.round(book * (ratePercent / 100))
       : Math.round(Math.max(0, cost) * (ratePercent / 100))
   return Math.min(Math.max(0, raw), book)
+}
+
+export type { CapexAssetMonthState } from "@/lib/capex-asset-monthly"
+export { simulateCapexAssetYearMonths } from "@/lib/capex-asset-monthly"
+
+/** Saisonnalité des ajouts Capex (décaissement / reconnaissance) pour l’année. */
+export function resolveCapexAdditionSeasonalityMonthPercents(
+  rowId: string,
+  yearIndex: number,
+  adjustments: Record<string, CapexAdjustment[]>,
+): number[] {
+  const defaultSeasonality = createDefaultForecastSeasonalityMonthPercents()
+  if (!rowId || yearIndex < 1) return defaultSeasonality
+
+  for (let y = yearIndex; y >= 1; y--) {
+    const list = getCapexAdjustmentsForKey(adjustments, rowId, y).filter(
+      isCapexHypothesisGrowthAdjustment,
+    )
+    const contributions: { weight: number; monthPercents: number[] }[] = []
+    for (const adj of list) {
+      const raw = adj.seasonalityMonthPercents
+      if (!Array.isArray(raw) || raw.length !== 12) continue
+      const amount =
+        adj.type === "amount" || adj.type === "percentRevenue"
+          ? Math.max(0, Math.round(Number(adj.value) || 0))
+          : 1
+      contributions.push({
+        weight: Math.max(1, amount),
+        monthPercents: normalizeForecastSeasonalityMonthPercents(raw.map((x) => Number(x))),
+      })
+    }
+    if (contributions.length === 1) return contributions[0]!.monthPercents
+    if (contributions.length > 1) {
+      const weighted = Array.from({ length: 12 }, () => 0)
+      let totalW = 0
+      for (const c of contributions) {
+        totalW += c.weight
+        for (let m = 0; m < 12; m++) {
+          weighted[m]! += (c.monthPercents[m]! / 100) * c.weight
+        }
+      }
+      if (totalW > 0) {
+        return normalizeForecastSeasonalityMonthPercents(
+          weighted.map((w) => (w / totalW) * 100),
+        )
+      }
+    }
+  }
+  return defaultSeasonality
 }
 
 function resolveSingleCapexAdjustmentAmount(
@@ -378,22 +440,25 @@ export function buildCapexAssetYearStates(params: {
           )
     additionsTrend.push(additions)
 
-    const cost = prev.cost + additions
-    const bookBeforeDep = cost - prev.accumulatedDepreciation
-    const depreciationExpense = computeCapexDepreciationExpense({
-      cost,
-      bookValueBeforeDepreciation: bookBeforeDep,
+    const seasonality = resolveCapexAdditionSeasonalityMonthPercents(
+      rowId,
+      yearIndex,
+      adjustments,
+    )
+    const monthlyAdditions = distributeAnnualBySeasonality(additions, seasonality)
+    const sim = simulateCapexAssetYearMonths({
+      openingCost: prev.cost,
+      openingBookValue: prev.bookValue,
+      monthlyAdditions,
       ratePercent,
       method,
     })
-    const accumulatedDepreciation = prev.accumulatedDepreciation + depreciationExpense
-    const bookValue = cost - accumulatedDepreciation
     states.push({
-      cost,
-      accumulatedDepreciation,
-      bookValue,
+      cost: sim.endingCost,
+      accumulatedDepreciation: sim.endingAccumulatedDepreciation,
+      bookValue: sim.endingBookValue,
       additions,
-      depreciationExpense,
+      depreciationExpense: sim.depreciationExpense,
     })
   }
 
@@ -412,6 +477,67 @@ export function buildCapexBookValueTrend(params: {
   additionsOverrides?: Record<number, number>
 }): number[] {
   return buildCapexAssetYearStates(params).map((s) => s.bookValue)
+}
+
+/** VNC de clôture mensuelle (12 × années projetées) — même moteur que Hypothèses Capex. */
+export function buildCapexBookValueMonthlyTrend(params: {
+  rowId: string
+  configYearCount: number
+  openingCost: number
+  openingBookValue: number
+  adjustments: Record<string, CapexAdjustment[]>
+  ratePercent: number
+  method: CapexDepreciationMethod
+  projectedRevenueYearTotals?: number[] | null
+  additionsOverrides?: Record<number, number>
+}): number[] {
+  const {
+    rowId,
+    configYearCount,
+    openingCost,
+    openingBookValue,
+    adjustments,
+    ratePercent,
+    method,
+    projectedRevenueYearTotals,
+    additionsOverrides,
+  } = params
+  const opening = normalizeCapexOpeningBalances({ openingCost, openingBookValue })
+  let prevCost = opening.cost
+  let prevBook = opening.bookValue
+  const additionsTrend: number[] = [0]
+  const months: number[] = []
+
+  for (let yearIndex = 1; yearIndex < configYearCount; yearIndex++) {
+    const additions =
+      additionsOverrides?.[yearIndex] !== undefined
+        ? Math.round(additionsOverrides[yearIndex]!)
+        : resolveCapexAdditionsForYear(
+            rowId,
+            yearIndex,
+            0,
+            opening.bookValue,
+            adjustments,
+            projectedRevenueYearTotals,
+            additionsTrend,
+          )
+    additionsTrend.push(additions)
+    const seasonality = resolveCapexAdditionSeasonalityMonthPercents(rowId, yearIndex, adjustments)
+    const monthlyAdditions = distributeAnnualBySeasonality(additions, seasonality)
+    const sim = simulateCapexAssetYearMonths({
+      openingCost: prevCost,
+      openingBookValue: prevBook,
+      monthlyAdditions,
+      ratePercent,
+      method,
+    })
+    for (const state of sim.months) {
+      months.push(state.bookValue)
+    }
+    prevCost = sim.endingCost
+    prevBook = sim.endingBookValue
+  }
+  return months
 }
 
 /** @deprecated Prefer buildCapexBookValueTrend — conserve l’ancien sens « ajouts ». */
@@ -873,7 +999,7 @@ function isCapexPeerLeafAmongPeers(peer: CapexBilanPeerRow, peerRows: CapexBilan
   })
 }
 
-function depreciationExpenseForCapexKey(params: {
+function depreciationMonthsForCapexKey(params: {
   key: string
   linkCode?: string | null
   openingBook: number
@@ -885,31 +1011,51 @@ function depreciationExpenseForCapexKey(params: {
   depreciationRates: Record<string, number>
   depreciationMethods: Record<string, CapexDepreciationMethod>
   projectedRevenueYearTotals?: number[] | null
-}): number {
-  if (params.configYearIndex <= 0) return 0
+}): number[] {
+  const zeros = () => Array.from({ length: 12 }, () => 0)
+  if (params.configYearIndex <= 0) return zeros()
+  const ratePercent = resolveCapexDepreciationRate(
+    params.key,
+    params.label,
+    params.depreciationRates,
+    params.linkCode,
+  )
+  const method = resolveCapexDepreciationMethod(
+    params.key,
+    params.depreciationMethods,
+    params.linkCode,
+  )
   const states = buildCapexAssetYearStates({
     rowId: params.key,
     configYearCount: params.configYearCount,
     openingCost: params.openingCost,
     openingBookValue: params.openingBook,
     adjustments: params.adjustments,
-    ratePercent: resolveCapexDepreciationRate(
-      params.key,
-      params.label,
-      params.depreciationRates,
-      params.linkCode,
-    ),
-    method: resolveCapexDepreciationMethod(params.key, params.depreciationMethods, params.linkCode),
+    ratePercent,
+    method,
     projectedRevenueYearTotals: params.projectedRevenueYearTotals,
   })
-  return states[params.configYearIndex]?.depreciationExpense ?? 0
+  const yearIndex = params.configYearIndex
+  const prev = states[yearIndex - 1]
+  const yearState = states[yearIndex]
+  if (!prev || !yearState) return zeros()
+  const seasonality = resolveCapexAdditionSeasonalityMonthPercents(
+    params.key,
+    yearIndex,
+    params.adjustments,
+  )
+  const monthlyAdditions = distributeAnnualBySeasonality(yearState.additions, seasonality)
+  const sim = simulateCapexAssetYearMonths({
+    openingCost: prev.cost,
+    openingBookValue: prev.bookValue,
+    monthlyAdditions,
+    ratePercent,
+    method,
+  })
+  return sim.months.map((m) => m.depreciation)
 }
 
-/**
- * Dotation d’exercice (pas l’amort. cumulé) projetée pour un code amortissement CDR
- * = somme des dotations des postes Capex feuilles dont le Code sélectionné = ce code CDR.
- */
-export function resolveCapexDrivenDepreciationExpense(params: {
+type ResolveCapexDrivenDepreciationParams = {
   isLinkCode: string | null | undefined
   configYearIndex: number
   configYearCount: number
@@ -919,7 +1065,15 @@ export function resolveCapexDrivenDepreciationExpense(params: {
   amortizationLinkCodes?: Record<string, string>
   projectedRevenueYearTotals?: number[] | null
   peerRows: CapexBilanPeerRow[]
-}): number {
+}
+
+/**
+ * Dotation mensuelle (12 mois) pour un code amortissement CDR — même moteur que
+ * Hypothèses Capex Sommaire (`simulateCapexAssetYearMonths` + saisonnalité d’ajouts).
+ */
+export function resolveCapexDrivenDepreciationExpenseMonthly(
+  params: ResolveCapexDrivenDepreciationParams,
+): number[] {
   const {
     isLinkCode,
     configYearIndex,
@@ -932,8 +1086,9 @@ export function resolveCapexDrivenDepreciationExpense(params: {
     peerRows,
   } = params
 
+  const zeros = () => Array.from({ length: 12 }, () => 0)
   const target = normalizeLinkCode(isLinkCode)
-  if (!target || configYearIndex <= 0) return 0
+  if (!target || configYearIndex <= 0) return zeros()
 
   const leafPeers = peerRows.filter((p) => isCapexPeerLeafAmongPeers(p, peerRows))
   const peerByKey = new Map<string, CapexBilanPeerRow>()
@@ -943,10 +1098,10 @@ export function resolveCapexDrivenDepreciationExpense(params: {
     if (lc) peerByKey.set(lc, peer)
   }
 
-  let sum = 0
+  const months = zeros()
   const seen = new Set<string>()
 
-  const addPeerDep = (peer: CapexBilanPeerRow) => {
+  const addPeerDepMonths = (peer: CapexBilanPeerRow) => {
     if (seen.has(peer.rowId)) return
     seen.add(peer.rowId)
     const resolveKey = hasCapexGrowthAdjustment(adjustments, peer.rowId, configYearIndex)
@@ -955,7 +1110,7 @@ export function resolveCapexDrivenDepreciationExpense(params: {
         ? peer.linkCode
         : peer.rowId
     const cost = peer.actualCostBase ?? peer.actualBase
-    sum += depreciationExpenseForCapexKey({
+    const peerMonths = depreciationMonthsForCapexKey({
       key: resolveKey,
       linkCode: peer.linkCode,
       openingBook: peer.actualBase,
@@ -968,16 +1123,17 @@ export function resolveCapexDrivenDepreciationExpense(params: {
       depreciationMethods,
       projectedRevenueYearTotals,
     })
+    for (let i = 0; i < 12; i++) {
+      months[i] = (months[i] ?? 0) + (peerMonths[i] ?? 0)
+    }
   }
 
-  // 1) Partir des codes enregistrés (clés = rowId Capex et/ou linkCode ALT-*).
   for (const [key, code] of Object.entries(amortizationLinkCodes)) {
     if (normalizeLinkCode(code) !== target) continue
     const peer = peerByKey.get(key) ?? peerByKey.get(normalizeLinkCode(key))
-    if (peer) addPeerDep(peer)
+    if (peer) addPeerDepMonths(peer)
   }
 
-  // 2) Repli : peers dont le code résolu matche (si seule une clé alias est présente).
   for (const peer of leafPeers) {
     const assigned = resolveCapexAmortizationLinkCode(
       peer.rowId,
@@ -985,8 +1141,18 @@ export function resolveCapexDrivenDepreciationExpense(params: {
       amortizationLinkCodes,
     )
     if (!assigned || assigned !== target) continue
-    addPeerDep(peer)
+    addPeerDepMonths(peer)
   }
 
-  return Math.round(sum)
+  return months
+}
+
+/**
+ * Dotation d’exercice (pas l’amort. cumulé) projetée pour un code amortissement CDR
+ * = somme des dotations des postes Capex feuilles dont le Code sélectionné = ce code CDR.
+ */
+export function resolveCapexDrivenDepreciationExpense(
+  params: ResolveCapexDrivenDepreciationParams,
+): number {
+  return resolveCapexDrivenDepreciationExpenseMonthly(params).reduce((a, b) => a + b, 0)
 }

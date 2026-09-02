@@ -169,6 +169,14 @@ export function LandingAudiencesSection() {
 
   return (
     <section id="pour-qui" ref={sectionRef} className="relative scroll-mt-36 z-10 overflow-x-clip">
+      <div aria-hidden className="relative h-12 overflow-hidden bg-slate-50 sm:h-14">
+        <svg viewBox="0 0 1440 80" preserveAspectRatio="none" className="absolute inset-x-0 bottom-0 h-full w-full">
+          <path
+            d="M0,0 L1440,0 L1440,80 C1080,20 720,55 360,35 C180,25 90,15 0,45 Z"
+            fill="#2A2F3A"
+          />
+        </svg>
+      </div>
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
           <div className="bg-[#2A2F3A] lg:border-r lg:border-white/5" />

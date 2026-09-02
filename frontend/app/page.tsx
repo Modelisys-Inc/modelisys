@@ -3,7 +3,9 @@ import { LandingHashScroll } from "@/components/landing-hash-scroll"
 import { GlassmorphismNav } from "@/components/glassmorphism-nav"
 import { HeroSection } from "@/components/hero-section"
 import { HeroMarquee } from "@/components/hero-marquee"
+import { LandingBusinessReturnSection } from "@/components/landing-business-return-section"
 import { LandingAudiencesSection } from "@/components/landing-audiences-section"
+import { LandingApprocheSection } from "@/components/landing-approche-section"
 import { ProblemSolutionSection } from "@/components/problem-solution-section"
 import { ExcelFrustrationsMarquee } from "@/components/excel-frustrations-marquee"
 import { LandingBlogTeaserSection } from "@/components/landing-blog-teaser-section"
@@ -41,9 +43,11 @@ export default function LandingPage() {
               />
             </svg>
           </section>
-          <LandingAudiencesSection />
+          <LandingBusinessReturnSection />
+          <LandingApprocheSection />
           <ProblemSolutionSection />
           <ExcelFrustrationsMarquee />
+          <LandingAudiencesSection />
           <LandingBlogTeaserSection />
           <PlatformSetupSection />
           <PostFeaturesSection />

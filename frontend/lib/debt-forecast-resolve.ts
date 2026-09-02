@@ -7,7 +7,7 @@
  * (les intérêts ne réduisent pas le principal — sinon soldes LT négatifs).
  */
 
-import { calculateLoanYearAmortization } from "@/lib/debt-amortization-utils"
+import { calculateLoanYearAmortization, calculateLoanYearMonthlyInterest } from "@/lib/debt-amortization-utils"
 import {
   isDebtHypothesisDefined,
   type DebtForecastLoan,
@@ -170,6 +170,37 @@ export function interestIsLinkCodeForDebtLinkCode(
 }
 
 /**
+ * Intérêts mensuels (12 mois) pour un code CDR Frais financiers —
+ * même calendrier que le Tableau des versements Hypothèses Financement.
+ */
+export function resolveDebtDrivenInterestExpenseMonthly(params: {
+  isLinkCode: string | null | undefined
+  configYearIndex: number
+  loans: DebtForecastLoan[]
+}): number[] {
+  const zeros = () => Array.from({ length: 12 }, () => 0)
+  const { isLinkCode, configYearIndex, loans } = params
+  if (configYearIndex <= 0) return zeros()
+
+  const pltRoot = debtLinkCodeForInterestIsLinkCode(isLinkCode)
+  if (!pltRoot) return zeros()
+
+  const amortYear = debtAmortYearIndexFromBilanConfigYear(configYearIndex)
+  if (amortYear == null) return zeros()
+
+  const months = zeros()
+  for (const loan of loans) {
+    if (!isDebtHypothesisDefined(loan)) continue
+    if (!debtLoanMatchesBilanLinkCode(loan.sourceLinkCode, pltRoot)) continue
+    const loanMonths = calculateLoanYearMonthlyInterest(loan, amortYear)
+    for (let i = 0; i < 12; i++) {
+      months[i] = (months[i] ?? 0) + (loanMonths[i] ?? 0)
+    }
+  }
+  return months
+}
+
+/**
  * Intérêts de période (pas le capital) pour un code CDR Frais financiers :
  * somme des `interestPayment` des emprunts PLT-C (FIN.3) ou PLT-D (FIN.4).
  */
@@ -178,22 +209,5 @@ export function resolveDebtDrivenInterestExpense(params: {
   configYearIndex: number
   loans: DebtForecastLoan[]
 }): number {
-  const { isLinkCode, configYearIndex, loans } = params
-  if (configYearIndex <= 0) return 0
-
-  const pltRoot = debtLinkCodeForInterestIsLinkCode(isLinkCode)
-  if (!pltRoot) return 0
-
-  const amortYear = debtAmortYearIndexFromBilanConfigYear(configYearIndex)
-  if (amortYear == null) return 0
-
-  let sum = 0
-  for (const loan of loans) {
-    if (!isDebtHypothesisDefined(loan)) continue
-    if (!debtLoanMatchesBilanLinkCode(loan.sourceLinkCode, pltRoot)) continue
-    const year = calculateLoanYearAmortization(loan, amortYear)
-    if (!year) continue
-    sum += year.interestPayment
-  }
-  return Math.round(sum)
+  return resolveDebtDrivenInterestExpenseMonthly(params).reduce((a, b) => a + b, 0)
 }

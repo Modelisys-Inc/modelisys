@@ -2,30 +2,28 @@
 
 import { useState, useEffect, useMemo } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector } from "@/components/entity-selector"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { Calculator, DollarSign, BarChart3, Building2, Info, Plus, Minus, Filter, TrendingUp, AlertTriangle, Settings } from "lucide-react"
+import { Calculator, DollarSign, BarChart3, Building2, Info, Plus, Minus, TrendingUp, AlertTriangle, Settings } from "lucide-react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from "recharts"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
+import { ValuationPlanBackButton } from "@/components/valuation-plan-back-button"
+import {
+  dashboardCardAccentBarClass,
+  dashboardCardBodyMutedClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardRingClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 import { listEbitdaNotes, upsertEbitdaNote, getIncomeStatement, listCompanies, listForecastConfigs, upsertForecastConfig, type Company as ApiCompany } from "@/lib/api"
 import { generateId } from "@/lib/seeded-random"
-
-const evaluationNav = [
-  { label: "Modèle d'affaires", href: "/evaluation/business-model" },
-  { label: "Multiple du BAIIA", href: "/evaluation/ebitda-multiple" },
-  { label: "Actif Corporel Net", href: "/evaluation/net-tangible-assets" },
-  { label: "DCF", href: "/evaluation/dcf" },
-  { label: "CCF", href: "/evaluation/ccf" },
-  { label: "VCA", href: "/evaluation/vca" },
-]
 
 interface Adjustment {
   id: string
@@ -43,18 +41,13 @@ interface EBITDAYear {
 
 export default function EBITDAMultiplePage() {
   const { companies } = useCompanies()
-  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const companyIdFromUrl = searchParams.get("companyId")
+  const lockedCompanyId =
+    companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
+  const companyId = lockedCompanyId || companies[0]?.id || null
+
   const [hasAcceptedDisclaimer, setHasAcceptedDisclaimer] = useState<boolean>(false)
-  const [companyId, setCompanyId] = useState<string | null>(null)
-  const [divisionId, setDivisionId] = useState<string | null>(null)
-  const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
-  
-  // Auto-select first company
-  useEffect(() => {
-    if (!companyId && companies.length > 0) {
-      setCompanyId(companies[0].id)
-    }
-  }, [companies, companyId])
 
   // Check if disclaimer was accepted in session storage
   useEffect(() => {
@@ -122,9 +115,7 @@ export default function EBITDAMultiplePage() {
       getIncomeStatement(companyId, {
         fiscal_year: fy,
         period: "annual",
-        ...(divisionId ? { division_id: divisionId } : {}),
-        ...(subDivisionId ? { sub_division_id: subDivisionId } : {}),
-      }).catch(() => null)
+        }).catch(() => null)
     )
 
     Promise.all(promises).then(results => {
@@ -172,7 +163,7 @@ export default function EBITDAMultiplePage() {
     })
 
     return () => { cancelled = true }
-  }, [companyId, divisionId, subDivisionId, lastCompleteFY])
+  }, [companyId, lastCompleteFY])
 
   // Helper to get revenue for a given year
   const getRevenueForYear = (year: number): number => {
@@ -274,9 +265,7 @@ export default function EBITDAMultiplePage() {
       upsertEbitdaNote(companyId, {
         note_type: "adjustment",
         data: updatedNotes as Record<string, unknown>,
-        division_id: divisionId,
-        sub_division_id: subDivisionId,
-      }).catch(console.error)
+        }).catch(console.error)
     }
   }
 
@@ -331,9 +320,7 @@ export default function EBITDAMultiplePage() {
         upsertEbitdaNote(companyId, {
           note_type: "adjustment",
           data: updatedAdjNotes as Record<string, unknown>,
-          division_id: divisionId,
-          sub_division_id: subDivisionId,
-        }).catch(console.error)
+          }).catch(console.error)
       }
     } else {
       // Editing name only - no amount or note changes
@@ -358,9 +345,7 @@ export default function EBITDAMultiplePage() {
 
     listForecastConfigs(companyId, {
       config_type: "ebitda-multiple-config",
-      ...(divisionId ? { division_id: divisionId } : {}),
-      ...(subDivisionId ? { sub_division_id: subDivisionId } : {}),
-    })
+      })
       .then((configs) => {
         if (cancelled) return
         if (configs.length > 0) {
@@ -381,7 +366,7 @@ export default function EBITDAMultiplePage() {
       .catch(() => setConfigLoaded(true))
 
     return () => { cancelled = true }
-  }, [companyId, divisionId, subDivisionId])
+  }, [companyId])
 
   // Debounced auto-save of adjustments + weights
   useEffect(() => {
@@ -396,12 +381,10 @@ export default function EBITDAMultiplePage() {
           weights: years.map(y => y.weight),
           isRepresentative: years.map(y => y.isRepresentative),
         } as Record<string, unknown>,
-        ...(divisionId ? { division_id: divisionId } : {}),
-        ...(subDivisionId ? { sub_division_id: subDivisionId } : {}),
-      }).catch(console.error)
+        }).catch(console.error)
     }, 800)
     return () => clearTimeout(timer)
-  }, [adjustments, lowMultiple, highMultiple, years, companyId, divisionId, subDivisionId, configLoaded])
+  }, [adjustments, lowMultiple, highMultiple, years, companyId, configLoaded])
 
   // Load all EBITDA notes from backend when entity changes
   useEffect(() => {
@@ -409,9 +392,7 @@ export default function EBITDAMultiplePage() {
     let cancelled = false
 
     listEbitdaNotes(companyId, {
-      division_id: divisionId || undefined,
-      sub_division_id: subDivisionId || undefined,
-    })
+      })
       .then((notes) => {
         if (cancelled) return
         for (const note of notes) {
@@ -438,7 +419,7 @@ export default function EBITDAMultiplePage() {
       })
 
     return () => { cancelled = true }
-  }, [companyId, divisionId, subDivisionId])
+  }, [companyId])
 
   // Update adjustment name
   const updateAdjustmentName = (adjustmentId: string, name: string) => {
@@ -467,11 +448,13 @@ export default function EBITDAMultiplePage() {
   }
 
   // Open weight modal
-  const openWeightModal = (index: number) => {
+  const openWeightModal = (year: number) => {
+    const index = years.findIndex((y) => y.year === year)
+    if (index < 0) return
     setEditingWeightIndex(index)
     // Convert decimal (0-1) to percentage (0-100) for display
     setWeightModalValue(years[index].weight * 100)
-    setWeightNote(weightNotes[years[index].year] || "")
+    setWeightNote(weightNotes[year] || "")
     setWeightModalOpen(true)
   }
 
@@ -494,9 +477,7 @@ export default function EBITDAMultiplePage() {
       upsertEbitdaNote(companyId, {
         note_type: "weight",
         data: updatedWeightNotes as Record<string, unknown>,
-        division_id: divisionId,
-        sub_division_id: subDivisionId,
-      }).catch(console.error)
+        }).catch(console.error)
     }
     
     // Close modal
@@ -536,9 +517,7 @@ export default function EBITDAMultiplePage() {
       upsertEbitdaNote(companyId, {
         note_type: "range",
         data: updatedRangeNotes as Record<string, unknown>,
-        division_id: divisionId,
-        sub_division_id: subDivisionId,
-      }).catch(console.error)
+        }).catch(console.error)
     }
     
     // Close modal
@@ -578,9 +557,7 @@ export default function EBITDAMultiplePage() {
       upsertEbitdaNote(companyId, {
         note_type: "multiple",
         data: updatedMultipleNotes as Record<string, unknown>,
-        division_id: divisionId,
-        sub_division_id: subDivisionId,
-      }).catch(console.error)
+        }).catch(console.error)
     }
     
     // Close modal
@@ -603,9 +580,12 @@ export default function EBITDAMultiplePage() {
   // Calculate 5-year average (all years)
   const average5Years = years.reduce((sum, y) => sum + y.adjustedEBITDA, 0) / years.length
 
-  // Calculate 3-year average (last 3 years)
+  // Calculate 3-year average (last 3 complete years chronologically)
   const last3Years = years.slice(-3)
   const average3Years = last3Years.reduce((sum, y) => sum + y.adjustedEBITDA, 0) / last3Years.length
+
+  /** Colonnes tableau : plus récent → plus ancien (l'état `years` reste chronologique). */
+  const displayYears = useMemo(() => [...years].reverse(), [years])
 
   // State for BAIIA range selection
   const [lowEBITDARange, setLowEBITDARange] = useState<number>(() => {
@@ -715,7 +695,7 @@ export default function EBITDAMultiplePage() {
               </Button>
               <Button
                 onClick={handleAcceptDisclaimer}
-                className="bg-slate-900 hover:bg-slate-800 text-white px-8"
+                className="bg-[#E0742D] hover:bg-[#c96526] text-white px-8"
               >
                 J'ai compris, continuer
               </Button>
@@ -727,101 +707,57 @@ export default function EBITDAMultiplePage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
       <DashboardHeader title="Modelisys" />
-      
-      {/* Dark Header Section */}
-      <div className="w-full bg-slate-900 pt-15 pb-40">
-        <div className="max-w-[1920px] mx-auto px-6">
-          <div className="flex items-start gap-3 mb-8">
-            <div className="w-2"></div>
+
+      <div className="relative w-full pt-15 pb-32 overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+            <div className="bg-[#2A2F3A]" />
+            <div className="bg-[#2A2F3A]" />
+          </div>
+          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
+          </div>
+        </div>
+
+        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
+          <div className="flex items-start mb-4">
+            <div className="w-2 flex-shrink-0" />
             <div className="flex-1">
-              <h2 className="text-4xl font-normal text-white mb-2 tracking-tight">Multiple du BAIIA</h2>
-              <p className="text-base text-slate-300 mb-6">
+              <ValuationPlanBackButton />
+              <div className="mb-2">
+                <h2 className="text-4xl font-semibold tracking-tight text-[#E6D6C3]">
+                  Multiplicateur
+                </h2>
+              </div>
+              <p className="text-base text-[#C9B8A5]/90 mb-6">
                 Analysez le BAIIA ajusté sur 5 exercices et évaluez votre entreprise avec la méthode des multiples
               </p>
-              <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Analysez votre BAIIA ajusté sur les 5 derniers exercices, effectuez les ajustements nécessaires et déterminez 
-                la valeur d'entreprise en appliquant des multiples de marché. Utilisez cette méthode d'évaluation pour estimer 
-                la valeur de votre entreprise basée sur les performances financières ajustées.
-              </p>
-              {/* Navigation Menu - Style like income-statement page */}
-              <div className="flex items-end gap-8 mb-2">
-                {evaluationNav.map((item) => {
-                  const isActive = pathname === item.href
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className="relative pb-4 border-b border-slate-600/30"
-                    >
-                      <span
-                        className={`text-sm font-normal transition-colors ${
-                          isActive
-                            ? "text-white"
-                            : "text-slate-300 hover:text-white"
-                        }`}
-                      >
-                        {item.label}
-                      </span>
-                      {isActive && (
-                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
-                      )}
-                    </Link>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Controls Section */}
-          <div className="mb-6 p-4">
-            <div className="flex flex-wrap items-center gap-4">
-              {/* Filter Icon */}
-              <div className="flex items-center gap-2 text-slate-300">
-                <Filter className="w-4 h-4" />
-              </div>
-
-              {/* Separator */}
-              <div className="h-6 w-px bg-slate-700" />
-
-              {/* Entity Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Entité:</span>
-                <EntitySelector
-                  companies={companies}
-                  selectedCompanyId={companyId}
-                  selectedDivisionId={divisionId}
-                  selectedSubDivisionId={subDivisionId}
-                  onCompanyChange={setCompanyId}
-                  onDivisionChange={setDivisionId}
-                  onSubDivisionChange={setSubDivisionId}
-                />
-              </div>
             </div>
           </div>
         </div>
       </div>
 
       {/* Content - Overlapping section */}
-      <div className="relative -mt-32 mb-12">
+      <div className="relative -mt-24 mb-12">
         <div className="max-w-[1920px] mx-auto px-6">
 
         <div className="space-y-6">
-          {/* Main Section - EBITDA Analysis */}
           <div className="space-y-6">
-            {/* Historical EBITDA Table */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden mb-6">
-              {/* Header */}
-              <div className="bg-white px-8 py-6 border-b border-slate-200">
+            <div className={cn(dashboardCardFrameStaticClass, "mb-6")}>
+              <div className={dashboardCardRingClass} />
+              <div className={cn(dashboardCardHeaderBarClass, "px-8 py-6")}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
+                    <div className={cn("w-1 h-12 flex-shrink-0", dashboardCardAccentBarClass)} />
                     <div className="flex-1 min-w-0">
-                      <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">
+                      <h2 className={cn(dashboardCardTitleClass, "text-xl mb-1")}>
                         Analyse du BAIIA - 5 derniers exercices
                       </h2>
-                      <p className="text-sm text-slate-600">
+                      <p className={cn(dashboardCardBodyMutedClass, "text-sm")}>
                         Analysez le BAIIA sur 5 exercices et effectuez les ajustements nécessaires
                       </p>
                     </div>
@@ -830,7 +766,7 @@ export default function EBITDAMultiplePage() {
                     onClick={addAdjustment}
                     size="sm"
                     variant="outline"
-                    className="h-8 text-xs border-slate-300 text-slate-700 hover:bg-slate-50"
+                    className="h-8 text-xs border-slate-700/70 text-[#2A2F3A] hover:border-[#E0742D]/55 hover:bg-slate-50"
                   >
                     <Plus className="w-3.5 h-3.5 mr-1.5" />
                     Ajouter un ajustement
@@ -844,7 +780,7 @@ export default function EBITDAMultiplePage() {
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200">
                       <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Métrique</th>
-                      {years.map((year) => (
+                      {displayYears.map((year) => (
                         <th
                           key={year.year}
                           className={cn(
@@ -865,7 +801,7 @@ export default function EBITDAMultiplePage() {
                             <span className="text-xs font-normal text-slate-500">(États des résultats)</span>
                           </div>
                         </td>
-                        {years.map((year) => (
+                        {displayYears.map((year) => (
                           <td
                             key={`revenue-${year.year}`}
                             className={cn(
@@ -882,7 +818,7 @@ export default function EBITDAMultiplePage() {
                       {/* Empty Row */}
                       <tr className="border-b border-slate-200">
                         <td className="px-6 py-2"></td>
-                        {years.map((year) => (
+                        {displayYears.map((year) => (
                           <td key={`empty-${year.year}`} className="px-4 py-2"></td>
                         ))}
                       </tr>
@@ -895,7 +831,7 @@ export default function EBITDAMultiplePage() {
                             <span className="text-xs font-normal text-slate-500">(États des résultats)</span>
                           </div>
                         </td>
-                        {years.map((year) => (
+                        {displayYears.map((year) => (
                           <td
                             key={`ebitda-${year.year}`}
                             className={cn(
@@ -914,7 +850,7 @@ export default function EBITDAMultiplePage() {
                         <td className="px-6 py-3 text-slate-600 italic">
                           +/- Ajustements
                         </td>
-                        {years.map((year) => (
+                        {displayYears.map((year) => (
                           <td key={`adjustments-label-${year.year}`} className="px-4 py-3"></td>
                         ))}
                       </tr>
@@ -935,7 +871,7 @@ export default function EBITDAMultiplePage() {
                                 </button>
                               </div>
                             </td>
-                            {years.map((year) => {
+                            {displayYears.map((year) => {
                               const yearHasNote = adjustmentNotes[adjustment.id]?.[year.year] && adjustmentNotes[adjustment.id][year.year].trim().length > 0
                               return (
                                 <td
@@ -975,7 +911,7 @@ export default function EBITDAMultiplePage() {
                       {/* BAIIA ajusté Row */}
                       <tr className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-3 font-semibold text-slate-900">BAIIA ajusté</td>
-                        {years.map((year) => (
+                        {displayYears.map((year) => (
                           <td
                             key={`adjusted-${year.year}`}
                             className={cn(
@@ -994,7 +930,7 @@ export default function EBITDAMultiplePage() {
                         <td className="px-6 py-3 text-slate-600 italic">
                           BAIIA ajusté en % des revenus
                         </td>
-                        {years.map((year) => {
+                        {displayYears.map((year) => {
                           const revenue = getRevenueForYear(year.year)
                           const marginPercent = revenue > 0 ? (year.adjustedEBITDA / revenue) * 100 : 0
                           return (
@@ -1015,7 +951,7 @@ export default function EBITDAMultiplePage() {
                       {/* Pondération Row */}
                       <tr className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-3 font-semibold text-slate-900">Pondération</td>
-                        {years.map((year, index) => {
+                        {displayYears.map((year) => {
                           const hasNote = weightNotes[year.year] && weightNotes[year.year].trim().length > 0
                           return (
                             <td
@@ -1029,7 +965,7 @@ export default function EBITDAMultiplePage() {
                                   {(year.weight * 100).toFixed(0)}%
                                 </span>
                                 <button
-                                  onClick={() => openWeightModal(index)}
+                                  onClick={() => openWeightModal(year.year)}
                                   className={cn(
                                     "p-1 rounded hover:bg-slate-200 transition-colors relative",
                                     hasNote && "text-blue-600"
@@ -1073,54 +1009,61 @@ export default function EBITDAMultiplePage() {
         </div>
       </div>
 
-      {/* Dark Section between cards */}
-      <div className="w-full bg-slate-900 pt-12 pb-40">
-        <div className="max-w-[1920px] mx-auto px-6">
+      <div className="relative w-full pt-12 pb-32 overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 bg-[#2A2F3A]" />
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
+          </div>
+        </div>
+        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
           <div className="flex items-start gap-3">
-            <div className="w-2 flex-shrink-0"></div>
+            <div className="w-2 flex-shrink-0" />
             <div className="flex-1">
               <div className="flex items-start justify-between mb-6">
                 <div className="flex-1">
-                  <h3 className="text-2xl font-normal text-white mb-3">Détermination de la fourchette du BAIIA</h3>
-                  <p className="text-base text-slate-300 leading-relaxed max-w-4xl">
-                    Analysez les différentes moyennes et définissez votre fourchette de BAIIA ajusté pour déterminer la valeur d'entreprise avec la méthode des multiples.
+                  <h3 className="text-2xl font-semibold tracking-tight text-[#E6D6C3] mb-3">
+                    Détermination de la fourchette du BAIIA
+                  </h3>
+                  <p className="text-base text-[#C9B8A5]/90 leading-relaxed max-w-4xl">
+                    Analysez les différentes moyennes et définissez votre fourchette de BAIIA ajusté pour déterminer la valeur d&apos;entreprise avec la méthode des multiples.
                   </p>
                 </div>
                 <div className="flex items-center gap-4 ml-8">
                   <div className="text-right">
-                    <div className="text-sm text-slate-400 mb-1">BAIIA moyen</div>
-                    <div className="text-3xl font-semibold text-white">{formatCurrency((lowEBITDARange + highEBITDARange) / 2)}</div>
+                    <div className="text-sm text-[#C9B8A5]/70 mb-1">BAIIA moyen</div>
+                    <div className="text-3xl font-semibold text-[#E6D6C3]">{formatCurrency((lowEBITDARange + highEBITDARange) / 2)}</div>
                   </div>
                 </div>
               </div>
-              
-              {/* Top 3 Metrics */}
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-4">
-                  <div className="text-xs text-slate-400 mb-1">Moyenne pondérée</div>
-                  <div className="text-lg font-semibold text-white mb-1">BAIIA ajusté</div>
+                <div className="rounded-2xl border border-white/10 bg-[#2A2F3A]/45 p-4 backdrop-blur-sm">
+                  <div className="text-xs text-[#C9B8A5]/70 mb-1">Moyenne pondérée</div>
+                  <div className="text-lg font-semibold text-[#E6D6C3] mb-1">BAIIA ajusté</div>
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-500" />
-                    <span className="text-sm font-medium text-emerald-500">{formatCurrency(weightedAverageEBITDA)}</span>
-                    <span className="text-xs text-slate-400">pondérée</span>
+                    <TrendingUp className="w-4 h-4 text-[#E0742D]" />
+                    <span className="text-sm font-medium text-[#E0742D]">{formatCurrency(weightedAverageEBITDA)}</span>
+                    <span className="text-xs text-[#C9B8A5]/70">pondérée</span>
                   </div>
                 </div>
-                <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-4">
-                  <div className="text-xs text-slate-400 mb-1">Moyenne 3 ans</div>
-                  <div className="text-lg font-semibold text-white mb-1">BAIIA ajusté</div>
+                <div className="rounded-2xl border border-white/10 bg-[#2A2F3A]/45 p-4 backdrop-blur-sm">
+                  <div className="text-xs text-[#C9B8A5]/70 mb-1">Moyenne 3 ans</div>
+                  <div className="text-lg font-semibold text-[#E6D6C3] mb-1">BAIIA ajusté</div>
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-500" />
-                    <span className="text-sm font-medium text-emerald-500">{formatCurrency(average3Years)}</span>
-                    <span className="text-xs text-slate-400">3 dernières années</span>
+                    <TrendingUp className="w-4 h-4 text-[#E0742D]" />
+                    <span className="text-sm font-medium text-[#E0742D]">{formatCurrency(average3Years)}</span>
+                    <span className="text-xs text-[#C9B8A5]/70">3 dernières années</span>
                   </div>
                 </div>
-                <div className="bg-slate-800/50 rounded-lg border border-slate-700 p-4">
-                  <div className="text-xs text-slate-400 mb-1">Moyenne 5 ans</div>
-                  <div className="text-lg font-semibold text-white mb-1">BAIIA ajusté</div>
+                <div className="rounded-2xl border border-white/10 bg-[#2A2F3A]/45 p-4 backdrop-blur-sm">
+                  <div className="text-xs text-[#C9B8A5]/70 mb-1">Moyenne 5 ans</div>
+                  <div className="text-lg font-semibold text-[#E6D6C3] mb-1">BAIIA ajusté</div>
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-emerald-500" />
-                    <span className="text-sm font-medium text-emerald-500">{formatCurrency(average5Years)}</span>
-                    <span className="text-xs text-slate-400">5 dernières années</span>
+                    <TrendingUp className="w-4 h-4 text-[#E0742D]" />
+                    <span className="text-sm font-medium text-[#E0742D]">{formatCurrency(average5Years)}</span>
+                    <span className="text-xs text-[#C9B8A5]/70">5 dernières années</span>
                   </div>
                 </div>
               </div>
@@ -1129,20 +1072,19 @@ export default function EBITDAMultiplePage() {
         </div>
       </div>
 
-      {/* BAIIA Range Determination Card - Overlaps dark section */}
-      <div className="relative -mt-40 mb-12">
+      <div className="relative -mt-24 mb-12">
         <div className="max-w-[1920px] mx-auto px-6">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-              {/* Header */}
-              <div className="bg-white px-8 py-6 border-b border-slate-200">
+          <div className={dashboardCardFrameStaticClass}>
+              <div className={dashboardCardRingClass} />
+              <div className={cn(dashboardCardHeaderBarClass, "px-8 py-6")}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
+                    <div className={cn("w-1 h-12 flex-shrink-0", dashboardCardAccentBarClass)} />
                     <div className="flex-1 min-w-0">
-                      <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">
+                      <h2 className={cn(dashboardCardTitleClass, "text-xl mb-1")}>
                         Détermination de la fourchette du BAIIA
                       </h2>
-                      <p className="text-sm text-slate-600">
+                      <p className={cn(dashboardCardBodyMutedClass, "text-sm")}>
                         Analysez les différentes moyennes et définissez votre fourchette de BAIIA ajusté
                       </p>
                     </div>
@@ -1312,8 +1254,8 @@ export default function EBITDAMultiplePage() {
                       <AreaChart data={enterpriseValueChartData}>
                         <defs>
                           <linearGradient id="colorEnterpriseValue" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#475569" stopOpacity={0.3}/>
-                            <stop offset="95%" stopColor="#475569" stopOpacity={0}/>
+                            <stop offset="5%" stopColor="#E0742D" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#E0742D" stopOpacity={0}/>
                           </linearGradient>
                         </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -1357,7 +1299,7 @@ export default function EBITDAMultiplePage() {
                         <Area
                           type="monotone"
                           dataKey="enterpriseValue"
-                          stroke="#475569"
+                          stroke="#E0742D"
                           strokeWidth={3}
                           fillOpacity={1}
                           fill="url(#colorEnterpriseValue)"

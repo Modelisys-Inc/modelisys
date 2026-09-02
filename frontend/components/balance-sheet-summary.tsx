@@ -1,6 +1,6 @@
 "use client"
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react"
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
@@ -86,6 +86,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { IncomeStatementNotePanel } from "@/components/income-statement-note-panel"
 import { Separator } from "@/components/ui/separator"
 import { getNoteByRowId, useNotesCache } from "@/lib/notes-storage"
@@ -148,6 +149,33 @@ import {
   forecastYearLabelsForLayout,
   resolveForecastActualLayout,
 } from "@/lib/pro-forma-forecast-columns"
+import {
+  collapseEquityForNetTangibleValuation,
+  isEquityTotalLabel,
+  isNetTangibleLiabilitiesAndActifNetLabel,
+  netTangibleValidationColumnAmount,
+  resolveNetTangibleActifNetVcaAcn,
+  resolveNetTangibleLiabilitiesAndActifNetVcaAcn,
+} from "@/lib/net-tangible-equity-display"
+import {
+  isNetTangibleRollupRow,
+  netTangibleRollupRowFromStructure,
+  resolveNetTangibleColumnRollups,
+} from "@/lib/net-tangible-column-rollup"
+import {
+  buildNetTangibleJvmCapexPosts,
+  computeNetTangibleJvmCapexAdjustment,
+  isNetTangibleJvmCapexRootRow,
+  type NetTangibleJvmCapexPost,
+} from "@/lib/net-tangible-jvm-capex"
+import { NetTangibleJvmCapexEditor } from "@/components/net-tangible-jvm-capex-editor"
+import { NetTangibleSurplusEditor } from "@/components/net-tangible-surplus-editor"
+import {
+  buildNetTangibleSurplusPosts,
+  computeNetTangibleSurplusAssetsTotal,
+  type NetTangibleSurplusPost,
+} from "@/lib/net-tangible-surplus-assets"
+import type { NoteAttachmentData } from "@/lib/api"
 
 interface BalanceSheetSummaryProps {
   period: "monthly" | "quarterly" | "annual"
@@ -183,6 +211,49 @@ interface BalanceSheetSummaryProps {
   forecastActualLayout?: ForecastActualLayout
   /** Annuel / trimestriel : Courant (même mois / T3M) ou Exercice (FYE / trimestres fiscaux). */
   periodBasis?: StatementPeriodBasis
+  /** Valeur comptable ajustée : colonnes Ajustements / VCA / Dettes / Actifs / ACN après le montant de référence. */
+  netTangibleValuationColumns?: NetTangibleValuationColumnsConfig
+}
+
+export type NetTangibleValuationColumnValues = {
+  adjustments: number
+  debts: number
+  assets: number
+}
+
+export type NetTangibleValuationNotes = {
+  adjustments: string
+  debts: string
+  assets: string
+}
+
+export type NetTangibleValuationColumnsConfig = {
+  referenceColumnLabel: string
+  valuesByRowId: Record<string, NetTangibleValuationColumnValues>
+  notesByRowId?: Record<string, NetTangibleValuationNotes>
+  /** JVM par code d’annexe, indexé par rowId parent (ALT-B / ALT-C / ALT-D). */
+  jvmByCodeByRowId?: Record<string, Record<string, number>>
+  /** Notes par code d’annexe, indexées par rowId parent. */
+  jvmNotesByCodeByRowId?: Record<string, Record<string, string>>
+  /** Pièces jointes par code d’annexe, indexées par rowId parent. */
+  jvmAttachmentsByCodeByRowId?: Record<string, Record<string, NoteAttachmentData[]>>
+  /** Excédent par code d’annexe (ALT-B / ALT-C / ALT-D), indexé par rowId parent. */
+  excedentByCodeByRowId?: Record<string, Record<string, number>>
+  excedentNotesByCodeByRowId?: Record<string, Record<string, string>>
+  excedentAttachmentsByCodeByRowId?: Record<string, Record<string, NoteAttachmentData[]>>
+  onSaveHypothesis?: (
+    rowId: string,
+    values: NetTangibleValuationColumnValues,
+    notes: NetTangibleValuationNotes,
+    extras?: {
+      jvmByCode?: Record<string, number>
+      jvmNotesByCode?: Record<string, string>
+      jvmAttachmentsByCode?: Record<string, NoteAttachmentData[]>
+      excedentByCode?: Record<string, number>
+      excedentNotesByCode?: Record<string, string>
+      excedentAttachmentsByCode?: Record<string, NoteAttachmentData[]>
+    },
+  ) => void
 }
 
 interface SummaryRow {
@@ -290,7 +361,14 @@ export function BalanceSheetSummary({
   forecastUseSeriesActuals = false,
   forecastActualLayout = "single-prior-year",
   periodBasis = "current",
+  netTangibleValuationColumns,
 }: BalanceSheetSummaryProps) {
+  const isNetTangibleValuationMode = !!netTangibleValuationColumns
+  /** VCA : pas de contour carte — tableau pleine largeur (aligné bandeau KPI Pilotage). */
+  const isFlushLayout = isNetTangibleValuationMode
+  const summaryShellClass = isFlushLayout
+    ? "relative w-full"
+    : cn("w-full", dashboardCardFrameStaticClass)
   const isForecastSection = title === "Bilan pro forma"
   const fiscalYearEndMonth = parseFiscalYearEndMonth(
     companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
@@ -313,6 +391,22 @@ export function BalanceSheetSummary({
   const analysisCardRef = useRef<HTMLElement | null>(null)
   const analysisRowRefs = useRef<Record<string, HTMLTableRowElement | null>>({})
   const [structureEditMode, setStructureEditMode] = useState(false)
+  const [netTangibleHypothesisRowId, setNetTangibleHypothesisRowId] = useState<string | null>(null)
+  const [netTangibleHypothesisField, setNetTangibleHypothesisField] = useState<
+    keyof NetTangibleValuationColumnValues | null
+  >(null)
+  const [netTangibleHypothesisLabel, setNetTangibleHypothesisLabel] = useState("")
+  const [netTangibleDraftValue, setNetTangibleDraftValue] = useState(0)
+  const [netTangibleDraftNote, setNetTangibleDraftNote] = useState("")
+  const [netTangibleJvmDraftPosts, setNetTangibleJvmDraftPosts] = useState<NetTangibleJvmCapexPost[]>(
+    [],
+  )
+  const [netTangibleSurplusDraftPosts, setNetTangibleSurplusDraftPosts] = useState<
+    NetTangibleSurplusPost[]
+  >([])
+  const [netTangibleAnnexPanelMode, setNetTangibleAnnexPanelMode] = useState<
+    "jvm-capex" | "surplus" | null
+  >(null)
   const [addSpaceDialogOpen, setAddSpaceDialogOpen] = useState(false)
   const [addSpacePlacement, setAddSpacePlacement] = useState<"above" | "below">("above")
   const [addSpaceTargetIdx, setAddSpaceTargetIdx] = useState<number | null>(null)
@@ -687,7 +781,7 @@ export function BalanceSheetSummary({
   const isComparisonMode = isCompanyComparison || isDivisionComparison || isSubDivisionComparison
 
   const canInlineStructureEdit =
-    showBalanceSheetStructureSettings && !!companyId && !isComparisonMode
+    showBalanceSheetStructureSettings && !!companyId && !isComparisonMode && !isNetTangibleValuationMode
   const structEdit = useBalanceSheetStructureEdit(companyId ?? null, canInlineStructureEdit)
   const [standardCodesForFilter, setStandardCodesForFilter] = useState<StandardLinkCode[]>([])
   useEffect(() => {
@@ -807,14 +901,25 @@ export function BalanceSheetSummary({
   const showStructureColsEarly =
     structureEditMode && canInlineStructureEdit && !structEdit.loading
   const visibleData = useMemo(() => {
-    if (showStructureColsEarly || !presentationStructure.length) return data
-    return filterBalanceSheetSummaryRowsForHorizon(
-      data,
-      presentationStructure,
-      horizonView,
-      standardCodesForFilter
-    )
-  }, [showStructureColsEarly, presentationStructure, data, horizonView, standardCodesForFilter])
+    const base =
+      showStructureColsEarly || !presentationStructure.length
+        ? data
+        : filterBalanceSheetSummaryRowsForHorizon(
+            data,
+            presentationStructure,
+            horizonView,
+            standardCodesForFilter,
+          )
+    if (!isNetTangibleValuationMode) return base
+    return collapseEquityForNetTangibleValuation(base)
+  }, [
+    showStructureColsEarly,
+    presentationStructure,
+    data,
+    horizonView,
+    standardCodesForFilter,
+    isNetTangibleValuationMode,
+  ])
 
   const spacerTargetPosts = useMemo(() => {
     const s = structEdit.structure
@@ -1914,8 +2019,22 @@ export function BalanceSheetSummary({
     ? structEdit.summaryStructureDisplayIndices.length
     : visibleData.length
 
+  const netTangibleHypothesisOpenRowIndex = useMemo(() => {
+    if (!isNetTangibleValuationMode || !netTangibleHypothesisRowId) return null
+    const idx = visibleData.findIndex((row) => row.rowId === netTangibleHypothesisRowId)
+    return idx >= 0 ? idx : null
+  }, [isNetTangibleValuationMode, netTangibleHypothesisRowId, visibleData])
+
+  const netTangibleHypothesisPanelOpen = netTangibleHypothesisOpenRowIndex !== null
+
+  const effectiveTableRowCount =
+    netTangibleHypothesisOpenRowIndex !== null
+      ? netTangibleHypothesisOpenRowIndex + 1
+      : tableRowCount
+
   let summaryTableColumnCount = 2
   if (showStructureCols) summaryTableColumnCount = 8
+  else if (isNetTangibleValuationMode) summaryTableColumnCount = 7
   else if (view === "current") summaryTableColumnCount = 2
   else if (view === "comparison" || view === "ddm" || view === "ytd") {
     if (isComparisonMode) summaryTableColumnCount = 1 + entitiesToCompare.length
@@ -1976,10 +2095,293 @@ export function BalanceSheetSummary({
     }
   }
 
+  const netTangibleResolvedColumns = useMemo(() => {
+    if (!netTangibleValuationColumns) return null
+    const structure =
+      presentationStructure.length > 0 ? presentationStructure : structEdit.structure
+    // Rollup sur le bilan complet (avant collapse Capitaux propres → Actif net)
+    // pour que les totaux / Validation incluent bien les postes CP.
+    const rollupRows = data.map((row) =>
+      netTangibleRollupRowFromStructure(
+        row,
+        findSummaryStructureRow(row.rowId, row.label, structure) ?? null,
+      ),
+    )
+    const jvmCapexLeafIds = new Set(
+      rollupRows
+        .filter(
+          (row) =>
+            row.rowId &&
+            isNetTangibleJvmCapexRootRow({
+              linkCode: row.linkCode,
+              rowId: row.rowId,
+              label: row.label,
+            }),
+        )
+        .map((row) => row.rowId as string),
+    )
+    const amountsByRowId = resolveNetTangibleColumnRollups(
+      rollupRows,
+      netTangibleValuationColumns.valuesByRowId,
+      { treatAsLeafRowIds: jvmCapexLeafIds },
+    )
+    return {
+      amountsByRowId,
+      rollupRowIds: new Set(
+        rollupRows
+          .filter((row) => row.rowId && isNetTangibleRollupRow(row))
+          .map((row) => row.rowId as string),
+      ),
+    }
+  }, [
+    data,
+    netTangibleValuationColumns,
+    presentationStructure,
+    structEdit.structure,
+  ])
+
+  /** Actif net (VCA / ACN) = Total de l'actif − Total des passifs. */
+  const netTangibleActifNetOverride = useMemo(() => {
+    if (!netTangibleValuationColumns || !netTangibleResolvedColumns) return null
+    return resolveNetTangibleActifNetVcaAcn(data, netTangibleResolvedColumns.amountsByRowId)
+  }, [data, netTangibleResolvedColumns, netTangibleValuationColumns])
+
+  /** Total des passifs et de l'actif net (VCA / ACN) = Total des passifs + Actif net. */
+  const netTangibleLiabilitiesAndActifNetOverride = useMemo(() => {
+    if (!netTangibleValuationColumns || !netTangibleResolvedColumns) return null
+    return resolveNetTangibleLiabilitiesAndActifNetVcaAcn(
+      data,
+      netTangibleResolvedColumns.amountsByRowId,
+    )
+  }, [data, netTangibleResolvedColumns, netTangibleValuationColumns])
+
+  const netTangibleValidationEcarts = useMemo(() => {
+    if (!netTangibleValuationColumns || !netTangibleResolvedColumns) {
+      return { vca: null as number | null, acn: null as number | null }
+    }
+    const amountsByRowId = netTangibleResolvedColumns.amountsByRowId
+    const overrides = {
+      actifNet: netTangibleActifNetOverride,
+      liabilitiesAndActifNet: netTangibleLiabilitiesAndActifNetOverride,
+    }
+    const buildAmountRows = (field: "vca" | "acn") =>
+      data.map((row) => ({
+        label: row.label,
+        current: netTangibleValidationColumnAmount(row, amountsByRowId, field, overrides),
+        prior: 0,
+      }))
+    const buildLookup = (field: "vca" | "acn") =>
+      buildBalanceSheetValidationAmountLookup(fullStructure, buildAmountRows(field))
+    const fallback = (field: "vca" | "acn") => {
+      const amountRows = buildAmountRows(field)
+      return balanceSheetValidationEcart(
+        findBalanceSheetTotalAssetsRow(amountRows)?.current,
+        findBalanceSheetTotalLiabilitiesEquityRow(amountRows)?.current,
+      )
+    }
+    return {
+      vca: evaluateValidationFormulaCurrent(validationFormula, buildLookup("vca")) ?? fallback("vca"),
+      acn: evaluateValidationFormulaCurrent(validationFormula, buildLookup("acn")) ?? fallback("acn"),
+    }
+  }, [
+    data,
+    fullStructure,
+    netTangibleActifNetOverride,
+    netTangibleLiabilitiesAndActifNetOverride,
+    netTangibleResolvedColumns,
+    netTangibleValuationColumns,
+    validationFormula,
+  ])
+
+  const collectJvmCapexAnnexPosts = useCallback(
+    (rowId: string, rowLabel: string): NetTangibleJvmCapexPost[] => {
+      const structure =
+        presentationStructure.length > 0 ? presentationStructure : structEdit.structure
+      const parentStruct =
+        findSummaryStructureRow(rowId, rowLabel, structure) ?? null
+      if (!parentStruct) return []
+      const children = collectAnnexChildExpandRows({
+        parentStructRow: parentStruct,
+        structure,
+        apiRows: backendRows,
+        standardCodes: standardCodesForFilter,
+      })
+      const jvmByCode = netTangibleValuationColumns?.jvmByCodeByRowId?.[rowId]
+      const notesByCode = netTangibleValuationColumns?.jvmNotesByCodeByRowId?.[rowId]
+      const attachmentsByCode =
+        netTangibleValuationColumns?.jvmAttachmentsByCodeByRowId?.[rowId]
+      return buildNetTangibleJvmCapexPosts(children, jvmByCode, {
+        notesByCode,
+        attachmentsByCode,
+      })
+    },
+    [
+      backendRows,
+      netTangibleValuationColumns?.jvmAttachmentsByCodeByRowId,
+      netTangibleValuationColumns?.jvmByCodeByRowId,
+      netTangibleValuationColumns?.jvmNotesByCodeByRowId,
+      presentationStructure,
+      standardCodesForFilter,
+      structEdit.structure,
+    ],
+  )
+
+  const openNetTangibleHypothesisPanel = useCallback(
+    (rowId: string, rowLabel: string, field: keyof NetTangibleValuationColumnValues) => {
+      if (!netTangibleValuationColumns) return
+      const structure =
+        presentationStructure.length > 0 ? presentationStructure : structEdit.structure
+      const structRow = findSummaryStructureRow(rowId, rowLabel, structure)
+      const linkCode = structRow ? String(structRow.linkCode ?? "").trim() : ""
+      const isJvmCapexRoot = isNetTangibleJvmCapexRootRow({
+        linkCode,
+        rowId,
+        label: rowLabel,
+      })
+      const isJvmAdjustments = field === "adjustments" && isJvmCapexRoot
+      const isJvmAssets = field === "assets" && isJvmCapexRoot
+      if (!isJvmAdjustments && !isJvmAssets && netTangibleResolvedColumns?.rollupRowIds.has(rowId))
+        return
+
+      const values = netTangibleValuationColumns.valuesByRowId[rowId] ?? {
+        adjustments: 0,
+        debts: 0,
+        assets: 0,
+      }
+      const notes = netTangibleValuationColumns.notesByRowId?.[rowId] ?? {
+        adjustments: "",
+        debts: "",
+        assets: "",
+      }
+      setNetTangibleHypothesisRowId(rowId)
+      setNetTangibleHypothesisField(field)
+      setNetTangibleHypothesisLabel(rowLabel)
+      setNetTangibleDraftNote(notes[field] ?? "")
+      setLineAnalysis(null)
+
+      if (isJvmAdjustments) {
+        const posts = collectJvmCapexAnnexPosts(rowId, rowLabel)
+        setNetTangibleJvmDraftPosts(posts)
+        setNetTangibleSurplusDraftPosts([])
+        setNetTangibleAnnexPanelMode("jvm-capex")
+        setNetTangibleDraftValue(computeNetTangibleJvmCapexAdjustment(posts))
+      } else if (isJvmAssets) {
+        const jvmPosts = collectJvmCapexAnnexPosts(rowId, rowLabel)
+        const surplusPosts = buildNetTangibleSurplusPosts(
+          jvmPosts,
+          netTangibleValuationColumns.excedentByCodeByRowId?.[rowId],
+          {
+            notesByCode: netTangibleValuationColumns.excedentNotesByCodeByRowId?.[rowId],
+            attachmentsByCode:
+              netTangibleValuationColumns.excedentAttachmentsByCodeByRowId?.[rowId],
+          },
+        )
+        setNetTangibleSurplusDraftPosts(surplusPosts)
+        setNetTangibleJvmDraftPosts([])
+        setNetTangibleAnnexPanelMode("surplus")
+        setNetTangibleDraftValue(computeNetTangibleSurplusAssetsTotal(surplusPosts))
+      } else {
+        setNetTangibleAnnexPanelMode(null)
+        setNetTangibleJvmDraftPosts([])
+        setNetTangibleSurplusDraftPosts([])
+        setNetTangibleDraftValue(values[field] ?? 0)
+      }
+    },
+    [
+      collectJvmCapexAnnexPosts,
+      netTangibleResolvedColumns,
+      netTangibleValuationColumns,
+      presentationStructure,
+      structEdit.structure,
+    ],
+  )
+
+  const closeNetTangibleHypothesisPanel = useCallback(() => {
+    setNetTangibleHypothesisRowId(null)
+    setNetTangibleHypothesisField(null)
+    setNetTangibleHypothesisLabel("")
+    setNetTangibleDraftValue(0)
+    setNetTangibleDraftNote("")
+    setNetTangibleJvmDraftPosts([])
+    setNetTangibleSurplusDraftPosts([])
+    setNetTangibleAnnexPanelMode(null)
+  }, [])
+
+  const saveNetTangibleHypothesisPanel = useCallback(() => {
+    if (
+      !netTangibleHypothesisRowId ||
+      !netTangibleHypothesisField ||
+      !netTangibleValuationColumns?.onSaveHypothesis
+    ) {
+      return
+    }
+    const existingValues = netTangibleValuationColumns.valuesByRowId[netTangibleHypothesisRowId] ?? {
+      adjustments: 0,
+      debts: 0,
+      assets: 0,
+    }
+    const existingNotes = netTangibleValuationColumns.notesByRowId?.[netTangibleHypothesisRowId] ?? {
+      adjustments: "",
+      debts: "",
+      assets: "",
+    }
+
+    if (netTangibleAnnexPanelMode === "jvm-capex" && netTangibleHypothesisField === "adjustments") {
+      const adjustment = computeNetTangibleJvmCapexAdjustment(netTangibleJvmDraftPosts)
+      const jvmByCode: Record<string, number> = {}
+      const jvmNotesByCode: Record<string, string> = {}
+      const jvmAttachmentsByCode: Record<string, NoteAttachmentData[]> = {}
+      for (const post of netTangibleJvmDraftPosts) {
+        jvmByCode[post.code] = post.jvm
+        jvmNotesByCode[post.code] = post.note
+        jvmAttachmentsByCode[post.code] = post.attachments
+      }
+      netTangibleValuationColumns.onSaveHypothesis(
+        netTangibleHypothesisRowId,
+        { ...existingValues, adjustments: adjustment },
+        { ...existingNotes, adjustments: netTangibleDraftNote },
+        { jvmByCode, jvmNotesByCode, jvmAttachmentsByCode },
+      )
+    } else if (netTangibleAnnexPanelMode === "surplus" && netTangibleHypothesisField === "assets") {
+      const assetsTotal = computeNetTangibleSurplusAssetsTotal(netTangibleSurplusDraftPosts)
+      const excedentByCode: Record<string, number> = {}
+      const excedentNotesByCode: Record<string, string> = {}
+      const excedentAttachmentsByCode: Record<string, NoteAttachmentData[]> = {}
+      for (const post of netTangibleSurplusDraftPosts) {
+        excedentByCode[post.code] = post.excedent
+        excedentNotesByCode[post.code] = post.note
+        excedentAttachmentsByCode[post.code] = post.attachments
+      }
+      netTangibleValuationColumns.onSaveHypothesis(
+        netTangibleHypothesisRowId,
+        { ...existingValues, assets: assetsTotal },
+        { ...existingNotes, assets: netTangibleDraftNote },
+        { excedentByCode, excedentNotesByCode, excedentAttachmentsByCode },
+      )
+    } else {
+      netTangibleValuationColumns.onSaveHypothesis(
+        netTangibleHypothesisRowId,
+        { ...existingValues, [netTangibleHypothesisField]: netTangibleDraftValue },
+        { ...existingNotes, [netTangibleHypothesisField]: netTangibleDraftNote },
+      )
+    }
+    closeNetTangibleHypothesisPanel()
+  }, [
+    closeNetTangibleHypothesisPanel,
+    netTangibleDraftNote,
+    netTangibleDraftValue,
+    netTangibleHypothesisField,
+    netTangibleHypothesisRowId,
+    netTangibleJvmDraftPosts,
+    netTangibleSurplusDraftPosts,
+    netTangibleAnnexPanelMode,
+    netTangibleValuationColumns,
+  ])
+
   if (loading || (isMultiPeriod && seriesLoading) || entityDataLoading) {
     return (
-      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
-        <div className={dashboardCardRingClass} aria-hidden />
+      <div className={summaryShellClass}>
+        {!isFlushLayout && <div className={dashboardCardRingClass} aria-hidden />}
         <div className="relative px-8 py-16 text-center">
           <div className="animate-pulse space-y-4">
             <div className="mx-auto h-4 w-1/3 rounded bg-slate-200"></div>
@@ -1994,8 +2396,8 @@ export function BalanceSheetSummary({
 
   if (visibleData.length === 0) {
     return (
-      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
-        <div className={dashboardCardRingClass} aria-hidden />
+      <div className={summaryShellClass}>
+        {!isFlushLayout && <div className={dashboardCardRingClass} aria-hidden />}
         <div className="relative px-8 py-16 text-center">
           <p className={cn("text-sm", dashboardCardBodyMutedClass)}>
             Aucune donnée disponible. Veuillez importer une balance de vérification et configurer la structure des états financiers.
@@ -2010,7 +2412,11 @@ export function BalanceSheetSummary({
   const renderValidationEcartCell = (ecart: number | null | undefined, key?: string | number) => {
     if (ecart === null || ecart === undefined) {
       return (
-        <td key={key} className="px-6 py-2.5 text-right text-sm text-slate-400">
+        <td
+          key={key}
+          className="px-6 py-2.5 text-right text-sm text-slate-400"
+          data-testid={typeof key === "string" ? key : undefined}
+        >
           —
         </td>
       )
@@ -2028,15 +2434,281 @@ export function BalanceSheetSummary({
             ? "Bilan équilibré"
             : `Le bilan ne balance pas (écart ${formatCurrency(ecart)})`
         }
+        data-testid={typeof key === "string" ? key : undefined}
       >
         {formatCurrency(ecart)}
       </td>
     )
   }
 
+  const renderNetTangibleValuationCells = (
+    row: SummaryRow,
+    shouldHideAmounts: boolean,
+    isBoldRow: boolean,
+  ) => {
+    if (!netTangibleValuationColumns) return null
+    const values = row.rowId
+      ? netTangibleResolvedColumns?.amountsByRowId[row.rowId] ??
+        netTangibleValuationColumns.valuesByRowId[row.rowId]
+      : undefined
+    const adjustments = values?.adjustments ?? 0
+    const debts = values?.debts ?? 0
+    const assets = values?.assets ?? 0
+    let vca = row.current + adjustments
+    let acn = vca - debts - assets
+    if (isEquityTotalLabel(row.label) && netTangibleActifNetOverride) {
+      vca = netTangibleActifNetOverride.vca
+      acn = netTangibleActifNetOverride.acn
+    } else if (
+      isNetTangibleLiabilitiesAndActifNetLabel(row.label) &&
+      netTangibleLiabilitiesAndActifNetOverride
+    ) {
+      vca = netTangibleLiabilitiesAndActifNetOverride.vca
+      acn = netTangibleLiabilitiesAndActifNetOverride.acn
+    }
+    const isRollup = !!row.rowId && !!netTangibleResolvedColumns?.rollupRowIds.has(row.rowId)
+    const structureForJvm =
+      presentationStructure.length > 0 ? presentationStructure : structEdit.structure
+    const jvmStruct = row.rowId
+      ? findSummaryStructureRow(row.rowId, row.label, structureForJvm)
+      : undefined
+    const jvmLinkCode = jvmStruct ? String(jvmStruct.linkCode ?? "").trim() : ""
+    const isJvmCapexRoot = isNetTangibleJvmCapexRootRow({
+      linkCode: jvmLinkCode,
+      rowId: row.rowId,
+      label: row.label,
+    })
+    const editable =
+      !!row.rowId &&
+      !shouldHideAmounts &&
+      !isRollup &&
+      !!netTangibleValuationColumns.onSaveHypothesis
+    const adjustmentsEditable =
+      editable ||
+      (!!row.rowId &&
+        !shouldHideAmounts &&
+        isJvmCapexRoot &&
+        !!netTangibleValuationColumns.onSaveHypothesis)
+    const assetsEditable =
+      editable ||
+      (!!row.rowId &&
+        !shouldHideAmounts &&
+        isJvmCapexRoot &&
+        !!netTangibleValuationColumns.onSaveHypothesis)
+    const isFieldSelected = (field: keyof NetTangibleValuationColumnValues) => {
+      const canSelect =
+        field === "adjustments"
+          ? adjustmentsEditable
+          : field === "assets"
+            ? assetsEditable
+            : editable
+      return canSelect && netTangibleHypothesisRowId === row.rowId && netTangibleHypothesisField === field
+    }
+
+    const cellClass = (clickable: boolean, selected: boolean) =>
+      cn(
+        "px-6 py-3 text-right text-sm tabular-nums",
+        isBoldRow ? "font-semibold text-slate-900" : "text-slate-700",
+        shouldHideAmounts && "text-slate-400",
+        clickable && "cursor-pointer hover:bg-slate-50/90",
+        selected && "z-[1] bg-blue-50/50 shadow-[inset_0_0_0_2px_rgb(59,130,246)]",
+      )
+
+    const openPanel = (
+      event: MouseEvent,
+      field: keyof NetTangibleValuationColumnValues,
+      canOpen: boolean,
+    ) => {
+      event.stopPropagation()
+      if (!canOpen || !row.rowId) return
+      if (isFieldSelected(field)) {
+        closeNetTangibleHypothesisPanel()
+        return
+      }
+      openNetTangibleHypothesisPanel(row.rowId, row.label, field)
+    }
+
+    return (
+      <>
+        <td
+          className={cellClass(adjustmentsEditable, isFieldSelected("adjustments"))}
+          onClick={
+            adjustmentsEditable ? (e) => openPanel(e, "adjustments", adjustmentsEditable) : undefined
+          }
+          data-testid={row.rowId ? `nta-adj-${row.rowId}` : undefined}
+        >
+          {shouldHideAmounts ? "-" : formatCurrency(adjustments)}
+        </td>
+        <td className={cellClass(false, false)}>{shouldHideAmounts ? "-" : formatCurrency(vca)}</td>
+        <td
+          className={cellClass(editable, isFieldSelected("debts"))}
+          onClick={editable ? (e) => openPanel(e, "debts", editable) : undefined}
+          data-testid={row.rowId ? `nta-debt-${row.rowId}` : undefined}
+        >
+          {shouldHideAmounts ? "-" : formatCurrency(debts)}
+        </td>
+        <td
+          className={cellClass(assetsEditable, isFieldSelected("assets"))}
+          onClick={assetsEditable ? (e) => openPanel(e, "assets", assetsEditable) : undefined}
+          data-testid={row.rowId ? `nta-asset-${row.rowId}` : undefined}
+        >
+          {shouldHideAmounts ? "-" : formatCurrency(assets)}
+        </td>
+        <td className={cellClass(false, false)}>{shouldHideAmounts ? "-" : formatCurrency(acn)}</td>
+      </>
+    )
+  }
+
+  const renderNetTangibleValidationCells = () => {
+    if (!isNetTangibleValuationMode) return null
+    return (
+      <>
+        <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+        {renderValidationEcartCell(netTangibleValidationEcarts.vca, "nta-validation-vca")}
+        <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+        <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
+        {renderValidationEcartCell(netTangibleValidationEcarts.acn, "nta-validation-acn")}
+      </>
+    )
+  }
+
+  const parseCurrencyDraft = (raw: string): number => {
+    const cleaned = raw.replace(/[^\d-]/g, "")
+    if (cleaned === "" || cleaned === "-") return 0
+    return Number(cleaned)
+  }
+
+  const NET_TANGIBLE_FIELD_META: Record<
+    keyof NetTangibleValuationColumnValues,
+    { label: string; help: string }
+  > = {
+    adjustments: {
+      label: "Ajustements",
+      help: "Montant ajouté ou soustrait à la valeur comptable.",
+    },
+    debts: {
+      label: "Dettes",
+      help: "Montant de dettes à soustraire pour l’ACN.",
+    },
+    assets: {
+      label: "Actifs",
+      help: "Montant d’actifs à soustraire pour l’ACN.",
+    },
+  }
+
+  const renderNetTangibleHypothesisPanel = () => {
+    if (!netTangibleHypothesisRowId || !netTangibleHypothesisField) return null
+    const field = netTangibleHypothesisField
+    const meta = NET_TANGIBLE_FIELD_META[field]
+
+    return (
+      <tr
+        className="border-b-2 border-blue-200/90 bg-slate-50/95"
+        data-testid="net-tangible-hypothesis-panel"
+        data-field={field}
+        data-jvm-capex={netTangibleAnnexPanelMode === "jvm-capex" ? "true" : undefined}
+        data-surplus={netTangibleAnnexPanelMode === "surplus" ? "true" : undefined}
+      >
+        <td colSpan={summaryTableColumnCount} className="min-w-0 p-0 align-top">
+          <div className="min-w-0 max-w-full min-h-[min(52vh,36rem)] overflow-x-auto bg-slate-50/95 px-3 py-3 sm:px-5 sm:py-4">
+            <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Hypothèse —{" "}
+                  {netTangibleAnnexPanelMode === "jvm-capex"
+                    ? "JVM Capex"
+                    : netTangibleAnnexPanelMode === "surplus"
+                      ? "Actifs excédentaires"
+                      : meta.label}
+                </p>
+                <h3 className="mt-3 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
+                  {netTangibleHypothesisLabel}
+                </h3>
+                <p className="mt-3 text-xs font-medium leading-relaxed text-blue-800">
+                  Référence ·{" "}
+                  <span className="font-semibold text-blue-900">
+                    {netTangibleValuationColumns?.referenceColumnLabel}
+                  </span>
+                </p>
+                <p className="mt-2 text-xs text-slate-500">
+                  {netTangibleAnnexPanelMode === "jvm-capex"
+                    ? "Indiquez la JVM de chaque poste d’annexe, avec note et pièces si besoin. L’ajustement = Σ (JVM − VC)."
+                    : netTangibleAnnexPanelMode === "surplus"
+                      ? "La JVM provient des Ajustements. Saisissez l’excédent par poste ; Total Actifs = Σ Excédent."
+                      : meta.help}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9 border-slate-200 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                  onClick={saveNetTangibleHypothesisPanel}
+                  data-testid="net-tangible-hypothesis-save"
+                >
+                  Enregistrer
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 border-blue-200/90 text-xs font-medium text-blue-900 hover:bg-blue-50/90"
+                  onClick={closeNetTangibleHypothesisPanel}
+                  data-testid="net-tangible-hypothesis-close"
+                >
+                  Fermer
+                </Button>
+              </div>
+            </div>
+
+            {netTangibleAnnexPanelMode === "jvm-capex" ? (
+              <NetTangibleJvmCapexEditor
+                posts={netTangibleJvmDraftPosts}
+                onChange={setNetTangibleJvmDraftPosts}
+                referenceLabel={netTangibleValuationColumns?.referenceColumnLabel}
+              />
+            ) : netTangibleAnnexPanelMode === "surplus" ? (
+              <NetTangibleSurplusEditor
+                posts={netTangibleSurplusDraftPosts}
+                onChange={setNetTangibleSurplusDraftPosts}
+                referenceLabel={netTangibleValuationColumns?.referenceColumnLabel}
+              />
+            ) : (
+              <div className="mt-5 max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <Label className="text-sm font-semibold text-[#2A2F3A]">Montant ($)</Label>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  value={netTangibleDraftValue === 0 ? "" : String(netTangibleDraftValue)}
+                  onChange={(event) => {
+                    setNetTangibleDraftValue(parseCurrencyDraft(event.target.value))
+                  }}
+                  className="mt-2 font-mono"
+                  placeholder="0"
+                  data-testid={`net-tangible-hypothesis-${field}`}
+                />
+                <Label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Note
+                </Label>
+                <Textarea
+                  value={netTangibleDraftNote}
+                  onChange={(event) => setNetTangibleDraftNote(event.target.value)}
+                  placeholder={`Note pour ${meta.label.toLowerCase()}…`}
+                  className="mt-1.5 min-h-[72px]"
+                />
+              </div>
+            )}
+          </div>
+        </td>
+      </tr>
+    )
+  }
+
+
   return (
-    <div className={cn("w-full", dashboardCardFrameStaticClass)}>
-      <div className={dashboardCardRingClass} aria-hidden />
+    <div className={summaryShellClass}>
+      {!isFlushLayout && <div className={dashboardCardRingClass} aria-hidden />}
       <div className="relative w-full min-w-0">
       {showBalanceMismatch && balanceEcart !== null && (
         <div
@@ -2259,6 +2931,7 @@ export function BalanceSheetSummary({
       <div
         className={cn(
           "min-w-0 max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
+          netTangibleHypothesisPanelOpen && "max-h-[min(calc(100vh-16rem),56rem)]",
           isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
         )}
       >
@@ -2283,7 +2956,22 @@ export function BalanceSheetSummary({
                 <>
               <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5 whitespace-nowrap">Poste</th>
               {view === "current" && (
-                <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Montant</th>
+                <>
+                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
+                    {isNetTangibleValuationMode
+                      ? netTangibleValuationColumns!.referenceColumnLabel
+                      : "Montant"}
+                  </th>
+                  {isNetTangibleValuationMode ? (
+                    <>
+                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Ajustements</th>
+                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">VCA</th>
+                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Dettes</th>
+                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Actifs</th>
+                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">ACN</th>
+                    </>
+                  ) : null}
+                </>
               )}
               {view === "comparison" && !isComparisonMode && (
                 <>
@@ -2382,7 +3070,7 @@ export function BalanceSheetSummary({
                 </td>
               </tr>
             )}
-            {Array.from({ length: tableRowCount }, (_, idx) => {
+            {Array.from({ length: effectiveTableRowCount }, (_, idx) => {
               const globalIdx = showStructureCols ? structEdit.summaryStructureDisplayIndices[idx]! : -1
               const structRowFromStudio = showStructureCols ? structEdit.structure[globalIdx]! : null
               const row = showStructureCols
@@ -2588,7 +3276,12 @@ export function BalanceSheetSummary({
                       <td className="whitespace-nowrap px-6 py-2.5 text-sm font-semibold text-slate-800">
                         Validation
                       </td>
-                      {view === "current" && renderValidationEcartCell(balanceEcart)}
+                      {view === "current" && (
+                        <>
+                          {renderValidationEcartCell(balanceEcart)}
+                          {renderNetTangibleValidationCells()}
+                        </>
+                      )}
                       {view === "comparison" && !isComparisonMode && (
                         <>
                           {renderValidationEcartCell(balanceEcart)}
@@ -2761,9 +3454,12 @@ export function BalanceSheetSummary({
                   )}
 
                   {!showStructureCols && view === "current" && (
-                    <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
-                      {row.current !== 0 ? formatCurrency(row.current) : "-"}
-                    </td>
+                    <>
+                      <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                        {row.current !== 0 ? formatCurrency(row.current) : "-"}
+                      </td>
+                      {renderNetTangibleValuationCells(row, shouldHideAmounts, isBoldRow)}
+                    </>
                   )}
 
                   {!showStructureCols && view === "comparison" && !isComparisonMode && (
@@ -2976,7 +3672,18 @@ export function BalanceSheetSummary({
                     </>
                   )}
                 </tr>
-                {canExpand && isExpanded && expandChildren.length > 0 &&
+                {isNetTangibleValuationMode &&
+                  netTangibleHypothesisRowId &&
+                  row.rowId === netTangibleHypothesisRowId &&
+                  renderNetTangibleHypothesisPanel()}
+                {canExpand &&
+                  isExpanded &&
+                  expandChildren.length > 0 &&
+                  !(
+                    isNetTangibleValuationMode &&
+                    netTangibleHypothesisRowId &&
+                    row.rowId === netTangibleHypothesisRowId
+                  ) &&
                   expandChildren.map((child, accIdx) => {
                   const accountVariation =
                     child.priorAmount !== undefined && child.amount && child.priorAmount
@@ -3093,11 +3800,13 @@ export function BalanceSheetSummary({
       </div>
 
       {/* Footer note */}
+      {!netTangibleHypothesisPanelOpen && (
       <div className="border-t border-slate-200 bg-slate-50/90 px-6 py-4 sm:px-7">
         <p className={cn("text-xs", dashboardCardBodyMutedClass)}>
           Note: Les données affichées sont à titre informatif. Consulter les états financiers audités pour les montants officiels.
         </p>
       </div>
+      )}
 
       {lineAnalysis && !disableRowInteractions && (
         <aside

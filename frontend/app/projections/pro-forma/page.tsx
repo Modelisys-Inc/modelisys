@@ -170,6 +170,8 @@ export default function ProFormaPage() {
   const [topNav, setTopNav] = useState<TopNav>("income-statement")
   const [assumptionsNav, setAssumptionsNav] = useState<AssumptionsNav>("revenue")
   const [section, setSection] = useState<"summary" | "detail">("detail")
+  /** Affichage Résultats pro forma : années ou mois projetés (saisonnalité hyp.). */
+  const [resultsColumnHorizon, setResultsColumnHorizon] = useState<"annual" | "monthly">("annual")
   const [projectionYears, setProjectionYears] = useState<3 | 4 | 5>(5)
   const [projectionMode, setProjectionMode] = useState<"gl" | "account">("gl")
   const [projectionHorizon, setProjectionHorizon] = useState<"annual" | "monthly">("annual")
@@ -536,7 +538,7 @@ export default function ProFormaPage() {
               <div className="flex flex-wrap items-center gap-3">
                 {/* États financiers: Vue (Sommaire / Détail) — pas de Détail pour Bilan pro forma */}
                 {!isAssumptions && isFinancialStatementModule && selectedModule !== "balance-sheet" && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
                       <Button
                         variant="ghost"
@@ -563,6 +565,69 @@ export default function ProFormaPage() {
                         Détail
                       </Button>
                     </div>
+                    {selectedModule === "income-statement" && (
+                      <div
+                        className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm"
+                        data-testid="pro-forma-results-column-horizon"
+                      >
+                        <Button
+                          variant="ghost"
+                          onClick={() => setResultsColumnHorizon("annual")}
+                          className={cn(
+                            "h-8 text-xs px-3 transition-all",
+                            resultsColumnHorizon === "annual"
+                              ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                              : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                          )}
+                        >
+                          Annuel
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => setResultsColumnHorizon("monthly")}
+                          className={cn(
+                            "h-8 text-xs px-3 transition-all",
+                            resultsColumnHorizon === "monthly"
+                              ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                              : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                          )}
+                        >
+                          Mensuel
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!isAssumptions && isFinancialStatementModule && selectedModule === "balance-sheet" && (
+                  <div
+                    className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm"
+                    data-testid="pro-forma-balance-column-horizon"
+                  >
+                    <Button
+                      variant="ghost"
+                      onClick={() => setResultsColumnHorizon("annual")}
+                      className={cn(
+                        "h-8 text-xs px-3 transition-all",
+                        resultsColumnHorizon === "annual"
+                          ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                          : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                      )}
+                    >
+                      Annuel
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setResultsColumnHorizon("monthly")}
+                      className={cn(
+                        "h-8 text-xs px-3 transition-all",
+                        resultsColumnHorizon === "monthly"
+                          ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                          : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                      )}
+                    >
+                      Mensuel
+                    </Button>
                   </div>
                 )}
 
@@ -825,6 +890,7 @@ export default function ProFormaPage() {
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
                 forecastActualLayout="nMinusOne-and-ytd"
+                forecastColumnHorizon={resultsColumnHorizon}
               />
             ) : (
               <IncomeStatementDetail
@@ -844,6 +910,7 @@ export default function ProFormaPage() {
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
                 forecastActualLayout="nMinusOne-and-ytd"
+                forecastColumnHorizon={resultsColumnHorizon}
                 projectionYears={projectionYears}
                 projectionMode={projectionMode}
                 projectionId={currentProjectionId}
@@ -869,6 +936,7 @@ export default function ProFormaPage() {
                 disableRowInteractions
                 projectionId={currentProjectionId}
                 forceBilanHypothesisAmounts
+                forecastColumnHorizon={resultsColumnHorizon}
               />
           ) : selectedModule === "cash-flow" ? (
             section === "summary" ? (

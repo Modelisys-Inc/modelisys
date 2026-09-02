@@ -150,6 +150,8 @@ test("debt hypothesis imports PLT mapping and flags undefined rate and duration"
   await expect(page.getByRole("heading", { name: /2500 — Emprunt bancaire/ })).toBeVisible()
   await page.getByLabel("Taux (%)").fill("4.5")
   await page.getByLabel("Durée (mois)").fill("60")
+  await expect(page.getByTestId("debt-monthly-schedule")).toBeVisible()
+  await expect(page.getByText("Tableau des versements mensuels")).toBeVisible()
   await page.getByRole("button", { name: "Enregistrer" }).click()
 
   await expect(page.getByTestId("debt-incomplete-hypotheses")).toHaveCount(0)
@@ -423,9 +425,11 @@ test("Capex-sourced loans are read-only in Hypothèses Financement", async ({ pa
   await expect(page.getByTestId("debt-group-PLT-C")).toBeVisible({ timeout: 15000 })
   await expect(page.getByText("Équipement financé")).toBeVisible()
   await expect(page.getByText("Hypothèse Capex")).toBeVisible()
-  await expect(page.getByRole("button", { name: /Équipement financé/ })).toHaveCount(0)
 
-  await page.getByText("Équipement financé").click()
+  await page.getByRole("button", { name: /Équipement financé/ }).click()
+  await expect(page.getByTestId("debt-monthly-schedule")).toBeVisible()
+  await expect(page.getByText("Tableau des versements mensuels")).toBeVisible()
   await expect(page.getByRole("button", { name: "Enregistrer" })).toHaveCount(0)
-  await expect(page.getByLabel("Nom de l'emprunt")).toHaveCount(0)
+  await expect(page.getByLabel("Nom de l'emprunt")).toBeDisabled()
+  await expect(page.getByLabel("Taux (%)")).toBeDisabled()
 })

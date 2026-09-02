@@ -129,7 +129,7 @@ const menuItems = [
   },
   {
     label: "Valorisation",
-    href: "#",
+    href: "/evaluation",
     icon: Building2,
     submenu: [
       {
@@ -151,16 +151,6 @@ const menuItems = [
         label: "DCF",
         href: "/evaluation/dcf",
         icon: TrendingUp,
-      },
-      {
-        label: "CCF",
-        href: "/evaluation/ccf",
-        icon: DollarSign,
-      },
-      {
-        label: "VCA",
-        href: "/evaluation/vca",
-        icon: Building2,
       },
     ],
   },

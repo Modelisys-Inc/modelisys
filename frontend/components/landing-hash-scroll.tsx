@@ -5,6 +5,7 @@ import {
   APPROCHE_SECTION_ID,
   dispatchApprochePhaseNavigate,
   parseApprochePhaseFromHash,
+  scrollToApprochePhase,
   scrollToApprocheSection,
 } from "@/lib/approche-navigation"
 import {
@@ -22,7 +23,7 @@ function scrollToHash() {
   const phaseId = parseApprochePhaseFromHash(hash)
   if (phaseId) {
     dispatchApprochePhaseNavigate(phaseId)
-    scrollToApprocheSection({ behavior: "smooth" })
+    scrollToApprochePhase(phaseId, { behavior: "smooth" })
     return
   }
 

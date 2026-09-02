@@ -35,7 +35,7 @@ const quickLinks = [
     title: "Valorisation",
     description: "Valorisez votre entreprise avec différentes méthodes",
     icon: Building2,
-    href: "/evaluation/business-model",
+    href: "/evaluation",
   },
   {
     id: "year-end-cpa",

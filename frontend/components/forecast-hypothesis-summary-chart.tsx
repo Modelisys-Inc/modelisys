@@ -10,19 +10,27 @@ import { cn } from "@/lib/utils"
 import { useMemo } from "react"
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts"
 
-export type ForecastSummarySeriesKey = "primary" | "cashFlow" | "balance"
+export type ForecastSummarySeriesKey =
+  | "primary"
+  | "cashFlow"
+  | "balance"
+  | "cost"
+  | "bookValue"
+  | "depreciation"
 
 export type ForecastSummarySeriesDef = {
   key: ForecastSummarySeriesKey
   label: string
   color: string
   lineName: string
+  /** false = ligne du tableau seulement (pas sur le graphique ni le tooltip). */
+  inChart?: boolean
 }
 
 export type ForecastHypothesisSummaryChartProps = {
   points: HypothesisSummaryMoneyPoint[]
   series: readonly ForecastSummarySeriesDef[]
-  visible: Record<ForecastSummarySeriesKey, boolean>
+  visible: Partial<Record<ForecastSummarySeriesKey, boolean>>
   onToggleVisible: (key: ForecastSummarySeriesKey) => void
   formatValue: (n: number) => string
   chartAriaLabel: string
@@ -30,6 +38,25 @@ export type ForecastHypothesisSummaryChartProps = {
 
 const HIST_COL_COUNT = 12
 const GRID_TEMPLATE = `minmax(7rem, 9.75rem) repeat(${HIST_COL_COUNT}, minmax(2.25rem, 1fr))`
+
+function seriesValue(pt: HypothesisSummaryMoneyPoint, key: ForecastSummarySeriesKey): number {
+  switch (key) {
+    case "primary":
+      return Number(pt.primary) || 0
+    case "cashFlow":
+      return Number(pt.cashFlow) || 0
+    case "balance":
+      return Number(pt.balance) || 0
+    case "cost":
+      return Number(pt.cost) || 0
+    case "bookValue":
+      return Number(pt.bookValue) || 0
+    case "depreciation":
+      return Number(pt.depreciation) || 0
+    default:
+      return 0
+  }
+}
 
 export function ForecastHypothesisSummaryChart({
   points,
@@ -39,8 +66,9 @@ export function ForecastHypothesisSummaryChart({
   formatValue,
   chartAriaLabel,
 }: ForecastHypothesisSummaryChartProps) {
+  const chartSeries = series.filter((s) => s.inChart !== false)
   const maxDollar = points.length
-    ? Math.max(1, ...points.flatMap((p) => series.map((s) => p[s.key])))
+    ? Math.max(1, ...points.flatMap((p) => chartSeries.map((s) => seriesValue(p, s.key))))
     : 1
   const { yMax: chartYMax, ticks: yTicksLeft } = useMemo(
     () => computeHypothesisSummaryDollarYScale(maxDollar),
@@ -50,11 +78,11 @@ export function ForecastHypothesisSummaryChart({
 
   const chartConfig = useMemo(
     () =>
-      Object.fromEntries(series.map((s) => [s.key, { label: s.lineName, color: s.color }])) as Record<
+      Object.fromEntries(chartSeries.map((s) => [s.key, { label: s.lineName, color: s.color }])) as Record<
         string,
         { label: string; color: string }
       >,
-    [series]
+    [chartSeries]
   )
 
   if (points.length === 0) return null
@@ -108,14 +136,14 @@ export function ForecastHypothesisSummaryChart({
                     return (
                       <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-md">
                         <p className="font-semibold text-slate-900">{row.monthName}</p>
-                        {series.map((s, idx) =>
-                          visible[s.key] ? (
+                        {chartSeries.map((s, idx) =>
+                          visible[s.key] !== false ? (
                             <p
                               key={s.key}
                               className={cn("tabular-nums text-slate-700", idx === 0 ? "mt-1" : "")}
                               style={{ color: s.color }}
                             >
-                              {s.label} : {formatValue(row[s.key])}
+                              {s.label} : {formatValue(seriesValue(row, s.key))}
                             </p>
                           ) : null
                         )}
@@ -123,9 +151,9 @@ export function ForecastHypothesisSummaryChart({
                     )
                   }}
                 />
-                {series.map(
+                {chartSeries.map(
                   (s) =>
-                    visible[s.key] ? (
+                    visible[s.key] !== false ? (
                       <Line
                         key={s.key}
                         type="monotone"
@@ -175,18 +203,22 @@ export function ForecastHypothesisSummaryChart({
             key={`sum-row-${s.key}`}
             className={cn(
               "grid min-w-0 divide-x divide-slate-200 border-b border-slate-200 bg-white transition-opacity last:border-b-0",
-              !visible[s.key] && "opacity-40"
+              visible[s.key] === false && "opacity-40"
             )}
             style={{ gridTemplateColumns: GRID_TEMPLATE }}
           >
             <div className="flex min-h-[2.75rem] shrink-0 items-center justify-end overflow-visible bg-white px-2 py-2 sm:px-2.5">
               <button
                 type="button"
-                aria-pressed={visible[s.key]}
-                title={`Afficher ou masquer la courbe ${s.label}`}
+                aria-pressed={visible[s.key] !== false}
+                title={
+                  s.inChart === false
+                    ? `Afficher ou masquer la ligne ${s.label}`
+                    : `Afficher ou masquer la courbe ${s.label}`
+                }
                 className={cn(
                   "max-w-full rounded-md text-right text-[10px] font-semibold leading-snug outline-none ring-offset-2 transition hover:underline focus-visible:ring-2 sm:text-xs",
-                  !visible[s.key] && "line-through opacity-70"
+                  visible[s.key] === false && "line-through opacity-70"
                 )}
                 style={{ color: s.color }}
                 onClick={() => onToggleVisible(s.key)}
@@ -203,7 +235,7 @@ export function ForecastHypothesisSummaryChart({
                   className="w-full text-center text-[11px] font-medium tabular-nums leading-tight"
                   style={{ color: s.color }}
                 >
-                  {formatValue(pt[s.key])}
+                  {formatValue(seriesValue(pt, s.key))}
                 </span>
               </div>
             ))}

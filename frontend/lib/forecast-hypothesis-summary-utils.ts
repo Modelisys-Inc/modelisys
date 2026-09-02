@@ -5,6 +5,7 @@ import {
   normalizeForecastSeasonalityMonthPercents,
   shiftSeasonalityEarlierForPreRevenue,
 } from "@/lib/forecast-seasonality-utils"
+import { simulateCapexAssetYearMonths } from "@/lib/capex-asset-monthly"
 import {
   clampRoundBadDebt,
   createDefaultAdvancedBuckets,
@@ -35,6 +36,12 @@ export type HypothesisSummaryMoneyPoint = {
   primary: number
   cashFlow: number
   balance: number
+  /** Suivi Capex (tableau Sommaire) — solde de coût. */
+  cost?: number
+  /** Suivi Capex — valeur nette comptable. */
+  bookValue?: number
+  /** Suivi Capex — dotation de période (pas l’amort. cumulé). */
+  depreciation?: number
 }
 
 /** Délai (jours) → mois civils après le mois de charge / reconnaissance. */
@@ -311,3 +318,42 @@ export function computeHypothesisSummaryDollarYScale(maxValue: number): { yMax: 
   const ticks = [...new Set(ticksAsc)].sort((a, b) => b - a)
   return { yMax, ticks }
 }
+
+/**
+ * Ajoute Coût / VNC / Dotation mensuels sous le sommaire Capex.
+ * Délègue à `simulateCapexAssetYearMonths` (même moteur que la projection annuelle).
+ */
+export function attachCapexAssetMonthlyTracking(
+  points: HypothesisSummaryMoneyPoint[],
+  params: {
+    openingCost: number
+    openingBookValue: number
+    ratePercent: number
+    method: "linear" | "declining"
+  },
+): HypothesisSummaryMoneyPoint[] {
+  if (points.length === 0) return points
+
+  const monthlyAdditions = points.map((pt) => Math.max(0, Math.round(Number(pt.primary) || 0)))
+  // Pad / trim to 12
+  while (monthlyAdditions.length < 12) monthlyAdditions.push(0)
+  const sim = simulateCapexAssetYearMonths({
+    openingCost: params.openingCost,
+    openingBookValue: params.openingBookValue,
+    monthlyAdditions: monthlyAdditions.slice(0, 12),
+    ratePercent: params.ratePercent,
+    method: params.method,
+  })
+
+  return points.map((pt, i) => {
+    const m = sim.months[i]
+    if (!m) return pt
+    return {
+      ...pt,
+      cost: m.cost,
+      bookValue: m.bookValue,
+      depreciation: m.depreciation,
+    }
+  })
+}
+

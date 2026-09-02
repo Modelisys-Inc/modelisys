@@ -9,6 +9,7 @@ import {
   resolveCapexAdditionsForYear,
   resolveCapexDrivenBilanProjectedAmount,
   resolveCapexDrivenDepreciationExpense,
+  resolveCapexDrivenDepreciationExpenseMonthly,
   rollupCapexParentTrendsFromLeafRows,
   capexLeafChildrenOfParent,
   isCapexDrivenAmortizationIsLinkCode,
@@ -155,7 +156,7 @@ describe("resolveCapexAdditionsForYear / resolveCapexRowValue", () => {
 })
 
 describe("buildCapexAssetYearStates / book value trend", () => {
-  it("depreciates book value with no adjustments (linear)", () => {
+  it("depreciates book value with no adjustments (linear, monthly engine)", () => {
     const states = buildCapexAssetYearStates({
       rowId: "ALT-B.2",
       configYearCount: 3,
@@ -172,34 +173,43 @@ describe("buildCapexAssetYearStates / book value trend", () => {
       additions: 0,
       depreciationExpense: 0,
     })
-    // Year 1: cost 100k, dep 10k, accum 30k, book 70k
-    expect(states[1]).toMatchObject({
-      cost: 100_000,
-      accumulatedDepreciation: 30_000,
-      bookValue: 70_000,
-      additions: 0,
-      depreciationExpense: 10_000,
-    })
+    // Mensuel linéaire sans ajout : somme = taux × coût (= amort. annuel classique)
+    expect(states[1]?.depreciationExpense).toBe(10_000)
+    expect(states[1]?.bookValue).toBe(70_000)
+    expect(states[1]?.cost).toBe(100_000)
     expect(states[2]?.bookValue).toBe(60_000)
   })
 
-  it("adds adjustment to cost then depreciates", () => {
+  it("adds mid-year adjustment then depreciates monthly (matches sommaire)", () => {
+    const peaked = Array(12).fill(0)
+    peaked[5] = 100 // juin = 100 % de l’ajout
     const adjustments = {
-      "ALT-B.2-1": [adj({ id: "a", rowId: "ALT-B.2", yearIndex: 1, type: "amount", value: 50_000 })],
+      "ALT-B.2-1": [
+        adj({
+          id: "a",
+          rowId: "ALT-B.2",
+          yearIndex: 1,
+          type: "amount",
+          value: 50_000,
+          seasonalityMonthPercents: peaked,
+        }),
+      ],
     }
-    const trend = buildCapexBookValueTrend({
+    const states = buildCapexAssetYearStates({
       rowId: "ALT-B.2",
-      configYearCount: 3,
+      configYearCount: 2,
       openingCost: 100_000,
       openingBookValue: 80_000,
       adjustments,
       ratePercent: 10,
       method: "linear",
     })
-    // Y0: 80k
-    // Y1: cost 150k, book before dep 130k, dep 15k, book 115k
-    // Y2: cost 150k, dep 15k, book 100k
-    expect(trend).toEqual([80_000, 115_000, 100_000])
+    // Dotation ≠ 15k (ancien : 10% × 150k une fois) — plus basse car ajout en juin seulement
+    expect(states[1]?.cost).toBe(150_000)
+    expect(states[1]?.additions).toBe(50_000)
+    expect(states[1]?.depreciationExpense).toBeLessThan(15_000)
+    expect(states[1]?.depreciationExpense).toBeGreaterThan(9_996) // > année sans ajout
+    expect(states[1]?.bookValue).toBe(150_000 - states[1]!.accumulatedDepreciation)
   })
 
   it("keeps book flat when rate is 0 (Terrains) and adds Capex", () => {
@@ -587,6 +597,76 @@ describe("resolveCapexDrivenDepreciationExpense", () => {
         ],
       }),
     ).toBe(10_000)
+  })
+
+  it("monthly depreciation sums to annual and is flat without mid-year additions", () => {
+    const params = {
+      isLinkCode: "ADM.20",
+      configYearIndex: 1,
+      configYearCount: 3,
+      adjustments: {} as Record<string, CapexAdjustment[]>,
+      depreciationRates: { "ALT-B.2": 10 },
+      depreciationMethods: { "ALT-B.2": "linear" as const },
+      amortizationLinkCodes: { "ALT-B.2": "ADM.20" },
+      peerRows: [
+        {
+          rowId: "ALT-B.2",
+          linkCode: "ALT-B.2",
+          actualBase: 100_000,
+          actualCostBase: 100_000,
+          label: "Bâtisses",
+        },
+      ],
+    }
+    const months = resolveCapexDrivenDepreciationExpenseMonthly(params)
+    expect(months).toHaveLength(12)
+    expect(months.reduce((a, b) => a + b, 0)).toBe(
+      resolveCapexDrivenDepreciationExpense(params),
+    )
+    expect(months.reduce((a, b) => a + b, 0)).toBe(10_000)
+    // Répartition des cents : 833 ou 834, pas de saisonnalité d’ajout
+    expect(Math.max(...months) - Math.min(...months)).toBeLessThanOrEqual(1)
+  })
+
+  it("monthly depreciation rises after a mid-year Capex addition (Sommaire curve)", () => {
+    const peaked = Array(12).fill(0)
+    peaked[5] = 100 // juin
+    const params = {
+      isLinkCode: "ADM.20",
+      configYearIndex: 1,
+      configYearCount: 2,
+      adjustments: {
+        "ALT-B.2-1": [
+          adj({
+            id: "a",
+            rowId: "ALT-B.2",
+            yearIndex: 1,
+            type: "amount" as const,
+            value: 50_000,
+            seasonalityMonthPercents: peaked,
+          }),
+        ],
+      },
+      depreciationRates: { "ALT-B.2": 10 },
+      depreciationMethods: { "ALT-B.2": "linear" as const },
+      amortizationLinkCodes: { "ALT-B.2": "ADM.20" },
+      peerRows: [
+        {
+          rowId: "ALT-B.2",
+          linkCode: "ALT-B.2",
+          actualBase: 80_000,
+          actualCostBase: 100_000,
+          label: "Bâtisses",
+        },
+      ],
+    }
+    const months = resolveCapexDrivenDepreciationExpenseMonthly(params)
+    expect(months.reduce((a, b) => a + b, 0)).toBe(
+      resolveCapexDrivenDepreciationExpense(params),
+    )
+    // Jan–mai : coût 100k ; juin–déc : coût 150k → dotation plus haute après l’ajout
+    expect(months[5]!).toBeGreaterThan(months[0]!)
+    expect(months[11]!).toBe(months[5]!)
   })
 })
 

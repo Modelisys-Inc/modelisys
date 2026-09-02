@@ -1,23 +1,29 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector } from "@/components/entity-selector"
 import { Card, CardContent } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
-import { Filter, AlertTriangle, Info, Target, Shield, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, StickyNote } from "lucide-react"
+import { AlertTriangle, Info, Target, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, StickyNote } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { useCompanies } from "@/hooks/use-companies"
+import { ValuationPlanBackButton } from "@/components/valuation-plan-back-button"
+import {
+  dashboardCardAccentBarClass,
+  dashboardCardBodyMutedClass,
+  dashboardCardFrameStaticClass,
+  dashboardCardHeaderBarClass,
+  dashboardCardRingClass,
+  dashboardCardTitleClass,
+} from "@/lib/dashboard-card-style"
 import {
   listBusinessRisks,
   bulkUpsertBusinessRisks,
   updateBusinessRisk,
-  type BusinessRiskData,
 } from "@/lib/api"
 
 interface BusinessRisk {
@@ -31,26 +37,13 @@ interface BusinessRisk {
   note?: string
 }
 
-const evaluationNav = [
-  { label: "Modèle d'affaires", href: "/evaluation/business-model" },
-  { label: "Multiple du BAIIA", href: "/evaluation/ebitda-multiple" },
-  { label: "Actif Corporel Net", href: "/evaluation/net-tangible-assets" },
-  { label: "DCF", href: "/evaluation/dcf" },
-  { label: "CCF", href: "/evaluation/ccf" },
-  { label: "VCA", href: "/evaluation/vca" },
-]
-
 export default function BusinessModelPage() {
   const { companies } = useCompanies()
-  const [companyId, setCompanyId] = useState<string | null>(null)
-  const [divisionId, setDivisionId] = useState<string | null>(null)
-  const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
-  // Auto-select first company
-  useEffect(() => {
-    if (!companyId && companies.length > 0) {
-      setCompanyId(companies[0].id)
-    }
-  }, [companies, companyId])
+  const searchParams = useSearchParams()
+  const companyIdFromUrl = searchParams.get("companyId")
+  const lockedCompanyId =
+    companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
+  const companyId = lockedCompanyId || companies[0]?.id || null
 
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
@@ -58,7 +51,6 @@ export default function BusinessModelPage() {
   const [editingNoteRiskId, setEditingNoteRiskId] = useState<string | null>(null)
   const [tempNote, setTempNote] = useState<string>("")
   const [risksLoading, setRisksLoading] = useState(false)
-  const pathname = usePathname()
 
   const toggleCategory = (category: string) => {
     setExpandedCategories(prev => ({
@@ -454,29 +446,16 @@ export default function BusinessModelPage() {
   // Use effective selected category (fallback to "Sommaire" if none selected)
   const effectiveSelectedCategory = selectedCategory || "Sommaire"
 
-  const getRiskColor = (level: string | null) => {
-    switch (level) {
-      case "high":
-        return "text-red-600 bg-red-50 border-red-200"
-      case "medium":
-        return "text-amber-600 bg-amber-50 border-amber-200"
-      case "low":
-        return "text-emerald-600 bg-emerald-50 border-emerald-200"
-      default:
-        return "text-slate-600 bg-slate-50 border-slate-200"
-    }
-  }
-
   const getRiskIcon = (level: string | null) => {
     switch (level) {
       case "high":
-        return <AlertTriangle className="w-5 h-5" />
+        return <AlertTriangle className="w-5 h-5 text-red-600" />
       case "medium":
-        return <AlertCircle className="w-5 h-5" />
+        return <AlertCircle className="w-5 h-5 text-amber-600" />
       case "low":
-        return <CheckCircle2 className="w-5 h-5" />
+        return <CheckCircle2 className="w-5 h-5 text-[#E0742D]" />
       default:
-        return <Info className="w-5 h-5" />
+        return <Info className="w-5 h-5 text-slate-600" />
     }
   }
 
@@ -487,103 +466,65 @@ export default function BusinessModelPage() {
   const unassessedRisks = risks.filter(r => r.level === null).length
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
       <DashboardHeader title="Modelisys" />
-      
-      {/* Dark Header Section */}
-      <div className="w-full bg-slate-900 pt-15 pb-40">
-        <div className="max-w-[1920px] mx-auto px-6">
-          <div className="flex items-start gap-3 mb-8">
-            <div className="w-2"></div>
+
+      <div className="relative w-full pt-15 pb-32 overflow-hidden">
+        <div className="absolute inset-0">
+          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
+            <div className="bg-[#2A2F3A]" />
+            <div className="bg-[#2A2F3A]" />
+          </div>
+          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
+          </div>
+        </div>
+
+        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
+          <div className="flex items-start mb-4">
+            <div className="w-2 flex-shrink-0" />
             <div className="flex-1">
-              <h2 className="text-4xl font-normal text-white mb-2 tracking-tight">Modèle d'affaires</h2>
-              <p className="text-base text-slate-300 mb-6">
-                Évaluez les risques de votre modèle d'affaires et identifiez les améliorations pour optimiser votre multiple de valorisation
-              </p>
-              <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Analysez en profondeur votre modèle d'affaires pour identifier les facteurs de risque qui influencent négativement votre valorisation. 
-                Évaluez chaque aspect de votre entreprise et obtenez des recommandations stratégiques pour optimiser votre multiple de valorisation 
-                et maximiser la création de valeur.
-              </p>
-              {/* Navigation Menu - Style like income-statement page */}
-              <div className="flex items-end gap-8 mb-2">
-                {evaluationNav.map((item) => {
-                  const isActive = pathname === item.href
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className="relative pb-4 border-b border-slate-600/30"
-                    >
-                      <span
-                        className={`text-sm font-normal transition-colors ${
-                          isActive
-                            ? "text-white"
-                            : "text-slate-300 hover:text-white"
-                        }`}
-                      >
-                        {item.label}
-                      </span>
-                      {isActive && (
-                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
-                      )}
-                    </Link>
-                  )
-                })}
+              <ValuationPlanBackButton />
+              <div className="mb-2">
+                <h2 className="text-4xl font-semibold tracking-tight text-[#E6D6C3]">
+                  Modèle d&apos;affaires
+                </h2>
               </div>
+              <p className="text-base text-[#C9B8A5]/90 mb-6">
+                Évaluez les risques de votre modèle d&apos;affaires et identifiez les améliorations pour optimiser votre multiple de valorisation
+              </p>
             </div>
           </div>
 
-          {/* Controls Section */}
-          <div className="mb-6 p-4">
-            <div className="flex flex-wrap items-center gap-4">
-              {/* Filter Icon */}
-              <div className="flex items-center gap-2 text-slate-300">
-                <Filter className="w-4 h-4" />
-              </div>
-
-              {/* Separator */}
-              <div className="h-6 w-px bg-slate-700" />
-
-              {/* Entity Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Entité:</span>
-                <EntitySelector
-                  companies={companies}
-                  selectedCompanyId={companyId}
-                  selectedDivisionId={divisionId}
-                  selectedSubDivisionId={subDivisionId}
-                  onCompanyChange={setCompanyId}
-                  onDivisionChange={setDivisionId}
-                  onSubDivisionChange={setSubDivisionId}
-                />
-              </div>
-
-              {/* Separator */}
-              <div className="h-6 w-px bg-slate-700" />
-
-              {/* Category Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Catégorie de risque:</span>
-                <div className="inline-flex rounded-lg border border-slate-700 bg-slate-800/50 p-1">
-                  {categories.map((category) => {
-                    const isActive = effectiveSelectedCategory === category
-                    return (
-                      <Button
-                        key={category}
-                        variant="ghost"
-                        onClick={() => setSelectedCategory(category)}
-                        className={cn(
-                          "h-8 text-xs px-3 transition-all",
-                          isActive
-                            ? "bg-emerald-500 text-white font-medium shadow-sm"
-                            : "text-slate-300 hover:text-white hover:bg-slate-700/50"
-                        )}
-                      >
-                        {category}
-                      </Button>
-                    )
-                  })}
+          <div className="mb-6">
+            <div className="rounded-2xl border border-white/10 bg-[#2A2F3A]/45 px-3 py-3 backdrop-blur-sm sm:px-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-200 whitespace-nowrap">
+                    Catégorie de risque
+                  </span>
+                  <div className="inline-flex flex-wrap rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
+                    {categories.map((category) => {
+                      const isActive = effectiveSelectedCategory === category
+                      return (
+                        <Button
+                          key={category}
+                          variant="ghost"
+                          onClick={() => setSelectedCategory(category)}
+                          className={cn(
+                            "h-8 text-xs px-3 transition-all",
+                            isActive
+                              ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                              : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                          )}
+                        >
+                          {category}
+                        </Button>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -592,121 +533,115 @@ export default function BusinessModelPage() {
       </div>
 
       {/* Content - Overlapping section */}
-      <div className="relative -mt-32 mb-12">
+      <div className="relative -mt-24 mb-12">
         <div className="max-w-[1920px] mx-auto px-6">
 
         {/* Summary Card - Only show when "Sommaire" is selected */}
         {effectiveSelectedCategory === "Sommaire" && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden mb-6">
-          {/* Header */}
-          <div className="bg-white px-8 py-8 border-b border-slate-200">
+        <div className={cn(dashboardCardFrameStaticClass, "mb-6")}>
+          <div className={dashboardCardRingClass} />
+          <div className={cn(dashboardCardHeaderBarClass, "px-8 py-8")}>
             <div className="flex items-start justify-between gap-6">
               <div className="flex items-start gap-4 flex-1 min-w-0">
-                <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
+                <div className={cn("w-1 h-12 flex-shrink-0", dashboardCardAccentBarClass)} />
                 <div className="flex-1 min-w-0">
-                  <h2 className="text-2xl font-semibold text-slate-900 tracking-tight mb-2">
-                    Résumé de l'évaluation des risques
+                  <h2 className={cn(dashboardCardTitleClass, "text-2xl mb-2")}>
+                    Résumé de l&apos;évaluation des risques
                   </h2>
-                  <p className="text-sm text-slate-600 leading-relaxed max-w-2xl">
-                    Évaluez les risques de votre modèle d'affaires et identifiez les améliorations pour optimiser votre multiple de valorisation
+                  <p className={cn(dashboardCardBodyMutedClass, "text-sm leading-relaxed max-w-2xl")}>
+                    Évaluez les risques de votre modèle d&apos;affaires et identifiez les améliorations pour optimiser votre multiple de valorisation
                   </p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Content */}
           <div className="p-8 bg-gradient-to-b from-slate-50 to-white">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {/* Risques élevés */}
-              <div className="group relative bg-white rounded-xl border-2 border-red-200 shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden">
-                <div className="absolute top-0 right-0 w-20 h-20 bg-red-100 rounded-bl-full opacity-50"></div>
+              <div className="group relative bg-white rounded-2xl border-2 border-slate-700/40 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
+                <div className="absolute top-0 right-0 w-20 h-20 bg-red-100 rounded-bl-full opacity-50" />
                 <div className="relative p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <div className="p-3 bg-red-100 rounded-lg">
+                    <div className="p-3 bg-red-100 rounded-xl">
                       <AlertTriangle className="w-6 h-6 text-red-600" />
                     </div>
-                    <div className="text-xs font-semibold text-red-600 uppercase tracking-wider bg-red-50 px-3 py-1 rounded-full">
+                    <div className="text-xs font-semibold text-red-600 uppercase tracking-wider bg-red-50 px-3 py-1 rounded-md">
                       Critique
                     </div>
                   </div>
                   <div className="text-4xl font-bold text-red-600 mb-2">{highRisks}</div>
-                  <div className="text-sm font-semibold text-slate-900 mb-1">Risques élevés</div>
-                  <div className="text-xs text-slate-500">Action prioritaire requise</div>
+                  <div className={cn(dashboardCardTitleClass, "text-sm mb-1")}>Risques élevés</div>
+                  <div className={cn(dashboardCardBodyMutedClass, "text-xs")}>Action prioritaire requise</div>
                 </div>
               </div>
 
-              {/* Risques modérés */}
-              <div className="group relative bg-white rounded-xl border-2 border-amber-200 shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden">
-                <div className="absolute top-0 right-0 w-20 h-20 bg-amber-100 rounded-bl-full opacity-50"></div>
+              <div className="group relative bg-white rounded-2xl border-2 border-slate-700/40 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
+                <div className="absolute top-0 right-0 w-20 h-20 bg-amber-100 rounded-bl-full opacity-50" />
                 <div className="relative p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <div className="p-3 bg-amber-100 rounded-lg">
+                    <div className="p-3 bg-amber-100 rounded-xl">
                       <AlertCircle className="w-6 h-6 text-amber-600" />
                     </div>
-                    <div className="text-xs font-semibold text-amber-600 uppercase tracking-wider bg-amber-50 px-3 py-1 rounded-full">
+                    <div className="text-xs font-semibold text-amber-600 uppercase tracking-wider bg-amber-50 px-3 py-1 rounded-md">
                       Attention
                     </div>
                   </div>
                   <div className="text-4xl font-bold text-amber-600 mb-2">{mediumRisks}</div>
-                  <div className="text-sm font-semibold text-slate-900 mb-1">Risques modérés</div>
-                  <div className="text-xs text-slate-500">Surveillance recommandée</div>
+                  <div className={cn(dashboardCardTitleClass, "text-sm mb-1")}>Risques modérés</div>
+                  <div className={cn(dashboardCardBodyMutedClass, "text-xs")}>Surveillance recommandée</div>
                 </div>
               </div>
 
-              {/* Risques faibles */}
-              <div className="group relative bg-white rounded-xl border-2 border-emerald-200 shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden">
-                <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-100 rounded-bl-full opacity-50"></div>
+              <div className="group relative bg-white rounded-2xl border-2 border-slate-700/40 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
+                <div className="absolute top-0 right-0 w-20 h-20 bg-[#E0742D]/15 rounded-bl-full opacity-50" />
                 <div className="relative p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <div className="p-3 bg-emerald-100 rounded-lg">
-                      <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+                    <div className="p-3 bg-[#E0742D]/15 rounded-xl">
+                      <CheckCircle2 className="w-6 h-6 text-[#E0742D]" />
                     </div>
-                    <div className="text-xs font-semibold text-emerald-600 uppercase tracking-wider bg-emerald-50 px-3 py-1 rounded-full">
+                    <div className="text-xs font-semibold text-[#E0742D] uppercase tracking-wider bg-[#E0742D]/10 px-3 py-1 rounded-md">
                       Acceptable
                     </div>
                   </div>
-                  <div className="text-4xl font-bold text-emerald-600 mb-2">{lowRisks}</div>
-                  <div className="text-sm font-semibold text-slate-900 mb-1">Risques faibles</div>
-                  <div className="text-xs text-slate-500">Situation sous contrôle</div>
+                  <div className="text-4xl font-bold text-[#E0742D] mb-2">{lowRisks}</div>
+                  <div className={cn(dashboardCardTitleClass, "text-sm mb-1")}>Risques faibles</div>
+                  <div className={cn(dashboardCardBodyMutedClass, "text-xs")}>Situation sous contrôle</div>
                 </div>
               </div>
 
-              {/* Non évalués */}
-              <div className="group relative bg-white rounded-xl border-2 border-slate-200 shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden">
-                <div className="absolute top-0 right-0 w-20 h-20 bg-slate-100 rounded-bl-full opacity-50"></div>
+              <div className="group relative bg-white rounded-2xl border-2 border-slate-700/40 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden">
+                <div className="absolute top-0 right-0 w-20 h-20 bg-slate-100 rounded-bl-full opacity-50" />
                 <div className="relative p-6">
                   <div className="flex items-center justify-between mb-4">
-                    <div className="p-3 bg-slate-100 rounded-lg">
+                    <div className="p-3 bg-slate-100 rounded-xl">
                       <Info className="w-6 h-6 text-slate-600" />
                     </div>
-                    <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider bg-slate-50 px-3 py-1 rounded-full">
+                    <div className="text-xs font-semibold text-slate-600 uppercase tracking-wider bg-slate-50 px-3 py-1 rounded-md">
                       En attente
                     </div>
                   </div>
                   <div className="text-4xl font-bold text-slate-600 mb-2">{unassessedRisks}</div>
-                  <div className="text-sm font-semibold text-slate-900 mb-1">Non évalués</div>
-                  <div className="text-xs text-slate-500">Évaluation requise</div>
+                  <div className={cn(dashboardCardTitleClass, "text-sm mb-1")}>Non évalués</div>
+                  <div className={cn(dashboardCardBodyMutedClass, "text-xs")}>Évaluation requise</div>
                 </div>
               </div>
             </div>
 
-            {/* Progress Bar */}
             {risks.length > 0 && (
               <div className="mt-8 pt-8 border-t border-slate-200">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-semibold text-slate-700">Progression de l'évaluation</span>
-                  <span className="text-sm font-bold text-slate-900">
+                  <span className={cn(dashboardCardTitleClass, "text-sm")}>Progression de l&apos;évaluation</span>
+                  <span className={cn(dashboardCardTitleClass, "text-sm font-bold")}>
                     {Math.round(((risks.length - unassessedRisks) / risks.length) * 100)}%
                   </span>
                 </div>
                 <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-emerald-500 via-blue-500 to-slate-400 rounded-full transition-all duration-500"
+                  <div
+                    className="h-full bg-[#E0742D] rounded-full transition-all duration-500"
                     style={{ width: `${((risks.length - unassessedRisks) / risks.length) * 100}%` }}
-                  ></div>
+                  />
                 </div>
-                <div className="flex items-center justify-between mt-2 text-xs text-slate-500">
+                <div className={cn("flex items-center justify-between mt-2 text-xs", dashboardCardBodyMutedClass)}>
                   <span>{risks.length - unassessedRisks} risques évalués</span>
                   <span>{unassessedRisks} risques restants</span>
                 </div>
@@ -731,20 +666,20 @@ export default function BusinessModelPage() {
             const categoryUnassessed = categoryRisks.filter(r => r.level === null).length
             
             return (
-              <div key={category} className="bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
-                {/* Category Header */}
-                <div className="bg-white border-b border-slate-200">
+              <div key={category} className={dashboardCardFrameStaticClass}>
+                <div className={dashboardCardRingClass} />
+                <div className={dashboardCardHeaderBarClass}>
                   <button
                     onClick={() => toggleCategory(category)}
-                    className="w-full px-8 py-6 flex items-center justify-between gap-4 hover:bg-slate-50 transition-colors"
+                    className="w-full px-8 py-6 flex items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors"
                   >
                     <div className="flex items-center gap-4 flex-1">
-                      <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
+                      <div className={cn("w-1 h-12 flex-shrink-0", dashboardCardAccentBarClass)} />
                       <div className="flex-1 text-left">
-                        <h2 className="text-2xl font-semibold text-slate-900 mb-1">
+                        <h2 className={cn(dashboardCardTitleClass, "text-2xl mb-1")}>
                           {category}
                         </h2>
-                        <div className="flex items-center gap-4 text-sm text-slate-600">
+                        <div className={cn("flex items-center gap-4 text-sm", dashboardCardBodyMutedClass)}>
                           <span className="font-medium">{categoryRisks.length} risque{categoryRisks.length > 1 ? 's' : ''}</span>
                           {categoryHighRisks > 0 && (
                             <span className="flex items-center gap-1.5">
@@ -760,8 +695,8 @@ export default function BusinessModelPage() {
                           )}
                           {categoryLowRisks > 0 && (
                             <span className="flex items-center gap-1.5">
-                              <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                              <span className="text-emerald-600 font-semibold">{categoryLowRisks} faible{categoryLowRisks > 1 ? 's' : ''}</span>
+                              <div className="w-2 h-2 rounded-full bg-[#E0742D]" />
+                              <span className="font-semibold text-[#E0742D]">{categoryLowRisks} faible{categoryLowRisks > 1 ? 's' : ''}</span>
                             </span>
                           )}
                           {categoryUnassessed > 0 && (
@@ -787,15 +722,15 @@ export default function BusinessModelPage() {
                 {isExpanded && (
                   <div className="p-8 bg-gradient-to-b from-white to-slate-50">
                     <div className="space-y-6">
-                      {categoryRisks.map((risk, idx) => (
+                      {categoryRisks.map((risk) => (
                         <div
                           key={risk.id}
                           className={cn(
-                            "group relative bg-white rounded-xl border-2 transition-all duration-300 hover:shadow-lg",
-                            risk.level === "high" ? "border-red-200 hover:border-red-300" :
-                            risk.level === "medium" ? "border-amber-200 hover:border-amber-300" :
-                            risk.level === "low" ? "border-emerald-200 hover:border-emerald-300" :
-                            "border-slate-200 hover:border-slate-300"
+                            "group relative bg-white rounded-2xl border-2 transition-all duration-300 hover:shadow-md",
+                            risk.level === "high" ? "border-red-300 hover:border-red-400" :
+                            risk.level === "medium" ? "border-amber-300 hover:border-amber-400" :
+                            risk.level === "low" ? "border-[#E0742D]/50 hover:border-[#E0742D]" :
+                            "border-slate-700/40 hover:border-slate-700/60"
                           )}
                         >
                           {/* Decorative corner */}
@@ -803,9 +738,9 @@ export default function BusinessModelPage() {
                             "absolute top-0 right-0 w-24 h-24 rounded-bl-full opacity-20",
                             risk.level === "high" ? "bg-red-100" :
                             risk.level === "medium" ? "bg-amber-100" :
-                            risk.level === "low" ? "bg-emerald-100" :
+                            risk.level === "low" ? "bg-[#E0742D]/20" :
                             "bg-slate-100"
-                          )}></div>
+                          )} />
 
                           <div className="relative p-6">
                             {/* Risk Header */}
@@ -816,21 +751,21 @@ export default function BusinessModelPage() {
                                     "p-3 rounded-xl shadow-sm",
                                     risk.level === "high" ? "bg-red-100" :
                                     risk.level === "medium" ? "bg-amber-100" :
-                                    risk.level === "low" ? "bg-emerald-100" :
+                                    risk.level === "low" ? "bg-[#E0742D]/15" :
                                     "bg-slate-100"
                                   )}>
                                     {getRiskIcon(risk.level)}
                                   </div>
                                   <div className="flex-1">
-                                    <h3 className="text-xl font-bold text-slate-900 mb-2">{risk.name}</h3>
-                                    <p className="text-sm text-slate-600 leading-relaxed">{risk.description}</p>
+                                    <h3 className={cn(dashboardCardTitleClass, "text-xl mb-2")}>{risk.name}</h3>
+                                    <p className={cn(dashboardCardBodyMutedClass, "text-sm leading-relaxed")}>{risk.description}</p>
                                   </div>
                                 </div>
                               </div>
                               
                               {/* Risk Level Selector */}
                               <div className="flex-shrink-0 w-56">
-                                <label className="text-xs font-semibold text-slate-700 mb-2 block">
+                                <label className={cn(dashboardCardTitleClass, "text-xs mb-2 block")}>
                                   Niveau de risque
                                 </label>
                                 <div className="flex items-center gap-2">
@@ -839,11 +774,11 @@ export default function BusinessModelPage() {
                                     onValueChange={(value) => updateRiskLevel(risk.id, value as "low" | "medium" | "high" | null)}
                                   >
                                     <SelectTrigger className={cn(
-                                      "flex-1 h-11 font-medium",
+                                      "flex-1 h-11 font-medium border-2",
                                       risk.level === "high" ? "border-red-300 focus:border-red-500" :
                                       risk.level === "medium" ? "border-amber-300 focus:border-amber-500" :
-                                      risk.level === "low" ? "border-emerald-300 focus:border-emerald-500" :
-                                      ""
+                                      risk.level === "low" ? "border-[#E0742D]/50 focus:border-[#E0742D]" :
+                                      "border-slate-700/40"
                                     )}>
                                       <SelectValue placeholder="Sélectionner un niveau" />
                                     </SelectTrigger>
@@ -858,7 +793,7 @@ export default function BusinessModelPage() {
                                     className={cn(
                                       "flex-shrink-0 p-1.5 rounded-md transition-colors",
                                       risk.note
-                                        ? "text-amber-600 hover:bg-amber-50 hover:text-amber-700"
+                                        ? "text-[#E0742D] hover:bg-[#E0742D]/10 hover:text-[#c96526]"
                                         : "text-slate-400 hover:bg-slate-100 hover:text-slate-600"
                                     )}
                                     title={risk.note ? "Voir/Modifier la note explicative" : "Ajouter une note explicative"}
@@ -878,8 +813,8 @@ export default function BusinessModelPage() {
                                     <AlertTriangle className="w-5 h-5 text-red-600" />
                                   </div>
                                   <div className="flex-1">
-                                    <p className="text-sm font-bold text-slate-900 mb-2">Impact sur la valorisation</p>
-                                    <p className="text-sm text-slate-600 leading-relaxed">{risk.impact}</p>
+                                    <p className={cn(dashboardCardTitleClass, "text-sm mb-2")}>Impact sur la valorisation</p>
+                                    <p className={cn(dashboardCardBodyMutedClass, "text-sm leading-relaxed")}>{risk.impact}</p>
                                   </div>
                                 </div>
                               </div>
@@ -887,12 +822,12 @@ export default function BusinessModelPage() {
                               {/* Recommendation Card */}
                               <div className="relative p-5 bg-gradient-to-br from-slate-50 to-white rounded-xl border border-slate-200 hover:border-slate-300 transition-colors">
                                 <div className="flex items-start gap-3 mb-3">
-                                  <div className="p-2 bg-blue-100 rounded-lg flex-shrink-0">
-                                    <Target className="w-5 h-5 text-blue-600" />
+                                  <div className="p-2 bg-[#E0742D]/15 rounded-lg flex-shrink-0">
+                                    <Target className="w-5 h-5 text-[#E0742D]" />
                                   </div>
                                   <div className="flex-1">
-                                    <p className="text-sm font-bold text-slate-900 mb-2">Recommandation</p>
-                                    <p className="text-sm text-slate-600 leading-relaxed">{risk.recommendation}</p>
+                                    <p className={cn(dashboardCardTitleClass, "text-sm mb-2")}>Recommandation</p>
+                                    <p className={cn(dashboardCardBodyMutedClass, "text-sm leading-relaxed")}>{risk.recommendation}</p>
                                   </div>
                                 </div>
                               </div>
@@ -911,30 +846,30 @@ export default function BusinessModelPage() {
 
         {/* Action Plan Summary - Only show when "Sommaire" is selected */}
         {effectiveSelectedCategory === "Sommaire" && highRisks > 0 && (
-          <Card className="bg-gradient-to-br from-red-50 to-white border-red-200 shadow-lg mt-6">
+          <Card className="bg-gradient-to-br from-red-50 to-white border-2 border-red-200 shadow-sm mt-6 rounded-[28px]">
             <CardContent className="p-6">
               <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-red-600">
+                <div className="p-2 rounded-xl bg-red-600">
                   <Target className="w-5 h-5 text-white" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Plan d'action prioritaire</h2>
+                <h2 className={cn(dashboardCardTitleClass, "text-xl")}>Plan d&apos;action prioritaire</h2>
               </div>
-              <p className="text-sm text-slate-600 mb-4">
+              <p className={cn(dashboardCardBodyMutedClass, "text-sm mb-4")}>
                 Vous avez identifié <strong>{highRisks} risque(s) élevé(s)</strong>. Il est recommandé de prioriser 
-                l'action sur ces risques car ils ont le plus grand impact négatif sur votre multiple de valorisation.
+                l&apos;action sur ces risques car ils ont le plus grand impact négatif sur votre multiple de valorisation.
               </p>
               <div className="space-y-2">
                 {risks
                   .filter(r => r.level === "high")
                   .map((risk, idx) => (
-                    <div key={risk.id} className="p-3 bg-white rounded-lg border border-red-200">
+                    <div key={risk.id} className="p-3 bg-white rounded-xl border border-red-200">
                       <div className="flex items-start gap-3">
                         <div className="flex-shrink-0 w-6 h-6 rounded-full bg-red-600 text-white flex items-center justify-center font-bold text-xs">
                           {idx + 1}
                         </div>
                         <div className="flex-1">
-                          <p className="font-semibold text-slate-900 mb-1">{risk.name}</p>
-                          <p className="text-sm text-slate-600">{risk.recommendation}</p>
+                          <p className={cn(dashboardCardTitleClass, "mb-1")}>{risk.name}</p>
+                          <p className={cn(dashboardCardBodyMutedClass, "text-sm")}>{risk.recommendation}</p>
                         </div>
                       </div>
                     </div>
@@ -980,6 +915,7 @@ export default function BusinessModelPage() {
               </Button>
               <Button
                 onClick={saveNote}
+                className="bg-[#E0742D] hover:bg-[#c96526] text-white"
               >
                 Enregistrer
               </Button>

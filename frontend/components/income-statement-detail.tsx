@@ -81,6 +81,12 @@ import {
   nMinusOneAndYtdActuals,
   resolveForecastActualLayout,
 } from "@/lib/pro-forma-forecast-columns"
+import {
+  buildProFormaMonthlyProjectedLabels,
+  expandProjectedAnnualTrendToMonthly,
+  seasonalityFromAdjustmentMap,
+  type ProFormaIsColumnHorizon,
+} from "@/lib/pro-forma-monthly-is"
 import { PERFORMANCE_CHART_YEAR_COUNT } from "@/lib/performance-chart-series"
 import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
 import {
@@ -121,6 +127,7 @@ import {
 } from "@/lib/income-statement-structure-utils"
 import { filterIncomeStatementDetailRowsForHorizon } from "@/lib/income-statement-horizon-filter"
 import { listRevenueHypothesisPostIdsFromConfigKeys } from "@/hooks/use-projected-revenue-year-totals"
+import { listExpenseHypothesisPostIds } from "@/lib/projected-cmv-year-totals"
 import {
   annexGroupShouldShowSubtotal,
   omitAnnexTitleRowsWithoutAmountPosts,
@@ -232,6 +239,8 @@ interface IncomeStatementDetailProps {
   forecastUseSeriesActuals?: boolean
   /** Pro Forma Résultats : N-1 (exercice complet) + YTD de la date de référence, puis années projetées. */
   forecastActualLayout?: ForecastActualLayout
+  /** Pro Forma Résultats : colonnes annuelles ou mensuelles (horizon projeté). */
+  forecastColumnHorizon?: ProFormaIsColumnHorizon
   projectionYears?: 3 | 4 | 5
   projectionMode?: "gl" | "account"
   comparisonType?: "lastMonth" | "pastMonth" | "budget"
@@ -878,6 +887,7 @@ export function IncomeStatementDetail({
   forecastBaseYear,
   forecastUseSeriesActuals = false,
   forecastActualLayout = "single-prior-year",
+  forecastColumnHorizon = "annual",
   projectionYears = 5,
   projectionMode = "gl",
   comparisonType = "lastMonth",
@@ -1231,7 +1241,7 @@ export function IncomeStatementDetail({
   /** Moteur Hypothèses Dépenses (types, taux, CA lié) — aussi sur Résultats Pro Forma. */
   const appliesExpenseHypothesisEngine =
     title === "Estimation des dépenses annuelles" || isProFormaResultsTitle
-  const { resolveDepreciationExpense: resolveCapexDepreciationExpense } = useCapexForecastForBilan({
+  const { resolveDepreciationExpense: resolveCapexDepreciationExpense, resolveDepreciationExpenseMonthly: resolveCapexDepreciationExpenseMonthly } = useCapexForecastForBilan({
     companyId,
     projectionId,
     projectionYears,
@@ -1243,13 +1253,15 @@ export function IncomeStatementDetail({
     refMonth,
     fiscalYearEndMonth,
   })
-  const { resolveInterestExpense: resolveDebtInterestExpense } = useDebtForecastForBilan({
+  const { resolveInterestExpense: resolveDebtInterestExpense, resolveInterestExpenseMonthly: resolveDebtInterestExpenseMonthly } = useDebtForecastForBilan({
     companyId,
     projectionId,
     enabled: isProFormaResultsTitle && !!companyId,
   })
   const isForecastHistoricalColumn = (idx: number) =>
-    (forceForecastSection || isForecastSection) && idx < forecastActualCols
+    (forceForecastSection || isForecastSection) &&
+    forecastColumnHorizon !== "monthly" &&
+    idx < forecastActualCols
   const isForecastProjectedColumn = (idx: number) =>
     isForecastProjectedDisplayColumn(idx, forecastActualCols)
 
@@ -3769,6 +3781,11 @@ export function IncomeStatementDetail({
     trend?: number[],
   ): number => {
     if (!rowId || !isForecastSection) return defaultValue
+    // Vue mensuelle : trend déjà = montants mensuels (saisonnalité hyp.) — ne pas
+    // réinterpréter l’index de colonne comme une année de config (sinon explosion dès le 3e mois).
+    if (forecastColumnHorizon === "monthly") {
+      return trend?.[displayIndex] ?? defaultValue
+    }
     const cfg = forecastDisplayToConfigYearIndex(displayIndex, forecastActualCols)
     if (cfg == null) return defaultValue
     const configTrend = trend
@@ -4226,6 +4243,300 @@ export function IncomeStatementDetail({
   }
 
   let data = getDetailData()
+
+  if (
+    (forceForecastSection || isForecastSection) &&
+    forecastColumnHorizon === "monthly" &&
+    view === "years"
+  ) {
+    const defaultSeasonality = createDefaultForecastSeasonalityMonthPercents()
+    const revenueIds = listRevenueHypothesisPostIds()
+    const expenseIds = listExpenseHypothesisPostIds(
+      seriesRows,
+      incomeStatementStructure ?? [],
+    )
+    const expenseIdSet = new Set(expenseIds)
+    const revenueIdSet = new Set(revenueIds)
+
+    const mixForYear = (configYearIndex: number): number[] => {
+      const contributions: { weight: number; monthPercents: number[] }[] = []
+      for (const id of [...revenueIds, ...expenseIds]) {
+        const fromRev = Object.keys(revenueAdjustments).some((k) => k.startsWith(`${id}-`))
+        const seasonality = fromRev
+          ? seasonalityFromAdjustmentMap(revenueAdjustments, id, configYearIndex, defaultSeasonality)
+          : seasonalityFromAdjustmentMap(
+              expenseAdjustments as Record<string, unknown>,
+              id,
+              configYearIndex,
+              defaultSeasonality,
+            )
+        contributions.push({ weight: 1, monthPercents: seasonality })
+      }
+      if (contributions.length === 0) return defaultSeasonality
+      return weightedSeasonalityMonthPercents(contributions)
+    }
+
+    /** Même courbe « fond » que loadExpenseSeasonalityFields (onglet Saisonnalité). */
+    const fondSeasonalityForExpenseUi = (rowId: string, yearIndex: number): number[] => {
+      const list = getAdjustments(rowId, yearIndex)
+      const withSeason = list.find((a) => a.seasonalityMonthPercents?.length === 12)
+      if (withSeason?.seasonalityMonthPercents) {
+        return normalizeForecastSeasonalityMonthPercents(withSeason.seasonalityMonthPercents)
+      }
+      if (yearIndex > 0) {
+        const prev = getAdjustments(rowId, yearIndex - 1).find(
+          (a) => a.seasonalityMonthPercents?.length === 12,
+        )
+        if (prev?.seasonalityMonthPercents) {
+          return normalizeForecastSeasonalityMonthPercents(prev.seasonalityMonthPercents)
+        }
+      }
+      if (getExpenseType(rowId) === "fixe") {
+        return resolveRevenueActualSeasonality(rowId).averagePercents
+      }
+      const linked = getLinkedRevenueSeasonalityForVariableExpense(rowId, yearIndex)
+      return linked?.monthPercents ?? defaultSeasonality
+    }
+
+    /** Montants mensuels = ligne « Avec ajustement » de l’onglet Saisonnalité Hyp. Dépenses. */
+    const buildExpenseMonthlyFromHypothesis = (
+      rowId: string,
+      annualDisplayTrend: number[],
+    ): number[] => {
+      const configTrend = forecastDisplayTrendToConfigTrend(
+        annualDisplayTrend,
+        forecastActualCols,
+      )
+      const baseAmount = Math.abs(
+        getRevenueValue(rowId, 0, configTrend[0] ?? 0, undefined, configTrend),
+      )
+      const months: number[] = []
+      for (let y = 1; y <= projectionYears; y++) {
+        const fond = fondSeasonalityForExpenseUi(rowId, y)
+        if (getExpenseType(rowId) === "variable") {
+          const rows = getVariableExpenseSeasonalityMonthlyRows(rowId, y, fond)
+          months.push(...(rows?.avecAjustement ?? Array.from({ length: 12 }, () => 0)))
+        } else {
+          const rows = getFixedExpenseSeasonalityMonthlyRows(rowId, y, fond, baseAmount)
+          months.push(...(rows?.avecAjustement ?? Array.from({ length: 12 }, () => 0)))
+        }
+      }
+      return months
+    }
+
+    /** Revenus : annuel projeté × saisonnalité poste (comme onglet Saisonnalité Hyp. Revenus). */
+    const buildRevenueMonthlyFromHypothesis = (
+      rowId: string,
+      annualDisplayTrend: number[],
+    ): number[] => {
+      const configTrend = forecastDisplayTrendToConfigTrend(
+        annualDisplayTrend,
+        forecastActualCols,
+      )
+      const months: number[] = []
+      for (let y = 1; y <= projectionYears; y++) {
+        const annual = Math.abs(
+          getRevenueValue(rowId, y, configTrend[y] ?? 0, undefined, configTrend),
+        )
+        const seasonality = seasonalityForRevenueHypothesisPost(rowId, y)
+        months.push(...distributeAnnualRevenueBySeasonality(annual, seasonality))
+      }
+      return months
+    }
+
+    /** Dotation Capex : même courbe mensuelle que Hypothèses Capex Sommaire. */
+    const buildCapexAmortMonthlyFromHypothesis = (amortLinkCode: string): number[] => {
+      const months: number[] = []
+      for (let y = 1; y <= projectionYears; y++) {
+        months.push(...resolveCapexDepreciationExpenseMonthly(amortLinkCode, y))
+      }
+      return months
+    }
+
+    /** Intérêts Financement : même calendrier que Tableau des versements mensuels. */
+    const buildDebtInterestMonthlyFromHypothesis = (interestLinkCode: string): number[] => {
+      const months: number[] = []
+      for (let y = 1; y <= projectionYears; y++) {
+        months.push(...resolveDebtInterestExpenseMonthly(interestLinkCode, y))
+      }
+      return months
+    }
+
+    const resolveCapexAmortLinkCodeForDetailRow = (row: DetailRow): string | null => {
+      if (!row.rowId || row.isAnnexSubtotal || row.isAnnexTitle || row.isAnnexPlaceholder) {
+        return null
+      }
+      const seriesRowForId = seriesRows.find((r) => r.id === row.rowId)
+      const structRowForComputed =
+        seriesRowForId && incomeStatementStructure?.length
+          ? findStructureRowForStatementLine(
+              seriesRowForId.id,
+              seriesRowForId.label,
+              incomeStatementStructure,
+            )
+          : incomeStatementStructure?.length
+            ? findStructureRowForStatementLine(row.rowId, row.label ?? "", incomeStatementStructure)
+            : undefined
+      if (structRowForComputed) {
+        const fromStruct = collectLinkCodesFromStructureRow(structRowForComputed).find(
+          isCapexDrivenAmortizationIsLinkCode,
+        )
+        if (fromStruct) return fromStruct
+      }
+      if (isCapexDrivenAmortizationIsLinkCode(row.rowId)) return row.rowId
+      if (seriesRowForId && isCapexDrivenAmortizationIsLinkCode(seriesRowForId.id)) {
+        return seriesRowForId.id
+      }
+      return null
+    }
+
+    const resolveDebtInterestLinkCodeForDetailRow = (row: DetailRow): string | null => {
+      if (!row.rowId || row.isAnnexSubtotal || row.isAnnexTitle || row.isAnnexPlaceholder) {
+        return null
+      }
+      const seriesRowForId = seriesRows.find((r) => r.id === row.rowId)
+      const structRowForComputed =
+        seriesRowForId && incomeStatementStructure?.length
+          ? findStructureRowForStatementLine(
+              seriesRowForId.id,
+              seriesRowForId.label,
+              incomeStatementStructure,
+            )
+          : incomeStatementStructure?.length
+            ? findStructureRowForStatementLine(row.rowId, row.label ?? "", incomeStatementStructure)
+            : undefined
+      if (structRowForComputed) {
+        const fromStruct = collectLinkCodesFromStructureRow(structRowForComputed).find(
+          isDebtDrivenInterestIsLinkCode,
+        )
+        if (fromStruct) return fromStruct
+      }
+      if (isDebtDrivenInterestIsLinkCode(row.rowId)) return row.rowId
+      if (seriesRowForId && isDebtDrivenInterestIsLinkCode(seriesRowForId.id)) {
+        return seriesRowForId.id
+      }
+      return null
+    }
+
+    const isExpenseHypPost = (row: DetailRow): boolean => {
+      if (!row.rowId || row.isAnnexSubtotal || row.isAnnexTitle || row.isAnnexPlaceholder) {
+        return false
+      }
+      if (expenseIdSet.has(row.rowId)) return true
+      const seriesRowForId = seriesRows.find((r) => r.id === row.rowId)
+      const hasExpenseConfigKeys =
+        expenseTypes[row.rowId] != null ||
+        variableRates[row.rowId] != null ||
+        Object.keys(expenseAdjustments).some((k) => k.startsWith(`${row.rowId}-`))
+      return (
+        (!!incomeStatementStructure?.length &&
+          !!seriesRowForId &&
+          seriesRowBelongsToDepensesAnnexDetail(seriesRowForId, incomeStatementStructure)) ||
+        hasExpenseConfigKeys
+      )
+    }
+
+    const isRevenueHypPost = (row: DetailRow): boolean => {
+      if (!row.rowId || row.isAnnexSubtotal || row.isAnnexTitle || row.isAnnexPlaceholder) {
+        return false
+      }
+      if (revenueIdSet.has(row.rowId)) return true
+      const seriesRowForId = seriesRows.find((r) => r.id === row.rowId)
+      const hasRevenueConfigKeys =
+        Object.keys(revenueAdjustments).some((k) => k.startsWith(`${row.rowId}-`)) ||
+        Object.keys(revenueValues).some((k) => k.startsWith(`${row.rowId}-`))
+      return (
+        (!!incomeStatementStructure?.length &&
+          !!seriesRowForId &&
+          seriesRowBelongsToRevenueAnnexDetail(seriesRowForId, incomeStatementStructure)) ||
+        hasRevenueConfigKeys
+      )
+    }
+
+    data = data.map((row) => {
+      if (!row.trendValues?.length) return row
+      const seriesId = row.rowId
+      let monthly: number[]
+      const capexAmortCode =
+        isProFormaResultsTitle && seriesId ? resolveCapexAmortLinkCodeForDetailRow(row) : null
+      const debtInterestCode =
+        isProFormaResultsTitle && seriesId ? resolveDebtInterestLinkCodeForDetailRow(row) : null
+      if (capexAmortCode) {
+        monthly = buildCapexAmortMonthlyFromHypothesis(capexAmortCode)
+      } else if (debtInterestCode) {
+        monthly = buildDebtInterestMonthlyFromHypothesis(debtInterestCode)
+      } else if (seriesId && isExpenseHypPost(row)) {
+        monthly = buildExpenseMonthlyFromHypothesis(seriesId, row.trendValues)
+      } else if (seriesId && isRevenueHypPost(row)) {
+        monthly = buildRevenueMonthlyFromHypothesis(seriesId, row.trendValues)
+      } else {
+        monthly = expandProjectedAnnualTrendToMonthly({
+          annualTrend: row.trendValues,
+          forecastActualCols,
+          projectionYears,
+          seasonalityForConfigYear: (configYearIndex) => {
+            if (seriesId && !row.isAnnexSubtotal && !row.isAnnexTitle && !row.isAnnexPlaceholder) {
+              if (Object.keys(revenueAdjustments).some((k) => k.startsWith(`${seriesId}-`))) {
+                return seasonalityFromAdjustmentMap(
+                  revenueAdjustments,
+                  seriesId,
+                  configYearIndex,
+                  defaultSeasonality,
+                )
+              }
+              if (
+                Object.keys(expenseAdjustments as object).some((k) =>
+                  k.startsWith(`${seriesId}-`),
+                )
+              ) {
+                return seasonalityFromAdjustmentMap(
+                  expenseAdjustments as Record<string, unknown>,
+                  seriesId,
+                  configYearIndex,
+                  defaultSeasonality,
+                )
+              }
+            }
+            return mixForYear(configYearIndex)
+          },
+        })
+      }
+      return {
+        ...row,
+        trendValues: monthly,
+        current: monthly[0] ?? 0,
+        prior: monthly[1] ?? 0,
+      }
+    })
+
+    // Total d’annexe = somme mois par mois des postes (pas la saisonnalité mixte du total annuel).
+    data = data.map((row) => {
+      if (!row.isAnnexSubtotal) return row
+      const letter = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+      if (!letter) return row
+      const posts = data.filter(
+        (r) =>
+          normalizeAnnexLetter(String(r.annexLetter ?? "")) === letter &&
+          !r.isAnnexSubtotal &&
+          !r.isAnnexTitle &&
+          !r.isAnnexPlaceholder &&
+          !r.isSection &&
+          Array.isArray(r.trendValues) &&
+          r.trendValues.length > 0,
+      )
+      if (posts.length === 0) return row
+      const len = posts[0]!.trendValues!.length
+      const trendValues = Array.from({ length: len }, (_, j) =>
+        posts.reduce((acc, r) => acc + (r.trendValues?.[j] ?? 0), 0),
+      )
+      return {
+        ...row,
+        trendValues,
+        current: trendValues[0] ?? 0,
+        prior: trendValues[1] ?? 0,
+      }
+    })
+  }
 
   // Dénominateur « % des revenus » : **même source que le Sommaire** (`backendRows` de l’API), pas les lignes
   // du Détail (tri / filtres `showInDetail` / ordre structure). Sinon le premier poste du Détail peut être
@@ -4777,6 +5088,9 @@ export function IncomeStatementDetail({
   const getYearLabels = (): string[] => {
     if (forceForecastSection) {
       const baseYear = forecastBaseYear ?? new Date().getFullYear()
+      if (forecastColumnHorizon === "monthly") {
+        return buildProFormaMonthlyProjectedLabels(baseYear, projectionYears)
+      }
       return forecastYearLabelsForLayout(
         forecastActualLayoutEffective,
         baseYear,
@@ -4850,7 +5164,18 @@ export function IncomeStatementDetail({
     if (view === "12months") return HORIZON_LABEL.mensuel
     if ((view as string) === "24months") return "24 mois"
     if (view === "quarters") return HORIZON_LABEL.trimestriel2Ans
-    if (view === "years") return HORIZON_LABEL.annuel5Ans
+    if (view === "years") {
+      if (forecastColumnHorizon === "monthly") {
+        return projectionYears === 5
+          ? "Mensuel - 5 ans"
+          : projectionYears === 4
+            ? "Mensuel - 4 ans"
+            : projectionYears === 3
+              ? "Mensuel - 3 ans"
+              : `Mensuel - ${projectionYears} ans`
+      }
+      return HORIZON_LABEL.annuel5Ans
+    }
     return HORIZON_LABEL.moisActuel
   }
 
@@ -5053,9 +5378,11 @@ export function IncomeStatementDetail({
     return value
   }
 
-  /** Sous-totaux annexe (hypothèses revenus) : somme des montants affichés (`getRevenueValue`) par lettre — aligné sur la ligne « Revenus » / Pro forma, pas sur les tendances brutes injectées. */
+  /** Sous-totaux annexe (hypothèses revenus / Pro Forma mensuel) : somme des montants affichés par lettre. */
   const revenueAnnexForecastYearTotalsByLetter = useMemo(() => {
-    if (title !== "Estimation des revenus annuels") return null
+    const useForProFormaMonthly =
+      isProFormaResultsTitle && forecastColumnHorizon === "monthly"
+    if (title !== "Estimation des revenus annuels" && !useForProFormaMonthly) return null
     if (!isForecastSection || view !== "years") return null
     if (showStructureCols) return null
 
@@ -5096,11 +5423,22 @@ export function IncomeStatementDetail({
       )
     }
     return out.size > 0 ? out : null
-  }, [data, displayedHypothesisAmount, isForecastSection, showStructureCols, title, view])
+  }, [
+    data,
+    displayedHypothesisAmount,
+    forecastColumnHorizon,
+    isForecastSection,
+    isProFormaResultsTitle,
+    showStructureCols,
+    title,
+    view,
+  ])
 
-  /** Sous-totaux annexe (hypothèses dépenses) : somme des montants affichés (`getRevenueValue`) par lettre — aligné sur les postes projetés, pas sur les tendances brutes. */
+  /** Sous-totaux annexe (hypothèses dépenses / Pro Forma mensuel) : somme des montants affichés par lettre. */
   const expenseAnnexForecastYearTotalsByLetter = useMemo(() => {
-    if (title !== "Estimation des dépenses annuelles") return null
+    const useForProFormaMonthly =
+      isProFormaResultsTitle && forecastColumnHorizon === "monthly"
+    if (title !== "Estimation des dépenses annuelles" && !useForProFormaMonthly) return null
     if (!isForecastSection || view !== "years") return null
     if (showStructureCols) return null
 
@@ -5141,7 +5479,16 @@ export function IncomeStatementDetail({
       )
     }
     return out.size > 0 ? out : null
-  }, [data, displayedHypothesisAmount, isForecastSection, showStructureCols, title, view])
+  }, [
+    data,
+    displayedHypothesisAmount,
+    forecastColumnHorizon,
+    isForecastSection,
+    isProFormaResultsTitle,
+    showStructureCols,
+    title,
+    view,
+  ])
 
   // Show loading state when fetching data
   if (isDataLoading) {
@@ -8806,7 +9153,8 @@ export function IncomeStatementDetail({
                           isForecastSection &&
                           row.isAnnexSubtotal &&
                           annexLetterNorm
-                            ? (title === "Estimation des revenus annuels"
+                            ? (title === "Estimation des revenus annuels" ||
+                              (isProFormaResultsTitle && forecastColumnHorizon === "monthly")
                                 ? revenueAnnexForecastYearTotalsByLetter
                                 : title === "Estimation des dépenses annuelles"
                                   ? expenseAnnexForecastYearTotalsByLetter
@@ -9474,14 +9822,14 @@ export function IncomeStatementDetail({
                                 {Array.from(
                                   {
                                     length: isForecastSection
-                                      ? row.trendValues.length
+                                      ? (row.trendValues?.length ?? 0)
                                       : getYearLabels().length,
                                   },
                                   (_, valueIdx) => {
-                                  const rowTrendValue = row.trendValues[valueIdx] ?? 0
+                                  const rowTrendValue = row.trendValues?.[valueIdx] ?? 0
                                   // Get the actual row value (edited or default) for forecast sections
                                   const actualRowValue = isForecastSection && row.rowId 
-                                    ? displayedHypothesisAmount(row.rowId, valueIdx, rowTrendValue, row.trendValues)
+                                    ? displayedHypothesisAmount(row.rowId, valueIdx, rowTrendValue, row.trendValues ?? [])
                                     : rowTrendValue
                                   
                                   const accountTrendValue =

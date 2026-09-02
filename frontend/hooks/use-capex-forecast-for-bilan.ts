@@ -13,6 +13,7 @@ import {
   parseCapexForecastConfig,
   resolveCapexDrivenBilanProjectedAmount,
   resolveCapexDrivenDepreciationExpense,
+  resolveCapexDrivenDepreciationExpenseMonthly,
   type CapexAdjustment,
   type CapexBilanPeerRow,
   type CapexDepreciationMethod,
@@ -392,6 +393,30 @@ export function useCapexForecastForBilan(opts: {
     projectedRevenueYearTotals,
   ])
 
+  /** Dotation mensuelle (12 mois) — même courbe que Hypothèses Capex Sommaire. */
+  const resolveDepreciationExpenseMonthly = useMemo(() => {
+    return (isLinkCode: string | null | undefined, configYearIndex: number) =>
+      resolveCapexDrivenDepreciationExpenseMonthly({
+        isLinkCode,
+        configYearIndex,
+        configYearCount,
+        adjustments,
+        depreciationRates,
+        depreciationMethods,
+        amortizationLinkCodes,
+        projectedRevenueYearTotals,
+        peerRows,
+      })
+  }, [
+    adjustments,
+    amortizationLinkCodes,
+    configYearCount,
+    depreciationMethods,
+    depreciationRates,
+    peerRows,
+    projectedRevenueYearTotals,
+  ])
+
   return {
     adjustments,
     depreciationRates,
@@ -403,6 +428,7 @@ export function useCapexForecastForBilan(opts: {
     configYearCount,
     resolveProjectedAmount,
     resolveDepreciationExpense,
+    resolveDepreciationExpenseMonthly,
     loading: configLoading || revenueLoading || costLoading || bookLoading,
   }
 }

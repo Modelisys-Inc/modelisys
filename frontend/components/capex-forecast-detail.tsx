@@ -41,10 +41,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { CapexFinancingEditor } from "@/components/capex-financing-editor"
 import { ForecastHypothesisSummaryChart } from "@/components/forecast-hypothesis-summary-chart"
 import {
+  attachCapexAssetMonthlyTracking,
   computeHypothesisSummaryMoneyPoints,
   type HypothesisYearSummaryInput,
 } from "@/lib/forecast-hypothesis-summary-utils"
-  import {
+import {
   createDefaultAdvancedBuckets as createDefaultForecastCollectionBuckets,
 } from "@/lib/forecast-collection-cash-utils"
 import {
@@ -203,10 +204,14 @@ export function CapexForecastDetail({
   const [capexSummarySeriesVisible, setCapexSummarySeriesVisible] = useState({
     primary: true,
     cashFlow: true,
-    balance: true,
+    cost: true,
+    bookValue: true,
+    depreciation: true,
   })
   const pendingCapexAdjustmentIdRef = useRef<string | null>(null)
   const capexHypothesisDraftLoadKeyRef = useRef<string | null>(null)
+  /** Charge taux/méthode une fois par poste à l’ouverture (pas seulement onglet Taux). */
+  const capexDepDraftRowKeyRef = useRef<string | null>(null)
 
   const isForecastSection = title === "Estimation des Capex annuels"
 
@@ -721,6 +726,7 @@ export function CapexForecastDetail({
     setCapexFinancingDraft(createDefaultCapexFinancing("", 0, effectiveForecastBaseYear))
     pendingCapexAdjustmentIdRef.current = null
     capexHypothesisDraftLoadKeyRef.current = null
+    capexDepDraftRowKeyRef.current = null
   }
 
   const resetCapexAdjustmentDraftForm = (rowId: string, yearIndex: number, rowLabel = "") => {
@@ -801,19 +807,25 @@ export function CapexForecastDetail({
 
     const rowId = editingAdjustment.rowId
     const yearIndex = ensureCapexProjectedYearIndex(editingAdjustment.yearIndex)
+    const rowLabelForLoad = baseData?.find((r) => r.rowId === rowId)?.label || ""
+
+    // Taux / méthode : toujours hydrater le brouillon à l’ouverture du poste
+    // (sinon Sommaire utilise draftDepreciationRate=0 → amortissement 0 $).
+    const depKey = `dep:${rowId}`
+    if (capexDepDraftRowKeyRef.current !== depKey) {
+      capexDepDraftRowKeyRef.current = depKey
+      setDraftDepreciationMethod(getDepreciationMethod(rowId))
+      setDraftDepreciationRate(getDepreciationRate(rowId, rowLabelForLoad))
+    }
 
     if (capexHypothesisMode === "rate" || capexHypothesisEditorTab === "taux") {
-      const rowLabel = baseData?.find((r) => r.rowId === rowId)?.label || ""
       const loadKey = `taux:${rowId}`
       if (capexHypothesisDraftLoadKeyRef.current === loadKey) return
       capexHypothesisDraftLoadKeyRef.current = loadKey
       setEditingAdjustmentId(null)
-      setDraftDepreciationMethod(getDepreciationMethod(rowId))
-      setDraftDepreciationRate(getDepreciationRate(rowId, rowLabel))
       return
     }
 
-    const rowLabelForLoad = baseData?.find((r) => r.rowId === rowId)?.label || ""
     const pendingAdjId = pendingCapexAdjustmentIdRef.current
     const loadKey = `${capexHypothesisEditorTab}:${rowId}:${yearIndex}:${pendingAdjId ?? editingAdjustmentId ?? "new"}:${rowLabelForLoad}`
     if (capexHypothesisDraftLoadKeyRef.current === loadKey) return
@@ -1568,7 +1580,7 @@ export function CapexForecastDetail({
       }
     }
     const firstProjectedYearIndexForCapexSummary = 1
-    const capexSummaryMoneyPoints =
+    const capexSummaryMoneyPointsBase =
       capexSummaryReady && capexSummaryYearsParams.length === adjustmentYearIndex + 1
         ? computeHypothesisSummaryMoneyPoints(
             capexSummaryYearsParams,
@@ -1576,10 +1588,97 @@ export function CapexForecastDetail({
             firstProjectedYearIndexForCapexSummary,
           )
         : []
+    const openingBookForSummary = (() => {
+      const seriesRow = bsRows.find((r) => r.id === editingAdjustment.rowId)
+      if (!seriesRow || !forecastUseSeriesActuals) {
+        return data.find((r) => r.rowId === editingAdjustment.rowId)?.current ?? 0
+      }
+      const prefix = forecastBalanceSheetActualPrefixValues(
+        forecastActualLayoutEffective,
+        seriesRow,
+        bsPeriods,
+        effectiveRefMonth,
+        effectiveFiscalYear,
+        fiscalYearEndMonth,
+      )
+      return forecastProjectionOpeningFromActuals(prefix, 0)
+    })()
+    const draftAdditionsOverrideForSummary: Record<number, number> = {
+      [adjustmentYearIndex]: (() => {
+        const others = existingAdjustments
+          .filter((a) => a.id !== editingAdjustmentId)
+          .reduce(
+            (s, a) =>
+              s +
+              resolveSingleCapexAdjustmentAmount(
+                a,
+                adjustmentYearIndex,
+                0,
+                openingBookForSummary,
+                undefined,
+                editingAdjustment.rowId,
+              ),
+            0,
+          )
+        return others + Math.max(0, capexAdjustmentAnnual)
+      })(),
+    }
+    const assetStatesForSummary = capexSummaryReady
+      ? buildRowAssetStates(
+          editingAdjustment.rowId,
+          rowLabel,
+          openingBookForSummary,
+          draftAdditionsOverrideForSummary,
+        )
+      : []
+    const prevStateForSummary =
+      adjustmentYearIndex > 0 ? assetStatesForSummary[adjustmentYearIndex - 1] : undefined
+    const openingCostForMonth =
+      prevStateForSummary?.cost ??
+      getOpeningCostForRow(editingAdjustment.rowId, openingBookForSummary)
+    const openingBookForMonth = prevStateForSummary?.bookValue ?? openingBookForSummary
+    const savedRate = getDepreciationRate(editingAdjustment.rowId, rowLabel)
+    const savedMethod = getDepreciationMethod(editingAdjustment.rowId)
+    // draftDepreciationRate reste à 0 tant que l’onglet Taux n’a pas hydraté le brouillon —
+    // toujours retomber sur le taux enregistré / défaut du poste.
+    const effectiveSummaryRate = draftDepreciationRate || savedRate
+    const effectiveSummaryMethod =
+      capexDepDraftRowKeyRef.current === `dep:${editingAdjustment.rowId}`
+        ? draftDepreciationMethod
+        : savedMethod
+    const capexSummaryMoneyPoints =
+      capexSummaryMoneyPointsBase.length > 0
+        ? attachCapexAssetMonthlyTracking(capexSummaryMoneyPointsBase, {
+            openingCost: Math.max(0, openingCostForMonth),
+            openingBookValue: Math.max(0, openingBookForMonth),
+            ratePercent: effectiveSummaryRate,
+            method: effectiveSummaryMethod,
+          })
+        : []
     const capexSummarySeries = [
       { key: "primary" as const, label: "Capex", color: "#475569", lineName: "Capex" },
       { key: "cashFlow" as const, label: "Décaissements", color: "#059669", lineName: "Décaissement" },
-      { key: "balance" as const, label: "Créditeurs", color: "#d97706", lineName: "Créditeurs" },
+      {
+        key: "cost" as const,
+        label: "Coût",
+        color: "#64748b",
+        lineName: "Coût",
+        inChart: false,
+      },
+      {
+        key: "bookValue" as const,
+        label: "Valeur comptable",
+        color: "#0f766e",
+        lineName: "Valeur comptable",
+        inChart: false,
+      },
+      {
+        key: "depreciation" as const,
+        label: "Amortissement",
+        color: "#7c3aed",
+        lineName: "Amortissement",
+        inChart: false,
+      },
     ] as const
     const capexSummaryAnnualForYear =
       capexSummaryYearsParams[adjustmentYearIndex]?.annual ?? 0

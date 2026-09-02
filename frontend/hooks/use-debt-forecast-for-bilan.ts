@@ -5,6 +5,7 @@ import {
   DEBT_FORECAST_CONFIG_TYPE,
   parseDebtForecastLoans,
   resolveDebtDrivenInterestExpense,
+  resolveDebtDrivenInterestExpenseMonthly,
   resolveFinancingDrivenBilanProjectedAmount,
 } from "@/lib/debt-forecast-resolve"
 
@@ -24,6 +25,10 @@ export function useDebtForecastForBilan(opts: {
     isLinkCode: string | null | undefined,
     configYearIndex: number,
   ) => number
+  resolveInterestExpenseMonthly: (
+    isLinkCode: string | null | undefined,
+    configYearIndex: number,
+  ) => number[]
   loading: boolean
 } {
   const { companyId, projectionId, enabled = true } = opts
@@ -82,5 +87,20 @@ export function useDebtForecastForBilan(opts: {
       })
   }, [loans])
 
-  return { loans, resolveProjectedAmount, resolveInterestExpense, loading }
+  const resolveInterestExpenseMonthly = useMemo(() => {
+    return (isLinkCode: string | null | undefined, configYearIndex: number) =>
+      resolveDebtDrivenInterestExpenseMonthly({
+        isLinkCode,
+        configYearIndex,
+        loans,
+      })
+  }, [loans])
+
+  return {
+    loans,
+    resolveProjectedAmount,
+    resolveInterestExpense,
+    resolveInterestExpenseMonthly,
+    loading,
+  }
 }

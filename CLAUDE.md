@@ -282,7 +282,10 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   avec ajustement = courbes + tableau Dépenses / Ajustement / Dépenses avec
   ajustement.
   **Hypothèses Capex** : onglets Sommaire / Taux / Ajustement (plus d’onglet
-  Décaissement séparé). Colonnes comme Revenus / Bilan :
+  Décaissement séparé). Sommaire mensuel : Capex / Décaissements sur le graphique ;
+  sous le graphique, tableau Coût / Valeur comptable / Amortissement (dotation) —
+  `inChart: false` (pas de ligne Financement / créditeurs ici). Colonnes comme
+  Revenus / Bilan :
   **Code** | **Taux** | **N-1** | **YTD** (si mois de réf. ≠ clôture) | années projetées
   (`nMinusOne-and-ytd` — ex. réf. mars 2026 → `Code` | `Taux` | `2025` | `YTD 2026` |
   `2026` | `2027`…). **En-tête (Code + Taux + années) et colonne Compte figés** au
@@ -292,8 +295,11 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   `alt_accumulated_amortization`) ; **ouverture de la 1re année projetée** =
   soldes de **clôture N-1** (exercice complet — `forecastProjectionOpeningFromActuals`),
   jamais le YTD partiel ; N-1 / YTD restent des colonnes série. Sans ajustement,
-  la VNC se projette quand même via la dotation annuelle (taux linéaire sur le
-  coût / dégressif sur la VNC).
+  la VNC se projette quand même via la dotation. **Dotation / VNC projetées** =
+  simulation mensuelle (`simulateCapexAssetYearMonths` : après chaque mois d’ajout,
+  dégressif = taux/12 × VNC, linéaire = taux/12 × Coût ; saisonnalité des ajouts
+  Capex) — l’annuel (détail poste + colonnes) = somme des mois / clôture décembre,
+  aligné sur le Sommaire Hypothèse Capex (prise en compte acquisition mi-année).
   Panneau Ajustement : tableau Coût / Amort. cumulé / VNC ; le montant d’ajustement
   **augmente le Coût**, puis la dotation augmente l’amortissement cumulé.
   Cellules projetées **avec ajustement** : point bleu et infobulle
@@ -324,14 +330,20 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   Taux) — sélection du code amortissement CDR par poste (`amortizationLinkCodes` :
   CMV.11 / EXP.20 / ADM.20 pour ALT-B/C ; EXP.21 / ADM.21 pour ALT-D). La dotation
   de période (`depreciationExpense`) est injectée au Détail + Sommaire Pro Forma
-  sur le code choisi (somme des postes Capex feuilles mappés vers ce code). Sans
+  sur le code choisi (somme des postes Capex feuilles mappés vers ce code). En
+  vue **Mensuel**, la série = dotation mois par mois du Sommaire Capex
+  (`resolveCapexDrivenDepreciationExpenseMonthly`), pas annuel ÷ 12. Sans
   code sélectionné = 0 $ sur les lignes amort. Inclus dans le rollup annexe
   Sommaire ; exclus des Hypothèses Dépenses. BAIIA reste REV − hyp. Dépenses.
   **Intérêts Financement → CDR** : somme des `interestPayment` (portion intérêts
   uniquement) des emprunts Hypothèses Financement — PLT-C → **FIN.3** (Intérêts
   sur la dette à long terme) ; PLT-D → **FIN.4** (Intérêts sur les contrats de
   location-acquisition). Injecté au Détail + Sommaire Pro Forma ; inclus au
-  rollup annexe Frais financiers ; exclus des Hypothèses Dépenses.
+  rollup annexe Frais financiers ; exclus des Hypothèses Dépenses. En vue
+  **Mensuel**, la série = intérêts mois par mois du calendrier d’amortissement
+  (`resolveDebtDrivenInterestExpenseMonthly` / `buildLoanMonthlyPaymentSchedule`)
+  — pas une répartition saisonnière de l’annuel. Panneau emprunt : **Tableau des
+  versements mensuels** (Mois / Intérêts / Capital / Solde résiduel).
   **Détail Pro Forma** = même structure d’annexes que États des résultats → Détail
   (Annexe A/B…, sous-lignes `detailOnly`, sous-totaux + ligne vide) ; pas le flat
   Hypothèses Revenus/Dépenses ; **sans Annexe Impôts** (famille IMP / Exigibles —
@@ -349,11 +361,12 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   **Hypothèses Financement** : même carte / tableau que Capex (Emprunt | Taux | années).
   Clic sur un emprunt → panneau inline (nom, montant, `DebtParamsFields`) ; les
   autres lignes sont masquées. Emprunts issus du Capex financé : badge Capex +
-  mention « Hypothèse Capex », cellules non éditables (params gérés dans Capex).
-  Mapping PLT (PLT-B/C/D — pas PLT-G « Dues ») alimente le tableau
+  mention « Hypothèse Capex », panneau **lecture seule** (calendrier des versements
+  visible, paramètres non modifiables — gérés dans Capex). Mapping PLT (PLT-B/C/D — pas PLT-G « Dues ») alimente le tableau
   (solde d’ouverture) ; taux / durée / remboursement se définissent dans le
   panneau, plus dans le mapping comptable. Emprunts mapping sans hypothèse
-  flaggés « À définir » jusqu’à Enregistrer.
+  flaggés « À définir » jusqu’à Enregistrer. Calendrier : Mois (janv. 2026…) /
+  Versement / Intérêts / Capital / Solde résiduel.
   **Nouveau scénario de projection** (`/projections` + modal Pro Forma) : pas de
   picker entité / division / sous-division (société = `companyId` d’URL ou première
   de l’org ; `division_id` / `sub_division_id` nuls). Horizon toujours **annuel**
@@ -370,7 +383,23 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   **Pro Forma Résultats** (Sommaire + Détail) : colonnes réelles = **N-1** (exercice
   fiscal complet clos avant la date de référence) puis **YTD** (cumul d’exercice
   jusqu’au mois de référence), puis les années projetées. Ex. réf. mars 2026,
-  clôture 31 déc. → `2025` | `YTD 2026` | `2026` | `2027`… **Hypothèses Revenus,
+  clôture 31 déc. → `2025` | `YTD 2026` | `2026` | `2027`… Bascule **Annuel | Mensuel**
+  à côté de Sommaire/Détail (`forecastColumnHorizon`) : en **Mensuel**, seules les
+  années projetées sont dépliées en mois (ex. 5 ans → 60 colonnes `janv. 2026`…
+  `déc. 2030`, sans N-1/YTD). **Détail** : postes Hyp. Revenus = annuel × saisonnalité
+  poste ; postes Hyp. Dépenses = même moteur que l’onglet Saisonnalité
+  (`avecAjustement` : variable = CA mensuel × taux mois + $ ; fixe = N−1 mensuel ×
+  inflation mois + $) — pas une simple répartition de l’annuel. Sous-totaux d’annexe
+  = somme des postes. Cascade Sommaire via `expandProjectedAnnualTrendToMonthly` +
+  `recomputeProFormaMonthlyIsCascade`. **Amortissement Capex** (CMV.11 / EXP.20 /
+  ADM.20 / EXP.21 / ADM.21) : en Mensuel, dotation mois par mois du moteur Hypothèses
+  Capex Sommaire (`resolveCapexDrivenDepreciationExpenseMonthly` /
+  `simulateCapexAssetYearMonths`) — pas une répartition plate de l’annuel.
+  **Intérêts Financement** (FIN.3 / FIN.4) : en Mensuel, intérêts mois par mois du
+  calendrier d’emprunt (`resolveDebtDrivenInterestExpenseMonthly`). La
+  **fréquence de paiement** Hypothèses Impôts
+  (`taxPaymentFrequency`) pilote les acomptes trésorerie/bilan, pas la charge IS
+  mensuelle. **Hypothèses Revenus,
   Dépenses et Capex** reprennent les mêmes colonnes. Les configs gardent
   l’index 0 = réel / 1+ = projeté ; N-1 est une colonne d’affichage supplémentaire
   (clic d’hypothèse seulement sur les années projetées). **Croissance % / $** de

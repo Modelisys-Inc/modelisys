@@ -45,12 +45,14 @@ function ProjectDateSelects({
   onChange,
   yearOptions,
   idPrefix,
+  disabled = false,
 }: {
   label: string
   value: CapexProjectDate
   onChange: (d: CapexProjectDate) => void
   yearOptions: number[]
   idPrefix: string
+  disabled?: boolean
 }) {
   return (
     <div>
@@ -60,6 +62,7 @@ function ProjectDateSelects({
       <div className="flex gap-2">
         <Select
           value={String(value.month)}
+          disabled={disabled}
           onValueChange={(v) => onChange({ ...value, month: parseInt(v, 10) })}
         >
           <SelectTrigger id={`${idPrefix}-month`} className="flex-1">
@@ -75,6 +78,7 @@ function ProjectDateSelects({
         </Select>
         <Select
           value={String(value.year)}
+          disabled={disabled}
           onValueChange={(v) => onChange({ ...value, year: parseInt(v, 10) })}
         >
           <SelectTrigger className="w-28">
@@ -136,12 +140,15 @@ export function DebtParamsFields({
   yearOptions,
   idPrefix,
   financedAmount = 0,
+  readOnly = false,
 }: {
   debt: NonNullable<CapexFinancingConfig["debt"]>
   onChange: (debt: NonNullable<CapexFinancingConfig["debt"]>) => void
   yearOptions: number[]
   idPrefix: string
   financedAmount?: number
+  /** Aperçu Hypothèses Financement (emprunts Capex) — champs non modifiables. */
+  readOnly?: boolean
 }) {
   const isInterestOnly =
     debt.repaymentMode === "interest_only" || debt.repaymentMode === "interest_only_balloon"
@@ -153,6 +160,7 @@ export function DebtParamsFields({
   const moratoriumScope: DebtMoratoriumScope = debt.moratoriumScope ?? "both"
 
   const patchDebt = (partial: Partial<CapexDebtParams>) => {
+    if (readOnly) return
     const next = { ...debt, ...partial }
     if (next.firstPaymentDate) {
       next.firstPaymentDate = clampProjectDateToYears(next.firstPaymentDate, yearOptions)
@@ -177,6 +185,7 @@ export function DebtParamsFields({
             step="0.01"
             min={0}
             value={debt.interestRate}
+            disabled={readOnly}
             onChange={(e) => patchDebt({ interestRate: parseFloat(e.target.value) || 0 })}
           />
         </div>
@@ -190,6 +199,7 @@ export function DebtParamsFields({
             min={1}
             step={1}
             value={debt.termMonths}
+            disabled={readOnly}
             onChange={(e) => patchDebt({ termMonths: parseInt(e.target.value, 10) || 1 })}
           />
         </div>
@@ -199,7 +209,12 @@ export function DebtParamsFields({
             {CAPEX_DEBT_REPAYMENT_MODES.map((mode) => (
               <label
                 key={mode}
-                className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 transition-colors hover:border-slate-300 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50/50"
+                className={cn(
+                  "flex items-start gap-2.5 rounded-lg border border-slate-200 bg-white px-3 py-2.5 transition-colors",
+                  readOnly
+                    ? "cursor-default opacity-90"
+                    : "cursor-pointer hover:border-slate-300 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50/50",
+                )}
               >
                 <input
                   type="radio"
@@ -209,6 +224,7 @@ export function DebtParamsFields({
                       ? isInterestOnly
                       : debt.repaymentMode === mode
                   }
+                  disabled={readOnly}
                   onChange={() => {
                     if (mode === "interest_only") {
                       patchDebt({
@@ -240,6 +256,7 @@ export function DebtParamsFields({
               <Checkbox
                 id={`${idPrefix}-residual`}
                 checked={withResidual}
+                disabled={readOnly}
                 onCheckedChange={(v) => {
                   const on = v === true
                   if (on) {
@@ -261,7 +278,10 @@ export function DebtParamsFields({
               <div className="min-w-0 flex-1 space-y-1">
                 <Label
                   htmlFor={`${idPrefix}-residual`}
-                  className="cursor-pointer text-sm font-medium leading-snug text-slate-800"
+                  className={cn(
+                    "text-sm font-medium leading-snug text-slate-800",
+                    readOnly ? "cursor-default" : "cursor-pointer",
+                  )}
                 >
                   Paiement résiduel
                 </Label>
@@ -282,6 +302,7 @@ export function DebtParamsFields({
                     type="number"
                     min={0}
                     value={debt.balloonAmount ?? 0}
+                    disabled={readOnly}
                     onChange={(e) => patchDebt({ balloonAmount: parseFloat(e.target.value) || 0 })}
                   />
                 </div>
@@ -294,6 +315,7 @@ export function DebtParamsFields({
                   onChange={(balloonPaymentDate) => patchDebt({ balloonPaymentDate })}
                   yearOptions={yearOptions}
                   idPrefix={`${idPrefix}-balloon-date`}
+                  disabled={readOnly}
                 />
               </div>
             ) : null}
@@ -311,6 +333,7 @@ export function DebtParamsFields({
             onChange={(firstPaymentDate) => patchDebt({ firstPaymentDate })}
             yearOptions={yearOptions}
             idPrefix={`${idPrefix}-first-payment`}
+            disabled={readOnly}
           />
           <p className="mt-1 text-[11px] text-slate-500">
             À partir de {yearOptions[0] ?? "—"} (première année de projection).
@@ -322,6 +345,7 @@ export function DebtParamsFields({
             <Checkbox
               id={`${idPrefix}-moratorium-enabled`}
               checked={withMoratorium}
+              disabled={readOnly}
               onCheckedChange={(v) => {
                 const on = v === true
                 if (on) {
@@ -338,7 +362,10 @@ export function DebtParamsFields({
             <div className="min-w-0 flex-1 space-y-1">
               <Label
                 htmlFor={`${idPrefix}-moratorium-enabled`}
-                className="cursor-pointer text-sm font-medium leading-snug text-slate-800"
+                className={cn(
+                  "text-sm font-medium leading-snug text-slate-800",
+                  readOnly ? "cursor-default" : "cursor-pointer",
+                )}
               >
                 Moratoire
               </Label>
@@ -362,6 +389,7 @@ export function DebtParamsFields({
                   min={1}
                   step={1}
                   value={moratoriumMonths}
+                  disabled={readOnly}
                   onChange={(e) =>
                     patchDebt({ moratoriumMonths: Math.max(1, parseInt(e.target.value, 10) || 1) })
                   }
@@ -379,12 +407,18 @@ export function DebtParamsFields({
                     {(["interest", "capital", "both"] as DebtMoratoriumScope[]).map((scope) => (
                       <label
                         key={scope}
-                        className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5 transition-colors hover:border-slate-300 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50/50"
+                        className={cn(
+                          "flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5 transition-colors",
+                          readOnly
+                            ? "cursor-default opacity-90"
+                            : "cursor-pointer hover:border-slate-300 has-[:checked]:border-blue-300 has-[:checked]:bg-blue-50/50",
+                        )}
                       >
                         <input
                           type="radio"
                           name={`${idPrefix}-moratorium-scope`}
                           checked={moratoriumScope === scope}
+                          disabled={readOnly}
                           onChange={() => patchDebt({ moratoriumScope: scope })}
                           className="mt-0.5 h-4 w-4 shrink-0 border-slate-300 text-blue-600 focus:ring-blue-500"
                         />
@@ -410,6 +444,7 @@ export function DebtParamsFields({
                     min={1}
                     step={1}
                     value={moratoriumMonths}
+                    disabled={readOnly}
                     onChange={(e) =>
                       patchDebt({ moratoriumMonths: Math.max(1, parseInt(e.target.value, 10) || 1) })
                     }

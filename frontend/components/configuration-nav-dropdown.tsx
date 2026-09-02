@@ -76,6 +76,7 @@ export function ConfigurationNavDropdown({
         data-testid="configuration-nav-trigger"
         aria-expanded={open}
         aria-haspopup="true"
+        onMouseEnter={openMenu}
         className={cn(
           "inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-colors",
           isActive ? "text-slate-200" : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]",

@@ -71,34 +71,28 @@ async function setupAuth(page: Page) {
   })
 }
 
-test("Header : Outils financiers sans Scénarios ; Configuration avec 4 sous-pages", async ({
-  page,
-}) => {
+test("Header : menu Rapport avec Diagnostic et Pilotage", async ({ page }) => {
+  test.setTimeout(120000)
   await setupAuth(page)
   await page.goto(`/dashboard?companyId=${COMPANY_ID}`, {
     waitUntil: "domcontentloaded",
     timeout: 120000,
   })
 
-  const toolsNav = page.getByTestId("financial-tools-nav")
-  await expect(toolsNav.getByTestId("financial-tools-nav-trigger")).toBeVisible({ timeout: 60000 })
-  await toolsNav.dispatchEvent("mouseenter")
-  const toolsMenu = page.getByTestId("financial-tools-nav-menu")
-  await expect(toolsMenu).toBeVisible({ timeout: 10000 })
-  await expect(toolsMenu.getByRole("menuitem", { name: "Reporting financier" })).toBeVisible()
-  await expect(toolsMenu.getByRole("menuitem", { name: "Scénarios" })).toHaveCount(0)
+  await expect(page.getByTestId("financial-tools-nav").getByTestId("financial-tools-nav-trigger")).toBeVisible({
+    timeout: 60000,
+  })
 
-  const configNav = page.getByTestId("configuration-nav")
-  await expect(configNav.getByTestId("configuration-nav-trigger")).toBeVisible()
-  await configNav.dispatchEvent("mouseenter")
-  const configMenu = page.getByTestId("configuration-nav-menu")
-  await expect(configMenu).toBeVisible({ timeout: 10000 })
-  for (const label of [
-    "Information de base",
-    "Mapping comptable",
-    "Code de liaison",
-    "Balance de vérification",
-  ]) {
-    await expect(configMenu.getByRole("menuitem", { name: label })).toBeVisible()
-  }
+  const reportNav = page.getByTestId("report-nav")
+  await expect(reportNav.getByTestId("report-nav-trigger")).toBeVisible()
+  await expect(page.getByRole("link", { name: "Planification" })).toHaveCount(0)
+  await expect(page.getByRole("navigation").getByRole("link", { name: "Diagnostic", exact: true })).toHaveCount(0)
+  await expect(page.getByRole("navigation").getByRole("link", { name: "Pilotage", exact: true })).toHaveCount(0)
+
+  await reportNav.hover()
+  const reportMenu = page.getByTestId("report-nav-menu")
+  await expect(reportMenu).toBeVisible({ timeout: 10000 })
+  await expect(reportMenu.getByRole("menuitem", { name: "Diagnostic" })).toBeVisible()
+  await expect(reportMenu.getByRole("menuitem", { name: "Pilotage" })).toBeVisible()
+  await expect(reportMenu.getByRole("menuitem", { name: "Planification" })).toHaveCount(0)
 })

@@ -10,6 +10,7 @@ import {
   isFinancingBilanCurrentPortionCode,
   parseDebtForecastLoans,
   resolveDebtDrivenInterestExpense,
+  resolveDebtDrivenInterestExpenseMonthly,
   resolveFinancingDrivenBilanProjectedAmount,
 } from "../debt-forecast-resolve"
 
@@ -331,5 +332,26 @@ describe("resolveDebtDrivenInterestExpense", () => {
         ],
       }),
     ).toBe(0)
+  })
+
+  it("monthly interest sums to annual and is flat for interest-only", () => {
+    const params = {
+      isLinkCode: "FIN.3",
+      configYearIndex: 1,
+      loans: [
+        loan({
+          id: "1",
+          sourceLinkCode: "PLT-C",
+          principal: 100_000,
+          interestRate: 12,
+          remainingPayments: 24,
+          repaymentMode: "interest_only",
+        }),
+      ],
+    }
+    const months = resolveDebtDrivenInterestExpenseMonthly(params)
+    expect(months).toHaveLength(12)
+    expect(months.every((m) => m === 1_000)).toBe(true)
+    expect(months.reduce((a, b) => a + b, 0)).toBe(resolveDebtDrivenInterestExpense(params))
   })
 })

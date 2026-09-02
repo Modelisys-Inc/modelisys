@@ -14,7 +14,7 @@ export function HeroMarquee() {
       <div className="relative">
         <div className="marquee-mask">
           <div className="marquee-track">
-            <div className="marquee-row" aria-label="Insights de l'approche Modelisys — diagnostic à pilotage">
+            <div className="marquee-row" aria-label="Insights — leviers de création de valeur">
               {items.map((text) => (
                 <div key={text} className="marquee-item">
                   <span className="marquee-dot" />

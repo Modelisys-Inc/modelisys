@@ -30,6 +30,7 @@ import {
   type PltMappingDebtSkip,
 } from "@/lib/debt-mapping-utils"
 import { DebtParamsFields } from "@/components/capex-financing-editor"
+import { DebtMonthlyPaymentSchedule } from "@/components/debt-monthly-payment-schedule"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -208,10 +209,13 @@ export function DebtForecastDetail({
   }
 
   const openHypothesisPanel = (loan: Loan) => {
-    if (loan.sourceType === "capex") return
     setHypothesisLoanId(loan.id)
     setDraftName(loan.name)
     setDraftPrincipal(loan.principal)
+    if (loan.sourceType === "capex") {
+      setDraftDebt(loanToCapexDebtParams(loan, effectiveForecastBaseYear))
+      return
+    }
     if (!isDebtHypothesisDefined(loan)) {
       setDraftDebt({
         interestRate: 5,
@@ -226,6 +230,8 @@ export function DebtForecastDetail({
 
   const saveHypothesis = () => {
     if (!hypothesisLoanId || !draftDebt) return
+    const current = loans.find((item) => item.id === hypothesisLoanId)
+    if (!current || current.sourceType === "capex") return
     setLoans((prev) =>
       prev.map((loan) => {
         if (loan.id !== hypothesisLoanId) return loan
@@ -338,27 +344,28 @@ export function DebtForecastDetail({
       const hypothesisDefined = isDebtHypothesisDefined(loan)
       const isCapexLoan = loan.sourceType === "capex"
       const canEditHypothesis = !isCapexLoan
+      const canOpenPanel = isForecast && view === "years"
 
       return (
         <Fragment key={loan.id}>
           <tr
             className={cn(
               "border-b border-slate-200 transition-colors duration-150",
-              canEditHypothesis && "hover:bg-slate-50/90",
+              canOpenPanel && "hover:bg-slate-50/90",
               isSelected &&
                 "bg-blue-50/35 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.28)]",
               !hypothesisDefined && !isSelected && "bg-amber-50/50",
             )}
           >
             <td className="min-w-[20rem] px-6 py-3 pl-10 font-semibold text-slate-900">
-              {canEditHypothesis ? (
+              {canOpenPanel ? (
                 <button
                   type="button"
                   onClick={() => openHypothesisPanel(loan)}
                   className="flex flex-wrap items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-slate-50"
                 >
                   <span>{loan.name}</span>
-                  {!hypothesisDefined ? (
+                  {!hypothesisDefined && !isCapexLoan ? (
                     <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
                       À définir
                     </span>
@@ -368,16 +375,30 @@ export function DebtForecastDetail({
                       Mapping
                     </span>
                   ) : null}
+                  {isCapexLoan ? (
+                    <>
+                      <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-800">
+                        Capex
+                      </span>
+                      <span className="text-[10px] font-medium text-slate-500">
+                        Hypothèse Capex
+                      </span>
+                    </>
+                  ) : null}
                 </button>
               ) : (
                 <div className="flex flex-wrap items-center gap-2 px-1 py-0.5">
                   <span>{loan.name}</span>
-                  <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-800">
-                    Capex
-                  </span>
-                  <span className="text-[10px] font-medium text-slate-500">
-                    Hypothèse Capex
-                  </span>
+                  {isCapexLoan ? (
+                    <>
+                      <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-blue-800">
+                        Capex
+                      </span>
+                      <span className="text-[10px] font-medium text-slate-500">
+                        Hypothèse Capex
+                      </span>
+                    </>
+                  ) : null}
                 </div>
               )}
             </td>
@@ -386,9 +407,9 @@ export function DebtForecastDetail({
                 className={cn(
                   "min-w-[6.5rem] px-4 py-3 text-center",
                   hypothesisDefined ? "text-purple-600" : "text-amber-700",
-                  canEditHypothesis && "cursor-pointer",
+                  canOpenPanel && "cursor-pointer",
                 )}
-                onClick={canEditHypothesis ? () => openHypothesisPanel(loan) : undefined}
+                onClick={canOpenPanel ? () => openHypothesisPanel(loan) : undefined}
               >
                 {hypothesisDefined ? (
                   <span className="font-medium">{loan.interestRate.toFixed(1)}%</span>
@@ -403,16 +424,16 @@ export function DebtForecastDetail({
                     loan,
                     (d) => d.beginningBalance,
                     "text-slate-900",
-                    canEditHypothesis ? () => openHypothesisPanel(loan) : undefined,
+                    canOpenPanel ? () => openHypothesisPanel(loan) : undefined,
                   )
                 : yearLabels.map((_, yearIdx) => (
                     <td
                       key={yearIdx}
                       className={cn(
                         "min-w-[8rem] px-4 py-2 text-right font-mono text-sm text-slate-400",
-                        canEditHypothesis && "cursor-pointer",
+                        canOpenPanel && "cursor-pointer",
                       )}
-                      onClick={canEditHypothesis ? () => openHypothesisPanel(loan) : undefined}
+                      onClick={canOpenPanel ? () => openHypothesisPanel(loan) : undefined}
                     >
                       {formatCurrency(loan.principal)}
                     </td>
@@ -575,30 +596,43 @@ export function DebtForecastDetail({
     const loan = loans.find((item) => item.id === hypothesisLoanId)
     if (!loan) return null
 
+    const readOnly = loan.sourceType === "capex"
+    const scheduleLoan = applyCapexDebtParamsToLoan(
+      { ...loan, name: draftName.trim() || loan.name, principal: Math.max(0, draftPrincipal) },
+      draftDebt,
+      effectiveForecastBaseYear,
+    )
+
     return (
       <div className="min-w-0 max-w-full">
         <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Hypothèse</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              {readOnly ? "Aperçu" : "Hypothèse"}
+            </p>
             <h3 className="mt-3 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
               {loan.name}
             </h3>
             <p className="mt-3 text-xs font-medium leading-relaxed text-blue-800">
-              {isDebtHypothesisDefined(loan)
-                ? "Paramètres de l'emprunt — mêmes options que le financement Capex."
-                : "Taux, durée et mode de remboursement à définir ici (plus dans le mapping comptable)."}
+              {readOnly
+                ? "Emprunt issu d'Hypothèse Capex — calendrier en lecture seule. Modifiez les paramètres dans Capex."
+                : isDebtHypothesisDefined(loan)
+                  ? "Paramètres de l'emprunt — mêmes options que le financement Capex."
+                  : "Taux, durée et mode de remboursement à définir ici (plus dans le mapping comptable)."}
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 border-slate-200 text-xs font-medium text-slate-800 hover:bg-slate-50"
-              onClick={saveHypothesis}
-            >
-              Enregistrer
-            </Button>
+            {!readOnly ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-9 border-slate-200 text-xs font-medium text-slate-800 hover:bg-slate-50"
+                onClick={saveHypothesis}
+              >
+                Enregistrer
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -620,6 +654,7 @@ export function DebtForecastDetail({
               <Input
                 id="debt-hypothesis-name"
                 value={draftName}
+                disabled={readOnly}
                 onChange={(e) => setDraftName(e.target.value)}
               />
             </div>
@@ -632,6 +667,7 @@ export function DebtForecastDetail({
                 type="number"
                 min={0}
                 value={draftPrincipal}
+                disabled={readOnly}
                 onChange={(e) => setDraftPrincipal(parseFloat(e.target.value) || 0)}
               />
             </div>
@@ -643,9 +679,15 @@ export function DebtForecastDetail({
             yearOptions={yearOptions}
             idPrefix="debt-hypothesis"
             financedAmount={draftPrincipal}
+            readOnly={readOnly}
           />
 
-          {loan.sourceType === "manual" || !loan.sourceType ? (
+          <DebtMonthlyPaymentSchedule
+            loan={scheduleLoan}
+            forecastBaseYear={effectiveForecastBaseYear}
+          />
+
+          {!readOnly && (loan.sourceType === "manual" || !loan.sourceType) ? (
             <div className="flex justify-end border-t border-slate-200/70 pt-4">
               <Button
                 type="button"

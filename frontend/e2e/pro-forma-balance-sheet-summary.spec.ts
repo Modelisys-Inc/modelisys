@@ -266,7 +266,7 @@ async function setupAuth(
           },
           {
             id: "row-net",
-            label: "Variation de trésorerie",
+            label: "Variation de tr?sorerie",
             isBold: true,
             isResult: true,
             hasLiaisonCode: true,
@@ -350,8 +350,8 @@ async function setupAuth(
 
 async function openProFormaCashFlow(page: Page, section: "summary" | "detail") {
   await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-  await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-  await page.getByRole("button", { name: "Trésorerie", exact: true }).click()
+  await expect(page.getByRole("heading", { name: /R.sultats projet/ })).toBeVisible({ timeout: 15000 })
+  await page.getByRole("button", { name: /Tr.sorerie/, exact: true }).click()
   if (section === "summary") {
     await page.getByRole("button", { name: "Sommaire", exact: true }).click()
   }
@@ -359,8 +359,9 @@ async function openProFormaCashFlow(page: Page, section: "summary" | "detail") {
 
 async function openProFormaBalanceSheet(page: Page) {
   await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-  await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
+  await expect(page.getByRole("heading", { name: /R.sultats projet/ })).toBeVisible({ timeout: 15000 })
   await page.getByRole("button", { name: "Bilan", exact: true }).click()
+  await expect(page.getByRole("heading", { name: /Bilan projet/ })).toBeVisible({ timeout: 15000 })
 }
 
 test.describe("Pro forma balance sheet", () => {
@@ -444,24 +445,24 @@ test.describe("Pro forma balance sheet", () => {
     await expect(page.getByText("Total des actifs").first()).toBeVisible({ timeout: 15000 })
     await expect(page.getByText("Validation").first()).toBeVisible()
 
-    // Pas de bascule Sommaire / Détail, ni pastilles Hypothèse Capex / Impôts / etc.
+    // Pas de bascule Sommaire / D?tail, ni pastilles Hypoth?se Capex / Imp?ts / etc.
     await expect(page.getByRole("button", { name: "Sommaire", exact: true })).toHaveCount(0)
-    await expect(page.getByRole("button", { name: "Détail", exact: true })).toHaveCount(0)
-    await expect(page.getByText("Hypothèse Capex")).toHaveCount(0)
-    await expect(page.getByText("Hypothèse Financement")).toHaveCount(0)
-    await expect(page.getByText("Hypothèse Impôts")).toHaveCount(0)
-    await expect(page.getByText("Trésorerie à la fin")).toHaveCount(0)
+    await expect(page.getByRole("button", { name: /D.tail/, exact: true })).toHaveCount(0)
+    await expect(page.getByText(/Hypoth.se Capex/)).toHaveCount(0)
+    await expect(page.getByText(/Hypoth.se Financement/)).toHaveCount(0)
+    await expect(page.getByText(/Hypoth.se Imp.t/)).toHaveCount(0)
+    await expect(page.getByText(/Tr.sorerie .* la fin/)).toHaveCount(0)
 
     await expect(page.locator("table thead th").filter({ hasText: "2027" }).first()).toBeVisible()
     await expect(page.locator("table thead th").filter({ hasText: "YTD 2028" }).first()).toBeVisible()
     await expect(page.locator("table thead th").filter({ hasText: "2028" }).first()).toBeVisible()
 
-    // Ajustement hyp. bilan (année projetée 2028 = config index 1) visible au Sommaire.
+    // Ajustement hyp. bilan (ann?e projet?e 2028 = config index 1) visible au Sommaire.
     const placementsRow = page.locator("table tbody tr", { hasText: "Placements temporaires" }).first()
     await expect(placementsRow).toBeVisible()
     await expect(placementsRow.getByText("99")).toBeVisible({ timeout: 15000 })
 
-    // Lecture seule : pas de panneau d’ajustement au clic.
+    // Lecture seule : pas de panneau d?ajustement au clic.
     await placementsRow.locator("td").last().click()
     await expect(page.getByText(/Type d'ajustement|Enregistrer l'ajustement|Dividendes/i)).toHaveCount(0)
 
@@ -480,6 +481,41 @@ test.describe("Pro forma balance sheet", () => {
     await expect(firstYearHeader.first()).toBeVisible()
     await expect(firstYearHeader).toHaveCount(2)
   })
+
+  test("shows monthly projected columns when Mensuel is selected", async ({ page }) => {
+    test.setTimeout(60_000)
+    await setupAuth(
+      page,
+      summaryStructure,
+      [
+        {
+          id: "row-placements",
+          label: "Placements temporaires",
+          linkCode: "ACT-B",
+          hasLiaisonCode: true,
+          amounts: monthlyAmounts(2023, 2028, {
+            2023: 10,
+            2024: 20,
+            2025: 30,
+            2026: 40,
+            2027: 50,
+            2028: 0,
+          }),
+          detailRows: [],
+        },
+      ],
+    )
+
+    await openProFormaBalanceSheet(page)
+    await expect(page.getByText("Bilan pro forma").first()).toBeVisible({ timeout: 15000 })
+    await expect(page.getByTestId("pro-forma-balance-column-horizon")).toBeVisible({ timeout: 15000 })
+    await page.getByTestId("pro-forma-balance-column-horizon").getByRole("button", { name: "Mensuel" }).click()
+    await expect(page.getByRole("columnheader", { name: "janv. 2028" })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByRole("columnheader", { name: /d.c\. 2028/ })).toBeAttached()
+    await expect(page.locator("table thead th").filter({ hasText: "YTD 2028" })).toHaveCount(0)
+  })
 })
 
 test.describe("Pro forma cash flow", () => {
@@ -489,7 +525,7 @@ test.describe("Pro forma cash flow", () => {
 
     await openProFormaCashFlow(page, "summary")
 
-    await expect(page.getByText("Variation de trésorerie").first()).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText(/Variation de tr.sorerie/).first()).toBeVisible({ timeout: 15000 })
     await expect(page.locator("table thead th").filter({ hasText: /^2027$/ }).first()).toBeVisible()
     await expect(page.locator("table thead th").filter({ hasText: "YTD 2028" }).first()).toBeVisible()
     await expect(page.locator("table thead th").filter({ hasText: /^2028$/ }).first()).toBeVisible()
@@ -503,14 +539,14 @@ test.describe("Pro forma cash flow", () => {
 
     await openProFormaCashFlow(page, "detail")
 
-    await expect(page.getByText("Variation de trésorerie").first()).toBeVisible({ timeout: 15000 })
+    await expect(page.getByText(/Variation de tr.sorerie/).first()).toBeVisible({ timeout: 15000 })
     await expect(page.locator("table thead th").filter({ hasText: /^2027$/ }).first()).toBeVisible()
     await expect(page.locator("table thead th").filter({ hasText: "YTD 2028" }).first()).toBeVisible()
     await expect(page.locator("table thead th").filter({ hasText: /^2028$/ }).first()).toBeVisible()
     await expect(page.locator("table thead th.bg-slate-50")).toHaveCount(2)
     expect(await page.locator("table tbody td.bg-slate-50").count()).toBeGreaterThan(1)
-    await expect(page.getByText(/Les données affichées sont à titre informatif/i)).toBeVisible()
-    // Pro forma : pas d’ouverture de lignes
+    await expect(page.getByText(/Les donn?es affich?es sont ? titre informatif/i)).toBeVisible()
+    // Pro forma : pas d?ouverture de lignes
     await expect(page.getByTestId("cash-flow-detail-expandable-row")).toHaveCount(0)
     await expect(page.locator("table tbody svg.lucide-chevron-right")).toHaveCount(0)
   })
