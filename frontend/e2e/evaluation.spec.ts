@@ -27,38 +27,57 @@ test.describe("Evaluation Pages", () => {
     await page.goto("/evaluation/business-model");
     await expect(page).toHaveURL(/\/evaluation\/business-model/);
     await expect(
-      page.locator("h2").filter({ hasText: /modèle d'affaires|business model/i }).first()
+      page.getByRole("heading", { name: /modèle d'affaires/i }).first()
     ).toBeVisible({ timeout: 10000 });
   });
 
   test("business model has no entity selector", async ({ page }) => {
     await page.goto("/evaluation/business-model");
     await expect(
-      page.locator("h2").filter({ hasText: /modèle d'affaires/i }).first()
+      page.getByRole("heading", { name: /modèle d'affaires/i }).first()
     ).toBeVisible({ timeout: 10000 });
     await expect(page.getByText("Entité:", { exact: true })).toHaveCount(0);
-    await expect(page.getByText("Catégorie de risque")).toBeVisible();
+    await expect(page.getByTestId("business-model-report")).toBeVisible();
+    await expect(page.getByTestId("business-model-section-menu")).toBeVisible();
+  });
+
+  test("can navigate to adjusted EBITDA evaluation", async ({ page }) => {
+    await page.goto("/evaluation/adjusted-ebitda");
+    await expect(page).toHaveURL(/\/evaluation\/adjusted-ebitda/);
+    const acceptButton = page.getByRole("button", { name: /j'ai compris|accepte|continuer/i }).first();
+    if (await acceptButton.isVisible().catch(() => false)) {
+      await acceptButton.click();
+    }
+    await expect(
+      page.getByRole("heading", { name: /baiia ajust/i }).first()
+    ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("adjusted-ebitda-report")).toBeVisible();
+    await expect(page.getByTestId("adjusted-ebitda-section-menu")).toBeVisible();
   });
 
   test("can navigate to EBITDA multiple evaluation", async ({ page }) => {
     await page.goto("/evaluation/ebitda-multiple");
     await expect(page).toHaveURL(/\/evaluation\/ebitda-multiple/);
+    const acceptButton = page.getByRole("button", { name: /j'ai compris|accepte|continuer/i }).first();
+    if (await acceptButton.isVisible().catch(() => false)) {
+      await acceptButton.click();
+    }
     await expect(
-      page.locator("h2").filter({ hasText: /baiia|ebitda|multiple/i }).first()
+      page.getByRole("heading", { name: /capitalisation/i }).first()
     ).toBeVisible({ timeout: 10000 });
   });
 
   test("ebitda multiple has no entity selector", async ({ page }) => {
     await page.goto("/evaluation/ebitda-multiple");
-    await page.waitForTimeout(1000);
     const acceptButton = page.getByRole("button", { name: /j'ai compris|accepte|continuer/i }).first();
-    if (await acceptButton.isVisible()) {
+    if (await acceptButton.isVisible().catch(() => false)) {
       await acceptButton.click();
-      await page.waitForTimeout(500);
     }
     await expect(
-      page.locator("h2").filter({ hasText: /multiple du baiia|baiia/i }).first()
+      page.getByRole("heading", { name: /capitalisation/i }).first()
     ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("capitalisation-report")).toBeVisible();
+    await expect(page.getByTestId("capitalisation-section-menu")).toBeVisible();
     await expect(page.getByText("Entité:", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "CCF" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "VCA" })).toHaveCount(0);

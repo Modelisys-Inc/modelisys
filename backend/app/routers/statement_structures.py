@@ -31,6 +31,7 @@ VALID_STATEMENT_TYPES = {
     "capex",
     "ratios",
     "baiia",
+    "capitalisation",
 }
 
 BALANCE_SHEET_CATEGORIES = {"actif", "passif", "capitaux propres"}

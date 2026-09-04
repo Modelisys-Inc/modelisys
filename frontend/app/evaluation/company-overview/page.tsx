@@ -4,8 +4,23 @@ import { useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { ValuationPlanBackButton } from "@/components/valuation-plan-back-button"
-import { DiagnosticCompanyOverviewSection } from "@/components/diagnostic/v2/diagnostic-company-overview-section"
+import { CompanyOverviewReport } from "@/components/company-overview/company-overview-report"
 import { useCompanies } from "@/hooks/use-companies"
+
+const MONTH_NAMES_FR = [
+  "janvier",
+  "février",
+  "mars",
+  "avril",
+  "mai",
+  "juin",
+  "juillet",
+  "août",
+  "septembre",
+  "octobre",
+  "novembre",
+  "décembre",
+]
 
 export default function ValuationCompanyOverviewPage() {
   const searchParams = useSearchParams()
@@ -16,54 +31,67 @@ export default function ValuationCompanyOverviewPage() {
   const lockedCompanyId =
     companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
   const companyId = lockedCompanyId || companies[0]?.id || null
-  const companyName = companies.find((c) => c.id === companyId)?.name ?? "Entreprise"
+  const companyName = companies.find((c) => c.id === companyId)?.name ?? "—"
   const overviewScopeId = valuationId ?? companyId ?? "valuation-company-overview"
 
-  const subtitle = useMemo(() => {
-    const rm = searchParams.get("refMonth")
-    const ry = searchParams.get("refYear")
-    if (rm && ry) {
-      return `Documentez le profil qualitatif de ${companyName} pour la valorisation (référence ${rm}/${ry}).`
-    }
-    return `Documentez le profil qualitatif de ${companyName} pour cadrer la valorisation.`
-  }, [companyName, searchParams])
+  const refMonth = useMemo(() => {
+    const fromUrl = Number(searchParams.get("refMonth"))
+    if (Number.isFinite(fromUrl) && fromUrl >= 1 && fromUrl <= 12) return fromUrl
+    return new Date().getMonth() + 1
+  }, [searchParams])
+
+  const refYear = useMemo(() => {
+    const fromUrl = Number(searchParams.get("refYear"))
+    if (Number.isFinite(fromUrl) && fromUrl >= 1900) return fromUrl
+    return new Date().getFullYear()
+  }, [searchParams])
+
+  const referenceLabel = useMemo(
+    () => `${MONTH_NAMES_FR[refMonth - 1]} ${refYear}`,
+    [refMonth, refYear],
+  )
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
       <DashboardHeader title="Modelisys" />
 
-      <div className="relative w-full overflow-hidden pt-15 pb-32">
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
-            <div className="bg-[#2A2F3A]" />
-            <div className="bg-[#2A2F3A]" />
-          </div>
-          <div className="absolute inset-y-0 left-1/2 hidden w-px bg-white/5 lg:block" />
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
-            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
-          </div>
+      <div className="relative w-full overflow-hidden bg-[#2A2F3A] pb-32">
+        <div className="pointer-events-none absolute inset-0" aria-hidden>
+          <div className="absolute -top-24 -left-28 h-[320px] w-[320px] rounded-full bg-white/5 blur-3xl" />
         </div>
 
-        <div className="relative z-10 mx-auto max-w-[1920px] px-6">
-          <div className="mb-4 flex items-start">
-            <div className="w-2 shrink-0" />
-            <div className="flex-1">
-              <ValuationPlanBackButton />
-              <h1 className="text-4xl font-semibold tracking-tight text-[#E6D6C3]">
-                Aperçu de l&apos;entreprise
-              </h1>
-              <p className="mb-6 mt-2 max-w-4xl text-base text-[#C9B8A5]/90">{subtitle}</p>
+        <div className="relative z-10 mx-auto max-w-[1920px] px-6 py-6 sm:py-8">
+          <ValuationPlanBackButton />
+          <h1 className="mt-5 text-4xl font-semibold tracking-tight text-[#E6D6C3]">
+            Aperçu de l&apos;entreprise
+          </h1>
+          <p className="mt-2 max-w-4xl text-base text-[#C9B8A5]/90">
+            Documentez le profil qualitatif de l&apos;entreprise pour cadrer la valorisation.
+          </p>
+          <div
+            className="mt-5 h-px w-full bg-gradient-to-r from-[#E0742D]/80 via-white/15 to-transparent"
+            aria-hidden
+          />
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/70">
+            <div className="whitespace-nowrap">
+              <span className="text-white/50">Entité</span>{" "}
+              <span className="font-medium text-slate-100">{companyName}</span>
+            </div>
+            <div className="hidden h-4 w-px bg-white/10 md:block" />
+            <div className="whitespace-nowrap" data-testid="company-overview-reference-date">
+              <span className="text-white/50">Date de référence</span>{" "}
+              <span className="font-medium text-slate-100">{referenceLabel}</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="relative -mt-24 mb-12">
+      <div className="relative -mt-32 mb-12 min-w-0">
         <div className="mx-auto max-w-[1920px] px-6">
-          <DiagnosticCompanyOverviewSection
+          <CompanyOverviewReport
             diagnosticId={overviewScopeId}
-            companyName={companyName}
+            companyName={companyName === "—" ? "Entreprise" : companyName}
+            referenceLabel={referenceLabel}
           />
         </div>
       </div>

@@ -56,6 +56,21 @@ async function setupAuth(page: Page) {
     }
     return route.continue()
   })
+  await page.route(
+    `**/api/companies/${COMPANY_ID}/financial-statements/income-statement/series*`,
+    (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          companyId: COMPANY_ID,
+          statementType: "income-statement",
+          fiscalYear: 2026,
+          periods: [],
+          rows: [],
+        }),
+      }),
+  )
 }
 
 async function setupNetTangiblePage(
@@ -219,7 +234,7 @@ async function setupNetTangiblePage(
 }
 
 test.describe("Valeur comptable ajusté — hypothèses par cellule", () => {
-  test("clicking Ajustements opens only that field (no Dettes/Actifs inputs, no VCA/ACN preview)", async ({
+  test("clicking Ajustements opens hypothesis engine with live VCA/ACN buildup", async ({
     page,
   }) => {
     test.setTimeout(60_000)
@@ -228,7 +243,9 @@ test.describe("Valeur comptable ajusté — hypothèses par cellule", () => {
       `/evaluation/net-tangible-assets?companyId=${COMPANY_ID}&refMonth=3&refYear=2026`,
     )
 
-    await expect(page.getByRole("heading", { name: "Valeur comptable ajusté" })).toBeVisible({
+    await expect(
+      page.getByRole("heading", { name: "Valeur comptable ajustée", exact: true }),
+    ).toBeVisible({
       timeout: 15000,
     })
     const overview = page.getByTestId("net-tangible-overview-strip")
@@ -241,20 +258,23 @@ test.describe("Valeur comptable ajusté — hypothèses par cellule", () => {
     await expect(page.getByTestId("net-tangible-overview-actifs-requis")).toBeVisible()
     await expect(page.getByTestId("net-tangible-overview-fdr-representatif")).toContainText("—")
     await expect(page.getByTestId("net-tangible-section-menu")).toBeVisible()
+    await expect(page.getByTestId("net-tangible-section-menu")).toHaveAttribute(
+      "aria-label",
+      "Sommaire du rapport",
+    )
     await expect(page.getByTestId("net-tangible-section-vca")).toBeVisible()
-    await expect(page.getByTestId("net-tangible-section-jvm-capex")).toBeVisible()
+    await expect(page.getByTestId("net-tangible-section-jvm-capex")).toHaveCount(0)
     await expect(page.getByTestId("net-tangible-section-fdr-representatif")).toBeVisible()
-    await expect(page.getByRole("heading", { name: "VCA" })).toBeVisible()
+    await expect(page.getByTestId("net-tangible-reference-date")).toContainText("Date de référence")
+    await expect(page.getByRole("heading", { name: /Bilan ajusté \(VCA\)/ })).toBeVisible()
     await expect(page.getByText("Encaisse").first()).toBeVisible({ timeout: 15000 })
     // No footer Total row under the balance sheet
     await expect(
       page.locator("table tbody tr").filter({ has: page.getByText("Total", { exact: true }) }),
     ).toHaveCount(0)
 
-    await page.getByTestId("net-tangible-section-jvm-capex").click()
-    await expect(page.getByTestId("net-tangible-placeholder-jvm-capex")).toBeVisible()
     await page.getByTestId("net-tangible-section-fdr-representatif").click()
-    await expect(page.getByTestId("net-tangible-placeholder-fdr-representatif")).toBeVisible()
+    await expect(page.getByTestId("net-tangible-fdr-card")).toBeVisible()
     await page.getByTestId("net-tangible-section-vca").click()
 
     await page.getByTestId(`nta-adj-${ROW_ID}`).click()
@@ -266,8 +286,12 @@ test.describe("Valeur comptable ajusté — hypothèses par cellule", () => {
     await expect(page.getByTestId("net-tangible-hypothesis-adjustments")).toBeVisible()
     await expect(page.getByTestId("net-tangible-hypothesis-debts")).toHaveCount(0)
     await expect(page.getByTestId("net-tangible-hypothesis-assets")).toHaveCount(0)
-    await expect(panel.getByText(/VCA\s*:/)).toHaveCount(0)
-    await expect(panel.getByText(/ACN\s*:/)).toHaveCount(0)
+    await expect(page.getByTestId("nta-hypothesis-buildup")).toBeVisible()
+    await expect(page.getByTestId("nta-buildup-vca")).toBeVisible()
+    await expect(page.getByTestId("nta-buildup-acn")).toBeVisible()
+    await expect(page.getByTestId("nta-leaf-mode-dollar")).toBeVisible()
+    await expect(page.getByTestId("nta-leaf-mode-percent-vc")).toBeVisible()
+    await expect(page.getByTestId("nta-leaf-mode-fair-value")).toBeVisible()
 
     await page.getByTestId(`nta-debt-${ROW_ID}`).click()
     await expect(panel).toHaveAttribute("data-field", "debts")
@@ -898,7 +922,10 @@ test.describe("Valeur comptable ajusté — hypothèses par cellule", () => {
     await page.getByTestId("net-tangible-jvm-toggle-meta-ALT-B.2").click()
     await page.getByTestId("net-tangible-jvm-note-ALT-B.2").fill("Évaluation indépendante 2026")
 
-    await page.getByTestId("net-tangible-hypothesis-save").click()
+    await expect(page.getByTestId("nta-buildup-adjustments")).toContainText(/50[\s\u00a0]?000/, {
+      timeout: 5_000,
+    })
+    await page.getByTestId("net-tangible-hypothesis-close").click()
     await expect(panel).toHaveCount(0)
 
     const immoRow = page
@@ -1081,10 +1108,208 @@ test.describe("Valeur comptable ajusté — hypothèses par cellule", () => {
     await page.getByTestId("net-tangible-excedent-input-ALT-B.2").fill("80000")
     await page.getByTestId("net-tangible-excedent-input-ALT-B.2").blur()
     await expect(page.getByTestId("net-tangible-surplus-total")).toHaveText(/80[\s\u00a0]?000/)
+    await expect(page.getByTestId("nta-buildup-assets")).toContainText(/80[\s\u00a0]?000/, {
+      timeout: 5_000,
+    })
 
-    await page.getByTestId("net-tangible-hypothesis-save").click()
+    await page.getByTestId("net-tangible-hypothesis-close").click()
     await expect(panel).toHaveCount(0)
 
     await expect(page.getByTestId(`nta-asset-${ALT_B}`)).toHaveText(/80[\s\u00a0]?000/)
+  })
+})
+
+test.describe("Valeur comptable ajusté — FDR représentatif revenus TTM", () => {
+  test("affiche les revenus TTM et le FDR en % des revenus", async ({ page }) => {
+    test.setTimeout(120_000)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await setupNetTangiblePage(page)
+
+    const actCtId = "total-act-ct"
+    const pctCtId = "total-pct-ct"
+    await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/balance-sheet**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: null,
+          company_id: COMPANY_ID,
+          statement_type: "balance-sheet",
+          structure: [
+            { id: actCtId, label: "Total de l'actif à court terme", linkCode: "ACT", isResult: true },
+            { id: pctCtId, label: "Total du passif à court terme", linkCode: "PCT", isResult: true },
+          ],
+        }),
+      }),
+    )
+    await page.route(`**/api/companies/${COMPANY_ID}/financial-statements/balance-sheet**`, (route) => {
+      if (route.request().url().includes("/series")) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            companyId: COMPANY_ID,
+            statementType: "balance-sheet",
+            fiscalYear: 2026,
+            periods: [],
+            rows: [],
+          }),
+        })
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          companyId: COMPANY_ID,
+          statementType: "balance-sheet",
+          fiscalYear: 2026,
+          month: 12,
+          period: "monthly",
+          rows: [
+            {
+              id: actCtId,
+              label: "Total de l'actif à court terme",
+              current: 240_000,
+              isResult: true,
+              isBold: true,
+              linkCode: "ACT",
+              detailRows: [],
+            },
+            {
+              id: pctCtId,
+              label: "Total du passif à court terme",
+              current: 120_000,
+              isResult: true,
+              isBold: true,
+              linkCode: "PCT",
+              detailRows: [],
+            },
+          ],
+        }),
+      })
+    })
+
+    const monthAbbrevs = [
+      "Jan",
+      "Fév",
+      "Mar",
+      "Avr",
+      "Mai",
+      "Jun",
+      "Jul",
+      "Aoû",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Déc",
+    ]
+    const periods = monthAbbrevs.map((label, i) => ({
+      fiscalYear: 2026,
+      fiscalMonth: i + 1,
+      label: `${label} 2026`,
+    }))
+    const amounts: Record<string, number> = {}
+    for (let month = 1; month <= 12; month++) amounts[`2026-${month}`] = 100_000
+
+    await page.route(
+      `**/api/companies/${COMPANY_ID}/financial-statements/income-statement/series*`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            companyId: COMPANY_ID,
+            statementType: "income-statement",
+            fiscalYear: 2026,
+            periods,
+            rows: [
+              {
+                id: "REV",
+                label: "Revenus",
+                linkCode: "REV",
+                isBold: true,
+                isSection: false,
+                isResult: true,
+                amounts,
+                detailRows: [],
+              },
+            ],
+          }),
+        }),
+    )
+
+    await page.goto(
+      `/evaluation/net-tangible-assets?companyId=${COMPANY_ID}&refMonth=12&refYear=2026`,
+      { waitUntil: "domcontentloaded", timeout: 120_000 },
+    )
+    await expect(
+      page.getByRole("heading", { name: "Valeur comptable ajustée", exact: true }),
+    ).toBeVisible({
+      timeout: 15_000,
+    })
+    // Attendre les données bilan (aperçu FDR = 240k − 120k)
+    await expect(page.getByTestId("net-tangible-overview-fdr-representatif")).toContainText(
+      /120[\s\u00a0\u202f]*000/,
+      { timeout: 45_000 },
+    )
+    await page.getByTestId("net-tangible-section-fdr-representatif").click()
+    await expect(page.getByTestId("net-tangible-fdr-card")).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByTestId("fdr-revenue-ttm")).toContainText(
+      /1[\s\u00a0\u202f]*200[\s\u00a0\u202f]*000/,
+    )
+    await expect(page.getByText(/TTM au/)).toBeVisible()
+    // FDR ACN = 240k − 120k = 120k ; TTM = 1.2M → 10.0 % des revenus
+    await expect(page.getByTestId("fdr-base-value")).toContainText(
+      /120[\s\u00a0\u202f]*000/,
+    )
+    await expect(page.getByTestId("fdr-base-pct-revenue")).toHaveText("10.0 % des revenus")
+
+    // Bandeau : FDR = déterminé (120k) tant qu’aucun ajustement
+    await expect(page.getByTestId("net-tangible-overview-fdr-representatif")).toContainText(
+      /120[\s\u00a0\u202f]*000/,
+    )
+
+    // Mode Ajustement $ : carte Ajustement en $ ; % = FDR ajusté / TTM
+    await page.getByTestId("fdr-adj-mode-dollar").click()
+    await page.getByTestId("fdr-adj-value-input").fill("12000")
+    await expect(page.getByTestId("fdr-adjustment-display")).toContainText(
+      /12[\s\u00a0\u202f]*000/,
+      { timeout: 5_000 },
+    )
+    // Ajusté = 120k + 12k = 132k / 1.2M = 11.0 % ; écart 12k / 1.2M = 1.0 %
+    await expect(page.getByTestId("fdr-adjusted-pct-revenue")).toHaveText("11.0 % des revenus")
+    await expect(page.getByTestId("fdr-adjustment-hint")).toHaveText(
+      "Variations : 1.0 % des revenus",
+    )
+    await expect(page.getByTestId("net-tangible-overview-fdr-representatif")).toContainText(
+      /132[\s\u00a0\u202f]*000/,
+    )
+    await expect(page.getByTestId("net-tangible-overview-fdr-representatif")).toContainText(
+      "FDR représentatif ajusté",
+    )
+    // Mode % des revenus : carte Ajustement = écart $ vs VCA ; % = montant total / TTM
+    await page.getByTestId("fdr-adj-mode-percent-revenue").click()
+    await page.getByTestId("fdr-adj-value-input").fill("15")
+    // Ajusté = 1.2M × 15 % = 180k ; écart vs 120k = 60k ; 180k / 1.2M = 15.0 %
+    await expect(page.getByTestId("fdr-adjustment-display")).toContainText(
+      /60[\s\u00a0\u202f]*000/,
+      { timeout: 5_000 },
+    )
+    await expect(page.getByTestId("fdr-adjustment-hint")).toHaveText(
+      "Variations : 5.0 % des revenus",
+    )
+    await expect(page.getByTestId("fdr-adjusted-pct-revenue")).toHaveText("15.0 % des revenus")
+
+    // Mode montant représentatif : même principe (écart $ + total / TTM)
+    await page.getByTestId("fdr-adj-mode-representative-amount").click()
+    await page.getByTestId("fdr-adj-value-input").fill("180000")
+    await expect(page.getByTestId("fdr-adjustment-display")).toContainText(
+      /60[\s\u00a0\u202f]*000/,
+      { timeout: 5_000 },
+    )
+    await expect(page.getByTestId("fdr-adjustment-hint")).toHaveText(
+      "Variations : 5.0 % des revenus",
+    )
+    await expect(page.getByTestId("fdr-adjusted-pct-revenue")).toHaveText("15.0 % des revenus")
   })
 })

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { ArrowRight, Check, Circle, CircleDashed } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,7 @@ import {
   VALUATION_PLAN_PHASES,
   getValuationPlanStepStatus,
   normalizeCompletedPlanSteps,
+  resolveActiveValuationPlanPhaseId,
   valuationPlanCompletedCount,
   valuationPlanOverallProgressPercent,
   type ValuationPlanPhase,
@@ -71,6 +72,20 @@ export function ValuationPlanTrajectory({
   const totalSteps = VALUATION_PLAN_PHASES.length
   const overallProgress = valuationPlanOverallProgressPercent(normalizedCompletedSteps)
   const allComplete = completedCount >= totalSteps
+  const activePhaseId = resolveActiveValuationPlanPhaseId(normalizedCompletedSteps)
+
+  const [selectedPhaseId, setSelectedPhaseId] = useState<ValuationPlanPhaseId>(activePhaseId)
+
+  useEffect(() => {
+    setSelectedPhaseId(activePhaseId)
+  }, [activePhaseId])
+
+  const selectedIndex = VALUATION_PLAN_PHASES.findIndex((phase) => phase.id === selectedPhaseId)
+  const selectedPhase =
+    selectedIndex >= 0 ? VALUATION_PLAN_PHASES[selectedIndex] : VALUATION_PLAN_PHASES[0]
+  const selectedStatus = getValuationPlanStepStatus(selectedPhase.id, normalizedCompletedSteps)
+  const selectedConfig = STATUS_CONFIG[selectedStatus]
+  const isSelectedInProgress = selectedStatus === "in_progress"
 
   return (
     <section className={cn("w-full", className)} aria-label="Plan de valorisation">
@@ -87,7 +102,7 @@ export function ValuationPlanTrajectory({
               <p className="mt-1.5 text-sm text-slate-600">
                 {allComplete
                   ? "Toutes les étapes sont complétées."
-                  : `${completedCount} sur ${totalSteps} étapes complétées — poursuivez là où vous vous êtes arrêté.`}
+                  : `${completedCount} sur ${totalSteps} étapes complétées — sélectionnez une étape pour en voir le détail.`}
               </p>
             </div>
             <div className="shrink-0 text-right">
@@ -95,7 +110,9 @@ export function ValuationPlanTrajectory({
                 {overallProgress}
                 <span className="text-lg font-medium text-slate-500">%</span>
               </p>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Avancement global</p>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Avancement global
+              </p>
             </div>
           </div>
 
@@ -109,122 +126,156 @@ export function ValuationPlanTrajectory({
           </div>
         </div>
 
-        <div className="hidden border-b border-slate-100 px-8 py-6 xl:block">
-          <div className="relative">
-            <div
-              className="absolute left-0 right-0 top-5 h-0.5 bg-slate-200"
-              aria-hidden
-            />
-            <div
-              className="absolute left-0 top-5 h-0.5 bg-[#E0742D] transition-all duration-500"
-              style={{
-                width: `${totalSteps > 1 ? (completedCount / (totalSteps - 1)) * 100 : 0}%`,
-              }}
-              aria-hidden
-            />
-            <ol
-              className="relative grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6"
-              data-testid="valuation-plan-phases"
-            >
-              {VALUATION_PLAN_PHASES.map((phase, index) => {
-                const status = getValuationPlanStepStatus(phase.id, normalizedCompletedSteps)
-                const config = STATUS_CONFIG[status]
-                return (
-                  <li
-                    key={phase.id}
-                    className="flex flex-col items-center text-center"
-                    data-testid={`valuation-plan-phase-${phase.id}`}
-                  >
-                    <span
-                      className={cn(
-                        "relative z-10 flex h-10 w-10 items-center justify-center rounded-full transition-all",
-                        config.dotClass,
-                      )}
-                    >
-                      <StepNodeIcon status={status} />
-                    </span>
-                    <span className="mt-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                      Étape {index + 1}
-                    </span>
-                    <span className="mt-1 text-sm font-semibold text-[#2A2F3A]">{phase.label}</span>
-                    <span
-                      className={cn(
-                        "mt-2 inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset",
-                        config.badgeClass,
-                      )}
-                    >
-                      {config.label}
-                    </span>
-                  </li>
-                )
-              })}
-            </ol>
+        <div className="border-b border-slate-100 px-4 py-5 sm:px-6 xl:px-8">
+          <div className="relative overflow-x-auto pb-1">
+            <div className="relative min-w-[640px]">
+              <div
+                className="absolute left-[calc(100%/14)] right-[calc(100%/14)] top-5 h-px bg-slate-200"
+                aria-hidden
+              />
+              <div
+                className="absolute left-[calc(100%/14)] top-5 h-px bg-[#2A2F3A] transition-all duration-500"
+                style={{
+                  width:
+                    totalSteps > 1
+                      ? `calc((100% - 100%/7) * ${completedCount / (totalSteps - 1)})`
+                      : "0%",
+                }}
+                aria-hidden
+              />
+              <ol
+                className="relative grid grid-cols-7 gap-1"
+                data-testid="valuation-plan-phases"
+                role="listbox"
+                aria-label="Étapes du plan"
+              >
+                {VALUATION_PLAN_PHASES.map((phase, index) => {
+                  const status = getValuationPlanStepStatus(phase.id, normalizedCompletedSteps)
+                  const config = STATUS_CONFIG[status]
+                  const isSelected = phase.id === selectedPhase.id
+
+                  return (
+                    <li key={phase.id} className="min-w-0">
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        onClick={() => setSelectedPhaseId(phase.id)}
+                        data-testid={`valuation-plan-phase-${phase.id}`}
+                        className={cn(
+                          "group flex w-full flex-col items-center px-1 pb-3 pt-1 text-center",
+                          "border-b-2 border-transparent transition-[border-color,color] duration-200",
+                          "focus-visible:outline-none focus-visible:border-[#E0742D]",
+                          isSelected
+                            ? "border-[#E0742D]"
+                            : "hover:border-slate-300",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-transform duration-200",
+                            config.dotClass,
+                            "group-hover:scale-105",
+                            isSelected && "scale-105",
+                          )}
+                        >
+                          <StepNodeIcon status={status} />
+                        </span>
+                        <span
+                          className={cn(
+                            "mt-2.5 text-[10px] font-semibold uppercase tracking-wider transition-colors",
+                            isSelected ? "text-[#E0742D]" : "text-slate-400 group-hover:text-slate-500",
+                          )}
+                        >
+                          Étape {index + 1}
+                        </span>
+                        <span
+                          className={cn(
+                            "mt-1 text-balance text-xs font-semibold leading-snug transition-colors sm:text-sm",
+                            isSelected
+                              ? "text-[#2A2F3A]"
+                              : "text-slate-600 group-hover:text-[#2A2F3A]",
+                          )}
+                        >
+                          {phase.label}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ol>
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 p-4 sm:p-6 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-          {VALUATION_PLAN_PHASES.map((phase, index) => {
-            const status = getValuationPlanStepStatus(phase.id, normalizedCompletedSteps)
-            const config = STATUS_CONFIG[status]
-            const isInProgress = status === "in_progress"
+        <div className="p-4 sm:p-6" data-testid="valuation-plan-phase-detail">
+          <article className="flex flex-col border-t border-slate-200 pt-5 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="font-mono text-xs font-semibold tabular-nums text-[#E0742D]">
+                  {String(selectedIndex + 1).padStart(2, "0")}
+                </span>
+                <span
+                  className={cn(
+                    "inline-flex rounded-md px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset",
+                    selectedConfig.badgeClass,
+                  )}
+                >
+                  {selectedConfig.label}
+                </span>
+              </div>
+              <h3 className="mt-3 text-lg font-semibold leading-snug tracking-tight text-[#2A2F3A]">
+                {selectedPhase.label}
+              </h3>
+              <p className="mt-2 max-w-2xl text-pretty text-sm leading-relaxed text-slate-500">
+                {selectedPhase.panelSubtitle}
+              </p>
+              {selectedPhase.items.length > 0 ? (
+                <ul className="mt-4 space-y-2">
+                  {selectedPhase.items.map((item) => (
+                    <li key={item} className="flex gap-2.5 text-sm text-slate-600">
+                      <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-[#E0742D]" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
 
-            return (
-              <article
-                key={phase.id}
+            <div className="mt-5 flex shrink-0 flex-col gap-2 sm:mt-1 sm:items-end">
+              <Button
+                asChild
+                size="sm"
                 className={cn(
-                  "flex min-h-[220px] flex-col rounded-xl border p-5 transition-shadow",
-                  config.cardClass,
+                  isSelectedInProgress
+                    ? "bg-[#E0742D] text-white hover:bg-[#c96526]"
+                    : "bg-[#2A2F3A] text-white hover:bg-[#1f242d]",
                 )}
+                data-testid={`valuation-plan-open-${selectedPhase.id}`}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <span className="text-xs font-semibold tabular-nums text-slate-400">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <span
-                    className={cn(
-                      "inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ring-1 ring-inset",
-                      config.badgeClass,
-                    )}
-                  >
-                    {config.label}
-                  </span>
-                </div>
-
-                <h3 className="mt-3 text-base font-semibold leading-snug text-[#2A2F3A]">{phase.label}</h3>
-                <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600">{phase.panelSubtitle}</p>
-
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                  <Button
-                    asChild
-                    size="sm"
-                    className={cn(
-                      isInProgress
-                        ? "bg-[#E0742D] text-white hover:bg-[#c96526]"
-                        : "bg-[#2A2F3A] text-white hover:bg-[#1f242d]",
-                    )}
-                    data-testid={`valuation-plan-open-${phase.id}`}
-                  >
-                    <Link href={buildToolHref(phase)}>
-                      {status === "completed" ? "Revoir" : status === "in_progress" ? "Continuer" : "Commencer"}
-                      <ArrowRight className="ml-1.5 h-3.5 w-3.5" aria-hidden />
-                    </Link>
-                  </Button>
-                  {onMarkComplete && isInProgress ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="border-slate-300 text-slate-700"
-                      onClick={() => onMarkComplete(phase.id)}
-                      data-testid={`valuation-plan-complete-${phase.id}`}
-                    >
-                      Marquer terminé
-                    </Button>
-                  ) : null}
-                </div>
-              </article>
-            )
-          })}
+                <Link href={buildToolHref(selectedPhase)}>
+                  {selectedStatus === "completed"
+                    ? "Revoir"
+                    : selectedStatus === "in_progress"
+                      ? "Continuer"
+                      : "Commencer"}
+                  <ArrowRight className="ml-1.5 h-3.5 w-3.5" aria-hidden />
+                </Link>
+              </Button>
+              {onMarkComplete && isSelectedInProgress ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="border-slate-300 text-slate-700"
+                  onClick={() => onMarkComplete(selectedPhase.id)}
+                  data-testid={`valuation-plan-complete-${selectedPhase.id}`}
+                >
+                  Marquer terminé
+                </Button>
+              ) : null}
+            </div>
+          </article>
         </div>
       </div>
     </section>

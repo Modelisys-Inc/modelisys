@@ -168,13 +168,17 @@ import {
   isNetTangibleJvmCapexRootRow,
   type NetTangibleJvmCapexPost,
 } from "@/lib/net-tangible-jvm-capex"
-import { NetTangibleJvmCapexEditor } from "@/components/net-tangible-jvm-capex-editor"
-import { NetTangibleSurplusEditor } from "@/components/net-tangible-surplus-editor"
 import {
   buildNetTangibleSurplusPosts,
   computeNetTangibleSurplusAssetsTotal,
   type NetTangibleSurplusPost,
 } from "@/lib/net-tangible-surplus-assets"
+import {
+  dollarAmountToLeafInput,
+  leafInputToDollarAmount,
+  type NetTangibleLeafInputMode,
+} from "@/lib/net-tangible-hypothesis-engine"
+import { NetTangibleHypothesisEngine } from "@/components/net-tangible/hypothesis-engine"
 import type { NoteAttachmentData } from "@/lib/api"
 
 interface BalanceSheetSummaryProps {
@@ -211,7 +215,7 @@ interface BalanceSheetSummaryProps {
   forecastActualLayout?: ForecastActualLayout
   /** Annuel / trimestriel : Courant (même mois / T3M) ou Exercice (FYE / trimestres fiscaux). */
   periodBasis?: StatementPeriodBasis
-  /** Valeur comptable ajustée : colonnes Ajustements / VCA / Dettes / Actifs / ACN après le montant de référence. */
+  /** Valeur comptable ajustée : colonnes Ajustements / VCA / Dettes / Excédent / ACN après le montant de référence. */
   netTangibleValuationColumns?: NetTangibleValuationColumnsConfig
 }
 
@@ -396,8 +400,12 @@ export function BalanceSheetSummary({
     keyof NetTangibleValuationColumnValues | null
   >(null)
   const [netTangibleHypothesisLabel, setNetTangibleHypothesisLabel] = useState("")
+  const [netTangibleBookValue, setNetTangibleBookValue] = useState(0)
   const [netTangibleDraftValue, setNetTangibleDraftValue] = useState(0)
   const [netTangibleDraftNote, setNetTangibleDraftNote] = useState("")
+  const [netTangibleLeafMode, setNetTangibleLeafMode] =
+    useState<NetTangibleLeafInputMode>("dollar")
+  const [netTangibleLeafInput, setNetTangibleLeafInput] = useState(0)
   const [netTangibleJvmDraftPosts, setNetTangibleJvmDraftPosts] = useState<NetTangibleJvmCapexPost[]>(
     [],
   )
@@ -407,6 +415,7 @@ export function BalanceSheetSummary({
   const [netTangibleAnnexPanelMode, setNetTangibleAnnexPanelMode] = useState<
     "jvm-capex" | "surplus" | null
   >(null)
+  const netTangibleAutosaveSkipRef = useRef(true)
   const [addSpaceDialogOpen, setAddSpaceDialogOpen] = useState(false)
   const [addSpacePlacement, setAddSpacePlacement] = useState<"above" | "below">("above")
   const [addSpaceTargetIdx, setAddSpaceTargetIdx] = useState<number | null>(null)
@@ -2027,10 +2036,13 @@ export function BalanceSheetSummary({
 
   const netTangibleHypothesisPanelOpen = netTangibleHypothesisOpenRowIndex !== null
 
+  // En mode VCA rapport : toujours toutes les lignes (sinon le panneau coupe le scroll page).
   const effectiveTableRowCount =
-    netTangibleHypothesisOpenRowIndex !== null
-      ? netTangibleHypothesisOpenRowIndex + 1
-      : tableRowCount
+    isNetTangibleValuationMode
+      ? tableRowCount
+      : netTangibleHypothesisOpenRowIndex !== null
+        ? netTangibleHypothesisOpenRowIndex + 1
+        : tableRowCount
 
   let summaryTableColumnCount = 2
   if (showStructureCols) summaryTableColumnCount = 8
@@ -2253,11 +2265,15 @@ export function BalanceSheetSummary({
         debts: "",
         assets: "",
       }
+      const bookValue = visibleData.find((row) => row.rowId === rowId)?.current ?? 0
       setNetTangibleHypothesisRowId(rowId)
       setNetTangibleHypothesisField(field)
       setNetTangibleHypothesisLabel(rowLabel)
+      setNetTangibleBookValue(bookValue)
       setNetTangibleDraftNote(notes[field] ?? "")
+      setNetTangibleLeafMode("dollar")
       setLineAnalysis(null)
+      netTangibleAutosaveSkipRef.current = true
 
       if (isJvmAdjustments) {
         const posts = collectJvmCapexAnnexPosts(rowId, rowLabel)
@@ -2265,6 +2281,7 @@ export function BalanceSheetSummary({
         setNetTangibleSurplusDraftPosts([])
         setNetTangibleAnnexPanelMode("jvm-capex")
         setNetTangibleDraftValue(computeNetTangibleJvmCapexAdjustment(posts))
+        setNetTangibleLeafInput(0)
       } else if (isJvmAssets) {
         const jvmPosts = collectJvmCapexAnnexPosts(rowId, rowLabel)
         const surplusPosts = buildNetTangibleSurplusPosts(
@@ -2280,11 +2297,14 @@ export function BalanceSheetSummary({
         setNetTangibleJvmDraftPosts([])
         setNetTangibleAnnexPanelMode("surplus")
         setNetTangibleDraftValue(computeNetTangibleSurplusAssetsTotal(surplusPosts))
+        setNetTangibleLeafInput(0)
       } else {
         setNetTangibleAnnexPanelMode(null)
         setNetTangibleJvmDraftPosts([])
         setNetTangibleSurplusDraftPosts([])
-        setNetTangibleDraftValue(values[field] ?? 0)
+        const dollar = values[field] ?? 0
+        setNetTangibleDraftValue(dollar)
+        setNetTangibleLeafInput(dollar)
       }
     },
     [
@@ -2293,6 +2313,7 @@ export function BalanceSheetSummary({
       netTangibleValuationColumns,
       presentationStructure,
       structEdit.structure,
+      visibleData,
     ],
   )
 
@@ -2300,14 +2321,17 @@ export function BalanceSheetSummary({
     setNetTangibleHypothesisRowId(null)
     setNetTangibleHypothesisField(null)
     setNetTangibleHypothesisLabel("")
+    setNetTangibleBookValue(0)
     setNetTangibleDraftValue(0)
     setNetTangibleDraftNote("")
+    setNetTangibleLeafMode("dollar")
+    setNetTangibleLeafInput(0)
     setNetTangibleJvmDraftPosts([])
     setNetTangibleSurplusDraftPosts([])
     setNetTangibleAnnexPanelMode(null)
   }, [])
 
-  const saveNetTangibleHypothesisPanel = useCallback(() => {
+  const persistNetTangibleHypothesisPanel = useCallback(() => {
     if (
       !netTangibleHypothesisRowId ||
       !netTangibleHypothesisField ||
@@ -2365,9 +2389,7 @@ export function BalanceSheetSummary({
         { ...existingNotes, [netTangibleHypothesisField]: netTangibleDraftNote },
       )
     }
-    closeNetTangibleHypothesisPanel()
   }, [
-    closeNetTangibleHypothesisPanel,
     netTangibleDraftNote,
     netTangibleDraftValue,
     netTangibleHypothesisField,
@@ -2377,6 +2399,68 @@ export function BalanceSheetSummary({
     netTangibleAnnexPanelMode,
     netTangibleValuationColumns,
   ])
+
+  const handleCloseNetTangibleHypothesisPanel = useCallback(() => {
+    persistNetTangibleHypothesisPanel()
+    closeNetTangibleHypothesisPanel()
+  }, [closeNetTangibleHypothesisPanel, persistNetTangibleHypothesisPanel])
+
+  // Autosave discret : pas de bouton Enregistrer ; le panneau reste ouvert.
+  useEffect(() => {
+    if (!netTangibleHypothesisRowId || !netTangibleHypothesisField) return
+    if (netTangibleAutosaveSkipRef.current) {
+      netTangibleAutosaveSkipRef.current = false
+      return
+    }
+    const timer = setTimeout(() => persistNetTangibleHypothesisPanel(), 450)
+    return () => clearTimeout(timer)
+  }, [
+    netTangibleHypothesisRowId,
+    netTangibleHypothesisField,
+    netTangibleDraftValue,
+    netTangibleDraftNote,
+    netTangibleJvmDraftPosts,
+    netTangibleSurplusDraftPosts,
+    persistNetTangibleHypothesisPanel,
+  ])
+
+  const handleNetTangibleLeafModeChange = useCallback(
+    (mode: NetTangibleLeafInputMode) => {
+      setNetTangibleLeafMode(mode)
+      setNetTangibleLeafInput(
+        dollarAmountToLeafInput({
+          mode,
+          dollar: netTangibleDraftValue,
+          bookValue: netTangibleBookValue,
+        }),
+      )
+    },
+    [netTangibleBookValue, netTangibleDraftValue],
+  )
+
+  const handleNetTangibleLeafInputChange = useCallback(
+    (input: number) => {
+      setNetTangibleLeafInput(input)
+      setNetTangibleDraftValue(
+        leafInputToDollarAmount({
+          mode: netTangibleLeafMode,
+          input,
+          bookValue: netTangibleBookValue,
+        }),
+      )
+    },
+    [netTangibleBookValue, netTangibleLeafMode],
+  )
+
+  const handleNetTangibleJvmPostsChange = useCallback((posts: NetTangibleJvmCapexPost[]) => {
+    setNetTangibleJvmDraftPosts(posts)
+    setNetTangibleDraftValue(computeNetTangibleJvmCapexAdjustment(posts))
+  }, [])
+
+  const handleNetTangibleSurplusPostsChange = useCallback((posts: NetTangibleSurplusPost[]) => {
+    setNetTangibleSurplusDraftPosts(posts)
+    setNetTangibleDraftValue(computeNetTangibleSurplusAssetsTotal(posts))
+  }, [])
 
   if (loading || (isMultiPeriod && seriesLoading) || entityDataLoading) {
     return (
@@ -2409,12 +2493,24 @@ export function BalanceSheetSummary({
 
   const isStructureStudio = structureEditMode && canInlineStructureEdit
 
-  const renderValidationEcartCell = (ecart: number | null | undefined, key?: string | number) => {
+  const renderValidationEcartCell = (
+    ecart: number | null | undefined,
+    key?: string | number,
+    tone?: "vca" | "acn" | "vc",
+  ) => {
+    const toneClass =
+      isNetTangibleValuationMode && (tone === "vca" || tone === "acn")
+        ? "bg-slate-100"
+        : undefined
     if (ecart === null || ecart === undefined) {
       return (
         <td
           key={key}
-          className="px-6 py-2.5 text-right text-sm text-slate-400"
+          className={cn(
+            "text-right text-sm text-slate-400",
+            isNetTangibleValuationMode ? "px-2 py-2 font-mono" : "px-6 py-2.5",
+            toneClass,
+          )}
           data-testid={typeof key === "string" ? key : undefined}
         >
           —
@@ -2426,8 +2522,10 @@ export function BalanceSheetSummary({
       <td
         key={key}
         className={cn(
-          "px-6 py-2.5 text-right text-sm font-semibold tabular-nums",
+          "text-right text-sm font-semibold tabular-nums",
+          isNetTangibleValuationMode ? "px-2 py-2 font-mono" : "px-6 py-2.5",
           balanced ? "text-emerald-700" : "text-amber-700",
+          toneClass,
         )}
         title={
           balanced
@@ -2505,13 +2603,21 @@ export function BalanceSheetSummary({
       return canSelect && netTangibleHypothesisRowId === row.rowId && netTangibleHypothesisField === field
     }
 
-    const cellClass = (clickable: boolean, selected: boolean) =>
+    const cellClass = (clickable: boolean, selected: boolean, emphasis?: "acn" | "vca") =>
       cn(
-        "px-6 py-3 text-right text-sm tabular-nums",
-        isBoldRow ? "font-semibold text-slate-900" : "text-slate-700",
+        isNetTangibleValuationMode
+          ? "px-2 py-2 text-right font-mono text-sm tabular-nums text-[#2A2F3A]"
+          : "px-6 py-3 text-right text-sm tabular-nums",
+        !isNetTangibleValuationMode && (isBoldRow ? "font-semibold text-slate-900" : "text-slate-700"),
+        isNetTangibleValuationMode && isBoldRow && "font-semibold",
+        isNetTangibleValuationMode && emphasis === "vca" && "nta-tone-vca bg-slate-100",
+        isNetTangibleValuationMode && emphasis === "acn" && "nta-tone-acn bg-slate-100",
         shouldHideAmounts && "text-slate-400",
         clickable && "cursor-pointer hover:bg-slate-50/90",
-        selected && "z-[1] bg-blue-50/50 shadow-[inset_0_0_0_2px_rgb(59,130,246)]",
+        selected &&
+          (isNetTangibleValuationMode
+            ? "z-[1] bg-[#E0742D]/10 shadow-[inset_0_0_0_1.5px_#E0742D]"
+            : "z-[1] bg-blue-50/50 shadow-[inset_0_0_0_2px_rgb(59,130,246)]"),
       )
 
     const openPanel = (
@@ -2522,8 +2628,11 @@ export function BalanceSheetSummary({
       event.stopPropagation()
       if (!canOpen || !row.rowId) return
       if (isFieldSelected(field)) {
-        closeNetTangibleHypothesisPanel()
+        handleCloseNetTangibleHypothesisPanel()
         return
+      }
+      if (netTangibleHypothesisRowId) {
+        persistNetTangibleHypothesisPanel()
       }
       openNetTangibleHypothesisPanel(row.rowId, row.label, field)
     }
@@ -2539,7 +2648,9 @@ export function BalanceSheetSummary({
         >
           {shouldHideAmounts ? "-" : formatCurrency(adjustments)}
         </td>
-        <td className={cellClass(false, false)}>{shouldHideAmounts ? "-" : formatCurrency(vca)}</td>
+        <td className={cellClass(false, false, "vca")}>
+          {shouldHideAmounts ? "-" : formatCurrency(vca)}
+        </td>
         <td
           className={cellClass(editable, isFieldSelected("debts"))}
           onClick={editable ? (e) => openPanel(e, "debts", editable) : undefined}
@@ -2554,7 +2665,9 @@ export function BalanceSheetSummary({
         >
           {shouldHideAmounts ? "-" : formatCurrency(assets)}
         </td>
-        <td className={cellClass(false, false)}>{shouldHideAmounts ? "-" : formatCurrency(acn)}</td>
+        <td className={cellClass(false, false, "acn")}>
+          {shouldHideAmounts ? "-" : formatCurrency(acn)}
+        </td>
       </>
     )
   }
@@ -2563,143 +2676,63 @@ export function BalanceSheetSummary({
     if (!isNetTangibleValuationMode) return null
     return (
       <>
-        <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
-        {renderValidationEcartCell(netTangibleValidationEcarts.vca, "nta-validation-vca")}
-        <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
-        <td className="px-6 py-2.5 text-right text-sm text-slate-400">—</td>
-        {renderValidationEcartCell(netTangibleValidationEcarts.acn, "nta-validation-acn")}
+        <td className="px-2 py-2 text-right font-mono text-sm text-slate-400">—</td>
+        {renderValidationEcartCell(netTangibleValidationEcarts.vca, "nta-validation-vca", "vca")}
+        <td className="px-2 py-2 text-right font-mono text-sm text-slate-400">—</td>
+        <td className="px-2 py-2 text-right font-mono text-sm text-slate-400">—</td>
+        {renderValidationEcartCell(netTangibleValidationEcarts.acn, "nta-validation-acn", "acn")}
       </>
     )
-  }
-
-  const parseCurrencyDraft = (raw: string): number => {
-    const cleaned = raw.replace(/[^\d-]/g, "")
-    if (cleaned === "" || cleaned === "-") return 0
-    return Number(cleaned)
-  }
-
-  const NET_TANGIBLE_FIELD_META: Record<
-    keyof NetTangibleValuationColumnValues,
-    { label: string; help: string }
-  > = {
-    adjustments: {
-      label: "Ajustements",
-      help: "Montant ajouté ou soustrait à la valeur comptable.",
-    },
-    debts: {
-      label: "Dettes",
-      help: "Montant de dettes à soustraire pour l’ACN.",
-    },
-    assets: {
-      label: "Actifs",
-      help: "Montant d’actifs à soustraire pour l’ACN.",
-    },
   }
 
   const renderNetTangibleHypothesisPanel = () => {
     if (!netTangibleHypothesisRowId || !netTangibleHypothesisField) return null
     const field = netTangibleHypothesisField
-    const meta = NET_TANGIBLE_FIELD_META[field]
+    const saved = netTangibleValuationColumns?.valuesByRowId[netTangibleHypothesisRowId] ?? {
+      adjustments: 0,
+      debts: 0,
+      assets: 0,
+    }
+    const liveAdjustments =
+      field === "adjustments" || netTangibleAnnexPanelMode === "jvm-capex"
+        ? netTangibleDraftValue
+        : saved.adjustments
+    const liveDebts = field === "debts" ? netTangibleDraftValue : saved.debts
+    const liveAssets =
+      field === "assets" || netTangibleAnnexPanelMode === "surplus"
+        ? netTangibleDraftValue
+        : saved.assets
 
     return (
       <tr
-        className="border-b-2 border-blue-200/90 bg-slate-50/95"
+        className="border-b-2 border-slate-200 bg-white"
         data-testid="net-tangible-hypothesis-panel"
         data-field={field}
         data-jvm-capex={netTangibleAnnexPanelMode === "jvm-capex" ? "true" : undefined}
         data-surplus={netTangibleAnnexPanelMode === "surplus" ? "true" : undefined}
       >
         <td colSpan={summaryTableColumnCount} className="min-w-0 p-0 align-top">
-          <div className="min-w-0 max-w-full min-h-[min(52vh,36rem)] overflow-x-auto bg-slate-50/95 px-3 py-3 sm:px-5 sm:py-4">
-            <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-              <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Hypothèse —{" "}
-                  {netTangibleAnnexPanelMode === "jvm-capex"
-                    ? "JVM Capex"
-                    : netTangibleAnnexPanelMode === "surplus"
-                      ? "Actifs excédentaires"
-                      : meta.label}
-                </p>
-                <h3 className="mt-3 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
-                  {netTangibleHypothesisLabel}
-                </h3>
-                <p className="mt-3 text-xs font-medium leading-relaxed text-blue-800">
-                  Référence ·{" "}
-                  <span className="font-semibold text-blue-900">
-                    {netTangibleValuationColumns?.referenceColumnLabel}
-                  </span>
-                </p>
-                <p className="mt-2 text-xs text-slate-500">
-                  {netTangibleAnnexPanelMode === "jvm-capex"
-                    ? "Indiquez la JVM de chaque poste d’annexe, avec note et pièces si besoin. L’ajustement = Σ (JVM − VC)."
-                    : netTangibleAnnexPanelMode === "surplus"
-                      ? "La JVM provient des Ajustements. Saisissez l’excédent par poste ; Total Actifs = Σ Excédent."
-                      : meta.help}
-                </p>
-              </div>
-              <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9 border-slate-200 text-xs font-medium text-slate-800 hover:bg-slate-50"
-                  onClick={saveNetTangibleHypothesisPanel}
-                  data-testid="net-tangible-hypothesis-save"
-                >
-                  Enregistrer
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 border-blue-200/90 text-xs font-medium text-blue-900 hover:bg-blue-50/90"
-                  onClick={closeNetTangibleHypothesisPanel}
-                  data-testid="net-tangible-hypothesis-close"
-                >
-                  Fermer
-                </Button>
-              </div>
-            </div>
-
-            {netTangibleAnnexPanelMode === "jvm-capex" ? (
-              <NetTangibleJvmCapexEditor
-                posts={netTangibleJvmDraftPosts}
-                onChange={setNetTangibleJvmDraftPosts}
-                referenceLabel={netTangibleValuationColumns?.referenceColumnLabel}
-              />
-            ) : netTangibleAnnexPanelMode === "surplus" ? (
-              <NetTangibleSurplusEditor
-                posts={netTangibleSurplusDraftPosts}
-                onChange={setNetTangibleSurplusDraftPosts}
-                referenceLabel={netTangibleValuationColumns?.referenceColumnLabel}
-              />
-            ) : (
-              <div className="mt-5 max-w-md rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <Label className="text-sm font-semibold text-[#2A2F3A]">Montant ($)</Label>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  value={netTangibleDraftValue === 0 ? "" : String(netTangibleDraftValue)}
-                  onChange={(event) => {
-                    setNetTangibleDraftValue(parseCurrencyDraft(event.target.value))
-                  }}
-                  className="mt-2 font-mono"
-                  placeholder="0"
-                  data-testid={`net-tangible-hypothesis-${field}`}
-                />
-                <Label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Note
-                </Label>
-                <Textarea
-                  value={netTangibleDraftNote}
-                  onChange={(event) => setNetTangibleDraftNote(event.target.value)}
-                  placeholder={`Note pour ${meta.label.toLowerCase()}…`}
-                  className="mt-1.5 min-h-[72px]"
-                />
-              </div>
-            )}
-          </div>
+          <NetTangibleHypothesisEngine
+            field={field}
+            rowLabel={netTangibleHypothesisLabel}
+            referenceColumnLabel={netTangibleValuationColumns?.referenceColumnLabel}
+            bookValue={netTangibleBookValue}
+            adjustments={liveAdjustments}
+            debts={liveDebts}
+            assets={liveAssets}
+            annexMode={netTangibleAnnexPanelMode}
+            leafMode={netTangibleLeafMode}
+            leafInput={netTangibleLeafInput}
+            note={netTangibleDraftNote}
+            jvmPosts={netTangibleJvmDraftPosts}
+            surplusPosts={netTangibleSurplusDraftPosts}
+            onLeafModeChange={handleNetTangibleLeafModeChange}
+            onLeafInputChange={handleNetTangibleLeafInputChange}
+            onNoteChange={setNetTangibleDraftNote}
+            onJvmPostsChange={handleNetTangibleJvmPostsChange}
+            onSurplusPostsChange={handleNetTangibleSurplusPostsChange}
+            onClose={handleCloseNetTangibleHypothesisPanel}
+          />
         </td>
       </tr>
     )
@@ -2724,7 +2757,8 @@ export function BalanceSheetSummary({
           </p>
         </div>
       )}
-      {/* Header */}
+      {/* Header — VCA en mode rapport : titre porté par la section parente. */}
+      {isFlushLayout ? null : (
       <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 flex-1 items-start gap-4">
@@ -2901,6 +2935,7 @@ export function BalanceSheetSummary({
           )}
         </div>
       </div>
+      )}
 
       {structureEditMode && canInlineStructureEdit && structEdit.loading && (
         <div className="border-b border-slate-200 bg-slate-50/80 px-6 py-3 text-center text-sm text-slate-600 sm:px-7">
@@ -2927,48 +2962,93 @@ export function BalanceSheetSummary({
           )
         })()}
 
-      {/* Table — en-tête et colonne Poste figés au défilement */}
+      {/* Table — en-tête et colonne Poste figés au défilement (sauf mode VCA rapport) */}
       <div
         className={cn(
-          "min-w-0 max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
-          netTangibleHypothesisPanelOpen && "max-h-[min(calc(100vh-16rem),56rem)]",
-          isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
+          "min-w-0",
+          isNetTangibleValuationMode
+            ? // Pas d’overflow ici : overflow-x:auto force overflow-y:auto et bloque le scroll page.
+              "w-full overflow-visible bg-transparent"
+            : cn(
+                "max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
+                netTangibleHypothesisPanelOpen && "max-h-[min(calc(100vh-16rem),56rem)]",
+                isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white",
+              ),
         )}
       >
         <table
           className={cn(
-            "w-full min-w-full border-separate border-spacing-0",
+            "w-full min-w-full",
+            isNetTangibleValuationMode ? "border-collapse" : "border-separate border-spacing-0",
             showStructureCols && "table-fixed",
           )}
+          data-testid={isNetTangibleValuationMode ? "net-tangible-bilan-table" : undefined}
         >
           {showStructureCols && <StatementSummaryStructureColgroup />}
           <thead
             className={cn(
-              "[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-slate-100",
-              "[&_th]:border-b [&_th]:border-slate-200",
-              !showStructureCols && "[&_th]:border-b-2",
-              "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
+              isNetTangibleValuationMode
+                ? "[&_th]:border-b [&_th]:border-slate-200 [&_th]:bg-transparent"
+                : cn(
+                    "[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-slate-100",
+                    "[&_th]:border-b [&_th]:border-slate-200",
+                    !showStructureCols && "[&_th]:border-b-2",
+                    "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
+                  ),
             )}
           >
             <tr>
               {showStructureCols && <StatementSummaryStructureThead />}
               {!showStructureCols && (
                 <>
-              <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5 whitespace-nowrap">Poste</th>
+              <th
+                className={cn(
+                  "text-left whitespace-nowrap",
+                  isNetTangibleValuationMode
+                    ? "w-[28%] py-2 pr-4 text-xs font-semibold uppercase tracking-wide text-slate-500"
+                    : "w-2/5 px-6 py-4 text-sm font-semibold text-slate-900",
+                )}
+              >
+                Poste
+              </th>
               {view === "current" && (
                 <>
-                  <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm whitespace-nowrap">
-                    {isNetTangibleValuationMode
-                      ? netTangibleValuationColumns!.referenceColumnLabel
-                      : "Montant"}
+                  <th
+                    className={cn(
+                      "text-right whitespace-nowrap",
+                      isNetTangibleValuationMode
+                        ? "px-2 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500"
+                        : "px-6 py-4 text-sm font-semibold text-slate-900",
+                    )}
+                  >
+                    {isNetTangibleValuationMode ? (
+                      <span className="inline-flex flex-col items-end gap-0.5">
+                        <span>VC</span>
+                        <span className="font-mono text-[10px] font-normal normal-case tracking-normal text-slate-400">
+                          {netTangibleValuationColumns!.referenceColumnLabel}
+                        </span>
+                      </span>
+                    ) : (
+                      "Montant"
+                    )}
                   </th>
                   {isNetTangibleValuationMode ? (
                     <>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Ajustements</th>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">VCA</th>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Dettes</th>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">Actifs</th>
-                      <th className="px-6 py-4 text-right font-semibold text-slate-900 text-sm">ACN</th>
+                      <th className="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Ajustements
+                      </th>
+                      <th className="bg-slate-100 px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        VCA
+                      </th>
+                      <th className="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Dettes
+                      </th>
+                      <th className="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Excédent
+                      </th>
+                      <th className="bg-slate-100 px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        ACN
+                      </th>
                     </>
                   ) : null}
                 </>
@@ -3054,10 +3134,13 @@ export function BalanceSheetSummary({
           </thead>
           <tbody
             className={cn(
-              // border-separate: bordures + fonds sur les td (le bg des tr est ignoré)
-              "[&_td]:border-b [&_td]:border-slate-200",
-              "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
-              "[&_td:first-child]:bg-white",
+              isNetTangibleValuationMode
+                ? "[&_td]:border-t [&_td]:border-slate-200"
+                : cn(
+                    "[&_td]:border-b [&_td]:border-slate-200",
+                    "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+                    "[&_td:first-child]:bg-white",
+                  ),
             )}
           >
             {showStructureCols && tableRowCount === 0 && (
@@ -3271,9 +3354,20 @@ export function BalanceSheetSummary({
                   {showValidationRow && isBalanceSheetAssetsSectionLabel(row.label) && (
                     <tr
                       data-testid="balance-sheet-validation-row"
-                      className="[&_td]:border-slate-300 [&>td]:bg-slate-50 [&>td:first-child]:bg-slate-50"
+                      className={cn(
+                        isNetTangibleValuationMode
+                          ? "[&_td]:border-t-2 [&_td]:border-[#2A2F3A]"
+                          : "[&_td]:border-slate-300 [&>td]:bg-slate-50 [&>td:first-child]:bg-slate-50",
+                      )}
                     >
-                      <td className="whitespace-nowrap px-6 py-2.5 text-sm font-semibold text-slate-800">
+                      <td
+                        className={cn(
+                          "whitespace-nowrap text-sm font-semibold",
+                          isNetTangibleValuationMode
+                            ? "py-2 pr-4 text-[#2A2F3A]"
+                            : "px-6 py-2.5 text-slate-800",
+                        )}
+                      >
                         Validation
                       </td>
                       {view === "current" && (
@@ -3353,7 +3447,11 @@ export function BalanceSheetSummary({
                     className={cn(
                       row.label === "" ? "h-2" : "",
                       // Fond au hover sur toutes les cellules (y compris espaces vides + colonne sticky)
-                      "hover:[&>td]:bg-slate-50/90 hover:[&>td:first-child]:bg-slate-50/90",
+                      !isNetTangibleValuationMode &&
+                        "hover:[&>td]:bg-slate-50/90 hover:[&>td:first-child]:bg-slate-50/90",
+                      isNetTangibleValuationMode &&
+                        row.label !== "" &&
+                        "hover:[&>td:not(.nta-tone-vca):not(.nta-tone-acn)]:bg-slate-50/60",
                       showStructureCols &&
                         row.label !== "" &&
                         "hover:[&>td]:bg-slate-100/70 hover:[&>td:first-child]:bg-slate-100/70",
@@ -3371,11 +3469,24 @@ export function BalanceSheetSummary({
                   >
                   <td
                     className={cn(
-                      "py-3",
-                      showStructureCols ? "min-w-0 px-3 pl-4" : "px-6",
+                      isNetTangibleValuationMode ? "py-2 pr-4" : "py-3",
+                      showStructureCols ? "min-w-0 px-3 pl-4" : !isNetTangibleValuationMode && "px-6",
                       "whitespace-nowrap",
-                      isBoldRow ? "font-bold text-slate-900" : "text-slate-700",
-                      row.indent ? "pl-12" : "",
+                      isNetTangibleValuationMode
+                        ? cn(
+                            "text-sm text-[#2A2F3A]",
+                            isBoldRow || row.isSection || row.isResult
+                              ? "font-semibold"
+                              : "font-normal",
+                            isBoldRow &&
+                              (isEquityTotalLabel(row.label) ||
+                                isNetTangibleLiabilitiesAndActifNetLabel(row.label)) &&
+                              "border-t-2 border-t-[#2A2F3A]",
+                          )
+                        : isBoldRow
+                          ? "font-bold text-slate-900"
+                          : "text-slate-700",
+                      row.indent ? (isNetTangibleValuationMode ? "pl-6" : "pl-12") : "",
                       showStructureCols && structRow && row.label !== "" && "py-3.5"
                     )}
                   >
@@ -3455,7 +3566,21 @@ export function BalanceSheetSummary({
 
                   {!showStructureCols && view === "current" && (
                     <>
-                      <td className={`px-6 py-3 text-right ${isBoldRow ? "font-semibold font-bold" : "text-slate-500"} ${shouldHideAmounts ? "text-white" : ""}`}>
+                      <td
+                        className={cn(
+                          "text-right",
+                          isNetTangibleValuationMode
+                            ? cn(
+                                "px-2 py-2 font-mono text-sm tabular-nums text-[#2A2F3A]",
+                                isBoldRow && "font-semibold",
+                              )
+                            : cn(
+                                "px-6 py-3",
+                                isBoldRow ? "font-semibold font-bold" : "text-slate-500",
+                              ),
+                          shouldHideAmounts && (isNetTangibleValuationMode ? "text-slate-400" : "text-white"),
+                        )}
+                      >
                         {row.current !== 0 ? formatCurrency(row.current) : "-"}
                       </td>
                       {renderNetTangibleValuationCells(row, shouldHideAmounts, isBoldRow)}
@@ -3799,8 +3924,8 @@ export function BalanceSheetSummary({
         </table>
       </div>
 
-      {/* Footer note */}
-      {!netTangibleHypothesisPanelOpen && (
+      {/* Footer note — masquée en mode VCA rapport */}
+      {!isNetTangibleValuationMode && !netTangibleHypothesisPanelOpen && (
       <div className="border-t border-slate-200 bg-slate-50/90 px-6 py-4 sm:px-7">
         <p className={cn("text-xs", dashboardCardBodyMutedClass)}>
           Note: Les données affichées sont à titre informatif. Consulter les états financiers audités pour les montants officiels.

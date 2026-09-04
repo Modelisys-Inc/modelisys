@@ -171,6 +171,11 @@ export interface IncomeStatementLiaisonCellProps {
   singleLiaisonModeOnly?: boolean
   /** Fonds de roulement : autorise aussi multiplication et division. */
   allowProductQuotient?: boolean
+  /**
+   * Multiplicateur : pas de « Code unique » — uniquement Hypothèse (saisie) ou formule
+   * (addition / soustraction / multiplication / division).
+   */
+  hideSingleLiaisonMode?: boolean
   /** Codes parents du plan standard (Compte de résultat ou Bilan) pour le mode « Code unique ». */
   singleModeLinkCodes?: string[]
   singleModeLinkCodeLabels?: Map<string, string>
@@ -202,6 +207,7 @@ export function IncomeStatementLiaisonCell({
   hideDefineColumn,
   singleLiaisonModeOnly = false,
   allowProductQuotient = false,
+  hideSingleLiaisonMode = false,
   singleModeLinkCodes,
   singleModeLinkCodeLabels,
 }: IncomeStatementLiaisonCellProps) {
@@ -298,10 +304,39 @@ export function IncomeStatementLiaisonCell({
   }
 
   const hint = formatLiaisonCellHint(structRow)
-  /** Anciennes lignes « n/a » : affichage du sélecteur sur « Code unique » sans forcer l’enregistrement. */
-  const selectValue = mode === "na" ? "single" : mode
+  /** Multiplicateur : Hypothèse (n/a ou ancien code unique) ; sinon repli « Code unique » pour n/a. */
+  const selectValue = hideSingleLiaisonMode
+    ? mode === "single" || mode === "na"
+      ? "na"
+      : mode
+    : mode === "na"
+      ? "single"
+      : mode
+  const displayHint =
+    hideSingleLiaisonMode && (mode === "na" || mode === "single") ? "Hypothèse" : hint
+  const emptyOperandMessage = hideSingleLiaisonMode
+    ? "Aucun poste référencé pour l’instant. Activez le Code et choisissez Hypothèse ou une formule sur d’autres postes."
+    : useStandardSingleMode
+      ? "Aucun code de liaison disponible dans le plan standard."
+      : "Aucun code de liaison dans la structure pour l'instant. Définissez d'abord des codes sur d'autres postes (mode « Code unique »)."
 
-  const setMode = (next: "single" | "sum" | "difference" | "product" | "quotient") => {
+  const setMode = (next: "na" | "single" | "sum" | "difference" | "product" | "quotient") => {
+    if (next === "na") {
+      updateRow(
+        rowIndex,
+        patchWithDefine(hideDefineColumn, {
+          liaisonMode: "na",
+          linkCode: undefined,
+          liaisonSumCodes: undefined,
+          liaisonNumeratorCodes: undefined,
+          liaisonDenominatorCodes: undefined,
+          liaisonFactor: undefined,
+          annexLetter: undefined,
+          showInDetail: false,
+        }),
+      )
+      return
+    }
     if (next === "single") {
       updateRow(
         rowIndex,
@@ -378,7 +413,7 @@ export function IncomeStatementLiaisonCell({
           )}
         >
           <Link2 className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-          <span className="truncate">{hint}</span>
+          <span className="truncate">{displayHint}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -392,14 +427,18 @@ export function IncomeStatementLiaisonCell({
               <Select
                 value={selectValue}
                 onValueChange={(v) =>
-                  setMode(v as "single" | "sum" | "difference" | "product" | "quotient")
+                  setMode(v as "na" | "single" | "sum" | "difference" | "product" | "quotient")
                 }
               >
                 <SelectTrigger className="h-9 text-xs">
                   <SelectValue placeholder="Choix" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="single">Code unique</SelectItem>
+                  {hideSingleLiaisonMode ? (
+                    <SelectItem value="na">Hypothèse</SelectItem>
+                  ) : (
+                    <SelectItem value="single">Code unique</SelectItem>
+                  )}
                   <SelectItem value="sum">Addition (somme de codes)</SelectItem>
                   <SelectItem value="difference">Soustraction (num. − dénom.)</SelectItem>
                   {allowProductQuotient && (
@@ -413,7 +452,8 @@ export function IncomeStatementLiaisonCell({
             </div>
           )}
 
-          {(singleLiaisonModeOnly || mode === "single" || mode === "na") && (
+          {!hideSingleLiaisonMode &&
+            (singleLiaisonModeOnly || mode === "single" || mode === "na") && (
             <div className="space-y-1.5">
               <Label className="text-xs text-slate-600">Code de liaison</Label>
               <LinkCodeCombobox
@@ -428,17 +468,19 @@ export function IncomeStatementLiaisonCell({
             </div>
           )}
 
+          {hideSingleLiaisonMode && (mode === "na" || mode === "single") && (
+            <p className="text-[11px] leading-snug text-slate-600">
+              Saisissez le chiffre directement dans la carte Multiplicateur (colonne Valeur).
+            </p>
+          )}
+
           {(mode === "sum" || mode === "product") && (
             <div className="space-y-2">
               <Label className="text-xs text-slate-600">
                 {mode === "product" ? "Codes à multiplier" : "Codes à additionner"}
               </Label>
               {liaisonCodeOptions.length === 0 ? (
-                <p className="text-[11px] leading-snug text-amber-700">
-                  {useStandardSingleMode
-                    ? "Aucun code de liaison disponible dans le plan standard."
-                    : "Aucun code de liaison dans la structure pour l'instant. Définissez d'abord des codes sur d'autres postes (mode « Code unique »)."}
-                </p>
+                <p className="text-[11px] leading-snug text-amber-700">{emptyOperandMessage}</p>
               ) : (
                 <ul className="max-h-40 space-y-1.5 overflow-y-auto rounded-md border border-slate-200/80 bg-slate-50/50 p-2">
                   {liaisonCodeOptions.map((code) => (
@@ -479,7 +521,9 @@ export function IncomeStatementLiaisonCell({
               <div className="space-y-2">
                 <Label className="text-xs text-slate-600">Numérateur</Label>
                 {liaisonCodeOptions.length === 0 ? (
-                  <p className="text-[11px] text-amber-700">Aucun code disponible.</p>
+                  <p className="text-[11px] text-amber-700">
+                    {hideSingleLiaisonMode ? emptyOperandMessage : "Aucun code disponible."}
+                  </p>
                 ) : (
                   <ul className="max-h-32 space-y-1.5 overflow-y-auto rounded-md border border-slate-200/80 bg-slate-50/50 p-2">
                     {liaisonCodeOptions.map((code) => (

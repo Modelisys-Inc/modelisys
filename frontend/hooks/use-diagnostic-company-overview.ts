@@ -18,8 +18,9 @@ function newId(): string {
 }
 
 export function useDiagnosticCompanyOverview(diagnosticId: string, companyName: string) {
+  // Ne pas lire localStorage au 1er render (SSR) : IDs / données différeraient du client.
   const [overview, setOverview] = useState<DiagnosticCompanyOverview>(() =>
-    getCompanyOverview(diagnosticId, companyName),
+    createDefaultCompanyOverview(diagnosticId, companyName),
   )
 
   useEffect(() => {

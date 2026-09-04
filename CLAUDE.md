@@ -203,6 +203,69 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   Code / Liaison / Annexe sont retirés au chargement/sauvegarde
   (`normalizeBaiiaStructureRow`) ; Liaison affiche « REV − CV − CF » en
   lecture seule.
+- **Aperçu de l'entreprise** (`/evaluation/company-overview`) : rapport continu
+  style Multiplicateur / Modèle d'affaires (`components/company-overview/*`) —
+  hero valuation + feuille blanche ; sections Méthode · Générales (+ activités) ·
+  Historique · Actionnariat · Direction ; bandeau profil + nav d’ancres ;
+  persisté localStorage via `lib/diagnostic-company-overview.ts` (même clé que
+  le diagnostic). La coquille diagnostic (`diagnostic-company-overview-section`)
+  reste pour le module Diagnostic.
+- **Modèle d'affaires** (`/evaluation/business-model`) : rapport continu style
+  Multiplicateur / VCA (`components/business-model/*`) — hero valuation + feuille
+  blanche ; sections Méthode · Sommaire (KPI strip + plan d’action) · catégories
+  de risques (nav d’ancres) ; niveau + note inline autosave (`business_risks`).
+  Défauts dans `lib/business-model-default-risks.ts`.
+- **BAIIA ajusté** (`/evaluation/adjusted-ebitda`, étape plan « BAIIA ajusté »,
+  juste avant Multiplicateur) : rapport continu style VCA
+  (`components/capitalisation/adjusted-ebitda-report.tsx`) — sections 1 Méthode ·
+  2 BAIIA (colonnes selon date de référence + fin d’exercice : si réf. ≠ clôture
+  → **PEC** + **TTM** + 5 exercices complets ; si réf. = clôture → 5 exercices ;
+  colonnes sans chiffre masquées ; ajustements ciblables **Revenus** (à
+  l’ajout ; report 1:1 sur BAIIA + ligne Revenus ajustés, trait fort au-dessus)
+  ou **BAIIA** ; sous BAIIA ajusté (trait fort au-dessus) : **% des revenus**
+  ou **% des revenus ajustés** (italique ; dénominateur aligné) ; notes / sources sous
+  Pondération (pas dans les cellules ; pondérations en orange gras) ; Synthèse (revenus +
+  BAIIA + BAIIA/Revenus) dans §3 Fourchette ;
+  fourchette = Hypothèses ParamRow (Revenus bas/haut + BAIIA bas/haut) +
+  Fourchette retenue (revenus + BAIIA, vs médian, BAIIA / revenus
+  représentatifs) ; moyennes 5/4/3/2 ans + dernier exercice masquées si pas
+  assez d’exercices peuplés, + moyenne pondérée ;
+  `baiia-section.tsx` / `fourchette-section.tsx`, série CDR
+  `ebitda-capitalisation`) · 3 Fourchette BAIIA ;
+  même ForecastConfig `ebitda-multiple-config` + notes que Capitalisation ;
+  disclaimer localStorage partagé.
+- **Multiplicateur** (`/evaluation/capitalisation`, étape plan « Multiplicateur ») :
+  rapport **CMPC** (WACC société privée) sous l’en-tête valuation (Retour aux
+  étapes / Multiplicateur / Entité / Date de référence). UI `components/cmpc/*`
+  + moteur `lib/cmpc-wacc.ts` (CAPM + primes taille/spécifique, coût de la dette
+  net d’impôt, pondération fonds propres / dette, fourchette ±0,5 % arrondie
+  0,25 %). Hypothèses éditables inline dans le rapport ; persisté
+  ForecastConfig `cmpc-multiplicateur` (`inputs` + `meta`). La structure
+  `statement_type="capitalisation"` / studio Paramètres n’est plus l’UX
+  principale de cette étape.
+- **Capitalisation** (`/evaluation/ebitda-multiple`, étape plan « Capitalisation ») :
+  rapport continu style VCA (`components/capitalisation/*`) — hero valuation +
+  feuille blanche ; sections 1 Multiples · 2 Valeur d’entreprise (+ graphique) ·
+  3 Restrictions ; BAIIA représentatif issu de l’étape BAIIA ajusté (même
+  `ebitda-multiple-config`) ; bandeau KPI ; nav d’ancres ; moteur
+  `lib/ebitda-capitalisation.ts` + hook `use-ebitda-capitalisation` ; disclaimer
+  localStorage partagé.
+- **VCA / FDR représentatif** (`/evaluation/net-tangible-assets`) : rapport
+  continu style Multiplicateur (`components/net-tangible/*`) — sections
+  1 Méthode · 2 Bilan ajusté (section rapport style FDR + tableau buildup
+  slate/mono VC→ACN, moteur d’hypothèse cellule : modes Montant $ /
+  % VC / Juste valeur, buildup live, JVM Capex / surplus annexe,
+  autosave) · 3 FDR représentatif (Hypothèses | Calcul, autosave) ·
+  4 Sources (Ajustements / Dettes / Excédent, montant ≠ 0 ; Capex ALT =
+  Parent - poste d’annexe, ex. Immobilisations corporelles - Terrains) ·
+  5 Restrictions ;
+  bandeau conclusion KPI ; nav d’ancres (plus d’onglets exclusifs). Revenus
+  (12 derniers mois) = TTM du CDR (série `income-statement` +
+  `sumTTMEndingAtCalendarMonth`), même moteur que Sommaire/Détail Annuel
+  Courant ; poste Revenus / ancre `REV` — pas la BV brute (clés de mois
+  françaises, double comptage des parents). Bandeau : FDR = FDR représentatif
+  **ajusté** ; ACN += écart FDR ; Actifs (passifs) excédentaires −= écart FDR
+  (`applyNetTangibleFdrOverviewAdjustment`).
 - **Capex auto** (analyse Capex) : postes **BAIIA** et **Flux de trésorerie -
   Exploitation** (montants TTM) et ratios **Capex / BAIIA**, **Capex / Flux…**
   (`normalizeCapexAutoRatioRow`, liaison verrouillée). Même principe que

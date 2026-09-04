@@ -39,6 +39,17 @@ export function isNetTangibleJvmCapexRootLabel(label: string | null | undefined)
   return JVM_CAPEX_ROOT_LABELS.has(normalizeBalanceSheetLabel(label ?? ""))
 }
 
+/** ALT-B / ALT-C / ALT-D depuis le libellé parent (quand le code structure est absent). */
+export function netTangibleJvmCapexRootLinkCodeFromLabel(
+  label: string | null | undefined,
+): (typeof CAPEX_PROJECTION_LINK_CODE_ROOTS)[number] | null {
+  const normalized = normalizeBalanceSheetLabel(label ?? "")
+  if (normalized === "immobilisations corporelles") return "ALT-B"
+  if (normalized === "biens loues") return "ALT-C"
+  if (normalized === "actifs incorporels") return "ALT-D"
+  return null
+}
+
 export function isNetTangibleJvmCapexRootRow(params: {
   linkCode?: string | null
   rowId?: string | null
@@ -90,6 +101,7 @@ export function parseNetTangibleJvmNoteStorageKey(
 
 /**
  * Construit les postes d’annexe : JVM enregistrée, sinon VC (pas d’ajustement implicite).
+ * Les postes à VC nulle (ou sans chiffre) sont exclus pour alléger le tableau.
  */
 export function buildNetTangibleJvmCapexPosts(
   annexChildren: Array<{ code: string; label: string; amount: number }>,
@@ -99,20 +111,27 @@ export function buildNetTangibleJvmCapexPosts(
     attachmentsByCode?: Record<string, NoteAttachmentData[]>
   },
 ): NetTangibleJvmCapexPost[] {
-  return annexChildren.map((child) => {
-    const code = String(child.code ?? "").trim()
-    const vc = Number(child.amount) || 0
-    const raw = jvmByCode?.[code]
-    const jvm = raw == null || !Number.isFinite(raw) ? vc : raw
-    return {
-      code,
-      label: String(child.label ?? code).trim() || code,
-      vc,
-      jvm,
-      note: extras?.notesByCode?.[code] ?? "",
-      attachments: extras?.attachmentsByCode?.[code] ?? [],
-    }
-  })
+  return annexChildren
+    .map((child) => {
+      const code = String(child.code ?? "").trim()
+      const vc = Number(child.amount) || 0
+      const raw = jvmByCode?.[code]
+      const jvm = raw == null || !Number.isFinite(raw) ? vc : raw
+      return {
+        code,
+        label: String(child.label ?? code).trim() || code,
+        vc,
+        jvm,
+        note: extras?.notesByCode?.[code] ?? "",
+        attachments: extras?.attachmentsByCode?.[code] ?? [],
+      }
+    })
+    .filter(isNetTangibleJvmCapexPostMaterial)
+}
+
+/** Visible seulement si la VC est non nulle. */
+export function isNetTangibleJvmCapexPostMaterial(post: { vc?: number }): boolean {
+  return Math.abs(post.vc ?? 0) >= 1e-9
 }
 
 /** Ajustement VCA du parent = Σ (JVM − VC). */

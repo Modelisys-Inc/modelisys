@@ -170,8 +170,13 @@ export function StatementStructureStudio({
   const isWorkingCapital = statementType === "working-capital"
   const isCapex = statementType === "capex"
   const isRatios = statementType === "ratios"
-  const isLinkCodeAnalysis = isWorkingCapital || isCapex || isRatios
-  const analysisLinkCodeVariant = isCapex ? "capex" : isRatios ? "ratios" : "working-capital"
+  const isCapitalisation = statementType === "capitalisation"
+  const isLinkCodeAnalysis = isWorkingCapital || isCapex || isRatios || isCapitalisation
+  const analysisLinkCodeVariant = isCapex
+    ? "capex"
+    : isRatios
+      ? "ratios"
+      : "working-capital"
   const annexMode =
     annexModeProp ??
     (isCashFlowDetail ? "summary" : hideAnnexColumns ? "hidden" : "full")
@@ -183,28 +188,32 @@ export function StatementStructureStudio({
     useCashFlowCategoryLinkCodes(isCashFlow, isCashFlowDetail)
   const { codes: workingCapitalLinkCodes, labels: workingCapitalLinkLabels } =
     useWorkingCapitalLinkCodes(
-      isLinkCodeAnalysis,
+      isLinkCodeAnalysis && !isCapitalisation,
       analysisLinkCodeVariant,
       isRatios ? companyId : undefined,
     )
-  const singleModeLinkCodes = isIncomeStatement
-    ? incomeParentLinkCodes
-    : isBalanceSheet
-      ? balanceParentLinkCodes
-      : isCashFlow
-        ? cashFlowCategoryLinkCodes
-        : isLinkCodeAnalysis
-          ? workingCapitalLinkCodes
-          : undefined
-  const singleModeLinkCodeLabels = isIncomeStatement
-    ? incomeParentLinkLabels
-    : isBalanceSheet
-      ? balanceParentLinkLabels
-      : isCashFlow
-        ? cashFlowCategoryLinkLabels
-        : isLinkCodeAnalysis
-          ? workingCapitalLinkLabels
-          : undefined
+  const singleModeLinkCodes = isCapitalisation
+    ? undefined
+    : isIncomeStatement
+      ? incomeParentLinkCodes
+      : isBalanceSheet
+        ? balanceParentLinkCodes
+        : isCashFlow
+          ? cashFlowCategoryLinkCodes
+          : isLinkCodeAnalysis
+            ? workingCapitalLinkCodes
+            : undefined
+  const singleModeLinkCodeLabels = isCapitalisation
+    ? undefined
+    : isIncomeStatement
+      ? incomeParentLinkLabels
+      : isBalanceSheet
+        ? balanceParentLinkLabels
+        : isCashFlow
+          ? cashFlowCategoryLinkLabels
+          : isLinkCodeAnalysis
+            ? workingCapitalLinkLabels
+            : undefined
 
   const displayIndices = structEdit.summaryStructureDisplayIndices
   const wcFormulaRefs = useMemo(() => {
@@ -381,6 +390,7 @@ export function StatementStructureStudio({
                       annexIdentifierAutoAssigned={annexIdentifierAutoAssigned}
                       annexMode={annexMode}
                       allowProductQuotient={isLinkCodeAnalysis}
+                      hideSingleLiaisonMode={isCapitalisation}
                       showDisplayFormatColumn={showDisplayFormatColumn}
                       showCapexCostDisplayColumn={showCapexCostDisplayColumn}
                       showCashFlowCalcColumn={showCashFlowCalcColumn}

@@ -156,7 +156,6 @@ export function HeroValueDriversCard({ className = "", compact = false }: Props)
   const [progress, setProgress] = useState(0)
   const active = heroValueDriverById(activeId)
   const activeIndex = HERO_VALUE_DRIVER_IDS.indexOf(activeId)
-  const ActiveIcon = DRIVER_ICONS[activeId]
 
   const selectDriver = useCallback((id: HeroValueDriverId) => {
     setActiveId(id)
@@ -288,11 +287,14 @@ export function HeroValueDriversCard({ className = "", compact = false }: Props)
                       <stop offset="70%" stopColor="rgba(224,116,45,0.08)" />
                       <stop offset="100%" stopColor="rgba(224,116,45,0)" />
                     </radialGradient>
-                    <linearGradient id="active-spoke" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="rgba(224,116,45,0.15)" />
-                      <stop offset="100%" stopColor="rgba(224,116,45,0.85)" />
-                    </linearGradient>
-                    <filter id="spoke-glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <filter
+                      id="spoke-glow"
+                      filterUnits="userSpaceOnUse"
+                      x={0}
+                      y={0}
+                      width={DIAGRAM_SIZE}
+                      height={DIAGRAM_SIZE}
+                    >
                       <feGaussianBlur stdDeviation="2" result="blur" />
                       <feMerge>
                         <feMergeNode in="blur" />
@@ -331,7 +333,7 @@ export function HeroValueDriversCard({ className = "", compact = false }: Props)
                         y1={CENTER}
                         x2={node.x}
                         y2={node.y}
-                        stroke={isActive ? "url(#active-spoke)" : "rgba(255,255,255,0.07)"}
+                        stroke={isActive ? "rgba(224,116,45,0.9)" : "rgba(255,255,255,0.07)"}
                         strokeWidth={isActive ? 2.5 : 1}
                         strokeLinecap="round"
                         filter={isActive ? "url(#spoke-glow)" : undefined}
@@ -344,16 +346,10 @@ export function HeroValueDriversCard({ className = "", compact = false }: Props)
                   <circle cx={CENTER} cy={CENTER} r={42} fill="rgba(16,20,30,0.95)" stroke="rgba(230,214,195,0.28)" strokeWidth="1" />
                 </svg>
 
-                <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 flex w-[5.5rem] -translate-x-1/2 -translate-y-1/2 flex-col items-center text-center">
-                  <span
-                    className={`flex items-center justify-center rounded-full border border-[#E0742D]/30 bg-[#E0742D]/10 ${
-                      compact ? "mb-1.5 h-7 w-7" : "mb-2 h-8 w-8"
-                    }`}
-                  >
-                    <ActiveIcon className="h-3.5 w-3.5 text-[#E6B08C]" strokeWidth={2} aria-hidden />
+                <div className="pointer-events-none absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#E6D6C3]">
+                    Valeur
                   </span>
-                  <span className="text-[8px] font-semibold uppercase tracking-[0.18em] text-[#C9B8A5]/55">Valeur</span>
-                  <span className="mt-0.5 text-[10px] font-semibold leading-tight text-[#E6D6C3]">{active.shortLabel}</span>
                 </div>
 
                 {HERO_VALUE_DRIVERS.map((driver) => {

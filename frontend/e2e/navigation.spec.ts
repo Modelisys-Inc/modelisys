@@ -31,6 +31,7 @@ test.describe("Navigation & Routing", () => {
   }) => {
     const protectedRoutes = [
       "/evaluation/business-model",
+      "/evaluation/adjusted-ebitda",
       "/evaluation/ebitda-multiple",
     ];
 

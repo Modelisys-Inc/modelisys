@@ -47,6 +47,18 @@ describe("buildNetTangibleJvmCapexPosts + adjustment", () => {
     ])
     expect(computeNetTangibleJvmCapexAdjustment(posts)).toBe(150)
   })
+
+  it("omits annex posts with VC = 0", () => {
+    const posts = buildNetTangibleJvmCapexPosts(
+      [
+        { code: "ALT-B.1", label: "Terrain", amount: 200_000 },
+        { code: "ALT-B.2", label: "Bâtiment", amount: 0 },
+        { code: "ALT-B.3", label: "Améliorations", amount: 0 },
+      ],
+      { "ALT-B.3": 25_000 },
+    )
+    expect(posts.map((p) => p.code)).toEqual(["ALT-B.1"])
+  })
 })
 
 describe("jvm storage keys", () => {

@@ -13,7 +13,7 @@ import {
 describe("valuation-plan-phases", () => {
   it("lists phases in the expected order", () => {
     expect(valuationPlanPhaseLabels()).toBe(
-      "Aperçu de l'entreprise → Modèle d'affaires → Valeur comptable ajusté → Multiplicateur → Capitalisation → Actualisation",
+      "Aperçu de l'entreprise → Modèle d'affaires → Valeur comptable ajustée → BAIIA ajusté → Multiplicateur → Capitalisation → Actualisation",
     )
   })
 
@@ -33,8 +33,9 @@ describe("valuation-plan-phases", () => {
         "company-overview",
         "business-model",
         "net-tangible-assets",
-        "multiplicateur",
+        "adjusted-ebitda",
         "capitalisation",
+        "multiplicateur",
         "dcf",
       ]),
     ).toBe("dcf")
@@ -49,8 +50,9 @@ describe("valuation-plan-phases", () => {
         "company-overview",
         "business-model",
         "net-tangible-assets",
-        "multiplicateur",
+        "adjusted-ebitda",
         "capitalisation",
+        "multiplicateur",
         "dcf",
       ]),
     ).toBe("completed")
@@ -58,18 +60,21 @@ describe("valuation-plan-phases", () => {
 
   it("computes overall progress", () => {
     expect(valuationPlanOverallProgressPercent([])).toBe(0)
-    expect(valuationPlanOverallProgressPercent(["company-overview"])).toBe(17)
+    expect(valuationPlanOverallProgressPercent(["company-overview"])).toBe(14)
     expect(
       valuationPlanOverallProgressPercent([
         "company-overview",
         "business-model",
         "net-tangible-assets",
-        "multiplicateur",
+        "adjusted-ebitda",
         "capitalisation",
+        "multiplicateur",
         "dcf",
       ]),
     ).toBe(100)
-    expect(valuationPlanStepCounter([], "company-overview")).toBe("01/06")
-    expect(valuationPlanProgressPercent([], "multiplicateur")).toBe(58)
+    expect(valuationPlanStepCounter([], "company-overview")).toBe("01/07")
+    expect(valuationPlanProgressPercent([], "adjusted-ebitda")).toBe(50)
+    expect(valuationPlanProgressPercent([], "capitalisation")).toBe(64)
+    expect(valuationPlanProgressPercent([], "multiplicateur")).toBe(78)
   })
 })

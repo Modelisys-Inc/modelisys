@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { ChevronDown, FileText, Paperclip } from "lucide-react"
 import {
   fileToAttachment,
@@ -8,8 +8,6 @@ import {
   MAX_NOTE_FILE_BYTES,
   NoteAttachmentsBlock,
 } from "@/components/income-statement-note-panel"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { formatCurrency } from "@/lib/financial-utils"
 import {
   computeNetTangibleJvmCapexAdjustment,
@@ -24,11 +22,8 @@ type NetTangibleJvmCapexEditorProps = {
   referenceLabel?: string
 }
 
-/**
- * Saisie JVM élégante : montant formaté comme la carte VCA (tabular-nums),
- * focus → édition, note + pièces par poste.
- */
-function JvmCurrencyField({
+/** Champ JVM discret style ParamRow / buildup (édition au focus). */
+function JvmInlineInput({
   value,
   onChange,
   testId,
@@ -41,40 +36,32 @@ function JvmCurrencyField({
   const [draft, setDraft] = useState("")
 
   return (
-    <div
+    <input
+      type="text"
+      inputMode="numeric"
+      data-testid={testId}
+      aria-label="JVM"
+      value={focused ? draft : value === 0 ? "" : formatCurrency(value)}
+      placeholder={formatCurrency(0)}
+      onFocus={() => {
+        setFocused(true)
+        setDraft(value === 0 ? "" : String(value))
+      }}
+      onBlur={() => {
+        setFocused(false)
+        onChange(parseCurrencyInputDraft(draft))
+      }}
+      onChange={(event) => {
+        const next = event.target.value
+        setDraft(next)
+        onChange(parseCurrencyInputDraft(next))
+      }}
       className={cn(
-        "relative rounded-lg px-3 py-2 transition-colors",
-        focused
-          ? "bg-white shadow-[inset_0_0_0_1.5px_#E0742D]"
-          : "bg-slate-50/80 hover:bg-slate-50",
+        "w-full min-w-[6.5rem] bg-transparent py-0.5 text-right font-mono text-sm tabular-nums text-[#2A2F3A] outline-none",
+        "rounded-sm border-0 border-b border-transparent transition-[border-color,background-color,padding]",
+        "placeholder:text-slate-300 focus:border-dashed focus:border-[#E0742D] focus:bg-slate-50 focus:px-1.5",
       )}
-    >
-      <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">JVM</p>
-      <input
-        type="text"
-        inputMode="numeric"
-        data-testid={testId}
-        value={focused ? draft : value === 0 ? "" : formatCurrency(value)}
-        placeholder={formatCurrency(0)}
-        onFocus={() => {
-          setFocused(true)
-          setDraft(value === 0 ? "" : String(value))
-        }}
-        onBlur={() => {
-          setFocused(false)
-          onChange(parseCurrencyInputDraft(draft))
-        }}
-        onChange={(event) => {
-          const next = event.target.value
-          setDraft(next)
-          onChange(parseCurrencyInputDraft(next))
-        }}
-        className={cn(
-          "mt-0.5 w-full min-w-[7.5rem] bg-transparent text-right text-sm font-semibold tabular-nums tracking-tight text-[#2A2F3A]",
-          "outline-none placeholder:text-slate-300",
-        )}
-      />
-    </div>
+    />
   )
 }
 
@@ -86,10 +73,12 @@ function updatePost(
   return posts.map((post) => (post.code === code ? { ...post, ...patch } : post))
 }
 
+/**
+ * Annexe JVM Capex en tableau buildup (même langage que « Calcul du poste »).
+ */
 export function NetTangibleJvmCapexEditor({
   posts,
   onChange,
-  referenceLabel,
 }: NetTangibleJvmCapexEditorProps) {
   const [expandedCodes, setExpandedCodes] = useState<Set<string>>(() => new Set())
   const [attachmentErrorByCode, setAttachmentErrorByCode] = useState<Record<string, string | null>>(
@@ -135,176 +124,163 @@ export function NetTangibleJvmCapexEditor({
   }
 
   return (
-    <div className="mt-5 space-y-3" data-testid="net-tangible-jvm-capex-table">
-      {referenceLabel ? (
-        <p className="text-[11px] text-slate-500">
-          VC à la date de référence ·{" "}
-          <span className="font-medium text-slate-700">{referenceLabel}</span>
-        </p>
-      ) : null}
-
+    <div className="mt-1" data-testid="net-tangible-jvm-capex-table">
       {posts.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500">
-          Aucun poste d’annexe trouvé pour ce compte.
-        </div>
+        <p className="border-t border-dashed border-slate-200 py-6 text-center text-sm text-slate-500">
+          Aucun poste d&apos;annexe trouvé pour ce compte.
+        </p>
       ) : (
-        <ul className="space-y-2.5">
-          {posts.map((post) => {
-            const delta = post.jvm - post.vc
-            const expanded = expandedCodes.has(post.code)
-            const hasMeta = !!post.note.trim() || post.attachments.length > 0
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b border-slate-200">
+              <th className="py-2 pr-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Poste
+              </th>
+              <th className="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                VC
+              </th>
+              <th className="px-2 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                JVM
+              </th>
+              <th className="py-2 pl-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Écart
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {posts.map((post) => {
+              const delta = post.jvm - post.vc
+              const expanded = expandedCodes.has(post.code)
+              const hasMeta = !!post.note.trim() || post.attachments.length > 0
 
-            return (
-              <li
-                key={post.code}
-                className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
-                data-testid={`net-tangible-jvm-row-${post.code}`}
-              >
-                <div className="grid gap-4 px-4 py-4 sm:grid-cols-[minmax(0,1.4fr)_auto] sm:items-center sm:px-5">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                        {post.code}
-                      </span>
-                      {hasMeta ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-400">
-                          {post.note.trim() ? <FileText className="h-3 w-3" aria-hidden /> : null}
-                          {post.attachments.length > 0 ? (
-                            <>
-                              <Paperclip className="h-3 w-3" aria-hidden />
-                              {post.attachments.length}
-                            </>
-                          ) : null}
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className="mt-1.5 truncate text-sm font-semibold tracking-tight text-[#2A2F3A]">
-                      {post.label}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-end justify-end gap-3">
-                    <div className="min-w-[7rem] text-right">
-                      <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                        VC
-                      </p>
-                      <p className="mt-0.5 text-sm tabular-nums tracking-tight text-slate-600">
-                        {formatCurrency(post.vc)}
-                      </p>
-                    </div>
-                    <JvmCurrencyField
-                      value={post.jvm}
-                      testId={`net-tangible-jvm-input-${post.code}`}
-                      onChange={(jvm) => onChange(updatePost(posts, post.code, { jvm }))}
-                    />
-                    <div className="min-w-[5.5rem] text-right">
-                      <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                        Écart
-                      </p>
-                      <p
-                        className={cn(
-                          "mt-0.5 text-sm font-semibold tabular-nums tracking-tight",
-                          delta > 0
-                            ? "text-emerald-700"
-                            : delta < 0
-                              ? "text-amber-700"
-                              : "text-slate-400",
-                        )}
-                      >
-                        {delta === 0
-                          ? "—"
-                          : `${delta > 0 ? "+" : "−"}${formatCurrency(Math.abs(delta))}`}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="border-t border-slate-100 bg-slate-50/40 px-4 py-2 sm:px-5">
-                  <button
-                    type="button"
-                    className="flex w-full items-center justify-between gap-2 text-left text-xs font-medium text-slate-600 transition-colors hover:text-[#2A2F3A]"
-                    onClick={() => toggleExpanded(post.code)}
-                    aria-expanded={expanded}
-                    data-testid={`net-tangible-jvm-toggle-meta-${post.code}`}
+              return (
+                <Fragment key={post.code}>
+                  <tr
+                    className="border-t border-slate-200"
+                    data-testid={`net-tangible-jvm-row-${post.code}`}
                   >
-                    <span>Note et pièces justificatives</span>
-                    <ChevronDown
-                      className={cn(
-                        "h-4 w-4 text-slate-400 transition-transform",
-                        expanded && "rotate-180",
-                      )}
-                      aria-hidden
-                    />
-                  </button>
-
-                  {expanded ? (
-                    <div className="mt-3 space-y-4 pb-2">
-                      <div>
-                        <Label className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          Note / explication
-                        </Label>
-                        <Textarea
-                          value={post.note}
-                          onChange={(event) =>
-                            onChange(updatePost(posts, post.code, { note: event.target.value }))
-                          }
-                          placeholder="Justification de la JVM, méthode d’évaluation, source…"
-                          className="mt-1.5 min-h-[84px] border-slate-200 bg-white text-sm"
-                          data-testid={`net-tangible-jvm-note-${post.code}`}
-                        />
+                    <td className="py-2 pr-3 align-middle">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono text-[10px] text-slate-500">{post.code}</span>
+                          {hasMeta ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] text-slate-400">
+                              {post.note.trim() ? (
+                                <FileText className="h-3 w-3" aria-hidden />
+                              ) : null}
+                              {post.attachments.length > 0 ? (
+                                <>
+                                  <Paperclip className="h-3 w-3" aria-hidden />
+                                  {post.attachments.length}
+                                </>
+                              ) : null}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-sm text-[#2A2F3A]">{post.label}</p>
+                        <button
+                          type="button"
+                          className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 transition-colors hover:text-[#2A2F3A]"
+                          onClick={() => toggleExpanded(post.code)}
+                          aria-expanded={expanded}
+                          data-testid={`net-tangible-jvm-toggle-meta-${post.code}`}
+                        >
+                          Note / pièces
+                          <ChevronDown
+                            className={cn(
+                              "h-3.5 w-3.5 transition-transform",
+                              expanded && "rotate-180",
+                            )}
+                            aria-hidden
+                          />
+                        </button>
                       </div>
-                      <NoteAttachmentsBlock
-                        attachments={post.attachments}
-                        attachmentError={attachmentErrorByCode[post.code] ?? null}
-                        inputId={`net-tangible-jvm-file-${post.code}`}
-                        onFileChange={(event) => {
-                          void handleFiles(post.code, event.target.files)
-                          event.target.value = ""
-                        }}
-                        onRemove={(index) => {
-                          onChange(
-                            updatePost(posts, post.code, {
-                              attachments: post.attachments.filter((_, i) => i !== index),
-                            }),
-                          )
-                        }}
+                    </td>
+                    <td className="px-2 py-2 text-right align-middle font-mono text-sm tabular-nums text-[#2A2F3A]">
+                      {formatCurrency(post.vc)}
+                    </td>
+                    <td className="px-2 py-2 align-middle">
+                      <JvmInlineInput
+                        value={post.jvm}
+                        testId={`net-tangible-jvm-input-${post.code}`}
+                        onChange={(jvm) => onChange(updatePost(posts, post.code, { jvm }))}
                       />
-                    </div>
+                    </td>
+                    <td
+                      className={cn(
+                        "py-2 pl-2 text-right align-middle font-mono text-sm tabular-nums",
+                        delta > 0
+                          ? "text-[#E0742D]"
+                          : delta < 0
+                            ? "text-amber-700"
+                            : "text-slate-400",
+                      )}
+                    >
+                      {delta === 0
+                        ? "—"
+                        : `${delta > 0 ? "+" : "−"}${formatCurrency(Math.abs(delta))}`}
+                    </td>
+                  </tr>
+                  {expanded ? (
+                    <tr className="border-t border-slate-100 bg-slate-50/40">
+                      <td colSpan={4} className="px-0 py-3">
+                        <div className="space-y-3 px-1 sm:px-2">
+                          <textarea
+                            value={post.note}
+                            onChange={(event) =>
+                              onChange(updatePost(posts, post.code, { note: event.target.value }))
+                            }
+                            placeholder="Justification de la JVM, méthode d’évaluation, source…"
+                            className={cn(
+                              "min-h-[72px] w-full resize-none rounded-sm border-0 border-b border-transparent bg-transparent",
+                              "px-0 py-0 text-pretty text-xs leading-relaxed text-slate-500 outline-none",
+                              "placeholder:text-slate-400 focus:border-dashed focus:border-[#E0742D] focus:bg-white focus:px-1.5 focus:py-1",
+                            )}
+                            data-testid={`net-tangible-jvm-note-${post.code}`}
+                          />
+                          <NoteAttachmentsBlock
+                            attachments={post.attachments}
+                            attachmentError={attachmentErrorByCode[post.code] ?? null}
+                            inputId={`net-tangible-jvm-file-${post.code}`}
+                            onFileChange={(event) => {
+                              void handleFiles(post.code, event.target.files)
+                              event.target.value = ""
+                            }}
+                            onRemove={(index) => {
+                              onChange(
+                                updatePost(posts, post.code, {
+                                  attachments: post.attachments.filter((_, i) => i !== index),
+                                }),
+                              )
+                            }}
+                          />
+                        </div>
+                      </td>
+                    </tr>
                   ) : null}
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-
-      {posts.length > 0 ? (
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white px-5 py-4">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                Synthèse
-              </p>
-              <p className="mt-1 text-sm tabular-nums tracking-tight text-slate-600">
-                VC {formatCurrency(jvmVcTotal)}
-                <span className="mx-2 text-slate-300">·</span>
-                JVM {formatCurrency(jvmTotal)}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                Ajustement
-              </p>
-              <p
-                className="mt-0.5 text-lg font-semibold tabular-nums tracking-tight text-[#2A2F3A]"
+                </Fragment>
+              )
+            })}
+            <tr className="border-t-2 border-[#2A2F3A]">
+              <td className="py-2.5 pr-3 text-sm font-semibold text-[#2A2F3A]">
+                Total / ajustement
+              </td>
+              <td className="px-2 py-2.5 text-right font-mono text-sm font-semibold tabular-nums text-[#2A2F3A]">
+                {formatCurrency(jvmVcTotal)}
+              </td>
+              <td className="px-2 py-2.5 text-right font-mono text-sm font-semibold tabular-nums text-[#2A2F3A]">
+                {formatCurrency(jvmTotal)}
+              </td>
+              <td
+                className="py-2.5 pl-2 text-right font-mono text-sm font-semibold tabular-nums text-[#E0742D]"
                 data-testid="net-tangible-jvm-adjustment"
               >
                 {formatCurrency(jvmAdjustment)}
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : null}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }

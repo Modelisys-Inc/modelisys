@@ -67,19 +67,21 @@ export function buildNetTangibleSurplusPosts(
     attachmentsByCode?: Record<string, NoteAttachmentData[]>
   },
 ): NetTangibleSurplusPost[] {
-  return jvmPosts.map((post) => {
-    const code = String(post.code ?? "").trim()
-    const raw = excedentByCode?.[code]
-    const excedent = raw == null || !Number.isFinite(raw) ? 0 : raw
-    return {
-      code,
-      label: post.label,
-      jvm: post.jvm,
-      excedent,
-      note: extras?.notesByCode?.[code] ?? "",
-      attachments: extras?.attachmentsByCode?.[code] ?? [],
-    }
-  })
+  return jvmPosts
+    .map((post) => {
+      const code = String(post.code ?? "").trim()
+      const raw = excedentByCode?.[code]
+      const excedent = raw == null || !Number.isFinite(raw) ? 0 : raw
+      return {
+        code,
+        label: post.label,
+        jvm: post.jvm,
+        excedent,
+        note: extras?.notesByCode?.[code] ?? "",
+        attachments: extras?.attachmentsByCode?.[code] ?? [],
+      }
+    })
+    .filter((post) => Math.abs(post.jvm) >= 1e-9)
 }
 
 /** Total Actifs du parent = Σ Excédent. */
