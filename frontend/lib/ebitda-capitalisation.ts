@@ -92,6 +92,244 @@ export interface EbitdaMultipleConfigData {
   highEBITDARange?: number
   lowRevenueRange?: number
   highRevenueRange?: number
+  /** §4 Flux monétaires — taux d’impôt (%). */
+  cashFlowTaxRate?: number
+  /** @deprecated Remplacé par croissance × FDR % VCA. */
+  cashFlowWorkingCapital?: number
+  /** Capex de maintien — borne basse ($). */
+  cashFlowMaintenanceCapexLow?: number
+  /** Capex de maintien — borne haute ($). */
+  cashFlowMaintenanceCapexHigh?: number
+  /** @deprecated Préférer Low/High. */
+  cashFlowMaintenanceCapex?: number
+  /** Croissance économique / inflation pour l’ajustement FDR (%). */
+  cashFlowEconomicGrowth?: number
+  /** Flux monétaires caractéristiques — borne basse (persisté pour Multiplicateur). */
+  characteristicCashFlowLow?: number
+  /** Flux monétaires caractéristiques — borne haute. */
+  characteristicCashFlowHigh?: number
+  /** Capacité de remboursement (Capitalisation) — taux / durée. */
+  repaymentCapacity?: {
+    annualInterestRate?: number
+    durationYears?: number
+  }
+  repaymentCapacityNotes?: {
+    annualInterestRate?: string
+    durationYears?: string
+  }
+  /** Hypothèses Dette / BAIIA (empiriques, IA, comparables, retenu). */
+  debtCapacity?: {
+    debtBaiiaEmpirical?: number
+    debtBaiiaAi?: number
+    debtBaiiaComparables?: number
+    debtBaiiaRetained?: number
+  }
+  debtCapacityNotes?: {
+    debtBaiiaEmpirical?: string
+    debtBaiiaAi?: string
+    debtBaiiaComparables?: string
+    debtBaiiaRetained?: string
+  }
+}
+
+/** Hypothèses du pont de flux monétaires caractéristiques. */
+export type CharacteristicCashFlowInputs = {
+  taxRate: number
+  /** Ajustement FDR déjà calculé ($), distinct bas / haut / moyen. */
+  workingCapitalLow: number
+  workingCapitalHigh: number
+  workingCapitalMid: number
+  maintenanceCapexLow: number
+  maintenanceCapexHigh: number
+  maintenanceCapexMid: number
+}
+
+export type CharacteristicCashFlowScenario = {
+  baiia: number
+  tax: number
+  afterTax: number
+  workingCapital: number
+  maintenanceCapex: number
+  characteristicCashFlow: number
+}
+
+export type CharacteristicCashFlowAnalysis = {
+  low: CharacteristicCashFlowScenario
+  high: CharacteristicCashFlowScenario
+  mid: CharacteristicCashFlowScenario
+}
+
+/** Détail du calcul d’ajustement FDR (une borne de revenus). */
+export type WorkingCapitalAdjustmentDetail = {
+  revenue: number
+  /** Revenus × croissance. */
+  fdrGrowthEstimate: number
+  /**
+   * Ajustement FDR = FDR%_VCA × (Revenus × Croissance).
+   */
+  adjustment: number
+}
+
+export type WorkingCapitalAdjustmentAnalysis = {
+  low: WorkingCapitalAdjustmentDetail
+  high: WorkingCapitalAdjustmentDetail
+  mid: WorkingCapitalAdjustmentDetail
+  economicGrowthPct: number
+  fdrPctOfRevenue: number | null
+}
+
+export const DEFAULT_CHARACTERISTIC_CASH_FLOW = {
+  taxRate: 26.5,
+  maintenanceCapexLow: 0,
+  maintenanceCapexHigh: 0,
+  economicGrowthPct: 2,
+}
+
+/**
+ * Ajustement FDR pour les flux :
+ * FDR%_VCA × (Revenus retenus × Croissance économique).
+ */
+export function computeWorkingCapitalAdjustment(
+  revenue: number,
+  economicGrowthPct: number,
+  fdrPctOfRevenue: number | null,
+): WorkingCapitalAdjustmentDetail {
+  const rev = Number.isFinite(revenue) ? revenue : 0
+  const g = Number.isFinite(economicGrowthPct) ? economicGrowthPct / 100 : 0
+  const fdrPct =
+    fdrPctOfRevenue != null && Number.isFinite(fdrPctOfRevenue)
+      ? fdrPctOfRevenue / 100
+      : 0
+  const fdrGrowthEstimate = rev * g
+  return {
+    revenue: rev,
+    fdrGrowthEstimate,
+    adjustment: fdrGrowthEstimate * fdrPct,
+  }
+}
+
+export function computeWorkingCapitalAdjustmentAnalysis(
+  revenueLow: number,
+  revenueHigh: number,
+  economicGrowthPct: number,
+  fdrPctOfRevenue: number | null,
+): WorkingCapitalAdjustmentAnalysis {
+  const mid = (revenueLow + revenueHigh) / 2
+  return {
+    low: computeWorkingCapitalAdjustment(revenueLow, economicGrowthPct, fdrPctOfRevenue),
+    high: computeWorkingCapitalAdjustment(revenueHigh, economicGrowthPct, fdrPctOfRevenue),
+    mid: computeWorkingCapitalAdjustment(mid, economicGrowthPct, fdrPctOfRevenue),
+    economicGrowthPct,
+    fdrPctOfRevenue,
+  }
+}
+
+function configNumber(data: Record<string, unknown>, key: string): number | null {
+  const v = data[key]
+  const n = typeof v === "number" ? v : Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/** FDR % VCA depuis `net-tangible-fdr-adjustment`. */
+export function parseVcaFdrPctOfRevenue(data: unknown): number | null {
+  if (!data || typeof data !== "object") return null
+  const d = data as Record<string, unknown>
+  const pct = configNumber(d, "pctOfRevenue")
+  if (pct != null) return pct
+  if (d.mode === "percent-revenue") return configNumber(d, "value")
+  return null
+}
+
+/**
+ * Recalcule les flux caractéristiques bas / haut / moyen depuis
+ * `ebitda-multiple-config` (+ FDR % VCA) — même moteur que Flux monétaires.
+ */
+export function deriveCharacteristicCashFlowRange(
+  ebitdaConfigData: unknown,
+  fdrPctOfRevenue: number | null,
+): { low: number; high: number; mid: number } | null {
+  if (!ebitdaConfigData || typeof ebitdaConfigData !== "object") return null
+  const d = ebitdaConfigData as Record<string, unknown>
+  const baiiaLow = configNumber(d, "lowEBITDARange")
+  const baiiaHigh = configNumber(d, "highEBITDARange")
+  if (baiiaLow == null || baiiaHigh == null) return null
+
+  const revenueLow = configNumber(d, "lowRevenueRange") ?? 0
+  const revenueHigh = configNumber(d, "highRevenueRange") ?? 0
+  const taxRate =
+    configNumber(d, "cashFlowTaxRate") ?? DEFAULT_CHARACTERISTIC_CASH_FLOW.taxRate
+  const growth =
+    configNumber(d, "cashFlowEconomicGrowth") ??
+    DEFAULT_CHARACTERISTIC_CASH_FLOW.economicGrowthPct
+  const capexLow =
+    configNumber(d, "cashFlowMaintenanceCapexLow") ??
+    configNumber(d, "cashFlowMaintenanceCapex") ??
+    DEFAULT_CHARACTERISTIC_CASH_FLOW.maintenanceCapexLow
+  const capexHigh =
+    configNumber(d, "cashFlowMaintenanceCapexHigh") ??
+    configNumber(d, "cashFlowMaintenanceCapex") ??
+    DEFAULT_CHARACTERISTIC_CASH_FLOW.maintenanceCapexHigh
+
+  const wc = computeWorkingCapitalAdjustmentAnalysis(
+    revenueLow,
+    revenueHigh,
+    growth,
+    fdrPctOfRevenue,
+  )
+  const midCapex = (capexLow + capexHigh) / 2
+  const cf = computeCharacteristicCashFlows(baiiaLow, baiiaHigh, {
+    taxRate,
+    workingCapitalLow: wc.low.adjustment,
+    workingCapitalHigh: wc.high.adjustment,
+    workingCapitalMid: wc.mid.adjustment,
+    maintenanceCapexLow: capexLow,
+    maintenanceCapexHigh: capexHigh,
+    maintenanceCapexMid: midCapex,
+  })
+  return {
+    low: cf.low.characteristicCashFlow,
+    high: cf.high.characteristicCashFlow,
+    mid: cf.mid.characteristicCashFlow,
+  }
+}
+
+/**
+ * Pont : BAIIA ajusté − impôt (taux × BAIIA) − ajustement FDR − Capex de maintien
+ * → Flux monétaires caractéristiques (bas / haut / moyen).
+ */
+export function computeCharacteristicCashFlows(
+  baiiaLow: number,
+  baiiaHigh: number,
+  inputs: CharacteristicCashFlowInputs,
+): CharacteristicCashFlowAnalysis {
+  const rate = Number.isFinite(inputs.taxRate) ? inputs.taxRate / 100 : 0
+
+  const build = (
+    baiia: number,
+    workingCapital: number,
+    maintenanceCapex: number,
+  ): CharacteristicCashFlowScenario => {
+    const tax = baiia * rate
+    const afterTax = baiia - tax
+    const wc = Number.isFinite(workingCapital) ? workingCapital : 0
+    const capex = Number.isFinite(maintenanceCapex) ? maintenanceCapex : 0
+    return {
+      baiia,
+      tax,
+      afterTax,
+      workingCapital: wc,
+      maintenanceCapex: capex,
+      // Ajustement FDR = FDR% × revenus × croissance (positif) — on le déduit du pont.
+      characteristicCashFlow: afterTax - wc - capex,
+    }
+  }
+
+  const midBaiia = (baiiaLow + baiiaHigh) / 2
+  return {
+    low: build(baiiaLow, inputs.workingCapitalLow, inputs.maintenanceCapexLow),
+    high: build(baiiaHigh, inputs.workingCapitalHigh, inputs.maintenanceCapexHigh),
+    mid: build(midBaiia, inputs.workingCapitalMid, inputs.maintenanceCapexMid),
+  }
 }
 
 export function isReferenceAtFiscalYearEnd(

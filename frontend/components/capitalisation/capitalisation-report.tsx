@@ -11,6 +11,7 @@ import {
 } from "recharts"
 import { InlineNumber, InlineTextArea } from "@/components/cmpc/editable"
 import { NetTangibleReportSection } from "@/components/net-tangible/report-section"
+import { RepaymentCapacitySection } from "@/components/capitalisation/repayment-capacity-section"
 import type { UseEbitdaCapitalisationReturn } from "@/hooks/use-ebitda-capitalisation"
 import { formatCurrency } from "@/lib/financial-utils"
 
@@ -23,7 +24,8 @@ export type CapitalisationReportProps = {
 const REPORT_NAV = [
   { id: "multiple", label: "1. Multiple" },
   { id: "valeur", label: "2. Valeur" },
-  { id: "restrictions", label: "3. Restrictions" },
+  { id: "remboursement", label: "3. Remboursement" },
+  { id: "restrictions", label: "4. Restrictions" },
 ] as const
 
 function scrollToSection(id: string) {
@@ -33,7 +35,7 @@ function scrollToSection(id: string) {
 
 function DisclaimerSection() {
   return (
-    <NetTangibleReportSection id="restrictions" number="3." title="Restrictions et limitations">
+    <NetTangibleReportSection id="restrictions" number="4." title="Restrictions et limitations">
       <p className="text-pretty text-sm leading-relaxed text-slate-500">
         Le processus de détermination de la valeur d&apos;entreprise présenté dans ce rapport est
         uniquement à des fins de consultation. Il ne constitue pas un rapport d&apos;évaluation
@@ -111,7 +113,7 @@ export function CapitalisationReport({
             Sommaire de la conclusion
           </p>
           <p className="mt-2 max-w-3xl text-pretty text-sm leading-relaxed text-white/80">
-            BAIIA représentatif (étape BAIIA ajusté), multiple retenu et fourchette de valeur
+            BAIIA représentatif (étape Flux monétaires), multiple retenu et fourchette de valeur
             d&apos;entreprise.
           </p>
         </div>
@@ -179,7 +181,7 @@ export function CapitalisationReport({
 
       <p className="mt-6 text-pretty text-sm leading-relaxed text-slate-500">
         La capitalisation applique une fourchette de multiples au BAIIA représentatif déterminé
-        à l&apos;étape <span className="font-medium text-[#2A2F3A]">BAIIA ajusté</span>
+        à l&apos;étape <span className="font-medium text-[#2A2F3A]">Flux monétaires</span>
         &nbsp;:{" "}
         <span className="font-mono text-[#2A2F3A]">
           Valeur d&apos;entreprise = BAIIA représentatif × Multiple
@@ -254,7 +256,7 @@ export function CapitalisationReport({
 
       <NetTangibleReportSection id="valeur" number="2." title="Valeur d'entreprise">
         <p className="mb-4 text-pretty text-sm leading-relaxed text-slate-500">
-          Application des bornes de BAIIA (étape BAIIA ajusté) et de multiples. La zone ombrée
+          Application des bornes de BAIIA (étape Flux monétaires) et de multiples. La zone ombrée
           illustre la fourchette de valeur selon le multiple.
         </p>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -363,6 +365,22 @@ export function CapitalisationReport({
           </ResponsiveContainer>
         </div>
       </NetTangibleReportSection>
+
+      <RepaymentCapacitySection
+        number="3."
+        baiiaLow={c.lowEBITDARange}
+        baiiaHigh={c.highEBITDARange}
+        cashFlowLow={c.characteristicCashFlows.low.characteristicCashFlow}
+        cashFlowHigh={c.characteristicCashFlows.high.characteristicCashFlow}
+        debtCapacity={c.debtCapacity}
+        debtCapacityNotes={c.debtCapacityNotes}
+        onDebtCapacityChange={c.setDebtCapacity}
+        onDebtCapacityNotesChange={c.setDebtCapacityNotes}
+        repaymentCapacity={c.repaymentCapacity}
+        repaymentCapacityNotes={c.repaymentCapacityNotes}
+        onRepaymentCapacityChange={c.setRepaymentCapacity}
+        onRepaymentCapacityNotesChange={c.setRepaymentCapacityNotes}
+      />
 
       <DisclaimerSection />
 

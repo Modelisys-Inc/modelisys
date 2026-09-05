@@ -215,9 +215,10 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   blanche ; sections Méthode · Sommaire (KPI strip + plan d’action) · catégories
   de risques (nav d’ancres) ; niveau + note inline autosave (`business_risks`).
   Défauts dans `lib/business-model-default-risks.ts`.
-- **BAIIA ajusté** (`/evaluation/adjusted-ebitda`, étape plan « BAIIA ajusté »,
+- **Flux monétaires** (`/evaluation/adjusted-ebitda`, étape plan « Flux monétaires »,
   juste avant Multiplicateur) : rapport continu style VCA
-  (`components/capitalisation/adjusted-ebitda-report.tsx`) — sections 1 Méthode ·
+  (`components/capitalisation/adjusted-ebitda-report.tsx`) — sommaire BAIIA bas/
+  médian/haut + Flux bas/médian/haut ; sections 1 Méthode ·
   2 BAIIA (colonnes selon date de référence + fin d’exercice : si réf. ≠ clôture
   → **PEC** + **TTM** + 5 exercices complets ; si réf. = clôture → 5 exercices ;
   colonnes sans chiffre masquées ; ajustements ciblables **Revenus** (à
@@ -231,7 +232,14 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   représentatifs) ; moyennes 5/4/3/2 ans + dernier exercice masquées si pas
   assez d’exercices peuplés, + moyenne pondérée ;
   `baiia-section.tsx` / `fourchette-section.tsx`, série CDR
-  `ebitda-capitalisation`) · 3 Fourchette BAIIA ;
+  `ebitda-capitalisation`) · 3 Fourchette · 4 Flux caractéristiques
+  (`flux-monetaires-section.tsx` : BAIIA ajusté bas/haut − impôt (taux %) −
+  ajustement FDR [FDR% VCA × Revenus × croissance] −
+  Capex de maintien bas/haut → flux monétaires caractéristiques ; FDR % lu depuis
+  VCA `net-tangible-fdr-adjustment.pctOfRevenue` ; persisté
+  `cashFlowTaxRate` / `cashFlowEconomicGrowth` /
+  `cashFlowMaintenanceCapexLow` / `cashFlowMaintenanceCapexHigh` +
+  notes `cash-flow`) ;
   même ForecastConfig `ebitda-multiple-config` + notes que Capitalisation ;
   disclaimer localStorage partagé.
 - **Multiplicateur** (`/evaluation/capitalisation`, étape plan « Multiplicateur ») :
@@ -239,14 +247,18 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   étapes / Multiplicateur / Entité / Date de référence). UI `components/cmpc/*`
   + moteur `lib/cmpc-wacc.ts` (CAPM + primes taille/spécifique, coût de la dette
   net d’impôt, pondération fonds propres / dette, fourchette ±0,5 % arrondie
-  0,25 %). Hypothèses éditables inline dans le rapport ; persisté
-  ForecastConfig `cmpc-multiplicateur` (`inputs` + `meta`). La structure
-  `statement_type="capitalisation"` / studio Paramètres n’est plus l’UX
-  principale de cette étape.
+  0,25 %). §3 Structure de capital : pondérations CMPC (E / D). La **capacité de
+  remboursement** (VA, Dette / BAIIA, multiple retenu vs capacité max) vit dans
+  l’étape **Capitalisation** (`/evaluation/ebitda-multiple`, §3
+  `repayment-capacity-section.tsx`, persisté dans `ebitda-multiple-config`).
+  ForecastConfig `cmpc-multiplicateur` (`inputs` + `meta` + sources). La structure
+  `statement_type="capitalisation"` / studio Paramètres n’est plus l’UX principale
+  de cette étape.
 - **Capitalisation** (`/evaluation/ebitda-multiple`, étape plan « Capitalisation ») :
   rapport continu style VCA (`components/capitalisation/*`) — hero valuation +
   feuille blanche ; sections 1 Multiples · 2 Valeur d’entreprise (+ graphique) ·
-  3 Restrictions ; BAIIA représentatif issu de l’étape BAIIA ajusté (même
+  3 Capacité de remboursement (VA, Dette / BAIIA, retenu vs capacité max) ·
+  4 Restrictions ; BAIIA représentatif issu de l’étape Flux monétaires (même
   `ebitda-multiple-config`) ; bandeau KPI ; nav d’ancres ; moteur
   `lib/ebitda-capitalisation.ts` + hook `use-ebitda-capitalisation` ; disclaimer
   localStorage partagé.

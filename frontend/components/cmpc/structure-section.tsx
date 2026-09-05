@@ -32,7 +32,8 @@ export function StructureSection({
         Les pondérations du CMPC reposent sur la structure de capital de l&apos;entreprise,
         idéalement établie à la valeur de marché ou selon une structure cible représentative du
         secteur. Elles déterminent le poids relatif des capitaux propres et de la dette dans le
-        coût global du capital.
+        coût global du capital. La capacité de remboursement (Dette / BAIIA) est analysée à
+        l&apos;étape <span className="font-medium text-[#2A2F3A]">Capitalisation</span>.
       </p>
 
       <div className="mt-5 grid grid-cols-1 gap-x-10 lg:grid-cols-2">

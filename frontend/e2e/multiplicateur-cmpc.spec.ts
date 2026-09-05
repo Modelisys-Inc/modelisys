@@ -55,7 +55,24 @@ async function setupCmpcPage(page: Page) {
   })
   await page.route(`**/api/companies/${COMPANY_ID}/forecast-configs**`, async (route) => {
     const method = route.request().method()
+    const url = route.request().url()
     if (method === "GET") {
+      if (url.includes("ebitda-multiple-config")) {
+        return route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            configs: [
+              {
+                id: "fc-ebitda",
+                config_type: "ebitda-multiple-config",
+                data: { lowEBITDARange: 800_000, highEBITDARange: 1_200_000 },
+                company_id: COMPANY_ID,
+              },
+            ],
+          }),
+        })
+      }
       return route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -133,5 +150,21 @@ test.describe("Multiplicateur CMPC", () => {
 
     // ΔRf +1 → Ke +1 et Kd +1×(1−t) → WACC ≈ 11.66 → retenu 11.75
     await expect(page.getByTestId("cmpc-retained-rate")).toContainText("11.75")
+  })
+
+  test("affiche la capacité d’endettement à partir du BAIIA ajusté", async ({ page }) => {
+    await setupCmpcPage(page)
+    await page.goto(
+      `/evaluation/capitalisation?companyId=${COMPANY_ID}&refMonth=12&refYear=2026`,
+    )
+
+    await expect(page.getByTestId("cmpc-debt-capacity")).toBeVisible()
+    await expect(page.getByTestId("cmpc-baiia-retained")).toContainText("BAIIA ajusté")
+    await expect(page.getByTestId("cmpc-debt-baiia-empirical")).toBeVisible()
+    await expect(page.getByTestId("cmpc-debt-baiia-ai")).toBeVisible()
+    await expect(page.getByTestId("cmpc-debt-baiia-comparables")).toBeVisible()
+    await expect(page.getByTestId("cmpc-debt-capacity-sensitivity")).toBeVisible()
+    // 3,00× × 1 000 000 $ moyen = 3 000 000 $
+    await expect(page.getByTestId("cmpc-debt-capacity-sensitivity")).toContainText("3")
   })
 })

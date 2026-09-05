@@ -2,6 +2,7 @@
 
 import { AdjustedEbitdaMethodSection } from "@/components/capitalisation/adjusted-ebitda-method-section"
 import { BaiiaSection } from "@/components/capitalisation/baiia-section"
+import { FluxMonetairesSection } from "@/components/capitalisation/flux-monetaires-section"
 import { FourchetteSection } from "@/components/capitalisation/fourchette-section"
 import type { UseEbitdaCapitalisationReturn } from "@/hooks/use-ebitda-capitalisation"
 import { formatCurrency } from "@/lib/financial-utils"
@@ -16,6 +17,7 @@ const REPORT_NAV = [
   { id: "methode", label: "1. Méthode" },
   { id: "baiia", label: "2. BAIIA" },
   { id: "fourchette", label: "3. Fourchette" },
+  { id: "flux-monetaires", label: "4. Flux caractéristiques" },
 ] as const
 
 function scrollToSection(id: string) {
@@ -36,6 +38,8 @@ export function AdjustedEbitdaReport({
     )
   }
 
+  const cf = c.characteristicCashFlows
+
   return (
     <article
       data-testid="adjusted-ebitda-report"
@@ -47,13 +51,14 @@ export function AdjustedEbitdaReport({
           Détermination de la valeur
         </p>
         <h2 className="mt-2 text-balance text-2xl font-semibold leading-tight tracking-tight text-[#2A2F3A] sm:text-3xl">
-          BAIIA ajusté
+          Flux monétaires
         </h2>
         <p className="mt-3 max-w-3xl text-pretty text-sm leading-relaxed text-slate-500">
           Le présent rapport normalise le BAIIA de{" "}
           <span className="font-medium text-[#2A2F3A]">{companyName}</span>, en date du{" "}
-          <span className="font-medium text-[#2A2F3A]">{referenceLabel}</span>, afin de retenir
-          une fourchette représentative pour la capitalisation.
+          <span className="font-medium text-[#2A2F3A]">{referenceLabel}</span>, puis en déduit
+          l&apos;impôt, l&apos;ajustement de fonds de roulement et les capex de maintien pour
+          retenir des flux monétaires caractéristiques.
         </p>
       </header>
 
@@ -67,23 +72,12 @@ export function AdjustedEbitdaReport({
             Sommaire de la conclusion
           </p>
           <p className="mt-2 max-w-3xl text-pretty text-sm leading-relaxed text-white/80">
-            Moyennes et fourchette de BAIIA représentatif à la date de référence.
+            Fourchette de BAIIA ajusté retenu et flux monétaires caractéristiques à la date de
+            référence.
           </p>
         </div>
         <div className="grid grid-cols-2 divide-x divide-y divide-white/10 md:grid-cols-3 xl:grid-cols-6 xl:divide-y-0">
           {[
-            {
-              id: "weighted",
-              label: "BAIIA pondéré",
-              value: formatCurrency(c.weightedAverageEBITDA),
-            },
-            ...c.synthesisAverages
-              .filter((row) => row.yearCount === 3 || row.yearCount === 5)
-              .map((row) => ({
-                id: row.id,
-                label: row.label,
-                value: formatCurrency(row.ebitda),
-              })),
             {
               id: "range-low",
               label: "BAIIA bas",
@@ -98,6 +92,21 @@ export function AdjustedEbitdaReport({
               id: "range-high",
               label: "BAIIA haut",
               value: formatCurrency(c.highEBITDARange),
+            },
+            {
+              id: "cf-low",
+              label: "Flux bas",
+              value: formatCurrency(cf.low.characteristicCashFlow),
+            },
+            {
+              id: "cf-mid",
+              label: "Flux médian",
+              value: formatCurrency(cf.mid.characteristicCashFlow),
+            },
+            {
+              id: "cf-high",
+              label: "Flux haut",
+              value: formatCurrency(cf.high.characteristicCashFlow),
             },
           ].map((metric) => (
             <div
@@ -136,10 +145,11 @@ export function AdjustedEbitdaReport({
       <AdjustedEbitdaMethodSection />
       <BaiiaSection capitalisation={c} />
       <FourchetteSection capitalisation={c} />
+      <FluxMonetairesSection capitalisation={c} />
 
       <footer className="mt-10 border-t border-slate-200 pt-4">
         <p className="text-pretty text-[11px] leading-relaxed text-slate-500">
-          Rapport indicatif de BAIIA ajusté · {companyName} · {referenceLabel}
+          Rapport indicatif de flux monétaires · {companyName} · {referenceLabel}
         </p>
       </footer>
     </article>

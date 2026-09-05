@@ -96,11 +96,12 @@ export default function ValuationCapitalisationPage() {
     setConfigLoaded(false)
     seededMetaRef.current = false
     skipNextSaveRef.current = true
+
     listForecastConfigs(companyId, { config_type: CMPC_CONFIG_TYPE })
-      .then((configs) => {
+      .then((cmpcConfigs) => {
         if (cancelled) return
-        if (configs[0]?.data) {
-          const parsed = parseCmpcWaccConfig(configs[0].data)
+        if (cmpcConfigs[0]?.data) {
+          const parsed = parseCmpcWaccConfig(cmpcConfigs[0].data)
           setInputs(parsed.inputs)
           setMeta(parsed.meta)
           setEquityNotes(parsed.equityNotes)
@@ -162,7 +163,7 @@ export default function ValuationCapitalisationPage() {
       nextSources: CmpcParamSources,
     ) => {
       if (!companyId || !configLoaded) return
-      upsertForecastConfig(companyId, {
+      const payload = {
         config_type: CMPC_CONFIG_TYPE,
         data: {
           inputs: nextInputs,
@@ -171,7 +172,26 @@ export default function ValuationCapitalisationPage() {
           sources: nextSources,
         },
         company_id: companyId,
-      }).catch(console.error)
+      }
+      const save = (attempt: number) => {
+        upsertForecastConfig(companyId, payload).catch((err: unknown) => {
+          const isNetwork =
+            err instanceof TypeError &&
+            (String(err.message).includes("fetch") || String(err.message).includes("network"))
+          if (isNetwork && attempt < 2) {
+            window.setTimeout(() => save(attempt + 1), 1200)
+            return
+          }
+          if (isNetwork) {
+            console.warn(
+              "[Multiplicateur] Sauvegarde différée — API temporairement injoignable (proxy / redémarrage).",
+            )
+            return
+          }
+          console.error(err)
+        })
+      }
+      save(0)
     },
     [companyId, configLoaded],
   )

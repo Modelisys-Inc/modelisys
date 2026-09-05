@@ -21,11 +21,14 @@ import {
   computeAdjustedColumns,
   computeAverageNFiscalYears,
   buildEbitdaSynthesisAverages,
+  computeCharacteristicCashFlows,
+  computeWorkingCapitalAdjustmentAnalysis,
   computeSeriesAmountsByColumn,
   computeWeightedAverageEBITDA,
   computeWeightedAverageRevenue,
   createColumnsFromSpecs,
   createDefaultEbitdaYears,
+  DEFAULT_CHARACTERISTIC_CASH_FLOW,
   EBITDA_DISCLAIMER_STORAGE_KEY,
   EBITDA_MULTIPLE_CONFIG_TYPE,
   EBITDA_SERIES_LOOKBACK_MONTHS,
@@ -36,6 +39,16 @@ import {
   resolveFiscalYearEndMonth,
   seedEbitdaRangeFromAverage,
 } from "@/lib/ebitda-capitalisation"
+import {
+  DEFAULT_CMPC_DEBT_CAPACITY,
+  DEFAULT_CMPC_DEBT_CAPACITY_NOTES,
+  DEFAULT_CMPC_REPAYMENT_CAPACITY,
+  DEFAULT_CMPC_REPAYMENT_CAPACITY_NOTES,
+  type CmpcDebtCapacityInputs,
+  type CmpcDebtCapacityNotes,
+  type CmpcRepaymentCapacityInputs,
+  type CmpcRepaymentCapacityNotes,
+} from "@/lib/cmpc-wacc"
 import { generateId } from "@/lib/seeded-random"
 
 export type UseEbitdaCapitalisationArgs = {
@@ -170,6 +183,39 @@ export function useEbitdaCapitalisation({
   const ebitdaRangeSeededRef = useRef(false)
   const revenueRangeSeededRef = useRef(false)
 
+  const [cashFlowTaxRate, setCashFlowTaxRate] = useState(
+    DEFAULT_CHARACTERISTIC_CASH_FLOW.taxRate,
+  )
+  const [cashFlowEconomicGrowth, setCashFlowEconomicGrowth] = useState(
+    DEFAULT_CHARACTERISTIC_CASH_FLOW.economicGrowthPct,
+  )
+  const [cashFlowMaintenanceCapexLow, setCashFlowMaintenanceCapexLow] = useState(
+    DEFAULT_CHARACTERISTIC_CASH_FLOW.maintenanceCapexLow,
+  )
+  const [cashFlowMaintenanceCapexHigh, setCashFlowMaintenanceCapexHigh] = useState(
+    DEFAULT_CHARACTERISTIC_CASH_FLOW.maintenanceCapexHigh,
+  )
+  /** FDR représentatif en % des revenus (VCA) — null si non disponible. */
+  const [vcaFdrPctOfRevenue, setVcaFdrPctOfRevenue] = useState<number | null>(null)
+  const [cashFlowNotes, setCashFlowNotes] = useState({
+    tax: "",
+    economicGrowth: "",
+    maintenanceCapexLow: "",
+    maintenanceCapexHigh: "",
+  })
+
+  const [debtCapacity, setDebtCapacity] = useState<CmpcDebtCapacityInputs>(
+    DEFAULT_CMPC_DEBT_CAPACITY,
+  )
+  const [debtCapacityNotes, setDebtCapacityNotes] = useState<CmpcDebtCapacityNotes>(
+    DEFAULT_CMPC_DEBT_CAPACITY_NOTES,
+  )
+  const [repaymentCapacity, setRepaymentCapacity] = useState<CmpcRepaymentCapacityInputs>(
+    DEFAULT_CMPC_REPAYMENT_CAPACITY,
+  )
+  const [repaymentCapacityNotes, setRepaymentCapacityNotes] =
+    useState<CmpcRepaymentCapacityNotes>(DEFAULT_CMPC_REPAYMENT_CAPACITY_NOTES)
+
   const adjustedColumns = useMemo(
     () => computeAdjustedColumns(columns, adjustments),
     [columns, adjustments],
@@ -234,6 +280,42 @@ export function useEbitdaCapitalisation({
   const lowEnterpriseValue = lowEBITDARange * lowMultiple
   const highEnterpriseValue = highEBITDARange * highMultiple
   const midEnterpriseValue = (lowEnterpriseValue + highEnterpriseValue) / 2
+
+  const workingCapitalAdjustment = useMemo(
+    () =>
+      computeWorkingCapitalAdjustmentAnalysis(
+        lowRevenueRange,
+        highRevenueRange,
+        cashFlowEconomicGrowth,
+        vcaFdrPctOfRevenue,
+      ),
+    [lowRevenueRange, highRevenueRange, cashFlowEconomicGrowth, vcaFdrPctOfRevenue],
+  )
+
+  const midMaintenanceCapex =
+    (cashFlowMaintenanceCapexLow + cashFlowMaintenanceCapexHigh) / 2
+
+  const characteristicCashFlows = useMemo(
+    () =>
+      computeCharacteristicCashFlows(lowEBITDARange, highEBITDARange, {
+        taxRate: cashFlowTaxRate,
+        workingCapitalLow: workingCapitalAdjustment.low.adjustment,
+        workingCapitalHigh: workingCapitalAdjustment.high.adjustment,
+        workingCapitalMid: workingCapitalAdjustment.mid.adjustment,
+        maintenanceCapexLow: cashFlowMaintenanceCapexLow,
+        maintenanceCapexHigh: cashFlowMaintenanceCapexHigh,
+        maintenanceCapexMid: midMaintenanceCapex,
+      }),
+    [
+      lowEBITDARange,
+      highEBITDARange,
+      cashFlowTaxRate,
+      workingCapitalAdjustment,
+      cashFlowMaintenanceCapexLow,
+      cashFlowMaintenanceCapexHigh,
+      midMaintenanceCapex,
+    ],
+  )
 
   const enterpriseValueChartData: EnterpriseValueSeriesPoint[] = useMemo(
     () =>
@@ -403,6 +485,26 @@ export function useEbitdaCapitalisation({
     })
   }
 
+  const updateCashFlowNote = (
+    field: "tax" | "economicGrowth" | "maintenanceCapexLow" | "maintenanceCapexHigh",
+    note: string,
+  ) => {
+    setCashFlowNotes((prev) => {
+      const next = { ...prev, [field]: note }
+      const key = "cash-flow"
+      if (noteSaveTimersRef.current[key]) clearTimeout(noteSaveTimersRef.current[key])
+      noteSaveTimersRef.current[key] = setTimeout(() => {
+        if (companyId) {
+          upsertEbitdaNote(companyId, {
+            note_type: "cash-flow",
+            data: next as Record<string, unknown>,
+          }).catch(console.error)
+        }
+      }, 450)
+      return next
+    })
+  }
+
   const setLowEBITDARangePersisted = (value: number) => {
     ebitdaRangeSeededRef.current = true
     setLowEBITDARange(value)
@@ -482,13 +584,223 @@ export function useEbitdaCapitalisation({
             setHighRevenueRange(d.highRevenueRange)
             revenueRangeSeededRef.current = true
           }
+          if (typeof d.cashFlowTaxRate === "number" && Number.isFinite(d.cashFlowTaxRate)) {
+            setCashFlowTaxRate(d.cashFlowTaxRate)
+          }
+          if (
+            typeof d.cashFlowEconomicGrowth === "number" &&
+            Number.isFinite(d.cashFlowEconomicGrowth)
+          ) {
+            setCashFlowEconomicGrowth(d.cashFlowEconomicGrowth)
+          }
+          if (
+            typeof d.cashFlowMaintenanceCapexLow === "number" &&
+            Number.isFinite(d.cashFlowMaintenanceCapexLow)
+          ) {
+            setCashFlowMaintenanceCapexLow(d.cashFlowMaintenanceCapexLow)
+          } else if (
+            typeof d.cashFlowMaintenanceCapex === "number" &&
+            Number.isFinite(d.cashFlowMaintenanceCapex)
+          ) {
+            setCashFlowMaintenanceCapexLow(d.cashFlowMaintenanceCapex)
+          }
+          if (
+            typeof d.cashFlowMaintenanceCapexHigh === "number" &&
+            Number.isFinite(d.cashFlowMaintenanceCapexHigh)
+          ) {
+            setCashFlowMaintenanceCapexHigh(d.cashFlowMaintenanceCapexHigh)
+          } else if (
+            typeof d.cashFlowMaintenanceCapex === "number" &&
+            Number.isFinite(d.cashFlowMaintenanceCapex)
+          ) {
+            setCashFlowMaintenanceCapexHigh(d.cashFlowMaintenanceCapex)
+          }
+          if (d.debtCapacity && typeof d.debtCapacity === "object") {
+            const dc = d.debtCapacity
+            setDebtCapacity({
+              debtBaiiaEmpirical:
+                typeof dc.debtBaiiaEmpirical === "number"
+                  ? dc.debtBaiiaEmpirical
+                  : DEFAULT_CMPC_DEBT_CAPACITY.debtBaiiaEmpirical,
+              debtBaiiaAi:
+                typeof dc.debtBaiiaAi === "number"
+                  ? dc.debtBaiiaAi
+                  : DEFAULT_CMPC_DEBT_CAPACITY.debtBaiiaAi,
+              debtBaiiaComparables:
+                typeof dc.debtBaiiaComparables === "number"
+                  ? dc.debtBaiiaComparables
+                  : DEFAULT_CMPC_DEBT_CAPACITY.debtBaiiaComparables,
+              debtBaiiaRetained:
+                typeof dc.debtBaiiaRetained === "number"
+                  ? dc.debtBaiiaRetained
+                  : DEFAULT_CMPC_DEBT_CAPACITY.debtBaiiaRetained,
+            })
+          }
+          if (d.debtCapacityNotes && typeof d.debtCapacityNotes === "object") {
+            const n = d.debtCapacityNotes
+            setDebtCapacityNotes({
+              debtBaiiaEmpirical:
+                typeof n.debtBaiiaEmpirical === "string"
+                  ? n.debtBaiiaEmpirical
+                  : DEFAULT_CMPC_DEBT_CAPACITY_NOTES.debtBaiiaEmpirical,
+              debtBaiiaAi:
+                typeof n.debtBaiiaAi === "string"
+                  ? n.debtBaiiaAi
+                  : DEFAULT_CMPC_DEBT_CAPACITY_NOTES.debtBaiiaAi,
+              debtBaiiaComparables:
+                typeof n.debtBaiiaComparables === "string"
+                  ? n.debtBaiiaComparables
+                  : DEFAULT_CMPC_DEBT_CAPACITY_NOTES.debtBaiiaComparables,
+              debtBaiiaRetained:
+                typeof n.debtBaiiaRetained === "string"
+                  ? n.debtBaiiaRetained
+                  : DEFAULT_CMPC_DEBT_CAPACITY_NOTES.debtBaiiaRetained,
+            })
+          }
+          if (d.repaymentCapacity && typeof d.repaymentCapacity === "object") {
+            const rc = d.repaymentCapacity
+            setRepaymentCapacity({
+              annualInterestRate:
+                typeof rc.annualInterestRate === "number"
+                  ? rc.annualInterestRate
+                  : DEFAULT_CMPC_REPAYMENT_CAPACITY.annualInterestRate,
+              durationYears:
+                typeof rc.durationYears === "number"
+                  ? rc.durationYears
+                  : DEFAULT_CMPC_REPAYMENT_CAPACITY.durationYears,
+            })
+          }
+          if (d.repaymentCapacityNotes && typeof d.repaymentCapacityNotes === "object") {
+            const n = d.repaymentCapacityNotes
+            setRepaymentCapacityNotes({
+              annualInterestRate:
+                typeof n.annualInterestRate === "string"
+                  ? n.annualInterestRate
+                  : DEFAULT_CMPC_REPAYMENT_CAPACITY_NOTES.annualInterestRate,
+              durationYears:
+                typeof n.durationYears === "string"
+                  ? n.durationYears
+                  : DEFAULT_CMPC_REPAYMENT_CAPACITY_NOTES.durationYears,
+            })
+          }
         }
-        setConfigLoaded(true)
+        // Migration depuis Multiplicateur (`cmpc-multiplicateur`) si absents sur ebitda-config.
+        const needsMigration =
+          !configs[0]?.data || !(configs[0].data as EbitdaMultipleConfigData).debtCapacity
+        const finish = () => {
+          if (!cancelled) setConfigLoaded(true)
+        }
+        if (!needsMigration) {
+          finish()
+          return
+        }
+        listForecastConfigs(companyId, { config_type: "cmpc-multiplicateur" })
+          .then((cmpcConfigs) => {
+            if (cancelled) return
+            const parsed = cmpcConfigs[0]?.data
+            if (!parsed || typeof parsed !== "object") return
+            const raw = parsed as Record<string, unknown>
+            const dc = raw.debtCapacity
+            const dcn = raw.debtCapacityNotes
+            const rc = raw.repaymentCapacity
+            const rcn = raw.repaymentCapacityNotes
+            if (dc && typeof dc === "object") {
+              const o = dc as Record<string, unknown>
+              setDebtCapacity((prev) => ({
+                debtBaiiaEmpirical:
+                  typeof o.debtBaiiaEmpirical === "number"
+                    ? o.debtBaiiaEmpirical
+                    : prev.debtBaiiaEmpirical,
+                debtBaiiaAi:
+                  typeof o.debtBaiiaAi === "number" ? o.debtBaiiaAi : prev.debtBaiiaAi,
+                debtBaiiaComparables:
+                  typeof o.debtBaiiaComparables === "number"
+                    ? o.debtBaiiaComparables
+                    : prev.debtBaiiaComparables,
+                debtBaiiaRetained:
+                  typeof o.debtBaiiaRetained === "number"
+                    ? o.debtBaiiaRetained
+                    : prev.debtBaiiaRetained,
+              }))
+            }
+            if (dcn && typeof dcn === "object") {
+              const o = dcn as Record<string, unknown>
+              setDebtCapacityNotes((prev) => ({
+                debtBaiiaEmpirical:
+                  typeof o.debtBaiiaEmpirical === "string"
+                    ? o.debtBaiiaEmpirical
+                    : prev.debtBaiiaEmpirical,
+                debtBaiiaAi:
+                  typeof o.debtBaiiaAi === "string" ? o.debtBaiiaAi : prev.debtBaiiaAi,
+                debtBaiiaComparables:
+                  typeof o.debtBaiiaComparables === "string"
+                    ? o.debtBaiiaComparables
+                    : prev.debtBaiiaComparables,
+                debtBaiiaRetained:
+                  typeof o.debtBaiiaRetained === "string"
+                    ? o.debtBaiiaRetained
+                    : prev.debtBaiiaRetained,
+              }))
+            }
+            if (rc && typeof rc === "object") {
+              const o = rc as Record<string, unknown>
+              setRepaymentCapacity((prev) => ({
+                annualInterestRate:
+                  typeof o.annualInterestRate === "number"
+                    ? o.annualInterestRate
+                    : prev.annualInterestRate,
+                durationYears:
+                  typeof o.durationYears === "number" ? o.durationYears : prev.durationYears,
+              }))
+            }
+            if (rcn && typeof rcn === "object") {
+              const o = rcn as Record<string, unknown>
+              setRepaymentCapacityNotes((prev) => ({
+                annualInterestRate:
+                  typeof o.annualInterestRate === "string"
+                    ? o.annualInterestRate
+                    : prev.annualInterestRate,
+                durationYears:
+                  typeof o.durationYears === "string" ? o.durationYears : prev.durationYears,
+              }))
+            }
+          })
+          .finally(finish)
       })
       .catch(() => {
         if (!cancelled) setConfigLoaded(true)
       })
 
+    return () => {
+      cancelled = true
+    }
+  }, [companyId])
+
+  /** FDR représentatif % des revenus — étape VCA (`net-tangible-fdr-adjustment`). */
+  useEffect(() => {
+    if (!companyId) {
+      setVcaFdrPctOfRevenue(null)
+      return
+    }
+    let cancelled = false
+    listForecastConfigs(companyId, { config_type: "net-tangible-fdr-adjustment" })
+      .then((configs) => {
+        if (cancelled) return
+        const d = (configs[0]?.data ?? {}) as Record<string, unknown>
+        if (typeof d.pctOfRevenue === "number" && Number.isFinite(d.pctOfRevenue)) {
+          setVcaFdrPctOfRevenue(d.pctOfRevenue)
+          return
+        }
+        // Mode « % des revenus » : la valeur saisie est déjà le %.
+        if (d.mode === "percent-revenue" && typeof d.value === "number" && Number.isFinite(d.value)) {
+          setVcaFdrPctOfRevenue(d.value)
+          return
+        }
+        setVcaFdrPctOfRevenue(null)
+      })
+      .catch(() => {
+        if (!cancelled) setVcaFdrPctOfRevenue(null)
+      })
     return () => {
       cancelled = true
     }
@@ -513,6 +825,18 @@ export function useEbitdaCapitalisation({
         data.lowRevenueRange = lowRevenueRange
         data.highRevenueRange = highRevenueRange
       }
+      data.cashFlowTaxRate = cashFlowTaxRate
+      data.cashFlowEconomicGrowth = cashFlowEconomicGrowth
+      data.cashFlowMaintenanceCapexLow = cashFlowMaintenanceCapexLow
+      data.cashFlowMaintenanceCapexHigh = cashFlowMaintenanceCapexHigh
+      data.characteristicCashFlowLow =
+        characteristicCashFlows.low.characteristicCashFlow
+      data.characteristicCashFlowHigh =
+        characteristicCashFlows.high.characteristicCashFlow
+      data.debtCapacity = debtCapacity
+      data.debtCapacityNotes = debtCapacityNotes
+      data.repaymentCapacity = repaymentCapacity
+      data.repaymentCapacityNotes = repaymentCapacityNotes
       upsertForecastConfig(companyId, {
         config_type: EBITDA_MULTIPLE_CONFIG_TYPE,
         data: data as Record<string, unknown>,
@@ -527,6 +851,15 @@ export function useEbitdaCapitalisation({
     highEBITDARange,
     lowRevenueRange,
     highRevenueRange,
+    cashFlowTaxRate,
+    cashFlowEconomicGrowth,
+    cashFlowMaintenanceCapexLow,
+    cashFlowMaintenanceCapexHigh,
+    characteristicCashFlows,
+    debtCapacity,
+    debtCapacityNotes,
+    repaymentCapacity,
+    repaymentCapacityNotes,
     columns,
     companyId,
     configLoaded,
@@ -571,6 +904,26 @@ export function useEbitdaCapitalisation({
             setRevenueRangeNotes(d as Record<EbitdaRangeSide, string>)
           } else if (note.note_type === "multiple") {
             setMultipleNotes(d as Record<EbitdaRangeSide, string>)
+          } else if (note.note_type === "cash-flow") {
+            const legacyCapex =
+              typeof d.maintenanceCapex === "string" ? d.maintenanceCapex : ""
+            setCashFlowNotes({
+              tax: typeof d.tax === "string" ? d.tax : "",
+              economicGrowth:
+                typeof d.economicGrowth === "string"
+                  ? d.economicGrowth
+                  : typeof d.workingCapital === "string"
+                    ? d.workingCapital
+                    : "",
+              maintenanceCapexLow:
+                typeof d.maintenanceCapexLow === "string"
+                  ? d.maintenanceCapexLow
+                  : legacyCapex,
+              maintenanceCapexHigh:
+                typeof d.maintenanceCapexHigh === "string"
+                  ? d.maintenanceCapexHigh
+                  : legacyCapex,
+            })
           }
         }
       })
@@ -640,6 +993,30 @@ export function useEbitdaCapitalisation({
     midRevenueRange,
     setLowRevenueRange: setLowRevenueRangePersisted,
     setHighRevenueRange: setHighRevenueRangePersisted,
+
+    cashFlowTaxRate,
+    cashFlowEconomicGrowth,
+    cashFlowMaintenanceCapexLow,
+    cashFlowMaintenanceCapexHigh,
+    midMaintenanceCapex,
+    setCashFlowTaxRate,
+    setCashFlowEconomicGrowth,
+    setCashFlowMaintenanceCapexLow,
+    setCashFlowMaintenanceCapexHigh,
+    cashFlowNotes,
+    updateCashFlowNote,
+    vcaFdrPctOfRevenue,
+    workingCapitalAdjustment,
+    characteristicCashFlows,
+
+    debtCapacity,
+    setDebtCapacity,
+    debtCapacityNotes,
+    setDebtCapacityNotes,
+    repaymentCapacity,
+    setRepaymentCapacity,
+    repaymentCapacityNotes,
+    setRepaymentCapacityNotes,
 
     lowMultiple,
     highMultiple,

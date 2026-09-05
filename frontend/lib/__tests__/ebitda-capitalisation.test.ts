@@ -13,6 +13,10 @@ import {
   isReferenceAtFiscalYearEnd,
   migrateAdjustmentAmountKeys,
   seedEbitdaRangeFromAverage,
+  computeCharacteristicCashFlows,
+  computeWorkingCapitalAdjustment,
+  deriveCharacteristicCashFlowRange,
+  DEFAULT_CHARACTERISTIC_CASH_FLOW,
 } from "@/lib/ebitda-capitalisation"
 
 describe("ebitda-capitalisation columns", () => {
@@ -298,5 +302,69 @@ describe("ebitda-capitalisation columns", () => {
     const range = seedEbitdaRangeFromAverage(100)
     expect(range.low).toBe(90)
     expect(range.high).toBeCloseTo(110)
+  })
+
+  it("computes characteristic cash flows from BAIIA − tax − WC − maintenance capex", () => {
+    const cf = computeCharacteristicCashFlows(800_000, 1_200_000, {
+      taxRate: 25,
+      workingCapitalLow: 50_000,
+      workingCapitalHigh: 50_000,
+      workingCapitalMid: 50_000,
+      maintenanceCapexLow: 20_000,
+      maintenanceCapexHigh: 40_000,
+      maintenanceCapexMid: 30_000,
+    })
+    expect(cf.low.baiia).toBe(800_000)
+    expect(cf.low.tax).toBe(200_000)
+    expect(cf.low.afterTax).toBe(600_000)
+    // afterTax − WC − capex = 600k − 50k − 20k
+    expect(cf.low.characteristicCashFlow).toBe(530_000)
+    expect(cf.high.maintenanceCapex).toBe(40_000)
+    expect(cf.high.characteristicCashFlow).toBe(810_000)
+    expect(cf.mid.baiia).toBe(1_000_000)
+    expect(cf.mid.characteristicCashFlow).toBe(670_000)
+    expect(DEFAULT_CHARACTERISTIC_CASH_FLOW.taxRate).toBe(26.5)
+  })
+
+  it("subtracts FDR adjustment from characteristic cash flow", () => {
+    const cf = computeCharacteristicCashFlows(800_000, 800_000, {
+      taxRate: 0,
+      workingCapitalLow: 162_350,
+      workingCapitalHigh: 162_350,
+      workingCapitalMid: 162_350,
+      maintenanceCapexLow: 0,
+      maintenanceCapexHigh: 0,
+      maintenanceCapexMid: 0,
+    })
+    expect(cf.low.workingCapital).toBe(162_350)
+    expect(cf.low.characteristicCashFlow).toBe(800_000 - 162_350)
+  })
+
+  it("computes FDR adjustment as FDR% × (Revenus × croissance)", () => {
+    const detail = computeWorkingCapitalAdjustment(1_000_000, 2, 15)
+    // 1M × 2% = 20_000 ; 15% × 20_000 = 3_000
+    expect(detail.fdrGrowthEstimate).toBe(20_000)
+    expect(detail.adjustment).toBe(3_000)
+  })
+
+  it("derives characteristic cash flows from ebitda-multiple-config + FDR %", () => {
+    const range = deriveCharacteristicCashFlowRange(
+      {
+        lowEBITDARange: 800_000,
+        highEBITDARange: 1_200_000,
+        lowRevenueRange: 1_000_000,
+        highRevenueRange: 1_000_000,
+        cashFlowTaxRate: 25,
+        cashFlowEconomicGrowth: 2,
+        cashFlowMaintenanceCapexLow: 20_000,
+        cashFlowMaintenanceCapexHigh: 40_000,
+      },
+      15,
+    )
+    // WC = 1M × 2% × 15% = 3_000 ; mid capex = 30_000
+    // low: 800k − 200k − 3k − 20k = 577k
+    expect(range).not.toBeNull()
+    expect(range!.low).toBe(577_000)
+    expect(range!.high).toBe(1_200_000 * 0.75 - 3_000 - 40_000)
   })
 })

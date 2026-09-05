@@ -671,7 +671,7 @@ export default function NetTangibleAssetsPage() {
   )
 
   const saveFdrAdjustment = useCallback(
-    async (mode: FdrAdjustmentMode, value: number, note: string) => {
+    async (mode: FdrAdjustmentMode, value: number, note: string, pctOfRevenue?: number | null) => {
       setFdrAdjMode(mode)
       setFdrAdjValue(value)
       setFdrAdjNote(note)
@@ -679,7 +679,14 @@ export default function NetTangibleAssetsPage() {
       try {
         await upsertForecastConfig(companyId, {
           config_type: "net-tangible-fdr-adjustment",
-          data: { mode, value, note },
+          data: {
+            mode,
+            value,
+            note,
+            ...(pctOfRevenue != null && Number.isFinite(pctOfRevenue)
+              ? { pctOfRevenue }
+              : {}),
+          },
           division_id: null,
           sub_division_id: null,
         })
@@ -718,6 +725,41 @@ export default function NetTangibleAssetsPage() {
     Math.abs(revenueTotal) >= 1e-9
       ? (fdrAdjustedValue / Math.abs(revenueTotal)) * 100
       : null
+
+  /** % FDR représentatif (bandeau / après repli sur le déterminé) — exporté vers BAIIA ajusté. */
+  const fdrRepresentativePctOfRevenue =
+    overviewFdrAdjustedValue != null &&
+    revenueTotal != null &&
+    Number.isFinite(overviewFdrAdjustedValue) &&
+    Number.isFinite(revenueTotal) &&
+    Math.abs(revenueTotal) >= 1e-9
+      ? (overviewFdrAdjustedValue / Math.abs(revenueTotal)) * 100
+      : fdrAdjustedPctOfRevenue
+
+  /** Publie le % FDR représentatif dès qu’il est calculable (consommation BAIIA ajusté). */
+  useEffect(() => {
+    if (!companyId || fdrRepresentativePctOfRevenue == null) return
+    const timer = setTimeout(() => {
+      void upsertForecastConfig(companyId, {
+        config_type: "net-tangible-fdr-adjustment",
+        data: {
+          mode: fdrAdjMode,
+          value: fdrAdjValue,
+          note: fdrAdjNote,
+          pctOfRevenue: fdrRepresentativePctOfRevenue,
+        },
+        division_id: null,
+        sub_division_id: null,
+      }).catch(console.error)
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [
+    companyId,
+    fdrRepresentativePctOfRevenue,
+    fdrAdjMode,
+    fdrAdjValue,
+    fdrAdjNote,
+  ])
 
   const fdrAdjModeLabel =
     fdrAdjMode === "dollar"
@@ -762,7 +804,7 @@ export default function NetTangibleAssetsPage() {
     (id: string, note: string) => {
       if (id === "fdr-adjustment") {
         setFdrAdjNote(note)
-        void saveFdrAdjustment(fdrAdjMode, fdrAdjValue, note)
+        void saveFdrAdjustment(fdrAdjMode, fdrAdjValue, note, fdrRepresentativePctOfRevenue)
         return
       }
       const jvmMatch = id.match(/^(.+)-jvm-(.+)$/)
@@ -794,7 +836,7 @@ export default function NetTangibleAssetsPage() {
         return
       }
     },
-    [fdrAdjMode, fdrAdjValue, notes, saveFdrAdjustment, saveNotesToApi],
+    [fdrAdjMode, fdrAdjValue, fdrRepresentativePctOfRevenue, notes, saveFdrAdjustment, saveNotesToApi],
   )
 
   return (
@@ -870,9 +912,16 @@ export default function NetTangibleAssetsPage() {
               onAdjValueChange: setFdrAdjValue,
               onAdjNoteChange: setFdrAdjNote,
               onModeChange: (mode) => {
-                if (mode !== fdrAdjMode) void saveFdrAdjustment(mode, 0, fdrAdjNote)
+                if (mode !== fdrAdjMode)
+                  void saveFdrAdjustment(mode, 0, fdrAdjNote, fdrRepresentativePctOfRevenue)
               },
-              onSave: () => void saveFdrAdjustment(fdrAdjMode, fdrAdjValue, fdrAdjNote),
+              onSave: () =>
+                void saveFdrAdjustment(
+                  fdrAdjMode,
+                  fdrAdjValue,
+                  fdrAdjNote,
+                  fdrRepresentativePctOfRevenue,
+                ),
             }}
             sourceRows={sourceRows}
             onSourceNoteChange={handleSourceNoteChange}

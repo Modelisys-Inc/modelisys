@@ -49,10 +49,13 @@ test.describe("Evaluation Pages", () => {
       await acceptButton.click();
     }
     await expect(
-      page.getByRole("heading", { name: /baiia ajust/i }).first()
+      page.getByRole("heading", { name: /flux monétaires/i }).first()
     ).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("adjusted-ebitda-report")).toBeVisible();
     await expect(page.getByTestId("adjusted-ebitda-section-menu")).toBeVisible();
+    await expect(page.getByRole("button", { name: /4\. Flux caractéristiques/i })).toBeVisible();
+    await expect(page.getByTestId("adjusted-ebitda-cash-flow-bridge")).toBeVisible();
+    await expect(page.getByTestId("adjusted-ebitda-overview-cf-mid")).toBeVisible();
   });
 
   test("can navigate to EBITDA multiple evaluation", async ({ page }) => {

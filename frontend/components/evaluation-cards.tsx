@@ -18,7 +18,7 @@ const evaluations = [
   {
     id: "ebitda-multiple",
     title: "Multiple du BAIIA",
-    description: "Évaluez votre entreprise avec la méthode des multiples de BAIIA ajusté",
+    description: "Évaluez votre entreprise à partir des flux monétaires caractéristiques",
     icon: Calculator,
     color: "text-[#E0742D]",
     bgColor: "bg-[#E0742D]/10",

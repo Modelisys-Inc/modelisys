@@ -85,20 +85,21 @@ export const VALUATION_PLAN_PHASES: readonly ValuationPlanPhase[] = [
   },
   {
     id: "adjusted-ebitda",
-    label: "BAIIA ajusté",
+    label: "Flux monétaires",
     href: "/evaluation/adjusted-ebitda",
     step: "04",
     trajectory: 50,
     progressStartLabel: "Historique",
-    progressEndLabel: "BAIIA retenu",
-    panelTitle: "BAIIA ajusté",
+    progressEndLabel: "Flux retenus",
+    panelTitle: "Flux monétaires",
     panelSubtitle:
-      "Normalisez le BAIIA sur plusieurs exercices et retenez la fourchette représentative pour la capitalisation.",
+      "Normalisez le BAIIA, retenez la fourchette représentative et déterminez les flux monétaires caractéristiques.",
     listLabel: "Éléments clés",
     items: [
-      "Série BAIIA sur cinq exercices",
-      "Ajustements et pondérations",
-      "Fourchette de BAIIA représentatif",
+      "Série BAIIA et ajustements",
+      "Fourchette de BAIIA et de revenus",
+      "Impôt, FDR et capex de maintien",
+      "Flux monétaires caractéristiques",
     ],
   },
   {

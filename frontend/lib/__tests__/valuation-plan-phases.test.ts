@@ -13,7 +13,7 @@ import {
 describe("valuation-plan-phases", () => {
   it("lists phases in the expected order", () => {
     expect(valuationPlanPhaseLabels()).toBe(
-      "Aperçu de l'entreprise → Modèle d'affaires → Valeur comptable ajustée → BAIIA ajusté → Multiplicateur → Capitalisation → Actualisation",
+      "Aperçu de l'entreprise → Modèle d'affaires → Valeur comptable ajustée → Flux monétaires → Multiplicateur → Capitalisation → Actualisation",
     )
   })
 

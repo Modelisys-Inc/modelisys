@@ -154,11 +154,11 @@ export default function AdjustedEbitdaPage() {
         <div className="relative z-10 mx-auto max-w-[1920px] px-6 py-6 sm:py-8">
           <ValuationPlanBackButton />
           <h1 className="mt-5 text-4xl font-semibold tracking-tight text-[#E6D6C3]">
-            BAIIA ajusté
+            Flux monétaires
           </h1>
           <p className="mt-2 max-w-4xl text-base text-[#C9B8A5]/90">
-            Normalisez le BAIIA sur cinq exercices et retenez la fourchette représentative pour
-            la capitalisation.
+            Normalisez le BAIIA, retenez la fourchette représentative et déterminez les flux
+            monétaires caractéristiques.
           </p>
           <div
             className="mt-5 h-px w-full bg-gradient-to-r from-[#E0742D]/80 via-white/15 to-transparent"
