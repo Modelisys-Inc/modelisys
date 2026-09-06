@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  formatCmpcCurrency,
   formatCmpcPct,
   type CmpcParamSources,
   type CmpcWaccInputs,
@@ -56,14 +55,14 @@ const ASSUMPTION_ROWS: {
     format: (i) => formatCmpcPct(i.taxRate, 1),
   },
   {
-    key: "equityValue",
+    key: "equityWeightPct",
     param: "Capitaux propres (E)",
-    format: (i) => formatCmpcCurrency(i.equityValue),
+    format: (i) => formatCmpcPct(i.equityWeightPct, 0),
   },
   {
-    key: "debtValue",
+    key: "debtWeightPct",
     param: "Dette financière nette (D)",
-    format: (i) => formatCmpcCurrency(i.debtValue),
+    format: (i) => formatCmpcPct(i.debtWeightPct, 0),
   },
 ]
 

@@ -11,8 +11,10 @@ export type CmpcWaccInputs = {
   specificRiskPremium: number
   creditSpread: number
   taxRate: number
-  equityValue: number
-  debtValue: number
+  /** Poids des capitaux propres dans la structure cible (%). */
+  equityWeightPct: number
+  /** Poids de la dette financière nette dans la structure cible (%). */
+  debtWeightPct: number
 }
 
 /**
@@ -99,8 +101,8 @@ export type CmpcParamSources = {
   specificRiskPremium: string
   creditSpread: string
   taxRate: string
-  equityValue: string
-  debtValue: string
+  equityWeightPct: string
+  debtWeightPct: string
 }
 
 /** @deprecated Prefer CmpcParamSources */
@@ -136,8 +138,8 @@ export const DEFAULT_CMPC_PARAM_SOURCES: CmpcParamSources = {
   creditSpread:
     "Écart de crédit correspondant à la qualité de crédit estimée de l'emprunteur.",
   taxRate: "Taux marginal combiné (fédéral + provincial) applicable à la société.",
-  equityValue: "Valeur de marché estimée des capitaux propres ou structure cible.",
-  debtValue: "Dette portant intérêt, nette de la trésorerie excédentaire.",
+  equityWeightPct: "Poids cible des capitaux propres dans la structure de capital (We).",
+  debtWeightPct: "Poids cible de la dette financière nette dans la structure de capital (Wd).",
 }
 
 /** @deprecated Prefer DEFAULT_CMPC_PARAM_SOURCES */
@@ -151,8 +153,8 @@ export const DEFAULT_CMPC_INPUTS: CmpcWaccInputs = {
   specificRiskPremium: 2.0,
   creditSpread: 3.0,
   taxRate: 26.5,
-  equityValue: 6_000_000,
-  debtValue: 4_000_000,
+  equityWeightPct: 60,
+  debtWeightPct: 40,
 }
 
 /** Défauts prudents pour PME (multiples Dette / BAIIA). */
@@ -196,7 +198,7 @@ export type CharacteristicCashFlowRange = {
 export type RepaymentCapacityAnalysis = {
   /** VA(taux, durée, flux) — capacité d’endettement maximale. */
   maxDebt: { low: number; high: number }
-  /** Capacité max ÷ BAIIA ajusté → Dette / BAIIA. */
+  /** Capacité max ÷ BAIIA moyen → Dette / BAIIA. */
   debtBaiia: { low: number; high: number }
 }
 
@@ -228,6 +230,25 @@ export function annuityPresentValue(
   return (pmt * (1 - Math.pow(1 + r, -n))) / r
 }
 
+/**
+ * Paiement d’annuité ordinaire — équivalent Excel VPM / PMT
+ * avec type = 0 et VA = −montant (emprunt) : VPM(taux, durée, −dette).
+ * Inverse de `annuityPresentValue`.
+ */
+export function annuityPayment(
+  annualRatePct: number,
+  durationYears: number,
+  presentValue: number,
+): number {
+  const n = Number.isFinite(durationYears) ? durationYears : 0
+  const pv = Number.isFinite(presentValue) ? presentValue : 0
+  if (n <= 0 || !Number.isFinite(n)) return 0
+  if (Math.abs(pv) < 1e-12) return 0
+  const r = Number.isFinite(annualRatePct) ? annualRatePct / 100 : 0
+  if (Math.abs(r) < 1e-12) return pv / n
+  return (pv * r) / (1 - Math.pow(1 + r, -n))
+}
+
 export function computeRepaymentCapacity(
   cashFlows: CharacteristicCashFlowRange,
   baiia: BaiiaAdjustedRange,
@@ -243,38 +264,108 @@ export function computeRepaymentCapacity(
     inputs.durationYears,
     cashFlows.high,
   )
-  const ratio = (debt: number, ebitda: number) =>
-    Number.isFinite(ebitda) && Math.abs(ebitda) >= 1e-9 ? debt / ebitda : Number.NaN
+  const baiiaMid =
+    Number.isFinite(baiia.mid) && Math.abs(baiia.mid) >= 1e-9
+      ? baiia.mid
+      : Number.NaN
+  const ratio = (debt: number) =>
+    Number.isFinite(baiiaMid) ? debt / baiiaMid : Number.NaN
   return {
     maxDebt: { low: maxLow, high: maxHigh },
     debtBaiia: {
-      low: ratio(maxLow, baiia.low),
-      high: ratio(maxHigh, baiia.high),
+      low: ratio(maxLow),
+      high: ratio(maxHigh),
     },
   }
 }
 
 /**
- * Compare le Dette / BAIIA retenu à la fourchette issue de la capacité max (VA).
- * - over : retenu > haut de capacité
- * - within : bas < retenu ≤ haut
- * - ok : retenu ≤ bas
+ * Compare un Dette / BAIIA (estimé via pondération CMPC, ou historique retenu)
+ * à la fourchette issue de la capacité max (VA).
+ * - over : ratio > haut de capacité
+ * - within : bas < ratio ≤ haut
+ * - ok : ratio ≤ bas
  */
 export type DebtBaiiaLeverageStatus = "ok" | "within" | "over"
 
 export function assessDebtBaiiaLeverage(
-  retained: number,
+  debtBaiia: number,
   capacityDebtBaiia: { low: number; high: number },
 ): DebtBaiiaLeverageStatus {
-  if (!Number.isFinite(retained)) return "ok"
+  if (!Number.isFinite(debtBaiia)) return "ok"
   const low = capacityDebtBaiia.low
   const high = capacityDebtBaiia.high
   if (!Number.isFinite(low) || !Number.isFinite(high)) return "ok"
   const ceil = Math.max(low, high)
   const floor = Math.min(low, high)
-  if (retained > ceil + 1e-9) return "over"
-  if (retained > floor + 1e-9) return "within"
+  if (debtBaiia > ceil + 1e-9) return "over"
+  if (debtBaiia > floor + 1e-9) return "within"
   return "ok"
+}
+
+/**
+ * Dette estimée = VE × pondération dette CMPC (%) ;
+ * Dette / BAIIA = dette estimée ÷ BAIIA moyen.
+ */
+export type EstimatedDebtFromCmpcWeight = {
+  debtWeightPct: number
+  estimatedDebt: { low: number; high: number; mid: number }
+  debtBaiia: { low: number | null; high: number | null; mid: number | null }
+  /**
+   * Capacité de remboursement = VPM(taux, durée, −dette estimée)
+   * (taux / durée = hypothèses de remboursement).
+   */
+  repaymentCapacityPayment: { low: number; high: number; mid: number }
+  /** Flux caractéristiques − VPM. */
+  cashFlowAfterDebtService: { low: number; high: number; mid: number }
+}
+
+export function computeEstimatedDebtFromCmpcWeight(inputs: {
+  enterpriseValue: { low: number; high: number; mid: number }
+  debtWeightPct: number | null
+  baiiaMid: number
+  annualInterestRate: number
+  durationYears: number
+  cashFlowLow: number
+  cashFlowHigh: number
+}): EstimatedDebtFromCmpcWeight | null {
+  if (inputs.debtWeightPct == null || !Number.isFinite(inputs.debtWeightPct)) return null
+  const w = Math.max(0, inputs.debtWeightPct) / 100
+  const estimatedDebt = {
+    low: inputs.enterpriseValue.low * w,
+    high: inputs.enterpriseValue.high * w,
+    mid: inputs.enterpriseValue.mid * w,
+  }
+  const ratio = (debt: number): number | null => {
+    if (!Number.isFinite(inputs.baiiaMid) || Math.abs(inputs.baiiaMid) < 1e-9) return null
+    if (!Number.isFinite(debt)) return null
+    return debt / inputs.baiiaMid
+  }
+  const payment = (debt: number) =>
+    annuityPayment(inputs.annualInterestRate, inputs.durationYears, debt)
+  const repaymentCapacityPayment = {
+    low: payment(estimatedDebt.low),
+    high: payment(estimatedDebt.high),
+    mid: payment(estimatedDebt.mid),
+  }
+  const cfLow = Number.isFinite(inputs.cashFlowLow) ? inputs.cashFlowLow : 0
+  const cfHigh = Number.isFinite(inputs.cashFlowHigh) ? inputs.cashFlowHigh : 0
+  const cashFlow = { low: cfLow, high: cfHigh, mid: (cfLow + cfHigh) / 2 }
+  return {
+    debtWeightPct: inputs.debtWeightPct,
+    estimatedDebt,
+    debtBaiia: {
+      low: ratio(estimatedDebt.low),
+      high: ratio(estimatedDebt.high),
+      mid: ratio(estimatedDebt.mid),
+    },
+    repaymentCapacityPayment,
+    cashFlowAfterDebtService: {
+      low: cashFlow.low - repaymentCapacityPayment.low,
+      high: cashFlow.high - repaymentCapacityPayment.high,
+      mid: cashFlow.mid - repaymentCapacityPayment.mid,
+    },
+  }
 }
 
 export function computeDebtCapacity(
@@ -331,9 +422,12 @@ export function computeCmpcWacc(i: CmpcWaccInputs): CmpcWaccResults {
   const afterTaxCostOfDebt = preTaxCostOfDebt * (1 - tax)
   const taxShield = preTaxCostOfDebt - afterTaxCostOfDebt
 
-  const totalCapital = i.equityValue + i.debtValue
-  const weightEquity = totalCapital > 0 ? i.equityValue / totalCapital : 0
-  const weightDebt = totalCapital > 0 ? i.debtValue / totalCapital : 0
+  const eq = Number.isFinite(i.equityWeightPct) ? Math.max(0, i.equityWeightPct) : 0
+  const deb = Number.isFinite(i.debtWeightPct) ? Math.max(0, i.debtWeightPct) : 0
+  const totalPct = eq + deb
+  const weightEquity = totalPct > 0 ? eq / totalPct : 0
+  const weightDebt = totalPct > 0 ? deb / totalPct : 0
+  const totalCapital = totalPct
 
   const equityContribution = weightEquity * costOfEquity
   const debtContribution = weightDebt * afterTaxCostOfDebt
@@ -469,6 +563,49 @@ export function parseCmpcWaccConfig(data: unknown): {
     return typeof v === "string" ? v : fallback
   }
 
+  /** Poids % : champs dédiés, sinon migration depuis anciens montants $ (equityValue / debtValue). */
+  const resolveStructureWeights = (): {
+    equityWeightPct: number
+    debtWeightPct: number
+  } => {
+    const eqPctRaw = inputsRaw.equityWeightPct
+    const debPctRaw = inputsRaw.debtWeightPct
+    const eqPct =
+      typeof eqPctRaw === "number" ? eqPctRaw : eqPctRaw != null ? Number(eqPctRaw) : Number.NaN
+    const debPct =
+      typeof debPctRaw === "number"
+        ? debPctRaw
+        : debPctRaw != null
+          ? Number(debPctRaw)
+          : Number.NaN
+    if (Number.isFinite(eqPct) || Number.isFinite(debPct)) {
+      const e = Number.isFinite(eqPct) ? eqPct : DEFAULT_CMPC_INPUTS.equityWeightPct
+      const d = Number.isFinite(debPct) ? debPct : Math.max(0, 100 - e)
+      return { equityWeightPct: e, debtWeightPct: d }
+    }
+    const eqDol = num("equityValue" as keyof CmpcWaccInputs, Number.NaN)
+    const debDol = num("debtValue" as keyof CmpcWaccInputs, Number.NaN)
+    // Legacy dollar amounts (typically >> 100).
+    if (
+      Number.isFinite(eqDol) &&
+      Number.isFinite(debDol) &&
+      (eqDol > 100 || debDol > 100 || eqDol + debDol > 100)
+    ) {
+      const total = eqDol + debDol
+      if (total > 0) {
+        return {
+          equityWeightPct: (eqDol / total) * 100,
+          debtWeightPct: (debDol / total) * 100,
+        }
+      }
+    }
+    return {
+      equityWeightPct: DEFAULT_CMPC_INPUTS.equityWeightPct,
+      debtWeightPct: DEFAULT_CMPC_INPUTS.debtWeightPct,
+    }
+  }
+  const structureWeights = resolveStructureWeights()
+
   return {
     inputs: {
       riskFreeRate: num("riskFreeRate", DEFAULT_CMPC_INPUTS.riskFreeRate),
@@ -478,8 +615,8 @@ export function parseCmpcWaccConfig(data: unknown): {
       specificRiskPremium: num("specificRiskPremium", DEFAULT_CMPC_INPUTS.specificRiskPremium),
       creditSpread: num("creditSpread", DEFAULT_CMPC_INPUTS.creditSpread),
       taxRate: num("taxRate", DEFAULT_CMPC_INPUTS.taxRate),
-      equityValue: num("equityValue", DEFAULT_CMPC_INPUTS.equityValue),
-      debtValue: num("debtValue", DEFAULT_CMPC_INPUTS.debtValue),
+      equityWeightPct: structureWeights.equityWeightPct,
+      debtWeightPct: structureWeights.debtWeightPct,
     },
     meta: {
       subject: str("subject", DEFAULT_CMPC_META.subject),
@@ -516,8 +653,14 @@ export function parseCmpcWaccConfig(data: unknown): {
       ),
       creditSpread: sourceStr("creditSpread", DEFAULT_CMPC_PARAM_SOURCES.creditSpread),
       taxRate: sourceStr("taxRate", DEFAULT_CMPC_PARAM_SOURCES.taxRate),
-      equityValue: sourceStr("equityValue", DEFAULT_CMPC_PARAM_SOURCES.equityValue),
-      debtValue: sourceStr("debtValue", DEFAULT_CMPC_PARAM_SOURCES.debtValue),
+      equityWeightPct:
+        (typeof sourcesRaw.equityWeightPct === "string" && sourcesRaw.equityWeightPct) ||
+        (typeof sourcesRaw.equityValue === "string" && sourcesRaw.equityValue) ||
+        DEFAULT_CMPC_PARAM_SOURCES.equityWeightPct,
+      debtWeightPct:
+        (typeof sourcesRaw.debtWeightPct === "string" && sourcesRaw.debtWeightPct) ||
+        (typeof sourcesRaw.debtValue === "string" && sourcesRaw.debtValue) ||
+        DEFAULT_CMPC_PARAM_SOURCES.debtWeightPct,
     },
     debtCapacity: {
       debtBaiiaEmpirical: debtNum(

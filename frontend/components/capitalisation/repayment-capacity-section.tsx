@@ -4,21 +4,19 @@ import { useMemo } from "react"
 import { ParamRow } from "@/components/cmpc/editable"
 import { NetTangibleReportSection } from "@/components/net-tangible/report-section"
 import {
-  assessDebtBaiiaLeverage,
   computeRepaymentCapacity,
   formatCmpcCurrency,
   type CmpcDebtCapacityInputs,
   type CmpcDebtCapacityNotes,
   type CmpcRepaymentCapacityInputs,
   type CmpcRepaymentCapacityNotes,
-  type DebtBaiiaLeverageStatus,
 } from "@/lib/cmpc-wacc"
-import { cn } from "@/lib/utils"
 
 export type RepaymentCapacitySectionProps = {
   number?: string
   baiiaLow: number
   baiiaHigh: number
+  baiiaMid: number
   cashFlowLow: number
   cashFlowHigh: number
   debtCapacity: CmpcDebtCapacityInputs
@@ -39,26 +37,16 @@ function AmountCell({ value }: { value: number }) {
   )
 }
 
-function formatDebtBaiiaMultiple(value: number): string {
-  if (!Number.isFinite(value)) return "—"
+function formatDebtBaiiaMultiple(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—"
   return `${value.toFixed(2)}×`
 }
 
-function leverageStatusLabel(status: DebtBaiiaLeverageStatus): string {
-  switch (status) {
-    case "over":
-      return "Over — au-dessus de la capacité maximale"
-    case "within":
-      return "Dans la fourchette (entre bas et haut)"
-    case "ok":
-      return "Dans la capacité (≤ borne basse)"
-  }
-}
-
 export function RepaymentCapacitySection({
-  number = "3.",
+  number = "2.",
   baiiaLow,
   baiiaHigh,
+  baiiaMid,
   cashFlowLow,
   cashFlowHigh,
   debtCapacity,
@@ -82,13 +70,16 @@ export function RepaymentCapacitySection({
     )
   }, [hasBaiia, hasCashFlows, cashFlowLow, cashFlowHigh, baiiaLow, baiiaHigh, repaymentCapacity])
 
-  const leverageStatus = useMemo(
-    () =>
-      repayment
-        ? assessDebtBaiiaLeverage(debtCapacity.debtBaiiaRetained, repayment.debtBaiia)
-        : null,
-    [debtCapacity.debtBaiiaRetained, repayment],
-  )
+  const updateRepayment =
+    (key: keyof CmpcRepaymentCapacityInputs) => (value: number) => {
+      if (!Number.isFinite(value) || value < 0) return
+      onRepaymentCapacityChange({ ...repaymentCapacity, [key]: value })
+    }
+
+  const updateRepaymentNote =
+    (key: keyof CmpcRepaymentCapacityNotes) => (note: string) => {
+      onRepaymentCapacityNotesChange({ ...repaymentCapacityNotes, [key]: note })
+    }
 
   const updateMultiple =
     (key: keyof CmpcDebtCapacityInputs) => (value: number) => {
@@ -101,36 +92,25 @@ export function RepaymentCapacitySection({
       onDebtCapacityNotesChange({ ...debtCapacityNotes, [key]: note })
     }
 
-  const updateRepayment =
-    (key: keyof CmpcRepaymentCapacityInputs) => (value: number) => {
-      if (!Number.isFinite(value) || value < 0) return
-      onRepaymentCapacityChange({ ...repaymentCapacity, [key]: value })
-    }
-
-  const updateRepaymentNote =
-    (key: keyof CmpcRepaymentCapacityNotes) => (note: string) => {
-      onRepaymentCapacityNotesChange({ ...repaymentCapacityNotes, [key]: note })
-    }
-
   return (
     <NetTangibleReportSection
-      id="remboursement"
+      id="endettement"
       number={number}
-      title="Capacité de remboursement"
+      title="Capacité d'endettement"
     >
       <p className="text-pretty text-sm leading-relaxed text-slate-500">
-        La capacité de remboursement traduit les flux monétaires caractéristiques en dette
-        maximale supportable (VA), puis en Dette / BAIIA. Les hypothèses Dette / BAIIA
-        (empiriques, IA, comparables) et le multiple{" "}
-        <span className="font-medium text-[#2A2F3A]">retenu</span> permettent de juger si la
-        structure cible dépasse cette capacité.
+        La capacité d&apos;endettement traduit les flux monétaires caractéristiques en dette
+        maximale supportable (VA), puis en Dette / BAIIA.
       </p>
       <p className="mt-2 text-pretty text-sm leading-relaxed text-slate-500">
         Capacité d&apos;endettement maximale = VA(taux, durée, flux) ; Dette / BAIIA =
-        capacité max ÷ BAIIA ajusté (bas / haut).
+        capacité max ÷ BAIIA moyen.
       </p>
 
-      <div className="mt-5 grid grid-cols-1 gap-x-10 gap-y-6 lg:grid-cols-2" data-testid="cmpc-repayment-capacity">
+      <div
+        className="mt-5 grid grid-cols-1 gap-x-10 gap-y-6 lg:grid-cols-2"
+        data-testid="cmpc-repayment-capacity"
+      >
         <div>
           {repayment && hasBaiia && hasCashFlows ? (
             <table className="w-full" data-testid="cmpc-repayment-results">
@@ -169,10 +149,10 @@ export function RepaymentCapacitySection({
                   </td>
                 </tr>
                 <tr className="border-t border-slate-200" data-testid="cmpc-baiia-retained">
-                  <td className="py-2 pr-4 text-sm text-[#2A2F3A]">BAIIA ajusté</td>
-                  <AmountCell value={baiiaLow} />
+                  <td className="py-2 pr-4 text-sm text-[#2A2F3A]">BAIIA moyen</td>
+                  <AmountCell value={baiiaMid} />
                   <td className="py-2 text-right font-mono text-sm tabular-nums text-[#2A2F3A]">
-                    {formatCmpcCurrency(baiiaHigh)}
+                    {formatCmpcCurrency(baiiaMid)}
                   </td>
                 </tr>
                 <tr className="border-t border-slate-200">
@@ -207,7 +187,7 @@ export function RepaymentCapacitySection({
           </p>
           <ParamRow
             label="Taux d'intérêt annuel"
-            hint="Taux annuel appliqué à l’annuité VA (équivalent Excel VA / PV)."
+            hint="Taux annuel appliqué à l’annuité VA (équivalent Excel VA / PV) et au VPM de la dette estimée."
             value={repaymentCapacity.annualInterestRate}
             onChange={updateRepayment("annualInterestRate")}
             unit="%"
@@ -222,7 +202,7 @@ export function RepaymentCapacitySection({
           />
           <ParamRow
             label="Durée"
-            hint="Nombre d’années de remboursement (périodes de l’annuité)."
+            hint="Nombre d’années de remboursement (périodes de l’annuité VA / VPM)."
             value={repaymentCapacity.durationYears}
             onChange={updateRepayment("durationYears")}
             unit="an"
@@ -234,15 +214,11 @@ export function RepaymentCapacitySection({
             testId="cmpc-repayment-duration"
             noteTestId="cmpc-repayment-duration-note"
           />
-        </div>
-      </div>
 
-      <div className="mt-8" data-testid="cmpc-debt-capacity">
-        <div className="grid grid-cols-1 gap-x-10 gap-y-6 lg:grid-cols-2">
+          <p className="mb-1 mt-6 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Hypothèses — Dette / BAIIA ajusté
+          </p>
           <div data-testid="cmpc-debt-baiia-hypotheses">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Hypothèses — Dette / BAIIA ajusté
-            </p>
             <ParamRow
               label="Dette / BAIIA — règles empiriques"
               hint="Multiple typique issu des règles empiriques ou covenants bancaires."
@@ -285,68 +261,6 @@ export function RepaymentCapacitySection({
               testId="cmpc-debt-baiia-comparables"
               noteTestId="cmpc-debt-baiia-comparables-note"
             />
-            <ParamRow
-              label="Dette / BAIIA retenu"
-              hint="Multiple retenu pour la structure cible, comparé à la Dette / BAIIA issue de la capacité d’endettement maximale."
-              value={debtCapacity.debtBaiiaRetained}
-              onChange={updateMultiple("debtBaiiaRetained")}
-              unit="×"
-              step={0.25}
-              min={0}
-              width="w-20"
-              note={debtCapacityNotes.debtBaiiaRetained}
-              onNoteChange={updateMultipleNote("debtBaiiaRetained")}
-              testId="cmpc-debt-baiia-retained"
-              noteTestId="cmpc-debt-baiia-retained-note"
-            />
-          </div>
-
-          <div data-testid="cmpc-debt-baiia-leverage-status">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Comparaison à la capacité maximale
-            </p>
-            {leverageStatus && repayment ? (
-              <>
-                <dl className="space-y-1.5 text-sm">
-                  <div className="flex items-center justify-between gap-4">
-                    <dt className="text-slate-500">Dette / BAIIA retenu</dt>
-                    <dd className="font-mono tabular-nums text-[#2A2F3A]">
-                      {formatDebtBaiiaMultiple(debtCapacity.debtBaiiaRetained)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt className="text-slate-500">Selon capacité max (bas)</dt>
-                    <dd className="font-mono tabular-nums text-[#2A2F3A]">
-                      {formatDebtBaiiaMultiple(repayment.debtBaiia.low)}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt className="text-slate-500">Selon capacité max (haut)</dt>
-                    <dd className="font-mono tabular-nums text-[#2A2F3A]">
-                      {formatDebtBaiiaMultiple(repayment.debtBaiia.high)}
-                    </dd>
-                  </div>
-                </dl>
-                <p
-                  className={cn(
-                    "mt-3 border-t-2 border-[#2A2F3A] pt-2 text-sm font-semibold",
-                    leverageStatus === "over"
-                      ? "text-red-700"
-                      : leverageStatus === "within"
-                        ? "text-amber-700"
-                        : "text-emerald-700",
-                  )}
-                  data-testid="cmpc-debt-baiia-leverage-verdict"
-                >
-                  {leverageStatusLabel(leverageStatus)}
-                </p>
-              </>
-            ) : (
-              <p className="mt-2 text-pretty text-sm text-slate-500">
-                Complétez la capacité de remboursement pour comparer le multiple retenu à la
-                Dette / BAIIA maximale.
-              </p>
-            )}
           </div>
         </div>
       </div>

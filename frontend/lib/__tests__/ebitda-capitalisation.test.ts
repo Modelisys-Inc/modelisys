@@ -14,6 +14,8 @@ import {
   migrateAdjustmentAmountKeys,
   seedEbitdaRangeFromAverage,
   computeCharacteristicCashFlows,
+  computeCashFlowCapitalisation,
+  computeCapitalisationGoodwillAndRatios,
   computeWorkingCapitalAdjustment,
   deriveCharacteristicCashFlowRange,
   DEFAULT_CHARACTERISTIC_CASH_FLOW,
@@ -366,5 +368,87 @@ describe("ebitda-capitalisation columns", () => {
     expect(range).not.toBeNull()
     expect(range!.low).toBe(577_000)
     expect(range!.high).toBe(1_200_000 * 0.75 - 3_000 - 40_000)
+  })
+})
+
+describe("computeCashFlowCapitalisation", () => {
+  it("derives rate, multiple and EV from CMPC − growth", () => {
+    const result = computeCashFlowCapitalisation({
+      cmpcPct: 10.75,
+      economicGrowthPct: 2,
+      cashFlowLow: 500_000,
+      cashFlowHigh: 700_000,
+    })
+    expect(result.capitalizationRatePct).toBe(8.75)
+    expect(result.multiple).toBeCloseTo(100 / 8.75, 8)
+    expect(result.cashFlow.mid).toBe(600_000)
+    expect(result.enterpriseValue!.mid).toBeCloseTo(600_000 * (100 / 8.75), 5)
+    expect(result.enterpriseValue!.low).toBeCloseTo(500_000 * (100 / 8.75), 5)
+    expect(result.enterpriseValue!.high).toBeCloseTo(700_000 * (100 / 8.75), 5)
+  })
+
+  it("returns null multiple/EV when CMPC is missing", () => {
+    const result = computeCashFlowCapitalisation({
+      cmpcPct: null,
+      economicGrowthPct: 2,
+      cashFlowLow: 100,
+      cashFlowHigh: 200,
+    })
+    expect(result.capitalizationRatePct).toBeNull()
+    expect(result.multiple).toBeNull()
+    expect(result.enterpriseValue).toBeNull()
+  })
+
+  it("returns null multiple when capitalization rate is not positive", () => {
+    const result = computeCashFlowCapitalisation({
+      cmpcPct: 2,
+      economicGrowthPct: 2,
+      cashFlowLow: 100,
+      cashFlowHigh: 200,
+    })
+    expect(result.capitalizationRatePct).toBe(0)
+    expect(result.multiple).toBeNull()
+    expect(result.enterpriseValue).toBeNull()
+  })
+})
+
+describe("computeCapitalisationGoodwillAndRatios", () => {
+  it("computes goodwill as VE − ACN and standard ratios", () => {
+    const result = computeCapitalisationGoodwillAndRatios({
+      enterpriseValue: { low: 5_000_000, high: 7_000_000, mid: 6_000_000 },
+      acn: 2_000_000,
+      revenue: { low: 10_000_000, high: 12_000_000, mid: 11_000_000 },
+      baiia: { low: 800_000, high: 1_000_000, mid: 900_000 },
+      cashFlow: { low: 500_000, high: 700_000, mid: 600_000 },
+    })
+    expect(result.goodwill).toEqual({
+      low: 3_000_000,
+      high: 5_000_000,
+      mid: 4_000_000,
+    })
+    expect(result.ratios.veOverRevenue.mid).toBeCloseTo(6_000_000 / 11_000_000, 8)
+    expect(result.ratios.veOverRevenue.low).toBeCloseTo(5_000_000 / 11_000_000, 8)
+    expect(result.ratios.veOverRevenue.high).toBeCloseTo(7_000_000 / 11_000_000, 8)
+    expect(result.ratios.veOverBaiia.mid).toBeCloseTo(6_000_000 / 900_000, 8)
+    expect(result.ratios.veOverBaiia.low).toBeCloseTo(5_000_000 / 900_000, 8)
+    expect(result.ratios.veOverCashFlow.mid).toBeCloseTo(6_000_000 / 600_000, 8)
+    expect(result.ratios.veOverCashFlow.low).toBeCloseTo(5_000_000 / 600_000, 8)
+    expect(result.ratios.goodwillOverBaiia.mid).toBeCloseTo(4_000_000 / 900_000, 8)
+    expect(result.ratios.goodwillOverCashFlow.mid).toBeCloseTo(4_000_000 / 600_000, 8)
+    expect(result.ratios.cashFlowOverBaiia.mid).toBeCloseTo(600_000 / 900_000, 8)
+    expect(result.ratios.cashFlowOverBaiia.low).toBeCloseTo(500_000 / 900_000, 8)
+  })
+
+  it("omits goodwill when ACN is missing", () => {
+    const result = computeCapitalisationGoodwillAndRatios({
+      enterpriseValue: { low: 1, high: 2, mid: 1.5 },
+      acn: null,
+      revenue: { low: 1, high: 1, mid: 1 },
+      baiia: { low: 1, high: 1, mid: 1 },
+      cashFlow: { low: 1, high: 1, mid: 1 },
+    })
+    expect(result.goodwill).toBeNull()
+    expect(result.ratios.goodwillOverBaiia.mid).toBeNull()
+    expect(result.ratios.veOverBaiia.mid).toBe(1.5)
   })
 })

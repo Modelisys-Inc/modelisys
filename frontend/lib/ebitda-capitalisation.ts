@@ -332,6 +332,160 @@ export function computeCharacteristicCashFlows(
   }
 }
 
+/**
+ * Capitalisation des flux : taux = CMPC − croissance ; multiple = 1 / taux.
+ * CMPC et croissance sont en % (ex. 10.75 et 2 → taux 8.75 % → multiple ≈ 11.43×).
+ */
+export type CashFlowCapitalisationInputs = {
+  /** CMPC retenu (Multiplicateur), en %. */
+  cmpcPct: number | null
+  /** Croissance économique (Flux monétaires), en %. */
+  economicGrowthPct: number
+  cashFlowLow: number
+  cashFlowHigh: number
+}
+
+export type CashFlowCapitalisationResult = {
+  cmpcPct: number | null
+  economicGrowthPct: number
+  /** CMPC − croissance (en %). */
+  capitalizationRatePct: number | null
+  /** 1 / (taux / 100) = 100 / taux. */
+  multiple: number | null
+  cashFlow: { low: number; high: number; mid: number }
+  enterpriseValue: { low: number; high: number; mid: number } | null
+}
+
+export function computeCashFlowCapitalisation(
+  inputs: CashFlowCapitalisationInputs,
+): CashFlowCapitalisationResult {
+  const growth = Number.isFinite(inputs.economicGrowthPct) ? inputs.economicGrowthPct : 0
+  const cfLow = Number.isFinite(inputs.cashFlowLow) ? inputs.cashFlowLow : 0
+  const cfHigh = Number.isFinite(inputs.cashFlowHigh) ? inputs.cashFlowHigh : 0
+  const cashFlow = { low: cfLow, high: cfHigh, mid: (cfLow + cfHigh) / 2 }
+
+  const cmpc =
+    inputs.cmpcPct != null && Number.isFinite(inputs.cmpcPct) ? inputs.cmpcPct : null
+  if (cmpc == null) {
+    return {
+      cmpcPct: null,
+      economicGrowthPct: growth,
+      capitalizationRatePct: null,
+      multiple: null,
+      cashFlow,
+      enterpriseValue: null,
+    }
+  }
+
+  const capitalizationRatePct = cmpc - growth
+  const multiple =
+    Number.isFinite(capitalizationRatePct) && capitalizationRatePct > 1e-9
+      ? 100 / capitalizationRatePct
+      : null
+
+  return {
+    cmpcPct: cmpc,
+    economicGrowthPct: growth,
+    capitalizationRatePct,
+    multiple,
+    cashFlow,
+    enterpriseValue:
+      multiple != null
+        ? {
+            low: cashFlow.low * multiple,
+            high: cashFlow.high * multiple,
+            mid: cashFlow.mid * multiple,
+          }
+        : null,
+  }
+}
+
+/** Achalandage = VE − ACN ; métriques vs dénominateurs moyens (bas/haut/moyen du numérateur). */
+export type RangeTriple = { low: number; high: number; mid: number }
+
+export type CapitalisationGoodwillResult = {
+  acn: number | null
+  goodwill: RangeTriple | null
+  ratios: {
+    veOverRevenue: { low: number | null; high: number | null; mid: number | null }
+    veOverBaiia: { low: number | null; high: number | null; mid: number | null }
+    veOverCashFlow: { low: number | null; high: number | null; mid: number | null }
+    goodwillOverBaiia: { low: number | null; high: number | null; mid: number | null }
+    goodwillOverCashFlow: { low: number | null; high: number | null; mid: number | null }
+    cashFlowOverBaiia: { low: number | null; high: number | null; mid: number | null }
+  }
+}
+
+function safeRatio(numerator: number, denominator: number): number | null {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator)) return null
+  if (Math.abs(denominator) < 1e-9) return null
+  return numerator / denominator
+}
+
+/** Numérateurs bas/haut/moyen ÷ dénominateur moyen uniquement. */
+function ratioVsMid(
+  nums: RangeTriple,
+  denMid: number,
+): { low: number | null; high: number | null; mid: number | null } {
+  return {
+    low: safeRatio(nums.low, denMid),
+    high: safeRatio(nums.high, denMid),
+    mid: safeRatio(nums.mid, denMid),
+  }
+}
+
+export function computeCapitalisationGoodwillAndRatios(inputs: {
+  enterpriseValue: RangeTriple | null
+  acn: number | null
+  revenue: RangeTriple
+  baiia: RangeTriple
+  cashFlow: RangeTriple
+}): CapitalisationGoodwillResult {
+  const acn =
+    inputs.acn != null && Number.isFinite(inputs.acn) ? inputs.acn : null
+  const goodwill =
+    inputs.enterpriseValue != null && acn != null
+      ? {
+          low: inputs.enterpriseValue.low - acn,
+          high: inputs.enterpriseValue.high - acn,
+          mid: inputs.enterpriseValue.mid - acn,
+        }
+      : null
+
+  const emptyRatio = { low: null, high: null, mid: null }
+  const cashFlowOverBaiia = ratioVsMid(inputs.cashFlow, inputs.baiia.mid)
+
+  if (inputs.enterpriseValue == null) {
+    return {
+      acn,
+      goodwill,
+      ratios: {
+        veOverRevenue: emptyRatio,
+        veOverBaiia: emptyRatio,
+        veOverCashFlow: emptyRatio,
+        goodwillOverBaiia: emptyRatio,
+        goodwillOverCashFlow: emptyRatio,
+        cashFlowOverBaiia,
+      },
+    }
+  }
+
+  return {
+    acn,
+    goodwill,
+    ratios: {
+      veOverRevenue: ratioVsMid(inputs.enterpriseValue, inputs.revenue.mid),
+      veOverBaiia: ratioVsMid(inputs.enterpriseValue, inputs.baiia.mid),
+      veOverCashFlow: ratioVsMid(inputs.enterpriseValue, inputs.cashFlow.mid),
+      goodwillOverBaiia:
+        goodwill != null ? ratioVsMid(goodwill, inputs.baiia.mid) : emptyRatio,
+      goodwillOverCashFlow:
+        goodwill != null ? ratioVsMid(goodwill, inputs.cashFlow.mid) : emptyRatio,
+      cashFlowOverBaiia,
+    },
+  }
+}
+
 export function isReferenceAtFiscalYearEnd(
   refMonth: number,
   fiscalYearEndMonth: number,

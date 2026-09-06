@@ -82,7 +82,7 @@ export function CmpcReport({
         inputs={inputs}
         results={results}
         sources={sources}
-        update={updateInput}
+        onInputsChange={onInputsChange}
       />
       <Determination results={results} />
       <Assumptions

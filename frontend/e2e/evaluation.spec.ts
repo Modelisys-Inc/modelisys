@@ -81,6 +81,11 @@ test.describe("Evaluation Pages", () => {
     ).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("capitalisation-report")).toBeVisible();
     await expect(page.getByTestId("capitalisation-section-menu")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Détermination de la valeur d'entreprise/i })
+    ).toBeVisible();
+    await expect(page.getByTestId("capitalisation-determination-table")).toBeVisible();
+    await expect(page.getByTestId("capitalisation-multiple-bridge")).toBeVisible();
     await expect(page.getByText("Entité:", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "CCF" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "VCA" })).toHaveCount(0);

@@ -249,17 +249,31 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   net d’impôt, pondération fonds propres / dette, fourchette ±0,5 % arrondie
   0,25 %). §3 Structure de capital : pondérations CMPC (E / D). La **capacité de
   remboursement** (VA, Dette / BAIIA, multiple retenu vs capacité max) vit dans
-  l’étape **Capitalisation** (`/evaluation/ebitda-multiple`, §3
-  `repayment-capacity-section.tsx`, persisté dans `ebitda-multiple-config`).
+  l’étape **Capitalisation** (`/evaluation/ebitda-multiple`, §2
+  `repayment-capacity-section.tsx` : VA + Dette / BAIIA capacité max + hypothèses
+  (remboursement et Dette / BAIIA) ; §3
+  `estimated-debt-section.tsx` : dette estimée = VE × pondération dette CMPC ;
+  Dette / BAIIA estimé vs hypothèses et capacité max ; persisté dans
+  `ebitda-multiple-config`).
   ForecastConfig `cmpc-multiplicateur` (`inputs` + `meta` + sources). La structure
   `statement_type="capitalisation"` / studio Paramètres n’est plus l’UX principale
   de cette étape.
 - **Capitalisation** (`/evaluation/ebitda-multiple`, étape plan « Capitalisation ») :
   rapport continu style VCA (`components/capitalisation/*`) — hero valuation +
-  feuille blanche ; sections 1 Multiples · 2 Valeur d’entreprise (+ graphique) ·
-  3 Capacité de remboursement (VA, Dette / BAIIA, retenu vs capacité max) ·
-  4 Restrictions ; BAIIA représentatif issu de l’étape Flux monétaires (même
-  `ebitda-multiple-config`) ; bandeau KPI ; nav d’ancres ; moteur
+  feuille blanche ; sections 1 Détermination de la valeur d’entreprise
+  (flux caractéristiques bas/haut/moyen depuis Flux monétaires ; multiple retenu
+  = 1 ÷ [CMPC retenu (Multiplicateur) − croissance économique] ; VE = flux ×
+  multiple via `computeCashFlowCapitalisation` ; achalandage = VE − ACN déjà
+  déterminé à l’étape Valeur comptable ajustée
+  (`net-tangible-fdr-adjustment.acn`, bandeau ACN) ; métriques d’évaluation
+  vs dénominateurs moyens (VE/Revenus moyens, VE/BAIIA moyen, VE/Flux moyens,
+  Achalandage/BAIIA moyen, Achalandage/Flux moyens, Flux/BAIIA moyen) via
+  `computeCapitalisationGoodwillAndRatios`) · 2 Capacité d’endettement
+  (VA ; Dette / BAIIA capacité max ÷ BAIIA moyen ; hypothèses remboursement +
+  Dette / BAIIA ajusté) · 3 Dette estimée selon pondération CMPC
+  (`estimated-debt-section.tsx` : VE × Wd ; Dette / BAIIA estimé ; VPM ; comparaison
+  vs hypothèses et capacité max) · 4 Restrictions ; bandeau KPI
+  (flux, CMPC, taux, multiple, VE) ; nav d’ancres ; moteur
   `lib/ebitda-capitalisation.ts` + hook `use-ebitda-capitalisation` ; disclaimer
   localStorage partagé.
 - **VCA / FDR représentatif** (`/evaluation/net-tangible-assets`) : rapport

@@ -590,6 +590,12 @@ export default function NetTangibleAssetsPage() {
     [overviewBaseMetrics, overviewFdrAdjustedValue, overviewFdrAdjustmentDelta],
   )
 
+  /** ACN (après ajustement FDR) — publié pour Capitalisation (achalandage). */
+  const overviewAcn = useMemo(() => {
+    const metric = overviewMetrics.find((m) => m.id === "acn")
+    return metric?.value != null && Number.isFinite(metric.value) ? metric.value : null
+  }, [overviewMetrics])
+
   const handleSaveHypothesis = useCallback(
     (
       rowId: string,
@@ -686,6 +692,7 @@ export default function NetTangibleAssetsPage() {
             ...(pctOfRevenue != null && Number.isFinite(pctOfRevenue)
               ? { pctOfRevenue }
               : {}),
+            ...(overviewAcn != null ? { acn: overviewAcn } : {}),
           },
           division_id: null,
           sub_division_id: null,
@@ -694,7 +701,7 @@ export default function NetTangibleAssetsPage() {
         console.error("Error saving FDR adjustment:", err)
       }
     },
-    [companyId],
+    [companyId, overviewAcn],
   )
 
   /** FDR déterminé ÷ revenus TTM — affiché sous la carte de base. */
@@ -736,9 +743,10 @@ export default function NetTangibleAssetsPage() {
       ? (overviewFdrAdjustedValue / Math.abs(revenueTotal)) * 100
       : fdrAdjustedPctOfRevenue
 
-  /** Publie le % FDR représentatif dès qu’il est calculable (consommation BAIIA ajusté). */
+  /** Publie le % FDR représentatif + ACN dès qu’ils sont calculables (Flux / Capitalisation). */
   useEffect(() => {
-    if (!companyId || fdrRepresentativePctOfRevenue == null) return
+    if (!companyId) return
+    if (fdrRepresentativePctOfRevenue == null && overviewAcn == null) return
     const timer = setTimeout(() => {
       void upsertForecastConfig(companyId, {
         config_type: "net-tangible-fdr-adjustment",
@@ -746,7 +754,10 @@ export default function NetTangibleAssetsPage() {
           mode: fdrAdjMode,
           value: fdrAdjValue,
           note: fdrAdjNote,
-          pctOfRevenue: fdrRepresentativePctOfRevenue,
+          ...(fdrRepresentativePctOfRevenue != null
+            ? { pctOfRevenue: fdrRepresentativePctOfRevenue }
+            : {}),
+          ...(overviewAcn != null ? { acn: overviewAcn } : {}),
         },
         division_id: null,
         sub_division_id: null,
@@ -756,6 +767,7 @@ export default function NetTangibleAssetsPage() {
   }, [
     companyId,
     fdrRepresentativePctOfRevenue,
+    overviewAcn,
     fdrAdjMode,
     fdrAdjValue,
     fdrAdjNote,

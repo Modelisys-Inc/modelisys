@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  formatCmpcCurrency,
   formatCmpcPct,
   type CmpcParamSources,
   type CmpcWaccInputs,
@@ -14,61 +13,84 @@ type StructureSectionProps = {
   inputs: CmpcWaccInputs
   results: CmpcWaccResults
   sources: CmpcParamSources
-  update: (key: keyof CmpcWaccInputs) => (value: number) => void
+  onInputsChange: (next: CmpcWaccInputs) => void
 }
 
 export function StructureSection({
   inputs,
   results,
   sources,
-  update,
+  onInputsChange,
 }: StructureSectionProps) {
   const equityPct = Math.round(results.weightEquity * 100)
   const debtPct = 100 - equityPct
+
+  const setEquityWeight = (value: number) => {
+    if (!Number.isFinite(value) || value < 0) return
+    const clipped = Math.min(100, value)
+    onInputsChange({
+      ...inputs,
+      equityWeightPct: clipped,
+      debtWeightPct: Math.max(0, 100 - clipped),
+    })
+  }
+
+  const setDebtWeight = (value: number) => {
+    if (!Number.isFinite(value) || value < 0) return
+    const clipped = Math.min(100, value)
+    onInputsChange({
+      ...inputs,
+      debtWeightPct: clipped,
+      equityWeightPct: Math.max(0, 100 - clipped),
+    })
+  }
 
   return (
     <ReportSection number="3." title="Structure de capital">
       <p className="text-pretty text-sm leading-relaxed text-slate-500">
         Les pondérations du CMPC reposent sur la structure de capital de l&apos;entreprise,
         idéalement établie à la valeur de marché ou selon une structure cible représentative du
-        secteur. Elles déterminent le poids relatif des capitaux propres et de la dette dans le
-        coût global du capital. La capacité de remboursement (Dette / BAIIA) est analysée à
-        l&apos;étape <span className="font-medium text-[#2A2F3A]">Capitalisation</span>.
+        secteur. Saisissez les poids en{" "}
+        <span className="font-medium text-[#2A2F3A]">pourcentage</span> (somme 100&nbsp;%). La
+        capacité de remboursement (Dette / BAIIA) est analysée à l&apos;étape{" "}
+        <span className="font-medium text-[#2A2F3A]">Capitalisation</span>.
       </p>
 
       <div className="mt-5 grid grid-cols-1 gap-x-10 lg:grid-cols-2">
         <div>
           <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Hypothèses (valeurs de marché ou cibles)
+            Hypothèses (structure cible)
           </p>
           <ParamRow
             label="Capitaux propres (E)"
-            value={inputs.equityValue}
-            onChange={update("equityValue")}
+            value={inputs.equityWeightPct}
+            onChange={setEquityWeight}
             testId="cmpc-equity-value"
-            unit="$"
-            step={100_000}
+            unit="%"
+            step={1}
             min={0}
-            width="w-36"
-            hint={sources.equityValue}
-            note="Valeur de marché estimée ou cible"
+            max={100}
+            width="w-20"
+            hint={sources.equityWeightPct}
+            note="Poids cible We (complète automatiquement la dette)"
           />
           <ParamRow
             label="Dette financière nette (D)"
-            value={inputs.debtValue}
-            onChange={update("debtValue")}
+            value={inputs.debtWeightPct}
+            onChange={setDebtWeight}
             testId="cmpc-debt-value"
-            unit="$"
-            step={100_000}
+            unit="%"
+            step={1}
             min={0}
-            width="w-36"
-            hint={sources.debtValue}
-            note="Dette portant intérêt, nette de la trésorerie"
+            max={100}
+            width="w-20"
+            hint={sources.debtWeightPct}
+            note="Poids cible Wd (complète automatiquement les capitaux propres)"
           />
           <div className="mt-3 flex items-baseline justify-between border-t-2 border-[#2A2F3A] pt-2">
-            <span className="text-sm font-semibold text-[#2A2F3A]">Capital total investi</span>
+            <span className="text-sm font-semibold text-[#2A2F3A]">Total structure</span>
             <span className="font-mono text-sm font-semibold tabular-nums text-[#2A2F3A]">
-              {formatCmpcCurrency(results.totalCapital)}
+              {formatCmpcPct(inputs.equityWeightPct + inputs.debtWeightPct, 0)}
             </span>
           </div>
         </div>

@@ -22,6 +22,8 @@ import {
   computeAverageNFiscalYears,
   buildEbitdaSynthesisAverages,
   computeCharacteristicCashFlows,
+  computeCashFlowCapitalisation,
+  computeCapitalisationGoodwillAndRatios,
   computeWorkingCapitalAdjustmentAnalysis,
   computeSeriesAmountsByColumn,
   computeWeightedAverageEBITDA,
@@ -44,6 +46,9 @@ import {
   DEFAULT_CMPC_DEBT_CAPACITY_NOTES,
   DEFAULT_CMPC_REPAYMENT_CAPACITY,
   DEFAULT_CMPC_REPAYMENT_CAPACITY_NOTES,
+  cmpcWaccRange,
+  computeCmpcWacc,
+  parseCmpcWaccConfig,
   type CmpcDebtCapacityInputs,
   type CmpcDebtCapacityNotes,
   type CmpcRepaymentCapacityInputs,
@@ -197,6 +202,8 @@ export function useEbitdaCapitalisation({
   )
   /** FDR représentatif en % des revenus (VCA) — null si non disponible. */
   const [vcaFdrPctOfRevenue, setVcaFdrPctOfRevenue] = useState<number | null>(null)
+  /** ACN (étape Valeur comptable ajustée) — null si non disponible. */
+  const [vcaAcn, setVcaAcn] = useState<number | null>(null)
   const [cashFlowNotes, setCashFlowNotes] = useState({
     tax: "",
     economicGrowth: "",
@@ -215,6 +222,11 @@ export function useEbitdaCapitalisation({
   )
   const [repaymentCapacityNotes, setRepaymentCapacityNotes] =
     useState<CmpcRepaymentCapacityNotes>(DEFAULT_CMPC_REPAYMENT_CAPACITY_NOTES)
+
+  /** CMPC retenu (Multiplicateur) — null si non encore déterminé. */
+  const [cmpcRetainedPct, setCmpcRetainedPct] = useState<number | null>(null)
+  /** Pondération dette CMPC (%) — Structure de capital (Multiplicateur). */
+  const [cmpcDebtWeightPct, setCmpcDebtWeightPct] = useState<number | null>(null)
 
   const adjustedColumns = useMemo(
     () => computeAdjustedColumns(columns, adjustments),
@@ -276,10 +288,6 @@ export function useEbitdaCapitalisation({
 
   const midEBITDARange = (lowEBITDARange + highEBITDARange) / 2
   const midRevenueRange = (lowRevenueRange + highRevenueRange) / 2
-  const midMultiple = (lowMultiple + highMultiple) / 2
-  const lowEnterpriseValue = lowEBITDARange * lowMultiple
-  const highEnterpriseValue = highEBITDARange * highMultiple
-  const midEnterpriseValue = (lowEnterpriseValue + highEnterpriseValue) / 2
 
   const workingCapitalAdjustment = useMemo(
     () =>
@@ -317,6 +325,66 @@ export function useEbitdaCapitalisation({
     ],
   )
 
+  const cashFlowCapitalisation = useMemo(
+    () =>
+      computeCashFlowCapitalisation({
+        cmpcPct: cmpcRetainedPct,
+        economicGrowthPct: cashFlowEconomicGrowth,
+        cashFlowLow: characteristicCashFlows.low.characteristicCashFlow,
+        cashFlowHigh: characteristicCashFlows.high.characteristicCashFlow,
+      }),
+    [
+      cmpcRetainedPct,
+      cashFlowEconomicGrowth,
+      characteristicCashFlows.low.characteristicCashFlow,
+      characteristicCashFlows.high.characteristicCashFlow,
+    ],
+  )
+
+  const midMultiple = cashFlowCapitalisation.multiple ?? (lowMultiple + highMultiple) / 2
+  const lowEnterpriseValue =
+    cashFlowCapitalisation.enterpriseValue?.low ?? lowEBITDARange * lowMultiple
+  const highEnterpriseValue =
+    cashFlowCapitalisation.enterpriseValue?.high ?? highEBITDARange * highMultiple
+  const midEnterpriseValue =
+    cashFlowCapitalisation.enterpriseValue?.mid ??
+    (lowEnterpriseValue + highEnterpriseValue) / 2
+
+  const goodwillAndRatios = useMemo(
+    () =>
+      computeCapitalisationGoodwillAndRatios({
+        enterpriseValue: {
+          low: lowEnterpriseValue,
+          high: highEnterpriseValue,
+          mid: midEnterpriseValue,
+        },
+        acn: vcaAcn,
+        revenue: {
+          low: lowRevenueRange,
+          high: highRevenueRange,
+          mid: midRevenueRange,
+        },
+        baiia: {
+          low: lowEBITDARange,
+          high: highEBITDARange,
+          mid: midEBITDARange,
+        },
+        cashFlow: cashFlowCapitalisation.cashFlow,
+      }),
+    [
+      lowEnterpriseValue,
+      highEnterpriseValue,
+      midEnterpriseValue,
+      cashFlowCapitalisation.cashFlow,
+      vcaAcn,
+      lowRevenueRange,
+      highRevenueRange,
+      midRevenueRange,
+      lowEBITDARange,
+      highEBITDARange,
+      midEBITDARange,
+    ],
+  )
   const enterpriseValueChartData: EnterpriseValueSeriesPoint[] = useMemo(
     () =>
       buildEnterpriseValueSeries({
@@ -776,10 +844,11 @@ export function useEbitdaCapitalisation({
     }
   }, [companyId])
 
-  /** FDR représentatif % des revenus — étape VCA (`net-tangible-fdr-adjustment`). */
+  /** FDR % + ACN — étape Valeur comptable ajustée (`net-tangible-fdr-adjustment`). */
   useEffect(() => {
     if (!companyId) {
       setVcaFdrPctOfRevenue(null)
+      setVcaAcn(null)
       return
     }
     let cancelled = false
@@ -787,6 +856,11 @@ export function useEbitdaCapitalisation({
       .then((configs) => {
         if (cancelled) return
         const d = (configs[0]?.data ?? {}) as Record<string, unknown>
+        if (typeof d.acn === "number" && Number.isFinite(d.acn)) {
+          setVcaAcn(d.acn)
+        } else {
+          setVcaAcn(null)
+        }
         if (typeof d.pctOfRevenue === "number" && Number.isFinite(d.pctOfRevenue)) {
           setVcaFdrPctOfRevenue(d.pctOfRevenue)
           return
@@ -799,7 +873,44 @@ export function useEbitdaCapitalisation({
         setVcaFdrPctOfRevenue(null)
       })
       .catch(() => {
-        if (!cancelled) setVcaFdrPctOfRevenue(null)
+        if (!cancelled) {
+          setVcaFdrPctOfRevenue(null)
+          setVcaAcn(null)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [companyId])
+
+  /** CMPC retenu + pondération dette — étape Multiplicateur (`cmpc-multiplicateur`). */
+  useEffect(() => {
+    if (!companyId) {
+      setCmpcRetainedPct(null)
+      setCmpcDebtWeightPct(null)
+      return
+    }
+    let cancelled = false
+    listForecastConfigs(companyId, { config_type: "cmpc-multiplicateur" })
+      .then((configs) => {
+        if (cancelled) return
+        if (!configs[0]?.data) {
+          setCmpcRetainedPct(null)
+          setCmpcDebtWeightPct(null)
+          return
+        }
+        const parsed = parseCmpcWaccConfig(configs[0].data)
+        const wacc = computeCmpcWacc(parsed.inputs).wacc
+        setCmpcRetainedPct(cmpcWaccRange(wacc).retained)
+        setCmpcDebtWeightPct(
+          Number.isFinite(parsed.inputs.debtWeightPct) ? parsed.inputs.debtWeightPct : null,
+        )
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCmpcRetainedPct(null)
+          setCmpcDebtWeightPct(null)
+        }
       })
     return () => {
       cancelled = true
@@ -1006,8 +1117,13 @@ export function useEbitdaCapitalisation({
     cashFlowNotes,
     updateCashFlowNote,
     vcaFdrPctOfRevenue,
+    vcaAcn,
     workingCapitalAdjustment,
     characteristicCashFlows,
+    cashFlowCapitalisation,
+    goodwillAndRatios,
+    cmpcRetainedPct,
+    cmpcDebtWeightPct,
 
     debtCapacity,
     setDebtCapacity,
