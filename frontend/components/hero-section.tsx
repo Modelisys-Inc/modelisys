@@ -2,7 +2,7 @@
 
 import { ArrowRight } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
-import { HeroValueDriversCard } from "@/components/hero-value-drivers-card"
+import { HeroValueSystem } from "@/components/hero-value-system"
 import { scrollToApprocheSection } from "@/lib/approche-navigation"
 
 export function HeroSection() {
@@ -30,79 +30,74 @@ export function HeroSection() {
 
   return (
     <section id="hero" ref={sectionRef} className="relative overflow-hidden scroll-mt-24">
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
-          <div className="relative bg-[#2A2F3A]">
-            <div
-              className="pointer-events-none absolute inset-0 opacity-[0.45]"
-              aria-hidden
-              style={{
-                backgroundImage: `linear-gradient(rgb(255 255 255 / 0.055) 1px, transparent 1px),
-                  linear-gradient(90deg, rgb(255 255 255 / 0.055) 1px, transparent 1px)`,
-                backgroundSize: "44px 44px",
-                maskImage: "radial-gradient(ellipse 90% 85% at 30% 45%, black 20%, transparent 78%)",
-                WebkitMaskImage:
-                  "radial-gradient(ellipse 90% 85% at 30% 45%, black 20%, transparent 78%)",
-              }}
-            />
-          </div>
-          <div className="bg-[#1F2430] lg:border-l lg:border-white/5" />
-        </div>
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute -top-24 -left-28 h-[520px] w-[520px] rounded-full bg-white/5 blur-3xl" />
-          <div className="absolute -bottom-28 -right-28 h-[560px] w-[560px] rounded-full bg-black/20 blur-3xl" />
-        </div>
+      {/* One continuous stage — no hard left/right panel split */}
+      <div className="absolute inset-0 pointer-events-none bg-[#222732]">
+        <div
+          className="absolute inset-0 opacity-[0.4]"
+          aria-hidden
+          style={{
+            backgroundImage: `linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+              linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px)`,
+            backgroundSize: "56px 56px",
+            maskImage:
+              "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+            WebkitMaskImage:
+              "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+          }}
+        />
+        <div className="absolute -top-32 left-[-10%] h-[34rem] w-[34rem] rounded-full bg-[#E6D6C3]/[0.04] blur-3xl" />
+        <div className="absolute top-1/3 right-[-5%] h-[28rem] w-[28rem] rounded-full bg-[#E0742D]/[0.05] blur-3xl" />
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#1a1f2a] to-transparent" />
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20 pointer-events-auto">
-        <div className="relative flex min-h-0 flex-col gap-10 py-12 sm:gap-12 sm:py-16 lg:grid lg:grid-cols-2 lg:items-center lg:gap-12 lg:pt-[6.5rem] lg:pb-12 xl:gap-16 xl:pt-28 xl:pb-14 2xl:gap-20 2xl:py-20">
+      <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
+        <div className="grid min-h-[min(88vh,52rem)] grid-cols-1 items-center gap-14 py-20 sm:gap-16 sm:py-24 lg:grid-cols-2 lg:gap-12 lg:py-28 xl:gap-20 xl:py-32">
           <div
-            className={`order-1 lg:col-start-1 max-w-xl lg:max-w-none lg:pr-4 xl:pr-10 transition-all duration-1000 ${
-              isVisible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
+            className={`max-w-xl lg:max-w-[34rem] xl:max-w-[38rem] transition-all duration-1000 ${
+              isVisible ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
             }`}
           >
-            <p className="max-w-[34rem] text-sm font-medium leading-relaxed text-slate-300/95 sm:text-base">
-              Combien vaut votre entreprise&nbsp;? Et comment augmenter sa valeur&nbsp;?
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/70">
+              Pilotage &amp; évaluation
             </p>
 
-            <h1 className="mt-6 max-w-[34rem] text-[1.75rem] font-semibold leading-[1.2] tracking-tight text-[#E6D6C3] sm:mt-8 sm:max-w-[36rem] sm:text-[2.15rem] sm:leading-[1.18] lg:max-w-[32rem] lg:text-[2rem] xl:max-w-[38rem] xl:text-[2.35rem] 2xl:text-[2.65rem]">
-              La plateforme de gestion et de création de valeur pour les entreprises privées.
+            <h1 className="mt-7 text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-8 sm:text-[2.45rem] sm:leading-[1.12] xl:text-[2.85rem]">
+              La plateforme de gestion et de création de valeur pour les PME
             </h1>
 
-            <p className="mt-6 max-w-[32rem] text-sm leading-[1.7] text-[#C9B8A5]/85 sm:mt-8 sm:max-w-[34rem] sm:text-base lg:max-w-[30rem] xl:max-w-[36rem]">
-              Modelisys aide les propriétaires d&apos;entreprise à comprendre ce qui crée la valeur,
-              à bâtir un plan pour l&apos;augmenter et à suivre leur progression dans le temps.
+            <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
+              Vos états financiers racontent le passé. Modelisys en tire ce qu&apos;un acheteur,
+              un prêteur ou un partenaire verrait demain — permettant aux propriétaires de
+              mesurer, comprendre et augmenter la valeur de leur entreprise.
             </p>
 
-            <div className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-4 sm:mt-10 lg:mt-9 xl:mt-11">
+            <div className="mt-10 flex flex-wrap items-center gap-4 sm:mt-12">
               <button
                 type="button"
                 onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
-                className="group inline-flex items-center gap-2.5 rounded-lg px-1 py-1.5 -mx-1 text-xs font-semibold tracking-wide text-slate-100 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
+                className="group inline-flex items-center gap-2.5 rounded-md bg-[#E6D6C3] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#1F2430] transition hover:bg-[#f0e6d8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E6D6C3]/60"
               >
                 RÉSERVER UNE DÉMO
-                <ArrowRight className="h-4 w-4 shrink-0 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
+                <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
               </button>
-
-              <span className="hidden h-px w-10 shrink-0 bg-white/[0.12] sm:block" aria-hidden />
 
               <button
                 type="button"
                 onClick={() => scrollToApprocheSection()}
-                className="inline-flex items-center gap-2 rounded-lg px-1 py-1.5 -mx-1 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
+                className="inline-flex items-center gap-2 px-1 py-3 text-xs font-semibold tracking-[0.08em] text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
               >
                 EN SAVOIR PLUS
-                <span className="inline-block h-px w-10 bg-[#E0742D]/90" />
+                <span className="inline-block h-px w-8 bg-[#E0742D]/90" />
               </button>
             </div>
           </div>
 
           <div
-            className={`order-2 lg:col-start-2 lg:min-w-0 lg:pl-2 xl:pl-6 transition-all duration-1000 delay-100 ${
-              isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
+            className={`min-w-0 transition-all duration-1000 delay-150 ${
+              isVisible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
             }`}
           >
-            <HeroValueDriversCard compact />
+            <HeroValueSystem />
           </div>
         </div>
       </div>

@@ -10,9 +10,9 @@ const MARQUEE_ITEMS = Array.from({ length: 3 }, (_, i) => ({ id: i, text: MARQUE
 
 export function AboutHeroMarquee() {
   return (
-    <section className="relative isolate z-0 overflow-hidden bg-[#141823]">
-      <div className="absolute inset-x-0 top-0 h-px bg-white/10" />
-      <div className="absolute inset-x-0 bottom-0 h-px bg-white/10" />
+    <section className="relative isolate z-0 overflow-hidden bg-[#1a1f2a]">
+      <div className="absolute inset-x-0 top-0 h-px bg-white/[0.06]" />
+      <div className="absolute inset-x-0 bottom-0 h-px bg-white/[0.06]" />
 
       <div className="relative">
         <div className="about-marquee-mask">
@@ -41,13 +41,13 @@ export function AboutHeroMarquee() {
         </div>
 
         <div
-          className="pointer-events-none absolute inset-y-0 left-0 z-20 hidden bg-[#141823] md:block md:w-[min(12rem,42vw)]"
+          className="pointer-events-none absolute inset-y-0 left-0 z-20 hidden bg-[#1a1f2a] md:block md:w-[min(12rem,42vw)]"
           aria-hidden
         />
 
-        <div className="pointer-events-none absolute left-6 top-1/2 z-30 hidden -translate-y-1/2 items-center gap-2.5 text-[#E6D6C3]/80 sm:left-10 md:flex">
-          <MapPin className="h-5 w-5 text-[#E6B08C]" aria-hidden />
-          <span className="text-sm font-semibold tracking-wide">Québec</span>
+        <div className="pointer-events-none absolute left-6 top-1/2 z-30 hidden -translate-y-1/2 items-center gap-2.5 text-[#C9B8A5]/80 sm:left-10 md:flex">
+          <MapPin className="h-4 w-4 text-[#E0742D]" strokeWidth={1.75} aria-hidden />
+          <span className="text-xs font-semibold uppercase tracking-[0.14em]">Québec</span>
         </div>
       </div>
 
@@ -79,19 +79,18 @@ export function AboutHeroMarquee() {
         }
 
         .about-marquee-dot {
-          width: 7px;
-          height: 7px;
+          width: 6px;
+          height: 6px;
           border-radius: 999px;
-          background: rgba(230, 176, 140, 0.9);
-          box-shadow: 0 0 0 4px rgba(230, 176, 140, 0.12);
+          background: rgba(224, 116, 45, 0.9);
         }
 
         .about-marquee-text {
           font-size: 12px;
-          font-weight: 600;
-          letter-spacing: 0.01em;
+          font-weight: 500;
+          letter-spacing: 0.02em;
           line-height: 1.35;
-          color: rgba(230, 214, 195, 0.9);
+          color: rgba(201, 184, 165, 0.78);
         }
 
         @keyframes aboutMarqueeLeft {

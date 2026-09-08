@@ -165,15 +165,15 @@ function stepValue(step: ReturnWaterfallStep): ReactNode {
   if (step.kind === "subtotal") {
     return (
       <>
-        <span className="font-semibold text-white">{formatMillionsCompactFr(step.amountM)}</span>
-        <span className="ml-1 text-white/75">{formatPercentFr(step.growthPct, 0)}</span>
+        <span className="shrink-0 font-semibold text-white">{formatMillionsCompactFr(step.amountM)}</span>
+        <span className="shrink-0 text-white/75">{formatPercentFr(step.growthPct, 0)}</span>
       </>
     )
   }
   return (
     <>
-      <span className="font-bold">{formatPercentFr(step.totalReturnPct, 0)}</span>
-      <span className="ml-1 opacity-85">{formatPercentFr(step.annualizedCagrPct)} / an</span>
+      <span className="shrink-0 font-bold">{formatPercentFr(step.totalReturnPct, 0)}</span>
+      <span className="shrink-0 opacity-85">{formatPercentFr(step.annualizedCagrPct)}&nbsp;/&nbsp;an</span>
     </>
   )
 }
@@ -237,14 +237,14 @@ function KpiStrip({ view }: { view: ReturnWaterfallView }) {
         ]
 
   return (
-    <div className="grid grid-cols-3 gap-px overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.06]">
+    <div className="grid grid-cols-3 gap-6 border-y border-white/[0.08] py-4 sm:gap-8 sm:py-5">
       {items.map((item) => (
-        <div key={item.label} className="bg-[#2A2F3A]/90 px-2.5 py-2.5 sm:px-3 sm:py-3">
-          <p className="text-[9px] font-medium uppercase tracking-[0.14em] text-[#C9B8A5]/55 sm:text-[10px]">
+        <div key={item.label}>
+          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#C9B8A5]/55">
             {item.label}
           </p>
           <p
-            className={`mt-1 font-mono text-sm font-semibold tabular-nums tracking-tight sm:text-base ${
+            className={`mt-1.5 font-mono text-lg font-semibold tabular-nums tracking-tight sm:text-xl ${
               item.accent === "realized"
                 ? "text-[#E0742D]"
                 : item.accent === "projected"
@@ -274,7 +274,7 @@ function ViewToggle({
 
   return (
     <div
-      className="inline-flex rounded-lg border border-white/[0.1] bg-white/[0.04] p-0.5"
+      className="inline-flex gap-1 border-b border-white/[0.08] pb-px"
       role="tablist"
       aria-label="Période du rendement"
     >
@@ -287,15 +287,23 @@ function ViewToggle({
             role="tab"
             aria-selected={isActive}
             onClick={() => onChange(option.id)}
-            className={`rounded-md px-3 py-1.5 text-[11px] font-semibold tracking-wide transition-all duration-200 sm:px-4 sm:text-xs ${
+            className={`relative px-3 py-2 text-[11px] font-semibold tracking-[0.08em] transition-colors duration-300 sm:px-4 sm:text-xs ${
               isActive
-                ? option.id === "realized"
-                  ? "bg-[#E0742D] text-white shadow-sm"
-                  : "bg-[#5B8DEF] text-white shadow-sm"
-                : "text-[#C9B8A5]/70 hover:text-[#E6D6C3]/90"
+                ? "text-[#E6D6C3]"
+                : "text-[#C9B8A5]/55 hover:text-[#C9B8A5]/90"
             }`}
           >
             {option.label}
+            <span
+              className={`absolute inset-x-3 -bottom-px h-px transition-colors duration-300 sm:inset-x-4 ${
+                isActive
+                  ? option.id === "realized"
+                    ? "bg-[#E0742D]"
+                    : "bg-[#6BA3F5]"
+                  : "bg-transparent"
+              }`}
+              aria-hidden
+            />
           </button>
         )
       })}
@@ -362,24 +370,24 @@ export function BusinessReturnWaterfall() {
         </defs>
       </svg>
 
-      <div className="relative overflow-hidden rounded-2xl border border-white/[0.1] bg-gradient-to-b from-white/[0.06] to-white/[0.02] shadow-[0_24px_80px_-20px_rgba(0,0,0,0.55)]">
-        <div className="border-b border-white/[0.07] px-4 py-4 sm:px-5 sm:py-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="relative overflow-hidden border border-white/[0.08] bg-white/[0.02]">
+        <div className="border-b border-white/[0.07] px-4 py-5 sm:px-6 sm:py-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <ViewToggle view={view} onChange={setView} />
-            <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-[#C9B8A5]/50 sm:text-right">
+            <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-[#C9B8A5]/45 sm:text-right">
               {sectionLabel}
             </p>
           </div>
-          <div className="mt-4">
+          <div className="mt-5">
             <KpiStrip view={view} />
           </div>
         </div>
 
-        <div className="px-4 pb-4 pt-5 sm:px-5 sm:pb-5 sm:pt-6">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#C9B8A5]/55">
+        <div className="px-4 pb-5 pt-5 sm:px-6 sm:pb-6 sm:pt-6">
+          <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-[#C9B8A5]/55">
             Décomposition · {RETURN_HORIZON_YEARS} ans
           </p>
-          <p className="mt-1.5 text-sm font-medium leading-snug text-[#E6D6C3]/90 sm:text-[15px]">
+          <p className="mt-2 text-[15px] font-medium leading-snug text-[#E6D6C3]/90">
             {view === "realized" ? (
               <>
                 Voici pourquoi votre entreprise a généré{" "}
@@ -401,7 +409,7 @@ export function BusinessReturnWaterfall() {
           >
             {/* Grille de fond */}
             <div
-              className="pointer-events-none absolute inset-0 left-[38%] right-[4.5rem] sm:left-[40%]"
+              className="pointer-events-none absolute inset-0 left-[36%] right-[8.75rem] sm:left-[38%] sm:right-[10rem]"
               style={{
                 backgroundImage:
                   "linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px)",
@@ -430,7 +438,7 @@ export function BusinessReturnWaterfall() {
                 return (
                   <div
                     key={step.id}
-                    className="grid grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_4.5rem] items-center gap-x-2 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_5rem] sm:gap-x-3"
+                    className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)_8.5rem] items-center gap-x-2 sm:grid-cols-[minmax(0,1.05fr)_minmax(0,1.1fr)_10rem] sm:gap-x-3"
                     style={{ height: ROW_HEIGHT, ...rowStyle }}
                   >
                     <div className="flex h-full min-w-0 items-center">{stepLabel(step)}</div>
@@ -440,7 +448,7 @@ export function BusinessReturnWaterfall() {
                     </div>
 
                     <div
-                      className={`flex h-full items-center justify-end text-right font-mono text-[10px] tabular-nums sm:text-[11px] ${valueColor}`}
+                      className={`flex h-full items-center justify-end gap-1.5 whitespace-nowrap text-right font-mono text-[10px] tabular-nums sm:text-[11px] ${valueColor}`}
                     >
                       {stepValue(step)}
                     </div>

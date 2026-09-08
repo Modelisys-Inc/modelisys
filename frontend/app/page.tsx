@@ -4,7 +4,6 @@ import { GlassmorphismNav } from "@/components/glassmorphism-nav"
 import { HeroSection } from "@/components/hero-section"
 import { HeroMarquee } from "@/components/hero-marquee"
 import { LandingBusinessReturnSection } from "@/components/landing-business-return-section"
-import { LandingAudiencesSection } from "@/components/landing-audiences-section"
 import { LandingApprocheSection } from "@/components/landing-approche-section"
 import { ProblemSolutionSection } from "@/components/problem-solution-section"
 import { ExcelFrustrationsMarquee } from "@/components/excel-frustrations-marquee"
@@ -28,7 +27,7 @@ export default function LandingPage() {
           <GlassmorphismNav />
           <HeroSection />
           <HeroMarquee />
-          <section aria-hidden className="relative h-20 sm:h-24 overflow-hidden bg-[#1F2430]">
+          <section aria-hidden className="relative h-20 sm:h-24 overflow-hidden bg-[#222732]">
             <div className="absolute inset-0 pointer-events-none">
               <div className="absolute -top-12 left-1/3 w-72 h-72 bg-[#E6D6C3]/10 rounded-full blur-3xl" />
             </div>
@@ -39,15 +38,14 @@ export default function LandingPage() {
             >
               <path
                 d="M0,30 C180,95 360,95 540,60 C720,25 900,25 1080,60 C1230,90 1335,95 1440,75 L1440,120 L0,120 Z"
-                fill="#1F2430"
+                fill="#222732"
               />
             </svg>
           </section>
           <LandingBusinessReturnSection />
           <LandingApprocheSection />
-          <ProblemSolutionSection />
           <ExcelFrustrationsMarquee />
-          <LandingAudiencesSection />
+          <ProblemSolutionSection />
           <LandingBlogTeaserSection />
           <PlatformSetupSection />
           <PostFeaturesSection />

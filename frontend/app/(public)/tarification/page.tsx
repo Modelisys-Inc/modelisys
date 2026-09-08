@@ -6,7 +6,7 @@ import { Footer } from "@/components/footer"
 export const metadata: Metadata = {
   title: "Tarification | Modelisys",
   description:
-    "Configuration, abonnement et accompagnement stratégique — découvrez la tarification Modelisys et estimez vos coûts selon votre structure.",
+    "Configuration, abonnement et accompagnement stratégique — tarification Modelisys sur devis selon votre structure.",
 }
 
 export default function TarificationPage() {

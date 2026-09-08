@@ -52,27 +52,29 @@ export function LandingApprocheSection() {
     <section
       id={APPROCHE_SECTION_ID}
       ref={sectionRef}
-      className="relative z-10 scroll-mt-24 overflow-hidden bg-[#F8FAFC] py-16 sm:py-20 lg:py-24"
+      className="relative z-10 scroll-mt-24 overflow-hidden bg-[#F8FAFC]"
     >
+      {/* Scène claire — même fond que Fonctionnalités */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-[#F8FAFC] via-slate-50/95 to-slate-100/80" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_85%_45%_at_50%_-15%,rgba(224,116,45,0.045),transparent_55%)]" />
+        <div className="absolute inset-0 bg-[#F8FAFC]" />
         <div
-          className="absolute inset-0"
+          className="absolute inset-0 opacity-50"
           style={{
             backgroundImage: `
-              linear-gradient(to right, rgb(148 163 184 / 0.08) 1px, transparent 1px),
-              linear-gradient(to bottom, rgb(148 163 184 / 0.08) 1px, transparent 1px)
+              linear-gradient(to right, rgb(42 47 58 / 0.045) 1px, transparent 1px),
+              linear-gradient(to bottom, rgb(42 47 58 / 0.045) 1px, transparent 1px)
             `,
-            backgroundSize: "44px 44px",
-            maskImage: "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
+            backgroundSize: "56px 56px",
+            maskImage: "radial-gradient(ellipse 70% 65% at 30% 20%, black 12%, transparent 72%)",
             WebkitMaskImage:
-              "radial-gradient(ellipse 75% 65% at 50% 42%, black 15%, transparent 72%)",
+              "radial-gradient(ellipse 70% 65% at 30% 20%, black 12%, transparent 72%)",
           }}
         />
+        <div className="absolute -top-24 right-[-8%] h-[28rem] w-[28rem] rounded-full bg-[#E0742D]/[0.05] blur-3xl" />
+        <div className="absolute bottom-0 left-[-6%] h-[22rem] w-[22rem] rounded-full bg-[#2A2F3A]/[0.03] blur-3xl" />
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-14 xl:px-20 2xl:px-24">
+      <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
         <div
           id={APPROCHE_SCROLL_TARGET_ID}
           className="scroll-mt-[7.5rem] h-0 sm:scroll-mt-32"
@@ -80,22 +82,27 @@ export function LandingApprocheSection() {
         />
 
         <div
-          className={`pb-6 sm:pb-8 transition-all duration-1000 ${
-            isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
+          className={`pt-16 sm:pt-20 lg:pt-24 xl:pt-28 transition-all duration-1000 ${
+            isVisible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
           }`}
         >
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 sm:text-xs">
+          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-slate-500">
             L&apos;approche Modelisys
           </p>
-          <h2 className="mt-5 max-w-3xl text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-[2.5rem] md:leading-tight">
+
+          <h2 className="mt-6 max-w-2xl text-[1.85rem] font-semibold leading-[1.15] tracking-tight text-[#2A2F3A] sm:mt-7 sm:text-[2.35rem] sm:leading-[1.12] xl:text-[2.55rem]">
             Trois phases pour piloter la valeur de votre entreprise
           </h2>
-          <p className="mt-5 max-w-3xl text-base leading-[1.65] text-[#5C5F66] sm:text-lg">
-            Comprendre, planifier et piloter — chaque phase a un rôle distinct dans la trajectoire de performance.
-            Ensemble, elles relient vos décisions financières à l&apos;évolution de la valeur dans le temps.
+
+          <p className="mt-6 max-w-xl text-[15px] leading-[1.75] text-slate-600 sm:mt-7 sm:text-base">
+            Du diagnostic au suivi du réel — un même fil pour comprendre où vous en êtes, décider
+            où aller, et garder le cap sur le rendement que l&apos;entreprise génère pour vous.
           </p>
 
-          <nav className="mt-8 flex flex-wrap gap-2" aria-label="Phases de l'approche Modelisys">
+          <nav
+            className="mt-10 flex flex-wrap gap-x-1 gap-y-2 border-b border-[#2A2F3A]/10 pb-px"
+            aria-label="Phases de l'approche Modelisys"
+          >
             {APPROCHE_PHASE_ORDER.map((phaseId) => {
               const phase = APPROCHE_PHASE_MARKETING_CONTENT[phaseId]
               const isActive = activePhaseNav === phaseId
@@ -107,24 +114,30 @@ export function LandingApprocheSection() {
                     setActivePhaseNav(phaseId)
                     navigateToApprochePhase(phaseId)
                   }}
-                  className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-medium transition sm:text-[13px] ${
-                    isActive
-                      ? "border-[#E0742D]/45 bg-white text-[#2A2F3A] shadow-sm ring-1 ring-[#E0742D]/18"
-                      : "border-slate-200/85 bg-white/70 text-slate-600 hover:border-slate-300/90 hover:bg-white"
+                  className={`relative inline-flex items-center gap-2 px-3 py-3 text-[11px] font-semibold tracking-[0.08em] transition-colors duration-300 sm:px-4 sm:text-xs ${
+                    isActive ? "text-[#2A2F3A]" : "text-slate-400 hover:text-slate-600"
                   }`}
                 >
-                  <span className={`font-mono text-[11px] ${isActive ? "text-[#E0742D]" : "text-slate-400"}`}>
+                  <span className={`font-mono tabular-nums ${isActive ? "text-[#E0742D]" : "text-slate-400"}`}>
                     {phase.phaseNumber}
                   </span>
-                  <span className="text-slate-300">·</span>
+                  <span className="text-slate-300" aria-hidden>
+                    ·
+                  </span>
                   {phase.shortTitle}
+                  <span
+                    className={`absolute inset-x-3 -bottom-px h-px transition-colors duration-300 sm:inset-x-4 ${
+                      isActive ? "bg-[#E0742D]" : "bg-transparent"
+                    }`}
+                    aria-hidden
+                  />
                 </button>
               )
             })}
           </nav>
         </div>
 
-        <div className="space-y-6 sm:space-y-8">
+        <div className="divide-y divide-[#2A2F3A]/10 pb-16 sm:pb-20 lg:pb-24 xl:pb-28">
           {APPROCHE_PHASE_ORDER.map((phaseId, index) => (
             <LandingApprochePhaseBlock
               key={phaseId}

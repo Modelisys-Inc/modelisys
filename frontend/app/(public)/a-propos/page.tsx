@@ -14,25 +14,26 @@ export const metadata: Metadata = {
 
 export default function AProposPage() {
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#1a1d24]">
+    <div className="relative min-h-screen overflow-hidden bg-[#222732]">
       <GlassmorphismNav />
 
       <AboutQuebecHeroSection />
 
-      <div className="relative z-10 bg-slate-100/90">
+      <div className="relative z-10 bg-[#F8FAFC]">
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-b from-slate-100 via-slate-50/95 to-slate-100" />
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,rgba(224,116,45,0.06),transparent_55%)]" />
+          <div className="absolute inset-0 bg-[#F8FAFC]" />
+          <div className="absolute -top-24 right-[-8%] h-[28rem] w-[28rem] rounded-full bg-[#E0742D]/[0.05] blur-3xl" />
           <div
-            className="absolute inset-0 opacity-[0.35]"
+            className="absolute inset-0 opacity-50"
             style={{
               backgroundImage: `
-                linear-gradient(to right, rgb(148 163 184 / 0.12) 1px, transparent 1px),
-                linear-gradient(to bottom, rgb(148 163 184 / 0.12) 1px, transparent 1px)
+                linear-gradient(to right, rgb(42 47 58 / 0.045) 1px, transparent 1px),
+                linear-gradient(to bottom, rgb(42 47 58 / 0.045) 1px, transparent 1px)
               `,
-              backgroundSize: "48px 48px",
-              maskImage: "radial-gradient(ellipse 70% 60% at 50% 20%, black 12%, transparent 65%)",
-              WebkitMaskImage: "radial-gradient(ellipse 70% 60% at 50% 20%, black 12%, transparent 65%)",
+              backgroundSize: "56px 56px",
+              maskImage: "radial-gradient(ellipse 70% 65% at 28% 18%, black 12%, transparent 72%)",
+              WebkitMaskImage:
+                "radial-gradient(ellipse 70% 65% at 28% 18%, black 12%, transparent 72%)",
             }}
           />
         </div>

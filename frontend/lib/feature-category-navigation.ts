@@ -63,6 +63,28 @@ export function scrollToFeatureSection(options?: { behavior?: ScrollBehavior }) 
   requestAnimationFrame(() => requestAnimationFrame(run))
 }
 
+export function scrollToFeatureCategory(
+  categoryId: FeatureCategoryId,
+  options?: { behavior?: ScrollBehavior },
+) {
+  if (typeof window === "undefined") return
+
+  const behavior = options?.behavior ?? "smooth"
+  const run = () => {
+    const el = document.getElementById(getFeatureCategoryHash(categoryId))
+    if (!el) {
+      scrollToFeatureSection({ behavior })
+      return
+    }
+
+    const offset = getLandingNavOffset()
+    const top = el.getBoundingClientRect().top + window.scrollY - offset
+    window.scrollTo({ top: Math.max(0, top), behavior })
+  }
+
+  requestAnimationFrame(() => requestAnimationFrame(run))
+}
+
 export function navigateToFeatureCategory(
   categoryId: FeatureCategoryId,
   options?: { behavior?: ScrollBehavior },
@@ -75,7 +97,7 @@ export function navigateToFeatureCategory(
   }
 
   dispatchFeatureCategoryNavigate(categoryId)
-  scrollToFeatureSection({ behavior: options?.behavior ?? "smooth" })
+  scrollToFeatureCategory(categoryId, { behavior: options?.behavior ?? "smooth" })
 }
 
 export const featureCategoryNavLinks = FEATURE_CATEGORY_IDS.map((id) => ({

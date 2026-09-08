@@ -1,19 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import {
   Settings,
   DollarSign,
   CheckCircle2,
-  Calculator,
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
-  Send,
-  CalendarClock,
-  User,
-  Mail,
   AlertCircle,
   Compass,
   ClipboardList,
@@ -21,19 +16,7 @@ import {
   Gauge,
   type LucideIcon,
 } from "lucide-react"
-import { PricingQuickEstimatePanel } from "@/components/pricing-quick-estimate-panel"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
-import {
-  buildQuickCalculatorModuleIds,
-  computePricingEstimate,
-  formatCad,
-  getComplexityMultiplier,
-  type PricingComplexityLevel,
-} from "@/lib/pricing-estimate"
-const FORMSPREE_PRICING = "https://formspree.io/f/xzdapzyv"
 
 const IMPLEMENTATION_FULL_INCLUDES = [
   "Structuration complète de vos données et de votre périmètre financier",
@@ -135,9 +118,6 @@ const MODELISYS_ACCOMPANIMENT_OFFERS: {
   },
 ]
 
-const estimateFieldClass =
-  "h-12 border-slate-200 bg-white/80 focus-visible:border-[#E0742D]/80 focus-visible:ring-[#E0742D]/25"
-
 function DetailList({ items }: { items: readonly string[] }) {
   return (
     <ul className="space-y-2">
@@ -154,92 +134,8 @@ function DetailList({ items }: { items: readonly string[] }) {
 export function PricingProcessSection() {
   const sectionRef = useRef<HTMLElement>(null)
   const [isVisible, setIsVisible] = useState(false)
-  const [showCalculator, setShowCalculator] = useState(false)
   const [showAccompanimentView, setShowAccompanimentView] = useState(false)
-  const [revenueM, setRevenueM] = useState(10)
-  const [entityBand, setEntityBand] = useState<"1" | "2-4" | "5-9" | "10+">("1")
-  const [complexityLevel, setComplexityLevel] = useState<PricingComplexityLevel>("standard")
   const [implementationOption, setImplementationOption] = useState<"full" | "partial">("full")
-  const [estimateEmail, setEstimateEmail] = useState("")
-  const [estimateName, setEstimateName] = useState("")
-  const [estimateSubmitting, setEstimateSubmitting] = useState(false)
-  const [estimateSent, setEstimateSent] = useState(false)
-
-  const companies = useMemo(() => {
-    if (entityBand === "1") return 1
-    if (entityBand === "2-4") return 3
-    if (entityBand === "5-9") return 7
-    return 10
-  }, [entityBand])
-
-  const isContactBand = entityBand === "10+"
-  const isAutonomousOption = implementationOption === "partial"
-  const revenueBrackets = Math.max(0, Math.ceil(revenueM / 5) - 1)
-  const revenueIntegrationMultiplier = 1 + revenueBrackets * 0.05
-
-  const estimate = useMemo(() => {
-    if (isContactBand) {
-      return { monthlyMin: 0, monthlyMax: 0, integrationMin: 0, integrationMax: 0 }
-    }
-    const base = computePricingEstimate({
-      revenueM,
-      companies,
-      selectedModuleIds: buildQuickCalculatorModuleIds(),
-      includeConsolidationModule: true,
-    })
-    const cx = getComplexityMultiplier(complexityLevel)
-    const scale = (n: number) => Math.round(n * cx)
-
-    if (entityBand === "1") {
-      return {
-        monthlyMin: scale(base.monthlyMin),
-        monthlyMax: scale(base.monthlyMax),
-        integrationMin: scale(Math.round(3000 * revenueIntegrationMultiplier)),
-        integrationMax: scale(Math.round(4320 * revenueIntegrationMultiplier)),
-      }
-    }
-    if (entityBand === "2-4") {
-      return {
-        monthlyMin: scale(base.monthlyMin),
-        monthlyMax: scale(base.monthlyMax),
-        integrationMin: scale(Math.round(6000 * revenueIntegrationMultiplier)),
-        integrationMax: scale(Math.round(12000 * revenueIntegrationMultiplier)),
-      }
-    }
-    if (entityBand === "5-9") {
-      return {
-        monthlyMin: scale(base.monthlyMin),
-        monthlyMax: scale(base.monthlyMax),
-        integrationMin: scale(Math.round(15000 * revenueIntegrationMultiplier)),
-        integrationMax: scale(Math.round(27000 * revenueIntegrationMultiplier)),
-      }
-    }
-    return {
-      monthlyMin: scale(base.monthlyMin),
-      monthlyMax: scale(base.monthlyMax),
-      integrationMin: scale(base.integrationMin),
-      integrationMax: scale(base.integrationMax),
-    }
-  }, [isContactBand, companies, entityBand, revenueM, revenueIntegrationMultiplier, complexityLevel])
-
-  const integrationMinDisplay = isAutonomousOption
-    ? Math.round(estimate.integrationMin * 0.75)
-    : estimate.integrationMin
-  const integrationMaxDisplay = isAutonomousOption
-    ? Math.round(estimate.integrationMax * 0.75)
-    : estimate.integrationMax
-
-  const integrationPriceLabel = isContactBand
-    ? "Nous contacter"
-    : showCalculator
-      ? `${formatCad(integrationMinDisplay)} $ – ${formatCad(integrationMaxDisplay)} $`
-      : "Via calculateur"
-
-  const subscriptionPriceLabel = isContactBand
-    ? "Nous contacter"
-    : showCalculator
-      ? `${formatCad(estimate.monthlyMin)} $ – ${formatCad(estimate.monthlyMax)} $ / mois`
-      : "Via calculateur"
 
   useEffect(() => {
     const el = sectionRef.current
@@ -256,54 +152,7 @@ export function PricingProcessSection() {
     return () => observer.unobserve(el)
   }, [])
 
-  const handleSendEstimate = async (e: FormEvent) => {
-    e.preventDefault()
-    if (!estimateName.trim() || !estimateEmail.trim()) return
-    setEstimateSubmitting(true)
-    try {
-      const response = await fetch(FORMSPREE_PRICING, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "pricing_estimate",
-          _subject: "Estimation tarifaire — Modelisys",
-          name: estimateName.trim(),
-          email: estimateEmail.trim(),
-          revenus_consolides_M$: revenueM,
-          societes_divisions: entityBand,
-          niveau_complexite: complexityLevel,
-          frais_implantation_fourchette$: isContactBand
-            ? "Nous contacter"
-            : `${formatCad(integrationMinDisplay)} – ${formatCad(integrationMaxDisplay)}`,
-          abonnement_fourchette_mensuelle$: isContactBand
-            ? "Nous contacter"
-            : `${formatCad(estimate.monthlyMin)} – ${formatCad(estimate.monthlyMax)}`,
-          accompagnement_strategique: "Non inclus — sur devis (volet optionnel)",
-          message:
-            "Le client souhaite être recontacté suite à son estimation en ligne (paramètres ci-dessus). L'estimation couvre la configuration et l'abonnement uniquement. Engagement : prise de contact sous 24 h.",
-        }),
-      })
-      if (response.ok) {
-        setEstimateSent(true)
-        setEstimateEmail("")
-        setEstimateName("")
-        window.setTimeout(() => setEstimateSent(false), 8000)
-      }
-    } finally {
-      setEstimateSubmitting(false)
-    }
-  }
-
-  const openCalculator = () => {
-    setShowAccompanimentView(false)
-    setShowCalculator(true)
-    requestAnimationFrame(() => {
-      document.getElementById("pricing-calculator")?.scrollIntoView({ behavior: "smooth", block: "start" })
-    })
-  }
-
   const openAccompanimentView = () => {
-    setShowCalculator(false)
     setShowAccompanimentView(true)
     requestAnimationFrame(() => {
       document.getElementById("accompagnement-partenaires")?.scrollIntoView({ behavior: "smooth", block: "start" })
@@ -366,8 +215,8 @@ export function PricingProcessSection() {
             <span className="text-[#5C5F66]">une proposition claire</span>
           </h2>
           <p className="mt-4 text-base leading-relaxed text-[#5C5F66] sm:text-lg">
-            Configuration, abonnement et accompagnement stratégique — chaque volet est distinct. Le calculateur estime les
-            deux premiers selon votre structure.
+            Configuration, abonnement et accompagnement stratégique — chaque volet est distinct.
+            Les montants sont établis sur devis selon votre structure.
           </p>
           <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent lg:mx-0 mx-auto" />
         </div>
@@ -380,12 +229,7 @@ export function PricingProcessSection() {
           }`}
         >
           {/* Volet 01 — Configuration */}
-          <article
-            className={cn(
-              "flex flex-col overflow-hidden rounded-2xl border bg-white shadow-sm",
-              showCalculator && !isContactBand ? "ring-1 ring-[#E0742D]/15" : "border-slate-200/90",
-            )}
-          >
+          <article className="flex flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
             <header className="border-b border-slate-100 px-5 py-5 sm:px-6">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <span className="font-mono text-xl font-bold tabular-nums text-[#E0742D]/25">01</span>
@@ -399,7 +243,7 @@ export function PricingProcessSection() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-base font-semibold text-[#2A2F3A]">Configuration</h3>
-                  <p className="mt-1 text-sm font-semibold tabular-nums text-[#E0742D]">{integrationPriceLabel}</p>
+                  <p className="mt-1 text-sm font-semibold text-[#5C5F66]">Sur devis</p>
                 </div>
               </div>
             </header>
@@ -460,12 +304,7 @@ export function PricingProcessSection() {
           </article>
 
           {/* Volet 02 — Abonnement */}
-          <article
-            className={cn(
-              "flex flex-col overflow-hidden rounded-2xl border bg-white shadow-sm",
-              showCalculator && !isContactBand ? "ring-1 ring-[#E0742D]/15" : "border-slate-200/90",
-            )}
-          >
+          <article className="flex flex-col overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
             <header className="border-b border-slate-100 px-5 py-5 sm:px-6">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <span className="font-mono text-xl font-bold tabular-nums text-[#E0742D]/25">02</span>
@@ -479,7 +318,7 @@ export function PricingProcessSection() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-base font-semibold text-[#2A2F3A]">Abonnement</h3>
-                  <p className="mt-1 text-sm font-semibold tabular-nums text-[#E0742D]">{subscriptionPriceLabel}</p>
+                  <p className="mt-1 text-sm font-semibold text-[#5C5F66]">Sur devis</p>
                 </div>
               </div>
             </header>
@@ -682,160 +521,6 @@ export function PricingProcessSection() {
           </section>
         </div>
         )}
-
-        {/* Calculateur — bloc unique sous les volets */}
-        {!showAccompanimentView ? (
-        <div
-          id="pricing-calculator"
-          className={`mt-8 scroll-mt-28 transition-all duration-1000 delay-150 sm:mt-10 ${
-            isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
-          }`}
-        >
-          <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm">
-            {!showCalculator ? (
-              <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-                <div className="min-w-0 max-w-xl">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-slate-50 px-3 py-1 text-[11px] font-semibold tracking-wide text-[#2A2F3A]">
-                    <Calculator className="h-3.5 w-3.5 text-[#E0742D]" strokeWidth={1.75} aria-hidden />
-                    Volets 01 & 02
-                  </div>
-                  <p className="mt-3 text-sm leading-relaxed text-[#5C5F66]">
-                    Estimez la configuration et l&apos;abonnement selon vos revenus, entités et complexité. Fourchette indicative —
-                    validée par notre équipe.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={openCalculator}
-                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-[#E0742D] px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-[#E0742D]/20 transition hover:bg-[#c96526]"
-                >
-                  <Calculator className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-                  Ouvrir le calculateur
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200/90 bg-slate-50">
-                      <Calculator className="h-4 w-4 text-[#2A2F3A]" strokeWidth={1.75} />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-[#2A2F3A]">Calculateur</p>
-                      <p className="text-xs text-[#5C5F66]">Mise à jour des volets 01 et 02</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowCalculator(false)}
-                    className="inline-flex items-center gap-2 self-start rounded-lg border border-slate-200/90 px-3 py-2 text-sm font-medium text-[#2A2F3A] transition hover:bg-slate-50 sm:self-auto"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                    Fermer
-                  </button>
-                </div>
-
-                <div className="border-b border-slate-100 px-5 py-6 sm:px-6">
-                  <PricingQuickEstimatePanel
-                    revenueM={revenueM}
-                    onRevenueMChange={setRevenueM}
-                    entityBand={entityBand}
-                    onEntityBandChange={setEntityBand}
-                    complexityLevel={complexityLevel}
-                    onComplexityLevelChange={setComplexityLevel}
-                  />
-                </div>
-
-                <div className="bg-slate-50/60 px-5 py-6 sm:px-6">
-                  <div className="mb-1 inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white px-3 py-1 text-[11px] font-semibold tracking-wide text-[#2A2F3A]">
-                    <CalendarClock className="h-3.5 w-3.5 text-[#E0742D]" strokeWidth={2} />
-                    Envoyer
-                  </div>
-                  <h3 className="mt-3 text-lg font-semibold text-[#2A2F3A]">Envoyer mon estimation</h3>
-                  <p className="mt-1 text-sm text-[#5C5F66]">
-                    Notre équipe vous recontacte pour affiner votre besoin.
-                  </p>
-
-                  {estimateSent ? (
-                    <div className="flex flex-col items-center py-8 text-center">
-                      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-[#E0742D]/25 bg-[#E0742D]/10">
-                        <CheckCircle2 className="h-6 w-6 text-[#E0742D]" strokeWidth={2} />
-                      </div>
-                      <p className="font-semibold text-[#2A2F3A]">Estimation bien reçue</p>
-                      <p className="mt-1 text-sm text-[#5C5F66]">Nous vous recontactons très bientôt.</p>
-                    </div>
-                  ) : (
-                    <form onSubmit={handleSendEstimate} className="mt-6 space-y-4">
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <div className="space-y-1.5">
-                          <Label htmlFor="estimate-name" className="text-sm text-[#2A2F3A]">
-                            Nom complet <span className="text-[#E0742D]">*</span>
-                          </Label>
-                          <div className="relative">
-                            <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                            <Input
-                              id="estimate-name"
-                              name="name"
-                              type="text"
-                              autoComplete="name"
-                              required
-                              value={estimateName}
-                              onChange={(e) => setEstimateName(e.target.value)}
-                              placeholder="Jean Dupont"
-                              className={cn("h-11 pl-9", estimateFieldClass)}
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-1.5">
-                          <Label htmlFor="estimate-email" className="text-sm text-[#2A2F3A]">
-                            Courriel <span className="text-[#E0742D]">*</span>
-                          </Label>
-                          <div className="relative">
-                            <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                            <Input
-                              id="estimate-email"
-                              name="email"
-                              type="email"
-                              autoComplete="email"
-                              required
-                              value={estimateEmail}
-                              onChange={(e) => setEstimateEmail(e.target.value)}
-                              placeholder="vous@entreprise.com"
-                              className={cn("h-11 pl-9", estimateFieldClass)}
-                            />
-                          </div>
-                        </div>
-                      </div>
-
-                      <Button
-                        type="submit"
-                        disabled={estimateSubmitting}
-                        className={cn(
-                          "h-11 w-full bg-[#E0742D] font-semibold text-white shadow-md shadow-[#E0742D]/20 hover:bg-[#c96526]",
-                          estimateSubmitting && "cursor-not-allowed opacity-50",
-                        )}
-                      >
-                        {estimateSubmitting ? (
-                          "Envoi en cours…"
-                        ) : (
-                          <>
-                            <Send className="mr-2 h-4 w-4" strokeWidth={2} />
-                            Envoyer mon estimation
-                          </>
-                        )}
-                      </Button>
-
-                      <p className="text-center text-xs text-[#5C5F66]/90">
-                        L&apos;accompagnement stratégique n&apos;est pas inclus dans cette estimation.
-                      </p>
-                    </form>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-        ) : null}
       </div>
     </section>
   )

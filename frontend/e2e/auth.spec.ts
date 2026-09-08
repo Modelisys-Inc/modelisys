@@ -84,7 +84,7 @@ test.describe("Authentication Flow", () => {
 
   test("login page has link back to landing", async ({ page }) => {
     await page.goto("/login");
-    const backLink = page.locator("text=Retour à l'accueil");
+    const backLink = page.getByRole("link", { name: /retour à l'accueil/i });
     await expect(backLink).toBeVisible();
   });
 

@@ -5,20 +5,17 @@ test.describe("Landing — approche et leviers de valeur", () => {
     await page.goto("/")
   })
 
-  test("hero affiche la carte des leviers de création de valeur", async ({ page }) => {
+  test("hero affiche la composition de valeur et les leviers", async ({ page }) => {
     const hero = page.locator("#hero")
-    await expect(hero.getByText("Leviers de création de valeur")).toBeVisible()
     await expect(
-      hero.getByText("La valeur de votre entreprise n'est pas qu'un chiffre."),
+      hero.getByRole("heading", {
+        name: "La plateforme de gestion et de création de valeur pour les PME",
+      }),
     ).toBeVisible()
-    await expect(
-      hero.getByText("Chaque décision financière a un impact sur la valeur."),
-    ).toBeVisible()
-    await expect(hero.getByRole("button", { name: /Croissance — levier de valeur/ })).toBeVisible()
-    await expect(hero.getByRole("button", { name: /Risque — levier de valeur/ })).toBeVisible()
-    await expect(hero.getByText("Croissance", { exact: true }).first()).toBeVisible()
-    await expect(hero.getByText("Levier actif")).toBeVisible()
-    await expect(hero.getByText("Améliore la valeur")).toBeVisible()
+    await expect(hero.getByText("Valeur d'entreprise")).toBeVisible()
+    await expect(hero.getByText("8,4")).toBeVisible()
+    await expect(hero.getByRole("button", { name: "Croissance" })).toBeVisible()
+    await expect(hero.getByRole("button", { name: "Risque" })).toBeVisible()
     await expect(
       hero.getByText("La croissance crée de la valeur seulement si le BAIIA suit."),
     ).toBeVisible()
@@ -42,22 +39,26 @@ test.describe("Landing — approche et leviers de valeur", () => {
     expect(rendementBox!.y).toBeLessThan(approcheBox!.y)
   })
 
-  test("section Pour qui précède le Blog", async ({ page }) => {
-    const pourQuiBox = await page.locator("#pour-qui").boundingBox()
+  test("section Fonctionnalités précède le Blog", async ({ page }) => {
+    const featuresBox = await page.locator("#problem-solution").boundingBox()
     const blogBox = await page.locator("#blog-vedette").boundingBox()
 
-    expect(pourQuiBox).not.toBeNull()
+    expect(featuresBox).not.toBeNull()
     expect(blogBox).not.toBeNull()
-    expect(pourQuiBox!.y).toBeLessThan(blogBox!.y)
+    expect(featuresBox!.y).toBeLessThan(blogBox!.y)
   })
 
   test("section Rendement affiche le rendement actionnaire", async ({ page }) => {
     const section = page.locator("#rendement")
     await section.scrollIntoViewIfNeeded()
 
-    await expect(section.getByRole("heading", { name: "Mesurez le rendement de votre entreprise" })).toBeVisible()
     await expect(
-      section.getByText("Une entreprise n'est pas seulement une source de revenus.", { exact: true }),
+      section.getByRole("heading", { name: "Ce que l'entreprise vous rapporte vraiment" }),
+    ).toBeVisible()
+    await expect(
+      section.getByText("En tant qu'actionnaire, votre rendement combine deux mouvements", {
+        exact: false,
+      }),
     ).toBeVisible()
     await expect(section.getByRole("heading", { name: "D'où vient votre rendement" })).toBeVisible()
     await expect(section.getByRole("tab", { name: "Réalisé" })).toBeVisible()
@@ -70,9 +71,7 @@ test.describe("Landing — approche et leviers de valeur", () => {
     await section.getByRole("tab", { name: "Projeté" }).click()
     await expect(section.getByText("Rendement projeté · 3 prochains ans")).toBeVisible()
     await expect(section.getByText("Valeur projetée")).toBeVisible()
-    await expect(
-      section.getByText(/Modelisys mesure le rendement généré par votre entreprise, année après année/),
-    ).toBeVisible()
+    await expect(section.getByText(/ce que ça vous a rapporté/)).toBeVisible()
     await expect(section.getByText("+134 %", { exact: true }).first()).toBeVisible()
     await expect(section.getByText("+32,8 %").first()).toBeVisible()
   })
@@ -82,8 +81,14 @@ test.describe("Landing — approche et leviers de valeur", () => {
     await section.scrollIntoViewIfNeeded()
 
     await expect(section.getByText("L'approche Modelisys")).toBeVisible()
-    await expect(section.getByRole("heading", { name: "Trois phases pour piloter la valeur de votre entreprise" })).toBeVisible()
-    await expect(section.getByText("Phase 1 — Diagnostic")).toBeVisible()
+    await expect(
+      section.getByRole("heading", { name: "Trois phases pour piloter la valeur de votre entreprise" }),
+    ).toBeVisible()
+    await expect(
+      section.getByText(/Du diagnostic au suivi du réel/, { exact: false }),
+    ).toBeVisible()
+    await expect(section.locator("#phase-diagnostic")).toContainText("01")
+    await expect(section.locator("#phase-diagnostic")).toContainText("Diagnostic")
     await expect(section.getByText("Ce que ça fait").first()).toBeVisible()
     await expect(section.getByText("Pourquoi c'est important").first()).toBeVisible()
     await expect(section.getByRole("button", { name: /01.*Diagnostic/ })).toBeVisible()
@@ -100,10 +105,33 @@ test.describe("Landing — approche et leviers de valeur", () => {
     expect(approcheBox!.y).toBeLessThan(featuresBox!.y)
   })
 
+  test("menu Fonctionnalités scroll vers la catégorie choisie", async ({ page }) => {
+    await page.locator("#problem-solution").scrollIntoViewIfNeeded()
+    const nav = page.getByRole("navigation", { name: "Catégories de fonctionnalités" })
+    await nav.getByRole("tab", { name: "Reporting" }).click()
+
+    await expect(page).toHaveURL(/#feature-reporting/)
+    const reporting = page.locator("#feature-reporting")
+    await expect(reporting).toBeInViewport()
+    await expect(nav.getByRole("tab", { name: "Reporting" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    )
+  })
+
+  test("lien header Fonctionnalités > Analyse scroll vers la section Analyse", async ({
+    page,
+  }) => {
+    await page.goto("/#feature-analyse")
+    const analyse = page.locator("#feature-analyse")
+    await expect(analyse).toBeInViewport({ timeout: 10000 })
+    await expect(page).toHaveURL(/#feature-analyse/)
+  })
+
   test("EN SAVOIR PLUS fait défiler vers la section approche", async ({ page }) => {
     await page.getByRole("button", { name: "EN SAVOIR PLUS" }).click()
     const section = page.locator("#approche-modelisys")
     await expect(section).toBeInViewport()
-    await expect(section.getByText("Phase 1 — Diagnostic")).toBeVisible()
+    await expect(section.locator("#phase-diagnostic")).toContainText("Diagnostic")
   })
 })

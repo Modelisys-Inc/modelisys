@@ -12,6 +12,7 @@ import {
   FEATURE_SECTION_ID,
   dispatchFeatureCategoryNavigate,
   parseFeatureCategoryFromHash,
+  scrollToFeatureCategory,
   scrollToFeatureSection,
 } from "@/lib/feature-category-navigation"
 
@@ -30,7 +31,7 @@ function scrollToHash() {
   const categoryId = parseFeatureCategoryFromHash(hash)
   if (categoryId) {
     dispatchFeatureCategoryNavigate(categoryId)
-    scrollToFeatureSection({ behavior: "smooth" })
+    scrollToFeatureCategory(categoryId, { behavior: "smooth" })
     return
   }
 

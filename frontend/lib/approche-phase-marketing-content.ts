@@ -86,23 +86,23 @@ export type ApprochePhaseAccent = {
 export const APPROCHE_PHASE_ACCENTS: Record<ApprochePhaseId, ApprochePhaseAccent> = {
   diagnostic: {
     dot: "bg-[#E0742D]",
-    ring: "ring-[#E0742D]/40",
-    gradient: "from-[#FFF7ED] via-white to-slate-50/90",
-    glow: "bg-[#E0742D]/10",
-    label: "text-[#C45A1A]",
+    ring: "ring-[#E0742D]/35",
+    gradient: "from-white via-white to-[#FFF7ED]/40",
+    glow: "bg-[#E0742D]/8",
+    label: "text-[#9A4A1A]",
   },
   planification: {
     dot: "bg-[#5B8DEF]",
-    ring: "ring-[#5B8DEF]/40",
-    gradient: "from-[#EFF6FF] via-white to-slate-50/90",
-    glow: "bg-[#5B8DEF]/10",
+    ring: "ring-[#5B8DEF]/35",
+    gradient: "from-white via-white to-[#EFF6FF]/40",
+    glow: "bg-[#5B8DEF]/8",
     label: "text-[#3B6FD4]",
   },
   pilotage: {
     dot: "bg-[#4A9B73]",
-    ring: "ring-[#4A9B73]/40",
-    gradient: "from-[#ECFDF5] via-white to-slate-50/90",
-    glow: "bg-[#4A9B73]/10",
+    ring: "ring-[#4A9B73]/35",
+    gradient: "from-white via-white to-[#ECFDF5]/40",
+    glow: "bg-[#4A9B73]/8",
     label: "text-[#2F7A58]",
   },
 }
