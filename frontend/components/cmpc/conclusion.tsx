@@ -1,87 +1,94 @@
-import {
-  formatCmpcPct,
-  cmpcWaccRange,
-  type CmpcReportMeta,
-  type CmpcWaccResults,
-} from "@/lib/cmpc-wacc"
+import { formatCmpcPct, type CmpcWaccResults } from "@/lib/cmpc-wacc"
 
 type ConclusionProps = {
   results: CmpcWaccResults
-  meta: CmpcReportMeta
 }
 
-export function Conclusion({ results, meta }: ConclusionProps) {
-  const { wacc, costOfEquity, afterTaxCostOfDebt } = results
-  const range = cmpcWaccRange(wacc)
+export function Conclusion({ results }: ConclusionProps) {
+  const { wacc, costOfEquity, afterTaxCostOfDebt, weightEquity, weightDebt } = results
+
+  const metrics = [
+    {
+      id: "retained",
+      label: "CMPC retenu",
+      value: formatCmpcPct(wacc),
+      testId: "cmpc-retained-rate",
+      highlight: true,
+    },
+    {
+      id: "equity",
+      label: "Coût des capitaux propres",
+      value: formatCmpcPct(costOfEquity),
+    },
+    {
+      id: "debt",
+      label: "Coût de la dette (après impôt)",
+      value: formatCmpcPct(afterTaxCostOfDebt),
+    },
+    {
+      id: "equity-weight",
+      label: "Pondération des capitaux propres",
+      value: formatCmpcPct(weightEquity * 100, 0),
+    },
+    {
+      id: "debt-weight",
+      label: "Pondération de la dette",
+      value: formatCmpcPct(weightDebt * 100, 0),
+    },
+  ]
 
   return (
     <section
-      className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-[#2A2F3A] text-white shadow-sm"
+      data-testid="cmpc-conclusion-strip"
       data-break-avoid
+      className="w-full border-b border-[#E6D6C3]/45 bg-gradient-to-b from-[#222732]/[0.025] to-white"
     >
-      <div className="grid grid-cols-1 gap-6 p-6 sm:grid-cols-[1fr_auto] sm:items-center">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#E0742D]">
-            Sommaire de la conclusion
-          </p>
-          <p className="mt-3 max-w-xl text-pretty text-sm leading-relaxed text-white/85">
-            Sur la base des hypothèses et de la méthodologie exposées dans le présent rapport, nous
-            sommes d&apos;avis que le coût moyen pondéré du capital approprié pour actualiser les
-            flux de trésorerie après impôt de{" "}
-            <span className="font-medium text-white">{meta.subject}</span>, en date du{" "}
-            <span className="font-medium text-white">{meta.valuationDate}</span>, se situe dans une
-            fourchette d&apos;environ{" "}
-            <span className="font-mono font-medium text-[#E0742D]">
-              {formatCmpcPct(range.low, 2)}
-            </span>{" "}
-            à{" "}
-            <span className="font-mono font-medium text-[#E0742D]">
-              {formatCmpcPct(range.high, 2)}
-            </span>
-            .
-          </p>
-          <p className="mt-3 text-xs text-white/60">
-            Taux ponctuel calculé : {formatCmpcPct(wacc)} · Taux retenu (arrondi) :{" "}
-            {formatCmpcPct(range.retained)}
-          </p>
-        </div>
-
-        <div className="flex flex-col items-start gap-1 sm:items-end">
-          <span className="text-xs font-medium uppercase tracking-wide text-white/60">
-            CMPC retenu
-          </span>
-          <span
-            data-testid="cmpc-retained-rate"
-            className="font-mono text-5xl font-semibold tabular-nums text-[#E0742D]"
-          >
-            {formatCmpcPct(range.retained)}
-          </span>
+      <div className="border-b border-[#E6D6C3]/40 bg-[#222732]/[0.02] px-6 py-5 sm:px-12">
+        <div className="flex items-start gap-3">
+          <div className="mt-1 h-10 w-1 shrink-0 rounded-full bg-[#E6D6C3]" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/90">
+              Sommaire de la conclusion
+            </p>
+            <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-500">
+              Synthèse du coût moyen pondéré du capital et de ses composantes.
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 divide-x divide-white/15 border-t border-white/15 text-center">
-        <div className="px-3 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-white/55">
-            Coût des capitaux propres
-          </p>
-          <p className="mt-1 font-mono text-lg font-semibold tabular-nums">
-            {formatCmpcPct(costOfEquity)}
-          </p>
-        </div>
-        <div className="px-3 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-white/55">
-            Coût de la dette (après impôt)
-          </p>
-          <p className="mt-1 font-mono text-lg font-semibold tabular-nums">
-            {formatCmpcPct(afterTaxCostOfDebt)}
-          </p>
-        </div>
-        <div className="px-3 py-3">
-          <p className="text-[11px] uppercase tracking-wide text-white/55">CMPC (ponctuel)</p>
-          <p className="mt-1 font-mono text-lg font-semibold tabular-nums text-[#E0742D]">
-            {formatCmpcPct(wacc)}
-          </p>
-        </div>
+      <div className="overflow-x-auto px-6 py-1 sm:px-12">
+        <table className="w-full min-w-[420px]">
+          <thead>
+            <tr className="border-b border-[#E6D6C3]/55 text-left">
+              <th className="py-3 pr-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Indicateur
+              </th>
+              <th className="py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Valeur
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {metrics.map((metric) => (
+              <tr
+                key={metric.id}
+                data-testid={metric.testId ? undefined : `cmpc-conclusion-${metric.id}`}
+                className="border-b border-slate-100 align-middle last:border-b-0"
+              >
+                <td className="py-3 pr-4 text-sm font-medium text-[#222732]">{metric.label}</td>
+                <td
+                  data-testid={metric.testId}
+                  className={`py-3 text-right font-mono text-sm tabular-nums ${
+                    metric.highlight ? "font-semibold text-[#E0742D]" : "text-[#222732]"
+                  }`}
+                >
+                  {metric.value}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </section>
   )

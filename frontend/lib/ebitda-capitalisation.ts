@@ -16,10 +16,349 @@ import {
 } from "@/lib/series-reference-columns"
 
 export const EBITDA_MULTIPLE_CONFIG_TYPE = "ebitda-multiple-config"
-export const EBITDA_DISCLAIMER_STORAGE_KEY = "ebitda-multiple-disclaimer-accepted"
 
 /** Fenêtre série CDR : 5 exercices + TTM + PEC + marge. */
 export const EBITDA_SERIES_LOOKBACK_MONTHS = 72
+
+/** Bornes bas / haut d’un multiple comparable (moyenne = (bas+haut)/2). */
+export type ComparableMultipleBand = {
+  low: number | null
+  high: number | null
+}
+
+export type ComparableMultipleMetric = "veOverRevenue" | "veOverBaiia"
+
+export type ComparableMultipleSourceId = "empirical" | "ai" | "comparables"
+
+export type ComparableMultipleSource = {
+  veOverRevenue: ComparableMultipleBand
+  veOverBaiia: ComparableMultipleBand
+}
+
+export type ComparableMultiplesConfig = Record<
+  ComparableMultipleSourceId,
+  ComparableMultipleSource
+>
+
+export const COMPARABLE_MULTIPLE_SOURCE_LABELS: Record<
+  ComparableMultipleSourceId,
+  string
+> = {
+  empirical: "Règles empiriques",
+  ai: "Selon IA",
+  comparables: "Comparables",
+}
+
+export const COMPARABLE_MULTIPLE_METRIC_LABELS: Record<ComparableMultipleMetric, string> = {
+  veOverRevenue: "VE / Revenus",
+  veOverBaiia: "VE / BAIIA",
+}
+
+export const EMPTY_COMPARABLE_MULTIPLE_BAND: ComparableMultipleBand = {
+  low: null,
+  high: null,
+}
+
+export const DEFAULT_COMPARABLE_MULTIPLES: ComparableMultiplesConfig = {
+  empirical: {
+    veOverRevenue: { ...EMPTY_COMPARABLE_MULTIPLE_BAND },
+    veOverBaiia: { ...EMPTY_COMPARABLE_MULTIPLE_BAND },
+  },
+  ai: {
+    veOverRevenue: { ...EMPTY_COMPARABLE_MULTIPLE_BAND },
+    veOverBaiia: { ...EMPTY_COMPARABLE_MULTIPLE_BAND },
+  },
+  comparables: {
+    veOverRevenue: { ...EMPTY_COMPARABLE_MULTIPLE_BAND },
+    veOverBaiia: { ...EMPTY_COMPARABLE_MULTIPLE_BAND },
+  },
+}
+
+export function averageComparableMultipleBand(
+  band: ComparableMultipleBand,
+): number | null {
+  const { low, high } = band
+  if (low == null || high == null) return null
+  if (!Number.isFinite(low) || !Number.isFinite(high)) return null
+  return (low + high) / 2
+}
+
+function parseComparableBand(raw: unknown): ComparableMultipleBand {
+  if (!raw || typeof raw !== "object") return { ...EMPTY_COMPARABLE_MULTIPLE_BAND }
+  const o = raw as Record<string, unknown>
+  const low = typeof o.low === "number" && Number.isFinite(o.low) ? o.low : null
+  const high = typeof o.high === "number" && Number.isFinite(o.high) ? o.high : null
+  return { low, high }
+}
+
+function parseComparableSource(raw: unknown): ComparableMultipleSource {
+  if (!raw || typeof raw !== "object") {
+    return {
+      veOverRevenue: { ...EMPTY_COMPARABLE_MULTIPLE_BAND },
+      veOverBaiia: { ...EMPTY_COMPARABLE_MULTIPLE_BAND },
+    }
+  }
+  const o = raw as Record<string, unknown>
+  return {
+    veOverRevenue: parseComparableBand(o.veOverRevenue),
+    veOverBaiia: parseComparableBand(o.veOverBaiia),
+  }
+}
+
+export function parseComparableMultiplesConfig(
+  raw: unknown,
+): ComparableMultiplesConfig {
+  if (!raw || typeof raw !== "object") {
+    return structuredClone(DEFAULT_COMPARABLE_MULTIPLES)
+  }
+  const o = raw as Record<string, unknown>
+  return {
+    empirical: parseComparableSource(o.empirical),
+    ai: parseComparableSource(o.ai),
+    comparables: parseComparableSource(o.comparables),
+  }
+}
+
+export type ComparableMetricChartPoint = {
+  id: string
+  label: string
+  /** Libellé court pour l’axe X du graphique. */
+  shortLabel: string
+  /** Moyenne affichée (barre). */
+  mid: number | null
+  low: number | null
+  high: number | null
+  /**
+   * Écart relatif à `mid` pour ErrorBar Recharts : [mid − low, high − mid].
+   * Absent si bas/haut incomplets.
+   */
+  error: [number, number] | null
+  isActual: boolean
+}
+
+function errorFromBand(
+  mid: number | null,
+  low: number | null,
+  high: number | null,
+): [number, number] | null {
+  if (mid == null || low == null || high == null) return null
+  if (![mid, low, high].every(Number.isFinite)) return null
+  return [mid - low, high - mid]
+}
+
+const COMPARABLE_CHART_SHORT_LABELS: Record<
+  "actual" | ComparableMultipleSourceId,
+  string
+> = {
+  actual: "Réel",
+  empirical: "Empiriques",
+  ai: "IA",
+  comparables: "Comparables",
+}
+
+/** Points graphique : Réel (métriques d’évaluation) puis sources de multiples. */
+export function buildComparableMetricChartPoints(
+  metric: ComparableMultipleMetric,
+  actual: { low: number | null; high: number | null; mid: number | null },
+  config: ComparableMultiplesConfig,
+): ComparableMetricChartPoint[] {
+  const sources: ComparableMultipleSourceId[] = ["empirical", "ai", "comparables"]
+  const actualMid = actual.mid
+  const points: ComparableMetricChartPoint[] = [
+    {
+      id: "actual",
+      label: "Réel (métriques d'évaluation)",
+      shortLabel: COMPARABLE_CHART_SHORT_LABELS.actual,
+      mid: actualMid,
+      low: actual.low,
+      high: actual.high,
+      error: errorFromBand(actualMid, actual.low, actual.high),
+      isActual: true,
+    },
+  ]
+  for (const sourceId of sources) {
+    const band = config[sourceId][metric]
+    const mid = averageComparableMultipleBand(band)
+    points.push({
+      id: sourceId,
+      label: COMPARABLE_MULTIPLE_SOURCE_LABELS[sourceId],
+      shortLabel: COMPARABLE_CHART_SHORT_LABELS[sourceId],
+      mid,
+      low: band.low,
+      high: band.high,
+      error: errorFromBand(mid, band.low, band.high),
+      isActual: false,
+    })
+  }
+  return points
+}
+
+/** Moyenne des moyennes (mid) des sources — hors multiple réel. */
+export function averageComparableSourceMids(
+  points: ComparableMetricChartPoint[],
+): number | null {
+  const mids = points
+    .filter((p) => !p.isActual && p.mid != null && Number.isFinite(p.mid))
+    .map((p) => p.mid as number)
+  if (mids.length === 0) return null
+  return mids.reduce((sum, v) => sum + v, 0) / mids.length
+}
+
+/** Identifiants fixes des lignes Sources (Capitalisation §5). */
+export type CapitalisationSourceId =
+  | "multiples-empirical"
+  | "multiples-ai"
+  | "multiples-comparables"
+  | "repayment-rate"
+  | "repayment-duration"
+  | "debt-baiia-empirical"
+  | "debt-baiia-ai"
+  | "debt-baiia-comparables"
+
+export type CapitalisationSourceGroupId =
+  | "multiples"
+  | "repayment"
+  | "debtBaiia"
+
+export type CapitalisationSourceDef = {
+  id: CapitalisationSourceId
+  groupId: CapitalisationSourceGroupId
+  /** Libellé de groupe affiché (en-tête de section). */
+  groupLabel: string
+  /** Libellé de la ligne (paramètre). */
+  label: string
+}
+
+export const CAPITALISATION_SOURCE_DEFS: readonly CapitalisationSourceDef[] = [
+  {
+    id: "multiples-empirical",
+    groupId: "multiples",
+    groupLabel: "Multiples comparables",
+    label: "Multiples comparables — Règles empiriques",
+  },
+  {
+    id: "multiples-ai",
+    groupId: "multiples",
+    groupLabel: "Multiples comparables",
+    label: "Multiples comparables — Selon IA",
+  },
+  {
+    id: "multiples-comparables",
+    groupId: "multiples",
+    groupLabel: "Multiples comparables",
+    label: "Multiples comparables — Comparables",
+  },
+  {
+    id: "repayment-rate",
+    groupId: "repayment",
+    groupLabel: "Hypothèses — remboursement",
+    label: "Taux d'intérêt annuel",
+  },
+  {
+    id: "repayment-duration",
+    groupId: "repayment",
+    groupLabel: "Hypothèses — remboursement",
+    label: "Durée",
+  },
+  {
+    id: "debt-baiia-empirical",
+    groupId: "debtBaiia",
+    groupLabel: "Hypothèses — Dette / BAIIA ajusté",
+    label: "Dette / BAIIA — règles empiriques",
+  },
+  {
+    id: "debt-baiia-ai",
+    groupId: "debtBaiia",
+    groupLabel: "Hypothèses — Dette / BAIIA ajusté",
+    label: "Dette / BAIIA — selon IA",
+  },
+  {
+    id: "debt-baiia-comparables",
+    groupId: "debtBaiia",
+    groupLabel: "Hypothèses — Dette / BAIIA ajusté",
+    label: "Dette / BAIIA — comparables",
+  },
+] as const
+
+export const CAPITALISATION_SOURCE_GROUPS: {
+  id: CapitalisationSourceGroupId
+  label: string
+}[] = [
+  { id: "multiples", label: "Multiples comparables" },
+  { id: "repayment", label: "Hypothèses — remboursement" },
+  { id: "debtBaiia", label: "Hypothèses — Dette / BAIIA ajusté" },
+]
+
+/** Entrée de source documentaire (texte + pièces jointes base64). */
+export type CapitalisationSourceEntry = {
+  id: CapitalisationSourceId
+  content: string
+  attachments: Array<{
+    filename: string
+    media_type: string
+    data: string
+  }>
+}
+
+export function createDefaultCapitalisationSources(): CapitalisationSourceEntry[] {
+  return CAPITALISATION_SOURCE_DEFS.map((def) => ({
+    id: def.id,
+    content: "",
+    attachments: [],
+  }))
+}
+
+function parseSourceAttachment(raw: unknown): CapitalisationSourceEntry["attachments"][number] | null {
+  if (!raw || typeof raw !== "object") return null
+  const o = raw as Record<string, unknown>
+  const filename = typeof o.filename === "string" ? o.filename : ""
+  const media_type = typeof o.media_type === "string" ? o.media_type : "application/octet-stream"
+  const data = typeof o.data === "string" ? o.data : ""
+  if (!filename || !data) return null
+  return { filename, media_type, data }
+}
+
+const CAPITALISATION_SOURCE_ID_SET = new Set<string>(
+  CAPITALISATION_SOURCE_DEFS.map((d) => d.id),
+)
+
+/**
+ * Fusionne le payload persisté avec le catalogue fixe (ordre + lignes toujours présentes).
+ * Les anciennes entrées libres (id hors catalogue) sont ignorées.
+ */
+export function parseCapitalisationSources(raw: unknown): CapitalisationSourceEntry[] {
+  const byId = new Map<string, { content: string; attachments: CapitalisationSourceEntry["attachments"] }>()
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      if (!item || typeof item !== "object") continue
+      const o = item as Record<string, unknown>
+      const id = typeof o.id === "string" ? o.id : ""
+      if (!CAPITALISATION_SOURCE_ID_SET.has(id)) continue
+      const content =
+        typeof o.content === "string"
+          ? o.content
+          : typeof o.title === "string" && o.title
+            ? o.title
+            : ""
+      const attachments: CapitalisationSourceEntry["attachments"] = []
+      if (Array.isArray(o.attachments)) {
+        for (const att of o.attachments) {
+          const parsed = parseSourceAttachment(att)
+          if (parsed) attachments.push(parsed)
+        }
+      }
+      byId.set(id, { content, attachments })
+    }
+  }
+  return CAPITALISATION_SOURCE_DEFS.map((def) => {
+    const saved = byId.get(def.id)
+    return {
+      id: def.id,
+      content: saved?.content ?? "",
+      attachments: saved?.attachments ?? [],
+    }
+  })
+}
 
 export type EbitdaColumnKind = "pec" | "ttm" | "fiscal"
 
@@ -130,6 +469,16 @@ export interface EbitdaMultipleConfigData {
     debtBaiiaComparables?: string
     debtBaiiaRetained?: string
   }
+  /**
+   * Multiples comparables (Capitalisation §2) — VE/Revenus et VE/BAIIA
+   * par source (règles empiriques, IA, comparables), bornes bas/haut.
+   */
+  comparableMultiples?: ComparableMultiplesConfig
+  /**
+   * Sources documentaires (Capitalisation §5) — texte explicatif + pièces
+   * jointes pour l’analyse des comparables.
+   */
+  analysisSources?: CapitalisationSourceEntry[]
 }
 
 /** Hypothèses du pont de flux monétaires caractéristiques. */

@@ -1,8 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
-import { ArrowRight, Calendar, Check, FolderOpen, Loader2, Plus, User, X } from "lucide-react"
+import { ArrowRight, Calendar, Check, FolderOpen, Loader2, User, X } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -93,20 +93,8 @@ function MesSocietesCard({
   bodyClassName?: string
 }) {
   return (
-    <div className="mb-6 w-full overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
-      <div className="border-b border-slate-200/90 bg-gradient-to-r from-white to-slate-50/80 px-6 py-4 sm:px-8">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="mt-0.5 h-10 w-1 shrink-0 rounded-full bg-[#E0742D]" aria-hidden />
-            <div className="min-w-0">
-              <h2 className="text-lg font-semibold tracking-tight text-[#2A2F3A] sm:text-xl">Mes sociétés</h2>
-              <p className="mt-0.5 text-sm leading-relaxed text-slate-600">
-                Liste des sociétés créées dans votre portail.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+    <div className="mb-6 w-full overflow-hidden rounded-xl border border-[#E6D6C3]/35 bg-white shadow-[0_18px_50px_-28px_rgba(34,39,50,0.45)] ring-1 ring-[#222732]/[0.04]">
+      <h2 className="sr-only">Mes sociétés</h2>
       <div className={bodyClassName ?? undefined}>{children}</div>
     </div>
   )
@@ -127,6 +115,8 @@ export default function MonPortailPage() {
   const [isGroupDialogOpen, setIsGroupDialogOpen] = useState(false)
   const [newGroupName, setNewGroupName] = useState("")
   const [selectedCompanyIds, setSelectedCompanyIds] = useState<string[]>([])
+  const [heroVisible, setHeroVisible] = useState(false)
+  const heroRef = useRef<HTMLElement>(null)
 
   const refreshCompanies = useCallback(async () => {
     setLoading(true)
@@ -143,6 +133,19 @@ export default function MonPortailPage() {
   useEffect(() => {
     refreshCompanies()
   }, [refreshCompanies])
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setHeroVisible(true)
+      },
+      { threshold: 0.1, rootMargin: "0px 0px -80px 0px" },
+    )
+    if (heroRef.current) observer.observe(heroRef.current)
+    return () => {
+      if (heroRef.current) observer.unobserve(heroRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (companies.length === 0) {
@@ -252,56 +255,72 @@ export default function MonPortailPage() {
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
 
-      {/* Dark Header Section */}
-      <div className="relative w-full pt-15 pb-40 overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
-            <div className="bg-[#2A2F3A]" />
-            <div className="bg-[#2A2F3A]" />
-          </div>
-          <div className="absolute inset-y-0 left-1/2 hidden lg:block w-px bg-white/5" />
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
-            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
-          </div>
+      {/* Hero — même langage que la landing HeroSection */}
+      <section ref={heroRef} className="relative overflow-hidden pb-40 pt-16 sm:pt-20 sm:pb-44">
+        <div className="absolute inset-0 pointer-events-none bg-[#222732]">
+          <div
+            className="absolute inset-0 opacity-[0.4]"
+            aria-hidden
+            style={{
+              backgroundImage: `linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px)`,
+              backgroundSize: "56px 56px",
+              maskImage:
+                "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+              WebkitMaskImage:
+                "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+            }}
+          />
+          <div className="absolute -top-32 left-[-10%] h-[34rem] w-[34rem] rounded-full bg-[#E6D6C3]/[0.04] blur-3xl" />
+          <div className="absolute top-1/3 right-[-5%] h-[28rem] w-[28rem] rounded-full bg-[#E0742D]/[0.05] blur-3xl" />
+          <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#1a1f2a] to-transparent" />
         </div>
 
-        <div className="relative z-10 max-w-[1920px] mx-auto px-6">
-          <div className="flex items-start gap-3 mb-8">
-            <div className="w-2"></div>
-            <div className="flex-1">
-              <h2 className="text-4xl font-semibold text-[#E6D6C3] mb-2 tracking-tight">Mon portail</h2>
-              <p className="text-base text-[#C9B8A5]/90 mb-6">
-                Retrouvez toutes vos sociétés créées en un seul endroit.
-              </p>
-              <p className="text-base text-[#C9B8A5]/80 mb-6 leading-relaxed max-w-4xl">
-                Cette vue vous permet de retrouver rapidement les sociétés de votre espace et d'accéder à leur fiche
-                de configuration.
-              </p>
-              <div className="flex flex-wrap items-center gap-3">
-                <Button
-                  onClick={() => setIsDialogOpen(true)}
-                  className="bg-[#E0742D] hover:bg-[#c96526] text-white"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Nouvelle société
-                </Button>
-                <Button
-                  onClick={() => setIsGroupDialogOpen(true)}
-                  className="bg-[#E0742D] hover:bg-[#c96526] text-white"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Nouveau groupe consolidé
-                </Button>
-              </div>
+        <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
+          <div
+            className={`max-w-xl lg:max-w-[34rem] xl:max-w-[38rem] transition-all duration-1000 ${
+              heroVisible ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
+            }`}
+          >
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/70">
+              Espace organisations
+            </p>
+
+            <h1 className="mt-7 text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-8 sm:text-[2.45rem] sm:leading-[1.12] xl:text-[2.85rem]">
+              Mon portail
+            </h1>
+
+            <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
+              Retrouvez toutes vos sociétés créées en un seul endroit. Accédez rapidement à leur fiche
+              de configuration et organisez votre espace.
+            </p>
+
+            <div className="mt-10 flex flex-wrap items-center gap-4 sm:mt-12">
+              <button
+                type="button"
+                onClick={() => setIsDialogOpen(true)}
+                className="group inline-flex items-center gap-2.5 rounded-md bg-[#E6D6C3] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#1F2430] transition hover:bg-[#f0e6d8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E6D6C3]/60"
+              >
+                NOUVELLE SOCIÉTÉ
+                <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsGroupDialogOpen(true)}
+                className="inline-flex items-center gap-2 px-1 py-3 text-xs font-semibold tracking-[0.08em] text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
+              >
+                NOUVEAU GROUPE CONSOLIDÉ
+                <span className="inline-block h-px w-8 bg-[#E0742D]/90" />
+              </button>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
       {/* Content - Overlapping section */}
       <main className="relative -mt-32 mb-12">
-        <div className="max-w-[1920px] mx-auto px-6">
+        <div className="max-w-[1920px] mx-auto px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
           {loading ? (
             <MesSocietesCard bodyClassName="px-6 py-8">
               <p className="text-sm text-slate-600">Chargement des sociétés...</p>
@@ -313,7 +332,13 @@ export default function MonPortailPage() {
                 <h3 className="text-lg font-semibold text-[#2A2F3A]">Aucune société créée</h3>
                 <p className="mt-2 max-w-md text-sm text-slate-600">Créez votre première société pour commencer.</p>
                 <Link href="/settings/companies" className="mt-6">
-                  <Button className="bg-[#2A2F3A] text-[#E6D6C3] hover:bg-[#1F2430]">Ajouter une société</Button>
+                  <button
+                    type="button"
+                    className="group inline-flex items-center gap-2.5 rounded-md bg-[#E6D6C3] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#1F2430] transition hover:bg-[#f0e6d8]"
+                  >
+                    AJOUTER UNE SOCIÉTÉ
+                    <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </button>
                 </Link>
               </div>
             </MesSocietesCard>
@@ -327,8 +352,8 @@ export default function MonPortailPage() {
                     "lg:shadow-[inset_-1px_0_0_0_rgba(226,232,240,0.85)]",
                   )}
                 >
-                  <div className="border-b border-slate-200/90 px-4 py-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  <div className="border-b border-[#E6D6C3]/50 bg-[#222732]/[0.03] px-4 py-3">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#2A2F3A]/55">
                       Sociétés ({companies.length})
                     </p>
                   </div>
@@ -344,7 +369,7 @@ export default function MonPortailPage() {
                               className={cn(
                                 "mb-1 flex w-full rounded-lg px-3 py-2.5 text-left transition-colors",
                                 selected
-                                  ? "bg-[#E0742D]/10 shadow-sm ring-1 ring-[#E0742D]/40"
+                                  ? "bg-[#E6D6C3]/35 shadow-sm ring-1 ring-[#E6D6C3]/70"
                                   : "hover:bg-slate-100/90",
                               )}
                             >
@@ -396,14 +421,14 @@ export default function MonPortailPage() {
                             <div className="mb-5 flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-5">
                               <div className="flex min-w-0 flex-1 items-start gap-3">
                                 <div
-                                  className="mt-1 h-10 w-1 shrink-0 rounded-full bg-[#E0742D]"
+                                  className="mt-1 h-10 w-1 shrink-0 rounded-full bg-[#E6D6C3]"
                                   aria-hidden
                                 />
                                 <div className="min-w-0 flex-1">
-                                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#E0742D]">
+                                  <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/90">
                                     Résumé société
                                   </p>
-                                  <h3 className="mt-1 text-xl font-semibold leading-snug text-[#2A2F3A] sm:text-2xl">
+                                  <h3 className="mt-1.5 text-xl font-semibold leading-snug text-[#2A2F3A] sm:text-2xl">
                                     {company?.name ?? "—"}
                                   </h3>
                                   <p className="mt-2 text-sm leading-relaxed text-slate-500">
@@ -491,10 +516,13 @@ export default function MonPortailPage() {
 
                             <div className="mt-6 flex flex-wrap gap-3">
                               <Link href={`/dashboard?companyId=${selectedCompanyId}`}>
-                                <Button className="bg-[#E0742D] text-white shadow-sm hover:bg-[#c96526]">
-                                  Accéder au portail
-                                  <ArrowRight className="ml-2 h-4 w-4" />
-                                </Button>
+                                <button
+                                  type="button"
+                                  className="group inline-flex items-center gap-2.5 rounded-md bg-[#E6D6C3] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#1F2430] transition hover:bg-[#f0e6d8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E6D6C3]/60"
+                                >
+                                  ACCÉDER AU PORTAIL
+                                  <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                                </button>
                               </Link>
                             </div>
                           </>

@@ -240,14 +240,14 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   `cashFlowTaxRate` / `cashFlowEconomicGrowth` /
   `cashFlowMaintenanceCapexLow` / `cashFlowMaintenanceCapexHigh` +
   notes `cash-flow`) ;
-  même ForecastConfig `ebitda-multiple-config` + notes que Capitalisation ;
-  disclaimer localStorage partagé.
+  même ForecastConfig `ebitda-multiple-config` + notes que Capitalisation.
 - **Multiplicateur** (`/evaluation/capitalisation`, étape plan « Multiplicateur ») :
   rapport **CMPC** (WACC société privée) sous l’en-tête valuation (Retour aux
   étapes / Multiplicateur / Entité / Date de référence). UI `components/cmpc/*`
   + moteur `lib/cmpc-wacc.ts` (CAPM + primes taille/spécifique, coût de la dette
-  net d’impôt, pondération fonds propres / dette, fourchette ±0,5 % arrondie
-  0,25 %). §3 Structure de capital : pondérations CMPC (E / D). La **capacité de
+  net d’impôt, pondération fonds propres / dette). Le **CMPC retenu** affiché
+  dans le sommaire (et consommé par Capitalisation) est le CMPC calculé
+  (We × Ke + Wd × Kd), sans arrondi 0,25 %. §3 Structure de capital : pondérations CMPC (E / D). La **capacité de
   remboursement** (VA, Dette / BAIIA, multiple retenu vs capacité max) vit dans
   l’étape **Capitalisation** (`/evaluation/ebitda-multiple`, §2
   `repayment-capacity-section.tsx` : VA + Dette / BAIIA capacité max + hypothèses
@@ -260,7 +260,8 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   de cette étape.
 - **Capitalisation** (`/evaluation/ebitda-multiple`, étape plan « Capitalisation ») :
   rapport continu style VCA (`components/capitalisation/*`) — hero valuation +
-  feuille blanche ; sections 1 Détermination de la valeur d’entreprise
+  feuille blanche ; sections 1 Méthode et périmètre
+  (`capitalisation-method-section.tsx`) · 2 Détermination de la valeur d’entreprise
   (flux caractéristiques bas/haut/moyen depuis Flux monétaires ; multiple retenu
   = 1 ÷ [CMPC retenu (Multiplicateur) − croissance économique] ; VE = flux ×
   multiple via `computeCashFlowCapitalisation` ; achalandage = VE − ACN déjà
@@ -268,14 +269,23 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   (`net-tangible-fdr-adjustment.acn`, bandeau ACN) ; métriques d’évaluation
   vs dénominateurs moyens (VE/Revenus moyens, VE/BAIIA moyen, VE/Flux moyens,
   Achalandage/BAIIA moyen, Achalandage/Flux moyens, Flux/BAIIA moyen) via
-  `computeCapitalisationGoodwillAndRatios`) · 2 Capacité d’endettement
-  (VA ; Dette / BAIIA capacité max ÷ BAIIA moyen ; hypothèses remboursement +
-  Dette / BAIIA ajusté) · 3 Dette estimée selon pondération CMPC
-  (`estimated-debt-section.tsx` : VE × Wd ; Dette / BAIIA estimé ; VPM ; comparaison
-  vs hypothèses et capacité max) · 4 Restrictions ; bandeau KPI
-  (flux, CMPC, taux, multiple, VE) ; nav d’ancres ; moteur
-  `lib/ebitda-capitalisation.ts` + hook `use-ebitda-capitalisation` ; disclaimer
-  localStorage partagé.
+  `computeCapitalisationGoodwillAndRatios`) · 3 Analyses des comparables
+  (`analyses-comparables-section.tsx` : tableau Multiples comparables bas/haut
+  + moyenne auto pour VE/Revenus et VE/BAIIA par source — règles empiriques,
+  selon IA, comparables — persisté `comparableMultiples` dans
+  `ebitda-multiple-config` ; graphiques Réel vs sources via
+  `comparable-multiples-chart.tsx` / `buildComparableMetricChartPoints`) ·
+  4 Capacité d’endettement (VA ; Dette / BAIIA capacité max ÷ BAIIA moyen ;
+  hypothèses remboursement + Dette / BAIIA ajusté) · 5 Structure de
+  financement selon le CMPC (`estimated-debt-section.tsx` : VE × Wd ; Dette /
+  BAIIA estimé ; VPM ; comparaison vs hypothèses et capacité max) ·
+  6 Sommaire des hypothèses et sources (style Multiplicateur
+  `assumptions.tsx` : tableau Paramètre | Valeur | Source / justification ;
+  lignes fixes Multiples comparables empiriques/IA/comparables + remboursement
+  taux/durée + Dette/BAIIA empiriques/IA/comparables ; pièce jointe compacte
+  optionnelle ; persisté `analysisSources`) ;
+  bandeau KPI (flux, CMPC, taux, multiple, VE) ; nav d’ancres ; moteur
+  `lib/ebitda-capitalisation.ts` + hook `use-ebitda-capitalisation`.
 - **VCA / FDR représentatif** (`/evaluation/net-tangible-assets`) : rapport
   continu style Multiplicateur (`components/net-tangible/*`) — sections
   1 Méthode · 2 Bilan ajusté (section rapport style FDR + tableau buildup
@@ -456,11 +466,19 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   panneau, plus dans le mapping comptable. Emprunts mapping sans hypothèse
   flaggés « À définir » jusqu’à Enregistrer. Calendrier : Mois (janv. 2026…) /
   Versement / Intérêts / Capital / Solde résiduel.
-  **Nouveau scénario de projection** (`/projections` + modal Pro Forma) : pas de
+  **Nouveau scénario de projection** (`/projections` + modal) : pas de
   picker entité / division / sous-division (société = `companyId` d’URL ou première
   de l’org ; `division_id` / `sub_division_id` nuls). Horizon toujours **annuel**
   (`projection_horizon: "annual"`), avec vue mensuelle possible ensuite. Date de
-  référence = **mois + année** (`start_month` 1–12 + `start_year`).
+  référence = **mois + année** (`start_month` 1–12 + `start_year`). Ouverture /
+  création → **tableau de bord parcours** `/projections/[projectionId]` (style Plan
+  de valorisation) : nav **Parcours | Résultats | Bilan | Trésorerie | Sommaire**
+  au-dessus de la carte ; Parcours = `ProjectionPlanTrajectory` (6 étapes Hypothèses
+  Revenus → Dépenses → Capex → Financement → Impôts → Bilan, progress
+  `localStorage` `modelisys-projection-plan-progress`) ; Résultats/Bilan/Trésorerie
+  → `/projections/pro-forma?view=…` ; Sommaire = vue d’ensemble sur le dashboard ;
+  « Retour aux étapes » via `ProjectionPlanBackButton` ; deep-link
+  `view` + `hypothesis` sur pro-forma.
   **Impact financier** (Hypothèses) : panneau sticky à droite
   (`ProFormaFinancialImpactPanel`) — Revenus, Bénéfice brut (+ % des revenus indenté),
   Bénéfice net (+ %), BAIIA opérationnel (+ %), trésorerie Exploitation / Investissement /

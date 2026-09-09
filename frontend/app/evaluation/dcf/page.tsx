@@ -3,12 +3,10 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { EntitySelector } from "@/components/entity-selector"
-import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Label } from "@/components/ui/label"
-import { Calculator, DollarSign, TrendingUp, Filter, AlertTriangle, Percent, Activity } from "lucide-react"
+import { Calculator, DollarSign, TrendingUp, Filter, Percent, Activity } from "lucide-react"
 import { formatCurrency } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
@@ -39,7 +37,6 @@ const DEFAULT_ASSUMPTIONS: DcfAssumptions = {
 
 export default function DCFPage() {
   const { companies } = useCompanies()
-  const [hasAcceptedDisclaimer, setHasAcceptedDisclaimer] = useState<boolean>(false)
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
@@ -50,19 +47,6 @@ export default function DCFPage() {
       setCompanyId(companies[0].id)
     }
   }, [companies, companyId])
-
-  // Check if disclaimer was accepted in session storage
-  useEffect(() => {
-    const accepted = localStorage.getItem("dcf-disclaimer-accepted")
-    if (accepted === "true") {
-      setHasAcceptedDisclaimer(true)
-    }
-  }, [])
-
-  const handleAcceptDisclaimer = () => {
-    localStorage.setItem("dcf-disclaimer-accepted", "true")
-    setHasAcceptedDisclaimer(true)
-  }
 
   // Store raw API companies to access fiscal_year_end
   const [apiCompanies, setApiCompanies] = useState<ApiCompany[]>([])
@@ -318,85 +302,6 @@ export default function DCFPage() {
 
   // Format percentage for display
   const fmtPct = (v: number) => `${(v * 100).toFixed(1)}%`
-
-  // Show disclaimer if not accepted
-  if (!hasAcceptedDisclaimer) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white flex items-center justify-center p-6">
-        <Card className="max-w-3xl w-full border-2 border-amber-200 shadow-xl">
-          <CardContent className="p-8">
-            <div className="flex items-start gap-4 mb-6">
-              <div className="p-3 rounded-full bg-amber-100 flex-shrink-0">
-                <AlertTriangle className="w-8 h-8 text-amber-600" />
-              </div>
-              <div className="flex-1">
-                <h2 className="text-2xl font-bold text-slate-900 mb-2">Avertissement important</h2>
-                <p className="text-sm text-slate-600">Veuillez lire attentivement les informations suivantes avant de continuer</p>
-              </div>
-            </div>
-
-            <div className="space-y-4 mb-8">
-              <div className="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-lg">
-                <p className="text-sm font-semibold text-amber-900 mb-2">Avis de non-responsabilite</p>
-                <p className="text-sm text-amber-800 leading-relaxed">
-                  Le processus de determination de la valeur d{"'"}entreprise presente dans cette section est <strong>uniquement a des fins de consultation</strong> et ne represente en aucun cas un rapport d{"'"}evaluation d{"'"}entreprise conforme aux normes professionnelles etablies par l{"'"}Institut canadien des evaluateurs d{"'"}entreprises (ICEE) et les normes CBV (Chartered Business Valuator).
-                </p>
-              </div>
-
-              <div className="space-y-3 text-sm text-slate-700">
-                <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-slate-400 mt-2 flex-shrink-0"></div>
-                  <p>
-                    Les calculs et estimations fournis sont bases sur des donnees et hypotheses que vous avez saisies et peuvent ne pas refleter la valeur reelle de votre entreprise.
-                  </p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-slate-400 mt-2 flex-shrink-0"></div>
-                  <p>
-                    Cette fonctionnalite ne constitue pas un avis professionnel en matiere d{"'"}evaluation d{"'"}entreprise et ne doit pas etre utilisee comme seule base pour prendre des decisions financieres importantes.
-                  </p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-slate-400 mt-2 flex-shrink-0"></div>
-                  <p>
-                    Pour obtenir une evaluation d{"'"}entreprise conforme aux normes professionnelles, vous devez consulter un evaluateur d{"'"}entreprises certifie (CBV) ou un professionnel qualifie.
-                  </p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-slate-400 mt-2 flex-shrink-0"></div>
-                  <p>
-                    Les resultats presentes sont fournis &quot;tels quels&quot; sans garantie d{"'"}exactitude, d{"'"}exhaustivite ou de pertinence pour votre situation particuliere.
-                  </p>
-                </div>
-              </div>
-
-              <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 mt-6">
-                <p className="text-xs text-slate-600 leading-relaxed">
-                  <strong>Note :</strong> En continuant, vous reconnaissez avoir lu et compris cet avertissement et acceptez que les informations fournies sont a des fins de consultation uniquement et ne remplacent pas un avis professionnel en matiere d{"'"}evaluation d{"'"}entreprise.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => window.history.back()}
-                className="border-slate-300 text-slate-700 hover:bg-slate-50"
-              >
-                Retour
-              </Button>
-              <Button
-                onClick={handleAcceptDisclaimer}
-                className="bg-slate-900 hover:bg-slate-800 text-white px-8"
-              >
-                J{"'"}ai compris, continuer
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
 
   return (
     <div className="min-h-screen bg-slate-50">

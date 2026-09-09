@@ -1,12 +1,21 @@
 "use client"
 
+import { AnalysesComparablesSection } from "@/components/capitalisation/analyses-comparables-section"
+import { CapitalisationMethodSection } from "@/components/capitalisation/capitalisation-method-section"
 import { EstimatedDebtSection } from "@/components/capitalisation/estimated-debt-section"
 import { RepaymentCapacitySection } from "@/components/capitalisation/repayment-capacity-section"
+import { CapitalisationSourcesSection } from "@/components/capitalisation/sources-section"
 import { LabelWithHint } from "@/components/cmpc/editable"
 import { NetTangibleReportSection } from "@/components/net-tangible/report-section"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import type { UseEbitdaCapitalisationReturn } from "@/hooks/use-ebitda-capitalisation"
 import { formatCmpcPct } from "@/lib/cmpc-wacc"
 import { formatCurrency } from "@/lib/financial-utils"
+import { Info } from "lucide-react"
 
 export type CapitalisationReportProps = {
   companyName: string
@@ -15,10 +24,12 @@ export type CapitalisationReportProps = {
 }
 
 const REPORT_NAV = [
-  { id: "determination", label: "1. Valeur d'entreprise" },
-  { id: "endettement", label: "2. Capacité d'endettement" },
-  { id: "dette-estimee", label: "3. Dette estimée" },
-  { id: "restrictions", label: "4. Restrictions" },
+  { id: "methode", label: "1. Méthode" },
+  { id: "determination", label: "2. Valeur d'entreprise" },
+  { id: "comparables", label: "3. Comparables" },
+  { id: "endettement", label: "4. Capacité d'endettement" },
+  { id: "dette-estimee", label: "5. Structure de financement" },
+  { id: "sources", label: "6. Hypothèses et sources" },
 ] as const
 
 function scrollToSection(id: string) {
@@ -41,39 +52,107 @@ function formatMoneyOrDash(value: number | null | undefined): string {
   return formatCurrency(value)
 }
 
-function DisclaimerSection() {
+function MultipleRetainedInfoBubble({
+  cmpcLabel,
+  growthLabel,
+  rateLabel,
+  multipleLabel,
+}: {
+  cmpcLabel: string
+  growthLabel: string
+  rateLabel: string
+  multipleLabel: string
+}) {
+  const rows = [
+    {
+      id: "cmpc",
+      label: "CMPC (Multiplicateur)",
+      value: cmpcLabel,
+      total: false,
+    },
+    {
+      id: "growth",
+      label: "(−) Croissance économique",
+      value: growthLabel,
+      total: false,
+    },
+    {
+      id: "rate",
+      label: "Taux de capitalisation",
+      value: rateLabel,
+      total: true,
+    },
+    {
+      id: "multiple",
+      label: "Multiple (1 ÷ taux)",
+      value: multipleLabel,
+      total: true,
+    },
+  ] as const
+
   return (
-    <NetTangibleReportSection id="restrictions" number="4." title="Restrictions et limitations">
-      <p className="text-pretty text-sm leading-relaxed text-slate-500">
-        Le processus de détermination de la valeur d&apos;entreprise présenté dans ce rapport est
-        uniquement à des fins de consultation. Il ne constitue pas un rapport d&apos;évaluation
-        conforme aux normes de l&apos;Institut canadien des évaluateurs d&apos;entreprises (ICÉÉ)
-        ni aux normes CBV.
-      </p>
-      <ul className="mt-4 space-y-2 text-sm text-slate-500">
-        <li className="flex gap-2">
-          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
-          <span>
-            Les calculs reposent sur les hypothèses et données saisies ; ils peuvent ne pas
-            refléter la valeur réelle de l&apos;entreprise.
-          </span>
-        </li>
-        <li className="flex gap-2">
-          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
-          <span>
-            Cette analyse ne remplace pas un avis professionnel et ne doit pas être la seule base
-            de décisions financières importantes.
-          </span>
-        </li>
-        <li className="flex gap-2">
-          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
-          <span>
-            Pour une évaluation conforme aux normes professionnelles, consultez un évaluateur
-            d&apos;entreprises certifié (CBV).
-          </span>
-        </li>
-      </ul>
-    </NetTangibleReportSection>
+    <HoverCard openDelay={120} closeDelay={80}>
+      <HoverCardTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-slate-100 hover:text-[#2A2F3A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E0742D]/40"
+          aria-label="Détail du multiple retenu"
+          data-testid="capitalisation-multiple-bridge-trigger"
+          data-print-hide
+        >
+          <Info className="size-3.5" aria-hidden="true" />
+        </button>
+      </HoverCardTrigger>
+      <HoverCardContent
+        align="start"
+        side="top"
+        className="w-80 border-slate-200 bg-white p-3 shadow-lg"
+        data-testid="capitalisation-multiple-bridge"
+      >
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Multiple retenu
+        </p>
+        <table className="w-full border-collapse text-sm">
+          <tbody>
+            {rows.map((row) => (
+              <tr
+                key={row.id}
+                className={
+                  row.total ? "border-t-2 border-[#2A2F3A]" : "border-t border-slate-200"
+                }
+                data-testid={
+                  row.id === "multiple"
+                    ? "capitalisation-multiple-retained"
+                    : `capitalisation-${row.id}`
+                }
+              >
+                <td
+                  className={
+                    row.total
+                      ? "py-1.5 pr-3 font-semibold text-[#2A2F3A]"
+                      : "py-1.5 pr-3 text-[#2A2F3A]"
+                  }
+                >
+                  {row.label}
+                </td>
+                <td
+                  className={
+                    row.total
+                      ? "py-1.5 text-right font-mono text-sm font-semibold tabular-nums text-[#E0742D]"
+                      : "py-1.5 text-right font-mono text-sm tabular-nums text-[#2A2F3A]"
+                  }
+                >
+                  {row.value}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+          Multiple = 1 ÷ (CMPC − croissance économique).
+        </p>
+      </HoverCardContent>
+    </HoverCard>
   )
 }
 
@@ -84,7 +163,7 @@ export function CapitalisationReport({
 }: CapitalisationReportProps) {
   if (!c.configLoaded) {
     return (
-      <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white py-16 shadow-lg">
+      <div className="flex items-center justify-center overflow-hidden rounded-xl border border-[#E6D6C3]/35 bg-white py-16 shadow-[0_18px_50px_-28px_rgba(34,39,50,0.45)] ring-1 ring-[#222732]/[0.04]">
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-[#E0742D]" />
       </div>
     )
@@ -107,116 +186,110 @@ export function CapitalisationReport({
     <article
       data-testid="capitalisation-report"
       data-report-sheet
-      className="rounded-xl border border-slate-200 bg-white px-6 py-8 shadow-lg sm:px-12 sm:py-12"
+      className="overflow-hidden rounded-xl border border-[#E6D6C3]/35 bg-white shadow-[0_18px_50px_-28px_rgba(34,39,50,0.45)] ring-1 ring-[#222732]/[0.04]"
     >
-      <header>
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#E0742D]">
-          Détermination de la valeur
-        </p>
-        <h2 className="mt-2 text-balance text-2xl font-semibold leading-tight tracking-tight text-[#2A2F3A] sm:text-3xl">
-          Capitalisation des flux monétaires
-        </h2>
-        <p className="mt-3 max-w-3xl text-pretty text-sm leading-relaxed text-slate-500">
-          Le présent rapport capitalise les flux monétaires caractéristiques de{" "}
-          <span className="font-medium text-[#2A2F3A]">{companyName}</span>, en date du{" "}
-          <span className="font-medium text-[#2A2F3A]">{referenceLabel}</span>, à partir du
-          CMPC (Multiplicateur) et de la croissance économique (Flux monétaires).
-        </p>
-      </header>
-
       <section
         data-testid="capitalisation-overview-strip"
         data-break-avoid
-        className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-[#2A2F3A] text-white shadow-sm"
+        className="w-full border-b border-[#E6D6C3]/45 bg-gradient-to-b from-[#222732]/[0.025] to-white"
       >
-        <div className="border-b border-white/15 px-5 py-4 sm:px-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#E0742D]">
+        <div className="border-b border-[#E6D6C3]/40 bg-[#222732]/[0.02] px-6 py-5 sm:px-12">
+          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/90">
             Sommaire de la conclusion
           </p>
-          <p className="mt-2 max-w-3xl text-pretty text-sm leading-relaxed text-white/80">
+          <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-500">
             Flux caractéristiques × multiple retenu (1 ÷ [CMPC − croissance]) = valeur
             d&apos;entreprise.
           </p>
         </div>
-        <div className="grid grid-cols-2 divide-x divide-y divide-white/10 md:grid-cols-3 xl:grid-cols-6 xl:divide-y-0">
-          {[
-            {
-              id: "cf-mid",
-              label: "Flux moyen",
-              value: formatCurrency(cap.cashFlow.mid),
-            },
-            { id: "cmpc", label: "CMPC retenu", value: cmpcLabel },
-            { id: "rate", label: "Taux de capitalisation", value: rateLabel },
-            { id: "multiple-mid", label: "Multiple retenu", value: multipleLabel },
-            {
-              id: "ev-mid",
-              label: "VE médiane",
-              value: formatCurrency(c.midEnterpriseValue),
-            },
-            {
-              id: "ev-range",
-              label: "VE (bas – haut)",
-              value: `${formatCurrency(c.lowEnterpriseValue)} – ${formatCurrency(c.highEnterpriseValue)}`,
-            },
-          ].map((metric) => (
-            <div
-              key={metric.id}
-              data-testid={`capitalisation-overview-${metric.id}`}
-              className="flex min-w-0 flex-col gap-1.5 px-3.5 py-3.5 text-left"
-            >
-              <span className="text-[11px] font-medium uppercase tracking-wide text-white/55">
-                {metric.label}
-              </span>
-              <span className="truncate font-mono text-sm font-semibold tabular-nums text-white">
-                {metric.value}
-              </span>
-            </div>
-          ))}
+        <div className="overflow-x-auto px-6 py-1 sm:px-12">
+          <table className="w-full min-w-[420px]">
+            <thead>
+              <tr className="border-b border-[#E6D6C3]/55 text-left">
+                <th className="py-3 pr-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Indicateur
+                </th>
+                <th className="py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Valeur
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {[
+                {
+                  id: "cf-mid",
+                  label: "Flux moyen",
+                  value: formatCurrency(cap.cashFlow.mid),
+                },
+                { id: "cmpc", label: "CMPC retenu", value: cmpcLabel },
+                { id: "rate", label: "Taux de capitalisation", value: rateLabel },
+                { id: "multiple-mid", label: "Multiple retenu", value: multipleLabel },
+                {
+                  id: "ev-mid",
+                  label: "VE médiane",
+                  value: formatCurrency(c.midEnterpriseValue),
+                },
+                {
+                  id: "ev-range",
+                  label: "VE (bas – haut)",
+                  value: `${formatCurrency(c.lowEnterpriseValue)} – ${formatCurrency(c.highEnterpriseValue)}`,
+                },
+              ].map((metric) => (
+                <tr
+                  key={metric.id}
+                  data-testid={`capitalisation-overview-${metric.id}`}
+                  className="border-b border-slate-100 align-middle last:border-b-0"
+                >
+                  <td className="py-3 pr-4 text-sm font-medium text-[#222732]">{metric.label}</td>
+                  <td className="py-3 text-right font-mono text-sm tabular-nums text-[#222732]">
+                    {metric.value}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 
-      <nav
-        data-testid="capitalisation-section-menu"
-        aria-label="Sommaire du rapport"
-        className="mt-6 flex flex-wrap gap-2 border-b border-slate-200 pb-4"
-      >
-        {REPORT_NAV.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => scrollToSection(item.id)}
-            className="rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-[#2A2F3A]"
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      <div className="px-6 pb-8 pt-10 sm:px-12 sm:pb-12">
+        <div className="mb-6" aria-hidden>
+          <div className="h-px w-full bg-gradient-to-r from-[#E0742D]/80 via-[#E6D6C3]/50 to-transparent" />
+        </div>
 
-      <p className="mt-6 text-pretty text-sm leading-relaxed text-slate-500">
-        Taux de capitalisation&nbsp;={" "}
-        <span className="font-mono text-[#2A2F3A]">CMPC − croissance économique</span>
-        &nbsp;; multiple&nbsp;={" "}
-        <span className="font-mono text-[#2A2F3A]">1 ÷ taux</span>
-        &nbsp;; valeur d&apos;entreprise&nbsp;={" "}
-        <span className="font-mono text-[#2A2F3A]">
-          Flux monétaires caractéristiques × Multiple
-        </span>
-        .
-      </p>
+        <div className="mb-3">
+          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/90">
+            Détail du rapport
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            Parcourez le sommaire et les sections pour documenter la capitalisation des flux
+            monétaires.
+          </p>
+        </div>
+
+        <nav
+          data-testid="capitalisation-section-menu"
+          aria-label="Sommaire du rapport"
+          className="flex flex-wrap gap-1 border-b border-slate-200 pb-3"
+        >
+          {REPORT_NAV.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => scrollToSection(item.id)}
+              className="rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-[#222732]/[0.03] hover:text-[#222732]"
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <CapitalisationMethodSection />
 
       <NetTangibleReportSection
         id="determination"
-        number="1."
+        number="2."
         title="Détermination de la valeur d'entreprise"
       >
-        <p className="mb-4 text-pretty text-sm leading-relaxed text-slate-500">
-          Les flux monétaires caractéristiques proviennent de l&apos;étape{" "}
-          <span className="font-medium text-[#2A2F3A]">Flux monétaires</span>. Le multiple retenu
-          découle du CMPC (étape{" "}
-          <span className="font-medium text-[#2A2F3A]">Multiplicateur</span>) diminué de la
-          croissance économique.
-        </p>
-
         <div className="overflow-x-auto" data-testid="capitalisation-determination-table">
           <table className="w-full min-w-[36rem] table-fixed border-collapse text-sm">
             <colgroup>
@@ -249,7 +322,17 @@ export function CapitalisationReport({
                 </td>
               </tr>
               <tr className="border-t border-slate-200" data-testid="capitalisation-multiple-row">
-                <td className="py-2 pr-4 text-[#2A2F3A]">Multiple</td>
+                <td className="py-2 pr-4 text-[#2A2F3A]">
+                  <span className="inline-flex items-center gap-1.5">
+                    Multiple
+                    <MultipleRetainedInfoBubble
+                      cmpcLabel={cmpcLabel}
+                      growthLabel={growthLabel}
+                      rateLabel={rateLabel}
+                      multipleLabel={multipleLabel}
+                    />
+                  </span>
+                </td>
                 <td className="py-2 pr-4 text-right font-mono tabular-nums text-[#2A2F3A]">
                   {multipleLabel}
                 </td>
@@ -325,6 +408,17 @@ export function CapitalisationReport({
               calculer l&apos;achalandage.
             </p>
           ) : null}
+          {cap.cmpcPct == null ? (
+            <p className="mt-2 text-sm text-amber-700" data-testid="capitalisation-cmpc-missing">
+              Complétez l&apos;étape Multiplicateur pour déterminer le CMPC retenu et le multiple.
+            </p>
+          ) : null}
+          {cap.cmpcPct != null && cap.multiple == null ? (
+            <p className="mt-2 text-sm text-amber-700" data-testid="capitalisation-rate-invalid">
+              Le taux de capitalisation doit être strictement positif (CMPC &gt; croissance
+              économique).
+            </p>
+          ) : null}
         </div>
 
         <div className="mt-6 space-y-3" data-testid="capitalisation-ratios-table">
@@ -393,90 +487,18 @@ export function CapitalisationReport({
             </table>
           </div>
         </div>
-
-        <div className="mt-6 space-y-3" data-testid="capitalisation-multiple-bridge">
-          <p className="text-sm font-medium text-[#2A2F3A]">Multiple retenu</p>
-          <div className="max-w-md overflow-x-auto">
-            <table className="w-full border-collapse text-sm">
-              <tbody>
-                {(
-                  [
-                    {
-                      id: "cmpc",
-                      label: "CMPC (Multiplicateur)",
-                      value: cmpcLabel,
-                      total: false,
-                    },
-                    {
-                      id: "growth",
-                      label: "(−) Croissance économique",
-                      value: growthLabel,
-                      total: false,
-                    },
-                    {
-                      id: "rate",
-                      label: "Taux de capitalisation",
-                      value: rateLabel,
-                      total: true,
-                    },
-                    {
-                      id: "multiple",
-                      label: "Multiple (1 ÷ taux)",
-                      value: multipleLabel,
-                      total: true,
-                    },
-                  ] as const
-                ).map((row) => (
-                  <tr
-                    key={row.id}
-                    className={
-                      row.total ? "border-t-2 border-[#2A2F3A]" : "border-t border-slate-200"
-                    }
-                    data-testid={
-                      row.id === "multiple"
-                        ? "capitalisation-multiple-retained"
-                        : `capitalisation-${row.id}`
-                    }
-                  >
-                    <td
-                      className={
-                        row.total
-                          ? "py-1.5 pr-4 font-semibold text-[#2A2F3A]"
-                          : "py-1.5 pr-4 text-[#2A2F3A]"
-                      }
-                    >
-                      {row.label}
-                    </td>
-                    <td
-                      className={
-                        row.total
-                          ? "py-1.5 text-right font-mono text-sm font-semibold tabular-nums text-[#E0742D]"
-                          : "py-1.5 text-right font-mono text-sm tabular-nums text-[#2A2F3A]"
-                      }
-                    >
-                      {row.value}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {cap.cmpcPct == null ? (
-            <p className="text-sm text-amber-700" data-testid="capitalisation-cmpc-missing">
-              Complétez l&apos;étape Multiplicateur pour déterminer le CMPC retenu et le multiple.
-            </p>
-          ) : null}
-          {cap.cmpcPct != null && cap.multiple == null ? (
-            <p className="text-sm text-amber-700" data-testid="capitalisation-rate-invalid">
-              Le taux de capitalisation doit être strictement positif (CMPC &gt; croissance
-              économique).
-            </p>
-          ) : null}
-        </div>
       </NetTangibleReportSection>
 
+      <AnalysesComparablesSection
+        number="3."
+        comparableMultiples={c.comparableMultiples}
+        onComparableMultiplesChange={c.setComparableMultiples}
+        veOverRevenue={gw.ratios.veOverRevenue}
+        veOverBaiia={gw.ratios.veOverBaiia}
+      />
+
       <RepaymentCapacitySection
-        number="2."
+        number="4."
         baiiaLow={c.lowEBITDARange}
         baiiaHigh={c.highEBITDARange}
         baiiaMid={c.midEBITDARange}
@@ -493,7 +515,7 @@ export function CapitalisationReport({
       />
 
       <EstimatedDebtSection
-        number="3."
+        number="5."
         baiiaLow={c.lowEBITDARange}
         baiiaHigh={c.highEBITDARange}
         baiiaMid={c.midEBITDARange}
@@ -507,13 +529,21 @@ export function CapitalisationReport({
         repaymentCapacity={c.repaymentCapacity}
       />
 
-      <DisclaimerSection />
+      <CapitalisationSourcesSection
+        number="6."
+        sources={c.analysisSources}
+        onChange={c.setAnalysisSources}
+        comparableMultiples={c.comparableMultiples}
+        repaymentCapacity={c.repaymentCapacity}
+        debtCapacity={c.debtCapacity}
+      />
 
-      <footer className="mt-10 border-t border-slate-200 pt-4">
-        <p className="text-pretty text-[11px] leading-relaxed text-slate-500">
-          Rapport indicatif de capitalisation des flux · {companyName} · {referenceLabel}
-        </p>
-      </footer>
+        <footer className="mt-10 border-t border-slate-200 pt-4">
+          <p className="text-pretty text-[11px] leading-relaxed text-slate-500">
+            Rapport indicatif de capitalisation des flux · {companyName} · {referenceLabel}
+          </p>
+        </footer>
+      </div>
     </article>
   )
 }

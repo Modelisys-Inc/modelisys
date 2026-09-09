@@ -395,6 +395,18 @@ export function parseBaiiaAdjustedRange(data: unknown): BaiiaAdjustedRange | nul
   return { low, high, mid: (low + high) / 2 }
 }
 
+/** Revenus représentatifs bas / haut / moyen — fourchette retenue (Flux monétaires). */
+export function parseRepresentativeRevenueRange(data: unknown): BaiiaAdjustedRange | null {
+  if (!data || typeof data !== "object") return null
+  const d = data as Record<string, unknown>
+  const low = typeof d.lowRevenueRange === "number" ? d.lowRevenueRange : Number(d.lowRevenueRange)
+  const high =
+    typeof d.highRevenueRange === "number" ? d.highRevenueRange : Number(d.highRevenueRange)
+  if (!Number.isFinite(low) || !Number.isFinite(high)) return null
+  // Même formule que `midRevenueRange` (ligne Revenus · colonne Moyen, Fourchette retenue).
+  return { low, high, mid: (low + high) / 2 }
+}
+
 /** Flux caractéristiques persistés depuis l’étape Flux monétaires. */
 export function parseCharacteristicCashFlowRange(
   data: unknown,

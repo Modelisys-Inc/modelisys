@@ -155,20 +155,9 @@ export function EstimatedDebtSection({
     <NetTangibleReportSection
       id="dette-estimee"
       number={number}
-      title="Dette estimée selon pondération CMPC"
+      title="Structure de financement selon le CMPC"
     >
-      <p className="text-pretty text-sm leading-relaxed text-slate-500">
-        La dette estimée applique la pondération de dette retenue (Multiplicateur — structure
-        CMPC) à la valeur d&apos;entreprise. Le Dette / BAIIA estimé et le VPM de remboursement
-        sont ensuite comparés aux hypothèses et à la capacité maximale (§2).
-      </p>
-      <p className="mt-2 text-pretty text-sm leading-relaxed text-slate-500">
-        Dette estimée = VE × pondération dette CMPC ; Dette / BAIIA estimé = dette ÷ BAIIA
-        moyen. Capacité de remboursement = VPM(taux, durée, −dette estimée) ; flux disponibles
-        après remboursement = flux caractéristiques − VPM.
-      </p>
-
-      <div className="mt-5" data-testid="cmpc-estimated-debt">
+      <div data-testid="cmpc-estimated-debt">
         {estimatedDebt ? (
           <>
             <div className="overflow-x-auto">

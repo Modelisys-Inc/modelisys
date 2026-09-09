@@ -67,6 +67,30 @@ async function setupProjectionsPage(page: Page) {
   })
   await page.route(`**/api/companies/${COMPANY_ID}/projections**`, async (route) => {
     const method = route.request().method()
+    const url = route.request().url()
+    if (method === "GET" && url.includes(`/projections/${PROJECTION_ID}`)) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: PROJECTION_ID,
+          name: "Scénario e2e",
+          projection_years: 5,
+          projection_mode: "account",
+          projection_horizon: "annual",
+          start_year: 2027,
+          start_month: 3,
+          company_id: COMPANY_ID,
+          division_id: null,
+          sub_division_id: null,
+          created_by_id: "u1",
+          adjustments: [],
+          loans: [],
+          created_at: "2026-08-18T00:00:00Z",
+          updated_at: "2026-08-18T00:00:00Z",
+        }),
+      })
+    }
     if (method === "GET") {
       return route.fulfill({
         status: 200,
@@ -141,5 +165,8 @@ test("new scenario dialog has no entity or horizon picker, and sends month+year 
   expect(payload.division_id).toBeNull()
   expect(payload.sub_division_id).toBeNull()
 
-  await expect(page).toHaveURL(new RegExp(`projectionId=${PROJECTION_ID}`), { timeout: 10000 })
+  await expect(page).toHaveURL(new RegExp(`/projections/${PROJECTION_ID}`), { timeout: 10000 })
+  await expect(page.getByTestId("projection-dashboard-title")).toBeVisible({ timeout: 10000 })
+  await expect(page.getByTestId("projection-plan-trajectory")).toBeVisible()
+  await expect(page.getByTestId("projection-plan-shell-nav")).toBeVisible()
 })

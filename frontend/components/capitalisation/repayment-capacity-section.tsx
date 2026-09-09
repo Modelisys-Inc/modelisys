@@ -98,17 +98,8 @@ export function RepaymentCapacitySection({
       number={number}
       title="Capacité d'endettement"
     >
-      <p className="text-pretty text-sm leading-relaxed text-slate-500">
-        La capacité d&apos;endettement traduit les flux monétaires caractéristiques en dette
-        maximale supportable (VA), puis en Dette / BAIIA.
-      </p>
-      <p className="mt-2 text-pretty text-sm leading-relaxed text-slate-500">
-        Capacité d&apos;endettement maximale = VA(taux, durée, flux) ; Dette / BAIIA =
-        capacité max ÷ BAIIA moyen.
-      </p>
-
       <div
-        className="mt-5 grid grid-cols-1 gap-x-10 gap-y-6 lg:grid-cols-2"
+        className="grid grid-cols-1 gap-x-10 gap-y-6 lg:grid-cols-2"
         data-testid="cmpc-repayment-capacity"
       >
         <div>
@@ -144,7 +135,7 @@ export function RepaymentCapacitySection({
                   <td className="py-2 pr-4 text-right font-mono text-sm font-semibold tabular-nums text-[#2A2F3A]">
                     {formatCmpcCurrency(repayment.maxDebt.low)}
                   </td>
-                  <td className="py-2 text-right font-mono text-sm font-semibold tabular-nums text-[#E0742D]">
+                  <td className="py-2 text-right font-mono text-sm font-semibold tabular-nums text-[#2A2F3A]">
                     {formatCmpcCurrency(repayment.maxDebt.high)}
                   </td>
                 </tr>

@@ -221,38 +221,35 @@ export function BusinessModelReport({
     <article
       data-testid="business-model-report"
       data-report-sheet
-      className="rounded-xl border border-slate-200 bg-white px-6 py-8 shadow-lg sm:px-12 sm:py-12"
+      className="overflow-hidden rounded-xl border border-[#E6D6C3]/35 bg-white shadow-[0_18px_50px_-28px_rgba(34,39,50,0.45)] ring-1 ring-[#222732]/[0.04]"
     >
-      <header>
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#E0742D]">
-          Détermination de la valeur
-        </p>
-        <h2 className="mt-2 text-balance text-2xl font-semibold leading-tight tracking-tight text-[#2A2F3A] sm:text-3xl">
-          Modèle d&apos;affaires et risques d&apos;entreprise
-        </h2>
-        <p className="mt-3 max-w-3xl text-pretty text-sm leading-relaxed text-slate-500">
-          Le présent rapport documente l&apos;évaluation des risques du modèle d&apos;affaires de{" "}
-          <span className="font-medium text-[#2A2F3A]">{companyName}</span>, en date du{" "}
-          <span className="font-medium text-[#2A2F3A]">{referenceLabel}</span>, afin d&apos;éclairer
-          le multiple et les hypothèses de valorisation.
-        </p>
-      </header>
-
       <section
         data-testid="business-model-overview-strip"
         data-break-avoid
-        className="mt-8 overflow-hidden rounded-xl border border-slate-200 bg-[#2A2F3A] text-white shadow-sm"
+        className="w-full border-b border-[#E6D6C3]/45 bg-gradient-to-b from-[#222732]/[0.025] to-white"
       >
-        <div className="border-b border-white/15 px-5 py-4 sm:px-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#E0742D]">
+        <div className="border-b border-[#E6D6C3]/40 bg-[#222732]/[0.02] px-6 py-5 sm:px-12">
+          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/90">
             Sommaire de la conclusion
           </p>
-          <p className="mt-2 max-w-3xl text-pretty text-sm leading-relaxed text-white/80">
+          <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-500">
             Répartition des risques évalués et progression de l&apos;analyse à la date de
             référence.
           </p>
         </div>
-        <div className="grid grid-cols-2 divide-x divide-y divide-white/10 md:grid-cols-5 md:divide-y-0">
+        <div className="overflow-x-auto px-6 py-1 sm:px-12">
+          <table className="w-full min-w-[420px]">
+            <thead>
+              <tr className="border-b border-[#E6D6C3]/55 text-left">
+                <th className="py-3 pr-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Indicateur
+                </th>
+                <th className="py-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Valeur
+                </th>
+              </tr>
+            </thead>
+            <tbody>
           {[
             { id: "high", label: "Élevés", value: highRisks.length },
             { id: "medium", label: "Modérés", value: mediumCount },
@@ -260,38 +257,54 @@ export function BusinessModelReport({
             { id: "pending", label: "Non évalués", value: unassessedCount },
             { id: "progress", label: "Progression", value: `${progressPct} %` },
           ].map((metric) => (
-            <div
+            <tr
               key={metric.id}
               data-testid={`business-model-overview-${metric.id}`}
-              className="flex min-w-0 flex-col gap-1.5 px-3.5 py-3.5 text-left"
+              className="border-b border-slate-100 align-middle last:border-b-0"
             >
-              <span className="text-[11px] font-medium uppercase tracking-wide text-white/55">
-                {metric.label}
-              </span>
-              <span className="font-mono text-lg tabular-nums text-white">{metric.value}</span>
-            </div>
+              <td className="py-3 pr-4 text-sm font-medium text-[#222732]">{metric.label}</td>
+              <td className="py-3 text-right font-mono text-sm tabular-nums text-[#222732]">
+                {metric.value}
+              </td>
+            </tr>
           ))}
+            </tbody>
+          </table>
         </div>
       </section>
 
-      <nav
-        data-testid="business-model-section-menu"
-        aria-label="Sommaire du rapport"
-        className="mt-8 flex flex-wrap gap-1 border-b border-slate-200 pb-3"
-      >
-        {nav.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => scrollToSection(item.id)}
-            className="rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-[#2A2F3A]"
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      <div className="px-6 pb-8 pt-10 sm:px-12 sm:pb-12">
+        <div className="mb-6" aria-hidden>
+          <div className="h-px w-full bg-gradient-to-r from-[#E0742D]/80 via-[#E6D6C3]/50 to-transparent" />
+        </div>
 
-      <NetTangibleReportSection id="methode" number="1." title="Méthode et périmètre">
+        <div className="mb-3">
+          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/90">
+            Détail du rapport
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            Parcourez le sommaire et les catégories de risques pour documenter l&apos;analyse.
+          </p>
+        </div>
+
+        <nav
+          data-testid="business-model-section-menu"
+          aria-label="Sommaire du rapport"
+          className="flex flex-wrap gap-1 border-b border-slate-200 pb-3"
+        >
+          {nav.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => scrollToSection(item.id)}
+              className="rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-[#222732]/[0.03] hover:text-[#222732]"
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <NetTangibleReportSection id="methode" number="1." title="Méthode et périmètre">
         <p className="text-pretty text-sm leading-relaxed text-slate-500">
           L&apos;analyse du modèle d&apos;affaires vise à identifier les risques susceptibles
           d&apos;affecter la stabilité des revenus, la résilience opérationnelle et, in fine, le
@@ -320,9 +333,9 @@ export function BusinessModelReport({
             </span>
           </li>
         </ul>
-      </NetTangibleReportSection>
+        </NetTangibleReportSection>
 
-      <NetTangibleReportSection id="sommaire" number="2." title="Sommaire de l'évaluation">
+        <NetTangibleReportSection id="sommaire" number="2." title="Sommaire de l'évaluation">
         <p className="text-pretty text-sm leading-relaxed text-slate-500">
           {assessedCount} risque{assessedCount > 1 ? "s" : ""} évalué
           {assessedCount > 1 ? "s" : ""} sur {risks.length} · {unassessedCount} en attente.
@@ -377,81 +390,82 @@ export function BusinessModelReport({
             ci-dessous.
           </p>
         )}
-      </NetTangibleReportSection>
+        </NetTangibleReportSection>
 
-      {categories.map((category, index) => {
-        const categoryRisks = risksByCategory[category] ?? []
-        const high = categoryRisks.filter((r) => r.level === "high").length
-        const medium = categoryRisks.filter((r) => r.level === "medium").length
-        const low = categoryRisks.filter((r) => r.level === "low").length
-        const pending = categoryRisks.filter((r) => r.level === null).length
-        const sectionNumber = `${index + 3}.`
-        return (
-          <NetTangibleReportSection
-            key={category}
-            id={categorySectionId(category)}
-            number={sectionNumber}
-            title={category}
-          >
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className="text-sm text-slate-500">
-                {categoryRisks.length} risque{categoryRisks.length > 1 ? "s" : ""}
-              </span>
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold",
-                  levelChipClass("high"),
-                )}
-              >
-                {high} élevé{high > 1 ? "s" : ""}
-              </span>
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold",
-                  levelChipClass("medium"),
-                )}
-              >
-                {medium} modéré{medium > 1 ? "s" : ""}
-              </span>
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold",
-                  levelChipClass("low"),
-                )}
-              >
-                {low} faible{low > 1 ? "s" : ""}
-              </span>
-              {pending > 0 ? (
+        {categories.map((category, index) => {
+          const categoryRisks = risksByCategory[category] ?? []
+          const high = categoryRisks.filter((r) => r.level === "high").length
+          const medium = categoryRisks.filter((r) => r.level === "medium").length
+          const low = categoryRisks.filter((r) => r.level === "low").length
+          const pending = categoryRisks.filter((r) => r.level === null).length
+          const sectionNumber = `${index + 3}.`
+          return (
+            <NetTangibleReportSection
+              key={category}
+              id={categorySectionId(category)}
+              number={sectionNumber}
+              title={category}
+            >
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className="text-sm text-slate-500">
+                  {categoryRisks.length} risque{categoryRisks.length > 1 ? "s" : ""}
+                </span>
                 <span
                   className={cn(
                     "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold",
-                    levelChipClass("pending"),
+                    levelChipClass("high"),
                   )}
                 >
-                  {pending} non évalué{pending > 1 ? "s" : ""}
+                  {high} élevé{high > 1 ? "s" : ""}
                 </span>
-              ) : null}
-            </div>
-            <div className="mt-1">
-              {categoryRisks.map((risk) => (
-                <RiskRow
-                  key={risk.id}
-                  risk={risk}
-                  onLevelChange={onLevelChange}
-                  onNoteChange={onNoteChange}
-                />
-              ))}
-            </div>
-          </NetTangibleReportSection>
-        )
-      })}
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold",
+                    levelChipClass("medium"),
+                  )}
+                >
+                  {medium} modéré{medium > 1 ? "s" : ""}
+                </span>
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold",
+                    levelChipClass("low"),
+                  )}
+                >
+                  {low} faible{low > 1 ? "s" : ""}
+                </span>
+                {pending > 0 ? (
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold",
+                      levelChipClass("pending"),
+                    )}
+                  >
+                    {pending} non évalué{pending > 1 ? "s" : ""}
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-1">
+                {categoryRisks.map((risk) => (
+                  <RiskRow
+                    key={risk.id}
+                    risk={risk}
+                    onLevelChange={onLevelChange}
+                    onNoteChange={onNoteChange}
+                  />
+                ))}
+              </div>
+            </NetTangibleReportSection>
+          )
+        })}
 
-      <footer className="mt-10 border-t border-slate-200 pt-4">
-        <p className="text-pretty text-[11px] leading-relaxed text-slate-500">
-          Rapport indicatif d&apos;évaluation des risques du modèle d&apos;affaires · {companyName}{" "}
-          · {referenceLabel}
-        </p>
-      </footer>
+        <footer className="mt-10 border-t border-slate-200 pt-4">
+          <p className="text-pretty text-[11px] leading-relaxed text-slate-500">
+            Rapport indicatif d&apos;évaluation des risques du modèle d&apos;affaires · {companyName}{" "}
+            · {referenceLabel}
+          </p>
+        </footer>
+      </div>
     </article>
   )
 }

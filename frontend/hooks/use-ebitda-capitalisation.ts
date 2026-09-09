@@ -31,22 +31,26 @@ import {
   createColumnsFromSpecs,
   createDefaultEbitdaYears,
   DEFAULT_CHARACTERISTIC_CASH_FLOW,
-  EBITDA_DISCLAIMER_STORAGE_KEY,
+  DEFAULT_COMPARABLE_MULTIPLES,
   EBITDA_MULTIPLE_CONFIG_TYPE,
   EBITDA_SERIES_LOOKBACK_MONTHS,
   filterPopulatedEbitdaColumns,
   getTotalAdjustmentsForColumn,
   migrateAdjustmentAmountKeys,
   normalizeAdjustmentTarget,
+  parseComparableMultiplesConfig,
+  parseCapitalisationSources,
+  createDefaultCapitalisationSources,
   resolveFiscalYearEndMonth,
   seedEbitdaRangeFromAverage,
+  type CapitalisationSourceEntry,
+  type ComparableMultiplesConfig,
 } from "@/lib/ebitda-capitalisation"
 import {
   DEFAULT_CMPC_DEBT_CAPACITY,
   DEFAULT_CMPC_DEBT_CAPACITY_NOTES,
   DEFAULT_CMPC_REPAYMENT_CAPACITY,
   DEFAULT_CMPC_REPAYMENT_CAPACITY_NOTES,
-  cmpcWaccRange,
   computeCmpcWacc,
   parseCmpcWaccConfig,
   type CmpcDebtCapacityInputs,
@@ -69,20 +73,6 @@ export function useEbitdaCapitalisation({
   refMonth,
   refYear,
 }: UseEbitdaCapitalisationArgs) {
-  const [hasAcceptedDisclaimer, setHasAcceptedDisclaimer] = useState(false)
-
-  useEffect(() => {
-    const accepted = localStorage.getItem(EBITDA_DISCLAIMER_STORAGE_KEY)
-    if (accepted === "true") {
-      setHasAcceptedDisclaimer(true)
-    }
-  }, [])
-
-  const acceptDisclaimer = () => {
-    localStorage.setItem(EBITDA_DISCLAIMER_STORAGE_KEY, "true")
-    setHasAcceptedDisclaimer(true)
-  }
-
   const fiscalYearEndMonth = useMemo(() => {
     const company = companies.find((c) => c.id === companyId)
     return resolveFiscalYearEndMonth(company?.fiscalYearEnd)
@@ -222,6 +212,12 @@ export function useEbitdaCapitalisation({
   )
   const [repaymentCapacityNotes, setRepaymentCapacityNotes] =
     useState<CmpcRepaymentCapacityNotes>(DEFAULT_CMPC_REPAYMENT_CAPACITY_NOTES)
+  const [comparableMultiples, setComparableMultiples] = useState<ComparableMultiplesConfig>(
+    () => structuredClone(DEFAULT_COMPARABLE_MULTIPLES),
+  )
+  const [analysisSources, setAnalysisSources] = useState<CapitalisationSourceEntry[]>(
+    () => createDefaultCapitalisationSources(),
+  )
 
   /** CMPC retenu (Multiplicateur) — null si non encore déterminé. */
   const [cmpcRetainedPct, setCmpcRetainedPct] = useState<number | null>(null)
@@ -725,6 +721,14 @@ export function useEbitdaCapitalisation({
                   : DEFAULT_CMPC_DEBT_CAPACITY_NOTES.debtBaiiaRetained,
             })
           }
+          if (d.comparableMultiples) {
+            setComparableMultiples(parseComparableMultiplesConfig(d.comparableMultiples))
+          }
+          if (d.analysisSources) {
+            setAnalysisSources(parseCapitalisationSources(d.analysisSources))
+          } else {
+            setAnalysisSources(createDefaultCapitalisationSources())
+          }
           if (d.repaymentCapacity && typeof d.repaymentCapacity === "object") {
             const rc = d.repaymentCapacity
             setRepaymentCapacity({
@@ -901,7 +905,7 @@ export function useEbitdaCapitalisation({
         }
         const parsed = parseCmpcWaccConfig(configs[0].data)
         const wacc = computeCmpcWacc(parsed.inputs).wacc
-        setCmpcRetainedPct(cmpcWaccRange(wacc).retained)
+        setCmpcRetainedPct(Number.isFinite(wacc) ? wacc : null)
         setCmpcDebtWeightPct(
           Number.isFinite(parsed.inputs.debtWeightPct) ? parsed.inputs.debtWeightPct : null,
         )
@@ -948,6 +952,8 @@ export function useEbitdaCapitalisation({
       data.debtCapacityNotes = debtCapacityNotes
       data.repaymentCapacity = repaymentCapacity
       data.repaymentCapacityNotes = repaymentCapacityNotes
+      data.comparableMultiples = comparableMultiples
+      data.analysisSources = analysisSources
       upsertForecastConfig(companyId, {
         config_type: EBITDA_MULTIPLE_CONFIG_TYPE,
         data: data as Record<string, unknown>,
@@ -971,6 +977,8 @@ export function useEbitdaCapitalisation({
     debtCapacityNotes,
     repaymentCapacity,
     repaymentCapacityNotes,
+    comparableMultiples,
+    analysisSources,
     columns,
     companyId,
     configLoaded,
@@ -1055,9 +1063,6 @@ export function useEbitdaCapitalisation({
     incomeDataLoading,
     configLoaded,
 
-    hasAcceptedDisclaimer,
-    acceptDisclaimer,
-
     columns: adjustedColumns,
     displayColumns,
     /** Alias compat UI historique. */
@@ -1133,6 +1138,10 @@ export function useEbitdaCapitalisation({
     setRepaymentCapacity,
     repaymentCapacityNotes,
     setRepaymentCapacityNotes,
+    comparableMultiples,
+    setComparableMultiples,
+    analysisSources,
+    setAnalysisSources,
 
     lowMultiple,
     highMultiple,

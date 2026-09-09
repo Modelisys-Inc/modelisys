@@ -1,14 +1,14 @@
 "use client"
 
-import { useMemo } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { AlertTriangle } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { ValuationPlanBackButton } from "@/components/valuation-plan-back-button"
 import { AdjustedEbitdaReport } from "@/components/capitalisation/adjusted-ebitda-report"
-import { Button } from "@/components/ui/button"
 import { useCompanies } from "@/hooks/use-companies"
 import { useEbitdaCapitalisation } from "@/hooks/use-ebitda-capitalisation"
+import { valuationPlanBackHref } from "@/lib/valuation-registry"
 
 const MONTH_NAMES_FR = [
   "janvier",
@@ -28,6 +28,9 @@ const MONTH_NAMES_FR = [
 export default function AdjustedEbitdaPage() {
   const { companies } = useCompanies()
   const searchParams = useSearchParams()
+  const [heroVisible, setHeroVisible] = useState(false)
+  const heroRef = useRef<HTMLElement>(null)
+  const planBackHref = valuationPlanBackHref(searchParams)
   const companyIdFromUrl = searchParams.get("companyId")
   const lockedCompanyId =
     companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl)
@@ -60,136 +63,98 @@ export default function AdjustedEbitdaPage() {
     refYear,
   })
 
-  if (!capitalisation.hasAcceptedDisclaimer) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-white via-slate-50 to-white p-6">
-        <div
-          className="w-full max-w-3xl rounded-xl border border-amber-200 bg-white p-8 shadow-xl"
-          data-testid="adjusted-ebitda-disclaimer"
-        >
-          <div className="mb-6 flex items-start gap-4">
-            <div className="flex shrink-0 rounded-full bg-amber-100 p-3">
-              <AlertTriangle className="h-8 w-8 text-amber-600" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-slate-900">Avertissement important</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Veuillez lire attentivement les informations suivantes avant de continuer
-              </p>
-            </div>
-          </div>
-
-          <div className="mb-8 space-y-4">
-            <div className="rounded-r-lg border-l-4 border-amber-400 bg-amber-50 p-4">
-              <p className="mb-2 text-sm font-semibold text-amber-900">
-                Avis de non-responsabilité
-              </p>
-              <p className="text-sm leading-relaxed text-amber-800">
-                Le processus de détermination de la valeur d&apos;entreprise présenté dans cette
-                section est <strong>uniquement à des fins de consultation</strong> et ne
-                représente en aucun cas un rapport d&apos;évaluation d&apos;entreprise conforme
-                aux normes professionnelles établies par l&apos;Institut canadien des
-                évaluateurs d&apos;entreprises (ICÉÉ) et les normes CBV (Chartered Business
-                Valuator).
-              </p>
-            </div>
-
-            <ul className="space-y-3 text-sm text-slate-700">
-              <li className="flex gap-3">
-                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
-                <span>
-                  Les calculs et estimations fournis sont basés sur des données et hypothèses
-                  que vous avez saisies et peuvent ne pas refléter la valeur réelle de votre
-                  entreprise.
-                </span>
-              </li>
-              <li className="flex gap-3">
-                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
-                <span>
-                  Cette fonctionnalité ne constitue pas un avis professionnel en matière
-                  d&apos;évaluation d&apos;entreprise et ne doit pas être utilisée comme seule
-                  base pour prendre des décisions financières importantes.
-                </span>
-              </li>
-              <li className="flex gap-3">
-                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
-                <span>
-                  Pour obtenir une évaluation d&apos;entreprise conforme aux normes
-                  professionnelles, vous devez consulter un évaluateur d&apos;entreprises
-                  certifié (CBV) ou un professionnel qualifié.
-                </span>
-              </li>
-            </ul>
-          </div>
-
-          <div className="flex justify-end gap-3">
-            <Button
-              variant="outline"
-              onClick={() => window.history.back()}
-              className="border-slate-300 text-slate-700 hover:bg-slate-50"
-            >
-              Retour
-            </Button>
-            <Button
-              onClick={capitalisation.acceptDisclaimer}
-              className="bg-[#E0742D] px-8 text-white hover:bg-[#c96526]"
-            >
-              J&apos;ai compris, continuer
-            </Button>
-          </div>
-        </div>
-      </div>
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setHeroVisible(true)
+      },
+      { threshold: 0.1, rootMargin: "0px 0px -80px 0px" },
     )
-  }
+    if (heroRef.current) observer.observe(heroRef.current)
+    return () => {
+      if (heroRef.current) observer.unobserve(heroRef.current)
+    }
+  }, [])
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
+    <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
 
-      <div className="relative w-full overflow-hidden bg-[#2A2F3A] pb-32">
-        <div className="pointer-events-none absolute inset-0" aria-hidden>
-          <div className="absolute -top-24 -left-28 h-[320px] w-[320px] rounded-full bg-white/5 blur-3xl" />
+      <section ref={heroRef} className="relative overflow-hidden pb-40 pt-16 sm:pb-44 sm:pt-20">
+        <div className="pointer-events-none absolute inset-0 bg-[#222732]">
+          <div
+            className="absolute inset-0 opacity-[0.4]"
+            aria-hidden
+            style={{
+              backgroundImage: `linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px)`,
+              backgroundSize: "56px 56px",
+              maskImage:
+                "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+              WebkitMaskImage:
+                "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+            }}
+          />
+          <div className="absolute -top-32 left-[-10%] h-[34rem] w-[34rem] rounded-full bg-[#E6D6C3]/[0.04] blur-3xl" />
+          <div className="absolute right-[-5%] top-1/3 h-[28rem] w-[28rem] rounded-full bg-[#E0742D]/[0.05] blur-3xl" />
+          <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#1a1f2a] to-transparent" />
         </div>
 
-        <div className="relative z-10 mx-auto max-w-[1920px] px-6 py-6 sm:py-8">
-          <ValuationPlanBackButton />
-          <h1 className="mt-5 text-4xl font-semibold tracking-tight text-[#E6D6C3]">
-            Flux monétaires
-          </h1>
-          <p className="mt-2 max-w-4xl text-base text-[#C9B8A5]/90">
-            Normalisez le BAIIA, retenez la fourchette représentative et déterminez les flux
-            monétaires caractéristiques.
-          </p>
+        <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
           <div
-            className="mt-5 h-px w-full bg-gradient-to-r from-[#E0742D]/80 via-white/15 to-transparent"
-            aria-hidden
-          />
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/70">
-            <div className="whitespace-nowrap">
-              <span className="text-white/50">Entité</span>{" "}
-              <span className="font-medium text-slate-100">{companyName}</span>
-            </div>
-            <div className="hidden h-4 w-px bg-white/10 md:block" />
-            <div
-              className="whitespace-nowrap"
-              data-testid="adjusted-ebitda-reference-date"
+            className={`max-w-xl transition-all duration-1000 lg:max-w-[34rem] xl:max-w-[38rem] ${
+              heroVisible ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
+            }`}
+          >
+            <Link
+              href={planBackHref}
+              data-testid="valuation-plan-back-button"
+              className="group inline-flex items-center gap-2 text-xs font-semibold tracking-[0.08em] text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
             >
-              <span className="text-white/50">Date de référence</span>{" "}
-              <span className="font-medium text-slate-100">{referenceLabel}</span>
+              <ArrowLeft
+                className="h-4 w-4 shrink-0 transition-transform group-hover:-translate-x-0.5"
+                aria-hidden
+              />
+              RETOUR AUX ÉTAPES
+            </Link>
+
+            <p className="mt-7 text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/70 sm:mt-8">
+              Plan de valorisation
+            </p>
+
+            <h1 className="mt-7 text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-8 sm:text-[2.45rem] sm:leading-[1.12] xl:text-[2.85rem]">
+              Flux monétaires
+            </h1>
+
+            <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
+              Normalisez le BAIIA de {companyName} et retenez les flux monétaires
+              caractéristiques.
+            </p>
+
+            <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#C9B8A5]/70">
+              <div className="whitespace-nowrap">
+                <span className="text-[#C9B8A5]/45">Entité</span>{" "}
+                <span className="font-medium text-[#E6D6C3]/90">{companyName}</span>
+              </div>
+              <div className="hidden h-4 w-px bg-[#E6D6C3]/15 md:block" />
+              <div className="whitespace-nowrap" data-testid="adjusted-ebitda-reference-date">
+                <span className="text-[#C9B8A5]/45">Date de référence</span>{" "}
+                <span className="font-medium text-[#E6D6C3]/90">{referenceLabel}</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="relative -mt-32 mb-12 min-w-0">
-        <div className="mx-auto max-w-[1920px] px-6">
+      <main className="relative -mt-32 mb-12 min-w-0">
+        <div className="mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
           <AdjustedEbitdaReport
             companyName={companyName}
             referenceLabel={referenceLabel}
             capitalisation={capitalisation}
           />
         </div>
-      </div>
+      </main>
     </div>
   )
 }

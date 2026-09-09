@@ -18,6 +18,7 @@ import { CapexForecastDetail } from "@/components/capex-forecast-detail"
 import { DebtForecastDetail } from "@/components/debt-forecast-detail"
 import { TaxForecastDetail } from "@/components/tax-forecast-detail"
 import { ProFormaFinancialImpactPanel } from "@/components/pro-forma-financial-impact-panel"
+import { ProjectionPlanBackButton } from "@/components/projection-plan-back-button"
 import { BILAN_HYPOTHESIS_TITLE } from "@/lib/bilan-forecast-utils"
 import { TAX_FORECAST_TITLE } from "@/lib/tax-forecast-utils"
 import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
@@ -47,6 +48,34 @@ import {
 type ModuleType = "income-statement" | "balance-sheet" | "cash-flow" | "revenue" | "expenses" | "capex" | "debt" | "taxes" | "bilan" | "fdr"
 type TopNav = "income-statement" | "balance-sheet" | "cash-flow" | "assumptions"
 type AssumptionsNav = "revenue" | "expenses" | "capex" | "debt" | "taxes" | "bilan"
+
+const ASSUMPTIONS_NAV_IDS: AssumptionsNav[] = [
+  "revenue",
+  "expenses",
+  "capex",
+  "debt",
+  "taxes",
+  "bilan",
+]
+
+function parseProFormaView(raw: string | null): TopNav | null {
+  if (
+    raw === "assumptions" ||
+    raw === "income-statement" ||
+    raw === "balance-sheet" ||
+    raw === "cash-flow"
+  ) {
+    return raw
+  }
+  return null
+}
+
+function parseProFormaHypothesis(raw: string | null): AssumptionsNav | null {
+  if (raw && ASSUMPTIONS_NAV_IDS.includes(raw as AssumptionsNav)) {
+    return raw as AssumptionsNav
+  }
+  return null
+}
 
 interface Module {
   id: ModuleType
@@ -161,16 +190,24 @@ export default function ProFormaPage() {
   const router = useRouter()
   const projectionIdFromUrl = searchParams.get("projectionId")
   const companyIdFromUrl = searchParams.get("companyId")
+  const viewFromUrl = parseProFormaView(searchParams.get("view"))
+  const hypothesisFromUrl = parseProFormaHypothesis(searchParams.get("hypothesis"))
   const lockedCompanyId =
     companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
-  const [selectedModule, setSelectedModule] = useState<ModuleType>("income-statement")
-  const [topNav, setTopNav] = useState<TopNav>("income-statement")
-  const [assumptionsNav, setAssumptionsNav] = useState<AssumptionsNav>("revenue")
-  const [section, setSection] = useState<"summary" | "detail">("detail")
-  /** Affichage Résultats pro forma : années ou mois projetés (saisonnalité hyp.). */
+  const [selectedModule, setSelectedModule] = useState<ModuleType>(() => {
+    if (viewFromUrl === "assumptions") return hypothesisFromUrl ?? "revenue"
+    return viewFromUrl ?? "income-statement"
+  })
+  const [topNav, setTopNav] = useState<TopNav>(() => viewFromUrl ?? "income-statement")
+  const [assumptionsNav, setAssumptionsNav] = useState<AssumptionsNav>(
+    () => hypothesisFromUrl ?? "revenue",
+  )
+  const [section, setSection] = useState<"summary" | "detail">(() =>
+    viewFromUrl === "balance-sheet" ? "summary" : "detail",
+  )  /** Affichage Résultats pro forma : années ou mois projetés (saisonnalité hyp.). */
   const [resultsColumnHorizon, setResultsColumnHorizon] = useState<"annual" | "monthly">("annual")
   const [projectionYears, setProjectionYears] = useState<3 | 4 | 5>(5)
   const [projectionMode, setProjectionMode] = useState<"gl" | "account">("gl")
@@ -216,6 +253,22 @@ export default function ProFormaPage() {
     window.addEventListener("modelisys:forecast-config-changed", onConfigChanged)
     return () => window.removeEventListener("modelisys:forecast-config-changed", onConfigChanged)
   }, [])
+
+  useEffect(() => {
+    const view = parseProFormaView(searchParams.get("view"))
+    const hypothesis = parseProFormaHypothesis(searchParams.get("hypothesis"))
+    if (!view) return
+    if (view === "assumptions") {
+      const hyp = hypothesis ?? "revenue"
+      setTopNav("assumptions")
+      setAssumptionsNav(hyp)
+      setSelectedModule(hyp)
+      return
+    }
+    setTopNav(view)
+    setSelectedModule(view)
+    if (view === "balance-sheet") setSection("summary")
+  }, [searchParams])
 
   const selectedModuleData = allModules.find(m => m.id === selectedModule)
   const Icon = selectedModuleData?.icon || BarChart3
@@ -474,6 +527,7 @@ export default function ProFormaPage() {
             {/* Espace équivalent au bouton menu du header pour l'alignement */}
             <div className="w-2 flex-shrink-0" />
             <div className="flex-1">
+              {projectionIdFromUrl ? <ProjectionPlanBackButton /> : null}
               <div className="mb-2">
                 <h2 className="text-4xl font-semibold tracking-tight text-[#E6D6C3]">{heroTitle}</h2>
               </div>

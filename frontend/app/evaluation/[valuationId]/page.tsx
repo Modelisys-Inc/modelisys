@@ -1,12 +1,11 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { ArrowLeft } from "lucide-react"
 import { DashboardHeader } from "@/components/dashboard-header"
 import { ValuationPlanTrajectory } from "@/components/valuation-plan-trajectory"
-import { Button } from "@/components/ui/button"
 import { useCompanies } from "@/hooks/use-companies"
 import type { ValuationPlanPhase } from "@/lib/valuation-plan-phases"
 import {
@@ -41,6 +40,8 @@ export default function ValuationDashboardPage() {
 
   const [valuation, setValuation] = useState<ValuationRecord | null>(null)
   const [ready, setReady] = useState(false)
+  const [heroVisible, setHeroVisible] = useState(false)
+  const heroRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     const record = getValuation(valuationId)
@@ -52,6 +53,19 @@ export default function ValuationDashboardPage() {
     setValuation(touched)
     setReady(true)
   }, [valuationId, router])
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setHeroVisible(true)
+      },
+      { threshold: 0.1, rootMargin: "0px 0px -80px 0px" },
+    )
+    if (heroRef.current) observer.observe(heroRef.current)
+    return () => {
+      if (heroRef.current) observer.unobserve(heroRef.current)
+    }
+  }, [ready])
 
   const companyName = useMemo(() => {
     if (!valuation) return ""
@@ -81,9 +95,9 @@ export default function ValuationDashboardPage() {
 
   if (!ready || !valuation) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
+      <div className="min-h-screen bg-slate-50">
         <DashboardHeader title="Modelisys" />
-        <main className="w-full px-6 py-16 text-sm text-slate-600">Chargement…</main>
+        <main className="w-full px-5 py-16 text-sm text-slate-600 sm:px-10">Chargement…</main>
       </div>
     )
   }
@@ -91,60 +105,64 @@ export default function ValuationDashboardPage() {
   const monthLabel = MONTH_LABELS[valuation.referenceMonth - 1] ?? String(valuation.referenceMonth)
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-white">
+    <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
 
-      <div className="relative w-full overflow-hidden pt-15 pb-40">
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
-            <div className="bg-[#2A2F3A]" />
-            <div className="bg-[#2A2F3A]" />
-          </div>
-          <div className="absolute inset-y-0 left-1/2 hidden w-px bg-white/5 lg:block" />
-          <div className="pointer-events-none absolute inset-0">
-            <div className="absolute -top-24 -left-28 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
-            <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
-          </div>
+      <section ref={heroRef} className="relative overflow-hidden pb-40 pt-16 sm:pt-20 sm:pb-44">
+        <div className="pointer-events-none absolute inset-0 bg-[#222732]">
+          <div
+            className="absolute inset-0 opacity-[0.4]"
+            aria-hidden
+            style={{
+              backgroundImage: `linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px)`,
+              backgroundSize: "56px 56px",
+              maskImage:
+                "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+              WebkitMaskImage:
+                "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+            }}
+          />
+          <div className="absolute -top-32 left-[-10%] h-[34rem] w-[34rem] rounded-full bg-[#E6D6C3]/[0.04] blur-3xl" />
+          <div className="absolute top-1/3 right-[-5%] h-[28rem] w-[28rem] rounded-full bg-[#E0742D]/[0.05] blur-3xl" />
+          <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#1a1f2a] to-transparent" />
         </div>
 
-        <div className="relative z-10 mx-auto max-w-[1920px] px-6">
-          <div className="mb-8 flex items-start gap-3">
-            <div className="w-2" />
-            <div className="flex-1">
-              <Button
-                asChild
-                variant="ghost"
-                className="mb-4 -ml-3 h-9 px-3 text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
-              >
-                <Link href={hubHref}>
-                  <ArrowLeft className="mr-2 h-4 w-4" aria-hidden />
-                  Retour aux valorisations
-                </Link>
-              </Button>
+        <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
+          <div
+            className={`max-w-xl lg:max-w-[34rem] xl:max-w-[38rem] transition-all duration-1000 ${
+              heroVisible ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
+            }`}
+          >
+            <Link
+              href={hubHref}
+              className="group inline-flex items-center gap-2 text-xs font-semibold tracking-[0.08em] text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
+            >
+              <ArrowLeft className="h-4 w-4 shrink-0 transition-transform group-hover:-translate-x-0.5" aria-hidden />
+              RETOUR AUX VALORISATIONS
+            </Link>
 
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]">
-                Tableau de bord
-              </p>
-              <h1
-                className="mb-2 text-4xl font-semibold tracking-tight text-[#E6D6C3]"
-                data-testid="valuation-dashboard-title"
-              >
-                {valuation.title}
-              </h1>
-              <p className="mb-6 max-w-4xl text-base text-[#C9B8A5]/90">
-                Parcourez le plan de valorisation pour {companyName} — référence {monthLabel}{" "}
-                {valuation.referenceYear}. Complétez chaque étape pour avancer dans le parcours.
-              </p>
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="h-px flex-1 bg-gradient-to-r from-[#E0742D]/35 via-white/10 to-transparent" />
-              </div>
-            </div>
+            <p className="mt-7 text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/70 sm:mt-8">
+              Tableau de bord
+            </p>
+
+            <h1
+              className="mt-7 text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-8 sm:text-[2.45rem] sm:leading-[1.12] xl:text-[2.85rem]"
+              data-testid="valuation-dashboard-title"
+            >
+              {valuation.title}
+            </h1>
+
+            <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
+              Parcourez le plan de valorisation pour {companyName} — référence {monthLabel}{" "}
+              {valuation.referenceYear}. Complétez chaque étape pour avancer dans le parcours.
+            </p>
           </div>
         </div>
-      </div>
+      </section>
 
-      <main className="mx-auto w-full max-w-[1920px] px-6 py-8">
-        <div className="relative -mt-28">
+      <main className="relative -mt-32 mb-12">
+        <div className="mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
           <ValuationPlanTrajectory
             completedSteps={valuation.completedPlanSteps}
             buildToolHref={buildToolHref}

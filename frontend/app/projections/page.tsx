@@ -139,9 +139,9 @@ export default function ProjectionsPage() {
 
   const handleOpenProjection = (p: SavedProjection) => {
     const params = new URLSearchParams()
-    params.set("projectionId", p.id)
     if (p.companyId) params.set("companyId", p.companyId)
-    router.push(`/projections/pro-forma?${params.toString()}`)
+    const qs = params.toString()
+    router.push(qs ? `/projections/${p.id}?${qs}` : `/projections/${p.id}`)
   }
 
   const handleDeleteProjection = async () => {
@@ -376,7 +376,7 @@ export default function ProjectionsPage() {
                           onClick={() => handleOpenProjection(selectedProjection)}
                           className="bg-[#E0742D] text-white shadow-sm hover:bg-[#c96526]"
                         >
-                          Ouvrir le Pro Forma
+                          Ouvrir le parcours
                           <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
                         </Button>
                       </div>

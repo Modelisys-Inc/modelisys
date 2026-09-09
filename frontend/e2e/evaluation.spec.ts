@@ -44,10 +44,7 @@ test.describe("Evaluation Pages", () => {
   test("can navigate to adjusted EBITDA evaluation", async ({ page }) => {
     await page.goto("/evaluation/adjusted-ebitda");
     await expect(page).toHaveURL(/\/evaluation\/adjusted-ebitda/);
-    const acceptButton = page.getByRole("button", { name: /j'ai compris|accepte|continuer/i }).first();
-    if (await acceptButton.isVisible().catch(() => false)) {
-      await acceptButton.click();
-    }
+    await expect(page.getByText("Avertissement important")).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: /flux monétaires/i }).first()
     ).toBeVisible({ timeout: 10000 });
@@ -61,10 +58,6 @@ test.describe("Evaluation Pages", () => {
   test("can navigate to EBITDA multiple evaluation", async ({ page }) => {
     await page.goto("/evaluation/ebitda-multiple");
     await expect(page).toHaveURL(/\/evaluation\/ebitda-multiple/);
-    const acceptButton = page.getByRole("button", { name: /j'ai compris|accepte|continuer/i }).first();
-    if (await acceptButton.isVisible().catch(() => false)) {
-      await acceptButton.click();
-    }
     await expect(
       page.getByRole("heading", { name: /capitalisation/i }).first()
     ).toBeVisible({ timeout: 10000 });
@@ -72,20 +65,35 @@ test.describe("Evaluation Pages", () => {
 
   test("ebitda multiple has no entity selector", async ({ page }) => {
     await page.goto("/evaluation/ebitda-multiple");
-    const acceptButton = page.getByRole("button", { name: /j'ai compris|accepte|continuer/i }).first();
-    if (await acceptButton.isVisible().catch(() => false)) {
-      await acceptButton.click();
-    }
     await expect(
       page.getByRole("heading", { name: /capitalisation/i }).first()
     ).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId("capitalisation-report")).toBeVisible();
     await expect(page.getByTestId("capitalisation-section-menu")).toBeVisible();
     await expect(
+      page.getByRole("heading", { name: /Méthode et périmètre/i })
+    ).toBeVisible();
+    await expect(
       page.getByRole("heading", { name: /Détermination de la valeur d'entreprise/i })
     ).toBeVisible();
     await expect(page.getByTestId("capitalisation-determination-table")).toBeVisible();
+    await expect(page.getByTestId("capitalisation-multiple-row")).toBeVisible();
+    await expect(page.getByTestId("capitalisation-multiple-bridge-trigger")).toBeVisible();
+    await page.getByTestId("capitalisation-multiple-bridge-trigger").hover();
     await expect(page.getByTestId("capitalisation-multiple-bridge")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Analyses des comparables/i })
+    ).toBeVisible();
+    await expect(page.getByTestId("capitalisation-comparable-multiples")).toBeVisible();
+    await expect(page.getByText("Multiples comparables", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("capitalisation-comparable-charts")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: /Sommaire des hypothèses et sources/i })
+    ).toBeVisible();
+    await expect(page.getByTestId("capitalisation-sources-list")).toBeVisible();
+    await expect(page.getByTestId("capitalisation-source-multiples-empirical")).toBeVisible();
+    await expect(page.getByTestId("capitalisation-source-repayment-rate")).toBeVisible();
+    await expect(page.getByTestId("capitalisation-source-debt-baiia-empirical")).toBeVisible();
     await expect(page.getByText("Entité:", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "CCF" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "VCA" })).toHaveCount(0);
@@ -94,6 +102,7 @@ test.describe("Evaluation Pages", () => {
   test("can navigate to DCF evaluation", async ({ page }) => {
     await page.goto("/evaluation/dcf");
     await expect(page).toHaveURL(/\/evaluation\/dcf/);
+    await expect(page.getByText("Avertissement important")).toHaveCount(0);
     await expect(
       page.locator("h2").filter({ hasText: /dcf|actualisation|discounted/i }).first()
     ).toBeVisible({ timeout: 10000 });
@@ -107,11 +116,10 @@ test.describe("Evaluation Pages", () => {
     ).toBeVisible({ timeout: 10000 });
   });
 
-  test("evaluation pages show disclaimer if required", async ({ page }) => {
+  test("valuation plan steps open without disclaimer gate", async ({ page }) => {
+    await page.goto("/evaluation/adjusted-ebitda");
+    await expect(page.getByText("Avertissement important")).toHaveCount(0);
     await page.goto("/evaluation/dcf");
-    const disclaimerOrContent = page
-      .locator("text=Avertissement")
-      .or(page.locator("h2").filter({ hasText: /dcf/i }));
-    await expect(disclaimerOrContent.first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Avertissement important")).toHaveCount(0);
   });
 });

@@ -89,37 +89,40 @@ export function ValuationPlanTrajectory({
 
   return (
     <section className={cn("w-full", className)} aria-label="Plan de valorisation">
-      <div className="w-full overflow-hidden rounded-xl border border-slate-200/90 bg-white shadow-sm">
-        <div className="border-b border-slate-200/90 bg-gradient-to-r from-white via-slate-50/80 to-white px-6 py-5 sm:px-8 sm:py-6">
+      <div className="w-full overflow-hidden rounded-xl border border-[#E6D6C3]/35 bg-white shadow-[0_18px_50px_-28px_rgba(34,39,50,0.45)] ring-1 ring-[#222732]/[0.04]">
+        <div className="border-b border-[#E6D6C3]/40 bg-[#222732]/[0.02] px-6 py-5 sm:px-8 sm:py-6">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#E0742D]">
-                Plan de valorisation
-              </p>
-              <h2 className="mt-1 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
-                Progression du parcours
-              </h2>
-              <p className="mt-1.5 text-sm text-slate-600">
-                {allComplete
-                  ? "Toutes les étapes sont complétées."
-                  : `${completedCount} sur ${totalSteps} étapes complétées — sélectionnez une étape pour en voir le détail.`}
-              </p>
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="mt-1 h-10 w-1 shrink-0 rounded-full bg-[#E6D6C3]" aria-hidden />
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/90">
+                  Plan de valorisation
+                </p>
+                <h2 className="mt-1.5 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
+                  Progression du parcours
+                </h2>
+                <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
+                  {allComplete
+                    ? "Toutes les étapes sont complétées."
+                    : `${completedCount} sur ${totalSteps} étapes complétées — sélectionnez une étape pour en voir le détail.`}
+                </p>
+              </div>
             </div>
             <div className="shrink-0 text-right">
               <p className="text-3xl font-semibold tabular-nums tracking-tight text-[#2A2F3A]">
                 {overallProgress}
                 <span className="text-lg font-medium text-slate-500">%</span>
               </p>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#2A2F3A]/55">
                 Avancement global
               </p>
             </div>
           </div>
 
           <div className="mt-5" data-testid="valuation-plan-progress-bar">
-            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200/80">
+            <div className="h-2 w-full overflow-hidden rounded-full bg-[#E6D6C3]/40">
               <div
-                className="h-full rounded-full bg-[#E0742D] transition-all duration-500 ease-out"
+                className="h-full rounded-full bg-[#2A2F3A] transition-all duration-500 ease-out"
                 style={{ width: `${overallProgress}%` }}
               />
             </div>
@@ -165,7 +168,7 @@ export function ValuationPlanTrajectory({
                         className={cn(
                           "group flex w-full flex-col items-center px-1 pb-3 pt-1 text-center",
                           "border-b-2 border-transparent transition-[border-color,color] duration-200",
-                          "focus-visible:outline-none focus-visible:border-[#E0742D]",
+                          "focus-visible:outline-none focus-visible:border-[#E6D6C3]",
                           isSelected
                             ? "border-[#E0742D]"
                             : "hover:border-slate-300",
@@ -245,33 +248,33 @@ export function ValuationPlanTrajectory({
             <div className="mt-5 flex shrink-0 flex-col gap-2 sm:mt-1 sm:items-end">
               <Button
                 asChild
-                size="sm"
                 className={cn(
+                  "h-auto rounded-md px-5 py-3 text-xs font-semibold tracking-[0.08em]",
                   isSelectedInProgress
-                    ? "bg-[#E0742D] text-white hover:bg-[#c96526]"
-                    : "bg-[#2A2F3A] text-white hover:bg-[#1f242d]",
+                    ? "bg-[#E6D6C3] text-[#1F2430] hover:bg-[#f0e6d8]"
+                    : "bg-[#2A2F3A] text-[#E6D6C3] hover:bg-[#1F2430]",
                 )}
                 data-testid={`valuation-plan-open-${selectedPhase.id}`}
               >
                 <Link href={buildToolHref(selectedPhase)}>
                   {selectedStatus === "completed"
-                    ? "Revoir"
+                    ? "REVOIR"
                     : selectedStatus === "in_progress"
-                      ? "Continuer"
-                      : "Commencer"}
+                      ? "CONTINUER"
+                      : "COMMENCER"}
                   <ArrowRight className="ml-1.5 h-3.5 w-3.5" aria-hidden />
                 </Link>
               </Button>
               {onMarkComplete && isSelectedInProgress ? (
                 <Button
                   type="button"
-                  size="sm"
-                  variant="outline"
-                  className="border-slate-300 text-slate-700"
+                  variant="ghost"
+                  className="h-auto px-1 py-2 text-xs font-semibold tracking-[0.08em] text-slate-600 hover:bg-transparent hover:text-[#2A2F3A]"
                   onClick={() => onMarkComplete(selectedPhase.id)}
                   data-testid={`valuation-plan-complete-${selectedPhase.id}`}
                 >
-                  Marquer terminé
+                  MARQUER TERMINÉ
+                  <span className="ml-2 inline-block h-px w-8 bg-[#E0742D]/90" aria-hidden />
                 </Button>
               ) : null}
             </div>

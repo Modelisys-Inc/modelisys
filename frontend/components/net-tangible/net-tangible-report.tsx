@@ -111,96 +111,97 @@ export function NetTangibleReport({
     <article
       data-testid="net-tangible-report"
       data-report-sheet
-      className="rounded-xl border border-slate-200 bg-white px-6 py-8 shadow-lg sm:px-12 sm:py-12"
+      className="overflow-hidden rounded-xl border border-[#E6D6C3]/35 bg-white shadow-[0_18px_50px_-28px_rgba(34,39,50,0.45)] ring-1 ring-[#222732]/[0.04]"
     >
-      <header>
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#E0742D]">
-          Détermination de la valeur
-        </p>
-        <h2 className="mt-2 text-balance text-2xl font-semibold leading-tight tracking-tight text-[#2A2F3A] sm:text-3xl">
-          Valeur comptable ajustée d&apos;une société privée
-        </h2>
-        <p className="mt-3 max-w-3xl text-pretty text-sm leading-relaxed text-slate-500">
-          Le présent rapport établit la valeur comptable ajustée (VCA), l&apos;actif net tangible
-          (ACN) et le fonds de roulement représentatif de{" "}
-          <span className="font-medium text-[#2A2F3A]">{companyName}</span>, en date du{" "}
-          <span className="font-medium text-[#2A2F3A]">{referenceLabel}</span>, à partir du bilan de
-          référence et des hypothèses d&apos;évaluation documentées ci-après.
-        </p>
-      </header>
-
       <NetTangibleOverviewStrip metrics={overviewMetrics} variant="report" />
 
-      <nav
-        data-testid="net-tangible-section-menu"
-        aria-label="Sommaire du rapport"
-        className="mt-8 flex flex-wrap gap-1 border-b border-slate-200 pb-3"
-      >
-        {REPORT_NAV.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            data-testid={item.testId}
-            onClick={() => scrollToSection(item.id)}
-            className={cn(
-              "rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-50 hover:text-[#2A2F3A]",
-            )}
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      <div className="px-6 pb-8 pt-10 sm:px-12 sm:pb-12">
+        <div className="mb-6" aria-hidden>
+          <div className="h-px w-full bg-gradient-to-r from-[#E0742D]/80 via-[#E6D6C3]/50 to-transparent" />
+        </div>
 
-      <MethodSection />
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/90">
+              Détail du rapport
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              Parcourez les étapes pour documenter la méthode, le bilan, le FDR et les sources.
+            </p>
+          </div>
+        </div>
 
-      <NetTangibleBilanSection
-        referenceColumnLabel={referenceColumnLabel}
-        companyId={companyId}
-        companies={companies}
-        fiscalYear={fiscalYear}
-        refMonth={refMonth}
-        refYear={refYear}
-        rows={rows}
-        loading={loading}
-        valuesByRowId={valuesByRowId}
-        notesByRowId={notesByRowId}
-        jvmByCodeByRowId={jvmByCodeByRowId}
-        jvmNotesByCodeByRowId={jvmNotesByCodeByRowId}
-        jvmAttachmentsByCodeByRowId={jvmAttachmentsByCodeByRowId}
-        excedentByCodeByRowId={excedentByCodeByRowId}
-        excedentNotesByCodeByRowId={excedentNotesByCodeByRowId}
-        excedentAttachmentsByCodeByRowId={excedentAttachmentsByCodeByRowId}
-        onSaveHypothesis={onSaveHypothesis}
-      />
+        <nav
+          data-testid="net-tangible-section-menu"
+          aria-label="Sommaire du rapport"
+          className="flex flex-wrap gap-1 border-b border-slate-200 pb-3"
+        >
+          {REPORT_NAV.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              data-testid={item.testId}
+              onClick={() => scrollToSection(item.id)}
+              className={cn(
+                "rounded-md px-2.5 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-[#222732]/[0.03] hover:text-[#222732]",
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
 
-      <FdrSection
-        referenceColumnLabel={referenceColumnLabel}
-        fdrBaseLine={fdr.fdrBaseLine}
-        fdrBasePctOfRevenue={fdr.fdrBasePctOfRevenue}
-        revenueTotal={fdr.revenueTotal}
-        fdrAdjMode={fdr.fdrAdjMode}
-        fdrAdjValue={fdr.fdrAdjValue}
-        fdrAdjNote={fdr.fdrAdjNote}
-        fdrAdjustmentDollarDelta={fdr.fdrAdjustmentDollarDelta}
-        fdrAdjustmentPctOfRevenue={fdr.fdrAdjustmentPctOfRevenue}
-        fdrAdjustedValue={fdr.fdrAdjustedValue}
-        fdrAdjustedPctOfRevenue={fdr.fdrAdjustedPctOfRevenue}
-        onAdjValueChange={fdr.onAdjValueChange}
-        onAdjNoteChange={fdr.onAdjNoteChange}
-        onModeChange={fdr.onModeChange}
-        onSave={fdr.onSave}
-      />
+        <MethodSection />
 
-      <SourcesSection rows={sourceRows} onNoteChange={onSourceNoteChange} />
+        <NetTangibleBilanSection
+          referenceColumnLabel={referenceColumnLabel}
+          companyId={companyId}
+          companies={companies}
+          fiscalYear={fiscalYear}
+          refMonth={refMonth}
+          refYear={refYear}
+          rows={rows}
+          loading={loading}
+          valuesByRowId={valuesByRowId}
+          notesByRowId={notesByRowId}
+          jvmByCodeByRowId={jvmByCodeByRowId}
+          jvmNotesByCodeByRowId={jvmNotesByCodeByRowId}
+          jvmAttachmentsByCodeByRowId={jvmAttachmentsByCodeByRowId}
+          excedentByCodeByRowId={excedentByCodeByRowId}
+          excedentNotesByCodeByRowId={excedentNotesByCodeByRowId}
+          excedentAttachmentsByCodeByRowId={excedentAttachmentsByCodeByRowId}
+          onSaveHypothesis={onSaveHypothesis}
+        />
 
-      <DisclaimerSection />
+        <FdrSection
+          referenceColumnLabel={referenceColumnLabel}
+          fdrBaseLine={fdr.fdrBaseLine}
+          fdrBasePctOfRevenue={fdr.fdrBasePctOfRevenue}
+          revenueTotal={fdr.revenueTotal}
+          fdrAdjMode={fdr.fdrAdjMode}
+          fdrAdjValue={fdr.fdrAdjValue}
+          fdrAdjNote={fdr.fdrAdjNote}
+          fdrAdjustmentDollarDelta={fdr.fdrAdjustmentDollarDelta}
+          fdrAdjustmentPctOfRevenue={fdr.fdrAdjustmentPctOfRevenue}
+          fdrAdjustedValue={fdr.fdrAdjustedValue}
+          fdrAdjustedPctOfRevenue={fdr.fdrAdjustedPctOfRevenue}
+          onAdjValueChange={fdr.onAdjValueChange}
+          onAdjNoteChange={fdr.onAdjNoteChange}
+          onModeChange={fdr.onModeChange}
+          onSave={fdr.onSave}
+        />
 
-      <footer className="mt-10 border-t border-slate-200 pt-4">
-        <p className="text-pretty text-[11px] leading-relaxed text-slate-500">
-          Rapport indicatif de détermination de la valeur comptable ajustée · {companyName} ·{" "}
-          {referenceLabel}
-        </p>
-      </footer>
+        <SourcesSection rows={sourceRows} onNoteChange={onSourceNoteChange} />
+
+        <DisclaimerSection />
+
+        <footer className="mt-10 border-t border-slate-200 pt-4">
+          <p className="text-pretty text-[11px] leading-relaxed text-slate-500">
+            Rapport indicatif de détermination de la valeur comptable ajustée · {companyName} ·{" "}
+            {referenceLabel}
+          </p>
+        </footer>
+      </div>
     </article>
   )
 }

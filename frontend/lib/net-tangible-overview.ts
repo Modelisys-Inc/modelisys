@@ -170,19 +170,19 @@ export function buildNetTangibleOverviewMetrics(
   return [
     {
       id: "vc",
-      label: "VC",
+      label: "Valeur comptable",
       value: vc,
       hint: "Valeur nette des actifs de l’entreprise selon ses états financiers, soit les actifs moins les passifs comptables. Elle constitue le point de départ de l’approche de la valeur comptable ajustée.",
     },
     {
       id: "vca",
-      label: "VCA",
+      label: "Valeur comptable ajustée",
       value: vca,
       hint: "Valeur comptable après ajustement des actifs et passifs à leur valeur économique estimée. Elle vise à rapprocher la valeur comptable de la valeur réelle des éléments détenus par l’entreprise.",
     },
     {
       id: "acn",
-      label: "ACN",
+      label: "Actif corporel net",
       value: acn,
       hint: "Valeur des actifs corporels nécessaires aux activités, après déduction des passifs qui leur sont associés. Ils représentent la base d’actifs utilisée pour générer les résultats de l’entreprise.",
     },
@@ -257,6 +257,51 @@ export function applyNetTangibleFdrOverviewAdjustment(
     }
     return metric
   })
+}
+
+/**
+ * Construit la carte d’ajustements VCA à partir du payload
+ * `net-tangible-assets-values` (même logique que la page VCA).
+ */
+export function buildNetTangibleValuesByRowIdFromSaved(
+  rows: NetTangibleOverviewRow[],
+  savedValues: Record<string, number>,
+  structure: Record<string, unknown>[] = [],
+): Record<string, NetTangibleColumnAmounts> {
+  const map: Record<string, NetTangibleColumnAmounts> = {}
+  for (const row of rows) {
+    const rowId = row.rowId ?? row.id
+    if (!rowId || row.isSection || !row.label?.trim()) continue
+    const structRow = findSummaryStructureRow(rowId, row.label, structure)
+    const linkCode = structRow ? String(structRow.linkCode ?? "").trim() : ""
+    const isJvmRoot = isNetTangibleJvmCapexRootRow({
+      linkCode,
+      rowId,
+      label: row.label,
+    })
+    if (row.isResult && !isJvmRoot) continue
+    const adjustments = Number(savedValues[`${rowId}-adjustments`] ?? 0)
+    const debts = Number(savedValues[`${rowId}-debts`] ?? 0)
+    const assets = Number(savedValues[`${rowId}-assets`] ?? 0)
+    map[rowId] = {
+      adjustments: Number.isFinite(adjustments) ? adjustments : 0,
+      debts: Number.isFinite(debts) ? debts : 0,
+      assets: Number.isFinite(assets) ? assets : 0,
+    }
+  }
+  return map
+}
+
+/** VCA du bandeau module (= Actif net colonne VCA). */
+export function resolveNetTangibleOverviewVca(
+  rows: NetTangibleOverviewRow[],
+  savedValues: Record<string, number>,
+  structure: Record<string, unknown>[] = [],
+): number | null {
+  const valuesByRowId = buildNetTangibleValuesByRowIdFromSaved(rows, savedValues, structure)
+  const metrics = buildNetTangibleOverviewMetrics(rows, valuesByRowId, { structure })
+  const vca = metrics.find((m) => m.id === "vca")?.value
+  return vca != null && Number.isFinite(vca) ? vca : null
 }
 
 type NetTangibleFamilyCode = "ACT" | "PCT" | "ALT"

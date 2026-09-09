@@ -19,6 +19,11 @@ import {
   computeWorkingCapitalAdjustment,
   deriveCharacteristicCashFlowRange,
   DEFAULT_CHARACTERISTIC_CASH_FLOW,
+  averageComparableMultipleBand,
+  parseComparableMultiplesConfig,
+  buildComparableMetricChartPoints,
+  averageComparableSourceMids,
+  parseCapitalisationSources,
 } from "@/lib/ebitda-capitalisation"
 
 describe("ebitda-capitalisation columns", () => {
@@ -450,5 +455,145 @@ describe("computeCapitalisationGoodwillAndRatios", () => {
     expect(result.goodwill).toBeNull()
     expect(result.ratios.goodwillOverBaiia.mid).toBeNull()
     expect(result.ratios.veOverBaiia.mid).toBe(1.5)
+  })
+})
+
+describe("comparable multiples", () => {
+  it("averages bas/haut when both finite", () => {
+    expect(averageComparableMultipleBand({ low: 4, high: 6 })).toBe(5)
+    expect(averageComparableMultipleBand({ low: 3.5, high: 4.5 })).toBe(4)
+  })
+
+  it("returns null when a bound is missing", () => {
+    expect(averageComparableMultipleBand({ low: 4, high: null })).toBeNull()
+    expect(averageComparableMultipleBand({ low: null, high: 6 })).toBeNull()
+    expect(averageComparableMultipleBand({ low: null, high: null })).toBeNull()
+  })
+
+  it("parses persisted comparable multiples with defaults", () => {
+    const parsed = parseComparableMultiplesConfig({
+      empirical: {
+        veOverRevenue: { low: 1.2, high: 1.8 },
+        veOverBaiia: { low: 4, high: 6 },
+      },
+      ai: {
+        veOverRevenue: { low: null, high: null },
+        veOverBaiia: { low: 5, high: "bad" },
+      },
+    })
+    expect(parsed.empirical.veOverRevenue).toEqual({ low: 1.2, high: 1.8 })
+    expect(parsed.empirical.veOverBaiia).toEqual({ low: 4, high: 6 })
+    expect(parsed.ai.veOverBaiia).toEqual({ low: 5, high: null })
+    expect(parsed.comparables.veOverRevenue).toEqual({ low: null, high: null })
+  })
+
+  it("builds chart points with actual then sources", () => {
+    const points = buildComparableMetricChartPoints(
+      "veOverBaiia",
+      { low: 4, high: 6, mid: 5 },
+      {
+        empirical: {
+          veOverRevenue: { low: null, high: null },
+          veOverBaiia: { low: 3, high: 5 },
+        },
+        ai: {
+          veOverRevenue: { low: null, high: null },
+          veOverBaiia: { low: null, high: null },
+        },
+        comparables: {
+          veOverRevenue: { low: null, high: null },
+          veOverBaiia: { low: 4.5, high: 5.5 },
+        },
+      },
+    )
+    expect(points.map((p) => p.id)).toEqual([
+      "actual",
+      "empirical",
+      "ai",
+      "comparables",
+    ])
+    expect(points[0]).toMatchObject({
+      mid: 5,
+      isActual: true,
+      error: [1, 1],
+    })
+    expect(points[1]).toMatchObject({
+      mid: 4,
+      isActual: false,
+      error: [1, 1],
+    })
+    expect(points[2].mid).toBeNull()
+    expect(points[3].mid).toBe(5)
+  })
+
+  it("averages source mids excluding actual", () => {
+    const points = buildComparableMetricChartPoints(
+      "veOverBaiia",
+      { low: 4, high: 6, mid: 5 },
+      {
+        empirical: {
+          veOverRevenue: { low: null, high: null },
+          veOverBaiia: { low: 3, high: 5 },
+        },
+        ai: {
+          veOverRevenue: { low: null, high: null },
+          veOverBaiia: { low: 5, high: 7 },
+        },
+        comparables: {
+          veOverRevenue: { low: null, high: null },
+          veOverBaiia: { low: null, high: null },
+        },
+      },
+    )
+    // (4 + 6) / 2 — comparables sans mid exclu
+    expect(averageComparableSourceMids(points)).toBe(5)
+    expect(
+      averageComparableSourceMids([
+        {
+          id: "actual",
+          label: "Réel",
+          shortLabel: "Réel",
+          mid: 9,
+          low: 9,
+          high: 9,
+          error: [0, 0],
+          isActual: true,
+        },
+      ]),
+    ).toBeNull()
+  })
+
+  it("parses analysis sources with attachments", () => {
+    const parsed = parseCapitalisationSources([
+      {
+        id: "multiples-empirical",
+        content: "Multiple médian 5×",
+        attachments: [
+          { filename: "etude.pdf", media_type: "application/pdf", data: "AAA" },
+          { filename: "", media_type: "x", data: "bad" },
+        ],
+      },
+      { id: "legacy-free", title: "Ancienne", content: "ignorée" },
+    ])
+    expect(parsed).toHaveLength(8)
+    expect(parsed.map((p) => p.id)).toEqual([
+      "multiples-empirical",
+      "multiples-ai",
+      "multiples-comparables",
+      "repayment-rate",
+      "repayment-duration",
+      "debt-baiia-empirical",
+      "debt-baiia-ai",
+      "debt-baiia-comparables",
+    ])
+    expect(parsed[0]).toMatchObject({
+      id: "multiples-empirical",
+      content: "Multiple médian 5×",
+    })
+    expect(parsed[0].attachments).toEqual([
+      { filename: "etude.pdf", media_type: "application/pdf", data: "AAA" },
+    ])
+    expect(parsed[1].content).toBe("")
+    expect(parseCapitalisationSources(null)).toHaveLength(8)
   })
 })

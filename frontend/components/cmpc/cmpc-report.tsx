@@ -9,7 +9,6 @@ import {
   type CmpcWaccInputs,
 } from "@/lib/cmpc-wacc"
 import { cn } from "@/lib/utils"
-import { ReportHeader } from "./report-header"
 import { Conclusion } from "./conclusion"
 import { EquitySection } from "./equity-section"
 import { DebtSection } from "./debt-section"
@@ -37,7 +36,6 @@ export function CmpcReport({
   equityNotes,
   sources,
   onInputsChange,
-  onMetaChange,
   onEquityNotesChange,
   onSourcesChange,
   className,
@@ -47,9 +45,6 @@ export function CmpcReport({
   const updateInput = (key: keyof CmpcWaccInputs) => (value: number) =>
     onInputsChange({ ...inputs, [key]: value })
 
-  const updateMeta = (key: keyof CmpcReportMeta) => (value: string) =>
-    onMetaChange({ ...meta, [key]: value })
-
   const updateEquityNote = (key: keyof CmpcEquityNotes) => (value: string) =>
     onEquityNotesChange({ ...equityNotes, [key]: value })
 
@@ -58,47 +53,63 @@ export function CmpcReport({
       data-testid="cmpc-report"
       data-report-sheet
       className={cn(
-        "rounded-xl border border-slate-200 bg-white px-6 py-8 shadow-lg sm:px-12 sm:py-12",
+        "overflow-hidden rounded-xl border border-[#E6D6C3]/35 bg-white shadow-[0_18px_50px_-28px_rgba(34,39,50,0.45)] ring-1 ring-[#222732]/[0.04]",
         className,
       )}
     >
-      <ReportHeader meta={meta} update={updateMeta} />
-      <Conclusion results={results} meta={meta} />
-      <EquitySection
-        inputs={inputs}
-        results={results}
-        notes={equityNotes}
-        sources={sources}
-        update={updateInput}
-        updateNote={updateEquityNote}
-      />
-      <DebtSection
-        inputs={inputs}
-        results={results}
-        sources={sources}
-        update={updateInput}
-      />
-      <StructureSection
-        inputs={inputs}
-        results={results}
-        sources={sources}
-        onInputsChange={onInputsChange}
-      />
-      <Determination results={results} />
-      <Assumptions
-        inputs={inputs}
-        sources={sources}
-        onSourcesChange={onSourcesChange}
-      />
-      <Disclaimer />
+      <Conclusion results={results} />
 
-      <footer className="mt-10 border-t border-slate-200 pt-4">
-        <p className="text-pretty text-[11px] leading-relaxed text-slate-500">
-          Rapport indicatif de détermination du coût moyen pondéré du capital · Méthodologie
-          conforme aux pratiques généralement reconnues en évaluation d&apos;entreprises (CBV /
-          EEE) · {meta.subject} · {meta.valuationDate}
-        </p>
-      </footer>
+      <div className="px-6 pb-8 pt-10 sm:px-12 sm:pb-12">
+        <div className="mb-6" aria-hidden>
+          <div className="h-px w-full bg-gradient-to-r from-[#E0742D]/80 via-[#E6D6C3]/50 to-transparent" />
+        </div>
+
+        <div className="mb-8">
+          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/90">
+            Détail du rapport
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            Coût des capitaux propres, coût de la dette, structure de capital et détermination du
+            CMPC.
+          </p>
+        </div>
+
+        <EquitySection
+          inputs={inputs}
+          results={results}
+          notes={equityNotes}
+          sources={sources}
+          update={updateInput}
+          updateNote={updateEquityNote}
+        />
+        <DebtSection
+          inputs={inputs}
+          results={results}
+          sources={sources}
+          update={updateInput}
+        />
+        <StructureSection
+          inputs={inputs}
+          results={results}
+          sources={sources}
+          onInputsChange={onInputsChange}
+        />
+        <Determination results={results} />
+        <Assumptions
+          inputs={inputs}
+          sources={sources}
+          onSourcesChange={onSourcesChange}
+        />
+        <Disclaimer />
+
+        <footer className="mt-10 border-t border-[#E6D6C3]/45 pt-4">
+          <p className="text-pretty text-[11px] leading-relaxed text-slate-500">
+            Rapport indicatif de détermination du coût moyen pondéré du capital · Méthodologie
+            conforme aux pratiques généralement reconnues en évaluation d&apos;entreprises (CBV /
+            EEE) · {meta.subject} · {meta.valuationDate}
+          </p>
+        </footer>
+      </div>
     </article>
   )
 }
