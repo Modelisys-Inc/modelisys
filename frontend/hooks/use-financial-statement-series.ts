@@ -34,6 +34,9 @@ interface UseFinancialStatementSeriesReturn {
   reload: () => void
 }
 
+const EMPTY_SERIES_ROWS: SeriesRow[] = []
+const EMPTY_SERIES_PERIODS: SeriesPeriod[] = []
+
 export function useFinancialStatementSeries({
   companyId,
   statementType,
@@ -108,8 +111,8 @@ export function useFinancialStatementSeries({
 
   return {
     data,
-    rows: data?.rows || [],
-    periods: data?.periods || [],
+    rows: data?.rows ?? EMPTY_SERIES_ROWS,
+    periods: data?.periods ?? EMPTY_SERIES_PERIODS,
     loading,
     error,
     reload: () => setReloadCounter((c) => c + 1),

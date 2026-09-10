@@ -1,7 +1,7 @@
 "use client"
 
 import { Fragment, Suspense } from "react"
-import { Book, Settings, LogOut, ChevronRight } from "lucide-react"
+import { Book, Settings, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -10,9 +10,10 @@ import { useCompanies } from "@/hooks/use-companies"
 import { logout } from "@/lib/api"
 import { isFinancialStatementPath } from "@/hooks/use-financial-statement-reference-date"
 import { FinancialStatementReferenceControls } from "@/components/financial-statement-reference-controls"
-import { companyDashboardNavItem, companyModuleNavItems } from "@/lib/company-module-navigation"
+import { companyDashboardNavItem, isReportNavPath } from "@/lib/company-module-navigation"
 import { FinancialToolsNavDropdown } from "@/components/financial-tools-nav-dropdown"
 import { ConfigurationNavDropdown } from "@/components/configuration-nav-dropdown"
+import { ReportNavDropdown } from "@/components/report-nav-dropdown"
 import { isFinancialToolsPath } from "@/lib/financial-tools-navigation"
 
 interface DashboardHeaderProps {
@@ -28,7 +29,7 @@ const defaultNavigationItems = [
 /** Menu affiché lorsqu'une société est sélectionnée (pages outils masquées du menu principal). */
 const companyNavigationItems = [
   companyDashboardNavItem,
-  ...companyModuleNavItems,
+  { label: "Rapport", href: "/modules/diagnostic" },
   { label: "Outils financiers", href: "/dashboard" },
   { label: "Configuration", href: "/settings/companies" },
 ]
@@ -47,10 +48,6 @@ function NavVerticalSeparator() {
   return <div className="mx-2 h-6 w-px shrink-0 bg-white/10" aria-hidden />
 }
 
-function PhaseJourneyArrow() {
-  return <ChevronRight className="mx-0.5 h-3.5 w-3.5 shrink-0 text-[#E0742D]/75" strokeWidth={2.25} aria-hidden />
-}
-
 function getNavItemActive(pathname: string | null, item: NavItem): boolean {
   const itemPath = item.href.split("?")[0]
   if (item.label === "Mon portail") return pathname?.startsWith("/mon-portail") || false
@@ -59,8 +56,7 @@ function getNavItemActive(pathname: string | null, item: NavItem): boolean {
   if (item.label === "Paramètres") return pathname?.startsWith("/settings") || false
   if (item.label === "Support") return pathname?.startsWith("/contact") || false
   if (item.label === "Tableau de bord") return pathname?.startsWith("/tableau-de-bord") || false
-  if (item.label === "Diagnostic") return pathname?.startsWith("/modules/diagnostic") || false
-  if (item.label === "Pilotage") return pathname?.startsWith("/modules/pilotage") || false
+  if (item.label === "Rapport") return isReportNavPath(pathname)
   if (item.label === "Outils financiers") return isFinancialToolsPath(pathname)
   if (item.label === "Configuration") return pathname?.startsWith("/settings/companies") || false
   if (item.label === "Documentation") return pathname?.startsWith("/year-end-cpa") || false
@@ -143,9 +139,6 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
     ? navigationItems.find((item) => item.label === "Mon portail")
     : null
   const companyDashboardItem = companyNavItems.find((item) => item.label === "Tableau de bord")
-  const companyPhaseItems = companyNavItems.filter((item) =>
-    companyModuleNavItems.some((module) => module.label === item.label),
-  )
 
   return (
     <header className="relative z-50 w-full border-b border-white/10 bg-[#2A2F3A]/92 backdrop-blur-md shadow-md">
@@ -244,12 +237,7 @@ function DashboardHeaderInner({ title = "Gestion Comptable", description }: Dash
                 <NavLink item={monPortailItem} pathname={pathname} />
                 <NavVerticalSeparator />
                 <NavLink item={companyDashboardItem} pathname={pathname} />
-                {companyPhaseItems.map((item, index) => (
-                  <Fragment key={`${item.label}-${item.href}`}>
-                    {index > 0 ? <PhaseJourneyArrow /> : null}
-                    <NavLink item={item} pathname={pathname} />
-                  </Fragment>
-                ))}
+                <ReportNavDropdown pathname={pathname} companyId={selectedCompanyId} />
                 <NavVerticalSeparator />
                 <FinancialToolsNavDropdown pathname={pathname} companyId={selectedCompanyId} />
                 <ConfigurationNavDropdown pathname={pathname} companyId={selectedCompanyId} />

@@ -1,7 +1,12 @@
 import type { AccountMappingData, TrialBalanceAccount, TrialBalanceData } from "@/lib/api"
 import { formatCalendarMonthYear } from "./financial-period-labels"
 import type { DebtForecastLoan } from "./debt-forecast-types"
-import { isMappingLiabilityTermLinkCode } from "./standard-link-code-utils"
+import { isDebtHypothesisDefined } from "./debt-forecast-types"
+import {
+  isMappingLiabilityTermLinkCode,
+  MAPPING_LIABILITY_TERM_LINK_CODE_ROOTS,
+  MAPPING_LIABILITY_TERM_ROOT_LABELS,
+} from "./standard-link-code-utils"
 
 const MONTH_NAMES_FR = [
   "Janvier",
@@ -57,11 +62,7 @@ export function trialBalanceAmountAtMonth(
   return typeof raw === "number" && Number.isFinite(raw) ? raw : 0
 }
 
-export type PltMappingDebtSkipReason =
-  | "zero_balance"
-  | "missing_rate"
-  | "missing_duration"
-  | "no_tb_row"
+export type PltMappingDebtSkipReason = "zero_balance" | "no_tb_row"
 
 export type PltMappingDebtSkip = {
   accountNumber: string
@@ -102,15 +103,6 @@ export function buildDebtLoansFromPltMappings(opts: {
       linkCode,
     }
 
-    if (mapping.liability_interest_rate == null) {
-      skipped.push({ ...baseSkip, reason: "missing_rate" })
-      continue
-    }
-    if (mapping.liability_remaining_years == null) {
-      skipped.push({ ...baseSkip, reason: "missing_duration" })
-      continue
-    }
-
     const tbRow = tbByAccount.get(mapping.account_number)
     if (!tbRow) {
       skipped.push({ ...baseSkip, reason: "no_tb_row" })
@@ -124,16 +116,12 @@ export function buildDebtLoansFromPltMappings(opts: {
       continue
     }
 
-    const remainingYears = Number(mapping.liability_remaining_years)
-    const interestRate = Number(mapping.liability_interest_rate)
-    const remainingPayments = Math.max(1, Math.round(remainingYears * 12))
-
     loans.push({
       id: `plt-mapping-${mapping.id}`,
       name: loanNameFromMapping(mapping),
       principal,
-      interestRate,
-      remainingPayments,
+      interestRate: 0,
+      remainingPayments: 0,
       startMonth: 0,
       repaymentMode: "capital_and_interest",
       sourceType: "mapping",
@@ -142,6 +130,7 @@ export function buildDebtLoansFromPltMappings(opts: {
       sourceLinkCode: linkCode,
       referenceFiscalYear: referencePeriod.fiscalYear,
       referenceMonth: referencePeriod.month,
+      hypothesisDefined: false,
     })
   }
 
@@ -176,6 +165,14 @@ export function mergeDebtForecastLoans(
       name: prev.name,
       startMonth: prev.startMonth,
       repaymentMode: prev.repaymentMode ?? fresh.repaymentMode,
+      interestRate: prev.interestRate,
+      remainingPayments: prev.remainingPayments,
+      paymentAmount: prev.paymentAmount,
+      balloonAmount: prev.balloonAmount,
+      balloonMonth: prev.balloonMonth,
+      moratoriumMonths: prev.moratoriumMonths,
+      moratoriumScope: prev.moratoriumScope,
+      hypothesisDefined: prev.hypothesisDefined ?? prev.remainingPayments >= 1,
     }
   })
 
@@ -186,11 +183,78 @@ export function pltMappingDebtSkipLabel(reason: PltMappingDebtSkipReason): strin
   switch (reason) {
     case "zero_balance":
       return "solde nul à la date de référence"
-    case "missing_rate":
-      return "taux d'intérêt non renseigné dans le mapping"
-    case "missing_duration":
-      return "durée restante non renseignée dans le mapping"
     case "no_tb_row":
       return "absent de la balance de vérification"
   }
+}
+
+export type DebtForecastLoanGroupRoot =
+  | (typeof MAPPING_LIABILITY_TERM_LINK_CODE_ROOTS)[number]
+  | "OTHER"
+
+export const DEBT_FORECAST_OTHER_GROUP_LABEL = "Autres emprunts"
+
+/** Racine PLT (PLT-B, PLT-C, PLT-D) ou « OTHER » (hors sections Financement). */
+export function mappingLiabilityTermRootForLinkCode(
+  linkCode: string | null | undefined,
+): DebtForecastLoanGroupRoot {
+  const normalized = String(linkCode ?? "").trim().toUpperCase()
+  if (!normalized) return "OTHER"
+  for (const root of MAPPING_LIABILITY_TERM_LINK_CODE_ROOTS) {
+    if (normalized === root || normalized.startsWith(`${root}.`)) return root
+  }
+  return "OTHER"
+}
+
+function sortDebtForecastLoansForDisplay(loans: DebtForecastLoan[]): DebtForecastLoan[] {
+  return [...loans].sort((a, b) => {
+    const aDefined = isDebtHypothesisDefined(a) ? 1 : 0
+    const bDefined = isDebtHypothesisDefined(b) ? 1 : 0
+    if (aDefined !== bDefined) return aDefined - bDefined
+    return (a.sourceAccountNumber ?? a.name).localeCompare(b.sourceAccountNumber ?? b.name, "fr", {
+      numeric: true,
+    })
+  })
+}
+
+export type DebtForecastLoanGroup = {
+  root: DebtForecastLoanGroupRoot
+  label: string
+  loans: DebtForecastLoan[]
+}
+
+/**
+ * Regroupe les emprunts par famille PLT (PLT-B, PLT-C, PLT-D).
+ * Pas de section « Autres emprunts » : prêts sans code PLT exclus de l’affichage.
+ */
+export function groupDebtForecastLoansByLiabilityRoot(
+  loans: DebtForecastLoan[],
+): DebtForecastLoanGroup[] {
+  const buckets = new Map<DebtForecastLoanGroupRoot, DebtForecastLoan[]>()
+
+  for (const loan of loans) {
+    const root = mappingLiabilityTermRootForLinkCode(loan.sourceLinkCode)
+    if (root === "OTHER") continue
+    const bucket = buckets.get(root) ?? []
+    bucket.push(loan)
+    buckets.set(root, bucket)
+  }
+
+  const groups: DebtForecastLoanGroup[] = []
+  for (const root of MAPPING_LIABILITY_TERM_LINK_CODE_ROOTS) {
+    const groupLoans = buckets.get(root)
+    if (!groupLoans?.length) continue
+    groups.push({
+      root,
+      label: MAPPING_LIABILITY_TERM_ROOT_LABELS[root],
+      loans: sortDebtForecastLoansForDisplay(groupLoans),
+    })
+  }
+
+  return groups
+}
+
+export function debtForecastLoanGroupHeading(group: DebtForecastLoanGroup): string {
+  if (group.root === "OTHER") return group.label
+  return `${group.root} — ${group.label}`
 }

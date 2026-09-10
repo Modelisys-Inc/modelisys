@@ -1,125 +1,205 @@
-import Link from "next/link"
-import { ArrowRight, ChevronRight } from "lucide-react"
-import { blogFeaturedPost, blogLandingSecondaryPosts } from "@/lib/blog-posts"
+"use client"
 
-/**
- * Bandeau entre « Études de cas » et « Mise en place » : vedette + trois articles piliers.
- */
+import Link from "next/link"
+import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { blogPosts, type BlogPostCard } from "@/lib/blog-posts"
+import { cn } from "@/lib/utils"
+
+const COVER_TONES = [
+  "from-[#2A2F3A] via-[#3A4252] to-[#E0742D]/70",
+  "from-[#1F2430] via-[#4A5568] to-[#E6B08C]/60",
+  "from-[#2A2F3A] via-[#5B8DEF]/40 to-[#C9B8A5]/50",
+  "from-[#222732] via-[#4A9B73]/35 to-[#E6D6C3]/45",
+  "from-[#2A2F3A] via-[#9A4A1A]/50 to-[#E0742D]/55",
+] as const
+
+function BlogCardCover({ post, index }: { post: BlogPostCard; index: number }) {
+  const tone = COVER_TONES[index % COVER_TONES.length]
+  return (
+    <div
+      className={cn(
+        "relative aspect-[16/10] overflow-hidden bg-gradient-to-br",
+        tone,
+      )}
+      aria-hidden
+    >
+      <div
+        className="absolute inset-0 opacity-30"
+        style={{
+          backgroundImage: `
+            linear-gradient(rgb(255 255 255 / 0.06) 1px, transparent 1px),
+            linear-gradient(90deg, rgb(255 255 255 / 0.06) 1px, transparent 1px)
+          `,
+          backgroundSize: "28px 28px",
+        }}
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
+      {post.tags[0] ? (
+        <span className="absolute bottom-3 left-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#E6D6C3]/90">
+          {post.tags[0]}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
 export function LandingBlogTeaserSection() {
-  const featured = blogFeaturedPost
+  const trackRef = useRef<HTMLDivElement>(null)
+  const [canPrev, setCanPrev] = useState(false)
+  const [canNext, setCanNext] = useState(true)
+
+  const updateArrows = useCallback(() => {
+    const el = trackRef.current
+    if (!el) return
+    const max = el.scrollWidth - el.clientWidth
+    setCanPrev(el.scrollLeft > 8)
+    setCanNext(el.scrollLeft < max - 8)
+  }, [])
+
+  useEffect(() => {
+    const el = trackRef.current
+    if (!el) return
+    updateArrows()
+    el.addEventListener("scroll", updateArrows, { passive: true })
+    const ro = new ResizeObserver(updateArrows)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener("scroll", updateArrows)
+      ro.disconnect()
+    }
+  }, [updateArrows])
+
+  const scrollByCard = (dir: -1 | 1) => {
+    const el = trackRef.current
+    if (!el) return
+    const card = el.querySelector<HTMLElement>("[data-blog-card]")
+    const step = card ? card.offsetWidth + 20 : el.clientWidth * 0.7
+    el.scrollBy({ left: dir * step, behavior: "smooth" })
+  }
 
   return (
     <section
       id="blog-vedette"
       aria-labelledby="landing-blog-teaser-heading"
-      className="relative z-10 scroll-mt-24 overflow-hidden border-t border-slate-200/80 bg-gradient-to-b from-white via-slate-50/40 to-slate-50/90 py-16 sm:py-20 lg:py-24"
+      className="relative z-10 scroll-mt-24 overflow-hidden bg-[#F8FAFC]"
     >
       <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_40%_at_50%_0%,rgba(224,116,45,0.045),transparent_55%)]" />
+        <div
+          className="absolute inset-0 opacity-45"
+          style={{
+            backgroundImage: `
+              linear-gradient(to right, rgb(42 47 58 / 0.04) 1px, transparent 1px),
+              linear-gradient(to bottom, rgb(42 47 58 / 0.04) 1px, transparent 1px)
+            `,
+            backgroundSize: "56px 56px",
+            maskImage: "radial-gradient(ellipse 70% 60% at 75% 40%, black 15%, transparent 75%)",
+            WebkitMaskImage:
+              "radial-gradient(ellipse 70% 60% at 75% 40%, black 15%, transparent 75%)",
+          }}
+        />
+        <div className="absolute -top-20 left-[-5%] h-72 w-72 rounded-full bg-[#E0742D]/[0.04] blur-3xl" />
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-14 xl:px-20 2xl:px-24">
-        <div className="mb-10 sm:mb-12">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Blog</p>
-          <h2
-            id="landing-blog-teaser-heading"
-            className="mt-5 max-w-3xl text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-[2.5rem] md:leading-tight"
-          >
-            Ressources pour piloter votre{" "}
-            <span className="text-[#5C5F66]">trajectoire de valeur</span>
-          </h2>
-          <p className="mt-4 max-w-3xl text-base leading-relaxed text-[#5C5F66] sm:text-lg">
-            Articles concrets sur la valorisation, le reporting et les projections — pour approfondir les thématiques
-            de la plateforme et alimenter votre parcours.
-          </p>
-        </div>
+      <div className="relative z-10 mx-auto max-w-[1920px] px-5 py-16 sm:px-10 sm:py-20 lg:px-12 lg:py-24 xl:px-16 2xl:px-20">
+        <div className="grid grid-cols-1 items-stretch gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.55fr)] lg:gap-12 xl:gap-16">
+          {/* Colonne gauche — éditorial + CTA + flèches */}
+          <div className="flex flex-col justify-between lg:min-h-[28rem] xl:min-h-[30rem]">
+            <div>
+              <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-slate-500">
+                Blog
+              </p>
+              <h2
+                id="landing-blog-teaser-heading"
+                className="mt-6 max-w-md text-[1.85rem] font-semibold leading-[1.15] tracking-tight text-[#2A2F3A] sm:mt-7 sm:text-[2.25rem] sm:leading-[1.12]"
+              >
+                Les conseils Modelisys
+              </h2>
+              <p className="mt-5 max-w-md text-[15px] leading-[1.75] text-slate-600 sm:text-base">
+                Articles pour approfondir la valorisation, le reporting et les projections — et
+                relier vos chiffres à la trajectoire de valeur.
+              </p>
 
-        {/* À la une */}
-        <article className="relative overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 shadow-sm shadow-slate-900/[0.04] ring-1 ring-slate-200/70">
-          <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.12]" />
-          <div className="relative flex flex-col gap-6 p-6 sm:p-8 lg:flex-row lg:items-center lg:justify-between lg:gap-10">
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]/90">À la une</p>
-              <h3 className="mt-3 text-xl font-semibold leading-snug tracking-tight text-[#2A2F3A] sm:text-2xl">
+              <div className="mt-8 flex flex-col items-start gap-3">
                 <Link
-                  href={featured.href}
-                  className="hover:text-[#E0742D] hover:underline decoration-[#E0742D]/60 underline-offset-4"
+                  href="/blog"
+                  className="group inline-flex items-center gap-2 rounded-md bg-[#E6D6C3] px-4 py-2.5 text-xs font-semibold tracking-[0.06em] text-[#1F2430] transition hover:bg-[#f0e6d8]"
                 >
-                  {featured.title}
+                  Voir les articles
+                  <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
                 </Link>
-              </h3>
-              <p className="mt-3 max-w-2xl text-sm leading-relaxed text-[#5C5F66] sm:text-[15px]">{featured.excerpt}</p>
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                <span className="text-xs font-medium text-slate-500">{featured.readingTime}</span>
-                {featured.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="inline-flex items-center rounded-full border border-slate-200/90 bg-white/90 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600"
-                  >
-                    {tag}
-                  </span>
-                ))}
+                <Link
+                  href="/#demo"
+                  className="group inline-flex items-center gap-2 px-1 py-2 text-xs font-semibold tracking-[0.06em] text-slate-600 transition hover:text-[#2A2F3A]"
+                >
+                  Réserver une démo
+                  <span className="inline-block h-px w-8 bg-[#E0742D]/80" />
+                </Link>
               </div>
             </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2 sm:gap-3 lg:flex-col lg:items-stretch xl:flex-row xl:items-center">
-              <Link
-                href={featured.href}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-[#2A2F3A] bg-[#2A2F3A] px-5 py-2.5 text-sm font-semibold text-[#E6D6C3] shadow-sm transition hover:bg-[#353b48]"
+
+            <div className="mt-10 flex items-center gap-2 lg:mt-12">
+              <button
+                type="button"
+                onClick={() => scrollByCard(-1)}
+                disabled={!canPrev}
+                aria-label="Articles précédents"
+                className={cn(
+                  "flex h-11 w-11 items-center justify-center rounded-full border transition",
+                  canPrev
+                    ? "border-[#2A2F3A] bg-[#2A2F3A] text-[#E6D6C3] hover:bg-[#353b48]"
+                    : "cursor-not-allowed border-slate-200 bg-white text-slate-300",
+                )}
               >
-                Lire l&apos;article
-                <ArrowRight className="h-4 w-4 text-[#E0742D]" aria-hidden />
-              </Link>
-              <Link
-                href="/blog"
-                className="inline-flex items-center justify-center rounded-lg border border-slate-200/90 bg-white px-5 py-2.5 text-sm font-semibold text-[#2A2F3A] shadow-sm transition hover:bg-slate-50"
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => scrollByCard(1)}
+                disabled={!canNext}
+                aria-label="Articles suivants"
+                className={cn(
+                  "flex h-11 w-11 items-center justify-center rounded-full border transition",
+                  canNext
+                    ? "border-[#2A2F3A] bg-[#2A2F3A] text-[#E6D6C3] hover:bg-[#353b48]"
+                    : "cursor-not-allowed border-slate-200 bg-white text-slate-300",
+                )}
               >
-                Tous les articles
-              </Link>
+                <ChevronRight className="h-5 w-5" />
+              </button>
             </div>
           </div>
-        </article>
 
-        {/* Articles par thématique */}
-        <div className="mt-12 sm:mt-14">
-          <div className="mb-6 flex items-center justify-between gap-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Valorisation · Reporting · Projections
-            </p>
-            <span
-              className="hidden h-px flex-1 bg-gradient-to-r from-[#E0742D]/35 via-slate-300/50 to-transparent sm:block"
-              aria-hidden
-            />
-          </div>
-          <ul className="grid gap-5 sm:grid-cols-3 sm:gap-6" role="list">
-            {blogLandingSecondaryPosts.map((post) => (
-              <li key={post.href} className="min-w-0">
-                <Link
-                  href={post.href}
-                  className="group relative flex h-full flex-col overflow-hidden rounded-[28px] border-2 border-slate-700 bg-gradient-to-br from-white to-slate-50 px-5 py-5 shadow-sm shadow-slate-900/[0.03] ring-1 ring-slate-200/70 transition-all duration-300 hover:scale-[1.01] hover:shadow-lg hover:shadow-slate-900/[0.06] sm:px-6 sm:py-6"
+          {/* Carrousel */}
+          <div className="min-w-0">
+            <div
+              ref={trackRef}
+              className="flex gap-5 overflow-x-auto pb-2 scroll-smooth [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              aria-label="Articles du blog"
+            >
+              {blogPosts.map((post, index) => (
+                <article
+                  key={post.href}
+                  data-blog-card
+                  className="flex w-[min(100%,18.5rem)] shrink-0 flex-col overflow-hidden border border-[#2A2F3A]/10 bg-white sm:w-[20rem]"
                 >
-                  <div className="pointer-events-none absolute inset-0 rounded-[28px] ring-1 ring-[#E0742D]/[0.1]" />
-                  {post.tags[0] ? (
-                    <span className="relative text-[10px] font-semibold uppercase tracking-[0.14em] text-[#E0742D]/90">
-                      {post.tags[0]}
-                    </span>
-                  ) : null}
-                  <span className="relative mt-2 line-clamp-2 text-base font-semibold leading-snug tracking-tight text-[#2A2F3A] group-hover:text-[#E0742D]">
-                    {post.title}
-                  </span>
-                  <span className="relative mt-2 line-clamp-3 flex-1 text-sm leading-relaxed text-[#5C5F66]">
-                    {post.excerpt}
-                  </span>
-                  <span className="relative mt-4 flex items-center justify-between gap-2 border-t border-slate-200/80 pt-3 text-xs font-medium text-slate-500">
-                    <span>{post.readingTime}</span>
-                    <span className="inline-flex items-center gap-0.5 text-[#E0742D] transition group-hover:gap-1">
-                      Lire
-                      <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-                    </span>
-                  </span>
-                </Link>
-              </li>
-            ))}
-          </ul>
+                  <Link href={post.href} className="group flex h-full flex-col">
+                    <BlogCardCover post={post} index={index} />
+                    <div className="flex flex-1 flex-col px-4 py-4 sm:px-5 sm:py-5">
+                      <p className="text-[11px] text-slate-500">{post.dateLabel}</p>
+                      <h3 className="mt-2 line-clamp-3 text-[15px] font-semibold leading-snug tracking-tight text-[#2A2F3A] transition group-hover:text-[#9A4A1A] sm:text-base">
+                        {post.title}
+                      </h3>
+                      <span className="mt-auto inline-flex items-center gap-1.5 pt-5 text-xs font-semibold tracking-wide text-[#E0742D]">
+                        Lire cet article
+                        <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                      </span>
+                    </div>
+                  </Link>
+                </article>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </section>

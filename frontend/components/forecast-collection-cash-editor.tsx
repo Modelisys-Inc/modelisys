@@ -10,7 +10,6 @@ import {
   clampRoundBadDebt,
   collectionBarFill,
   computeCollectionChartYScale,
-  createDefaultAdvancedBuckets,
   labelForCollectionDelayDays,
   normalizeAdvancedBuckets,
   parseDelayDaysInput,
@@ -32,7 +31,6 @@ const VARIANT_COPY: Record<
   {
     weightedDelayTitle: string
     summaryLine: (payableSum: number, badDebt: number, total: number) => string
-    badDebtColumnLabel: string
     histogramAria: string
     percentPayableAria: (col: number) => string
     replicateTitle: string
@@ -45,8 +43,7 @@ const VARIANT_COPY: Record<
 > = {
   encaissement: {
     weightedDelayTitle: "Délai moyen de collection estimé",
-    summaryLine: (enc, bd, total) => `Encaissable ${enc} % + mauvaise créance ${bd} % = ${total} %`,
-    badDebtColumnLabel: "Mauvaise créance",
+    summaryLine: (_enc, _bd, total) => `Total encaissable : ${total} %`,
     histogramAria: "Histogramme d'encaissement par délai",
     percentPayableAria: (col) => `Pourcentage encaissable, colonne ${col}`,
     replicateTitle: "Appliquer le même délai d'encaissement aux années suivantes",
@@ -60,7 +57,6 @@ const VARIANT_COPY: Record<
   decaissement: {
     weightedDelayTitle: "Délai moyen de paiement estimé",
     summaryLine: (_payable, _bd, total) => `Total décaissable : ${total} %`,
-    badDebtColumnLabel: "",
     histogramAria: "Histogramme de décaissement par délai",
     percentPayableAria: (col) => `Pourcentage décaissable, colonne ${col}`,
     replicateTitle: "Appliquer le même délai de décaissement aux années suivantes",
@@ -106,8 +102,9 @@ export type ForecastCollectionCashEditorProps = {
   replicateToFollowingYears: boolean
   onReplicateChange: (checked: boolean) => void
   replicateCheckboxId: string
-  badDebtPercent: number
-  onBadDebtPercentChange: (value: number) => void
+  /** Conservé pour compatibilité ; toujours ignoré (encaissement à 100 %). */
+  badDebtPercent?: number
+  onBadDebtPercentChange?: (value: number) => void
   buckets: ForecastCollectionBucket[]
   onBucketsChange: (updater: (prev: ForecastCollectionBucket[]) => ForecastCollectionBucket[]) => void
   customDelayDrafts: Record<number, string>
@@ -132,43 +129,30 @@ export function ForecastCollectionCashEditor({
   replicateToFollowingYears,
   onReplicateChange,
   replicateCheckboxId,
-  badDebtPercent,
-  onBadDebtPercentChange,
   buckets,
   onBucketsChange,
   customDelayDrafts,
   onCustomDelayDraftsChange,
 }: ForecastCollectionCashEditorProps) {
   const copy = VARIANT_COPY[variant]
-  const showBadDebt = variant === "encaissement"
-  const normalizeBadDebt = showBadDebt ? badDebtPercent : 0
+  const normalizeBadDebt = 0
 
   const payableSum = buckets.reduce((a, b) => a + b.percent, 0)
-  const grandTotal = showBadDebt ? payableSum + badDebtPercent : payableSum
+  const grandTotal = payableSum
   const sortedWithIndex = [...buckets]
     .map((bucket, origIdx) => ({ bucket, origIdx }))
     .sort((a, b) => a.bucket.delayDays - b.bucket.delayDays || a.origIdx - b.origIdx)
 
-  const histogramChartData = useMemo(() => {
-    const delayBars = sortedWithIndex.map(({ bucket, origIdx }) => ({
-      key: `h-${variant}-${origIdx}`,
-      name: labelForCollectionDelayDays(bucket.delayDays),
-      percent: Math.max(0, Math.round(bucket.percent)),
-      delayDays: bucket.delayDays,
-      isBadDebt: false,
-    }))
-    if (!showBadDebt) return delayBars
-    return [
-      ...delayBars,
-      {
-        key: "bad-debt",
-        name: copy.badDebtColumnLabel,
-        percent: Math.max(0, Math.round(badDebtPercent)),
-        delayDays: 720,
-        isBadDebt: true,
-      },
-    ]
-  }, [sortedWithIndex, badDebtPercent, copy.badDebtColumnLabel, showBadDebt, variant])
+  const histogramChartData = useMemo(
+    () =>
+      sortedWithIndex.map(({ bucket, origIdx }) => ({
+        key: `h-${variant}-${origIdx}`,
+        name: labelForCollectionDelayDays(bucket.delayDays),
+        percent: Math.max(0, Math.round(bucket.percent)),
+        delayDays: bucket.delayDays,
+      })),
+    [sortedWithIndex, variant]
+  )
 
   const weightedDelay = weightedCollectionDelayDays(buckets)
   const weightedLabel =
@@ -181,7 +165,7 @@ export function ForecastCollectionCashEditor({
     barKey: entry.key,
     label: entry.name,
     percent: entry.percent,
-    barFill: collectionBarFill(entry.isBadDebt),
+    barFill: collectionBarFill(false),
   }))
   const barXScale = scaleBand<string>()
     .domain(histogramChartData.map((e) => e.key))
@@ -408,39 +392,6 @@ export function ForecastCollectionCashEditor({
                       </div>
                     </div>
                   ))}
-                  {showBadDebt ? (
-                    <div className="flex min-w-0 flex-col items-center gap-2 px-2 py-2.5 sm:px-2.5">
-                      <div className="flex min-h-[2.5rem] w-full flex-col items-center justify-center gap-1 text-center">
-                        <span className="text-[11px] font-semibold leading-tight text-slate-800 sm:text-xs">
-                          {copy.badDebtColumnLabel}
-                        </span>
-                      </div>
-                      <div className="flex w-full items-center justify-center gap-0.5">
-                        <Input
-                          type="text"
-                          inputMode="decimal"
-                          aria-label={`Pourcentage ${copy.badDebtColumnLabel.toLowerCase()}`}
-                          className="h-8 w-full max-w-[3.25rem] rounded border border-slate-200 bg-white text-center text-xs tabular-nums"
-                          value={String(badDebtPercent)}
-                          onChange={(e) => {
-                            const raw = e.target.value.trim()
-                            if (raw === "") {
-                              onBadDebtPercentChange(0)
-                              setBuckets((prev) => normalizeAdvancedBuckets(prev, 0))
-                              return
-                            }
-                            const p = parsePercentInput(e.target.value)
-                            if (p === null) return
-                            const bd = Math.round(p)
-                            onBadDebtPercentChange(bd)
-                            setBuckets((prev) => normalizeAdvancedBuckets(prev, bd))
-                          }}
-                        />
-                        <span className="text-[10px] font-medium text-slate-500">%</span>
-                      </div>
-                      <div className="h-8 w-full" aria-hidden />
-                    </div>
-                  ) : null}
                 </div>
               </>
             ) : (

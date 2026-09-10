@@ -13,6 +13,7 @@ import {
 } from "@/lib/series-reference-columns"
 import type { StatementPeriodBasis } from "@/lib/income-statement-period-basis"
 import { formatCalendarMonthYearShort } from "@/lib/financial-period-labels"
+import { parseForecastColumnCalendarAnchor } from "@/lib/pro-forma-forecast-columns"
 import {
   monthsInFiscalQuarterThrough,
   endOfPriorFiscalQuarter,
@@ -37,6 +38,8 @@ export type CashFlowCalcTrendContext = {
   fiscalYearEndMonth?: number
   /** Annuel / trimestriel : Courant (TTM / T3M) ou Exercice (YTD / QTD). */
   periodBasis?: StatementPeriodBasis
+  /** Pro Forma : mois de référence pour interpréter les colonnes `YTD YYYY`. */
+  forecastRefMonth?: number
 }
 
 export type CashFlowOperandSnapshot = {
@@ -154,6 +157,7 @@ function transformedOperandTrend(
     calcContext.comparisonAnchor,
     calcContext.fiscalYearEndMonth,
     calcContext.periodBasis,
+    calcContext.forecastRefMonth,
   )
 }
 
@@ -470,6 +474,7 @@ export function priorPeriodLabelForTrend(
   comparisonAnchor: CashFlowTrendComparisonAnchor = "calendarPrior",
   fiscalYearEndMonth = 12,
   periodBasis?: StatementPeriodBasis,
+  forecastRefMonth?: number,
 ): string | null {
   if (comparisonAnchor === "priorYearSameMonth" && view === "12months") {
     const cal = parseSeriesPeriodCalendarLabel(label)
@@ -477,8 +482,18 @@ export function priorPeriodLabelForTrend(
     return formatCalendarMonthYearShort(cal.month, cal.year - 1)
   }
   if (view === "years") {
-    const cal = parseSeriesPeriodCalendarLabel(label)
+    const cal =
+      parseSeriesPeriodCalendarLabel(label) ??
+      (forecastRefMonth != null
+        ? parseForecastColumnCalendarAnchor(label, forecastRefMonth, fiscalYearEndMonth)
+        : null)
     if (cal) {
+      if (/^YTD\s+\d{4}$/i.test(label.trim())) {
+        return String(cal.year - 1)
+      }
+      if (parseYearLabel(label) != null) {
+        return String(cal.year - 1)
+      }
       if (periodBasis === "fiscal") {
         const prior = endOfPriorFiscalYear(cal.month, cal.year, fiscalYearEndMonth)
         return formatCalendarMonthYearShort(prior.month, prior.year)
@@ -516,9 +531,15 @@ export function priorPeriodLabelForTrend(
 export function snapshotAmountForYearColumnLabel(
   label: string,
   amountByCalendarMonth?: Map<string, number>,
+  forecastRefMonth?: number,
+  fiscalYearEndMonth = 12,
 ): number {
   if (!amountByCalendarMonth) return 0
-  const cal = parseSeriesPeriodCalendarLabel(label)
+  const cal =
+    parseSeriesPeriodCalendarLabel(label) ??
+    (forecastRefMonth != null
+      ? parseForecastColumnCalendarAnchor(label, forecastRefMonth, fiscalYearEndMonth)
+      : null)
   if (!cal) return 0
   return amountByCalendarMonth.get(`${cal.year}-${cal.month}`) ?? 0
 }
@@ -528,10 +549,22 @@ function amountForTrendLabel(
   valuesByLabel: Map<string, number>,
   amountByCalendarMonth: Map<string, number> | undefined,
   view: CashFlowDetailTrendView,
+  forecastRefMonth?: number,
+  fiscalYearEndMonth = 12,
 ): number {
   if (view === "years") {
-    const fromCalendar = snapshotAmountForYearColumnLabel(label, amountByCalendarMonth)
-    if (amountByCalendarMonth && parseSeriesPeriodCalendarLabel(label)) {
+    const fromCalendar = snapshotAmountForYearColumnLabel(
+      label,
+      amountByCalendarMonth,
+      forecastRefMonth,
+      fiscalYearEndMonth,
+    )
+    if (
+      amountByCalendarMonth &&
+      (parseSeriesPeriodCalendarLabel(label) ||
+        (forecastRefMonth != null &&
+          parseForecastColumnCalendarAnchor(label, forecastRefMonth, fiscalYearEndMonth)))
+    ) {
       return fromCalendar
     }
     const year = parseYearLabel(label)
@@ -553,7 +586,12 @@ function amountForTrendLabel(
   if (!amountByCalendarMonth) return 0
 
   if (view === "years") {
-    return snapshotAmountForYearColumnLabel(label, amountByCalendarMonth)
+    return snapshotAmountForYearColumnLabel(
+      label,
+      amountByCalendarMonth,
+      forecastRefMonth,
+      fiscalYearEndMonth,
+    )
   }
 
   const cal = parseSeriesPeriodCalendarLabel(label)
@@ -591,9 +629,14 @@ export function yearLabelsToFiscalYtdTrendValues(
   labels: string[],
   amountByCalendarMonth: Map<string, number>,
   fiscalYearEndMonth = 12,
+  forecastRefMonth?: number,
 ): number[] {
   return labels.map((label) => {
-    const cal = parseSeriesPeriodCalendarLabel(label)
+    const cal =
+      parseSeriesPeriodCalendarLabel(label) ??
+      (forecastRefMonth != null
+        ? parseForecastColumnCalendarAnchor(label, forecastRefMonth, fiscalYearEndMonth)
+        : null)
     if (!cal) return 0
     return sumFiscalYearThrough(amountByCalendarMonth, cal.month, cal.year, fiscalYearEndMonth)
   })
@@ -694,18 +737,26 @@ export function applyCashFlowActualYearTTMToRow<
     return row
   }
   const fyEnd = calcContext.fiscalYearEndMonth ?? 12
+  const forecastRefMonth = calcContext.forecastRefMonth
+  const useProFormaFiscal = forecastRefMonth != null
   const trendValues =
-    calcContext.periodBasis === "fiscal"
-      ? yearLabelsToFiscalYtdTrendValues(calcContext.trendLabels, amountByCalendarMonth, fyEnd)
+    useProFormaFiscal || calcContext.periodBasis === "fiscal"
+      ? yearLabelsToFiscalYtdTrendValues(
+          calcContext.trendLabels,
+          amountByCalendarMonth,
+          fyEnd,
+          forecastRefMonth,
+        )
       : yearLabelsToTTMTrendValues(calcContext.trendLabels, amountByCalendarMonth)
   const balanceAccounts = row.balanceAccounts?.map((account) => {
     if (!account.amountByCalendarMonth) return account
     const accountTrend =
-      calcContext.periodBasis === "fiscal"
+      useProFormaFiscal || calcContext.periodBasis === "fiscal"
         ? yearLabelsToFiscalYtdTrendValues(
             calcContext.trendLabels,
             account.amountByCalendarMonth,
             fyEnd,
+            forecastRefMonth,
           )
         : yearLabelsToTTMTrendValues(calcContext.trendLabels, account.amountByCalendarMonth)
     return {
@@ -733,6 +784,7 @@ export function applyCashFlowCalcToTrend(
   comparisonAnchor: CashFlowTrendComparisonAnchor = "calendarPrior",
   fiscalYearEndMonth = 12,
   periodBasis?: StatementPeriodBasis,
+  forecastRefMonth?: number,
 ): number[] {
   if (mode === "actual") return values
 
@@ -740,12 +792,18 @@ export function applyCashFlowCalcToTrend(
 
   return labels.map((label, index) => {
     let current = values[index] ?? 0
-    if (
-      (view === "years" || view === "quarters") &&
-      amountByCalendarMonth &&
-      parseSeriesPeriodCalendarLabel(label)
-    ) {
-      current = snapshotAmountForYearColumnLabel(label, amountByCalendarMonth)
+    const cal =
+      parseSeriesPeriodCalendarLabel(label) ??
+      (forecastRefMonth != null
+        ? parseForecastColumnCalendarAnchor(label, forecastRefMonth, fiscalYearEndMonth)
+        : null)
+    if ((view === "years" || view === "quarters") && amountByCalendarMonth && cal) {
+      current = snapshotAmountForYearColumnLabel(
+        label,
+        amountByCalendarMonth,
+        forecastRefMonth,
+        fiscalYearEndMonth,
+      )
     }
     const priorLabel = priorPeriodLabelForTrend(
       label,
@@ -753,10 +811,18 @@ export function applyCashFlowCalcToTrend(
       comparisonAnchor,
       fiscalYearEndMonth,
       periodBasis,
+      forecastRefMonth,
     )
     let prior = 0
     if (priorLabel) {
-      prior = amountForTrendLabel(priorLabel, valuesByLabel, amountByCalendarMonth, view)
+      prior = amountForTrendLabel(
+        priorLabel,
+        valuesByLabel,
+        amountByCalendarMonth,
+        view,
+        forecastRefMonth,
+        fiscalYearEndMonth,
+      )
     } else if (index + 1 < values.length) {
       prior = values[index + 1] ?? 0
     }

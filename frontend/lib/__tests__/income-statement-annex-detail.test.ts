@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   annexGroupShouldShowSubtotal,
+  listAnnexDetailSeriesIdsForOwner,
+  omitAnnexTitleRowsWithoutAmountPosts,
   resolveDetailAnnexMeta,
   uniqueStatementRowsByStructureIndex,
 } from "@/lib/income-statement-annex-detail"
@@ -11,20 +13,107 @@ const structure: Record<string, unknown>[] = [
     label: "Revenus annexés",
     annexLetter: "A",
     detailOnly: false,
+    defineMapping: true,
+    showInDetail: true,
+    linkCode: "REV",
   },
   {
     id: "rev-a-1",
     label: "Ventes détail",
     annexLetter: "A",
     detailOnly: true,
+    defineMapping: true,
+    showInDetail: true,
+    linkCode: "REV-A.1",
   },
   {
     id: "rev-solo",
     label: "Poste seul",
     annexLetter: "B",
     detailOnly: false,
+    defineMapping: true,
+    showInDetail: true,
+    linkCode: "AUT",
   },
 ]
+
+describe("listAnnexDetailSeriesIdsForOwner", () => {
+  it("lists detailOnly posts under an annex owner (Sous-total Annexe)", () => {
+    expect(
+      listAnnexDetailSeriesIdsForOwner(
+        { id: "rev-a", label: "Revenus annexés" },
+        [
+          { id: "rev-a", label: "Revenus annexés" },
+          { id: "rev-a-1", label: "Ventes détail" },
+        ],
+        structure,
+      ),
+    ).toEqual(["rev-a-1"])
+  })
+
+  it("returns empty when the owner has no detailOnly children", () => {
+    expect(
+      listAnnexDetailSeriesIdsForOwner(
+        { id: "rev-solo", label: "Poste seul" },
+        [{ id: "rev-solo", label: "Poste seul" }],
+        structure,
+      ),
+    ).toEqual([])
+  })
+
+  it("includes Capex amort detailOnly posts (ADM.20) in annex owner rollup", () => {
+    const withAmort: Record<string, unknown>[] = [
+      {
+        id: "adm",
+        label: "Frais d'administration",
+        annexLetter: "D",
+        detailOnly: false,
+        defineMapping: true,
+        showInDetail: true,
+        linkCode: "ADM",
+      },
+      {
+        id: "ADM.1",
+        label: "Salaires admin",
+        annexLetter: "D",
+        detailOnly: true,
+        defineMapping: true,
+        showInDetail: true,
+        linkCode: "ADM.1",
+      },
+      {
+        id: "ADM.20",
+        label: "Amortissement - Immobilisations corporelles",
+        annexLetter: "D",
+        detailOnly: true,
+        defineMapping: true,
+        showInDetail: true,
+        linkCode: "ADM.20",
+      },
+      {
+        id: "IMP.1",
+        label: "Exigibles",
+        annexLetter: "D",
+        detailOnly: true,
+        defineMapping: true,
+        showInDetail: true,
+        linkCode: "IMP.1",
+      },
+    ]
+    expect(
+      listAnnexDetailSeriesIdsForOwner(
+        { id: "adm", label: "Frais d'administration" },
+        [
+          { id: "adm", label: "Frais d'administration" },
+          { id: "ADM.1", label: "Salaires admin" },
+          { id: "ADM.20", label: "Amortissement - Immobilisations corporelles" },
+          { id: "IMP.1", label: "Exigibles" },
+        ],
+        withAmort,
+      ),
+    ).toEqual(["ADM.1", "ADM.20"])
+  })
+})
 
 describe("resolveDetailAnnexMeta", () => {
   it("reprend la lettre structure sur une sous-ligne série sans annexLetter", () => {
@@ -55,6 +144,32 @@ describe("resolveDetailAnnexMeta", () => {
     expect(solo.isAnnexTitle).toBe(false)
     expect(solo.annexLetter).toBe("B")
   })
+
+  it("rattache une sous-ligne sans lettre au poste sommaire contigu (Annexe B)", () => {
+    const cmv = [
+      {
+        id: "cmv",
+        label: "Coûts des produits vendus",
+        annexLetter: "B",
+        detailOnly: false,
+      },
+      {
+        id: "CMV.2",
+        label: "Achats",
+        annexLetter: "",
+        detailOnly: true,
+      },
+    ]
+    const peers = [
+      { id: "cmv", label: "Coûts des produits vendus", annexLetter: "B" },
+      { id: "CMV.2", label: "Achats" },
+    ]
+    const child = resolveDetailAnnexMeta(peers[1]!, cmv, peers)
+    expect(child.annexLetter).toBe("B")
+    expect(child.sub).toBe(true)
+    const title = resolveDetailAnnexMeta(peers[0]!, cmv, peers)
+    expect(title.isAnnexTitle).toBe(true)
+  })
 })
 
 describe("annexGroupShouldShowSubtotal", () => {
@@ -68,6 +183,18 @@ describe("annexGroupShouldShowSubtotal", () => {
 
   it("n’affiche pas de sous-total pour un titre isolé", () => {
     expect(annexGroupShouldShowSubtotal([{ isAnnexTitle: true }])).toBe(false)
+  })
+})
+
+describe("omitAnnexTitleRowsWithoutAmountPosts", () => {
+  it("retire un titre d’annexe sans poste", () => {
+    const rows = [
+      { isAnnexTitle: true, annexLetter: "B", label: "Annexe B" },
+      { annexLetter: "C", label: "Salaires" },
+    ]
+    expect(omitAnnexTitleRowsWithoutAmountPosts(rows)).toEqual([
+      { annexLetter: "C", label: "Salaires" },
+    ])
   })
 })
 

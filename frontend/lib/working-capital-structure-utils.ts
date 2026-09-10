@@ -114,8 +114,7 @@ export function workingCapitalRowRefCode(row: Record<string, unknown>): string |
     return null
   }
   const mode = normalizeLiaisonMode(row)
-  if (mode === "na") return null
-  if (FORMULA_MODES.has(mode)) {
+  if (mode === "na" || FORMULA_MODES.has(mode)) {
     const label = String(row.label ?? "").trim()
     return label || null
   }
@@ -124,7 +123,8 @@ export function workingCapitalRowRefCode(row: Record<string, unknown>): string |
 }
 
 /**
- * Codes publiés par les lignes formules de la structure WC (sélectionnables ailleurs).
+ * Codes publiés par les lignes de la structure WC / Capex / Ratios / Capitalisation
+ * (sélectionnables ailleurs dans une formule).
  */
 export function collectWorkingCapitalFormulaRefCodes(
   structure: Record<string, unknown>[],
@@ -133,8 +133,6 @@ export function collectWorkingCapitalFormulaRefCodes(
   const labels = new Map<string, string>()
   const exclude = (excludeRef ?? "").trim()
   for (const row of structure) {
-    const mode = normalizeLiaisonMode(row)
-    if (!FORMULA_MODES.has(mode)) continue
     const ref = workingCapitalRowRefCode(row)
     if (!ref || labels.has(ref)) continue
     if (exclude && ref === exclude) continue

@@ -40,7 +40,14 @@ import {
 
 export type StatementStructureEditKind = Extract<
   StatementType,
-  "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "working-capital" | "capex" | "ratios"
+  | "income-statement"
+  | "balance-sheet"
+  | "cash-flow"
+  | "cash-flow-detail"
+  | "working-capital"
+  | "capex"
+  | "ratios"
+  | "capitalisation"
 >
 
 export function useStatementStructureEdit(

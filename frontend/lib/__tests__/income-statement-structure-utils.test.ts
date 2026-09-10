@@ -14,6 +14,14 @@ import {
   isShowInDetail,
   isStructureRowInDetailAnnexEditor,
   findSummaryAnnexOwnerRow,
+  resolveStructureAnnexLetter,
+  seriesRowBelongsToDepensesAnnexDetail,
+  structureRowBelongsToDepensesAnnexDetail,
+  seriesRowBelongsToImpotsAnnexDetail,
+  structureRowBelongsToImpotsAnnexDetail,
+  isImpotsFamilyLinkCode,
+  ensureSeriesRowsForAnnexDetailScope,
+  isExcludedProjectionComputedExpenseLinkCode,
 } from "../income-statement-structure-utils"
 import type { StandardLinkCode } from "@/lib/api"
 
@@ -539,5 +547,126 @@ describe("BAIIA — calcul automatique (sans Code / Liaison)", () => {
     expect(out[0]!.defineMapping).toBe(false)
     expect(out[0]!.formula).toBeUndefined()
     expect(out[0]!.annexLetter).toBeUndefined()
+  })
+})
+
+describe("expense annex detail posts (hypothèses Dépenses)", () => {
+  const cmvAnnex: Row[] = [
+    {
+      id: "cmv",
+      label: "Coûts des produits vendus",
+      linkCode: "CMV",
+      defineMapping: true,
+      showInDetail: true,
+      posteNature: "depenses",
+      annexLetter: "B",
+    },
+    {
+      id: "CMV.1",
+      label: "Stocks au début",
+      linkCode: "CMV.1",
+      detailOnly: true,
+      hidden: true,
+      defineMapping: false,
+      showInDetail: false,
+      annexLetter: "B",
+    },
+    {
+      id: "CMV.2",
+      label: "Achats",
+      linkCode: "CMV.2",
+      detailOnly: true,
+      defineMapping: true,
+      showInDetail: true,
+      annexLetter: "",
+    },
+    {
+      id: "CMV.11",
+      label: "Amortissement",
+      linkCode: "CMV.11",
+      detailOnly: true,
+      defineMapping: true,
+      showInDetail: true,
+      annexLetter: "B",
+    },
+  ]
+
+  it("resolves an empty detailOnly letter from the contiguous annex owner", () => {
+    expect(resolveStructureAnnexLetter(cmvAnnex[2]!, cmvAnnex)).toBe("B")
+    expect(resolveStructureAnnexLetter(cmvAnnex[0]!, cmvAnnex)).toBe("B")
+  })
+
+  it("includes Achats in expense annex B even without annexLetter on the sub-line", () => {
+    expect(structureRowBelongsToDepensesAnnexDetail(cmvAnnex[2]!, cmvAnnex)).toBe(true)
+    expect(seriesRowBelongsToDepensesAnnexDetail({ id: "CMV.2", label: "Achats" }, cmvAnnex)).toBe(
+      true,
+    )
+  })
+
+  it("excludes hidden stocks and computed CMV.11 from expense hypotheses", () => {
+    expect(structureRowBelongsToDepensesAnnexDetail(cmvAnnex[1]!, cmvAnnex)).toBe(false)
+    expect(structureRowBelongsToDepensesAnnexDetail(cmvAnnex[3]!, cmvAnnex)).toBe(false)
+  })
+
+  it("synthesizes missing annex posts so the series is not an empty title", () => {
+    const series = [{ id: "cmv", label: "Coûts des produits vendus" }]
+    const merged = ensureSeriesRowsForAnnexDetailScope(
+      series,
+      cmvAnnex,
+      structureRowBelongsToDepensesAnnexDetail,
+      (row) => ({
+        id: String(row.id ?? row.linkCode ?? ""),
+        label: String(row.label ?? ""),
+      }),
+    )
+    expect(merged.some((r) => r.id === "CMV.2")).toBe(true)
+    expect(merged.some((r) => r.id === "CMV.11")).toBe(false)
+  })
+
+  it("excludes AUT family (cession d’immobilisations, change, etc.)", () => {
+    expect(isExcludedProjectionComputedExpenseLinkCode("AUT.3")).toBe(true)
+    expect(isExcludedProjectionComputedExpenseLinkCode("AUT.4")).toBe(true)
+    expect(isExcludedProjectionComputedExpenseLinkCode("AUT-Z1")).toBe(true)
+    const autRow: Row = {
+      id: "aut-3",
+      label: "Perte (gain) sur cession d'immobilisations",
+      linkCode: "AUT.3",
+      defineMapping: true,
+      showInDetail: true,
+      posteNature: "depenses",
+      annexLetter: "E",
+    }
+    expect(structureRowBelongsToDepensesAnnexDetail(autRow, [autRow])).toBe(false)
+  })
+
+  it("detects Impôts annex (IMP family + Exigibles under same letter)", () => {
+    expect(isImpotsFamilyLinkCode("IMP")).toBe(true)
+    expect(isImpotsFamilyLinkCode("IMP.1")).toBe(true)
+    expect(isImpotsFamilyLinkCode("CMV.2")).toBe(false)
+    const owner: Row = {
+      label: "Impôts",
+      linkCode: "IMP",
+      defineMapping: true,
+      showInDetail: true,
+      annexLetter: "F",
+    }
+    const leaf: Row = {
+      id: "IMP.1",
+      label: "Exigibles",
+      linkCode: "IMP.1",
+      detailOnly: true,
+      defineMapping: true,
+      showInDetail: true,
+      annexLetter: "F",
+    }
+    const structure = [owner, leaf]
+    expect(structureRowBelongsToImpotsAnnexDetail(owner, structure)).toBe(true)
+    expect(structureRowBelongsToImpotsAnnexDetail(leaf, structure)).toBe(true)
+    expect(seriesRowBelongsToImpotsAnnexDetail({ id: "IMP.1", label: "Exigibles", linkCode: "IMP.1" }, structure)).toBe(
+      true,
+    )
+    expect(seriesRowBelongsToImpotsAnnexDetail({ id: "CMV.2", label: "Achats", linkCode: "CMV.2" }, structure)).toBe(
+      false,
+    )
   })
 })

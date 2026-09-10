@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { LayoutDashboard, TrendingUp, BarChart3, Scale, Waves, ChevronDown, LineChart, DollarSign, Calendar, Calculator, FileText, Target, Building2, Home, Settings, BookOpen, LogOut, StickyNote, Users, Truck } from "lucide-react"
+import { LayoutDashboard, TrendingUp, BarChart3, Scale, Waves, ChevronDown, LineChart, DollarSign, Calendar, Calculator, FileText, Target, Building2, Home, Settings, BookOpen, LogOut, StickyNote, Users, Truck, Percent, CreditCard } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState, useEffect } from "react"
 import { useSidebar } from "@/contexts/sidebar-context"
@@ -106,8 +106,18 @@ const menuItems = [
         icon: Calculator,
       },
       {
-        label: "Dettes",
+        label: "Financement",
         href: "/projections/debt",
+        icon: CreditCard,
+      },
+      {
+        label: "Impôts",
+        href: "/projections/taxes",
+        icon: Percent,
+      },
+      {
+        label: "Bilan",
+        href: "/projections/bilan",
         icon: Scale,
       },
       {
@@ -119,7 +129,7 @@ const menuItems = [
   },
   {
     label: "Valorisation",
-    href: "#",
+    href: "/evaluation",
     icon: Building2,
     submenu: [
       {
@@ -141,16 +151,6 @@ const menuItems = [
         label: "DCF",
         href: "/evaluation/dcf",
         icon: TrendingUp,
-      },
-      {
-        label: "CCF",
-        href: "/evaluation/ccf",
-        icon: DollarSign,
-      },
-      {
-        label: "VCA",
-        href: "/evaluation/vca",
-        icon: Building2,
       },
     ],
   },

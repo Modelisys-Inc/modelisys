@@ -115,7 +115,7 @@ describe("working capital display format", () => {
 })
 
 describe("working capital formula refs", () => {
-  it("publishes formula row labels as selectable refs", () => {
+  it("publishes formula and mapped input row labels as selectable refs", () => {
     const structure = [
       {
         label: "FDR",
@@ -127,8 +127,9 @@ describe("working capital formula refs", () => {
       { label: "FDR / Revenus", defineMapping: true, liaisonMode: "na" },
     ]
     expect(workingCapitalRowRefCode(structure[0]!)).toBe("FDR")
-    expect(collectWorkingCapitalFormulaRefCodes(structure).codes).toEqual(["FDR"])
-    expect(collectWorkingCapitalFormulaRefCodes(structure, "FDR").codes).toEqual([])
+    expect(workingCapitalRowRefCode(structure[1]!)).toBe("FDR / Revenus")
+    expect(collectWorkingCapitalFormulaRefCodes(structure).codes).toEqual(["FDR", "FDR / Revenus"])
+    expect(collectWorkingCapitalFormulaRefCodes(structure, "FDR").codes).toEqual(["FDR / Revenus"])
   })
 
   it("resolves FDR / REV using the FDR formula result", () => {

@@ -12,6 +12,13 @@ export function calculateVariation(current: number, prior: number): number {
   return ((current - prior) / prior) * 100
 }
 
+/** Part d’un montant dans le chiffre d’affaires (valeur absolue), ex. « 12.4% ». */
+export function formatShareOfRevenuePct(amount: number, revenue: number | null | undefined): string {
+  if (revenue == null || !Number.isFinite(revenue) || Math.abs(revenue) < 1e-9) return "-"
+  if (!Number.isFinite(amount) || amount === 0) return "-"
+  return `${((Math.abs(amount) / Math.abs(revenue)) * 100).toFixed(1)}%`
+}
+
 /**
  * Compact monetary formatter for narrow table cells.
  * 12345.67 -> "12.3k"; -4500 -> "(4.5k)"; 12 -> "12.00"; 0 -> "—".

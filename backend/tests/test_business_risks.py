@@ -158,6 +158,21 @@ def test_update_business_risk(client, auth_headers):
     assert response.json()["name"] == "Client Concentration"
 
 
+def test_update_business_risk_by_stable_slug(client, auth_headers):
+    company_id = _create_company(client, auth_headers)
+    risk = _create_risk(client, auth_headers, company_id, risk_id="customer-concentration")
+
+    response = client.patch(
+        f"/api/companies/{company_id}/business-risks/customer-concentration",
+        json={"level": "high"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["id"] == risk["id"]
+    assert response.json()["risk_id"] == "customer-concentration"
+    assert response.json()["level"] == "high"
+
+
 def test_update_business_risk_not_found(client, auth_headers):
     company_id = _create_company(client, auth_headers)
     fake_id = str(uuid.uuid4())

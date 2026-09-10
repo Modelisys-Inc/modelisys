@@ -6,7 +6,7 @@ import { Footer } from "@/components/footer"
 export const metadata: Metadata = {
   title: "Études de cas | Modelisys",
   description:
-    "Découvrez comment l'approche Modelisys s'applique à des contextes réels — du diagnostic au pilotage, en passant par la planification de la trajectoire de valeur.",
+    "Histoires de valeur selon l'approche Modelisys : Diagnostic, Planification et Pilotage — appliqués à des contextes PME, groupes, cabinets et réseaux.",
 }
 
 export default function EtudesDeCasPage() {

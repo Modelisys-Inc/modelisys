@@ -1,46 +1,46 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { ArrowRight, Coins, DollarSign, PieChart, BarChart3 } from "lucide-react"
+import { ArrowRight, Calculator, DollarSign, BarChart3, Scale } from "lucide-react"
 import { useState } from "react"
 import Link from "next/link"
 
 const evaluations = [
   {
-    id: "ccf",
-    title: "CCF",
-    description: "Calculez le flux de trésorerie disponible pour l'entreprise (Free Cash Flow to Firm)",
-    icon: Coins,
-    color: "text-cyan-600",
-    bgColor: "bg-cyan-50 dark:bg-cyan-950/20",
-    href: "/evaluation/ccf",
+    id: "business-model",
+    title: "Modèle d'affaires",
+    description: "Analysez et validez votre modèle d'affaires avec des indicateurs clés de performance",
+    icon: BarChart3,
+    color: "text-[#E0742D]",
+    bgColor: "bg-[#E0742D]/10",
+    href: "/evaluation/business-model",
+  },
+  {
+    id: "ebitda-multiple",
+    title: "Multiple du BAIIA",
+    description: "Évaluez votre entreprise à partir des flux monétaires caractéristiques",
+    icon: Calculator,
+    color: "text-[#E0742D]",
+    bgColor: "bg-[#E0742D]/10",
+    href: "/evaluation/ebitda-multiple",
+  },
+  {
+    id: "net-tangible-assets",
+    title: "Actif Corporel Net",
+    description: "Déterminez la valeur des actifs corporels nets de l'entreprise",
+    icon: Scale,
+    color: "text-[#E0742D]",
+    bgColor: "bg-[#E0742D]/10",
+    href: "/evaluation/net-tangible-assets",
   },
   {
     id: "dcf",
     title: "DCF",
     description: "Évaluez votre entreprise avec la méthode d'actualisation des flux de trésorerie",
     icon: DollarSign,
-    color: "text-emerald-600",
-    bgColor: "bg-emerald-50 dark:bg-emerald-950/20",
+    color: "text-[#E0742D]",
+    bgColor: "bg-[#E0742D]/10",
     href: "/evaluation/dcf",
-  },
-  {
-    id: "vca",
-    title: "VCA",
-    description: "Déterminez la valeur d'entreprise ajustée et la valeur des capitaux propres",
-    icon: PieChart,
-    color: "text-violet-600",
-    bgColor: "bg-violet-50 dark:bg-violet-950/20",
-    href: "/evaluation/vca",
-  },
-  {
-    id: "business-model",
-    title: "Modèle d'affaires",
-    description: "Analysez et validez votre modèle d'affaires avec des indicateurs clés de performance",
-    icon: BarChart3,
-    color: "text-amber-600",
-    bgColor: "bg-amber-50 dark:bg-amber-950/20",
-    href: "/evaluation/business-model",
   },
 ]
 
@@ -91,4 +91,3 @@ export function EvaluationCards() {
     </div>
   )
 }
-

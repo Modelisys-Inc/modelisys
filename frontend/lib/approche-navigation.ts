@@ -1,7 +1,7 @@
 import type { MouseEvent } from "react"
 
 export const APPROCHE_SECTION_ID = "approche-modelisys" as const
-/** Cible de scroll : carte « Trajectoire de performance » dans le hero. */
+/** Cible de scroll : section « L'approche Modelisys » (carte Trajectoire de performance). */
 export const APPROCHE_SCROLL_TARGET_ID = "approche-modelisys-start" as const
 
 const DEFAULT_LANDING_NAV_OFFSET_PX = 96
@@ -28,6 +28,25 @@ export function resolveApprochePhaseId(value: string): ApprochePhaseId | null {
 
 export function getApprochePhaseHash(phaseId: ApprochePhaseId): string {
   return `phase-${phaseId}`
+}
+
+export function getApprochePhaseSectionId(phaseId: ApprochePhaseId): string {
+  return getApprochePhaseHash(phaseId)
+}
+
+export function scrollToApprochePhase(phaseId: ApprochePhaseId, options?: { behavior?: ScrollBehavior }) {
+  if (typeof window === "undefined") return
+
+  const behavior = options?.behavior ?? "smooth"
+  const el = document.getElementById(getApprochePhaseSectionId(phaseId))
+  if (!el) {
+    scrollToApprocheSection({ behavior })
+    return
+  }
+
+  const offset = getLandingNavOffset()
+  const top = el.getBoundingClientRect().top + window.scrollY - offset
+  window.scrollTo({ top: Math.max(0, top), behavior })
 }
 
 export function getApprochePhaseHref(phaseId: ApprochePhaseId): string {
@@ -81,7 +100,7 @@ export function navigateToApprochePhase(phaseId: ApprochePhaseId, options?: { be
   }
 
   dispatchApprochePhaseNavigate(phaseId)
-  scrollToApprocheSection({ behavior: options?.behavior ?? "smooth" })
+  scrollToApprochePhase(phaseId, { behavior: options?.behavior ?? "smooth" })
 }
 
 /** Sur `/`, intercepte les liens vers une phase ou la section approche. */

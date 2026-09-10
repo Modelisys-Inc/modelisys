@@ -24,7 +24,6 @@ import {
   sanitizeMappingLiabilityTermFields,
   sanitizeMappingAltAssetFields,
   showsMappingCostTypeOptions,
-  showsMappingLiabilityTermOptions,
   showsMappingAltAssetTypeOptions,
   showsMappingVariableRevenueLinkOption,
   standardLinkCodeDisplayLabel,
@@ -117,7 +116,6 @@ export function AccountMappingSettingsPanel({
   const showCostTypeOptions = showsMappingCostTypeOptions(draft.linkCode, linkCodeByCode)
   const showAltAssetTypeOptions = showsMappingAltAssetTypeOptions(draft.linkCode)
   const showVariableRevenueLink = showsMappingVariableRevenueLinkOption(draft.linkCode, linkCodeByCode)
-  const showLiabilityTermOptions = showsMappingLiabilityTermOptions(draft.linkCode)
 
   const revenueLeafCodes = useMemo(
     () => filterRevenueLeafLinkCodes(Array.from(linkCodeByCode.values())),
@@ -419,57 +417,6 @@ export function AccountMappingSettingsPanel({
                     />
                     Amortissement cumulé
                   </label>
-                </div>
-              </div>
-            ) : null}
-            {showLiabilityTermOptions ? (
-              <div className="space-y-3 border-t border-slate-100 pt-3">
-                <p className="text-xs font-medium text-slate-600">Passif à long terme</p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="mapping-liability-remaining-years">
-                      Durée restante du passif (années)
-                    </Label>
-                    <Input
-                      id="mapping-liability-remaining-years"
-                      type="number"
-                      min={0}
-                      step={0.1}
-                      inputMode="decimal"
-                      placeholder="ex. 5"
-                      disabled={!canEdit}
-                      value={draft.liabilityRemainingYears ?? ""}
-                      onChange={(e) => {
-                        const raw = e.target.value.trim()
-                        setDraft((d) => ({
-                          ...d,
-                          liabilityRemainingYears:
-                            raw === "" ? undefined : Number.parseFloat(raw),
-                        }))
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="mapping-liability-interest-rate">Taux d&apos;intérêt (%)</Label>
-                    <Input
-                      id="mapping-liability-interest-rate"
-                      type="number"
-                      min={0}
-                      step={0.01}
-                      inputMode="decimal"
-                      placeholder="ex. 5.25"
-                      disabled={!canEdit}
-                      value={draft.liabilityInterestRate ?? ""}
-                      onChange={(e) => {
-                        const raw = e.target.value.trim()
-                        setDraft((d) => ({
-                          ...d,
-                          liabilityInterestRate:
-                            raw === "" ? undefined : Number.parseFloat(raw),
-                        }))
-                      }}
-                    />
-                  </div>
                 </div>
               </div>
             ) : null}

@@ -183,15 +183,16 @@ export function createDefaultCompanyOverview(
   diagnosticId: string,
   _companyName = "",
 ): DiagnosticCompanyOverview {
+  // IDs stables : évite un mismatch d’hydratation SSR/client (randomUUID diffère).
   return {
     diagnosticId,
     generalInfo: createDefaultGeneralInfo(),
-    history: [{ id: newId(), year: "", description: "" }],
-    participatingShareholders: [{ id: newId(), name: "", percentage: "" }],
-    votingShareholders: [{ id: newId(), name: "", percentage: "" }],
-    management: [{ id: newId(), role: "", name: "" }],
+    history: [{ id: "co-default-history", year: "", description: "" }],
+    participatingShareholders: [{ id: "co-default-participating", name: "", percentage: "" }],
+    votingShareholders: [{ id: "co-default-voting", name: "", percentage: "" }],
+    management: [{ id: "co-default-management", role: "", name: "" }],
     mainActivities: "",
-    updatedAt: new Date().toISOString(),
+    updatedAt: "",
   }
 }
 

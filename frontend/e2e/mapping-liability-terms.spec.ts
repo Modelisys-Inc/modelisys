@@ -7,7 +7,7 @@ const PLT_LINK_CODES = [
     code: "PLT-B",
     family: "PLT",
     parent_code: null,
-    label: "Emprunts bancaires",
+    label: "Billet à payer",
     label_account: null,
     label_sub_account: null,
     is_leaf: false,
@@ -98,7 +98,7 @@ async function setupMappingPage(page: Page) {
   )
 }
 
-test("mapping account settings show liability term fields for PLT-B codes", async ({ page }) => {
+test("mapping account settings do not show liability term fields for PLT codes", async ({ page }) => {
   await setupMappingPage(page)
 
   await page.route(`**/api/companies/${COMPANY_ID}/account-mappings`, async (route) => {
@@ -144,11 +144,11 @@ test("mapping account settings show liability term fields for PLT-B codes", asyn
   await expect(page.getByText("2500")).toBeVisible()
 
   await page.getByRole("button", { name: "Paramètres du compte 2500" }).click()
-  await expect(page.getByLabel("Durée restante du passif (années)")).toBeVisible()
-  await expect(page.getByLabel("Taux d'intérêt (%)")).toBeVisible()
+  await expect(page.getByLabel("Durée restante du passif (années)")).toHaveCount(0)
+  await expect(page.getByLabel("Taux d'intérêt (%)")).toHaveCount(0)
 })
 
-test("saving liability term fields sends values to the API", async ({ page }) => {
+test("saving a PLT mapping no longer sends liability term fields", async ({ page }) => {
   await setupMappingPage(page)
 
   let putBody: unknown = null
@@ -175,8 +175,8 @@ test("saving liability term fields sends values to the API", async ({ page }) =>
               variable_costs: false,
               fixed_costs: false,
               variable_cost_revenue_link_code: null,
-              liability_remaining_years: null,
-              liability_interest_rate: null,
+              liability_remaining_years: 8,
+              liability_interest_rate: 6.5,
               product: null,
               customer: null,
               supplier: null,
@@ -211,13 +211,10 @@ test("saving liability term fields sends values to the API", async ({ page }) =>
 
   await page.goto(`/settings/companies/${COMPANY_ID}/mapping`)
   await page.getByRole("button", { name: "Paramètres du compte 2500" }).click()
-
-  await page.getByLabel("Durée restante du passif (années)").fill("8")
-  await page.getByLabel("Taux d'intérêt (%)").fill("6.5")
   await page.getByRole("button", { name: "Enregistrer" }).click()
 
   await expect.poll(() => putBody).not.toBeNull()
   const entry = (putBody as Array<Record<string, unknown>>)[0]
-  expect(entry.liability_remaining_years).toBe(8)
-  expect(entry.liability_interest_rate).toBe(6.5)
+  expect(entry.liability_remaining_years).toBeNull()
+  expect(entry.liability_interest_rate).toBeNull()
 })

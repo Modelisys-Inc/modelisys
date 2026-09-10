@@ -1,9 +1,86 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useRef, useState } from "react"
-import { ArrowRight } from "lucide-react"
+import { useEffect, useId, useRef, useState } from "react"
+import { ArrowRight, MapPin } from "lucide-react"
 import { AboutHeroMarquee } from "@/components/about-hero-marquee"
+import { cn } from "@/lib/utils"
+
+function AboutQuebecSignal({ className = "" }: { className?: string }) {
+  const uid = useId().replace(/:/g, "")
+
+  return (
+    <div
+      className={cn(
+        "relative mx-auto flex w-full max-w-md flex-col items-center justify-center lg:mx-0 lg:max-w-none lg:min-h-[22rem]",
+        className,
+      )}
+    >
+      <div
+        className="pointer-events-none absolute left-1/2 top-1/2 h-[18rem] w-[18rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#E6D6C3]/[0.06] blur-3xl sm:h-[22rem] sm:w-[22rem]"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute right-[10%] top-[20%] h-40 w-40 rounded-full bg-[#E0742D]/[0.07] blur-3xl"
+        aria-hidden
+      />
+
+      <svg
+        viewBox="0 0 420 420"
+        className="pointer-events-none absolute left-1/2 top-1/2 h-[min(100%,24rem)] w-[min(100%,24rem)] -translate-x-1/2 -translate-y-1/2 opacity-40"
+        aria-hidden
+      >
+        <defs>
+          <linearGradient id={`${uid}-orbit`} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="rgba(230,214,195,0.35)" />
+            <stop offset="100%" stopColor="rgba(224,116,45,0.2)" />
+          </linearGradient>
+        </defs>
+        <circle
+          cx="210"
+          cy="210"
+          r="150"
+          fill="none"
+          stroke={`url(#${uid}-orbit)`}
+          strokeWidth="0.75"
+          strokeDasharray="3 10"
+        />
+        <circle
+          cx="210"
+          cy="210"
+          r="110"
+          fill="none"
+          stroke="rgba(230,214,195,0.18)"
+          strokeWidth="0.6"
+        />
+        <circle
+          cx="210"
+          cy="210"
+          r="72"
+          fill="none"
+          stroke="rgba(224,116,45,0.22)"
+          strokeWidth="0.6"
+        />
+      </svg>
+
+      <div className="relative z-10 text-center">
+        <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/55">
+          Siège
+        </p>
+        <p className="mt-5 font-mono text-[4.5rem] font-semibold leading-none tracking-tight text-[#E6D6C3] sm:text-[5.5rem]">
+          QC
+        </p>
+        <div className="mt-6 flex items-center justify-center gap-2 text-[#C9B8A5]/80">
+          <MapPin className="h-4 w-4 text-[#E0742D]" strokeWidth={1.75} aria-hidden />
+          <span className="text-sm font-medium tracking-wide">Québec, Canada</span>
+        </div>
+        <p className="mx-auto mt-5 max-w-[16rem] text-[13px] leading-relaxed text-[#C9B8A5]/65">
+          Conçue ici. Développée ici. Opérée ici.
+        </p>
+      </div>
+    </div>
+  )
+}
 
 export function AboutQuebecHeroSection() {
   const [visible, setVisible] = useState(false)
@@ -26,91 +103,89 @@ export function AboutQuebecHeroSection() {
     <section
       ref={sectionRef}
       id="quebec"
-      className="relative left-1/2 w-screen max-w-[100vw] -translate-x-1/2 scroll-mt-28 overflow-hidden"
+      className="relative overflow-hidden scroll-mt-24"
     >
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-3">
-          <div className="bg-[#2A2F3A]" />
-          <div className="bg-[#262B36] lg:border-x lg:border-white/5" />
-          <div className="bg-[#1F2430]" />
-        </div>
-        <div className="absolute inset-0">
-          <div className="absolute -top-24 -left-28 h-[520px] w-[520px] rounded-full bg-white/5 blur-3xl" />
-          <div className="absolute -bottom-28 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
-        </div>
+      {/* Même scène continue que le hero landing */}
+      <div className="pointer-events-none absolute inset-0 bg-[#222732]">
+        <div
+          className="absolute inset-0 opacity-[0.4]"
+          aria-hidden
+          style={{
+            backgroundImage: `linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+              linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px)`,
+            backgroundSize: "56px 56px",
+            maskImage:
+              "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+            WebkitMaskImage:
+              "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+          }}
+        />
+        <div className="absolute -top-32 left-[-10%] h-[34rem] w-[34rem] rounded-full bg-[#E6D6C3]/[0.04] blur-3xl" />
+        <div className="absolute top-1/3 right-[-5%] h-[28rem] w-[28rem] rounded-full bg-[#E0742D]/[0.05] blur-3xl" />
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#1a1f2a] to-transparent" />
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-14 xl:px-20 2xl:px-24">
-        <div
-          className={`py-16 sm:py-24 lg:py-28 xl:py-32 min-h-0 lg:min-h-[min(72vh,820px)] flex flex-col justify-center transition-all duration-1000 ${
-            visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
-          }`}
-        >
-          <p className="text-[11px] sm:text-xs font-semibold uppercase tracking-[0.22em] text-slate-300/95">
-            À propos
-          </p>
-          <p className="mt-6 text-[11px] sm:text-xs font-semibold uppercase tracking-[0.22em] text-[#E6B08C]/85">
-            Une entreprise 100 % québécoise
-          </p>
-          <h1 className="mt-5 max-w-3xl text-3xl font-semibold tracking-tight text-[#E6D6C3] sm:text-4xl md:text-[2.5rem] md:leading-tight lg:text-5xl">
-            Fondée, développée et opérée{" "}
-            <span className="text-[#C9B8A5]/95">au Québec</span>
-          </h1>
-          <p className="mt-6 max-w-2xl text-base leading-[1.65] text-[#C9B8A5]/85 sm:text-lg">
-            Nous croyons que les PME québécoises méritent des outils financiers conçus par des gens qui comprennent leur
-            réalité : leur langue, leurs normes comptables, leur structure fiscale, leur rapport aux banques et aux
-            cabinets comptables locaux. Choisir Modelisys, c&apos;est aussi choisir d&apos;investir dans l&apos;écosystème
-            technologique québécois — et de travailler avec une équipe joignable, imputable et ancrée ici.
-          </p>
+      <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
+        <div className="grid min-h-[min(78vh,44rem)] grid-cols-1 items-center gap-14 py-20 sm:gap-16 sm:py-24 lg:grid-cols-2 lg:gap-12 lg:py-28 xl:gap-20 xl:py-32">
+          <div
+            className={`max-w-xl lg:max-w-[34rem] xl:max-w-[38rem] transition-all duration-1000 ${
+              visible ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
+            }`}
+          >
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/70">
+              À propos
+            </p>
 
-          <div className="mt-9 sm:mt-10 flex flex-wrap items-center gap-x-6 gap-y-3">
-            <Link
-              href="/contact"
-              className="group inline-flex items-center gap-2.5 rounded-lg px-1 py-1.5 -mx-1 text-xs font-semibold tracking-wide text-slate-100 transition hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
-            >
-              ÉCHANGER AVEC NOUS
-              <ArrowRight className="h-4 w-4 shrink-0 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
-            </Link>
+            <h1 className="mt-7 text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-8 sm:text-[2.45rem] sm:leading-[1.12] xl:text-[2.85rem]">
+              Fondée, développée et opérée au Québec
+            </h1>
 
-            <span className="hidden sm:block h-px w-10 shrink-0 bg-white/[0.12]" aria-hidden />
+            <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
+              Les PME québécoises méritent des outils conçus par des gens qui comprennent
+              leur réalité : la langue, les normes comptables, la fiscalité, le rapport aux
+              banques et aux cabinets. Choisir Modelisys, c&apos;est investir dans
+              l&apos;écosystème d&apos;ici — avec une équipe joignable et imputable.
+            </p>
 
-            <a
-              href="#histoire"
-              className="inline-flex items-center gap-2 rounded-lg px-1 py-1.5 -mx-1 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
-            >
-              NOTRE HISTOIRE
-              <span className="inline-block h-px w-10 bg-[#E0742D]/90" />
-            </a>
+            <div className="mt-10 flex flex-wrap items-center gap-4 sm:mt-12">
+              <Link
+                href="/contact"
+                className="group inline-flex items-center gap-2.5 rounded-md bg-[#E6D6C3] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#1F2430] transition hover:bg-[#f0e6d8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E6D6C3]/60"
+              >
+                ÉCHANGER AVEC NOUS
+                <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
+              </Link>
 
-            <a
-              href="#equipe"
-              className="inline-flex items-center gap-2 rounded-lg px-1 py-1.5 -mx-1 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
-            >
-              L&apos;ÉQUIPE FONDATRICE
-              <span className="inline-block h-px w-10 bg-[#E0742D]/90" />
-            </a>
+              <a
+                href="#histoire"
+                className="inline-flex items-center gap-2 px-1 py-3 text-xs font-semibold tracking-[0.08em] text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
+              >
+                NOTRE HISTOIRE
+                <span className="inline-block h-px w-8 bg-[#E0742D]/90" />
+              </a>
+
+              <a
+                href="#equipe"
+                className="inline-flex items-center gap-2 px-1 py-3 text-xs font-semibold tracking-[0.08em] text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
+              >
+                L&apos;ÉQUIPE
+                <span className="inline-block h-px w-8 bg-[#E0742D]/90" />
+              </a>
+            </div>
+          </div>
+
+          <div
+            className={`min-w-0 transition-all duration-1000 delay-150 ${
+              visible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"
+            }`}
+          >
+            <AboutQuebecSignal />
           </div>
         </div>
       </div>
 
       <div className="relative z-20">
         <AboutHeroMarquee />
-      </div>
-
-      <div aria-hidden className="relative z-10 h-16 overflow-hidden bg-[#1F2430] sm:h-20">
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -bottom-8 left-1/3 h-56 w-56 rounded-full bg-[#E6D6C3]/10 blur-3xl" />
-        </div>
-        <svg
-          viewBox="0 0 1440 120"
-          preserveAspectRatio="none"
-          className="absolute inset-x-0 bottom-0 h-full w-full text-slate-100"
-        >
-          <path
-            d="M0,30 C180,95 360,95 540,60 C720,25 900,25 1080,60 C1230,90 1335,95 1440,75 L1440,120 L0,120 Z"
-            fill="currentColor"
-          />
-        </svg>
       </div>
     </section>
   )

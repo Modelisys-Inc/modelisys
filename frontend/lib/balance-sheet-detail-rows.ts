@@ -32,6 +32,8 @@ export interface BalanceSheetDetailRow {
   trendValues?: number[]
   balanceAccounts?: BalanceSheetDetailBalanceAccount[]
   rowId?: string
+  /** Code de liaison structure (ex. ALT-B.1) — distinct de rowId quand l’API utilise un UUID. */
+  linkCode?: string
   statementLabel?: string
   annexLetter?: string
   hasLiaisonCode?: boolean
@@ -280,6 +282,7 @@ export function mapStructureRowsToBalanceSheetDetailRows(
       trendValues: opts.trendFn ? trend : undefined,
       balanceAccounts,
       rowId: row?.id ?? String(sr.linkCode ?? sr.id ?? ""),
+      linkCode: String(sr.linkCode ?? "").trim() || undefined,
       hasLiaisonCode: row?.hasLiaisonCode ?? opts.structureRowHasLiaisonCode(sr),
     })
   })

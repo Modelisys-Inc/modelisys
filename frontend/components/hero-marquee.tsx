@@ -7,14 +7,14 @@ const items = HERO_INSIGHT_MARQUEE_ITEMS
 
 export function HeroMarquee() {
   return (
-    <section className="relative isolate z-0 overflow-hidden bg-[#141823]">
+    <section className="relative isolate z-0 overflow-hidden bg-[#222732]">
       <div className="absolute inset-x-0 top-0 h-px bg-white/10" />
       <div className="absolute inset-x-0 bottom-0 h-px bg-white/10" />
 
       <div className="relative">
         <div className="marquee-mask">
           <div className="marquee-track">
-            <div className="marquee-row" aria-label="Insights de l'approche Modelisys — diagnostic à pilotage">
+            <div className="marquee-row" aria-label="Insights — leviers de création de valeur">
               {items.map((text) => (
                 <div key={text} className="marquee-item">
                   <span className="marquee-dot" />
@@ -36,7 +36,7 @@ export function HeroMarquee() {
 
         {/* Au-dessus du défilement : même fond que la bande pour ne pas voir le texte sous « Insights » */}
         <div
-          className="pointer-events-none absolute inset-y-0 left-0 z-20 hidden bg-[#141823] md:block md:w-[min(12rem,42vw)]"
+          className="pointer-events-none absolute inset-y-0 left-0 z-20 hidden bg-[#222732] md:block md:w-[min(12rem,42vw)]"
           aria-hidden
         />
 

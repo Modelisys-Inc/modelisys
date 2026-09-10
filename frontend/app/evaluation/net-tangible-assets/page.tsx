@@ -1,702 +1,1003 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
-import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector } from "@/components/entity-selector"
-import { Filter, Settings } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { formatCurrency } from "@/lib/financial-utils"
-import { cn } from "@/lib/utils"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { useCompanies } from "@/hooks/use-companies"
+import { useSearchParams } from "next/navigation"
+import { ArrowLeft } from "lucide-react"
+import { DashboardHeader } from "@/components/dashboard-header"
 import {
-  listCompanies,
-  listForecastConfigs,
-  upsertForecastConfig,
+  type NetTangibleValuationColumnValues,
+  type NetTangibleValuationNotes,
+} from "@/components/balance-sheet-summary"
+import {
+  NetTangibleReport,
+  buildNetTangibleSourceRows,
+  type FdrAdjustmentMode,
+} from "@/components/net-tangible/net-tangible-report"
+import { useCompanies } from "@/hooks/use-companies"
+import { useFinancialStatementSeries } from "@/hooks/use-financial-statement-series"
+import { formatCalendarMonthYearShort } from "@/lib/financial-period-labels"
+import {
   getBalanceSheet,
-  type Company as ApiCompany,
+  getStatementStructure,
+  listForecastConfigs,
+  listStandardLinkCodesFlat,
+  upsertForecastConfig,
+  type FinancialStatementRow,
+  type NoteAttachmentData,
+  type StandardLinkCode,
 } from "@/lib/api"
-
-const evaluationNav = [
-  { label: "Modèle d'affaires", href: "/evaluation/business-model" },
-  { label: "Multiple du BAIIA", href: "/evaluation/ebitda-multiple" },
-  { label: "Actif Corporel Net", href: "/evaluation/net-tangible-assets" },
-  { label: "DCF", href: "/evaluation/dcf" },
-  { label: "CCF", href: "/evaluation/ccf" },
-  { label: "VCA", href: "/evaluation/vca" },
-]
-
-interface BalanceRow {
-  label: string
-  year2026: number
-  adjustments: number
-  debts: number
-  assets: number
-  indent?: boolean
-  isBold?: boolean
-  isSection?: boolean
-  isSubtotal?: boolean
-  rowId?: string
-}
+import { findSummaryStructureRow, collectAnnexChildExpandRows } from "@/lib/balance-sheet-summary-expand"
+import { buildNetTangibleOverviewMetrics, applyNetTangibleFdrOverviewAdjustment } from "@/lib/net-tangible-overview"
+import {
+  computeRevenueTtmFromIncomeStatementSeries,
+  NET_TANGIBLE_REVENUE_TTM_MONTHS,
+} from "@/lib/net-tangible-fdr-revenue"
+import {
+  isNetTangibleJvmCapexRootLinkCode,
+  isNetTangibleJvmCapexRootRow,
+  netTangibleJvmAttachmentStorageKey,
+  netTangibleJvmCapexRootLinkCodeFromLabel,
+  netTangibleJvmNoteStorageKey,
+  netTangibleJvmStorageKey,
+  parseNetTangibleJvmNoteStorageKey,
+  parseNetTangibleJvmStorageKey,
+} from "@/lib/net-tangible-jvm-capex"
+import {
+  netTangibleExcedentAttachmentStorageKey,
+  netTangibleExcedentNoteStorageKey,
+  netTangibleExcedentStorageKey,
+  parseNetTangibleExcedentNoteStorageKey,
+  parseNetTangibleExcedentStorageKey,
+} from "@/lib/net-tangible-surplus-assets"
+import { valuationPlanBackHref } from "@/lib/valuation-registry"
 
 export default function NetTangibleAssetsPage() {
+  const searchParams = useSearchParams()
   const { companies } = useCompanies()
-  const [companyId, setCompanyId] = useState<string | null>(null)
-  const [divisionId, setDivisionId] = useState<string | null>(null)
-  const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
-  const [notesConfigId, setNotesConfigId] = useState<string | null>(null)
-  const pathname = usePathname()
+  const [heroVisible, setHeroVisible] = useState(false)
+  const heroRef = useRef<HTMLElement>(null)
+  const planBackHref = valuationPlanBackHref(searchParams)
 
-  // Auto-select first company
   useEffect(() => {
-    if (!companyId && companies.length > 0) {
-      setCompanyId(companies[0].id)
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) setHeroVisible(true)
+      },
+      { threshold: 0.1, rootMargin: "0px 0px -80px 0px" },
+    )
+    if (heroRef.current) observer.observe(heroRef.current)
+    return () => {
+      if (heroRef.current) observer.unobserve(heroRef.current)
     }
-  }, [companies, companyId])
-
-  // Fetch API companies for fiscal_year_end
-  const [apiCompanies, setApiCompanies] = useState<ApiCompany[]>([])
-  useEffect(() => {
-    listCompanies().then(setApiCompanies).catch(() => {})
   }, [])
 
-  const currentYear = useMemo(() => {
-    const now = new Date()
-    const curMonth = now.getMonth() + 1
-    const curYear = now.getFullYear()
-    if (!companyId) return curYear
-    const company = apiCompanies.find(c => c.id === companyId)
-    const fyEnd = company?.fiscal_year_end || "12-31"
-    const fyEndMonth = parseInt(fyEnd.split("-")[0], 10) || 12
-    const currentFY = curMonth <= fyEndMonth ? curYear : curYear + 1
-    return currentFY - 1
-  }, [companyId, apiCompanies])
+  const companyIdFromUrl = searchParams.get("companyId")
+  const lockedCompanyId =
+    companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
+  const companyId = lockedCompanyId || companies[0]?.id || null
+  const companyName = companies.find((c) => c.id === companyId)?.name ?? "—"
 
-  // Modal state
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editingRowId, setEditingRowId] = useState<string | null>(null)
-  const [editingColumn, setEditingColumn] = useState<"adjustments" | "debts" | "assets" | null>(null)
-  const [modalValue, setModalValue] = useState<number>(0)
-  const [modalNote, setModalNote] = useState<string>("")
+  const refMonth = useMemo(() => {
+    const fromUrl = Number(searchParams.get("refMonth"))
+    if (Number.isFinite(fromUrl) && fromUrl >= 1 && fromUrl <= 12) return fromUrl
+    return new Date().getMonth() + 1
+  }, [searchParams])
 
-  // Notes storage: key = rowId-column -> note
+  const refYear = useMemo(() => {
+    const fromUrl = Number(searchParams.get("refYear"))
+    if (Number.isFinite(fromUrl)) return fromUrl
+    return new Date().getFullYear()
+  }, [searchParams])
+
+  const referenceColumnLabel = useMemo(
+    () => formatCalendarMonthYearShort(refMonth, refYear),
+    [refMonth, refYear],
+  )
+
+  const referenceLabel = useMemo(() => {
+    const monthNames = [
+      "janvier",
+      "février",
+      "mars",
+      "avril",
+      "mai",
+      "juin",
+      "juillet",
+      "août",
+      "septembre",
+      "octobre",
+      "novembre",
+      "décembre",
+    ]
+    return `${monthNames[refMonth - 1]} ${refYear}`
+  }, [refMonth, refYear])
+
+  const [rows, setRows] = useState<FinancialStatementRow[]>([])
+  const [structure, setStructure] = useState<Record<string, unknown>[]>([])
+  const [standardCodes, setStandardCodes] = useState<StandardLinkCode[]>([])
+  const [loading, setLoading] = useState(false)
   const [notes, setNotes] = useState<Record<string, string>>({})
-  // Values storage: key = rowId-column -> number
   const [savedValues, setSavedValues] = useState<Record<string, number>>({})
-  const [valuesConfigId, setValuesConfigId] = useState<string | null>(null)
+  const [jvmAttachments, setJvmAttachments] = useState<
+    Record<string, NoteAttachmentData[]>
+  >({})
 
-  // Balance sheet data - populated from API
-  const [balanceData, setBalanceData] = useState<BalanceRow[]>([])
-  const [balanceLoading, setBalanceLoading] = useState(false)
+  // --- FDR représentatif adjustment ---
+  const [fdrAdjMode, setFdrAdjMode] = useState<FdrAdjustmentMode>("dollar")
+  const [fdrAdjValue, setFdrAdjValue] = useState<number>(0)
+  const [fdrAdjNote, setFdrAdjNote] = useState("")
 
-  // Fetch balance sheet data from API when company changes
+  const { rows: incomeSeriesRows, periods: incomeSeriesPeriods } = useFinancialStatementSeries({
+    companyId,
+    statementType: "income-statement",
+    fiscalYear: refYear,
+    month: refMonth,
+    months: NET_TANGIBLE_REVENUE_TTM_MONTHS,
+    enabled: Boolean(companyId),
+  })
+  const revenueTotal = computeRevenueTtmFromIncomeStatementSeries(
+    incomeSeriesRows,
+    incomeSeriesPeriods,
+    refMonth,
+    refYear,
+  )
+
   useEffect(() => {
     if (!companyId) {
-      setBalanceData([])
+      setRows([])
+      setStructure([])
+      setStandardCodes([])
       return
     }
 
     let cancelled = false
-    setBalanceLoading(true)
+    setLoading(true)
 
-    getBalanceSheet(companyId, {
-      fiscal_year: currentYear,
-      period: "annual",
-      ...(divisionId ? { division_id: divisionId } : {}),
-      ...(subDivisionId ? { sub_division_id: subDivisionId } : {}),
-    })
-      .then(response => {
+    Promise.all([
+      getBalanceSheet(companyId, {
+        fiscal_year: refYear,
+        month: refMonth,
+        period: "monthly",
+      }),
+      getStatementStructure(companyId, "balance-sheet"),
+      listStandardLinkCodesFlat(false).catch(() => [] as StandardLinkCode[]),
+    ])
+      .then(([response, structureResponse, codes]) => {
         if (cancelled) return
-
-        if (!response.rows || response.rows.length === 0) {
-          setBalanceData([])
-          return
-        }
-
-        // Convert FinancialStatementRow[] to BalanceRow[]
-        const rows: BalanceRow[] = response.rows.map(row => {
-          // Generate a stable rowId for editable rows (non-section, non-spacer rows with a label)
-          const isSection = row.isSection
-          const isSubtotal = row.isResult
-          const isBold = row.isBold
-          const isSpacer = !row.label || row.label.trim() === ""
-          const indent = !isBold && !isSection && !isSubtotal && !isSpacer
-
-          // Create a rowId for rows that should be editable
-          let rowId: string | undefined
-          if (!isSection && !isSubtotal && !isSpacer && row.label) {
-            rowId = row.id
-          }
-
-          return {
-            label: row.label,
-            year2026: row.current,
-            adjustments: 0,
-            debts: 0,
-            assets: 0,
-            isBold,
-            isSection,
-            isSubtotal,
-            indent,
-            rowId,
-          }
-        })
-
-        // Merge saved numeric values into rows
-        setSavedValues(prev => {
-          const merged = rows.map(row =>
-            row.rowId
-              ? {
-                  ...row,
-                  adjustments: prev[`${row.rowId}-adjustments`] ?? 0,
-                  debts: prev[`${row.rowId}-debts`] ?? 0,
-                  assets: prev[`${row.rowId}-assets`] ?? 0,
-                }
-              : row
-          )
-          setBalanceData(merged)
-          return prev
-        })
+        setRows(response.rows ?? [])
+        setStructure((structureResponse.structure as Record<string, unknown>[]) ?? [])
+        setStandardCodes(codes ?? [])
       })
-      .catch(err => {
+      .catch((err) => {
         if (!cancelled) {
           console.error("Error loading balance sheet:", err)
-          setBalanceData([])
+          setRows([])
+          setStructure([])
+          setStandardCodes([])
         }
       })
       .finally(() => {
-        if (!cancelled) setBalanceLoading(false)
+        if (!cancelled) setLoading(false)
       })
 
-    return () => { cancelled = true }
-  }, [companyId, divisionId, subDivisionId, currentYear])
+    return () => {
+      cancelled = true
+    }
+  }, [companyId, refMonth, refYear])
 
-  // Calculate VCA and ACN for each row
-  const calculateVCA = (row: BalanceRow): number => {
-    return row.year2026 + row.adjustments
-  }
-
-  const calculateACN = (row: BalanceRow): number => {
-    const vca = calculateVCA(row)
-    return vca - row.debts - row.assets
-  }
-
-  // Calculate totals for Debts and Assets columns
-  const totalDebts = balanceData
-    .filter(row => row.rowId && !row.isSection && !row.isSubtotal && row.label !== "")
-    .reduce((sum, row) => sum + row.debts, 0)
-
-  const totalAssets = balanceData
-    .filter(row => row.rowId && !row.isSection && !row.isSubtotal && row.label !== "")
-    .reduce((sum, row) => sum + row.assets, 0)
-
-  // Load notes and values from API
   useEffect(() => {
     if (!companyId) {
       setNotes({})
-      setNotesConfigId(null)
       setSavedValues({})
-      setValuesConfigId(null)
+      setJvmAttachments({})
       return
     }
 
-    listForecastConfigs(companyId, {
-      config_type: "net-tangible-assets-notes",
-      ...(divisionId ? { division_id: divisionId } : {}),
-      ...(subDivisionId ? { sub_division_id: subDivisionId } : {}),
-    })
+    listForecastConfigs(companyId, { config_type: "net-tangible-assets-notes" })
       .then((configs) => {
         if (configs.length > 0) {
           setNotes((configs[0].data as Record<string, string>) || {})
-          setNotesConfigId(configs[0].id)
         } else {
           setNotes({})
-          setNotesConfigId(null)
         }
       })
       .catch(() => {
         setNotes({})
-        setNotesConfigId(null)
       })
 
-    listForecastConfigs(companyId, {
-      config_type: "net-tangible-assets-values",
-      ...(divisionId ? { division_id: divisionId } : {}),
-      ...(subDivisionId ? { sub_division_id: subDivisionId } : {}),
-    })
+    listForecastConfigs(companyId, { config_type: "net-tangible-assets-values" })
       .then((configs) => {
         const vals = configs.length > 0 ? (configs[0].data as Record<string, number>) || {} : {}
-        setValuesConfigId(configs.length > 0 ? configs[0].id : null)
         setSavedValues(vals)
-        // Apply to any already-loaded balance data
-        setBalanceData(prev => prev.map(row =>
-          row.rowId
-            ? {
-                ...row,
-                adjustments: vals[`${row.rowId}-adjustments`] ?? row.adjustments,
-                debts: vals[`${row.rowId}-debts`] ?? row.debts,
-                assets: vals[`${row.rowId}-assets`] ?? row.assets,
-              }
-            : row
-        ))
       })
       .catch(() => {
         setSavedValues({})
-        setValuesConfigId(null)
       })
-  }, [companyId, divisionId, subDivisionId])
 
-  // Save notes to API
-  const saveNotesToApi = useCallback(async (updatedNotes: Record<string, string>) => {
+    listForecastConfigs(companyId, { config_type: "net-tangible-jvm-attachments" })
+      .then((configs) => {
+        const data =
+          configs.length > 0
+            ? (configs[0].data as Record<string, NoteAttachmentData[]>) || {}
+            : {}
+        setJvmAttachments(data)
+      })
+      .catch(() => {
+        setJvmAttachments({})
+      })
+
+    listForecastConfigs(companyId, { config_type: "net-tangible-fdr-adjustment" })
+      .then((configs) => {
+        if (configs.length > 0) {
+          const d = configs[0].data as Record<string, unknown>
+          setFdrAdjMode((d.mode as FdrAdjustmentMode) ?? "dollar")
+          setFdrAdjValue((d.value as number) ?? 0)
+          setFdrAdjNote((d.note as string) ?? "")
+        } else {
+          setFdrAdjMode("dollar")
+          setFdrAdjValue(0)
+          setFdrAdjNote("")
+        }
+      })
+      .catch(() => {
+        setFdrAdjMode("dollar")
+        setFdrAdjValue(0)
+        setFdrAdjNote("")
+      })
+  }, [companyId])
+
+  const saveNotesToApi = useCallback(
+    async (updatedNotes: Record<string, string>) => {
+      if (!companyId) return
+      try {
+        await upsertForecastConfig(companyId, {
+          config_type: "net-tangible-assets-notes",
+          data: updatedNotes as Record<string, unknown>,
+          division_id: null,
+          sub_division_id: null,
+        })
+      } catch (err) {
+        console.error("Error saving notes:", err)
+      }
+    },
+    [companyId],
+  )
+
+  const saveValuesToApi = useCallback(
+    async (updatedValues: Record<string, number>) => {
+      if (!companyId) return
+      try {
+        await upsertForecastConfig(companyId, {
+          config_type: "net-tangible-assets-values",
+          data: updatedValues as Record<string, unknown>,
+          division_id: null,
+          sub_division_id: null,
+        })
+      } catch (err) {
+        console.error("Error saving values:", err)
+      }
+    },
+    [companyId],
+  )
+
+  const saveJvmAttachmentsToApi = useCallback(
+    async (updated: Record<string, NoteAttachmentData[]>) => {
+      if (!companyId) return
+      try {
+        await upsertForecastConfig(companyId, {
+          config_type: "net-tangible-jvm-attachments",
+          data: updated as Record<string, unknown>,
+          division_id: null,
+          sub_division_id: null,
+        })
+      } catch (err) {
+        console.error("Error saving JVM attachments:", err)
+      }
+    },
+    [companyId],
+  )
+
+  const valuesByRowId = useMemo(() => {
+    const map: Record<string, NetTangibleValuationColumnValues> = {}
+    for (const row of rows) {
+      if (!row.id || row.isSection || !row.label?.trim()) continue
+      const structRow = findSummaryStructureRow(row.id, row.label, structure)
+      const linkCode = structRow ? String(structRow.linkCode ?? "").trim() : ""
+      const isJvmRoot = isNetTangibleJvmCapexRootRow({
+        linkCode,
+        rowId: row.id,
+        label: row.label,
+      })
+      // Les totaux / résultats ne sont pas éditables, sauf ALT-B/C/D (JVM Capex).
+      if (row.isResult && !isJvmRoot) continue
+      map[row.id] = {
+        adjustments: savedValues[`${row.id}-adjustments`] ?? 0,
+        debts: savedValues[`${row.id}-debts`] ?? 0,
+        assets: savedValues[`${row.id}-assets`] ?? 0,
+      }
+    }
+    return map
+  }, [rows, savedValues, structure])
+
+  const jvmByCodeByRowId = useMemo(() => {
+    const map: Record<string, Record<string, number>> = {}
+    for (const [key, value] of Object.entries(savedValues)) {
+      const parsed = parseNetTangibleJvmStorageKey(key)
+      if (!parsed) continue
+      const num = typeof value === "number" ? value : Number(value)
+      if (!Number.isFinite(num)) continue
+      map[parsed.parentRowId] ??= {}
+      map[parsed.parentRowId]![parsed.code] = num
+    }
+    return map
+  }, [savedValues])
+
+  /** JVM indexées aussi sous id structure / ALT-B… → rattachées à l’id API du parent. */
+  const jvmByCodeByApiRowId = useMemo(() => {
+    const map: Record<string, Record<string, number>> = {}
+    for (const row of rows) {
+      if (!row.id || row.isSection) continue
+      const structRow = findSummaryStructureRow(row.id, row.label, structure)
+      const linkCode = structRow ? String(structRow.linkCode ?? "").trim() : ""
+      if (
+        !isNetTangibleJvmCapexRootRow({
+          linkCode,
+          rowId: row.id,
+          label: row.label,
+        })
+      ) {
+        continue
+      }
+      const inferred = netTangibleJvmCapexRootLinkCodeFromLabel(row.label)
+      const aliases = [
+        row.id,
+        linkCode,
+        inferred ?? "",
+        structRow ? String(structRow.id ?? "").trim() : "",
+      ].filter(Boolean)
+      const merged: Record<string, number> = {}
+      for (const alias of aliases) {
+        const slice = jvmByCodeByRowId[alias]
+        if (!slice) continue
+        Object.assign(merged, slice)
+      }
+      if (Object.keys(merged).length > 0) map[row.id] = merged
+    }
+    // Conserver aussi les clés brutes (feuilles non Capex n’utilisent pas ce remap).
+    for (const [parentId, byCode] of Object.entries(jvmByCodeByRowId)) {
+      map[parentId] ??= byCode
+    }
+    return map
+  }, [jvmByCodeByRowId, rows, structure])
+
+  const jvmNotesByCodeByRowId = useMemo(() => {
+    const map: Record<string, Record<string, string>> = {}
+    for (const [key, value] of Object.entries(notes)) {
+      const parsed = parseNetTangibleJvmNoteStorageKey(key)
+      if (!parsed) continue
+      map[parsed.parentRowId] ??= {}
+      map[parsed.parentRowId]![parsed.code] = value
+    }
+    return map
+  }, [notes])
+
+  const jvmAttachmentsByCodeByRowId = useMemo(() => {
+    const map: Record<string, Record<string, NoteAttachmentData[]>> = {}
+    for (const [key, attachments] of Object.entries(jvmAttachments)) {
+      const excedentSep = key.indexOf("::excedent::")
+      if (excedentSep > 0) continue
+      const sep = key.indexOf("::")
+      if (sep <= 0) continue
+      const parentRowId = key.slice(0, sep)
+      const code = key.slice(sep + 2)
+      if (!parentRowId || !code) continue
+      map[parentRowId] ??= {}
+      map[parentRowId]![code] = attachments
+    }
+    return map
+  }, [jvmAttachments])
+
+  const excedentByCodeByRowId = useMemo(() => {
+    const map: Record<string, Record<string, number>> = {}
+    for (const [key, value] of Object.entries(savedValues)) {
+      const parsed = parseNetTangibleExcedentStorageKey(key)
+      if (!parsed) continue
+      const num = typeof value === "number" ? value : Number(value)
+      if (!Number.isFinite(num)) continue
+      map[parsed.parentRowId] ??= {}
+      map[parsed.parentRowId]![parsed.code] = num
+    }
+    return map
+  }, [savedValues])
+
+  const excedentByCodeByApiRowId = useMemo(() => {
+    const map: Record<string, Record<string, number>> = {}
+    for (const row of rows) {
+      if (!row.id || row.isSection) continue
+      const structRow = findSummaryStructureRow(row.id, row.label, structure)
+      const linkCode = structRow ? String(structRow.linkCode ?? "").trim() : ""
+      if (
+        !isNetTangibleJvmCapexRootRow({
+          linkCode,
+          rowId: row.id,
+          label: row.label,
+        })
+      ) {
+        continue
+      }
+      const inferred = netTangibleJvmCapexRootLinkCodeFromLabel(row.label)
+      const aliases = [
+        row.id,
+        linkCode,
+        inferred ?? "",
+        structRow ? String(structRow.id ?? "").trim() : "",
+      ].filter(Boolean)
+      const merged: Record<string, number> = {}
+      for (const alias of aliases) {
+        const slice = excedentByCodeByRowId[alias]
+        if (!slice) continue
+        Object.assign(merged, slice)
+      }
+      if (Object.keys(merged).length > 0) map[row.id] = merged
+    }
+    for (const [parentId, byCode] of Object.entries(excedentByCodeByRowId)) {
+      map[parentId] ??= byCode
+    }
+    return map
+  }, [excedentByCodeByRowId, rows, structure])
+
+  const excedentNotesByCodeByRowId = useMemo(() => {
+    const map: Record<string, Record<string, string>> = {}
+    for (const [key, value] of Object.entries(notes)) {
+      const parsed = parseNetTangibleExcedentNoteStorageKey(key)
+      if (!parsed) continue
+      map[parsed.parentRowId] ??= {}
+      map[parsed.parentRowId]![parsed.code] = value
+    }
+    return map
+  }, [notes])
+
+  const excedentAttachmentsByCodeByRowId = useMemo(() => {
+    const map: Record<string, Record<string, NoteAttachmentData[]>> = {}
+    for (const [key, attachments] of Object.entries(jvmAttachments)) {
+      const marker = "::excedent::"
+      const idx = key.indexOf(marker)
+      if (idx <= 0) continue
+      const parentRowId = key.slice(0, idx)
+      const code = key.slice(idx + marker.length)
+      if (!parentRowId || !code) continue
+      map[parentRowId] ??= {}
+      map[parentRowId]![code] = attachments
+    }
+    return map
+  }, [jvmAttachments])
+
+  /** Annexes ALT-B/C/D : postes avec VC pour libellés spécifiques au sommaire sources. */
+  const annexPostsByParentRowId = useMemo(() => {
+    const map: Record<string, { code: string; label: string; vc: number }[]> = {}
+    for (const row of rows) {
+      if (!row.id || row.isSection) continue
+      const structRow = findSummaryStructureRow(row.id, row.label, structure)
+      const linkCode = structRow ? String(structRow.linkCode ?? "").trim() : ""
+      const inferred = netTangibleJvmCapexRootLinkCodeFromLabel(row.label)
+      if (
+        !isNetTangibleJvmCapexRootRow({
+          linkCode,
+          rowId: row.id,
+          label: row.label,
+        })
+      ) {
+        continue
+      }
+      const rootCode =
+        (isNetTangibleJvmCapexRootLinkCode(linkCode) ? linkCode.trim().toUpperCase() : null) ??
+        inferred
+      const parentStructRow: Record<string, unknown> =
+        structRow ??
+        (rootCode
+          ? { id: rootCode, linkCode: rootCode, label: row.label, annexLetter: "" }
+          : { id: row.id, linkCode: "", label: row.label, annexLetter: "" })
+
+      const children = collectAnnexChildExpandRows({
+        parentStructRow,
+        structure,
+        apiRows: rows,
+        standardCodes,
+      })
+      const byCode = new Map(
+        children.map((child) => [
+          child.code,
+          { code: child.code, label: child.label, vc: child.amount },
+        ]),
+      )
+
+      // Compléter avec les codes JVM / Excédent déjà persistés (libellé / VC via structure).
+      const persistedCodes = new Set([
+        ...Object.keys(jvmByCodeByApiRowId[row.id] ?? {}),
+        ...Object.keys(excedentByCodeByApiRowId[row.id] ?? {}),
+      ])
+      for (const code of persistedCodes) {
+        if (byCode.has(code)) continue
+        const fromStruct = structure.find((sr) => {
+          const c = String(sr.linkCode ?? sr.id ?? "").trim()
+          return c === code
+        })
+        const label = String(fromStruct?.label ?? code).trim() || code
+        const api = rows.find(
+          (r) =>
+            r.id === code ||
+            r.label.trim().toLowerCase() === label.toLowerCase(),
+        )
+        byCode.set(code, {
+          code,
+          label: String(api?.label ?? label).trim() || code,
+          vc: api?.current ?? 0,
+        })
+      }
+
+      map[row.id] = [...byCode.values()]
+    }
+    return map
+  }, [rows, structure, standardCodes, jvmByCodeByApiRowId, excedentByCodeByApiRowId])
+
+  const notesByRowId = useMemo(() => {
+    const map: Record<string, NetTangibleValuationNotes> = {}
+    for (const row of rows) {
+      if (!row.id || row.isSection || !row.label?.trim()) continue
+      const structRow = findSummaryStructureRow(row.id, row.label, structure)
+      const linkCode = structRow ? String(structRow.linkCode ?? "").trim() : ""
+      const isJvmRoot = isNetTangibleJvmCapexRootRow({
+        linkCode,
+        rowId: row.id,
+        label: row.label,
+      })
+      if (row.isResult && !isJvmRoot) continue
+      map[row.id] = {
+        adjustments: notes[`${row.id}-adjustments`] ?? "",
+        debts: notes[`${row.id}-debts`] ?? "",
+        assets: notes[`${row.id}-assets`] ?? "",
+      }
+    }
+    return map
+  }, [notes, rows, structure])
+
+  const overviewBaseMetrics = useMemo(
+    () =>
+      buildNetTangibleOverviewMetrics(rows, valuesByRowId, {
+        structure,
+      }),
+    [rows, structure, valuesByRowId],
+  )
+
+  const fdrBaseLine = useMemo(() => {
+    const metric = overviewBaseMetrics.find((m) => m.id === "fdr-representatif")
+    return metric?.value ?? null
+  }, [overviewBaseMetrics])
+
+  const fdrAdjustedValue = useMemo(() => {
+    if (fdrAdjMode === "representative-amount") return fdrAdjValue
+    if (fdrBaseLine == null) return null
+    if (fdrAdjMode === "dollar") return fdrBaseLine + fdrAdjValue
+    // percent-revenue: adjusted = revenus TTM × %
+    if (revenueTotal == null || !Number.isFinite(revenueTotal)) return fdrBaseLine
+    return revenueTotal * (fdrAdjValue / 100)
+  }, [fdrBaseLine, fdrAdjMode, fdrAdjValue, revenueTotal])
+
+  /** Écart $ entre FDR ajusté et FDR déterminé (VCA). */
+  const fdrAdjustmentDollarDelta =
+    fdrBaseLine != null && fdrAdjustedValue != null && Number.isFinite(fdrAdjustedValue)
+      ? fdrAdjustedValue - fdrBaseLine
+      : null
+
+  /**
+   * Bandeau : sans saisie (% / montant représentatif à 0), conserver le FDR déterminé
+   * pour ne pas écraser ACN / surplus.
+   */
+  const overviewFdrAdjustedValue =
+    fdrAdjMode !== "dollar" && fdrAdjValue === 0 ? fdrBaseLine : fdrAdjustedValue
+  const overviewFdrAdjustmentDelta =
+    fdrAdjMode !== "dollar" && fdrAdjValue === 0 ? 0 : fdrAdjustmentDollarDelta
+
+  const overviewMetrics = useMemo(
+    () =>
+      applyNetTangibleFdrOverviewAdjustment(overviewBaseMetrics, {
+        fdrAdjustedValue: overviewFdrAdjustedValue,
+        fdrAdjustmentDollarDelta: overviewFdrAdjustmentDelta,
+      }),
+    [overviewBaseMetrics, overviewFdrAdjustedValue, overviewFdrAdjustmentDelta],
+  )
+
+  /** ACN (après ajustement FDR) — publié pour Capitalisation (achalandage). */
+  const overviewAcn = useMemo(() => {
+    const metric = overviewMetrics.find((m) => m.id === "acn")
+    return metric?.value != null && Number.isFinite(metric.value) ? metric.value : null
+  }, [overviewMetrics])
+
+  /** VCA — publié pour l’aperçu hub Valorisation. */
+  const overviewVca = useMemo(() => {
+    const metric = overviewMetrics.find((m) => m.id === "vca")
+    return metric?.value != null && Number.isFinite(metric.value) ? metric.value : null
+  }, [overviewMetrics])
+
+  const handleSaveHypothesis = useCallback(
+    (
+      rowId: string,
+      values: NetTangibleValuationColumnValues,
+      rowNotes: NetTangibleValuationNotes,
+      extras?: {
+        jvmByCode?: Record<string, number>
+        jvmNotesByCode?: Record<string, string>
+        jvmAttachmentsByCode?: Record<string, NoteAttachmentData[]>
+        excedentByCode?: Record<string, number>
+        excedentNotesByCode?: Record<string, string>
+        excedentAttachmentsByCode?: Record<string, NoteAttachmentData[]>
+      },
+    ) => {
+      const updatedValues: Record<string, number> = {
+        ...savedValues,
+        [`${rowId}-adjustments`]: values.adjustments,
+        [`${rowId}-debts`]: values.debts,
+        [`${rowId}-assets`]: values.assets,
+      }
+      const updatedNotes: Record<string, string> = {
+        ...notes,
+        [`${rowId}-adjustments`]: rowNotes.adjustments,
+        [`${rowId}-debts`]: rowNotes.debts,
+        [`${rowId}-assets`]: rowNotes.assets,
+      }
+      let updatedAttachments = jvmAttachments
+
+      if (extras?.jvmByCode) {
+        for (const [code, jvm] of Object.entries(extras.jvmByCode)) {
+          updatedValues[netTangibleJvmStorageKey(rowId, code)] = jvm
+        }
+      }
+      if (extras?.jvmNotesByCode) {
+        for (const [code, note] of Object.entries(extras.jvmNotesByCode)) {
+          updatedNotes[netTangibleJvmNoteStorageKey(rowId, code)] = note
+        }
+      }
+      if (extras?.jvmAttachmentsByCode) {
+        updatedAttachments = { ...jvmAttachments }
+        for (const [code, attachments] of Object.entries(extras.jvmAttachmentsByCode)) {
+          updatedAttachments[netTangibleJvmAttachmentStorageKey(rowId, code)] = attachments
+        }
+      }
+      if (extras?.excedentByCode) {
+        for (const [code, excedent] of Object.entries(extras.excedentByCode)) {
+          updatedValues[netTangibleExcedentStorageKey(rowId, code)] = excedent
+        }
+      }
+      if (extras?.excedentNotesByCode) {
+        for (const [code, note] of Object.entries(extras.excedentNotesByCode)) {
+          updatedNotes[netTangibleExcedentNoteStorageKey(rowId, code)] = note
+        }
+      }
+      if (extras?.excedentAttachmentsByCode) {
+        updatedAttachments = { ...updatedAttachments }
+        for (const [code, attachments] of Object.entries(extras.excedentAttachmentsByCode)) {
+          updatedAttachments[netTangibleExcedentAttachmentStorageKey(rowId, code)] = attachments
+        }
+      }
+
+      setSavedValues(updatedValues)
+      setNotes(updatedNotes)
+      setJvmAttachments(updatedAttachments)
+      void saveValuesToApi(updatedValues)
+      void saveNotesToApi(updatedNotes)
+      if (extras?.jvmAttachmentsByCode || extras?.excedentAttachmentsByCode) {
+        void saveJvmAttachmentsToApi(updatedAttachments)
+      }
+    },
+    [
+      jvmAttachments,
+      notes,
+      saveJvmAttachmentsToApi,
+      saveNotesToApi,
+      saveValuesToApi,
+      savedValues,
+    ],
+  )
+
+  const saveFdrAdjustment = useCallback(
+    async (mode: FdrAdjustmentMode, value: number, note: string, pctOfRevenue?: number | null) => {
+      setFdrAdjMode(mode)
+      setFdrAdjValue(value)
+      setFdrAdjNote(note)
+      if (!companyId) return
+      try {
+        await upsertForecastConfig(companyId, {
+          config_type: "net-tangible-fdr-adjustment",
+          data: {
+            mode,
+            value,
+            note,
+            ...(pctOfRevenue != null && Number.isFinite(pctOfRevenue)
+              ? { pctOfRevenue }
+              : {}),
+            ...(overviewAcn != null ? { acn: overviewAcn } : {}),
+            ...(overviewVca != null ? { vca: overviewVca } : {}),
+          },
+          division_id: null,
+          sub_division_id: null,
+        })
+      } catch (err) {
+        console.error("Error saving FDR adjustment:", err)
+      }
+    },
+    [companyId, overviewAcn, overviewVca],
+  )
+
+  /** FDR déterminé ÷ revenus TTM — affiché sous la carte de base. */
+  const fdrBasePctOfRevenue =
+    fdrBaseLine != null &&
+    revenueTotal != null &&
+    Number.isFinite(fdrBaseLine) &&
+    Number.isFinite(revenueTotal) &&
+    Math.abs(revenueTotal) >= 1e-9
+      ? (fdrBaseLine / Math.abs(revenueTotal)) * 100
+      : null
+
+  /** Écart d’ajustement ÷ revenus TTM — sous-texte de la carte Ajustement. */
+  const fdrAdjustmentPctOfRevenue =
+    fdrAdjustmentDollarDelta != null &&
+    revenueTotal != null &&
+    Number.isFinite(revenueTotal) &&
+    Math.abs(revenueTotal) >= 1e-9
+      ? (fdrAdjustmentDollarDelta / Math.abs(revenueTotal)) * 100
+      : null
+
+  /** FDR ajusté ÷ revenus TTM — même principe que la carte FDR déterminé. */
+  const fdrAdjustedPctOfRevenue =
+    fdrAdjustedValue != null &&
+    revenueTotal != null &&
+    Number.isFinite(fdrAdjustedValue) &&
+    Number.isFinite(revenueTotal) &&
+    Math.abs(revenueTotal) >= 1e-9
+      ? (fdrAdjustedValue / Math.abs(revenueTotal)) * 100
+      : null
+
+  /** % FDR représentatif (bandeau / après repli sur le déterminé) — exporté vers BAIIA ajusté. */
+  const fdrRepresentativePctOfRevenue =
+    overviewFdrAdjustedValue != null &&
+    revenueTotal != null &&
+    Number.isFinite(overviewFdrAdjustedValue) &&
+    Number.isFinite(revenueTotal) &&
+    Math.abs(revenueTotal) >= 1e-9
+      ? (overviewFdrAdjustedValue / Math.abs(revenueTotal)) * 100
+      : fdrAdjustedPctOfRevenue
+
+  /** Publie le % FDR représentatif + VCA + ACN dès qu’ils sont calculables. */
+  useEffect(() => {
     if (!companyId) return
-    try {
-      const result = await upsertForecastConfig(companyId, {
-        config_type: "net-tangible-assets-notes",
-        data: updatedNotes as Record<string, unknown>,
-        division_id: divisionId || null,
-        sub_division_id: subDivisionId || null,
-      })
-      setNotesConfigId(result.id)
-    } catch (err) {
-      console.error("Error saving notes:", err)
-    }
-  }, [companyId, divisionId, subDivisionId])
+    if (fdrRepresentativePctOfRevenue == null && overviewAcn == null && overviewVca == null) return
+    const timer = setTimeout(() => {
+      void upsertForecastConfig(companyId, {
+        config_type: "net-tangible-fdr-adjustment",
+        data: {
+          mode: fdrAdjMode,
+          value: fdrAdjValue,
+          note: fdrAdjNote,
+          ...(fdrRepresentativePctOfRevenue != null
+            ? { pctOfRevenue: fdrRepresentativePctOfRevenue }
+            : {}),
+          ...(overviewAcn != null ? { acn: overviewAcn } : {}),
+          ...(overviewVca != null ? { vca: overviewVca } : {}),
+        },
+        division_id: null,
+        sub_division_id: null,
+      }).catch(console.error)
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [
+    companyId,
+    fdrRepresentativePctOfRevenue,
+    overviewAcn,
+    overviewVca,
+    fdrAdjMode,
+    fdrAdjValue,
+    fdrAdjNote,
+  ])
 
-  // Save numeric values to API
-  const saveValuesToApi = useCallback(async (updatedValues: Record<string, number>) => {
-    if (!companyId) return
-    try {
-      const result = await upsertForecastConfig(companyId, {
-        config_type: "net-tangible-assets-values",
-        data: updatedValues as Record<string, unknown>,
-        division_id: divisionId || null,
-        sub_division_id: subDivisionId || null,
-      })
-      setValuesConfigId(result.id)
-    } catch (err) {
-      console.error("Error saving values:", err)
-    }
-  }, [companyId, divisionId, subDivisionId])
+  const fdrAdjModeLabel =
+    fdrAdjMode === "dollar"
+      ? "Ajustement $"
+      : fdrAdjMode === "percent-revenue"
+        ? "% des revenus"
+        : "Montant représentatif"
 
-  // Open modal to edit value
-  const openEditModal = (rowId: string, column: "adjustments" | "debts" | "assets") => {
-    const row = balanceData.find(r => r.rowId === rowId)
-    if (row) {
-      setEditingRowId(rowId)
-      setEditingColumn(column)
-      setModalValue(row[column])
-      const noteKey = `${rowId}-${column}`
-      setModalNote(notes[noteKey] || "")
-      setModalOpen(true)
-    }
-  }
+  const sourceRows = useMemo(
+    () =>
+      buildNetTangibleSourceRows({
+        rows,
+        valuesByRowId,
+        notesByRowId,
+        jvmByCodeByRowId: jvmByCodeByApiRowId,
+        jvmNotesByCodeByRowId,
+        excedentByCodeByRowId: excedentByCodeByApiRowId,
+        excedentNotesByCodeByRowId,
+        annexPostsByParentRowId,
+        fdrAdjNote,
+        fdrAdjustedValue: overviewFdrAdjustedValue,
+        fdrAdjModeLabel,
+        fdrAdjustmentDollarDelta,
+      }),
+    [
+      rows,
+      valuesByRowId,
+      notesByRowId,
+      jvmByCodeByApiRowId,
+      jvmNotesByCodeByRowId,
+      excedentByCodeByApiRowId,
+      excedentNotesByCodeByRowId,
+      annexPostsByParentRowId,
+      fdrAdjNote,
+      overviewFdrAdjustedValue,
+      fdrAdjModeLabel,
+      fdrAdjustmentDollarDelta,
+    ],
+  )
 
-  // Save edited value and note
-  const saveValue = () => {
-    if (!editingRowId || !editingColumn) return
-
-    // Update balance data
-    setBalanceData(prev => prev.map(row =>
-      row.rowId === editingRowId ? { ...row, [editingColumn]: modalValue } : row
-    ))
-
-    // Update and persist notes
-    const noteKey = `${editingRowId}-${editingColumn}`
-    const updatedNotes = { ...notes, [noteKey]: modalNote }
-    setNotes(updatedNotes)
-    saveNotesToApi(updatedNotes)
-
-    // Update and persist numeric values
-    const valueKey = `${editingRowId}-${editingColumn}`
-    const updatedValues = { ...savedValues, [valueKey]: modalValue }
-    setSavedValues(updatedValues)
-    saveValuesToApi(updatedValues)
-
-    setModalOpen(false)
-    setEditingRowId(null)
-    setEditingColumn(null)
-    setModalValue(0)
-    setModalNote("")
-  }
+  const handleSourceNoteChange = useCallback(
+    (id: string, note: string) => {
+      if (id === "fdr-adjustment") {
+        setFdrAdjNote(note)
+        void saveFdrAdjustment(fdrAdjMode, fdrAdjValue, note, fdrRepresentativePctOfRevenue)
+        return
+      }
+      const jvmMatch = id.match(/^(.+)-jvm-(.+)$/)
+      if (jvmMatch) {
+        const [, rowId, code] = jvmMatch
+        const key = netTangibleJvmNoteStorageKey(rowId!, code!)
+        const updated = { ...notes, [key]: note }
+        setNotes(updated)
+        void saveNotesToApi(updated)
+        return
+      }
+      const exMatch = id.match(/^(.+)-excedent-(.+)$/)
+      if (exMatch) {
+        const [, rowId, code] = exMatch
+        const key = netTangibleExcedentNoteStorageKey(rowId!, code!)
+        const updated = { ...notes, [key]: note }
+        setNotes(updated)
+        void saveNotesToApi(updated)
+        return
+      }
+      const fieldMatch = id.match(/^(.+)-(adjustments|debts|assets)$/)
+      if (fieldMatch) {
+        const [, , field] = fieldMatch
+        const key = id
+        const updated = { ...notes, [key]: note }
+        setNotes(updated)
+        void saveNotesToApi(updated)
+        void field
+        return
+      }
+    },
+    [fdrAdjMode, fdrAdjValue, fdrRepresentativePctOfRevenue, notes, saveFdrAdjustment, saveNotesToApi],
+  )
 
   return (
     <div className="min-h-screen bg-slate-50">
       <DashboardHeader title="Modelisys" />
-      
-      {/* Dark Header Section */}
-      <div className="w-full bg-slate-900 pt-15 pb-40">
-        <div className="max-w-[1920px] mx-auto px-6">
-          <div className="flex items-start gap-3 mb-8">
-            <div className="w-2"></div>
-            <div className="flex-1">
-              <h2 className="text-4xl font-normal text-white mb-2 tracking-tight">Actif Corporel Net</h2>
-              <p className="text-base text-slate-300 mb-6">
-                Évaluez votre entreprise en fonction de la valeur de ses actifs corporels nets
-              </p>
-              <p className="text-base text-slate-300 mb-6 leading-relaxed max-w-4xl">
-                Calculez la valeur de votre entreprise en soustrayant les passifs de la valeur des actifs corporels. 
-                Cette méthode d'évaluation est particulièrement utile pour les entreprises avec des actifs tangibles importants.
-              </p>
-              {/* Navigation Menu */}
-              <div className="flex items-end gap-8 mb-2">
-                {evaluationNav.map((item) => {
-                  const isActive = pathname === item.href
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className="relative pb-4 border-b border-slate-600/30"
-                    >
-                      <span
-                        className={`text-sm font-normal transition-colors ${
-                          isActive
-                            ? "text-white"
-                            : "text-slate-300 hover:text-white"
-                        }`}
-                      >
-                        {item.label}
-                      </span>
-                      {isActive && (
-                        <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-400 z-10"></div>
-                      )}
-                    </Link>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
 
-          {/* Controls Section */}
-          <div className="mb-6 p-4">
-            <div className="flex flex-wrap items-center gap-4">
-              {/* Filter Icon */}
-              <div className="flex items-center gap-2 text-slate-300">
-                <Filter className="w-4 h-4" />
-              </div>
-
-              {/* Separator */}
-              <div className="h-6 w-px bg-slate-700" />
-
-              {/* Entity Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-slate-300 whitespace-nowrap">Entité:</span>
-                <EntitySelector
-                  companies={companies}
-                  selectedCompanyId={companyId}
-                  selectedDivisionId={divisionId}
-                  selectedSubDivisionId={subDivisionId}
-                  onCompanyChange={setCompanyId}
-                  onDivisionChange={setDivisionId}
-                  onSubDivisionChange={setSubDivisionId}
-                />
-              </div>
-            </div>
-          </div>
+      <section ref={heroRef} className="relative overflow-hidden pb-40 pt-16 sm:pt-20 sm:pb-44">
+        <div className="pointer-events-none absolute inset-0 bg-[#222732]">
+          <div
+            className="absolute inset-0 opacity-[0.4]"
+            aria-hidden
+            style={{
+              backgroundImage: `linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+                linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px)`,
+              backgroundSize: "56px 56px",
+              maskImage:
+                "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+              WebkitMaskImage:
+                "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+            }}
+          />
+          <div className="absolute -top-32 left-[-10%] h-[34rem] w-[34rem] rounded-full bg-[#E6D6C3]/[0.04] blur-3xl" />
+          <div className="absolute top-1/3 right-[-5%] h-[28rem] w-[28rem] rounded-full bg-[#E0742D]/[0.05] blur-3xl" />
+          <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#1a1f2a] to-transparent" />
         </div>
-      </div>
 
-      {/* Content - Overlapping section */}
-      <div className="relative -mt-32 mb-12">
-        <div className="max-w-[1920px] mx-auto px-6">
-          <div className="w-full bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-            {/* Header */}
-            <div className="bg-white px-8 py-5 border-b border-slate-200">
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className="w-1 h-12 bg-emerald-500 rounded-full flex-shrink-0"></div>
-                <div className="flex-1 min-w-0">
-                  <h2 className="text-xl font-semibold text-slate-900 tracking-tight mb-1">Bilan Détail</h2>
-                  <p className="text-sm text-slate-600">Analysez les actifs corporels nets de votre entreprise</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Table */}
-            {balanceLoading ? (
-              <div className="flex items-center justify-center h-64 bg-white">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
-              </div>
-            ) : balanceData.length === 0 ? (
-              <div className="flex items-center justify-center h-64 bg-white">
-                <p className="text-slate-400">
-                  {companyId ? "Aucune donnée de bilan disponible" : "Sélectionnez une entreprise pour afficher le bilan"}
-                </p>
-              </div>
-            ) : (
-            <div className="overflow-x-auto bg-white">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-6 py-4 text-left font-semibold text-slate-900 text-sm w-2/5">Compte</th>
-                    <th className="px-4 py-4 text-right font-semibold text-slate-900 text-sm">{currentYear}</th>
-                    <th className="px-4 py-4 text-right font-semibold text-slate-900 text-sm">Ajustements</th>
-                    <th className="px-4 py-4 text-right font-semibold text-slate-900 text-sm">VCA</th>
-                    <th className="px-4 py-4 text-right font-semibold text-slate-900 text-sm">Dettes</th>
-                    <th className="px-4 py-4 text-right font-semibold text-slate-900 text-sm">Actifs</th>
-                    <th className="px-4 py-4 text-right font-semibold text-slate-900 text-sm">ACN</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {balanceData.map((row, idx) => {
-                    const isSpacer = row.label === ""
-                    const shouldHideAmounts = isSpacer || !!row.isSection
-                    const vca = calculateVCA(row)
-                    const acn = calculateACN(row)
-                    const nextRowIsSubtotal = idx < balanceData.length - 1 && balanceData[idx + 1].isSubtotal
-
-                    return (
-                      <tr
-                        key={idx}
-                        className={cn(
-                          "border-b",
-                          isSpacer ? "h-2 border-slate-200" : "",
-                          nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
-                          !isSpacer && !row.isSection && "hover:bg-slate-50"
-                        )}
-                      >
-                        <td
-                          className={cn(
-                            "px-6 py-3",
-                            row.isBold ? "font-bold text-slate-900" : "text-slate-700",
-                            row.indent ? "pl-12" : ""
-                          )}
-                        >
-                          {row.label}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {shouldHideAmounts ? (
-                            <span className="text-slate-700">-</span>
-                          ) : (
-                            <span className={cn("text-sm", row.isBold && "font-semibold text-slate-900")}>
-                              {formatCurrency(row.year2026)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {shouldHideAmounts ? (
-                            <span className="text-slate-700">-</span>
-                          ) : row.rowId ? (
-                            <div className="flex items-center gap-2 justify-end">
-                              <span className="text-sm text-slate-900">
-                                {formatCurrency(row.adjustments)}
-                              </span>
-                              <button
-                                onClick={() => openEditModal(row.rowId!, "adjustments")}
-                                className={cn(
-                                  "p-1 rounded hover:bg-slate-200 transition-colors relative",
-                                  notes[`${row.rowId}-adjustments`] && notes[`${row.rowId}-adjustments`].trim().length > 0 && "text-blue-600"
-                                )}
-                                title={notes[`${row.rowId}-adjustments`] && notes[`${row.rowId}-adjustments`].trim().length > 0 ? "Modifier les ajustements et la note" : "Modifier les ajustements et ajouter une note"}
-                              >
-                                <Settings className="w-3.5 h-3.5" />
-                                {notes[`${row.rowId}-adjustments`] && notes[`${row.rowId}-adjustments`].trim().length > 0 && (
-                                  <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
-                                    !
-                                  </span>
-                                )}
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-slate-900">
-                              {formatCurrency(row.adjustments)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {shouldHideAmounts ? (
-                            <span className="text-slate-700">-</span>
-                          ) : (
-                            <span className={cn("text-sm", row.isBold && "font-semibold text-slate-900")}>
-                              {formatCurrency(vca)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {shouldHideAmounts ? (
-                            <span className="text-slate-700">-</span>
-                          ) : row.rowId ? (
-                            <div className="flex items-center gap-2 justify-end">
-                              <span className="text-sm text-slate-900">
-                                {formatCurrency(row.debts)}
-                              </span>
-                              <button
-                                onClick={() => openEditModal(row.rowId!, "debts")}
-                                className={cn(
-                                  "p-1 rounded hover:bg-slate-200 transition-colors relative",
-                                  notes[`${row.rowId}-debts`] && notes[`${row.rowId}-debts`].trim().length > 0 && "text-blue-600"
-                                )}
-                                title={notes[`${row.rowId}-debts`] && notes[`${row.rowId}-debts`].trim().length > 0 ? "Modifier les dettes et la note" : "Modifier les dettes et ajouter une note"}
-                              >
-                                <Settings className="w-3.5 h-3.5" />
-                                {notes[`${row.rowId}-debts`] && notes[`${row.rowId}-debts`].trim().length > 0 && (
-                                  <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
-                                    !
-                                  </span>
-                                )}
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-slate-900">
-                              {formatCurrency(row.debts)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {shouldHideAmounts ? (
-                            <span className="text-slate-700">-</span>
-                          ) : row.rowId ? (
-                            <div className="flex items-center gap-2 justify-end">
-                              <span className="text-sm text-slate-900">
-                                {formatCurrency(row.assets)}
-                              </span>
-                              <button
-                                onClick={() => openEditModal(row.rowId!, "assets")}
-                                className={cn(
-                                  "p-1 rounded hover:bg-slate-200 transition-colors relative",
-                                  notes[`${row.rowId}-assets`] && notes[`${row.rowId}-assets`].trim().length > 0 && "text-blue-600"
-                                )}
-                                title={notes[`${row.rowId}-assets`] && notes[`${row.rowId}-assets`].trim().length > 0 ? "Modifier les actifs et la note" : "Modifier les actifs et ajouter une note"}
-                              >
-                                <Settings className="w-3.5 h-3.5" />
-                                {notes[`${row.rowId}-assets`] && notes[`${row.rowId}-assets`].trim().length > 0 && (
-                                  <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
-                                    !
-                                  </span>
-                                )}
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-slate-900">
-                              {formatCurrency(row.assets)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          {shouldHideAmounts ? (
-                            <span className="text-slate-700">-</span>
-                          ) : (
-                            <span className={cn("text-sm", row.isBold && "font-semibold text-slate-900")}>
-                              {formatCurrency(acn)}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                  {/* Totals Row */}
-                  <tr className="border-t-2 border-slate-900 bg-slate-50">
-                    <td className="px-6 py-3 font-bold text-slate-900">
-                      Total
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-sm font-semibold text-slate-900">-</span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-sm font-semibold text-slate-900">-</span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-sm font-semibold text-slate-900">-</span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-sm font-semibold text-slate-900">
-                        {formatCurrency(totalDebts)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-sm font-semibold text-slate-900">
-                        {formatCurrency(totalAssets)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-sm font-semibold text-slate-900">-</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Edit Modal */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              Modifier {editingColumn === "adjustments" ? "les ajustements" : editingColumn === "debts" ? "les dettes" : "les actifs"}
-            </DialogTitle>
-            <DialogDescription>
-              Modifiez la valeur pour {balanceData.find(r => r.rowId === editingRowId)?.label || ""}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div>
-              <label className="text-sm font-semibold text-slate-700 mb-2 block">
-                Valeur
-              </label>
-              <Input
-                type="text"
-                value={
-                  modalValue === 0 ? "" : formatCurrency(modalValue).replace(/[^\d-]/g, "")
-                }
-                onChange={(e) => {
-                  const rawValue = e.target.value.replace(/[^\d-]/g, "")
-                  const numValue = rawValue === "" || rawValue === "-" ? 0 : Number(rawValue)
-                  setModalValue(numValue)
-                }}
-                onFocus={(e) => {
-                  e.target.value = modalValue.toString()
-                }}
-                className="w-full text-center font-mono border-slate-300 focus:border-slate-500"
-                placeholder="$0"
-              />
-              <p className="text-xs text-slate-500 mt-1">
-                {editingColumn === "adjustments" 
-                  ? "Définissez le montant des ajustements à appliquer."
-                  : editingColumn === "debts"
-                  ? "Définissez le montant des dettes à soustraire."
-                  : "Définissez le montant des actifs à soustraire."}
-              </p>
-            </div>
-            <div>
-              <label className="text-sm font-semibold text-slate-700 mb-2 block">
-                Note
-              </label>
-              <Textarea
-                value={modalNote}
-                onChange={(e) => setModalNote(e.target.value)}
-                placeholder="Ajoutez une note pour expliquer cette valeur..."
-                className="min-h-[100px] border-slate-300 focus:border-slate-500"
-              />
-              <p className="text-xs text-slate-500 mt-1">
-                Documentez votre raisonnement pour cette valeur.
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setModalOpen(false)
-                setEditingRowId(null)
-                setEditingColumn(null)
-                setModalValue(0)
-                setModalNote("")
-              }}
+        <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
+          <div
+            className={`max-w-xl lg:max-w-[34rem] xl:max-w-[38rem] transition-all duration-1000 ${
+              heroVisible ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
+            }`}
+          >
+            <Link
+              href={planBackHref}
+              data-testid="valuation-plan-back-button"
+              className="group inline-flex items-center gap-2 text-xs font-semibold tracking-[0.08em] text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
             >
-              Annuler
-            </Button>
-            <Button onClick={saveValue}>
-              Enregistrer
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              <ArrowLeft className="h-4 w-4 shrink-0 transition-transform group-hover:-translate-x-0.5" aria-hidden />
+              RETOUR AUX ÉTAPES
+            </Link>
+
+            <p className="mt-7 text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/70 sm:mt-8">
+              Plan de valorisation
+            </p>
+
+            <h1 className="mt-7 text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-8 sm:text-[2.45rem] sm:leading-[1.12] xl:text-[2.85rem]">
+              Valeur comptable ajustée
+            </h1>
+
+            <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
+              Ajustez les actifs et passifs pour estimer la valeur comptable ajustée de{" "}
+              {companyName}.
+            </p>
+
+            <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#C9B8A5]/70">
+              <div className="whitespace-nowrap">
+                <span className="text-[#C9B8A5]/45">Entité</span>{" "}
+                <span className="font-medium text-[#E6D6C3]/90">{companyName}</span>
+              </div>
+              <div className="hidden h-4 w-px bg-[#E6D6C3]/15 md:block" />
+              <div className="whitespace-nowrap" data-testid="net-tangible-reference-date">
+                <span className="text-[#C9B8A5]/45">Date de référence</span>{" "}
+                <span className="font-medium text-[#E6D6C3]/90">{referenceLabel}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <main className="relative -mt-32 mb-12 min-w-0">
+        <div className="mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
+          <NetTangibleReport
+            companyName={companyName}
+            referenceLabel={referenceLabel}
+            referenceColumnLabel={referenceColumnLabel}
+            companyId={companyId}
+            companies={companies}
+            fiscalYear={refYear}
+            refMonth={refMonth}
+            refYear={refYear}
+            rows={rows}
+            loading={loading}
+            overviewMetrics={overviewMetrics}
+            valuesByRowId={valuesByRowId}
+            notesByRowId={notesByRowId}
+            jvmByCodeByRowId={jvmByCodeByApiRowId}
+            jvmNotesByCodeByRowId={jvmNotesByCodeByRowId}
+            jvmAttachmentsByCodeByRowId={jvmAttachmentsByCodeByRowId}
+            excedentByCodeByRowId={excedentByCodeByApiRowId}
+            excedentNotesByCodeByRowId={excedentNotesByCodeByRowId}
+            excedentAttachmentsByCodeByRowId={excedentAttachmentsByCodeByRowId}
+            onSaveHypothesis={handleSaveHypothesis}
+            fdr={{
+              fdrBaseLine,
+              fdrBasePctOfRevenue,
+              revenueTotal,
+              fdrAdjMode,
+              fdrAdjValue,
+              fdrAdjNote,
+              fdrAdjustmentDollarDelta,
+              fdrAdjustmentPctOfRevenue,
+              fdrAdjustedValue: overviewFdrAdjustedValue,
+              fdrAdjustedPctOfRevenue,
+              onAdjValueChange: setFdrAdjValue,
+              onAdjNoteChange: setFdrAdjNote,
+              onModeChange: (mode) => {
+                if (mode !== fdrAdjMode)
+                  void saveFdrAdjustment(mode, 0, fdrAdjNote, fdrRepresentativePctOfRevenue)
+              },
+              onSave: () =>
+                void saveFdrAdjustment(
+                  fdrAdjMode,
+                  fdrAdjValue,
+                  fdrAdjNote,
+                  fdrRepresentativePctOfRevenue,
+                ),
+            }}
+            sourceRows={sourceRows}
+            onSourceNoteChange={handleSourceNoteChange}
+          />
+        </div>
+      </main>
     </div>
   )
 }
-

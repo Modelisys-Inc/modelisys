@@ -168,6 +168,48 @@ DEFAULT_CAPEX = [
     },
 ]
 
+# Valorisation Multiplicateur — postes configurables (formules + / − / × / ÷ via Paramètres).
+DEFAULT_CAPITALISATION = [
+    {"label": "Coût des capitaux propres", "isBold": True, "defineMapping": False},
+    {
+        "label": "Rendement sans risque",
+        "defineMapping": True,
+        "liaisonMode": "na",
+        "displayFormat": "percent",
+    },
+    {
+        "label": "Prime de risque sur les capitaux propres",
+        "defineMapping": True,
+        "liaisonMode": "na",
+        "displayFormat": "percent",
+    },
+    {
+        "label": "Prime de risque pour la taille",
+        "defineMapping": True,
+        "liaisonMode": "na",
+        "displayFormat": "percent",
+    },
+    {
+        "label": "Prime de risque spécifique à l'entreprise",
+        "defineMapping": True,
+        "liaisonMode": "na",
+        "displayFormat": "percent",
+    },
+    {
+        "label": "Coût des capitaux propres (total)",
+        "isBold": True,
+        "defineMapping": True,
+        "liaisonMode": "sum",
+        "liaisonSumCodes": [
+            "Rendement sans risque",
+            "Prime de risque sur les capitaux propres",
+            "Prime de risque pour la taille",
+            "Prime de risque spécifique à l'entreprise",
+        ],
+        "displayFormat": "percent",
+    },
+]
+
 DEFAULT_STRUCTURES = {
     "income-statement": DEFAULT_INCOME_STATEMENT,
     "balance-sheet": DEFAULT_BALANCE_SHEET,
@@ -176,4 +218,5 @@ DEFAULT_STRUCTURES = {
     "working-capital": DEFAULT_WORKING_CAPITAL,
     "capex": DEFAULT_CAPEX,
     "ratios": DEFAULT_RATIOS,
+    "capitalisation": DEFAULT_CAPITALISATION,
 }

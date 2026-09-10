@@ -47,3 +47,32 @@ export const companyDashboardNavItem = {
 } as const
 
 export const companyModuleNavItems = COMPANY_MODULES.map(({ label, href }) => ({ label, href }))
+
+/** Entrées du menu Rapport (header) — sans Planification. */
+export const COMPANY_REPORT_NAV_ITEMS = COMPANY_MODULES.filter(
+  (module) => module.id !== "planification",
+).map(({ label, href }) => ({ label, href }))
+
+export const COMPANY_REPORT_OVERVIEW_HREF = COMPANY_REPORT_NAV_ITEMS[0]?.href ?? "/modules/diagnostic"
+
+export function appendReportNavHref(
+  href: string,
+  opts?: { companyId?: string | null },
+): string {
+  if (!opts?.companyId) return href
+  const sep = href.includes("?") ? "&" : "?"
+  return `${href}${sep}companyId=${encodeURIComponent(opts.companyId)}`
+}
+
+export function isReportNavPath(pathname: string | null | undefined): boolean {
+  if (!pathname) return false
+  return COMPANY_REPORT_NAV_ITEMS.some((item) => pathname.startsWith(item.href.split("?")[0]!))
+}
+
+export function isReportNavLinkActive(
+  pathname: string | null | undefined,
+  item: { href: string },
+): boolean {
+  if (!pathname) return false
+  return pathname.startsWith(item.href.split("?")[0]!)
+}

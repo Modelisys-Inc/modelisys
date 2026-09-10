@@ -363,6 +363,10 @@ type StructureRowCellsProps = {
   annexMode?: StatementAnnexColumnMode
   /** Fonds de roulement : autorise multiplication et division. */
   allowProductQuotient?: boolean
+  /**
+   * Multiplicateur : Liaison = Hypothèse ou formule uniquement (pas de code unique).
+   */
+  hideSingleLiaisonMode?: boolean
   /** Fonds de roulement : colonne Format ($ / Nombre / %). */
   showDisplayFormatColumn?: boolean
   /** Capex : colonne Réel / Variation par ligne (coûts ALT). */
@@ -387,6 +391,7 @@ export function StatementSummaryStructureRowCells({
   hideAnnexColumns = false,
   annexMode,
   allowProductQuotient = false,
+  hideSingleLiaisonMode = false,
   showDisplayFormatColumn = false,
   showCapexCostDisplayColumn = false,
   showCashFlowCalcColumn = false,
@@ -496,10 +501,20 @@ export function StatementSummaryStructureRowCells({
                 onCheckedChange={(v) => {
                   if (isStructureRowHidden(structRow) || isCapexAutoComputed) return
                   if (v === true) {
-                    structEdit.updateRow(globalIdx, {
-                      defineMapping: true,
-                      ...(normalizeLiaisonMode(structRow) === "na" ? { liaisonMode: "single" } : {}),
-                    })
+                    if (hideSingleLiaisonMode) {
+                      structEdit.updateRow(globalIdx, {
+                        defineMapping: true,
+                        liaisonMode: "na",
+                        linkCode: undefined,
+                      })
+                    } else {
+                      structEdit.updateRow(globalIdx, {
+                        defineMapping: true,
+                        ...(normalizeLiaisonMode(structRow) === "na"
+                          ? { liaisonMode: "single" }
+                          : {}),
+                      })
+                    }
                   } else {
                     structEdit.updateRow(globalIdx, {
                       defineMapping: false,
@@ -549,6 +564,7 @@ export function StatementSummaryStructureRowCells({
             singleModeLinkCodeLabels={singleModeLinkCodeLabels}
             updateRow={structEdit.updateRow}
             allowProductQuotient={allowProductQuotient}
+            hideSingleLiaisonMode={hideSingleLiaisonMode}
           />
         ) : (
           <span className="block truncate rounded-lg bg-slate-100/50 px-1.5 py-2 text-center text-sm text-slate-300">

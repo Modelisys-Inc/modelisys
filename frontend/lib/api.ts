@@ -587,7 +587,7 @@ export async function listStatementStructures(
   return data.structures;
 }
 
-export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "working-capital" | "capex" | "ratios" | "baiia";
+export type StatementType = "income-statement" | "balance-sheet" | "cash-flow" | "cash-flow-detail" | "working-capital" | "capex" | "ratios" | "baiia" | "capitalisation";
 
 export async function getStatementStructure(
   companyId: string,
@@ -1338,10 +1338,16 @@ export async function upsertForecastConfig(
   companyId: string,
   config: ForecastConfigUpsert
 ): Promise<ForecastConfigData> {
-  return apiFetch<ForecastConfigData>(
+  const result = await apiFetch<ForecastConfigData>(
     `/api/companies/${companyId}/forecast-configs`,
     { method: "PUT", body: config }
   )
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("modelisys:forecast-config-changed", { detail: { companyId } }),
+    )
+  }
+  return result
 }
 
 export async function deleteForecastConfig(

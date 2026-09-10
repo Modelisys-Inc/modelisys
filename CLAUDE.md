@@ -225,6 +225,105 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   Code / Liaison / Annexe sont retirés au chargement/sauvegarde
   (`normalizeBaiiaStructureRow`) ; Liaison affiche « REV − CV − CF » en
   lecture seule.
+- **Aperçu de l'entreprise** (`/evaluation/company-overview`) : rapport continu
+  style Multiplicateur / Modèle d'affaires (`components/company-overview/*`) —
+  hero valuation + feuille blanche ; sections Méthode · Générales (+ activités) ·
+  Historique · Actionnariat · Direction ; bandeau profil + nav d’ancres ;
+  persisté localStorage via `lib/diagnostic-company-overview.ts` (même clé que
+  le diagnostic). La coquille diagnostic (`diagnostic-company-overview-section`)
+  reste pour le module Diagnostic.
+- **Modèle d'affaires** (`/evaluation/business-model`) : rapport continu style
+  Multiplicateur / VCA (`components/business-model/*`) — hero valuation + feuille
+  blanche ; sections Méthode · Sommaire (KPI strip + plan d’action) · catégories
+  de risques (nav d’ancres) ; niveau + note inline autosave (`business_risks`).
+  Défauts dans `lib/business-model-default-risks.ts`.
+- **Flux monétaires** (`/evaluation/adjusted-ebitda`, étape plan « Flux monétaires »,
+  juste avant Multiplicateur) : rapport continu style VCA
+  (`components/capitalisation/adjusted-ebitda-report.tsx`) — sommaire BAIIA bas/
+  médian/haut + Flux bas/médian/haut ; sections 1 Méthode ·
+  2 BAIIA (colonnes selon date de référence + fin d’exercice : si réf. ≠ clôture
+  → **PEC** + **TTM** + 5 exercices complets ; si réf. = clôture → 5 exercices ;
+  colonnes sans chiffre masquées ; ajustements ciblables **Revenus** (à
+  l’ajout ; report 1:1 sur BAIIA + ligne Revenus ajustés, trait fort au-dessus)
+  ou **BAIIA** ; sous BAIIA ajusté (trait fort au-dessus) : **% des revenus**
+  ou **% des revenus ajustés** (italique ; dénominateur aligné) ; notes / sources sous
+  Pondération (pas dans les cellules ; pondérations en orange gras) ; Synthèse (revenus +
+  BAIIA + BAIIA/Revenus) dans §3 Fourchette ;
+  fourchette = Hypothèses ParamRow (Revenus bas/haut + BAIIA bas/haut) +
+  Fourchette retenue (revenus + BAIIA, vs médian, BAIIA / revenus
+  représentatifs) ; moyennes 5/4/3/2 ans + dernier exercice masquées si pas
+  assez d’exercices peuplés, + moyenne pondérée ;
+  `baiia-section.tsx` / `fourchette-section.tsx`, série CDR
+  `ebitda-capitalisation`) · 3 Fourchette · 4 Flux caractéristiques
+  (`flux-monetaires-section.tsx` : BAIIA ajusté bas/haut − impôt (taux %) −
+  ajustement FDR [FDR% VCA × Revenus × croissance] −
+  Capex de maintien bas/haut → flux monétaires caractéristiques ; FDR % lu depuis
+  VCA `net-tangible-fdr-adjustment.pctOfRevenue` ; persisté
+  `cashFlowTaxRate` / `cashFlowEconomicGrowth` /
+  `cashFlowMaintenanceCapexLow` / `cashFlowMaintenanceCapexHigh` +
+  notes `cash-flow`) ;
+  même ForecastConfig `ebitda-multiple-config` + notes que Capitalisation.
+- **Multiplicateur** (`/evaluation/capitalisation`, étape plan « Multiplicateur ») :
+  rapport **CMPC** (WACC société privée) sous l’en-tête valuation (Retour aux
+  étapes / Multiplicateur / Entité / Date de référence). UI `components/cmpc/*`
+  + moteur `lib/cmpc-wacc.ts` (CAPM + primes taille/spécifique, coût de la dette
+  net d’impôt, pondération fonds propres / dette). Le **CMPC retenu** affiché
+  dans le sommaire (et consommé par Capitalisation) est le CMPC calculé
+  (We × Ke + Wd × Kd), sans arrondi 0,25 %. §3 Structure de capital : pondérations CMPC (E / D). La **capacité de
+  remboursement** (VA, Dette / BAIIA, multiple retenu vs capacité max) vit dans
+  l’étape **Capitalisation** (`/evaluation/ebitda-multiple`, §2
+  `repayment-capacity-section.tsx` : VA + Dette / BAIIA capacité max + hypothèses
+  (remboursement et Dette / BAIIA) ; §3
+  `estimated-debt-section.tsx` : dette estimée = VE × pondération dette CMPC ;
+  Dette / BAIIA estimé vs hypothèses et capacité max ; persisté dans
+  `ebitda-multiple-config`).
+  ForecastConfig `cmpc-multiplicateur` (`inputs` + `meta` + sources). La structure
+  `statement_type="capitalisation"` / studio Paramètres n’est plus l’UX principale
+  de cette étape.
+- **Capitalisation** (`/evaluation/ebitda-multiple`, étape plan « Capitalisation ») :
+  rapport continu style VCA (`components/capitalisation/*`) — hero valuation +
+  feuille blanche ; sections 1 Méthode et périmètre
+  (`capitalisation-method-section.tsx`) · 2 Détermination de la valeur d’entreprise
+  (flux caractéristiques bas/haut/moyen depuis Flux monétaires ; multiple retenu
+  = 1 ÷ [CMPC retenu (Multiplicateur) − croissance économique] ; VE = flux ×
+  multiple via `computeCashFlowCapitalisation` ; achalandage = VE − ACN déjà
+  déterminé à l’étape Valeur comptable ajustée
+  (`net-tangible-fdr-adjustment.acn`, bandeau ACN) ; métriques d’évaluation
+  vs dénominateurs moyens (VE/Revenus moyens, VE/BAIIA moyen, VE/Flux moyens,
+  Achalandage/BAIIA moyen, Achalandage/Flux moyens, Flux/BAIIA moyen) via
+  `computeCapitalisationGoodwillAndRatios`) · 3 Analyses des comparables
+  (`analyses-comparables-section.tsx` : tableau Multiples comparables bas/haut
+  + moyenne auto pour VE/Revenus et VE/BAIIA par source — règles empiriques,
+  selon IA, comparables — persisté `comparableMultiples` dans
+  `ebitda-multiple-config` ; graphiques Réel vs sources via
+  `comparable-multiples-chart.tsx` / `buildComparableMetricChartPoints`) ·
+  4 Capacité d’endettement (VA ; Dette / BAIIA capacité max ÷ BAIIA moyen ;
+  hypothèses remboursement + Dette / BAIIA ajusté) · 5 Structure de
+  financement selon le CMPC (`estimated-debt-section.tsx` : VE × Wd ; Dette /
+  BAIIA estimé ; VPM ; comparaison vs hypothèses et capacité max) ·
+  6 Sommaire des hypothèses et sources (style Multiplicateur
+  `assumptions.tsx` : tableau Paramètre | Valeur | Source / justification ;
+  lignes fixes Multiples comparables empiriques/IA/comparables + remboursement
+  taux/durée + Dette/BAIIA empiriques/IA/comparables ; pièce jointe compacte
+  optionnelle ; persisté `analysisSources`) ;
+  bandeau KPI (flux, CMPC, taux, multiple, VE) ; nav d’ancres ; moteur
+  `lib/ebitda-capitalisation.ts` + hook `use-ebitda-capitalisation`.
+- **VCA / FDR représentatif** (`/evaluation/net-tangible-assets`) : rapport
+  continu style Multiplicateur (`components/net-tangible/*`) — sections
+  1 Méthode · 2 Bilan ajusté (section rapport style FDR + tableau buildup
+  slate/mono VC→ACN, moteur d’hypothèse cellule : modes Montant $ /
+  % VC / Juste valeur, buildup live, JVM Capex / surplus annexe,
+  autosave) · 3 FDR représentatif (Hypothèses | Calcul, autosave) ·
+  4 Sources (Ajustements / Dettes / Excédent, montant ≠ 0 ; Capex ALT =
+  Parent - poste d’annexe, ex. Immobilisations corporelles - Terrains) ·
+  5 Restrictions ;
+  bandeau conclusion KPI ; nav d’ancres (plus d’onglets exclusifs). Revenus
+  (12 derniers mois) = TTM du CDR (série `income-statement` +
+  `sumTTMEndingAtCalendarMonth`), même moteur que Sommaire/Détail Annuel
+  Courant ; poste Revenus / ancre `REV` — pas la BV brute (clés de mois
+  françaises, double comptage des parents). Bandeau : FDR = FDR représentatif
+  **ajusté** ; ACN += écart FDR ; Actifs (passifs) excédentaires −= écart FDR
+  (`applyNetTangibleFdrOverviewAdjustment`).
 - **Capex auto** (analyse Capex) : postes **BAIIA** et **Flux de trésorerie -
   Exploitation** (montants TTM) et ratios **Capex / BAIIA**, **Capex / Flux…**
   (`normalizeCapexAutoRatioRow`, liaison verrouillée). Même principe que
@@ -271,6 +370,287 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   remplace que son span `detailOnly` contigu (jamais un strip global par
   lettre). Visibilité / Paramètres : owner contigu, pas le premier row de
   la lettre. Dédup affichage : `uniqueStatementRowsByStructureIndex`.
+  **Hypothèses Dépenses** : mêmes postes Détail que l’annexe (`detailOnly`
+  via lettre du sommaire contigu — ex. Achats CMV.2 sous Annexe B même sans
+  `annexLetter` stocké). Codes calculés ailleurs (CMV.11, EXP.20, IMP, FIN.2…)
+  et famille **AUT** (cession d’immos AUT.3, change, placements…) exclus ;
+  titre d’annexe sans poste masqué. Tableau Dépenses et Revenus : une colonne
+  **% CA** à droite de chaque année (dépenses : réel N-1 puis CA projeté des
+  hypothèses Revenus ; revenus : part du CA total de la colonne), avec un
+  trait vertical entre chaque couple année / % CA ; pas de
+  bouton « % des revenus ». Panneau hypothèse Revenus : onglets Croissance /
+  Saisonnalité (plus de Sommaire ni d’Encaissement) ; Saisonnalité = courbe %
+  + ligne **Revenus** (montants mensuels). Dépenses : Ajustement / Saisonnalité
+  (plus de Sommaire ni Décaissement) ; Saisonnalité = courbe % + ligne **Dépenses**
+  (montants mensuels). Dépenses fixes : courbes des 2 exercices réels + presets
+  (année / moyenne), comme les revenus.
+  Tableau Revenus : montant + % CA + croissance ; pas de ligne de délai de collection.
+  Dépense variable : % des revenus totaux projetés (Hypothèse revenus), sans picker de
+  poste ni option « avant la réalisation des revenus ». Saisonnalité par défaut =
+  mix pondéré des postes Revenus (CA_i × saisonnalité_i) pour l’année projetée ;
+  overlay / appliquer = même référence. **Ajustements** (plusieurs à la fois) :
+  Montant $ = toujours non récurrent + répartition mensuelle (somme 100 %, éditeur
+  compact type Saisonnalité avec « Tout à 0 % » pour placer 100 % sur un mois) ;
+  % des revenus + non récurrent = mois cochés de l’année ; % + récurrent = mois de
+  début puis années suivantes. Calcul = taux mensuel × CA mensuel, puis + montants $.
+  Onglet Saisonnalité : courbe éditable = fond (sans ajustement) ; courbe « Avec
+  ajustement » = mix Dépenses + effets des % (mois ciblés / début) et montants $ ;
+  tableau = Dépenses / Ajustement / Dépenses avec ajustement.
+  **Dépenses fixes** : Montant $ = Non récurrent (répartition mensuelle somme 100 %)
+  ou Récurrent (mois de début, puis années suivantes avec inflation) ; Inflation (%)
+  = Non récurrent (mois cochés) ou Récurrent (mois de début) — le taux remplace le
+  Type/Taux sur ces mois. Saisonnalité 2024/2025/moyenne = historique **du poste** ;
+  avec ajustement = courbes + tableau Dépenses / Ajustement / Dépenses avec
+  ajustement.
+  **Hypothèses Capex** : onglets Sommaire / Taux / Ajustement (plus d’onglet
+  Décaissement séparé). Sommaire mensuel : Capex / Décaissements sur le graphique ;
+  sous le graphique, tableau Coût / Valeur comptable / Amortissement (dotation) —
+  `inChart: false` (pas de ligne Financement / créditeurs ici). Colonnes comme
+  Revenus / Bilan :
+  **Code** | **Taux** | **N-1** | **YTD** (si mois de réf. ≠ clôture) | années projetées
+  (`nMinusOne-and-ytd` — ex. réf. mars 2026 → `Code` | `Taux` | `2025` | `YTD 2026` |
+  `2026` | `2027`…). **En-tête (Code + Taux + années) et colonne Compte figés** au
+  défilement vertical/horizontal de la carte (`max-h` + `sticky`, comme Hypothèses
+  Bilan). Affichage projeté = **valeur comptable** (Coût − Amortissement cumulé) :
+  Coût et Amort. cumulé issus du mapping (`alt_asset_cost` /
+  `alt_accumulated_amortization`) ; **ouverture de la 1re année projetée** =
+  soldes de **clôture N-1** (exercice complet — `forecastProjectionOpeningFromActuals`),
+  jamais le YTD partiel ; N-1 / YTD restent des colonnes série. Sans ajustement,
+  la VNC se projette quand même via la dotation. **Dotation / VNC projetées** =
+  simulation mensuelle (`simulateCapexAssetYearMonths` : après chaque mois d’ajout,
+  dégressif = taux/12 × VNC, linéaire = taux/12 × Coût ; saisonnalité des ajouts
+  Capex) — l’annuel (détail poste + colonnes) = somme des mois / clôture décembre,
+  aligné sur le Sommaire Hypothèse Capex (prise en compte acquisition mi-année).
+  Panneau Ajustement : tableau Coût / Amort. cumulé / VNC ; le montant d’ajustement
+  **augmente le Coût**, puis la dotation augmente l’amortissement cumulé.
+  Cellules projetées **avec ajustement** : point bleu et infobulle
+  (montant ajouté au coût) — distinctes de la VNC après amortissement seul.
+  Sélecteur d’affichage à droite du titre : **Valeur comptable** | **Ajustements**
+  | **Amortissement** (dotation de période par poste / année). Totaux de catégorie
+  via les lignes **Sous-total — Annexe X** (somme des feuilles ; libellé masqué,
+  montants visibles) — pas sur les titres parents ALT-B / ALT-C / ALT-D
+  (Immobilisations corporelles, etc.). Colonnes N-1 / YTD : « - » en modes
+  Ajustements / Amortissement.
+  Chaque ajustement porte son propre financement
+  (`capexFinancing` : comptant / financement / mixte) et calendrier de
+  décaissement mensuel (`seasonalityMonthPercents`, « Tout à 0 % » pour un
+  décaissement ponctuel) ; plusieurs ajustements par année sont additionnés.
+  Dette : Intérêts seulement (option paiement résiduel) ou Capital et intérêt ;
+  date de 1er paiement ≥ première année projetée ; moratoire (mois) — intérêts
+  seulement pour IO, portée intérêts / capital / les deux pour C&I.
+  Capex financé → `debt-forecast` avec `sourceLinkCode` : ALT-B / ALT-D
+  (immos corporelles / incorporels) → **PLT-C** ; ALT-C (biens loués) → **PLT-D**
+  (`debtLinkCodeFromCapexAssetLinkCode`, résolution via `linkCode` structure même si
+  `rowId` est un UUID) — mêmes sections Hypothèses Financement et montants Bilan
+  (PCT-H/I, PLT-C/D) que les emprunts mapping. Pas de section « Autres emprunts »
+  (prêts sans code PLT exclus de l’affichage Financement).
+  **Pro Forma Résultats** (Sommaire + Détail) : `title="États des résultats pro forma"` ;
+  montants projetés = moteurs Hypothèses Revenus + Dépenses (`income-statement-detail`)
+  sur les postes annexes / codes hyp. ; formules de liaison au Sommaire.
+  **Dotation Capex → CDR** : dans Hypothèses Capex, colonne **Code** (à gauche de
+  Taux) — sélection du code amortissement CDR par poste (`amortizationLinkCodes` :
+  CMV.11 / EXP.20 / ADM.20 pour ALT-B/C ; EXP.21 / ADM.21 pour ALT-D). La dotation
+  de période (`depreciationExpense`) est injectée au Détail + Sommaire Pro Forma
+  sur le code choisi (somme des postes Capex feuilles mappés vers ce code). En
+  vue **Mensuel**, la série = dotation mois par mois du Sommaire Capex
+  (`resolveCapexDrivenDepreciationExpenseMonthly`), pas annuel ÷ 12. Sans
+  code sélectionné = 0 $ sur les lignes amort. Inclus dans le rollup annexe
+  Sommaire ; exclus des Hypothèses Dépenses. BAIIA reste REV − hyp. Dépenses.
+  **Intérêts Financement → CDR** : somme des `interestPayment` (portion intérêts
+  uniquement) des emprunts Hypothèses Financement — PLT-C → **FIN.3** (Intérêts
+  sur la dette à long terme) ; PLT-D → **FIN.4** (Intérêts sur les contrats de
+  location-acquisition). Injecté au Détail + Sommaire Pro Forma ; inclus au
+  rollup annexe Frais financiers ; exclus des Hypothèses Dépenses. En vue
+  **Mensuel**, la série = intérêts mois par mois du calendrier d’amortissement
+  (`resolveDebtDrivenInterestExpenseMonthly` / `buildLoanMonthlyPaymentSchedule`)
+  — pas une répartition saisonnière de l’annuel. Panneau emprunt : **Tableau des
+  versements mensuels** (Mois / Intérêts / Capital / Solde résiduel).
+  **Détail Pro Forma** = même structure d’annexes que États des résultats → Détail
+  (Annexe A/B…, sous-lignes `detailOnly`, sous-totaux + ligne vide) ; pas le flat
+  Hypothèses Revenus/Dépenses ; **sans Annexe Impôts** (famille IMP / Exigibles —
+  le montant impôts n’apparaît qu’au Sommaire).
+  **Sommaire Pro Forma** : poste propriétaire d’annexe (CMV, Frais d’administration,
+  Frais financiers…) = somme des sous-lignes `detailOnly` de l’annexe (même montant
+  que Sous-total — Annexe X au Détail). Cascade résultat projetée (comme N-1 / YTD) :
+  **Bénéfice brut** = Revenus − CMV ; **Total des charges** = postes de la section
+  Charges ; **Bénéfice avant impôts** = brut − total charges ; **Impôts** = taux
+  Hypothèses Impôts (`tax-forecast`) × max(0, BAI) (infobulle à côté du libellé) ;
+  **Bénéfice net** = BAI − Impôts ; **BAIIA** projeté = REV − total des postes
+  Hypothèses Dépenses (somme des sous-totaux d’annexes de cette section). Sous
+  **Bénéfice brut**, **Bénéfice net** et **BAIIA** (ex. BAIIA opérationnel) :
+  ligne indentée **% des revenus** = montant ÷ Revenus (colonne par colonne).
+  **Hypothèses Financement** : même carte / tableau que Capex (Emprunt | Taux | années).
+  Clic sur un emprunt → panneau inline (nom, montant, `DebtParamsFields`) ; les
+  autres lignes sont masquées. Emprunts issus du Capex financé : badge Capex +
+  mention « Hypothèse Capex », panneau **lecture seule** (calendrier des versements
+  visible, paramètres non modifiables — gérés dans Capex). Mapping PLT (PLT-B/C/D — pas PLT-G « Dues ») alimente le tableau
+  (solde d’ouverture) ; taux / durée / remboursement se définissent dans le
+  panneau, plus dans le mapping comptable. Emprunts mapping sans hypothèse
+  flaggés « À définir » jusqu’à Enregistrer. Calendrier : Mois (janv. 2026…) /
+  Versement / Intérêts / Capital / Solde résiduel.
+  **Nouveau scénario de projection** (`/projections` + modal) : pas de
+  picker entité / division / sous-division (société = `companyId` d’URL ou première
+  de l’org ; `division_id` / `sub_division_id` nuls). Horizon toujours **annuel**
+  (`projection_horizon: "annual"`), avec vue mensuelle possible ensuite. Date de
+  référence = **mois + année** (`start_month` 1–12 + `start_year`). Ouverture /
+  création → **tableau de bord parcours** `/projections/[projectionId]` (style Plan
+  de valorisation) : nav **Parcours | Résultats | Bilan | Trésorerie | Sommaire**
+  au-dessus de la carte ; Parcours = `ProjectionPlanTrajectory` (6 étapes Hypothèses
+  Revenus → Dépenses → Capex → Financement → Impôts → Bilan, progress
+  `localStorage` `modelisys-projection-plan-progress`) ; Résultats/Bilan/Trésorerie
+  → `/projections/pro-forma?view=…` ; Sommaire = vue d’ensemble sur le dashboard ;
+  « Retour aux étapes » via `ProjectionPlanBackButton` ; deep-link
+  `view` + `hypothesis` sur pro-forma.
+  **Impact financier** (Hypothèses) : panneau sticky à droite
+  (`ProFormaFinancialImpactPanel`) — Revenus, Bénéfice brut (+ % des revenus indenté),
+  Bénéfice net (+ %), BAIIA opérationnel (+ %), trésorerie Exploitation / Investissement /
+  Financement / à la fin — **sélecteur d’année projetée** ; variation vs année précédente
+  ($ et % sous les montants ; pour « % des revenus », uniquement l’écart en points
+  affiché en %, ex. +0,5 %) — 1re année projetée vs **N-1** (exercice complet, jamais
+  le YTD) ; années suivantes vs l’année projetée précédente ; bouton masquer / rouvrir
+  (`localStorage`) ; rafraîchi après `upsertForecastConfig`.
+  **Pro Forma Résultats** (Sommaire + Détail) : colonnes réelles = **N-1** (exercice
+  fiscal complet clos avant la date de référence) puis **YTD** (cumul d’exercice
+  jusqu’au mois de référence), puis les années projetées. Ex. réf. mars 2026,
+  clôture 31 déc. → `2025` | `YTD 2026` | `2026` | `2027`… Bascule **Annuel | Mensuel**
+  à côté de Sommaire/Détail (`forecastColumnHorizon`) : en **Mensuel**, seules les
+  années projetées sont dépliées en mois (ex. 5 ans → 60 colonnes `janv. 2026`…
+  `déc. 2030`, sans N-1/YTD). **Détail** : postes Hyp. Revenus = annuel × saisonnalité
+  poste ; postes Hyp. Dépenses = même moteur que l’onglet Saisonnalité
+  (`avecAjustement` : variable = CA mensuel × taux mois + $ ; fixe = N−1 mensuel ×
+  inflation mois + $) — pas une simple répartition de l’annuel. Sous-totaux d’annexe
+  = somme des postes. Cascade Sommaire via `expandProjectedAnnualTrendToMonthly` +
+  `recomputeProFormaMonthlyIsCascade`. **Amortissement Capex** (CMV.11 / EXP.20 /
+  ADM.20 / EXP.21 / ADM.21) : en Mensuel, dotation mois par mois du moteur Hypothèses
+  Capex Sommaire (`resolveCapexDrivenDepreciationExpenseMonthly` /
+  `simulateCapexAssetYearMonths`) — pas une répartition plate de l’annuel.
+  **Intérêts Financement** (FIN.3 / FIN.4) : en Mensuel, intérêts mois par mois du
+  calendrier d’emprunt (`resolveDebtDrivenInterestExpenseMonthly`). La
+  **fréquence de paiement** Hypothèses Impôts
+  (`taxPaymentFrequency`) pilote les acomptes trésorerie/bilan, pas la charge IS
+  mensuelle. **Hypothèses Revenus,
+  Dépenses et Capex** reprennent les mêmes colonnes. Les configs gardent
+  l’index 0 = réel / 1+ = projeté ; N-1 est une colonne d’affichage supplémentaire
+  (clic d’hypothèse seulement sur les années projetées). **Croissance % / $** de
+  la 1re année projetée (ex. 2026) s’applique sur le **dernier exercice complet
+  (N-1)**, pas sur le YTD (période partielle) ; les années suivantes croissent
+  sur l’année projetée précédente. Même règle pour les **dépenses fixes**
+  (inflation Type/Taux : composé depuis N-1, pas le YTD).
+  **Pro Forma Bilan** (Sommaire + Détail) : même idée, mais en **soldes** (snapshot),
+  pas des cumuls. N-1 = solde à la dernière clôture d’exercice ; **YTD seulement si**
+  le mois de référence ≠ mois de clôture (sinon pas de colonne intermédiaire).
+  Ex. réf. mars 2026, clôture 31 déc. → `2025` (31 déc. 2025) | `YTD 2026` (31 mars 2026)
+  | `2026` | `2027`… ; réf. décembre 2026 → `2025` puis années projetées.
+  **Sommaire Pro Forma Bilan** = mêmes montants projetés qu’**Estimation du Bilan
+  annuel** (moteur d’hypothèses + config `balance-sheet-forecast`), en lecture
+  seule (`forceBilanHypothesisAmounts`, pas de panneau d’ajustement ni pastilles
+  « Hypothèse Capex / Impôts / … »). Pas de vue **Détail** pour le Bilan pro forma
+  (bascule Sommaire/Détail masquée).
+  **Pro Forma Trésorerie** (Sommaire + Détail) : mêmes colonnes que le Bilan
+  Pro forma (N-1 + YTD si le mois de référence ≠ clôture, puis années projetées).
+  Réel = cumul d’exercice (N-1 = exercice clos, YTD = jusqu’au mois de référence) ;
+  Variation = soldes à ces dates. Hypothèses trésorerie : une seule colonne réelle.
+  **Pro Forma Trésorerie — montants projetés** : Bénéfice net = BN Résultats pro forma ;
+  postes Réel IS (amort. corporelles/incorporelles → intérêts / AUT jusqu’aux pertes
+  (gain) litige) = mêmes montants que le Détail Résultats pro forma (via codes
+  attachés TEX→IS + Capex/Financement) ; **colonnes réelles (N-1 / YTD)** = montants
+  déjà calculés du **Cashflow Détail** (`preserveForecastActualColumnsFromBase`) —
+  l’injection pro forma ne touche que les années projetées ;
+  **Variation du FDR / investissement /
+  financement** = `variation_nn1` / `variation_n1n` sur soldes **Bilan pro forma** :
+  1re année projetée vs **N-1** (jamais le YTD) ; années suivantes vs l’année
+  projetée précédente. Sans driver d’hypothèse bilan, le solde projeté **reporte**
+  l’ouverture (N-1 puis année précédente) pour une variation 0 $ (ex. capital-actions) ;
+  N-1/YTD série CF ne comble que les soldes encore vides (n’écrase pas un stock BS).
+  **Trésorerie au début** projetée = **Trésorerie à la fin** de N-1 (exercice complet,
+  jamais le YTD) ; années suivantes = fin de l’année précédente
+  (`chainProFormaBeginningCashTrend`). **Dispositions (acquisitions)** ALT-B / ALT-C /
+  ALT-D = ± somme des **ajustements Hypothèses Capex** de la famille (pas le Δ VNC) ;
+  **Variation des impôts exigibles** = Δ(Passif PCT-FF − Actif ACT-H) via le moteur
+  Impôts. Pas d’ouverture de lignes (GL) sur le CF pro forma (`disableRowInteractions`).
+  Détail Pro Forma : pas d’ouverture de lignes (GL / annexes) ; postes à 0 $ masqués
+  (même filtre d’horizon que le Détail historique). Sommaire Pro Forma : pas d’ouverture
+  de lignes non plus.
+  Hypothèses Bilan : N-1 + YTD (même date de référence que Revenus / Bilan pro forma).
+  **Hypothèses Impôts** : taux unique (`tax-forecast`, défaut 26 %) applicable aux
+  années projetées (poste IMP) + **Paiement des impôts** (`taxPaymentFrequency` :
+  Mensuel / Trimestriel / Semestriel / Annuel, défaut Annuel). **Actif d'impôts
+  exigibles** (ACT-H) et **Passif d'impôts exigibles** (PCT-FF) : mention
+  « Hypothèse Impôts », non ajustables au bilan ; soldes projetés liés =
+  Impôts pro forma de l’année + Passif ouverture − Actif ouverture
+  − Impôts de la période précédente payés (1re année = charge N-1 réelle ;
+  ensuite = impôts projetés de l’année précédente). Horizon annuel = 100 %
+  versé quelle que soit la fréquence (acomptes utiles en mensuel). Ouverture
+  1re année = N-1 / exercice complet, puis soldes projetés précédents ; si
+  net > 0 → Passif, si net < 0 → Actif = |net|.
+  **Hypothèses Bilan** : même tableau que le **Sommaire** du bilan (`Estimation du Bilan annuel`),
+  sans les sous-lignes Détail / annexes ; **ligne Validation** au-dessus de la section Actif
+  (écart = Total actif − Total passifs et capitaux propres, comme le Bilan Sommaire ;
+  bandeau ambre si déséquilibré) ; colonnes = **même date de référence** que
+  Hypothèses Revenus (`nMinusOne-and-ytd` : N-1 + YTD puis années projetées — ex. réf.
+  mars 2026 → `2025` | `YTD 2026` | `2026` | …). Ajustements live
+  (`bilanAdjustmentsOverride` → `useProFormaCashFlowProjected`) : Encaisse / Découvert
+  se recalculent immédiatement (WC + Trésorerie à la fin). **Dividendes** (CAP-C) →
+  CF pro forma « Versement de dividendes » (CAP-C.2 / libellé) = −|dividendes| sur les
+  années projetées (`isCashFlowDividendPaymentRow` / `buildProFormaDividendPaymentTrend`).
+  Sous-totaux (Total ACT, Total de
+  l'actif, Total du passif, etc.) = **même logique que le Bilan Sommaire** :
+  `formula` (± refs) ou `liaisonMode: "sum"` + `liaisonSumCodes` (ex. ACT-* + ALT-*
+  pour Total de l'actif), sinon repli positionnel ; N-1 / YTD / années projetées ;
+  non cliquables. Titres de section (Actif, Passif…) : pas de clic ; montants à 0 $
+  invisibles. Clic sur une année projetée (postes) → panneau
+  d’ajustement (Montant $ ; comptes clients et stocks : drivers ; créditeurs :
+  délai de paiement / CMV ou % des revenus ; **Bénéfices non répartis** (CAP-C) :
+  panneau **Bénéfice de la période** (lecture seule = BN projeté aligné Résultats
+  pro forma : REV − hyp. Dépenses − dotation Capex − intérêts Financement − impôts) +
+  **Dividendes** (modifiable) ; solde projeté =
+  ouverture du **dernier exercice complet** pour la 1re année projetée
+  (N-1 si YTD partiel ; sinon la seule colonne réelle = exercice complet),
+  puis ouverture = BNR projeté de l’année précédente ; + BN − dividendes ;
+  autres postes ACT : Montant $ ou
+  **% des revenus** ; **Produits reportés** (PCT-PD) : Montant $ ou **% des revenus** ;
+  récurrent, note). Encaisse (ACT-A / ACT-A.1) et **Découvert
+  bancaire** (PCT-A) ne sont pas ajustables : mention « Trésorerie à la fin » ;
+  montants projetés = split de la **Trésorerie à la fin** du CF pro forma
+  (`buildProFormaCashFlowYearRows` / `computeProFormaEndingCashTrend` — **même builder**
+  que CashFlowDetail pro forma années : TIN Coût, TTM fiscal, reconcile GL, inject
+  WC/IS/Capex, formules, trésorerie fixe) : fin > 0 → Encaisse = fin et Découvert = 0 $ ;
+  fin < 0 → Encaisse = 0 $ et Découvert = |fin| ; fin = 0 → les deux à 0 $.
+  **Portion court
+  terme - Dette long terme** (PCT-H), **Portion court terme - Location-acquisition**
+  (PCT-I), **Dette à long terme** (PLT-C) et **Obligations de location-acquisition**
+  (PLT-D) : mention « Hypothèse Financement » ; emprunts mappés sur PLT-C/D.
+  **PCT-H / PCT-I** = capital + intérêts des **12 prochains mois** (amortYear + 1) ;
+  **PLT-C / PLT-D** = `endingBalance` − capital des 12 prochains mois (jamais négatif ;
+  0 $ sans hyp. définie). Comptes clients (ACT-C) : **Délai de collection des clients**
+  ou **% des revenus**, avec les 2 derniers exercices réels sous chaque option
+  (soldes de **clôture d’exercice** N-2 / N-1 — mêmes montants que la colonne N-1
+  du tableau, pas le mois de référence YTD) ;
+  le montant projeté = CA × jours/365 ou CA × % (CA = revenus projetés Hypothèses
+  Revenus, via `forecastDisplayToConfigYearIndex` — feuilles d’annexe, jamais le
+  total parent ; sans hypothèse revenus l’année vaut 0 $, pas de croissance
+  implicite).   Stocks (ACT-F) : **Délai de rotation des stocks** (base **CMV projeté** des
+  Hypothèses Dépenses — 0 $ si aucune dépense CMV projetée, jamais inventé depuis N-1 / CA)
+  ou **Stocks en % des revenus** (même CA projeté que comptes clients) ; historique N-2 / N-1
+  avec CMV + REV (clôtures d’exercice).   Créditeurs (PCT-C) et **Créditeurs - Apparentés** (PCT-D) : **Délai de paiement des créditeurs**
+  (Créditeurs = **CMV projeté** × jours / 365 ; 0 $ sans hyp. dépenses CMV)
+  ou **% des revenus** (même CA) ;
+  historique N-2 / N-1 avec AP + CMV + REV aux mêmes clôtures. **Immobilisations
+  corporelles / Biens loués / Actifs incorporels** (ALT-B / ALT-C / ALT-D) : non
+  ajustables — mention « Hypothèse Capex » ; montants projetés = **valeur comptable**
+  Hypothèses Capex (`capex-forecast`, même moteur que Estimation des Capex —
+  amortissement + ajouts au coût).   Parent en `liaisonMode: "sum"` (ex. Immobilisations corporelles) : Capex prioritaire sur la
+  somme liaison (feuilles souvent `detailOnly` absentes du Sommaire) ; rollup =
+  somme des VNC Capex de **toutes** les feuilles descendantes (avec ou sans
+  ajustement — même total qu’Hypothèses Capex après rollup parent) via `linkCode`
+  stocké sur l’ajustement / peers Capex. Autres ACT (ex. ACT-B Placements temporaires, ACT-D, ACT-J…) :
+  **Montant $** ou **% des revenus** (même CA) ; le % remplace le solde, le
+  montant s’ajoute à la base.
+  « Appliquer aux années suivantes »
+  reporte le délai ou le %, pas le montant ; chaque année suivante applique
+  la même formule (CA de l’année pour le % ; CMV projeté de l’année pour le délai). Première
+  année projetée = année civile courante (comme Revenus) ; les 2 exercices
+  réels affichés sont N-2 et N-1.
 - Cash flow is derived from income statement + balance sheet deltas
 - **Sommaire** trésorerie : lignes cochées « Annexe » (`showInSummary`) dans
   Détail → Paramètres ; même moteur de calcul que le Détail (`variant="summary"`).

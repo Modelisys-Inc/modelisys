@@ -564,8 +564,22 @@ export function isComputedNetIncomeLinkCode(code: string): boolean {
   return code.trim() === NET_INCOME_BALANCE_LINK_CODE
 }
 
-/** Racines PLT éligibles à la saisie durée restante / taux d'intérêt (mapping comptable). */
-export const MAPPING_LIABILITY_TERM_LINK_CODE_ROOTS = ["PLT-B", "PLT-G", "PLT-C", "PLT-D"] as const
+/** Racines PLT importées dans Financement (taux / durée saisis dans les hypothèses).
+ * PLT-G (« Dues ») est exclu : poste distinct du bilan, pas un emprunt amorti. */
+export const MAPPING_LIABILITY_TERM_LINK_CODE_ROOTS = ["PLT-B", "PLT-C", "PLT-D"] as const
+
+export type MappingLiabilityTermLinkCodeRoot =
+  (typeof MAPPING_LIABILITY_TERM_LINK_CODE_ROOTS)[number]
+
+/** Libellés officiels (MO.xlsx / standard_link_codes) pour les sections Financement. */
+export const MAPPING_LIABILITY_TERM_ROOT_LABELS: Record<
+  MappingLiabilityTermLinkCodeRoot,
+  string
+> = {
+  "PLT-B": "Billet à payer",
+  "PLT-C": "Dette à long terme",
+  "PLT-D": "Obligations de location-acquisition",
+}
 
 export function isMappingLiabilityTermLinkCode(code: string): boolean {
   const normalized = code.trim()
@@ -575,10 +589,9 @@ export function isMappingLiabilityTermLinkCode(code: string): boolean {
   )
 }
 
-export function showsMappingLiabilityTermOptions(linkCode: string | undefined): boolean {
-  const lc = linkCode?.trim()
-  if (!lc) return false
-  return isMappingLiabilityTermLinkCode(lc)
+/** Taux et durée restante ne se saisissent plus dans le mapping — uniquement dans Financement. */
+export function showsMappingLiabilityTermOptions(_linkCode?: string): boolean {
+  return false
 }
 
 export function sanitizeMappingLiabilityTermFields<
@@ -588,23 +601,34 @@ export function sanitizeMappingLiabilityTermFields<
     liabilityInterestRate?: number
   },
 >(draft: T): T {
-  if (!showsMappingLiabilityTermOptions(draft.linkCode)) {
-    return {
-      ...draft,
-      liabilityRemainingYears: undefined,
-      liabilityInterestRate: undefined,
-    }
+  return {
+    ...draft,
+    liabilityRemainingYears: undefined,
+    liabilityInterestRate: undefined,
   }
-  return draft
 }
 
 /** Racines Bilan affichées dans « Estimation des Capex annuels » (projections). */
 export const CAPEX_PROJECTION_LINK_CODE_ROOTS = ["ALT-B", "ALT-C", "ALT-D"] as const
 
+/**
+ * Postes bilan pilotés par Hypothèses Financement (debt-forecast) :
+ * portions CT dette / location + dettes LT / obligations location-acquisition.
+ */
+export const FINANCING_BILAN_LINK_CODE_ROOTS = ["PCT-H", "PCT-I", "PLT-C", "PLT-D"] as const
+
 export function isCapexProjectionLinkCode(code: string): boolean {
   const normalized = code.trim()
   if (!normalized) return false
   return CAPEX_PROJECTION_LINK_CODE_ROOTS.some(
+    (root) => normalized === root || normalized.startsWith(`${root}.`),
+  )
+}
+
+export function isFinancingBilanLinkCode(code: string): boolean {
+  const normalized = code.trim().toUpperCase()
+  if (!normalized) return false
+  return FINANCING_BILAN_LINK_CODE_ROOTS.some(
     (root) => normalized === root || normalized.startsWith(`${root}.`),
   )
 }
@@ -617,6 +641,20 @@ export function capexProjectionParentRoot(code: string): (typeof CAPEX_PROJECTIO
       (root) => normalized === root || normalized.startsWith(`${root}.`),
     ) ?? null
   )
+}
+
+/**
+ * Capex financé → code passif Hypothèses Financement / Bilan :
+ * ALT-B (immos corporelles) et ALT-D (incorporels) → PLT-C ;
+ * ALT-C (biens loués) → PLT-D.
+ */
+export function debtLinkCodeFromCapexAssetLinkCode(
+  assetLinkCode: string | null | undefined,
+): "PLT-C" | "PLT-D" | undefined {
+  const root = capexProjectionParentRoot(String(assetLinkCode ?? ""))
+  if (root === "ALT-C") return "PLT-D"
+  if (root === "ALT-B" || root === "ALT-D") return "PLT-C"
+  return undefined
 }
 
 export function compareCapexProjectionLinkCodes(a: string, b: string): number {

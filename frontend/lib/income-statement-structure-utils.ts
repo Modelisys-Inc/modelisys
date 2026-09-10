@@ -365,6 +365,36 @@ export function findContiguousDetailAnnexOwnerIndex(
   return -1
 }
 
+function findStructureRowIndex(
+  row: Record<string, unknown>,
+  structure: Record<string, unknown>[],
+): number {
+  return structure.findIndex(
+    (r) =>
+      r === row ||
+      (String(r.id ?? "").trim() !== "" &&
+        String(r.id ?? "").trim() === String(row.id ?? "").trim()),
+  )
+}
+
+/**
+ * Lettre d’annexe d’une ligne structure : propre d’abord, sinon celle du poste
+ * sommaire contigu pour les sous-lignes `detailOnly` (souvent stockées sans lettre).
+ */
+export function resolveStructureAnnexLetter(
+  row: Record<string, unknown>,
+  structure: Record<string, unknown>[] = [],
+): string {
+  const own = normalizeAnnexLetter(String(row.annexLetter ?? ""))
+  if (own) return own
+  if (!isStructureRowDetailOnly(row) || structure.length === 0) return ""
+  const idx = findStructureRowIndex(row, structure)
+  if (idx < 0) return ""
+  const ownerIdx = findContiguousDetailAnnexOwnerIndex(structure, idx)
+  if (ownerIdx < 0) return ""
+  return normalizeAnnexLetter(String(structure[ownerIdx]!.annexLetter ?? ""))
+}
+
 /** Ligne sommaire visible au Détail (hors sous-lignes `detailOnly`). */
 export function isSummaryRowVisibleInDetail(row: Record<string, unknown>): boolean {
   if (isStructureRowEmptyLabel(row)) return false
@@ -1233,21 +1263,64 @@ export function structureHasRevenuePosteNatureRow(structure: Record<string, unkn
 }
 
 /**
- * Le premier poste sommaire (non detailOnly) portant cette lettre d’annexe a-t-il la nature « Revenus » ?
+ * Nature Revenus / Dépenses du bloc d’annexe : poste sommaire visible d’abord
+ * (ignore EXP/VNT auto-masqués), sinon premier poste sommaire portant la lettre.
+ */
+function annexOwnerPosteNature(
+  structure: Record<string, unknown>[],
+  letter: string,
+): IncomeStatementPosteNature | undefined {
+  const visible = findSummaryAnnexOwnerRow(structure, letter)
+  if (visible) {
+    const fromVisible = normalizePosteNature(visible.posteNature)
+    if (fromVisible) return fromVisible
+  }
+  const L = normalizeAnnexLetter(letter)
+  if (!L) return undefined
+  for (const row of structure) {
+    if (isStructureRowDetailOnly(row) || isStructureRowEmptyLabel(row)) continue
+    if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== L) continue
+    const n = normalizePosteNature(row.posteNature)
+    if (n) return n
+  }
+  return undefined
+}
+
+function structureRowMatchesAnnexPosteNature(
+  structRow: Record<string, unknown>,
+  structure: Record<string, unknown>[],
+  nature: IncomeStatementPosteNature,
+): boolean {
+  if (normalizePosteNature(structRow.posteNature) === nature) return true
+  if (!isStructureRowDetailOnly(structRow)) return false
+  const letter = resolveStructureAnnexLetter(structRow, structure)
+  if (letter && annexOwnerPosteNature(structure, letter) === nature) return true
+  const idx = findStructureRowIndex(structRow, structure)
+  if (idx < 0) return false
+  const ownerIdx = findContiguousDetailAnnexOwnerIndex(structure, idx)
+  if (ownerIdx < 0) return false
+  return normalizePosteNature(structure[ownerIdx]!.posteNature) === nature
+}
+
+/**
+ * Le poste sommaire portant cette lettre d’annexe a-t-il la nature « Revenus » ?
  * Les sous-lignes du Détail héritent du même bloc d’annexe que ce titre.
  */
 export function structureAnnexIsRevenueNature(
   structure: Record<string, unknown>[],
   letter: string
 ): boolean {
-  const L = normalizeAnnexLetter(letter)
-  if (!L) return false
-  for (const row of structure) {
-    if (isStructureRowDetailOnly(row)) continue
-    if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== L) continue
-    return normalizePosteNature(row.posteNature) === "revenus"
-  }
-  return false
+  return annexOwnerPosteNature(structure, letter) === "revenus"
+}
+
+/** Ligne de structure éligible à « Estimation des revenus annuels » (même périmètre que le Détail). */
+export function structureRowBelongsToRevenueAnnexDetail(
+  structRow: Record<string, unknown>,
+  structure: Record<string, unknown>[],
+): boolean {
+  if (isStructureRowEmptyLabel(structRow) || isStructureRowHidden(structRow)) return false
+  if (!isCodeMappingEnabled(structRow) || !isShowInDetail(structRow, structure)) return false
+  return structureRowMatchesAnnexPosteNature(structRow, structure, "revenus")
 }
 
 /**
@@ -1260,15 +1333,7 @@ export function seriesRowBelongsToRevenueAnnexDetail(
 ): boolean {
   const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
   if (!structRow) return false
-  if (!isCodeMappingEnabled(structRow) || !isShowInDetail(structRow, structure)) return false
-
-  if (normalizePosteNature(structRow.posteNature) === "revenus") return true
-
-  if (isStructureRowDetailOnly(structRow)) {
-    return structureAnnexIsRevenueNature(structure, String(structRow.annexLetter ?? ""))
-  }
-
-  return false
+  return structureRowBelongsToRevenueAnnexDetail(structRow, structure)
 }
 
 /** Au moins un poste du sommaire est marqué « Dépenses » (nature). */
@@ -1280,21 +1345,14 @@ export function structureHasDepensesPosteNatureRow(structure: Record<string, unk
 }
 
 /**
- * Le premier poste sommaire (non detailOnly) portant cette lettre d’annexe a-t-il la nature « Dépenses » ?
+ * Le poste sommaire portant cette lettre d’annexe a-t-il la nature « Dépenses » ?
  * Les sous-lignes du Détail héritent du même bloc d’annexe que ce titre.
  */
 export function structureAnnexIsDepensesNature(
   structure: Record<string, unknown>[],
   letter: string
 ): boolean {
-  const L = normalizeAnnexLetter(letter)
-  if (!L) return false
-  for (const row of structure) {
-    if (isStructureRowDetailOnly(row)) continue
-    if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== L) continue
-    return normalizePosteNature(row.posteNature) === "depenses"
-  }
-  return false
+  return annexOwnerPosteNature(structure, letter) === "depenses"
 }
 
 export function seriesRowUsesCapexProjectionLinkCode(
@@ -1429,6 +1487,7 @@ export function groupCapexProjectionSeriesRows<
 /** Racines de codes calculés ailleurs en projection (non saisis dans « Estimation des dépenses annuelles »). */
 export const PROJECTION_COMPUTED_EXPENSE_LINK_CODE_ROOTS = [
   "IMP",
+  "AUT",
   "CMV.11",
   "EXP.20",
   "EXP.21",
@@ -1442,9 +1501,64 @@ export const PROJECTION_COMPUTED_EXPENSE_LINK_CODE_ROOTS = [
 export function isExcludedProjectionComputedExpenseLinkCode(code: string): boolean {
   const normalized = code.trim()
   if (!normalized) return false
+  // Famille AUT (AUT.3 cession d’immos, AUT.4 placements, AUT-Z custom…) :
+  // hors mapping GL, hors CAP-C.1 — pas une dépense d’exploitation à saisir.
+  if (normalized === "AUT" || normalized.startsWith("AUT.") || normalized.startsWith("AUT-")) {
+    return true
+  }
   return PROJECTION_COMPUTED_EXPENSE_LINK_CODE_ROOTS.some(
     (root) => normalized === root || normalized.startsWith(`${root}.`),
   )
+}
+
+/** Famille IMP (Impôts) — calculée via Hypothèses Impôts, pas saisie en annexe Détail Pro Forma. */
+export function isImpotsFamilyLinkCode(code: string | null | undefined): boolean {
+  const normalized = String(code ?? "")
+    .trim()
+    .toUpperCase()
+  if (!normalized) return false
+  return normalized === "IMP" || normalized.startsWith("IMP.") || normalized.startsWith("IMP-")
+}
+
+function labelLooksLikeImpots(label: string): boolean {
+  const lab = normLabel(label)
+  return (
+    lab === "impôts" ||
+    lab === "impots" ||
+    lab.startsWith("impôts ") ||
+    lab.startsWith("impots ") ||
+    lab.startsWith("impôt ") ||
+    lab.startsWith("impot ")
+  )
+}
+
+/** Poste / annexe Impôts (titre ou sous-ligne Exigibles, etc.). */
+export function structureRowBelongsToImpotsAnnexDetail(
+  structRow: Record<string, unknown>,
+  structure: Record<string, unknown>[],
+): boolean {
+  if (collectLinkCodesFromStructureRow(structRow).some(isImpotsFamilyLinkCode)) return true
+  if (labelLooksLikeImpots(String(structRow.label ?? ""))) return true
+  const letter = resolveStructureAnnexLetter(structRow, structure)
+  if (!letter) return false
+  for (const row of structure) {
+    if (isStructureRowDetailOnly(row)) continue
+    if (normalizeAnnexLetter(String(row.annexLetter ?? "")) !== letter) continue
+    if (collectLinkCodesFromStructureRow(row).some(isImpotsFamilyLinkCode)) return true
+    if (labelLooksLikeImpots(String(row.label ?? ""))) return true
+  }
+  return false
+}
+
+export function seriesRowBelongsToImpotsAnnexDetail(
+  sr: { id: string; label: string; linkCode?: string | null },
+  structure: Record<string, unknown>[],
+): boolean {
+  if (isImpotsFamilyLinkCode(sr.id) || isImpotsFamilyLinkCode(sr.linkCode)) return true
+  if (labelLooksLikeImpots(sr.label)) return true
+  const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
+  if (!structRow) return false
+  return structureRowBelongsToImpotsAnnexDetail(structRow, structure)
 }
 
 /** Tous les codes de liaison référencés par une ligne de structure (unique, somme, soustraction). */
@@ -1477,6 +1591,17 @@ export function seriesRowUsesExcludedProjectionExpenseLinkCode(
   return structureRowUsesExcludedProjectionExpenseLinkCode(structRow)
 }
 
+/** Ligne de structure éligible à « Estimation des dépenses annuelles » (Détail, hors codes calculés ailleurs). */
+export function structureRowBelongsToDepensesAnnexDetail(
+  structRow: Record<string, unknown>,
+  structure: Record<string, unknown>[],
+): boolean {
+  if (isStructureRowEmptyLabel(structRow) || isStructureRowHidden(structRow)) return false
+  if (structureRowUsesExcludedProjectionExpenseLinkCode(structRow)) return false
+  if (!isCodeMappingEnabled(structRow) || !isShowInDetail(structRow, structure)) return false
+  return structureRowMatchesAnnexPosteNature(structRow, structure, "depenses")
+}
+
 /**
  * Ligne série « Estimation des dépenses annuelles » : même périmètre que le Détail (annexe + codes actifs),
  * restreint aux postes / annexes dont la nature au sommaire est « Dépenses ».
@@ -1488,15 +1613,34 @@ export function seriesRowBelongsToDepensesAnnexDetail(
   const structRow = findStructureRowForStatementLine(sr.id, sr.label, structure)
   if (!structRow) return false
   if (seriesRowUsesExcludedProjectionExpenseLinkCode(sr, structure)) return false
-  if (!isCodeMappingEnabled(structRow) || !isShowInDetail(structRow, structure)) return false
+  return structureRowBelongsToDepensesAnnexDetail(structRow, structure)
+}
 
-  if (normalizePosteNature(structRow.posteNature) === "depenses") return true
-
-  if (isStructureRowDetailOnly(structRow)) {
-    return structureAnnexIsDepensesNature(structure, String(structRow.annexLetter ?? ""))
+/**
+ * Ajoute les postes Détail absents de la série (montants 0) pour qu’une annexe
+ * ne reste pas vide si le matching id/code a échoué.
+ */
+export function ensureSeriesRowsForAnnexDetailScope<T extends { id: string; label: string }>(
+  seriesRows: T[],
+  structure: Record<string, unknown>[],
+  belongs: (row: Record<string, unknown>, structure: Record<string, unknown>[]) => boolean,
+  synthesize: (structRow: Record<string, unknown>) => T,
+): T[] {
+  const present = new Set<number>()
+  for (const sr of seriesRows) {
+    const struct = findStructureRowForStatementLine(sr.id, sr.label, structure)
+    if (!struct) continue
+    present.add(getStructureRowGlobalIndex(struct, structure))
   }
-
-  return false
+  const extras: T[] = []
+  for (const structRow of structure) {
+    if (!belongs(structRow, structure)) continue
+    const idx = getStructureRowGlobalIndex(structRow, structure)
+    if (present.has(idx)) continue
+    extras.push(synthesize(structRow))
+    present.add(idx)
+  }
+  return extras.length === 0 ? seriesRows : [...seriesRows, ...extras]
 }
 
 /** Vérifie l’absence de doublons sur `linkCode` (postes visibles avec code renseigné). */

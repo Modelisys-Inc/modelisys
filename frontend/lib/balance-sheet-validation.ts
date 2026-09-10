@@ -31,12 +31,29 @@ export function isBalanceSheetAssetsSectionLabel(label: string): boolean {
   return lab === "actifs" || lab === "actif"
 }
 
-export function isBalanceSheetTotalAssetsLabel(label: string): boolean {
-  const lab = normalizeBalanceSheetLabel(label)
-  if (!lab) return false
-  if (lab === "total des actifs" || lab === "total de l actif" || lab === "total actif") return true
-  if (lab.includes("total") && lab.includes("actif") && !lab.includes("passif")) return true
+/** Sous-totaux de section (ACT/ALT/court terme…) — pas le grand total du bilan. */
+function isPartialBalanceSheetAssetsTotalLabel(lab: string): boolean {
+  if (/\b(court|long|courants?)\b/.test(lab)) return true
+  if (lab.includes("immobilis")) return true
+  // « Total ACT » (après normalisation) — distinct de « … actif … »
+  if (/\bact\b/.test(lab) && !lab.includes("actif")) return true
   return false
+}
+
+/** Rang : 2 = grand total exact, 1 = autre total d’actif global, -1 = non. */
+function balanceSheetTotalAssetsLabelRank(label: string): number {
+  const lab = normalizeBalanceSheetLabel(label)
+  if (!lab) return -1
+  if (lab === "total des actifs" || lab === "total de l actif" || lab === "total actif") {
+    return 2
+  }
+  if (!(lab.includes("total") && lab.includes("actif") && !lab.includes("passif"))) return -1
+  if (isPartialBalanceSheetAssetsTotalLabel(lab)) return -1
+  return 1
+}
+
+export function isBalanceSheetTotalAssetsLabel(label: string): boolean {
+  return balanceSheetTotalAssetsLabelRank(label) >= 1
 }
 
 export function isBalanceSheetTotalLiabilitiesEquityLabel(label: string): boolean {
@@ -49,7 +66,10 @@ export function isBalanceSheetTotalLiabilitiesEquityLabel(label: string): boolea
   ) {
     return true
   }
-  return lab.includes("total") && lab.includes("passif") && lab.includes("capitaux")
+  if (!(lab.includes("total") && lab.includes("passif") && lab.includes("capitaux"))) return false
+  // Exclure d’éventuels totaux partiels (« … court terme », etc.)
+  if (/\b(court|long|courants?)\b/.test(lab)) return false
+  return true
 }
 
 export function isBalanceSheetValidationStructureRow(row: Record<string, unknown>): boolean {
@@ -59,16 +79,35 @@ export function isBalanceSheetValidationStructureRow(row: Record<string, unknown
   return normalizeBalanceSheetLabel(String(row.label ?? "")) === "validation"
 }
 
+/**
+ * Grand total d’actif : préfère « Total de l'actif » / « Total des actifs »
+ * au dernier match, jamais un sous-total de section (court terme, Total ACT…).
+ */
 export function findBalanceSheetTotalAssetsRow<T extends BalanceSheetAmountRow>(
   rows: T[],
 ): T | undefined {
-  return rows.find((r) => isBalanceSheetTotalAssetsLabel(r.label))
+  let best: T | undefined
+  let bestRank = -1
+  for (const row of rows) {
+    const rank = balanceSheetTotalAssetsLabelRank(row.label)
+    if (rank < 0) continue
+    // Rang supérieur, ou même rang plus bas dans le tableau (grand total en dernier).
+    if (rank > bestRank || rank === bestRank) {
+      best = row
+      bestRank = rank
+    }
+  }
+  return best
 }
 
 export function findBalanceSheetTotalLiabilitiesEquityRow<T extends BalanceSheetAmountRow>(
   rows: T[],
 ): T | undefined {
-  return rows.find((r) => isBalanceSheetTotalLiabilitiesEquityLabel(r.label))
+  let found: T | undefined
+  for (const row of rows) {
+    if (isBalanceSheetTotalLiabilitiesEquityLabel(row.label)) found = row
+  }
+  return found
 }
 
 /** Écart = Total actif − Total passifs et capitaux propres. */
@@ -127,18 +166,26 @@ export function serializeValidationFormula(terms: ValidationFormulaTerm[]): stri
 export function defaultBalanceSheetValidationFormula(
   structure: Record<string, unknown>[],
 ): string[] {
-  let assetsId: string | null = null
-  let liabilitiesId: string | null = null
-  structure.forEach((row, index) => {
-    if (isBalanceSheetValidationStructureRow(row)) return
-    const label = String(row.label ?? "")
-    const id = balanceSheetStructureRowRefId(row, index)
-    if (!assetsId && isBalanceSheetTotalAssetsLabel(label)) assetsId = id
-    if (!liabilitiesId && isBalanceSheetTotalLiabilitiesEquityLabel(label)) liabilitiesId = id
-  })
+  const amountRows = structure.map((row, index) => ({
+    label: String(row.label ?? ""),
+    _index: index,
+    _skip: isBalanceSheetValidationStructureRow(row),
+  }))
+  const assets = findBalanceSheetTotalAssetsRow(
+    amountRows.filter((r) => !r._skip),
+  )
+  const liabilities = findBalanceSheetTotalLiabilitiesEquityRow(
+    amountRows.filter((r) => !r._skip),
+  )
   const terms: string[] = []
-  if (assetsId) terms.push(`+${assetsId}`)
-  if (liabilitiesId) terms.push(`-${liabilitiesId}`)
+  if (assets) {
+    terms.push(`+${balanceSheetStructureRowRefId(structure[assets._index]!, assets._index)}`)
+  }
+  if (liabilities) {
+    terms.push(
+      `-${balanceSheetStructureRowRefId(structure[liabilities._index]!, liabilities._index)}`,
+    )
+  }
   return terms
 }
 

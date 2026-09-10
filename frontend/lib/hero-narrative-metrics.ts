@@ -87,24 +87,28 @@ export const HERO_PHASE_INSIGHTS = {
   ],
 } as const satisfies Record<string, readonly HeroPhaseInsight[]>
 
-/** Bande défilante « Insights » — petits repères chiffrés par phase. */
+/** Bande défilante « Insights » — leviers de création de valeur (hero). */
 export const HERO_INSIGHT_MARQUEE_ITEMS = [
-  `Diagnostic — Revenus ${NARRATIVE_BASELINE.revenus} · BAIIA ${NARRATIVE_BASELINE.baiia} · Valeur ${NARRATIVE_BASELINE.valeur}`,
-  `Diagnostic — Marge brute ${NARRATIVE_BASELINE.margeBrute} · Liquidité 1,1`,
-  "Diagnostic — Concentration client 45 % chez 3 clients",
-  `Diagnostic — Multiple ${NARRATIVE_BASELINE.multiple} · BAIIA norm. ${NARRATIVE_BASELINE.baiiaNormalise}`,
-  `Diagnostic — Fonds de roulement ${NARRATIVE_BASELINE.fondsRoulement}`,
-  `Planification — Revenus ${NARRATIVE_BASELINE.revenus} → ${NARRATIVE_TARGET.revenus} · horizon 3 ans`,
-  `Planification — Valeur ${NARRATIVE_BASELINE.valeur} → ${NARRATIVE_TARGET.valeur}`,
-  `Planification — BAIIA ${NARRATIVE_BASELINE.baiia} → ${NARRATIVE_TARGET.baiia} · marge ${NARRATIVE_TARGET.margeBaiia}`,
-  `Planification — Capex An 2 : ${NARRATIVE_PROJECTION.an2.capex}`,
-  `Planification — Cash flow An 3 : ${NARRATIVE_PROJECTION.an3.cashFlow}`,
-  `Planification — Besoin de financement : ${NARRATIVE_PROJECTION.an2.capex}`,
-  "Pilotage — Revenus T2 : +200 k$ vs prévu",
-  "Pilotage — Marge brute : −2 pts vs prévu",
-  "Pilotage — BAIIA : −30 k$ vs prévu",
-  "Pilotage — Capex : +55 k$ vs prévu",
-  "Pilotage — Cash flow : −18 k$ vs prévu",
+  "Combien vaut votre entreprise ? Et comment augmenter sa valeur ?",
+  "La valeur n'est pas qu'un chiffre — cinq leviers la déterminent",
+  `Valeur d'entreprise — ${NARRATIVE_BASELINE.valeur} aujourd'hui · objectif ${NARRATIVE_TARGET.valeur}`,
+  "Croissance — la croissance crée de la valeur seulement si le BAIIA suit",
+  `Croissance — Revenus ${NARRATIVE_BASELINE.revenus} → ${NARRATIVE_TARGET.revenus} · BAIIA ${NARRATIVE_BASELINE.baiia} → ${NARRATIVE_TARGET.baiia}`,
+  "Croissance — ✓ Revenus et BAIIA en hausse au même rythme",
+  "Croissance — ✗ Revenus en hausse, BAIIA stable ou en baisse",
+  "Rentabilité — toutes les divisions ne contribuent pas pareil au BAIIA",
+  `Rentabilité — Services 34 % · Manufacturier 28 % de marge brute`,
+  "Rentabilité — ✓ Mix orienté vers les segments les plus rentables",
+  "Trésorerie — résultat opérationnel ± fonds de roulement − capex",
+  `Trésorerie — Cash flow cible An 3 : ${NARRATIVE_PROJECTION.an3.cashFlow}`,
+  "Trésorerie — ✓ BAIIA converti en cash · ✗ profits sans trésorerie",
+  "Capital — actifs productifs, excédentaires ou sous-utilisés",
+  `Capital — BFR ${NARRATIVE_BASELINE.fondsRoulement} · dette LT ${NARRATIVE_BASELINE.dette}`,
+  "Capital — ✓ structure légère · ✗ capital immobilisé",
+  `Risque — multiple ${NARRATIVE_BASELINE.multiple} · ce qui fragilise demain`,
+  "Risque — concentration 45 % chez 3 clients · saisonnalité T2–T4",
+  "Risque — ✓ clientèle diversifiée · ✗ dépendance propriétaire et employés clés",
+  "Chaque décision financière a un impact sur la valeur",
 ] as const
 
 export const NARRATIVE_DIVISIONS = [

@@ -2,22 +2,26 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { DashboardHeader } from "@/components/dashboard-header"
-import { EntitySelector } from "@/components/entity-selector"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
-import { TrendingUp, TrendingDown, Calculator, CreditCard, BarChart3, Scale, Waves, Save, FolderOpen, X, Plus, Wallet } from "lucide-react"
+import { TrendingUp, TrendingDown, Calculator, CreditCard, BarChart3, Scale, Waves, Save, FolderOpen, X, Plus, Wallet, Percent, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { IncomeStatementDetail } from "@/components/income-statement-detail"
 import { IncomeStatementSummary } from "@/components/income-statement-summary"
 import { BalanceSheetDetail } from "@/components/balance-sheet-detail"
-import { BalanceSheetSummary } from "@/components/balance-sheet-summary"
 import { CashFlowDetail } from "@/components/cash-flow-detail"
 import { CashFlowSummary } from "@/components/cash-flow-summary"
 import { CapexForecastDetail } from "@/components/capex-forecast-detail"
 import { DebtForecastDetail } from "@/components/debt-forecast-detail"
+import { TaxForecastDetail } from "@/components/tax-forecast-detail"
+import { ProFormaFinancialImpactPanel } from "@/components/pro-forma-financial-impact-panel"
+import { ProjectionPlanBackButton } from "@/components/projection-plan-back-button"
+import { BILAN_HYPOTHESIS_TITLE } from "@/lib/bilan-forecast-utils"
+import { TAX_FORECAST_TITLE } from "@/lib/tax-forecast-utils"
+import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
 import { FDRForecastDetail } from "@/components/fdr-forecast-detail"
 import { useCompanies } from "@/hooks/use-companies"
 import { useSearchParams } from "next/navigation"
@@ -41,9 +45,37 @@ import {
   type ProjectionData,
 } from "@/lib/api"
 
-type ModuleType = "income-statement" | "balance-sheet" | "cash-flow" | "revenue" | "expenses" | "capex" | "debt" | "fdr"
+type ModuleType = "income-statement" | "balance-sheet" | "cash-flow" | "revenue" | "expenses" | "capex" | "debt" | "taxes" | "bilan" | "fdr"
 type TopNav = "income-statement" | "balance-sheet" | "cash-flow" | "assumptions"
-type AssumptionsNav = "revenue" | "expenses" | "capex" | "debt"
+type AssumptionsNav = "revenue" | "expenses" | "capex" | "debt" | "taxes" | "bilan"
+
+const ASSUMPTIONS_NAV_IDS: AssumptionsNav[] = [
+  "revenue",
+  "expenses",
+  "capex",
+  "debt",
+  "taxes",
+  "bilan",
+]
+
+function parseProFormaView(raw: string | null): TopNav | null {
+  if (
+    raw === "assumptions" ||
+    raw === "income-statement" ||
+    raw === "balance-sheet" ||
+    raw === "cash-flow"
+  ) {
+    return raw
+  }
+  return null
+}
+
+function parseProFormaHypothesis(raw: string | null): AssumptionsNav | null {
+  if (raw && ASSUMPTIONS_NAV_IDS.includes(raw as AssumptionsNav)) {
+    return raw as AssumptionsNav
+  }
+  return null
+}
 
 interface Module {
   id: ModuleType
@@ -94,9 +126,21 @@ const assumptionsModules: Module[] = [
   },
   {
     id: "debt",
-    label: "Dettes",
+    label: "Financement",
     icon: CreditCard,
-    description: "Structure de la dette",
+    description: "Structure de financement",
+  },
+  {
+    id: "taxes",
+    label: "Impôts",
+    icon: Percent,
+    description: "Taux d'impôt applicable",
+  },
+  {
+    id: "bilan",
+    label: "Bilan",
+    icon: Scale,
+    description: "Ajustements du bilan",
   },
   {
     id: "fdr",
@@ -145,13 +189,26 @@ export default function ProFormaPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const projectionIdFromUrl = searchParams.get("projectionId")
+  const companyIdFromUrl = searchParams.get("companyId")
+  const viewFromUrl = parseProFormaView(searchParams.get("view"))
+  const hypothesisFromUrl = parseProFormaHypothesis(searchParams.get("hypothesis"))
+  const lockedCompanyId =
+    companyIdFromUrl && companies.some((c) => c.id === companyIdFromUrl) ? companyIdFromUrl : null
   const [companyId, setCompanyId] = useState<string | null>(null)
   const [divisionId, setDivisionId] = useState<string | null>(null)
   const [subDivisionId, setSubDivisionId] = useState<string | null>(null)
-  const [selectedModule, setSelectedModule] = useState<ModuleType>("income-statement")
-  const [topNav, setTopNav] = useState<TopNav>("income-statement")
-  const [assumptionsNav, setAssumptionsNav] = useState<AssumptionsNav>("revenue")
-  const [section, setSection] = useState<"summary" | "detail">("detail")
+  const [selectedModule, setSelectedModule] = useState<ModuleType>(() => {
+    if (viewFromUrl === "assumptions") return hypothesisFromUrl ?? "revenue"
+    return viewFromUrl ?? "income-statement"
+  })
+  const [topNav, setTopNav] = useState<TopNav>(() => viewFromUrl ?? "income-statement")
+  const [assumptionsNav, setAssumptionsNav] = useState<AssumptionsNav>(
+    () => hypothesisFromUrl ?? "revenue",
+  )
+  const [section, setSection] = useState<"summary" | "detail">(() =>
+    viewFromUrl === "balance-sheet" ? "summary" : "detail",
+  )  /** Affichage Résultats pro forma : années ou mois projetés (saisonnalité hyp.). */
+  const [resultsColumnHorizon, setResultsColumnHorizon] = useState<"annual" | "monthly">("annual")
   const [projectionYears, setProjectionYears] = useState<3 | 4 | 5>(5)
   const [projectionMode, setProjectionMode] = useState<"gl" | "account">("gl")
   const [projectionHorizon, setProjectionHorizon] = useState<"annual" | "monthly">("annual")
@@ -165,22 +222,53 @@ export default function ProFormaPage() {
   const [initialModalOpen, setInitialModalOpen] = useState(false)
   const [initialModalMode, setInitialModalMode] = useState<"choice" | "create" | "load">("choice")
   const [newProjectionName, setNewProjectionName] = useState("")
-  const [newProjectionCompanyId, setNewProjectionCompanyId] = useState<string | null>(null)
-  const [newProjectionDivisionId, setNewProjectionDivisionId] = useState<string | null>(null)
-  const [newProjectionSubDivisionId, setNewProjectionSubDivisionId] = useState<string | null>(null)
   const [newProjectionYears, setNewProjectionYears] = useState<3 | 4 | 5>(5)
   const [newProjectionMode, setNewProjectionMode] = useState<"gl" | "account">("gl")
+  const [newProjectionStartYear, setNewProjectionStartYear] = useState<number>(() => new Date().getFullYear())
+  const [newProjectionStartMonth, setNewProjectionStartMonth] = useState<number>(() => new Date().getMonth() + 1)
+  const companyIdForCreate = lockedCompanyId || companies[0]?.id || null
+  const startYearOptions = Array.from({ length: 9 }, (_, i) => new Date().getFullYear() - 2 + i)
+  const monthOptions = [
+    { value: 1, label: "Janvier" },
+    { value: 2, label: "Février" },
+    { value: 3, label: "Mars" },
+    { value: 4, label: "Avril" },
+    { value: 5, label: "Mai" },
+    { value: 6, label: "Juin" },
+    { value: 7, label: "Juillet" },
+    { value: 8, label: "Août" },
+    { value: 9, label: "Septembre" },
+    { value: 10, label: "Octobre" },
+    { value: 11, label: "Novembre" },
+    { value: 12, label: "Décembre" },
+  ]
   // Track which company the projections were loaded for
   const [loadedProjectionsCompanyId, setLoadedProjectionsCompanyId] = useState<string | null>(null)
   const [backDialogOpen, setBackDialogOpen] = useState(false)
   const [backPendingSave, setBackPendingSave] = useState(false)
+  const [impactRefreshKey, setImpactRefreshKey] = useState(0)
 
-  // Auto-select first company for new projection form
   useEffect(() => {
-    if (!newProjectionCompanyId && companies.length > 0) {
-      setNewProjectionCompanyId(companies[0].id)
+    const onConfigChanged = () => setImpactRefreshKey((k) => k + 1)
+    window.addEventListener("modelisys:forecast-config-changed", onConfigChanged)
+    return () => window.removeEventListener("modelisys:forecast-config-changed", onConfigChanged)
+  }, [])
+
+  useEffect(() => {
+    const view = parseProFormaView(searchParams.get("view"))
+    const hypothesis = parseProFormaHypothesis(searchParams.get("hypothesis"))
+    if (!view) return
+    if (view === "assumptions") {
+      const hyp = hypothesis ?? "revenue"
+      setTopNav("assumptions")
+      setAssumptionsNav(hyp)
+      setSelectedModule(hyp)
+      return
     }
-  }, [companies, newProjectionCompanyId])
+    setTopNav(view)
+    setSelectedModule(view)
+    if (view === "balance-sheet") setSection("summary")
+  }, [searchParams])
 
   const selectedModuleData = allModules.find(m => m.id === selectedModule)
   const Icon = selectedModuleData?.icon || BarChart3
@@ -304,25 +392,27 @@ export default function ProFormaPage() {
   }, [projectionIdFromUrl, savedProjections])
 
   const handleCreateNewProjection = async () => {
-    if (!newProjectionName.trim() || !newProjectionCompanyId) return
+    if (!newProjectionName.trim() || !companyIdForCreate) return
 
     try {
-      const created = await createProjection(newProjectionCompanyId, {
+      const created = await createProjection(companyIdForCreate, {
         name: newProjectionName.trim(),
         projection_years: newProjectionYears,
         projection_mode: newProjectionMode,
-        division_id: newProjectionDivisionId || null,
-        sub_division_id: newProjectionSubDivisionId || null,
+        projection_horizon: "annual",
+        start_year: newProjectionStartYear,
+        start_month: newProjectionStartMonth,
+        division_id: null,
+        sub_division_id: null,
       })
       const mapped = mapApiProjection(created)
       setSavedProjections(prev => [...prev, mapped])
       loadProjection(mapped)
       setNewProjectionName("")
-      setNewProjectionCompanyId(null)
-      setNewProjectionDivisionId(null)
-      setNewProjectionSubDivisionId(null)
       setNewProjectionYears(5)
       setNewProjectionMode("gl")
+      setNewProjectionStartYear(new Date().getFullYear())
+      setNewProjectionStartMonth(new Date().getMonth() + 1)
       setInitialModalMode("choice")
     } catch (e) {
       console.error("Error creating projection:", e)
@@ -366,13 +456,24 @@ export default function ProFormaPage() {
 
   // Default values for IncomeStatementDetail, BalanceSheetDetail, and CashFlowDetail
   // For revenue, expenses, capex, debt, fdr, income-statement, balance-sheet, and cash-flow, use annual years view
-  const period: "monthly" | "quarterly" | "annual" = (selectedModule === "revenue" || selectedModule === "expenses" || selectedModule === "capex" || selectedModule === "debt" || selectedModule === "fdr" || selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") ? "annual" : "monthly"
-  const view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years" = (selectedModule === "revenue" || selectedModule === "expenses" || selectedModule === "capex" || selectedModule === "debt" || selectedModule === "fdr" || selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") ? "years" : "current"
+  const period: "monthly" | "quarterly" | "annual" = (selectedModule === "revenue" || selectedModule === "expenses" || selectedModule === "capex" || selectedModule === "debt" || selectedModule === "taxes" || selectedModule === "bilan" || selectedModule === "fdr" || selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") ? "annual" : "monthly"
+  const view: "current" | "comparison" | "ytd" | "ddm" | "12months" | "quarters" | "years" = (selectedModule === "revenue" || selectedModule === "expenses" || selectedModule === "capex" || selectedModule === "debt" || selectedModule === "taxes" || selectedModule === "bilan" || selectedModule === "fdr" || selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow") ? "years" : "current"
   // In projections, we display amounts (not variations) by default.
   const columnMode = "comparison" as const
   const isFinancialStatementModule =
     selectedModule === "income-statement" || selectedModule === "balance-sheet" || selectedModule === "cash-flow"
   const isAssumptions = topNav === "assumptions"
+  const fiscalYearEndMonth = parseFiscalYearEndMonth(
+    companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
+  )
+  const heroTitle =
+    topNav === "income-statement"
+      ? "Résultats projetés"
+      : topNav === "balance-sheet"
+        ? "Bilan projeté"
+        : topNav === "cash-flow"
+          ? "Trésorerie projetée"
+          : "Hypothèses"
   const monthLabel = (m: number | null) => {
     if (!m) return null
     const labels = [
@@ -395,6 +496,8 @@ export default function ProFormaPage() {
   const setFinancialStatementModule = (m: Exclude<TopNav, "assumptions">) => {
     setTopNav(m)
     setSelectedModule(m)
+    // Bilan pro forma : Sommaire seulement (pas de vue Détail).
+    if (m === "balance-sheet") setSection("summary")
   }
 
   const setAssumptionsModule = (m: AssumptionsNav) => {
@@ -424,50 +527,60 @@ export default function ProFormaPage() {
             {/* Espace équivalent au bouton menu du header pour l'alignement */}
             <div className="w-2 flex-shrink-0" />
             <div className="flex-1">
+              {projectionIdFromUrl ? <ProjectionPlanBackButton /> : null}
               <div className="mb-2">
-                <h2 className="text-4xl font-semibold tracking-tight text-[#E6D6C3]">Pro Forma</h2>
+                <h2 className="text-4xl font-semibold tracking-tight text-[#E6D6C3]">{heroTitle}</h2>
               </div>
               <p className="text-base text-[#C9B8A5]/90 mb-6">
                 Générez vos états financiers pro forma basés sur vos projections et hypothèses
               </p>
 
-              {/* Menu principal (Résultats / Bilan / Trésorerie / Hypothèses) — style income-statement */}
-              <div className="flex flex-wrap items-end gap-2 mb-2">
-                <div className="flex flex-wrap items-end gap-8">
-                  {[
-                    { id: "income-statement" as const, label: "Résultats" },
-                    { id: "balance-sheet" as const, label: "Bilan" },
-                    { id: "cash-flow" as const, label: "Trésorerie" },
-                  ].map((item) => {
-                    const isActive = topNav === item.id
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setFinancialStatementModule(item.id)}
-                        className={cn(
-                          "relative inline-block rounded-md px-3 py-1.5 -mx-1 pb-4 border-b border-slate-600/30 text-sm font-normal text-slate-200 transition-colors",
-                          !isActive ? "hover:bg-white/5 hover:text-slate-100" : "hover:bg-white/[0.04]"
-                        )}
-                      >
-                        {item.label}
-                        {isActive && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10" />}
-                      </button>
-                    )
-                  })}
+              {/* Menu principal : Hypothèses → Résultats / Bilan / Trésorerie */}
+              <div className="mb-2 flex flex-wrap items-end gap-2">
+                <div className="flex flex-wrap items-end gap-2">
                   <button
                     type="button"
                     onClick={() => setAssumptionsModule("revenue")}
                     className={cn(
-                      "relative inline-block rounded-md px-3 py-1.5 -mx-1 pb-4 border-b border-slate-600/30 text-sm font-normal text-slate-200 transition-colors",
-                      topNav !== "assumptions" ? "hover:bg-white/5 hover:text-slate-100" : "hover:bg-white/[0.04]"
+                      "relative -mx-1 inline-block rounded-md border-b border-slate-600/30 px-3 py-1.5 pb-4 text-sm font-normal text-slate-200 transition-colors",
+                      topNav !== "assumptions" ? "hover:bg-white/5 hover:text-slate-100" : "hover:bg-white/[0.04]",
                     )}
                   >
                     Hypothèses
                     {topNav === "assumptions" && (
-                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#E0742D] z-10" />
+                      <div className="absolute bottom-0 left-0 right-0 z-10 h-0.5 bg-[#E0742D]" />
                     )}
                   </button>
+                  <ChevronRight
+                    className="mb-4 h-3.5 w-3.5 shrink-0 self-end text-[#E0742D]/75"
+                    strokeWidth={2.25}
+                    aria-hidden
+                  />
+                  <div className="flex flex-wrap items-end gap-8">
+                    {[
+                      { id: "income-statement" as const, label: "Résultats" },
+                      { id: "balance-sheet" as const, label: "Bilan" },
+                      { id: "cash-flow" as const, label: "Trésorerie" },
+                    ].map((item) => {
+                      const isActive = topNav === item.id
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setFinancialStatementModule(item.id)}
+                          className={cn(
+                            "relative -mx-1 inline-block rounded-md border-b border-slate-600/30 px-3 py-1.5 pb-4 text-sm font-normal text-slate-200 transition-colors",
+                            !isActive ? "hover:bg-white/5 hover:text-slate-100" : "hover:bg-white/[0.04]",
+                          )}
+                        >
+                          {item.label}
+                          {isActive && (
+                            <div className="absolute bottom-0 left-0 right-0 z-10 h-0.5 bg-[#E0742D]" />
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -477,9 +590,9 @@ export default function ProFormaPage() {
           <div className="mb-6">
             <div className="rounded-2xl border border-white/10 bg-[#2A2F3A]/45 px-3 py-3 backdrop-blur-sm sm:px-4">
               <div className="flex flex-wrap items-center gap-3">
-                {/* États financiers: Vue (Sommaire / Détail) */}
-                {!isAssumptions && isFinancialStatementModule && (
-                  <div className="flex items-center gap-2">
+                {/* États financiers: Vue (Sommaire / Détail) — pas de Détail pour Bilan pro forma */}
+                {!isAssumptions && isFinancialStatementModule && selectedModule !== "balance-sheet" && (
+                  <div className="flex flex-wrap items-center gap-2">
                     <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
                       <Button
                         variant="ghost"
@@ -506,10 +619,73 @@ export default function ProFormaPage() {
                         Détail
                       </Button>
                     </div>
+                    {selectedModule === "income-statement" && (
+                      <div
+                        className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm"
+                        data-testid="pro-forma-results-column-horizon"
+                      >
+                        <Button
+                          variant="ghost"
+                          onClick={() => setResultsColumnHorizon("annual")}
+                          className={cn(
+                            "h-8 text-xs px-3 transition-all",
+                            resultsColumnHorizon === "annual"
+                              ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                              : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                          )}
+                        >
+                          Annuel
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          onClick={() => setResultsColumnHorizon("monthly")}
+                          className={cn(
+                            "h-8 text-xs px-3 transition-all",
+                            resultsColumnHorizon === "monthly"
+                              ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                              : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                          )}
+                        >
+                          Mensuel
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* Hypothèses: sous-menu (Revenus / Dépenses / Capex / Dettes) */}
+                {!isAssumptions && isFinancialStatementModule && selectedModule === "balance-sheet" && (
+                  <div
+                    className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm"
+                    data-testid="pro-forma-balance-column-horizon"
+                  >
+                    <Button
+                      variant="ghost"
+                      onClick={() => setResultsColumnHorizon("annual")}
+                      className={cn(
+                        "h-8 text-xs px-3 transition-all",
+                        resultsColumnHorizon === "annual"
+                          ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                          : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                      )}
+                    >
+                      Annuel
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setResultsColumnHorizon("monthly")}
+                      className={cn(
+                        "h-8 text-xs px-3 transition-all",
+                        resultsColumnHorizon === "monthly"
+                          ? "bg-[#E0742D] text-white font-medium shadow-sm hover:bg-[#c96526]"
+                          : "text-[#C9B8A5]/90 hover:bg-white/5 hover:text-[#E6D6C3]"
+                      )}
+                    >
+                      Mensuel
+                    </Button>
+                  </div>
+                )}
+
+                {/* Hypothèses: sous-menu (Revenus / Dépenses / Capex / Financement / Impôts / Bilan) */}
                 {isAssumptions && (
                   <div className="flex items-center gap-2">
                     <div className="inline-flex rounded-[10px] border border-white/10 bg-[#2A2F3A]/70 p-1 backdrop-blur-sm">
@@ -517,7 +693,9 @@ export default function ProFormaPage() {
                         { id: "revenue" as const, label: "Revenus" },
                         { id: "expenses" as const, label: "Dépenses" },
                         { id: "capex" as const, label: "Capex" },
-                        { id: "debt" as const, label: "Dettes" },
+                        { id: "debt" as const, label: "Financement" },
+                        { id: "taxes" as const, label: "Impôts" },
+                        { id: "bilan" as const, label: "Bilan" },
                       ].map((item) => {
                         const isActive = assumptionsNav === item.id
                         return (
@@ -589,15 +767,9 @@ export default function ProFormaPage() {
                 <div className="whitespace-nowrap">
                   <span className="text-white/50">Date de référence</span>{" "}
                   <span className="font-medium text-slate-100">
-                    {projectionStartYear ? (
-                      projectionHorizon === "monthly" ? (
-                        `${monthLabel(projectionStartMonth) ?? "—"} ${projectionStartYear}`
-                      ) : (
-                        String(projectionStartYear)
-                      )
-                    ) : (
-                      "—"
-                    )}
+                    {projectionStartYear
+                      ? `${monthLabel(projectionStartMonth) ?? "—"} ${projectionStartYear}`
+                      : "—"}
                   </span>
                 </div>
               </div>
@@ -621,7 +793,14 @@ export default function ProFormaPage() {
 
         {/* Module Content - Only show if projection is active */}
         {currentProjectionId && (
-        <div className="space-y-6">
+        <div
+          className={cn(
+            isAssumptions
+              ? "flex flex-col gap-6 lg:flex-row lg:items-start"
+              : "space-y-6",
+          )}
+        >
+          <div className={cn("min-w-0", isAssumptions ? "flex-1 space-y-6" : "contents")}>
           {selectedModule === "revenue" ? (
             <IncomeStatementDetail
               period={period}
@@ -632,13 +811,12 @@ export default function ProFormaPage() {
               subDivisionId={subDivisionId}
               companies={companies}
               title="Estimation des revenus annuels"
-              fiscalYear={
-                projectionHorizon === "annual" && projectionStartYear ? projectionStartYear - 1 : projectionStartYear ?? undefined
-              }
+              fiscalYear={projectionStartYear ?? undefined}
               referenceMonth={projectionStartMonth ?? undefined}
               forceForecastSection
               forecastBaseYear={projectionStartYear ?? undefined}
               forecastUseSeriesActuals
+              forecastActualLayout="nMinusOne-and-ytd"
               projectionYears={projectionYears}
               projectionMode={projectionMode}
               projectionId={currentProjectionId}
@@ -653,13 +831,12 @@ export default function ProFormaPage() {
               subDivisionId={subDivisionId}
               companies={companies}
               title="Estimation des dépenses annuelles"
-              fiscalYear={
-                projectionHorizon === "annual" && projectionStartYear ? projectionStartYear - 1 : projectionStartYear ?? undefined
-              }
+              fiscalYear={projectionStartYear ?? undefined}
               referenceMonth={projectionStartMonth ?? undefined}
               forceForecastSection
               forecastBaseYear={projectionStartYear ?? undefined}
               forecastUseSeriesActuals
+              forecastActualLayout="nMinusOne-and-ytd"
               projectionYears={projectionYears}
               projectionMode={projectionMode}
               projectionId={currentProjectionId}
@@ -674,12 +851,11 @@ export default function ProFormaPage() {
               subDivisionId={subDivisionId}
               companies={companies}
               title="Estimation des Capex annuels"
-              fiscalYear={
-                projectionHorizon === "annual" && projectionStartYear
-                  ? projectionStartYear - 1
-                  : projectionStartYear ?? undefined
-              }
+              fiscalYear={projectionStartYear ?? undefined}
+              refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
               forecastBaseYear={projectionStartYear ?? undefined}
+              forecastUseSeriesActuals
+              forecastActualLayout="nMinusOne-and-ytd"
               projectionYears={projectionYears}
               projectionMode={projectionMode}
               projectionId={currentProjectionId}
@@ -693,7 +869,7 @@ export default function ProFormaPage() {
               divisionId={divisionId}
               subDivisionId={subDivisionId}
               companies={companies}
-              title="Estimation des Dettes annuelles"
+              title="Estimation du Financement annuel"
               projectionYears={projectionYears}
               projectionId={currentProjectionId}
               forecastBaseYear={projectionStartYear ?? undefined}
@@ -704,6 +880,36 @@ export default function ProFormaPage() {
               }
               referenceMonth={projectionStartMonth ?? undefined}
               projectionHorizon={projectionHorizon}
+            />
+          ) : selectedModule === "taxes" ? (
+            <TaxForecastDetail
+              companyId={companyId}
+              divisionId={divisionId}
+              subDivisionId={subDivisionId}
+              companies={companies}
+              title={TAX_FORECAST_TITLE}
+              projectionId={currentProjectionId}
+              projectionYears={projectionYears}
+            />
+          ) : selectedModule === "bilan" ? (
+            <BalanceSheetDetail
+              period={period}
+              view={view}
+              columnMode={columnMode}
+              companyId={companyId}
+              divisionId={divisionId}
+              subDivisionId={subDivisionId}
+              companies={companies}
+              title={BILAN_HYPOTHESIS_TITLE}
+              fiscalYear={projectionStartYear ?? undefined}
+              refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
+              refYear={projectionStartYear ?? new Date().getFullYear()}
+              projectionYears={projectionYears}
+              forecastBaseYear={projectionStartYear ?? undefined}
+              forecastUseSeriesActuals
+              forecastActualLayout="nMinusOne-and-ytd"
+              disableRowInteractions
+              projectionId={currentProjectionId}
             />
           ) : selectedModule === "fdr" ? (
             <FDRForecastDetail
@@ -719,7 +925,7 @@ export default function ProFormaPage() {
               projectionMode={projectionMode}
               projectionId={currentProjectionId}
             />
-          ) : selectedModule === "income-statement" ? (
+            ) : selectedModule === "income-statement" ? (
             section === "summary" ? (
               <IncomeStatementSummary
                 period={period}
@@ -729,15 +935,16 @@ export default function ProFormaPage() {
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
                 companies={companies}
+                title="États des résultats pro forma"
                 projectionYears={projectionYears}
                 projectionId={currentProjectionId}
-                fiscalYear={
-                  projectionHorizon === "annual" && projectionStartYear ? projectionStartYear - 1 : projectionStartYear ?? undefined
-                }
+                fiscalYear={projectionStartYear ?? undefined}
                 referenceMonth={projectionStartMonth ?? undefined}
                 forceForecastSection
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
+                forecastActualLayout="nMinusOne-and-ytd"
+                forecastColumnHorizon={resultsColumnHorizon}
               />
             ) : (
               <IncomeStatementDetail
@@ -748,47 +955,22 @@ export default function ProFormaPage() {
                 divisionId={divisionId}
                 subDivisionId={subDivisionId}
                 companies={companies}
+                title="États des résultats pro forma"
                 hideHeaderIcon
                 disableRowInteractions
-                fiscalYear={
-                  projectionHorizon === "annual" && projectionStartYear ? projectionStartYear - 1 : projectionStartYear ?? undefined
-                }
+                fiscalYear={projectionStartYear ?? undefined}
+                referenceMonth={projectionStartMonth ?? undefined}
                 forceForecastSection
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
+                forecastActualLayout="nMinusOne-and-ytd"
+                forecastColumnHorizon={resultsColumnHorizon}
                 projectionYears={projectionYears}
                 projectionMode={projectionMode}
                 projectionId={currentProjectionId}
               />
             )
           ) : selectedModule === "balance-sheet" ? (
-            section === "summary" ? (
-              <BalanceSheetSummary
-                period={period}
-                view={view}
-                columnMode={columnMode}
-                companyId={companyId}
-                divisionId={divisionId}
-                subDivisionId={subDivisionId}
-                companies={companies}
-                title="Bilan pro forma"
-                fiscalYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? undefined
-                }
-                refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
-                refYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? new Date().getFullYear()
-                }
-                projectionYears={projectionYears}
-                forecastBaseYear={projectionStartYear ?? undefined}
-                forecastUseSeriesActuals
-                disableRowInteractions
-              />
-            ) : (
               <BalanceSheetDetail
                 period={period}
                 view={view}
@@ -798,23 +980,18 @@ export default function ProFormaPage() {
                 subDivisionId={subDivisionId}
                 companies={companies}
                 title="Bilan pro forma"
-                fiscalYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? undefined
-                }
+                fiscalYear={projectionStartYear ?? undefined}
                 refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
-                refYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? new Date().getFullYear()
-                }
+                refYear={projectionStartYear ?? new Date().getFullYear()}
                 projectionYears={projectionYears}
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
+                forecastActualLayout="nMinusOne-and-ytd"
                 disableRowInteractions
+                projectionId={currentProjectionId}
+                forceBilanHypothesisAmounts
+                forecastColumnHorizon={resultsColumnHorizon}
               />
-            )
           ) : selectedModule === "cash-flow" ? (
             section === "summary" ? (
               <CashFlowSummary
@@ -826,20 +1003,15 @@ export default function ProFormaPage() {
                 subDivisionId={subDivisionId}
                 companies={companies}
                 title="Flux de trésorerie pro forma"
-                fiscalYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? undefined
-                }
+                fiscalYear={projectionStartYear ?? undefined}
                 refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
-                refYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? new Date().getFullYear()
-                }
+                refYear={projectionStartYear ?? new Date().getFullYear()}
                 projectionYears={projectionYears}
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
+                forecastActualLayout="nMinusOne-and-ytd"
+                projectionId={currentProjectionId}
+                disableRowInteractions
               />
             ) : (
               <CashFlowDetail
@@ -851,20 +1023,15 @@ export default function ProFormaPage() {
                 subDivisionId={subDivisionId}
                 companies={companies}
                 title="Flux de trésorerie pro forma"
-                fiscalYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? undefined
-                }
+                fiscalYear={projectionStartYear ?? undefined}
                 refMonth={projectionStartMonth ?? new Date().getMonth() + 1}
-                refYear={
-                  projectionHorizon === "annual" && projectionStartYear
-                    ? projectionStartYear - 1
-                    : projectionStartYear ?? new Date().getFullYear()
-                }
+                refYear={projectionStartYear ?? new Date().getFullYear()}
                 projectionYears={projectionYears}
                 forecastBaseYear={projectionStartYear ?? undefined}
                 forecastUseSeriesActuals
+                forecastActualLayout="nMinusOne-and-ytd"
+                projectionId={currentProjectionId}
+                disableRowInteractions
               />
             )
           ) : (
@@ -883,6 +1050,19 @@ export default function ProFormaPage() {
                 {/* Module-specific content placeholder removed — components render above */}
               </CardContent>
             </Card>
+          )}
+          </div>
+          {isAssumptions && projectionStartYear != null && (
+            <ProFormaFinancialImpactPanel
+              key={impactRefreshKey}
+              companyId={companyId}
+              projectionId={currentProjectionId}
+              projectionYears={projectionYears}
+              forecastBaseYear={projectionStartYear}
+              refMonth={projectionStartMonth ?? 12}
+              fiscalYearEndMonth={fiscalYearEndMonth}
+              forecastActualLayout="nMinusOne-and-ytd"
+            />
           )}
         </div>
         )}
@@ -905,7 +1085,7 @@ export default function ProFormaPage() {
               </DialogTitle>
               <DialogDescription>
                 {initialModalMode === "choice" && "Choisissez de charger une projection existante ou de créer une nouvelle projection financière."}
-                {initialModalMode === "create" && "Configurez votre nouvelle projection financière en sélectionnant l'entité, le nombre d'années et en donnant un nom à votre projection."}
+                {initialModalMode === "create" && "Donnez un nom, le nombre d’années et la date de référence. La projection est annuelle, avec une vue mensuelle possible ensuite."}
                 {initialModalMode === "load" && "Sélectionnez une projection sauvegardée à charger."}
               </DialogDescription>
             </DialogHeader>
@@ -962,21 +1142,6 @@ export default function ProFormaPage() {
 
                 <div>
                   <label className="text-sm font-medium text-slate-700 mb-2 block">
-                    Entité
-                  </label>
-                  <EntitySelector
-                    companies={companies}
-                    selectedCompanyId={newProjectionCompanyId}
-                    selectedDivisionId={newProjectionDivisionId}
-                    selectedSubDivisionId={newProjectionSubDivisionId}
-                    onCompanyChange={setNewProjectionCompanyId}
-                    onDivisionChange={setNewProjectionDivisionId}
-                    onSubDivisionChange={setNewProjectionSubDivisionId}
-                  />
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-slate-700 mb-2 block">
                     Nombre d'années de projection
                   </label>
                   <Select
@@ -992,6 +1157,49 @@ export default function ProFormaPage() {
                       <SelectItem value="5">5 ans</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 mb-2 block">
+                      Mois de référence
+                    </label>
+                    <Select
+                      value={String(newProjectionStartMonth)}
+                      onValueChange={(value) => setNewProjectionStartMonth(parseInt(value))}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {monthOptions.map((m) => (
+                          <SelectItem key={m.value} value={String(m.value)}>
+                            {m.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-slate-700 mb-2 block">
+                      Année de référence
+                    </label>
+                    <Select
+                      value={String(newProjectionStartYear)}
+                      onValueChange={(value) => setNewProjectionStartYear(parseInt(value))}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {startYearOptions.map((y) => (
+                          <SelectItem key={y} value={String(y)}>
+                            {y}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
                 <div>
@@ -1026,7 +1234,7 @@ export default function ProFormaPage() {
                   </Button>
                   <Button
                     onClick={handleCreateNewProjection}
-                    disabled={!newProjectionName.trim() || !newProjectionCompanyId}
+                    disabled={!newProjectionName.trim() || !companyIdForCreate}
                   >
                     Créer la projection
                   </Button>

@@ -1,7 +1,7 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { ArrowRight, FileText, Calculator, TrendingUp, TrendingDown, CreditCard } from "lucide-react"
+import { ArrowRight, FileText, Calculator, TrendingUp, TrendingDown, CreditCard, Percent, Scale } from "lucide-react"
 import { useState } from "react"
 import Link from "next/link"
 
@@ -53,12 +53,30 @@ const projections = [
   },
   {
     id: "debt",
-    title: "Dettes",
-    description: "Projetez vos dettes, remboursements et structure de financement",
+    title: "Financement",
+    description: "Projetez vos emprunts, remboursements et structure de financement",
     icon: CreditCard,
     color: "text-indigo-600",
     bgColor: "bg-indigo-50 dark:bg-indigo-950/20",
     href: "/projections/debt",
+  },
+  {
+    id: "taxes",
+    title: "Impôts",
+    description: "Définissez le taux d'impôt applicable aux années projetées",
+    icon: Percent,
+    color: "text-rose-600",
+    bgColor: "bg-rose-50 dark:bg-rose-950/20",
+    href: "/projections/taxes",
+  },
+  {
+    id: "bilan",
+    title: "Bilan",
+    description: "Ajustez les postes du bilan pour les années projetées",
+    icon: Scale,
+    color: "text-teal-600",
+    bgColor: "bg-teal-50 dark:bg-teal-950/20",
+    href: "/projections/bilan",
   },
 ]
 

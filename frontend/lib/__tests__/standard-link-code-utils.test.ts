@@ -161,18 +161,18 @@ describe("showsMappingCostTypeOptions", () => {
 })
 
 describe("mapping liability term options", () => {
-  it("matches PLT-B/G/C/D roots and descendants", () => {
+  it("matches PLT-B/C/D roots and descendants (not PLT-G Dues)", () => {
     expect(isMappingLiabilityTermLinkCode("PLT-B")).toBe(true)
     expect(isMappingLiabilityTermLinkCode("PLT-B.1")).toBe(true)
-    expect(isMappingLiabilityTermLinkCode("PLT-G.2")).toBe(true)
+    expect(isMappingLiabilityTermLinkCode("PLT-G.2")).toBe(false)
     expect(isMappingLiabilityTermLinkCode("PLT-C.1")).toBe(true)
     expect(isMappingLiabilityTermLinkCode("PLT-D.3")).toBe(true)
     expect(isMappingLiabilityTermLinkCode("PLT-A.1")).toBe(false)
     expect(isMappingLiabilityTermLinkCode("ACT-A.1")).toBe(false)
   })
 
-  it("shows options only for eligible codes and clears fields on sanitize", () => {
-    expect(showsMappingLiabilityTermOptions("PLT-B.1")).toBe(true)
+  it("does not show liability term fields in mapping (captured in Financement)", () => {
+    expect(showsMappingLiabilityTermOptions("PLT-B.1")).toBe(false)
     expect(showsMappingLiabilityTermOptions("CMV.1")).toBe(false)
 
     expect(
@@ -183,8 +183,8 @@ describe("mapping liability term options", () => {
       }),
     ).toEqual({
       linkCode: "PLT-B.1",
-      liabilityRemainingYears: 5,
-      liabilityInterestRate: 4.5,
+      liabilityRemainingYears: undefined,
+      liabilityInterestRate: undefined,
     })
 
     expect(

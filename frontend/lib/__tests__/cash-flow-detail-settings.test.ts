@@ -300,6 +300,53 @@ describe("cash-flow-detail-settings", () => {
     expect(result[2]).toBe(0)
   })
 
+  it("applique le cumul fiscal Pro Forma sur les colonnes N-1 et YTD", () => {
+    const labels = ["2025", "YTD 2026", "2026"]
+    const calendar = new Map<string, number>()
+    for (let m = 1; m <= 12; m++) {
+      calendar.set(`2025-${m}`, 100)
+      calendar.set(`2026-${m}`, 10)
+    }
+    const row = applyCashFlowActualYearTTMToRow(
+      { current: 0, prior: 0, trendValues: [0, 0, 0] },
+      {
+        trendView: "years",
+        trendLabels: labels,
+        fiscalYearEndMonth: 12,
+        forecastRefMonth: 3,
+      },
+      calendar,
+    )
+    expect(row.trendValues).toEqual([1200, 30, 120])
+  })
+
+  it("calcule la variation Pro Forma entre clôture N-1 et YTD", () => {
+    const labels = ["2025", "YTD 2026", "2026"]
+    const calendar = new Map([
+      ["2025-12", 1800],
+      ["2026-3", 250],
+      ["2026-12", 900],
+    ])
+    const result = applyCashFlowCalcToTrend(
+      [0, 0, 0],
+      labels,
+      "variation_nn1",
+      calendar,
+      "years",
+      "calendarPrior",
+      12,
+      undefined,
+      3,
+    )
+    expect(priorPeriodLabelForTrend("YTD 2026", "years", "calendarPrior", 12, undefined, 3)).toBe(
+      "2025",
+    )
+    expect(snapshotAmountForYearColumnLabel("YTD 2026", calendar, 3, 12)).toBe(250)
+    expect(result[0]).toBe(1800)
+    expect(result[1]).toBe(250 - 1800)
+    expect(result[2]).toBe(900 - 1800)
+  })
+
   it("applique le TTM en mode Calcul Réel sur l'horizon annuel", () => {
     const labels = ["Déc 2026", "Déc 2025"]
     const calendar = new Map<string, number>()

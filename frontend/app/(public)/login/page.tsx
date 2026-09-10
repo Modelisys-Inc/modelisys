@@ -3,10 +3,9 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ArrowRight, LogIn } from "lucide-react"
+import { ArrowRight } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 
 export default function LoginPage() {
@@ -33,243 +32,170 @@ export default function LoginPage() {
 
   return (
     <div className="relative flex min-h-screen items-center overflow-hidden">
-      {/* Fond identique au hero : split + séparateur + halos */}
-      <div className="absolute inset-0">
-        <div className="absolute inset-0 grid grid-cols-1 lg:grid-cols-2">
-          <div className="bg-[#2A2F3A]" />
-          <div className="bg-[#1F2430]" />
-        </div>
-        <div className="absolute inset-y-0 left-1/2 hidden w-px bg-white/5 lg:block" />
-        <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -left-28 -top-24 h-[420px] w-[420px] rounded-full bg-white/5 blur-3xl" />
-          <div className="absolute -bottom-24 -right-28 h-[480px] w-[480px] rounded-full bg-black/20 blur-3xl" />
-        </div>
+      {/* Même scène continue que le hero */}
+      <div className="pointer-events-none absolute inset-0 bg-[#222732]">
+        <div
+          className="absolute inset-0 opacity-[0.4]"
+          aria-hidden
+          style={{
+            backgroundImage: `linear-gradient(rgb(255 255 255 / 0.035) 1px, transparent 1px),
+              linear-gradient(90deg, rgb(255 255 255 / 0.035) 1px, transparent 1px)`,
+            backgroundSize: "56px 56px",
+            maskImage:
+              "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+            WebkitMaskImage:
+              "radial-gradient(ellipse 70% 75% at 22% 45%, black 10%, transparent 72%)",
+          }}
+        />
+        <div className="absolute -top-32 left-[-10%] h-[34rem] w-[34rem] rounded-full bg-[#E6D6C3]/[0.04] blur-3xl" />
+        <div className="absolute top-1/3 right-[-5%] h-[28rem] w-[28rem] rounded-full bg-[#E0742D]/[0.05] blur-3xl" />
+        <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-[#1a1f2a] to-transparent" />
       </div>
 
-      <div className="relative z-10 mx-auto w-full max-w-6xl px-8 py-16 sm:px-12 sm:py-20 lg:px-16 xl:px-20">
-        <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-16">
-          {/* Colonne marque — tons hero + cadrillage léger (comme section Pourquoi) */}
-          <div className="relative">
-            <div className="pointer-events-none absolute inset-0 overflow-hidden">
-              <div
-                className="absolute inset-0"
-                style={{
-                  backgroundImage: `
-              linear-gradient(to right, rgb(255 255 255 / 0.07) 1px, transparent 1px),
-              linear-gradient(to bottom, rgb(255 255 255 / 0.07) 1px, transparent 1px)
-            `,
-                  backgroundSize: "44px 44px",
-                  maskImage: "radial-gradient(ellipse 75% 65% at 50% 42%, black 18%, transparent 72%)",
-                  WebkitMaskImage:
-                    "radial-gradient(ellipse 75% 65% at 50% 42%, black 18%, transparent 72%)",
-                }}
-              />
-            </div>
-
-            <div className="relative z-10 space-y-8">
-            <div className="relative isolate">
-              {/* Hauteur = celle du h1 : le bas du filigrane m. est aligné sur le bas de « modelisys » */}
-              <div className="relative">
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute bottom-0 -left-3 select-none text-[clamp(7rem,32vw,13.75rem)] font-semibold leading-none tracking-tight text-white/[0.055] sm:-left-4 sm:text-[clamp(8.5rem,28vw,14rem)]"
-                >
-                  m<span className="text-[#E0742D]/35">.</span>
-                </div>
-                <h1 className="relative z-10 text-5xl font-semibold leading-[0.95] tracking-tight text-[#E6D6C3] sm:text-6xl">
-                  modelisys<span className="text-[#E0742D]">.</span>
-                </h1>
-              </div>
-              <p className="relative z-10 mt-4 text-base font-medium text-[#C9B8A5]/85 sm:text-lg">
-                Mon Portail
-              </p>
-            </div>
-
-            <div className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-5 py-3 text-base font-medium text-slate-200">
-              <LogIn className="h-5 w-5 text-[#E0742D]" />
-              <span>Accès sécurisé à votre espace</span>
-            </div>
-
-            <p className="max-w-md text-sm leading-relaxed text-[#C9B8A5]/80 sm:text-base">
-              Dirigeants, équipes financières, opérationnel ou partenaires : un même espace pour suivre analyses,
-              indicateurs et tableaux de bord, tous calés sur une base unique et fidèle à vos données comptables.
+      <div className="relative z-10 mx-auto w-full max-w-5xl px-5 py-16 sm:px-8 sm:py-20 lg:px-10">
+        <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)] lg:gap-12 xl:gap-14">
+          {/* Colonne marque — ton hero */}
+          <div className="max-w-md">
+            <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/70">
+              Accès sécurisé
             </p>
 
-            <div className="h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-white/15 to-transparent" />
-            </div>
-          </div>
-
-          {/* Formulaire — même langage visuel que la carte « Fonctionnalités » du hero */}
-          <div className="w-full max-w-md lg:ml-auto lg:mr-0">
-            <div className="relative mx-auto w-full">
-              <div className="absolute inset-0 -z-20 rounded-[44px] bg-black/45 blur-2xl" />
-
-              <div className="absolute inset-0 -z-10 rounded-[44px] p-[1px] wow-border">
-                <div className="h-full min-h-full w-full rounded-[43px] bg-[#141823]" />
+            <div className="relative mt-7 sm:mt-8">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute bottom-0 -left-2 select-none text-[clamp(6.5rem,28vw,12rem)] font-semibold leading-none tracking-tight text-white/[0.04] sm:-left-3"
+              >
+                m<span className="text-[#E0742D]/30">.</span>
               </div>
-
-              <div className="relative overflow-hidden rounded-[42px] border-2 border-[#E6D6C3]/55 bg-[#141823] shadow-2xl">
-                <div className="pointer-events-none absolute inset-0 opacity-70 wow-shimmer" />
-                <div className="pointer-events-none absolute inset-0 opacity-[0.10] mix-blend-overlay wow-noise" />
-
-                <div className="pointer-events-none absolute inset-0 rounded-[42px] ring-1 ring-[#E6D6C3]/30" />
-                <div className="pointer-events-none absolute inset-0 rounded-[42px] ring-1 ring-[#E6B08C]/15" />
-                <div className="pointer-events-none absolute inset-0 rounded-[42px] bg-gradient-to-br from-[#E6D6C3]/10 via-transparent to-[#E6B08C]/12" />
-
-                <div className="relative px-5 py-6 sm:px-6 sm:py-7">
-                  <div className="text-center">
-                    <p className="text-xs font-semibold tracking-wide text-[#E6D6C3]/95">Connexion</p>
-                    <p className="mt-1 text-[10px] text-[#C9B8A5]/70">Identifiants professionnels</p>
-                  </div>
-
-                  <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.035] p-3 sm:p-4">
-                    <div className="relative">
-                      <div className="pointer-events-none absolute left-[18px] top-2 bottom-2 w-px bg-gradient-to-b from-[#E6D6C3]/35 via-white/10 to-[#E6B08C]/30" />
-
-                      <form onSubmit={handleSubmit} className="space-y-5 pl-7">
-                        {error && (
-                          <div className="rounded-xl border border-red-400/30 bg-red-950/40 px-4 py-3 text-sm text-red-200">
-                            {error}
-                          </div>
-                        )}
-                        <div className="space-y-2">
-                          <Label htmlFor="email" className="text-[11px] font-medium tracking-wide text-[#E6D6C3]/90">
-                            Email
-                          </Label>
-                          <Input
-                            id="email"
-                            type="email"
-                            placeholder="vous@entreprise.com"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            required
-                            className="h-11 border-white/10 bg-white/[0.06] text-[13px] text-[#E6D6C3] placeholder:text-[#C9B8A5]/45 focus-visible:border-[#E0742D]/55 focus-visible:ring-[#E0742D]/25"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="password" className="text-[11px] font-medium tracking-wide text-[#E6D6C3]/90">
-                            Mot de passe
-                          </Label>
-                          <Input
-                            id="password"
-                            type="password"
-                            placeholder="••••••••"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            required
-                            className="h-11 border-white/10 bg-white/[0.06] text-[13px] text-[#E6D6C3] placeholder:text-[#C9B8A5]/45 focus-visible:border-[#E0742D]/55 focus-visible:ring-[#E0742D]/25"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-3 text-[11px] sm:flex-row sm:items-center sm:justify-between">
-                          <label className="flex cursor-pointer items-center gap-2 text-[#C9B8A5]/80">
-                            <input
-                              type="checkbox"
-                              className="rounded border-white/20 bg-white/[0.04] text-[#E0742D] focus:ring-[#E0742D]/40"
-                            />
-                            <span>Se souvenir de moi</span>
-                          </label>
-                          <Link
-                            href="/forgot-password"
-                            className="text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
-                          >
-                            Mot de passe oublié ?
-                          </Link>
-                        </div>
-                        <Button
-                          type="submit"
-                          disabled={isLoading}
-                          className="h-11 w-full bg-[#E0742D] text-[13px] font-semibold text-white shadow-lg shadow-[#E0742D]/20 transition hover:bg-[#c96526] disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {isLoading ? "Connexion…" : "Se connecter"}
-                        </Button>
-                      </form>
-                    </div>
-                  </div>
-
-                  <p className="mt-5 text-center text-[11px] text-[#C9B8A5]/75">
-                    Pas encore de compte ?{" "}
-                    <Link
-                      href="/"
-                      className="text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
-                    >
-                      Contactez-nous
-                    </Link>
-                  </p>
-                </div>
-              </div>
+              <h1 className="relative z-10 text-[2.5rem] font-semibold leading-[1.05] tracking-tight text-[#E6D6C3] sm:text-[3rem] xl:text-[3.25rem]">
+                modelisys<span className="text-[#E0742D]">.</span>
+              </h1>
             </div>
 
-            <div className="mt-8 text-center">
+            <p className="mt-4 text-sm font-medium tracking-wide text-[#C9B8A5]/85 sm:text-base">
+              Mon Portail
+            </p>
+
+            <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
+              Un seul espace pour lire la valeur de votre entreprise — et les
+              leviers qui la font monter.
+            </p>
+
+            <div className="mt-10 sm:mt-12">
               <Link
                 href="/"
-                className="inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
+                className="inline-flex items-center gap-2 px-1 py-3 text-xs font-semibold tracking-[0.08em] text-[#C9B8A5]/90 transition hover:text-[#E6D6C3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
               >
-                <ArrowRight className="h-4 w-4 rotate-180 text-[#E0742D]" />
-                Retour à l&apos;accueil
+                <ArrowRight className="h-4 w-4 rotate-180 shrink-0" />
+                RETOUR À L&apos;ACCUEIL
+                <span className="inline-block h-px w-8 bg-[#E0742D]/90" />
               </Link>
             </div>
           </div>
+
+          {/* Formulaire — sobre, sans carte « wow » */}
+          <div className="w-full max-w-md lg:max-w-none">
+            <div className="relative">
+              <div
+                className="pointer-events-none absolute -inset-8 rounded-full bg-[#E6D6C3]/[0.04] blur-3xl"
+                aria-hidden
+              />
+
+              <div className="relative border border-white/[0.08] bg-[#1a1f2a]/60 px-6 py-8 backdrop-blur-sm sm:px-8 sm:py-10">
+                <div className="border-b border-white/[0.06] pb-6">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-[#C9B8A5]/70">
+                    Connexion
+                  </p>
+                  <p className="mt-3 text-xl font-semibold tracking-tight text-[#E6D6C3] sm:text-2xl">
+                    Identifiants professionnels
+                  </p>
+                </div>
+
+                <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+                  {error && (
+                    <div className="border border-red-400/25 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+                      {error}
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="email"
+                      className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#C9B8A5]/80"
+                    >
+                      Email
+                    </Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="vous@entreprise.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                      className="h-12 rounded-md border-white/10 bg-white/[0.04] text-[14px] text-[#E6D6C3] placeholder:text-[#C9B8A5]/40 focus-visible:border-[#E6D6C3]/40 focus-visible:ring-[#E6D6C3]/20"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="password"
+                      className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#C9B8A5]/80"
+                    >
+                      Mot de passe
+                    </Label>
+                    <Input
+                      id="password"
+                      type="password"
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                      className="h-12 rounded-md border-white/10 bg-white/[0.04] text-[14px] text-[#E6D6C3] placeholder:text-[#C9B8A5]/40 focus-visible:border-[#E6D6C3]/40 focus-visible:ring-[#E6D6C3]/20"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-3 text-[12px] sm:flex-row sm:items-center sm:justify-between">
+                    <label className="flex cursor-pointer items-center gap-2.5 text-[#C9B8A5]/80">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 rounded border-white/20 bg-white/[0.04] text-[#E0742D] focus:ring-[#E0742D]/40"
+                      />
+                      <span>Se souvenir de moi</span>
+                    </label>
+                    <Link
+                      href="/forgot-password"
+                      className="text-xs font-semibold tracking-[0.06em] text-[#C9B8A5]/90 transition hover:text-[#E6D6C3]"
+                    >
+                      Mot de passe oublié ?
+                    </Link>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="group inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-md bg-[#E6D6C3] px-5 text-xs font-semibold tracking-[0.08em] text-[#1F2430] transition hover:bg-[#f0e6d8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E6D6C3]/60 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isLoading ? "Connexion…" : "Se connecter"}
+                    {!isLoading && (
+                      <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                    )}
+                  </button>
+                </form>
+
+                <p className="mt-8 text-center text-[12px] text-[#C9B8A5]/70">
+                  Pas encore de compte ?{" "}
+                  <Link
+                    href="/"
+                    className="font-semibold tracking-wide text-[#E6D6C3] transition hover:text-[#f0e6d8]"
+                  >
+                    Contactez-nous
+                  </Link>
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-
-      <style jsx>{`
-        .wow-border {
-          background: conic-gradient(
-            from 120deg,
-            rgba(230, 214, 195, 0.9),
-            rgba(230, 176, 140, 0.9),
-            rgba(255, 255, 255, 0.25),
-            rgba(230, 214, 195, 0.9)
-          );
-          filter: drop-shadow(0 18px 55px rgba(0, 0, 0, 0.45));
-          animation: loginWowSpin 10s linear infinite;
-        }
-
-        .wow-shimmer {
-          background: radial-gradient(700px 300px at 20% 15%, rgba(230, 214, 195, 0.16), transparent 60%),
-            radial-gradient(500px 240px at 85% 40%, rgba(230, 176, 140, 0.12), transparent 55%),
-            linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.06) 35%, transparent 70%);
-          transform: translateX(-22%);
-          animation: loginWowShimmer 6s ease-in-out infinite;
-        }
-
-        .wow-noise {
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.55'/%3E%3C/svg%3E");
-          background-size: 160px 160px;
-        }
-
-        @keyframes loginWowSpin {
-          to {
-            transform: rotate(360deg);
-          }
-        }
-
-        @keyframes loginWowShimmer {
-          0% {
-            transform: translateX(-24%);
-            opacity: 0.55;
-          }
-          50% {
-            transform: translateX(12%);
-            opacity: 0.85;
-          }
-          100% {
-            transform: translateX(-24%);
-            opacity: 0.55;
-          }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .wow-border,
-          .wow-shimmer {
-            animation: none !important;
-            transform: none !important;
-          }
-          .wow-shimmer {
-            opacity: 0.65;
-          }
-        }
-      `}</style>
     </div>
   )
 }

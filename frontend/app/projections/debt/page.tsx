@@ -23,7 +23,7 @@ export default function DebtPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
-      <DashboardHeader title="Projection des dettes" description="Projetez vos dettes, remboursements et structure de financement" />
+      <DashboardHeader title="Projection du financement" description="Projetez vos emprunts, remboursements et structure de financement" />
       <main className="w-full py-8 px-6 max-w-[1920px] mx-auto">
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-6 p-6">
           <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
@@ -57,22 +57,20 @@ export default function DebtPage() {
           </div>
         </div>
 
-        <div className="rounded-xl overflow-hidden shadow-sm border border-slate-200">
-          <DebtForecastDetail
-            period="annual"
-            view="years"
-            companyId={selectedCompanyId}
-            divisionId={selectedDivisionId}
-            subDivisionId={selectedSubDivisionId}
-            companies={companies}
-            title="Estimation des Dettes annuelles"
-            projectionYears={projectionYears}
-            forecastBaseYear={new Date().getFullYear() + 1}
-            fiscalYear={new Date().getFullYear()}
-            referenceMonth={12}
-            projectionHorizon="annual"
-          />
-        </div>
+        <DebtForecastDetail
+          period="annual"
+          view="years"
+          companyId={selectedCompanyId}
+          divisionId={selectedDivisionId}
+          subDivisionId={selectedSubDivisionId}
+          companies={companies}
+            title="Estimation du Financement annuel"
+          projectionYears={projectionYears}
+          forecastBaseYear={new Date().getFullYear() + 1}
+          fiscalYear={new Date().getFullYear()}
+          referenceMonth={12}
+          projectionHorizon="annual"
+        />
       </main>
     </div>
   )

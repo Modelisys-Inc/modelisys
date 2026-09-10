@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, type ComponentType } from "react"
-import { CheckCircle2, ClipboardList, Database, Info, Rocket, SlidersHorizontal } from "lucide-react"
+import { CheckCircle2, ClipboardList, Database, Rocket, SlidersHorizontal } from "lucide-react"
 
 const steps: {
   step: number
@@ -115,10 +115,8 @@ export function PlatformSetupSection() {
             <span className="text-[#5C5F66]">la plateforme chez vous</span>
           </h2>
           <p className="mt-4 text-base leading-relaxed text-[#5C5F66] sm:text-lg">
-            Cinq étapes pour installer Modelisys chez vous : connexion des données comptables, paramétrage de la
-            plateforme et validation technique avec vos équipes. La plateforme est conçue pour supporter l&apos;approche
-            Modelisys en trois phases — l&apos;évaluation initiale, les projections, l&apos;analyse des écarts et le suivi
-            stratégique relèvent, eux, d&apos;un plan d&apos;accompagnement optionnel.
+            De la première conversation au go-live : un déploiement structuré, calé
+            sur vos données et votre organisation.
           </p>
           <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent lg:mx-0 mx-auto" />
         </div>
@@ -143,37 +141,22 @@ export function PlatformSetupSection() {
           <div className="mt-4 grid grid-cols-5 gap-3 pt-1">
             <div className="min-w-0">
               <div className="rounded-t-xl border-l-2 border-r-2 border-t-2 border-[#E0742D]/45 bg-gradient-to-b from-[#E0742D]/[0.07] to-transparent px-3 pb-3 pt-3 text-center shadow-[inset_0_1px_0_0_rgb(255_255_255_/0.6)]">
-                <p className="text-xs font-semibold tracking-tight text-[#2A2F3A] sm:text-sm">1–2 jours</p>
-                <p className="mx-auto mt-1.5 max-w-[11rem] text-[10px] leading-snug text-[#5C5F66] sm:text-[11px]">
+                <p className="text-xs font-semibold tracking-tight text-[#2A2F3A] sm:text-sm">
                   Appel de cadrage
+                </p>
+                <p className="mx-auto mt-1.5 max-w-[11rem] text-[10px] leading-snug text-[#5C5F66] sm:text-[11px]">
+                  Étape 1
                 </p>
               </div>
             </div>
-            {/* Bloc visuel : trait supérieur + côtés = les étapes 2 à 5 forment un seul cycle (~4 sem.) */}
             <div className="col-span-4 min-w-0">
               <div className="relative rounded-t-xl border-l-2 border-r-2 border-t-2 border-[#E0742D]/45 bg-gradient-to-b from-[#E0742D]/[0.07] to-transparent px-4 pb-3 pt-3 text-center shadow-[inset_0_1px_0_0_rgb(255_255_255_/0.6)]">
                 <p className="text-xs font-semibold tracking-tight text-[#2A2F3A] sm:text-sm">
-                  <span className="inline-flex items-center gap-1.5">
-                    En moyenne 4–6 semaines
-                    <span className="group relative inline-flex">
-                      <span
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-[#E0742D]/25 bg-white/60 text-[#E0742D] transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/40"
-                        role="button"
-                        tabIndex={0}
-                        aria-label="Informations sur la durée"
-                      >
-                        <Info className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-                      </span>
-                      <span className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 w-72 -translate-x-1/2 rounded-xl border border-slate-200/90 bg-white px-3 py-2 text-[11px] font-medium leading-relaxed text-slate-700 shadow-lg opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
-                        Durée indicative. Elle varie selon votre structure (entités, intercos) et votre périmètre
-                        (modules, intégrations, gouvernance).
-                      </span>
-                    </span>
-                  </span>
+                  Déploiement technique
                 </p>
                 <p className="mx-auto mt-1.5 max-w-sm text-[10px] leading-snug text-[#5C5F66] sm:text-[11px]">
-                  Durée cumulée pour les étapes <span className="font-semibold text-[#2A2F3A]/90">2 à 5</span>, selon
-                  votre structure et votre périmètre.
+                  Étapes <span className="font-semibold text-[#2A2F3A]/90">2 à 5</span> — intégration, paramétrage,
+                  validation et mise en production.
                 </p>
               </div>
             </div>

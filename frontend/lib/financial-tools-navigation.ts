@@ -24,7 +24,7 @@ export const FINANCIAL_TOOLS_NAV_ITEMS: FinancialToolLink[] = [
   },
   {
     label: "Valorisation",
-    href: "/evaluation/business-model",
+    href: "/evaluation",
     pathPrefix: "/evaluation",
   },
   {

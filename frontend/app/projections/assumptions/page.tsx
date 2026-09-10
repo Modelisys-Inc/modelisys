@@ -22,10 +22,22 @@ const CONFIG_TYPE_META: Record<string, { label: string; description: string; ico
     href: "/projections/capex",
   },
   "debt-forecast": {
-    label: "Projections des dettes",
+    label: "Projections du financement",
     description: "Structure de financement et remboursements projetés",
     icon: <Wallet className="w-5 h-5" />,
     href: "/projections/debt",
+  },
+  "tax-forecast": {
+    label: "Projections des impôts",
+    description: "Taux d'impôt applicable aux années projetées",
+    icon: <Settings2 className="w-5 h-5" />,
+    href: "/projections/taxes",
+  },
+  "balance-sheet-forecast": {
+    label: "Projections du bilan",
+    description: "Ajustements des postes du bilan",
+    icon: <FileText className="w-5 h-5" />,
+    href: "/projections/bilan",
   },
   "fdr-forecast": {
     label: "Projections du fonds de roulement",
@@ -105,7 +117,7 @@ export default function AssumptionsPage() {
   }, {})
 
   const sortedTypes = Object.keys(grouped).sort((a, b) => {
-    const order = ["income-statement-detail", "capex-forecast", "debt-forecast", "fdr-forecast", "seasonality", "net-tangible-assets-notes"]
+    const order = ["income-statement-detail", "capex-forecast", "debt-forecast", "tax-forecast", "balance-sheet-forecast", "fdr-forecast", "seasonality", "net-tangible-assets-notes"]
     return (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b))
   })
 

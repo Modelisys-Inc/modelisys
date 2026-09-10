@@ -15,6 +15,7 @@ describe("diagnostic-company-overview", () => {
     expect(overview.history.length).toBeGreaterThan(0)
     expect(overview.participatingShareholders.length).toBeGreaterThan(0)
     expect(overview.votingShareholders.length).toBeGreaterThan(0)
+    expect(overview.history[0]?.id).toBe("co-default-history")
   })
 
   it("save returns normalized overview payload", () => {

@@ -135,6 +135,37 @@ describe("filterBalanceSheetDetailRowsForHorizon", () => {
     ])
   })
 
+  it("masque un poste Détail à 0 $ sur toutes les années affichées", () => {
+    const structure = [
+      { label: "Encaisse", linkCode: "ACT-A.1", defineMapping: true },
+      { label: "Placements inactifs", linkCode: "ACT-A.2", defineMapping: true },
+      { label: "Total des actifs", isResult: true },
+    ]
+    const rows = [
+      {
+        label: "Encaisse",
+        statementLabel: "Encaisse",
+        rowId: "ACT-A.1",
+        trendValues: [120, 100, 80, 0, 0, 0, 0],
+      },
+      {
+        label: "Placements inactifs",
+        statementLabel: "Placements inactifs",
+        rowId: "ACT-A.2",
+        trendValues: [0, 0, 0, 0, 0, 0, 0],
+      },
+      {
+        label: "Total des actifs",
+        statementLabel: "Total des actifs",
+        isResult: true,
+        trendValues: [120, 100, 80, 0, 0, 0, 0],
+      },
+    ]
+
+    const filtered = filterBalanceSheetDetailRowsForHorizon(rows, structure, "years")
+    expect(filtered.map((r) => r.label)).toEqual(["Encaisse", "Total des actifs"])
+  })
+
   it("retire l’annexe sans showInDetail et sans montant", () => {
     const structure = [
       {

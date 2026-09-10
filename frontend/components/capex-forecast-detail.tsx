@@ -3,7 +3,7 @@
 import { formatCurrency, calculateVariation } from "@/lib/financial-utils"
 import { cn } from "@/lib/utils"
 import { Company } from "@/components/entity-selector"
-import { ChevronRight, ChevronDown, StickyNote, TrendingUp, Edit2, Trash2, HardHat } from "lucide-react"
+import { ChevronRight, ChevronDown, StickyNote, CircleDot, Edit2, Trash2, HardHat } from "lucide-react"
 import { generateId } from "@/lib/seeded-random"
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from "react"
 import { listForecastConfigs, upsertForecastConfig, getStatementStructure } from "@/lib/api"
@@ -41,12 +41,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { CapexFinancingEditor } from "@/components/capex-financing-editor"
 import { ForecastHypothesisSummaryChart } from "@/components/forecast-hypothesis-summary-chart"
 import {
+  attachCapexAssetMonthlyTracking,
   computeHypothesisSummaryMoneyPoints,
   type HypothesisYearSummaryInput,
 } from "@/lib/forecast-hypothesis-summary-utils"
 import {
   createDefaultAdvancedBuckets as createDefaultForecastCollectionBuckets,
-  type ForecastCollectionCash,
 } from "@/lib/forecast-collection-cash-utils"
 import {
   createDefaultForecastSeasonalityMonthPercents,
@@ -54,20 +54,50 @@ import {
   parseSeasonalityMonthPercentsFromStorage,
 } from "@/lib/forecast-seasonality-utils"
 import { useProjectedRevenueYearTotals } from "@/hooks/use-projected-revenue-year-totals"
+import { parseFiscalYearEndMonth } from "@/lib/capex-year-reference"
+import {
+  type ForecastActualLayout,
+  forecastActualColumnCount,
+  forecastBalanceSheetActualPrefixValues,
+  forecastConfigToDisplayYearIndex,
+  forecastDisplayToConfigYearIndex,
+  forecastDisplayYearCount,
+  forecastProjectionOpeningFromActuals,
+  forecastTrendFromActualPrefix,
+  forecastYearLabelsForLayout,
+  isForecastProjectedDisplayColumn,
+  mergeConfigYearsOntoForecastDisplay,
+  resolveForecastActualLayout,
+} from "@/lib/pro-forma-forecast-columns"
 import {
   capexFinancingSaveOk,
   computeCashDisbursementAmount,
   createDefaultCapexFinancing,
   normalizeCapexFinancing,
   parseCapexFinancingFromStorage,
+  resolveCapexAssetLinkCodeForDebt,
   syncCapexFinancingToDebtForecast,
   adjustmentYearIndexToCalendarYear,
   type CapexFinancingConfig,
 } from "@/lib/capex-financing-utils"
+import {
+  buildCapexAssetYearStates,
+  capexAmortIsLinkCodeOptionsForAsset,
+  capexLeafChildrenOfParent,
+  CAPEX_AMORT_IS_LINK_CODE_LABELS,
+  isCapexHypothesisGrowthAdjustment,
+  resolveCapexAdditionsForYear,
+  resolveCapexDepreciationMethod,
+  resolveCapexDepreciationRate,
+  rollupCapexParentTrendsFromLeafRows,
+  type CapexAssetYearState,
+  type CapexDepreciationMethod,
+} from "@/lib/capex-forecast-resolve"
 
 export const CAPEX_HYPOTHESIS_RATE_YEAR_INDEX = -1
 
-type CapexDepreciationMethod = "declining" | "linear"
+/** Mode d’affichage des montants annuels (Hypothèses Capex). */
+export type CapexAmountViewMode = "bookValue" | "adjustments" | "depreciation"
 
 type CapexAdjustmentType = "amount" | "growthPercent" | "growthAmount" | "percentRevenue"
 
@@ -85,6 +115,9 @@ interface CapexForecastDetailProps {
   projectionId?: string | null
   fiscalYear?: number
   forecastBaseYear?: number
+  refMonth?: number
+  forecastUseSeriesActuals?: boolean
+  forecastActualLayout?: ForecastActualLayout
 }
 
 interface DetailRow extends BalanceSheetDetailRow {}
@@ -103,6 +136,9 @@ export function CapexForecastDetail({
   projectionId,
   fiscalYear,
   forecastBaseYear,
+  refMonth,
+  forecastUseSeriesActuals = false,
+  forecastActualLayout = "nMinusOne-and-ytd",
 }: CapexForecastDetailProps) {
   useNotesCache(companyId ?? null)
   const [balanceSheetStructure, setBalanceSheetStructure] = useState<Record<string, unknown>[] | null>(null)
@@ -119,6 +155,7 @@ export function CapexForecastDetail({
   }>({})
   const [notesUpdated, setNotesUpdated] = useState(0)
   const [showGrowthRate, setShowGrowthRate] = useState(false)
+  const [capexAmountViewMode, setCapexAmountViewMode] = useState<CapexAmountViewMode>("bookValue")
   
   // State for editable capex values: key = "rowId-yearIndex" (kept for backward compatibility but not used for direct editing)
   const [capexValues, setCapexValues] = useState<Record<string, number>>({})
@@ -131,8 +168,10 @@ export function CapexForecastDetail({
     type: CapexAdjustmentType
     value: number
     note: string
+    linkCode?: string
     seasonalityMonthPercents?: number[]
-    disbursementCash?: ForecastCollectionCash
+    /** @deprecated Ancien décaissement à délais ; le financement vit dans `capexFinancing`. */
+    disbursementCash?: unknown
     capexFinancing?: CapexFinancingConfig
     hypothesisMetaOnly?: boolean
   }
@@ -148,14 +187,13 @@ export function CapexForecastDetail({
 
   const [depreciationRates, setDepreciationRates] = useState<Record<string, number>>({})
   const [depreciationMethods, setDepreciationMethods] = useState<Record<string, CapexDepreciationMethod>>({})
+  const [amortizationLinkCodes, setAmortizationLinkCodes] = useState<Record<string, string>>({})
   const [draftDepreciationMethod, setDraftDepreciationMethod] = useState<CapexDepreciationMethod>("linear")
   const [draftDepreciationRate, setDraftDepreciationRate] = useState<number>(0)
   const [capexHypothesisEditorTab, setCapexHypothesisEditorTab] = useState<
-    "sommaire" | "taux" | "ajustement" | "decaissement"
+    "sommaire" | "taux" | "ajustement"
   >("ajustement")
   const [replicateCapexAdjustmentToFollowingYears, setReplicateCapexAdjustmentToFollowingYears] =
-    useState(false)
-  const [replicateCapexDisbursementToFollowingYears, setReplicateCapexDisbursementToFollowingYears] =
     useState(false)
   const [capexDisbursementSeasonalityMonthPercents, setCapexDisbursementSeasonalityMonthPercents] =
     useState<number[]>(() => createDefaultForecastSeasonalityMonthPercents())
@@ -166,15 +204,34 @@ export function CapexForecastDetail({
   const [capexSummarySeriesVisible, setCapexSummarySeriesVisible] = useState({
     primary: true,
     cashFlow: true,
-    balance: true,
+    cost: true,
+    bookValue: true,
+    depreciation: true,
   })
   const pendingCapexAdjustmentIdRef = useRef<string | null>(null)
   const capexHypothesisDraftLoadKeyRef = useRef<string | null>(null)
+  /** Charge taux/méthode une fois par poste à l’ouverture (pas seulement onglet Taux). */
+  const capexDepDraftRowKeyRef = useRef<string | null>(null)
 
   const isForecastSection = title === "Estimation des Capex annuels"
 
   const effectiveFiscalYear = fiscalYear ?? new Date().getFullYear()
   const effectiveForecastBaseYear = forecastBaseYear ?? effectiveFiscalYear + 1
+  const effectiveRefMonth = refMonth ?? new Date().getMonth() + 1
+  const fiscalYearEndMonth = parseFiscalYearEndMonth(
+    companies.find((c) => c.id === companyId)?.fiscalYearEnd ?? "12-31",
+  )
+  const forecastActualLayoutEffective = resolveForecastActualLayout(
+    forecastActualLayout,
+    effectiveRefMonth,
+    fiscalYearEndMonth,
+  )
+  const forecastActualCols = forecastActualColumnCount(forecastActualLayoutEffective)
+  const forecastYearCount = forecastDisplayYearCount(projectionYears, forecastActualLayoutEffective)
+  const forecastConfigYearCount = projectionYears + 1
+  const isForecastHistoricalColumn = (idx: number) => isForecastSection && idx < forecastActualCols
+  const isForecastProjectedColumn = (idx: number) =>
+    isForecastSection && isForecastProjectedDisplayColumn(idx, forecastActualCols)
 
   useEffect(() => {
     if (!companyId || !isForecastSection) {
@@ -223,16 +280,33 @@ export function CapexForecastDetail({
     divisionId,
     subDivisionId,
     enabled: isForecastSection && !!companyId,
+    forecastActualLayout: forecastActualLayoutEffective,
+    refMonth: effectiveRefMonth,
+    fiscalYearEndMonth,
   })
 
   const { rows: bsRows, periods: bsPeriods, loading: bsLoading } = useFinancialStatementSeries({
     companyId: companyId || null,
     statementType: "balance-sheet",
     fiscalYear: effectiveFiscalYear,
-    months: 60, // 5 years of monthly data to aggregate into annual
+    month: effectiveRefMonth,
+    months: 72,
     divisionId: divisionId || null,
     subDivisionId: subDivisionId || null,
     enabled: !!companyId,
+  })
+
+  /** Série Coût seul (mapping alt_asset_cost) pour le rollforward VNC. */
+  const { rows: bsCostRows, periods: bsCostPeriods } = useFinancialStatementSeries({
+    companyId: companyId || null,
+    statementType: "balance-sheet",
+    fiscalYear: effectiveFiscalYear,
+    month: effectiveRefMonth,
+    months: 72,
+    divisionId: divisionId || null,
+    subDivisionId: subDivisionId || null,
+    enabled: !!companyId && isForecastSection,
+    altAssetCostOnly: true,
   })
 
   // Build Capex rows from balance-sheet structure (same presentation as Bilan Détail)
@@ -244,7 +318,7 @@ export function CapexForecastDetail({
     if (detailStructureRows.length === 0) return []
 
     return mapStructureRowsToBalanceSheetDetailRows(detailStructureRows, bsRows, bsPeriods, {
-      emptyTrendLength: projectionYears + 1,
+      emptyTrendLength: forecastYearCount,
       plainAnnexTitles: true,
       structureRowHasLiaisonCode,
       buildBalanceAccounts: (sr, periods) => {
@@ -261,7 +335,7 @@ export function CapexForecastDetail({
         })
       },
     })
-  }, [bsRows, bsPeriods, displayStructure, isForecastSection, projectionYears])
+  }, [bsRows, bsPeriods, displayStructure, isForecastSection, projectionYears, forecastYearCount])
 
   // Debounced save to API
   const saveConfigRef = useRef<NodeJS.Timeout>()
@@ -296,6 +370,9 @@ export function CapexForecastDetail({
           if (data.depreciationMethods) {
             setDepreciationMethods(data.depreciationMethods as typeof depreciationMethods)
           }
+          if (data.amortizationLinkCodes) {
+            setAmortizationLinkCodes(data.amortizationLinkCodes as typeof amortizationLinkCodes)
+          }
           if (data.capexAdjustments) setCapexAdjustments(data.capexAdjustments as typeof capexAdjustments)
         }
       } catch (err) {
@@ -305,18 +382,153 @@ export function CapexForecastDetail({
     loadConfig()
   }, [companyId, isForecastSection, projectionId])
 
+  /** Enrichit les hyp. existantes avec linkCode (rollup Estimation du Bilan). */
+  useEffect(() => {
+    if (!isForecastSection || !baseData?.length) return
+    setCapexAdjustments((prev) => {
+      let changed = false
+      const next: typeof prev = {}
+      for (const [key, list] of Object.entries(prev)) {
+        next[key] = list.map((adj) => {
+          if (adj.linkCode?.trim()) return adj
+          const linkCode = resolveCapexAssetLinkCodeForDebt(adj.rowId, {
+            rowLinkCode: baseData.find((r) => r.rowId === adj.rowId)?.linkCode,
+            structureRows: displayStructure,
+          })
+          if (!linkCode) return adj
+          changed = true
+          return { ...adj, linkCode }
+        })
+      }
+      return changed ? next : prev
+    })
+  }, [baseData, displayStructure, isForecastSection])
+
+  /** Ré-attache les prêts Capex financés à PLT-C/D (anciens sans sourceLinkCode). */
+  const debtCapexRepairKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!isForecastSection || !companyId || !projectionId || !baseData?.length) return
+    const financedEntries: Array<{
+      capexKey: string
+      financing: CapexFinancingConfig
+      assetLinkCode: string
+    }> = []
+    for (const list of Object.values(capexAdjustments)) {
+      for (const adj of list) {
+        const financing = parseCapexFinancingFromStorage(adj.capexFinancing)
+        if (!financing || financing.mode === "cash") continue
+        const assetLinkCode = resolveCapexAssetLinkCodeForDebt(adj.rowId, {
+          rowLinkCode: adj.linkCode ?? baseData.find((r) => r.rowId === adj.rowId)?.linkCode,
+          structureRows: displayStructure,
+        })
+        if (!assetLinkCode) continue
+        financedEntries.push({
+          capexKey: `${adj.rowId}-${adj.yearIndex}:${adj.id}`,
+          financing,
+          assetLinkCode,
+        })
+      }
+    }
+    if (financedEntries.length === 0) return
+    const repairKey = `${projectionId}:${financedEntries
+      .map((e) => `${e.capexKey}:${e.assetLinkCode}`)
+      .sort()
+      .join("|")}`
+    if (debtCapexRepairKeyRef.current === repairKey) return
+
+    let cancelled = false
+    ;(async () => {
+      const updates: Record<string, CapexFinancingConfig> = {}
+      for (const entry of financedEntries) {
+        if (cancelled) return
+        try {
+          const synced = await syncCapexFinancingToDebtForecast({
+            companyId,
+            projectionId,
+            capexKey: entry.capexKey,
+            financing: entry.financing,
+            forecastBaseYear: effectiveForecastBaseYear,
+            assetLinkCode: entry.assetLinkCode,
+          })
+          updates[entry.capexKey] = synced
+        } catch (err) {
+          console.error("Error repairing capex financing → debt:", err)
+        }
+      }
+      if (cancelled) return
+      debtCapexRepairKeyRef.current = repairKey
+      if (Object.keys(updates).length === 0) return
+      setCapexAdjustments((prev) => {
+        let changed = false
+        const next: typeof prev = {}
+        for (const [key, list] of Object.entries(prev)) {
+          next[key] = list.map((adj) => {
+            const capexKey = `${adj.rowId}-${adj.yearIndex}:${adj.id}`
+            const synced = updates[capexKey]
+            if (!synced) return adj
+            if (
+              adj.capexFinancing &&
+              typeof adj.capexFinancing === "object" &&
+              (adj.capexFinancing as CapexFinancingConfig).linkedLoanId === synced.linkedLoanId &&
+              adj.linkCode
+            ) {
+              return adj
+            }
+            changed = true
+            return {
+              ...adj,
+              linkCode:
+                resolveCapexAssetLinkCodeForDebt(adj.rowId, {
+                  rowLinkCode: adj.linkCode,
+                  structureRows: displayStructure,
+                }) ?? adj.linkCode,
+              capexFinancing: synced,
+            }
+          })
+        }
+        return changed ? next : prev
+      })
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [
+    baseData,
+    capexAdjustments,
+    companyId,
+    displayStructure,
+    effectiveForecastBaseYear,
+    isForecastSection,
+    projectionId,
+  ])
+
   useEffect(() => {
     if (!isForecastSection) return
     if (
       Object.keys(capexValues).length === 0 &&
       Object.keys(depreciationRates).length === 0 &&
       Object.keys(depreciationMethods).length === 0 &&
+      Object.keys(amortizationLinkCodes).length === 0 &&
       Object.keys(capexAdjustments).length === 0
     ) {
       return
     }
-    saveConfig({ capexValues, depreciationRates, depreciationMethods, capexAdjustments })
-  }, [capexValues, depreciationRates, depreciationMethods, capexAdjustments, saveConfig, isForecastSection])
+    saveConfig({
+      capexValues,
+      depreciationRates,
+      depreciationMethods,
+      amortizationLinkCodes,
+      capexAdjustments,
+    })
+  }, [
+    capexValues,
+    depreciationRates,
+    depreciationMethods,
+    amortizationLinkCodes,
+    capexAdjustments,
+    saveConfig,
+    isForecastSection,
+  ])
 
   useEffect(() => {
     setCapexHypothesisPanelOpen(false)
@@ -360,107 +572,31 @@ export function CapexForecastDetail({
     return false
   }
 
-  const isCapexHypothesisGrowthAdjustment = (adj: CapexAdjustment): boolean =>
-    !isCapexHypothesisMetaOnly(adj)
-
-  const applySeasonalityToCapexAdjustmentList = (
-    list: CapexAdjustment[],
+  const loadCapexFinancingDraftForAdjustment = (
+    adj: CapexAdjustment | null | undefined,
     rowId: string,
     yearIndex: number,
-    seasonality: number[],
-    createIfEmpty: boolean,
-  ): CapexAdjustment[] => {
-    if (list.length > 0) {
-      return list.map((a) => ({ ...a, seasonalityMonthPercents: seasonality }))
-    }
-    if (!createIfEmpty) return []
-    return [
-      {
-        id: generateId(),
-        rowId,
-        yearIndex,
-        type: "amount",
-        value: 0,
-        note: "",
-        seasonalityMonthPercents: seasonality,
-        hypothesisMetaOnly: true,
-      },
-    ]
-  }
-
-  const applyDisbursementToCapexAdjustmentList = (
-    list: CapexAdjustment[],
-    rowId: string,
-    yearIndex: number,
-    cash: ForecastCollectionCash,
-    createIfEmpty: boolean,
-  ): CapexAdjustment[] => {
-    if (list.length > 0) {
-      return list.map((a) => ({ ...a, disbursementCash: cash }))
-    }
-    if (!createIfEmpty) return []
-    return [
-      {
-        id: generateId(),
-        rowId,
-        yearIndex,
-        type: "amount",
-        value: 0,
-        note: "",
-        disbursementCash: cash,
-        hypothesisMetaOnly: true,
-      },
-    ]
-  }
-
-  const applyFinancingToCapexAdjustmentList = (
-    list: CapexAdjustment[],
-    rowId: string,
-    yearIndex: number,
-    financing: CapexFinancingConfig,
-    seasonality: number[],
-    createIfEmpty: boolean,
-  ): CapexAdjustment[] => {
-    if (list.length > 0) {
-      return list.map((a) => ({
-        ...a,
-        capexFinancing: financing,
-        seasonalityMonthPercents: seasonality,
-      }))
-    }
-    if (!createIfEmpty) return []
-    return [
-      {
-        id: generateId(),
-        rowId,
-        yearIndex,
-        type: "amount",
-        value: 0,
-        note: "",
-        capexFinancing: financing,
-        seasonalityMonthPercents: seasonality,
-        hypothesisMetaOnly: true,
-      },
-    ]
-  }
-
-  const loadCapexDisbursementFields = (rowId: string, yearIndex: number, rowLabel = "") => {
-    const adjs = getAdjustments(rowId, yearIndex)
-    const withFinancing = adjs.find((a) => a.capexFinancing != null)
-    const parsedFinancing = withFinancing?.capexFinancing
-      ? parseCapexFinancingFromStorage(withFinancing.capexFinancing) ??
-        (withFinancing.capexFinancing as CapexFinancingConfig)
+    rowLabel = "",
+    draftAmount = 0,
+  ) => {
+    const parsedFinancing = adj?.capexFinancing
+      ? parseCapexFinancingFromStorage(adj.capexFinancing) ??
+        (adj.capexFinancing as CapexFinancingConfig)
       : null
-    const annualAmount = getCapexValue(rowId, yearIndex, 0, 0)
     const calendarYear = adjustmentYearIndexToCalendarYear(yearIndex, effectiveForecastBaseYear)
     const base =
       parsedFinancing ?? createDefaultCapexFinancing(rowLabel, 0, effectiveForecastBaseYear, yearIndex)
-    const serviceMonth = base.serviceDate.month
+    const amount =
+      draftAmount > 0
+        ? draftAmount
+        : adj && isCapexHypothesisGrowthAdjustment(adj)
+          ? Math.max(0, Number(adj.value) || 0)
+          : 0
     setCapexFinancingDraft({
       ...base,
       projectName: parsedFinancing?.projectName?.trim() ? parsedFinancing.projectName : rowLabel,
-      totalAmount: annualAmount > 0 ? annualAmount : base.totalAmount,
-      serviceDate: { year: calendarYear, month: serviceMonth },
+      totalAmount: amount > 0 ? amount : base.totalAmount,
+      serviceDate: { year: calendarYear, month: base.serviceDate.month },
       debt: base.debt
         ? {
             ...base.debt,
@@ -471,44 +607,11 @@ export function CapexForecastDetail({
           }
         : undefined,
     })
-
-    const withSeason = adjs.find((a) => a.seasonalityMonthPercents != null)
     setCapexDisbursementSeasonalityMonthPercents(
-      withSeason
-        ? parseSeasonalityMonthPercentsFromStorage(withSeason)
+      adj?.seasonalityMonthPercents != null
+        ? parseSeasonalityMonthPercentsFromStorage(adj)
         : createDefaultForecastSeasonalityMonthPercents(),
     )
-  }
-
-  const applyCapexFinancingAndCalendarToYear = (
-    rowId: string,
-    yearIndex: number,
-    financing: CapexFinancingConfig,
-    seasonality: number[],
-    replicate: boolean,
-  ) => {
-    const yearLabelsLen = projectionYears + 1
-    setCapexAdjustments((prev) => {
-      const next: Record<string, CapexAdjustment[]> = { ...prev }
-      const key0 = `${rowId}-${yearIndex}`
-      next[key0] = applyFinancingToCapexAdjustmentList(
-        prev[key0] || [],
-        rowId,
-        yearIndex,
-        financing,
-        seasonality,
-        true,
-      )
-
-      if (replicate && yearIndex < yearLabelsLen - 1) {
-        for (let y = yearIndex + 1; y < yearLabelsLen; y++) {
-          const keyY = `${rowId}-${y}`
-          const arr = next[keyY] ?? prev[keyY] ?? []
-          next[keyY] = applyFinancingToCapexAdjustmentList(arr, rowId, y, financing, seasonality, true)
-        }
-      }
-      return next
-    })
   }
 
   const getAdjustmentById = (id: string): CapexAdjustment | null => {
@@ -521,25 +624,76 @@ export function CapexForecastDetail({
 
   const getDepreciationRate = (rowId: string | undefined, label: string): number => {
     if (!rowId) return 0
-
-    if (depreciationRates[rowId] !== undefined) {
-      return depreciationRates[rowId]
-    }
-
-    if (label.includes("Terrains")) return 0
-    if (label.includes("Constructions") || label.includes("Terrains et constructions")) return 2.5
-    if (label.includes("Matériel") || label.includes("équipement")) return 10
-    if (label.includes("Véhicules")) return 20
-    if (label.includes("Brevets") || label.includes("licences")) return 5
-    if (label.includes("Logiciels") || label.includes("développement")) return 33.33
-    if (label.includes("Fonds commercial")) return 0
-
-    return 8
+    return resolveCapexDepreciationRate(rowId, label, depreciationRates)
   }
 
   const getDepreciationMethod = (rowId: string | undefined): CapexDepreciationMethod => {
     if (!rowId) return "linear"
-    return depreciationMethods[rowId] ?? "linear"
+    return resolveCapexDepreciationMethod(rowId, depreciationMethods)
+  }
+
+  const getAmortizationLinkCode = (rowId: string | undefined): string => {
+    if (!rowId) return ""
+    return String(amortizationLinkCodes[rowId] ?? "").trim()
+  }
+
+  const setAmortizationLinkCodeForRow = (
+    rowId: string,
+    code: string,
+    assetLinkCode?: string | null,
+  ) => {
+    setAmortizationLinkCodes((prev) => {
+      const next = { ...prev }
+      const trimmed = code.trim()
+      const alias = String(assetLinkCode ?? "").trim()
+      if (!trimmed) {
+        delete next[rowId]
+        if (alias && alias !== rowId) delete next[alias]
+      } else {
+        next[rowId] = trimmed
+        // Clé stable par code de liaison (résolution Pro Forma même si rowId = UUID série).
+        if (alias && alias !== rowId) next[alias] = trimmed
+      }
+      return next
+    })
+  }
+
+  const renderAmortizationLinkCodeCell = (
+    rowId: string | undefined,
+    assetLinkCode: string | null | undefined,
+  ) => {
+    if (!rowId) return null
+    const options = capexAmortIsLinkCodeOptionsForAsset(assetLinkCode)
+    const value = getAmortizationLinkCode(rowId) || getAmortizationLinkCode(assetLinkCode ?? undefined)
+    return (
+      <Select
+        value={value || "__none__"}
+        onValueChange={(v) =>
+          setAmortizationLinkCodeForRow(rowId, v === "__none__" ? "" : v, assetLinkCode)
+        }
+      >
+        <SelectTrigger
+          data-testid={`capex-amort-code-${rowId}`}
+          className="h-8 w-full min-w-[5.5rem] border-slate-200 bg-white text-xs font-medium text-slate-800"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <SelectValue placeholder="—" />
+        </SelectTrigger>
+        <SelectContent onClick={(e) => e.stopPropagation()}>
+          <SelectItem value="__none__" className="text-xs text-slate-500">
+            —
+          </SelectItem>
+          {options.map((code) => (
+            <SelectItem key={code} value={code} className="text-xs">
+              <span className="font-medium">{code}</span>
+              <span className="ml-1.5 text-slate-500">
+                {CAPEX_AMORT_IS_LINK_CODE_LABELS[code] ?? ""}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    )
   }
 
   const renderDepreciationRateCell = (rowId: string | undefined, label: string) => {
@@ -568,14 +722,23 @@ export function CapexForecastDetail({
     setAdjustmentNote("")
     setCapexHypothesisEditorTab("ajustement")
     setReplicateCapexAdjustmentToFollowingYears(false)
-    setReplicateCapexDisbursementToFollowingYears(false)
     setCapexDisbursementSeasonalityMonthPercents(createDefaultForecastSeasonalityMonthPercents())
     setCapexFinancingDraft(createDefaultCapexFinancing("", 0, effectiveForecastBaseYear))
     pendingCapexAdjustmentIdRef.current = null
     capexHypothesisDraftLoadKeyRef.current = null
+    capexDepDraftRowKeyRef.current = null
+  }
+
+  const resetCapexAdjustmentDraftForm = (rowId: string, yearIndex: number, rowLabel = "") => {
+    setEditingAdjustmentId(null)
+    setAdjustmentType("amount")
+    setAdjustmentValue(0)
+    setAdjustmentNote("")
+    loadCapexFinancingDraftForAdjustment(null, rowId, yearIndex, rowLabel, 0)
   }
 
   const loadCapexAdjustmentDraft = (rowId: string, yearIndex: number, adjustmentId?: string) => {
+    const rowLabel = baseData?.find((r) => r.rowId === rowId)?.label ?? ""
     if (adjustmentId) {
       const existingAdjustment = getAdjustmentById(adjustmentId)
       if (existingAdjustment) {
@@ -583,24 +746,22 @@ export function CapexForecastDetail({
         setAdjustmentType(existingAdjustment.type)
         setAdjustmentValue(existingAdjustment.value)
         setAdjustmentNote(existingAdjustment.note || "")
+        loadCapexFinancingDraftForAdjustment(
+          existingAdjustment,
+          rowId,
+          yearIndex,
+          rowLabel,
+          existingAdjustment.value,
+        )
         return
       }
-    }
-
-    const existing = getAdjustments(rowId, yearIndex)
-    if (existing.length > 0) {
-      const only = existing[existing.length - 1]!
-      setEditingAdjustmentId(only.id)
-      setAdjustmentType(only.type)
-      setAdjustmentValue(only.value)
-      setAdjustmentNote(only.note || "")
-      return
     }
 
     setEditingAdjustmentId(null)
     setAdjustmentType("amount")
     setAdjustmentValue(0)
     setAdjustmentNote("")
+    loadCapexFinancingDraftForAdjustment(null, rowId, yearIndex, rowLabel, 0)
   }
 
   const ensureCapexProjectedYearIndex = (yearIndex: number): number =>
@@ -618,7 +779,6 @@ export function CapexForecastDetail({
     setCapexHypothesisMode(mode)
     setCapexHypothesisEditorTab(mode === "rate" ? "taux" : "ajustement")
     setReplicateCapexAdjustmentToFollowingYears(false)
-    setReplicateCapexDisbursementToFollowingYears(false)
     const resolvedYearIndex =
       mode === "adjustment" ? ensureCapexProjectedYearIndex(yearIndex) : yearIndex
     setEditingAdjustment({ rowId, yearIndex: resolvedYearIndex })
@@ -626,14 +786,7 @@ export function CapexForecastDetail({
   }
 
   const handleCapexHypothesisTabChange = (value: string) => {
-    const tab =
-      value === "sommaire"
-        ? "sommaire"
-        : value === "taux"
-          ? "taux"
-          : value === "decaissement"
-            ? "decaissement"
-            : "ajustement"
+    const tab = value === "sommaire" ? "sommaire" : value === "taux" ? "taux" : "ajustement"
     setCapexHypothesisEditorTab(tab)
     if (!editingAdjustment) return
 
@@ -654,33 +807,34 @@ export function CapexForecastDetail({
 
     const rowId = editingAdjustment.rowId
     const yearIndex = ensureCapexProjectedYearIndex(editingAdjustment.yearIndex)
+    const rowLabelForLoad = baseData?.find((r) => r.rowId === rowId)?.label || ""
+
+    // Taux / méthode : toujours hydrater le brouillon à l’ouverture du poste
+    // (sinon Sommaire utilise draftDepreciationRate=0 → amortissement 0 $).
+    const depKey = `dep:${rowId}`
+    if (capexDepDraftRowKeyRef.current !== depKey) {
+      capexDepDraftRowKeyRef.current = depKey
+      setDraftDepreciationMethod(getDepreciationMethod(rowId))
+      setDraftDepreciationRate(getDepreciationRate(rowId, rowLabelForLoad))
+    }
 
     if (capexHypothesisMode === "rate" || capexHypothesisEditorTab === "taux") {
-      const rowLabel = baseData?.find((r) => r.rowId === rowId)?.label || ""
       const loadKey = `taux:${rowId}`
       if (capexHypothesisDraftLoadKeyRef.current === loadKey) return
       capexHypothesisDraftLoadKeyRef.current = loadKey
       setEditingAdjustmentId(null)
-      setDraftDepreciationMethod(getDepreciationMethod(rowId))
-      setDraftDepreciationRate(getDepreciationRate(rowId, rowLabel))
       return
     }
 
-    const loadKey = `${capexHypothesisEditorTab}:${rowId}:${yearIndex}`
+    const pendingAdjId = pendingCapexAdjustmentIdRef.current
+    const loadKey = `${capexHypothesisEditorTab}:${rowId}:${yearIndex}:${pendingAdjId ?? editingAdjustmentId ?? "new"}:${rowLabelForLoad}`
     if (capexHypothesisDraftLoadKeyRef.current === loadKey) return
     capexHypothesisDraftLoadKeyRef.current = loadKey
 
-    const pendingAdjId = pendingCapexAdjustmentIdRef.current
     pendingCapexAdjustmentIdRef.current = null
 
     if (capexHypothesisEditorTab === "ajustement") {
       loadCapexAdjustmentDraft(rowId, yearIndex, pendingAdjId ?? undefined)
-    } else if (capexHypothesisEditorTab === "decaissement") {
-      loadCapexDisbursementFields(
-        rowId,
-        yearIndex,
-        baseData?.find((r) => r.rowId === rowId)?.label ?? "",
-      )
     }
   }, [
     baseData,
@@ -694,84 +848,244 @@ export function CapexForecastDetail({
   const saveDepreciationHypothesis = () => {
     if (!editingAdjustment?.rowId) return
     const rowId = editingAdjustment.rowId
+    const linkCode = baseData?.find((r) => r.rowId === rowId)?.linkCode?.trim()
     const nextRates = { ...depreciationRates, [rowId]: draftDepreciationRate }
     const nextMethods = { ...depreciationMethods, [rowId]: draftDepreciationMethod }
+    if (linkCode && linkCode !== rowId) {
+      nextRates[linkCode] = draftDepreciationRate
+      nextMethods[linkCode] = draftDepreciationMethod
+    }
     setDepreciationRates(nextRates)
     setDepreciationMethods(nextMethods)
     closeCapexHypothesisPanel()
   }
 
-  const saveAdjustment = () => {
+  const resolveSingleCapexAdjustmentAmount = (
+    adjustment: CapexAdjustment,
+    yearIndex: number,
+    defaultValue: number,
+    baseValue: number,
+    builtTrend?: number[],
+    rowId?: string,
+  ): number => {
+    if (adjustment.type === "amount") {
+      return Math.round(adjustment.value)
+    }
+    if (adjustment.type === "percentRevenue") {
+      const revenueTotal = projectedRevenueYearTotals?.[yearIndex] ?? 0
+      return Math.round(revenueTotal * (adjustment.value / 100))
+    }
+    const prevDefault =
+      yearIndex > 0 ? (builtTrend?.[yearIndex - 1] ?? (yearIndex === 1 ? baseValue : 0)) : defaultValue
+    const previousValue =
+      yearIndex > 0 && rowId
+        ? resolveCapexAdditionsForYear(
+            rowId,
+            yearIndex - 1,
+            prevDefault,
+            baseValue,
+            capexAdjustments as Parameters<typeof resolveCapexAdditionsForYear>[4],
+            projectedRevenueYearTotals,
+            builtTrend,
+          )
+        : defaultValue
+    if (adjustment.type === "growthPercent") {
+      return Math.round(previousValue * (1 + adjustment.value / 100))
+    }
+    if (adjustment.type === "growthAmount") {
+      return Math.round(previousValue + adjustment.value)
+    }
+    return 0
+  }
+
+  const getOpeningCostForRow = (rowId: string, openingBook: number): number => {
+    const costSeriesRow = bsCostRows.find((r) => r.id === rowId)
+    if (!costSeriesRow) return openingBook
+    const periods = bsCostPeriods.length > 0 ? bsCostPeriods : bsPeriods
+    if (periods.length === 0) return openingBook
+    const prefix = forecastBalanceSheetActualPrefixValues(
+      forecastActualLayoutEffective,
+      costSeriesRow,
+      periods,
+      effectiveRefMonth,
+      effectiveFiscalYear,
+      fiscalYearEndMonth,
+    )
+    return forecastProjectionOpeningFromActuals(prefix, openingBook)
+  }
+
+  const buildRowAssetStates = (
+    rowId: string,
+    label: string,
+    openingBook: number,
+    additionsOverrides?: Record<number, number>,
+  ): CapexAssetYearState[] => {
+    return buildCapexAssetYearStates({
+      rowId,
+      configYearCount: forecastConfigYearCount,
+      openingCost: getOpeningCostForRow(rowId, openingBook),
+      openingBookValue: openingBook,
+      // Local CapexAdjustment is a superset of the resolve type.
+      adjustments: capexAdjustments as Parameters<typeof buildCapexAssetYearStates>[0]["adjustments"],
+      ratePercent: getDepreciationRate(rowId, label),
+      method: getDepreciationMethod(rowId),
+      projectedRevenueYearTotals,
+      additionsOverrides,
+    })
+  }
+
+  /** Ajouts Capex (hausse du Coût) — financement / sommaire décaissements. */
+  const getCapexAdditionsValue = (
+    rowId: string | undefined,
+    yearIndex: number,
+    baseValue = 0,
+    builtTrend?: number[],
+  ): number => {
+    if (!rowId || !isForecastSection) return 0
+    return resolveCapexAdditionsForYear(
+      rowId,
+      yearIndex,
+      0,
+      baseValue,
+      capexAdjustments as Parameters<typeof resolveCapexAdditionsForYear>[4],
+      projectedRevenueYearTotals,
+      builtTrend,
+    )
+  }
+
+  /** Valeur comptable projetée (Coût − Amort. cumulé). */
+  const getCapexBookValue = (
+    rowId: string | undefined,
+    yearIndex: number,
+    openingBook: number,
+    label = "",
+    additionsOverrides?: Record<number, number>,
+  ): number => {
+    if (!rowId || !isForecastSection) return openingBook
+    const states = buildRowAssetStates(rowId, label, openingBook, additionsOverrides)
+    return states[yearIndex]?.bookValue ?? openingBook
+  }
+
+  /** Dotation de l’exercice (amortissement de période). */
+  const getCapexDepreciationExpense = (
+    rowId: string | undefined,
+    yearIndex: number,
+    openingBook: number,
+    label = "",
+  ): number => {
+    if (!rowId || !isForecastSection) return 0
+    const states = buildRowAssetStates(rowId, label, openingBook)
+    return states[yearIndex]?.depreciationExpense ?? 0
+  }
+
+  const displayedCapexAmount = (
+    rowId: string | undefined,
+    displayIndex: number,
+    defaultValue: number,
+    trend?: number[],
+    label = "",
+  ): number => {
+    if (!rowId || !isForecastSection) return defaultValue
+    const cfg = forecastDisplayToConfigYearIndex(displayIndex, forecastActualCols)
+    // N-1 (null) et YTD / réel (cfg 0) : montants série, pas le moteur Capex.
+    if (cfg == null || cfg <= 0) return defaultValue
+    // Ouverture moteur = N-1 (display[0]), pas le YTD (config[0] après slice).
+    const openingBook = forecastProjectionOpeningFromActuals(trend, defaultValue)
+    return getCapexBookValue(rowId, cfg, openingBook, label)
+  }
+
+  /**
+   * Montant cellule selon le mode (ajouts / dotation), y compris total parent / sous-total annexe.
+   * `null` → afficher « - ».
+   */
+  const resolveCapexModeCellAmount = (
+    row: DetailRow,
+    allRows: DetailRow[],
+    displayIndex: number,
+    mode: CapexAmountViewMode,
+  ): number | null => {
+    if (mode === "bookValue") return null
+    if (!isForecastProjectedColumn(displayIndex)) return null
+    const cfg = forecastDisplayToConfigYearIndex(displayIndex, forecastActualCols)
+    if (cfg == null) return null
+
+    let targets: DetailRow[]
+    if (row.isAnnexSubtotal) {
+      const letter = String(row.annexLetter ?? "").trim().toUpperCase()
+      targets = letter
+        ? allRows.filter(
+            (peer) =>
+              !!peer.rowId &&
+              !peer.isAnnexTitle &&
+              !peer.isAnnexSubtotal &&
+              !peer.isAnnexPlaceholder &&
+              !peer.isSection &&
+              String(peer.annexLetter ?? "").trim().toUpperCase() === letter,
+          )
+        : []
+    } else {
+      const leaves = capexLeafChildrenOfParent(allRows, row)
+      targets =
+        leaves.length > 0
+          ? leaves
+          : row.rowId
+            ? [row]
+            : []
+    }
+
+    let sum = 0
+    let any = false
+    for (const target of targets) {
+      if (!target.rowId) continue
+      if (mode === "adjustments") {
+        const add = getCapexAdditionsValue(target.rowId, cfg)
+        if (add !== 0) any = true
+        sum += add
+        continue
+      }
+      // depreciation — ouverture = N-1 (trend[0]), pas le YTD après slice config
+      const openingBook = forecastProjectionOpeningFromActuals(
+        target.trendValues,
+        target.current ?? 0,
+      )
+      const dep = getCapexDepreciationExpense(
+        target.rowId,
+        cfg,
+        openingBook,
+        target.label ?? "",
+      )
+      if (dep !== 0) any = true
+      sum += dep
+    }
+    return any || sum !== 0 ? sum : null
+  }
+
+  const saveAdjustment = async () => {
     if (!editingAdjustment || capexHypothesisEditorTab !== "ajustement") return
-
-    const { rowId } = editingAdjustment
-    const yearIndex = ensureCapexProjectedYearIndex(editingAdjustment.yearIndex)
-    const key = `${rowId}-${yearIndex}`
-
     if (adjustmentValue === 0) {
       closeCapexHypothesisPanel()
       return
     }
 
-    setCapexAdjustments((prev) => {
-      const next = { ...prev }
-      const yearLabelsLen = projectionYears + 1
-      const savedId = editingAdjustmentId ?? generateId()
-      const calendarPatch = (prev[key] || []).find(
-        (a) => a.seasonalityMonthPercents != null,
-      )?.seasonalityMonthPercents
-      const financingPatch = (prev[key] || []).find((a) => a.capexFinancing != null)?.capexFinancing
-
-      const buildAdj = (y: number, id: string): CapexAdjustment => ({
-        id,
-        rowId,
-        yearIndex: y,
-        type: adjustmentType,
-        value: adjustmentValue,
-        note: adjustmentNote,
-        seasonalityMonthPercents: y === yearIndex ? calendarPatch : undefined,
-        capexFinancing: y === yearIndex ? financingPatch : undefined,
-      })
-
-      next[key] = [buildAdj(yearIndex, savedId)]
-
-      if (replicateCapexAdjustmentToFollowingYears && yearIndex < yearLabelsLen - 1) {
-        for (let y = yearIndex + 1; y < yearLabelsLen; y++) {
-          next[`${rowId}-${y}`] = [buildAdj(y, generateId())]
-        }
-      }
-
-      return next
-    })
-
-    setReplicateCapexAdjustmentToFollowingYears(false)
-    closeCapexHypothesisPanel()
-  }
-
-  const saveDisbursement = async () => {
-    if (!editingAdjustment || capexHypothesisEditorTab !== "decaissement" || !companyId) return
-
-    const rowId = editingAdjustment.rowId
+    const { rowId } = editingAdjustment
     const yearIndex = ensureCapexProjectedYearIndex(editingAdjustment.yearIndex)
-    const capexKey = `${rowId}-${yearIndex}`
-    const trendRow = data.find((r) => r.rowId === rowId)
-    const trend = trendRow?.trendValues
-    const savedAnnual = getCapexValue(
-      rowId,
-      yearIndex,
-      trend?.[yearIndex] ?? 0,
-      trend?.[0] ?? 0,
-      trend,
-    )
-    const adjustmentAnnual = savedAnnual > 0 ? savedAnnual : adjustmentValue
+    const key = `${rowId}-${yearIndex}`
+    const savedId = editingAdjustmentId ?? generateId()
+    const capexKey = `${key}:${savedId}`
+    const rowLabel = baseData?.find((r) => r.rowId === rowId)?.label ?? ""
+    const resolvedAdjustmentAmount =
+      adjustmentType === "percentRevenue"
+        ? Math.round((projectedRevenueYearTotals?.[yearIndex] ?? 0) * (adjustmentValue / 100))
+        : Math.round(adjustmentValue)
 
     let financingSaved = normalizeCapexFinancing(
       {
         ...capexFinancingDraft,
-        totalAmount: adjustmentAnnual,
+        projectName: capexFinancingDraft.projectName.trim() || rowLabel,
+        totalAmount: resolvedAdjustmentAmount,
         serviceDate: {
           year: adjustmentYearIndexToCalendarYear(yearIndex, effectiveForecastBaseYear),
-          month: capexFinancingDraft.serviceDate.month,
+          month: 1,
         },
       },
       effectiveForecastBaseYear,
@@ -788,41 +1102,164 @@ export function CapexForecastDetail({
     ) {
       return
     }
-
     if (!capexFinancingSaveOk(financingSaved)) return
 
     setCapexFinancingSaving(true)
     try {
-      if (projectionId) {
-        financingSaved = await syncCapexFinancingToDebtForecast({
-          companyId,
-          projectionId,
-          capexKey,
-          financing: financingSaved,
-          forecastBaseYear: effectiveForecastBaseYear,
-        })
+      const assetLinkCode = resolveCapexAssetLinkCodeForDebt(rowId, {
+        rowLinkCode: baseData?.find((r) => r.rowId === rowId)?.linkCode,
+        structureRows: displayStructure,
+      })
+
+      const financingByYear: Record<number, CapexFinancingConfig> = {}
+      const adjustmentIdByYear: Record<number, string> = { [yearIndex]: savedId }
+
+      if (projectionId && companyId) {
+        try {
+          financingSaved = await syncCapexFinancingToDebtForecast({
+            companyId,
+            projectionId,
+            capexKey,
+            financing: financingSaved,
+            forecastBaseYear: effectiveForecastBaseYear,
+            assetLinkCode,
+          })
+          financingByYear[yearIndex] = financingSaved
+
+          if (replicateCapexAdjustmentToFollowingYears) {
+            const yearLabelsLen = projectionYears + 1
+            for (let y = yearIndex + 1; y < yearLabelsLen; y++) {
+              const yId = generateId()
+              adjustmentIdByYear[y] = yId
+              const yKey = `${rowId}-${y}:${yId}`
+              const calendarYear = adjustmentYearIndexToCalendarYear(y, effectiveForecastBaseYear)
+              let yFinancing = normalizeCapexFinancing(
+                {
+                  ...financingSaved,
+                  linkedLoanId: undefined,
+                  serviceDate: { year: calendarYear, month: 1 },
+                  debt: financingSaved.debt
+                    ? {
+                        ...financingSaved.debt,
+                        firstPaymentDate: {
+                          year: Math.max(
+                            calendarYear,
+                            financingSaved.debt.firstPaymentDate.year,
+                          ),
+                          month: financingSaved.debt.firstPaymentDate.month,
+                        },
+                        balloonPaymentDate: financingSaved.debt.balloonPaymentDate
+                          ? {
+                              year: Math.max(
+                                calendarYear,
+                                financingSaved.debt.balloonPaymentDate.year,
+                              ),
+                              month: financingSaved.debt.balloonPaymentDate.month,
+                            }
+                          : undefined,
+                      }
+                    : undefined,
+                },
+                effectiveForecastBaseYear,
+              )
+              yFinancing = await syncCapexFinancingToDebtForecast({
+                companyId,
+                projectionId,
+                capexKey: yKey,
+                financing: yFinancing,
+                forecastBaseYear: effectiveForecastBaseYear,
+                assetLinkCode,
+              })
+              financingByYear[y] = yFinancing
+            }
+          }
+        } catch (err) {
+          console.error("Error syncing capex financing to debt:", err)
+          financingByYear[yearIndex] = financingSaved
+        }
+      } else {
+        financingByYear[yearIndex] = financingSaved
       }
-    } catch (err) {
-      console.error("Error syncing capex financing to debt:", err)
+
+      setCapexAdjustments((prev) => {
+        const next = { ...prev }
+        const yearLabelsLen = projectionYears + 1
+
+        const buildAdj = (y: number, id: string): CapexAdjustment => ({
+          id,
+          rowId,
+          yearIndex: y,
+          type: adjustmentType,
+          value: adjustmentValue,
+          note: adjustmentNote,
+          linkCode: assetLinkCode,
+          seasonalityMonthPercents: seasonalitySaved,
+          capexFinancing: financingByYear[y] ?? financingSaved,
+          hypothesisMetaOnly: false,
+        })
+
+        const currentList = (prev[key] || []).filter(
+          (a) => a.id === savedId || isCapexHypothesisGrowthAdjustment(a),
+        )
+        const withoutSaved = currentList.filter((a) => a.id !== savedId)
+        next[key] = [...withoutSaved, buildAdj(yearIndex, savedId)]
+
+        if (replicateCapexAdjustmentToFollowingYears && yearIndex < yearLabelsLen - 1) {
+          for (let y = yearIndex + 1; y < yearLabelsLen; y++) {
+            next[`${rowId}-${y}`] = [buildAdj(y, adjustmentIdByYear[y] ?? generateId())]
+          }
+        }
+
+        return next
+      })
+
+      setCapexFinancingDraft(financingByYear[yearIndex] ?? financingSaved)
+      setReplicateCapexAdjustmentToFollowingYears(false)
+      closeCapexHypothesisPanel()
+    } finally {
       setCapexFinancingSaving(false)
-      return
     }
-
-    applyCapexFinancingAndCalendarToYear(
-      rowId,
-      yearIndex,
-      financingSaved,
-      seasonalitySaved,
-      replicateCapexDisbursementToFollowingYears,
-    )
-
-    setCapexFinancingDraft(financingSaved)
-    setReplicateCapexDisbursementToFollowingYears(false)
-    setCapexFinancingSaving(false)
-    closeCapexHypothesisPanel()
   }
 
   const deleteAdjustment = (adjustmentId: string) => {
+    let removed: CapexAdjustment | undefined
+    for (const list of Object.values(capexAdjustments)) {
+      const found = list.find((adj) => adj.id === adjustmentId)
+      if (found) {
+        removed = found
+        break
+      }
+    }
+
+    if (removed && projectionId && companyId) {
+      const financing =
+        parseCapexFinancingFromStorage(removed.capexFinancing) ??
+        (removed.capexFinancing as CapexFinancingConfig | undefined)
+      if (financing && (financing.linkedLoanId || financing.mode !== "cash")) {
+        const capexKey = `${removed.rowId}-${removed.yearIndex}:${removed.id}`
+        void syncCapexFinancingToDebtForecast({
+          companyId,
+          projectionId,
+          capexKey,
+          financing: {
+            ...financing,
+            mode: "cash",
+            totalAmount: 0,
+            downPayment: undefined,
+            financedAmount: undefined,
+            debt: undefined,
+          },
+          forecastBaseYear: effectiveForecastBaseYear,
+          assetLinkCode: resolveCapexAssetLinkCodeForDebt(removed.rowId, {
+            rowLinkCode: removed.linkCode,
+            structureRows: displayStructure,
+          }),
+        }).catch((err) => {
+          console.error("Error removing capex financing from debt:", err)
+        })
+      }
+    }
+
     setCapexAdjustments((prev) => {
       const updated = { ...prev }
       for (const key in updated) {
@@ -831,57 +1268,6 @@ export function CapexForecastDetail({
       }
       return updated
     })
-  }
-
-  const resolveCapexRowValue = (
-    rowId: string,
-    yearIndex: number,
-    defaultValue: number,
-    baseValue: number,
-    builtTrend?: number[],
-  ): number => {
-    const adjustments = getAdjustments(rowId, yearIndex).filter(isCapexHypothesisGrowthAdjustment)
-    if (adjustments.length === 0) {
-      return yearIndex === 0 ? defaultValue : 0
-    }
-
-    const adjustment = adjustments[adjustments.length - 1]!
-
-    if (adjustment.type === "amount") {
-      return Math.round(adjustment.value)
-    }
-
-    if (adjustment.type === "percentRevenue") {
-      const revenueTotal = projectedRevenueYearTotals?.[yearIndex] ?? 0
-      return Math.round(revenueTotal * (adjustment.value / 100))
-    }
-
-    const prevDefault =
-      yearIndex > 0 ? (builtTrend?.[yearIndex - 1] ?? (yearIndex === 1 ? baseValue : 0)) : defaultValue
-    const previousValue =
-      yearIndex > 0
-        ? resolveCapexRowValue(rowId, yearIndex - 1, prevDefault, baseValue, builtTrend)
-        : defaultValue
-
-    if (adjustment.type === "growthPercent") {
-      return Math.round(previousValue * (1 + adjustment.value / 100))
-    }
-    if (adjustment.type === "growthAmount") {
-      return Math.round(previousValue + adjustment.value)
-    }
-
-    return yearIndex === 0 ? defaultValue : 0
-  }
-
-  const getCapexValue = (
-    rowId: string | undefined,
-    yearIndex: number,
-    defaultValue: number,
-    baseValue?: number,
-    builtTrend?: number[],
-  ): number => {
-    if (!rowId || !isForecastSection) return defaultValue
-    return resolveCapexRowValue(rowId, yearIndex, defaultValue, baseValue ?? defaultValue, builtTrend)
   }
 
   const formatAdjustmentTypeLabel = (type: CapexAdjustmentType): string => {
@@ -918,7 +1304,7 @@ export function CapexForecastDetail({
   const getYearsData = (): DetailRow[] => {
     if (!baseData || baseData.length === 0) return []
 
-    const numYears = projectionYears + 1
+    const numYears = forecastConfigYearCount
     const withTrends = baseData.map((row) => {
       if (
         row.isSection ||
@@ -932,19 +1318,42 @@ export function CapexForecastDetail({
 
       const base = row.current
       const rowId = row.rowId
+      const seriesRow = rowId ? bsRows.find((r) => r.id === rowId) : undefined
+      const prefix =
+        seriesRow && forecastUseSeriesActuals
+          ? forecastBalanceSheetActualPrefixValues(
+              forecastActualLayoutEffective,
+              seriesRow,
+              bsPeriods,
+              effectiveRefMonth,
+              effectiveFiscalYear,
+              fiscalYearEndMonth,
+            )
+          : [base]
+      const displayBase = forecastTrendFromActualPrefix(prefix, projectionYears)
+      // Ouverture projetée = N-1 (prefix[0]), jamais le YTD partiel.
+      const actualBase = forecastProjectionOpeningFromActuals(prefix, base)
 
-      const trendValues: number[] = []
-      for (let yearIndex = 0; yearIndex < numYears; yearIndex++) {
-        const defaultValue = yearIndex === 0 ? base : 0
-        trendValues.push(
-          rowId ? getCapexValue(rowId, yearIndex, defaultValue, base, trendValues) : defaultValue,
-        )
+      const configTrend = rowId
+        ? buildRowAssetStates(rowId, row.label, actualBase).map((s) => s.bookValue)
+        : Array.from({ length: numYears }, (_, yearIndex) =>
+            yearIndex === 0 ? actualBase : 0,
+          )
+
+      return {
+        ...row,
+        trendValues: mergeConfigYearsOntoForecastDisplay(
+          displayBase,
+          configTrend,
+          forecastActualCols,
+        ),
       }
-
-      return { ...row, trendValues }
     })
 
-    return insertAnnexDetailPlaceholderRows(withTrends, numYears)
+    return insertAnnexDetailPlaceholderRows(
+      rollupCapexParentTrendsFromLeafRows(withTrends),
+      forecastYearCount,
+    )
   }
 
   const getDetailData = (): DetailRow[] => {
@@ -979,7 +1388,12 @@ export function CapexForecastDetail({
     capexHypothesisInlineActive && editingAdjustment?.rowId
       ? data.findIndex((r) => r.rowId === editingAdjustment.rowId)
       : -1
-  const yearColumnCount = projectionYears + 1
+  const yearColumnCount = forecastYearCount
+  const forecastTableStickyScroll = isForecastSection && effectiveView === "years"
+  const forecastTableColumnCount =
+    effectiveView === "years"
+      ? (isForecastSection ? 3 : 1) + yearColumnCount
+      : 1
 
   const renderCapexHypothesisPanel = (embedded = false) => {
     if (!capexHypothesisPanelOpen || !editingAdjustment) return null
@@ -989,48 +1403,143 @@ export function CapexForecastDetail({
     const yearLabels = getYearLabels()
     const adjustmentYearIndex = ensureCapexProjectedYearIndex(editingAdjustment.yearIndex)
     const yearLabel =
-      yearLabels[adjustmentYearIndex >= 0 && adjustmentYearIndex < yearLabels.length ? adjustmentYearIndex : 0] ||
+      yearLabels[forecastConfigToDisplayYearIndex(adjustmentYearIndex, forecastActualCols)] ||
       `${adjustmentYearIndex}`
     const existingAdjustments = getAdjustments(editingAdjustment.rowId, adjustmentYearIndex).filter(
       isCapexHypothesisGrowthAdjustment,
     )
-    const canReplicateToFollowingYears = adjustmentYearIndex < yearLabels.length - 1
-    const followingYearsLabel = yearLabels.slice(adjustmentYearIndex + 1).join(", ")
+    const canReplicateToFollowingYears = adjustmentYearIndex < forecastConfigYearCount - 1
+    const followingYearsLabel = yearLabels
+      .slice(forecastConfigToDisplayYearIndex(adjustmentYearIndex, forecastActualCols) + 1)
+      .join(", ")
     const capexDisbursementCalendarSaveOk =
       capexFinancingDraft.mode === "financed" ||
       capexDisbursementSeasonalityMonthPercents.reduce((a, b) => a + b, 0) === 100
-    const summaryRowForAdj = data.find((r) => r.rowId === editingAdjustment.rowId)
-    const trendForAdj = summaryRowForAdj?.trendValues
-    const savedAdjustmentAnnual = getCapexValue(
-      editingAdjustment.rowId,
-      adjustmentYearIndex,
-      trendForAdj?.[adjustmentYearIndex] ?? 0,
-      trendForAdj?.[0] ?? 0,
-      trendForAdj,
-    )
+    /** Montant de l’ajustement en cours (chaque ajustement a son propre décaissement). */
     const capexAdjustmentAnnual =
-      savedAdjustmentAnnual > 0 ? savedAdjustmentAnnual : adjustmentValue
+      adjustmentType === "percentRevenue"
+        ? Math.round((projectedRevenueYearTotals?.[adjustmentYearIndex] ?? 0) * (adjustmentValue / 100))
+        : Math.round(adjustmentValue)
     const adjustmentCalendarYear = adjustmentYearIndexToCalendarYear(
       adjustmentYearIndex,
       effectiveForecastBaseYear,
     )
     const capexFinancingEffective = {
       ...capexFinancingDraft,
+      projectName: capexFinancingDraft.projectName.trim() || rowLabel,
       totalAmount: capexAdjustmentAnnual,
     }
-    const capexCashOutDraft = computeCashDisbursementAmount(capexFinancingEffective)
     const capexFinancingDraftSaveOk = capexFinancingSaveOk(capexFinancingEffective)
-    const capexDecaissementSaveOk = capexFinancingDraftSaveOk && capexDisbursementCalendarSaveOk
+    const capexAjustementSaveOk =
+      adjustmentValue !== 0 && capexFinancingDraftSaveOk && capexDisbursementCalendarSaveOk
     const revenueHintYear =
       adjustmentType === "percentRevenue" && adjustmentYearIndex >= 0
         ? projectedRevenueYearTotals?.[adjustmentYearIndex]
         : null
-    const capexAjustementSaveDisabled = adjustmentValue === 0
+    const capexAjustementSaveDisabled = !capexAjustementSaveOk || capexFinancingSaving
+
+    const buildYearSummaryFromAdjustments = (
+      yearIdx: number,
+      annualResolved: number,
+      list: CapexAdjustment[],
+      draftOverride?: {
+        id: string | null
+        amount: number
+        financing: CapexFinancingConfig
+        seasonality: number[]
+      },
+    ): HypothesisYearSummaryInput => {
+      const growth = list.filter(isCapexHypothesisGrowthAdjustment)
+      const pieces: { cash: number; seasonality: number[] }[] = []
+
+      if (growth.length === 0 && draftOverride && draftOverride.amount > 0) {
+        pieces.push({
+          cash: computeCashDisbursementAmount({
+            ...draftOverride.financing,
+            totalAmount: draftOverride.amount,
+          }),
+          seasonality: draftOverride.seasonality,
+        })
+      } else {
+        for (const adj of growth) {
+          const isDraft = draftOverride != null && adj.id === draftOverride.id
+          const amount = isDraft
+            ? draftOverride.amount
+            : resolveSingleCapexAdjustmentAmount(adj, yearIdx, annualResolved, annualResolved)
+          if (amount <= 0) continue
+          const financing = isDraft
+            ? { ...draftOverride.financing, totalAmount: amount }
+            : adj.capexFinancing
+              ? {
+                  ...(parseCapexFinancingFromStorage(adj.capexFinancing) ??
+                    (adj.capexFinancing as CapexFinancingConfig)),
+                  totalAmount: amount,
+                }
+              : createDefaultCapexFinancing("", amount, effectiveForecastBaseYear)
+          const seasonality = isDraft
+            ? draftOverride.seasonality
+            : adj.seasonalityMonthPercents != null
+              ? parseSeasonalityMonthPercentsFromStorage(adj)
+              : createDefaultForecastSeasonalityMonthPercents()
+          pieces.push({
+            cash: computeCashDisbursementAmount(financing),
+            seasonality,
+          })
+        }
+        if (
+          draftOverride &&
+          draftOverride.id == null &&
+          draftOverride.amount > 0 &&
+          !growth.some((a) => a.id === editingAdjustmentId)
+        ) {
+          pieces.push({
+            cash: computeCashDisbursementAmount({
+              ...draftOverride.financing,
+              totalAmount: draftOverride.amount,
+            }),
+            seasonality: draftOverride.seasonality,
+          })
+        }
+      }
+
+      const cashFlowAnnual = pieces.reduce((s, p) => s + p.cash, 0)
+      let seasonalityMonthPercents = createDefaultForecastSeasonalityMonthPercents()
+      if (pieces.length === 1) {
+        seasonalityMonthPercents = normalizeForecastSeasonalityMonthPercents(pieces[0]!.seasonality)
+      } else if (pieces.length > 1 && cashFlowAnnual > 0) {
+        const weighted = Array.from({ length: 12 }, () => 0)
+        for (const p of pieces) {
+          const norm = normalizeForecastSeasonalityMonthPercents(p.seasonality)
+          for (let m = 0; m < 12; m++) {
+            weighted[m]! += (norm[m]! / 100) * p.cash
+          }
+        }
+        seasonalityMonthPercents = normalizeForecastSeasonalityMonthPercents(
+          weighted.map((w) => (w / cashFlowAnnual) * 100),
+        )
+      }
+
+      return {
+        annual: annualResolved,
+        cashFlowAnnual,
+        seasonalityMonthPercents,
+        cashFlowSeasonalityMonthPercents: seasonalityMonthPercents,
+        cashFlowBySeasonalityDirect: true,
+        badDebtPercent: 0,
+        buckets: createDefaultForecastCollectionBuckets(0),
+      }
+    }
 
     const summaryRowForCapexDraft = data.find((r) => r.rowId === editingAdjustment.rowId)
     const summaryTrendForCapexDraft = summaryRowForCapexDraft?.trendValues
     const capexSummaryReady =
       !!summaryRowForCapexDraft?.rowId && Array.isArray(summaryTrendForCapexDraft)
+    const draftSummaryOverride = {
+      id: editingAdjustmentId,
+      amount: capexAdjustmentAnnual,
+      financing: capexFinancingDraft,
+      seasonality: normalizeForecastSeasonalityMonthPercents(capexDisbursementSeasonalityMonthPercents),
+    }
     const capexSummaryYearsParams: HypothesisYearSummaryInput[] = []
     if (capexSummaryReady) {
       const rowIdD = summaryRowForCapexDraft!.rowId!
@@ -1038,43 +1547,40 @@ export function CapexForecastDetail({
       for (let y = 0; y <= adjustmentYearIndex; y++) {
         const isDraftYear = y === adjustmentYearIndex
         const savedList = getAdjustments(rowIdD, y)
-        const savedWithSeason = savedList.find((a) => a.seasonalityMonthPercents != null)
-        const savedWithFinancing = savedList.find((a) => a.capexFinancing != null)
-        const annualResolved = getCapexValue(
+        const annualResolved = getCapexAdditionsValue(
           rowIdD,
           y,
-          trend[y] ?? 0,
           trend[0] ?? 0,
           trend,
         )
-        const financingResolved = isDraftYear
-          ? { ...capexFinancingDraft, totalAmount: capexAdjustmentAnnual }
-          : savedWithFinancing?.capexFinancing
-            ? {
-                ...(parseCapexFinancingFromStorage(savedWithFinancing.capexFinancing) ??
-                  (savedWithFinancing.capexFinancing as CapexFinancingConfig)),
-                totalAmount: annualResolved,
-              }
-            : createDefaultCapexFinancing("", annualResolved, effectiveForecastBaseYear)
-        const cashFlowAnnual = computeCashDisbursementAmount(financingResolved)
-        const seasonalityMonthPercents = isDraftYear
-          ? normalizeForecastSeasonalityMonthPercents(capexDisbursementSeasonalityMonthPercents)
-          : savedWithSeason
-            ? parseSeasonalityMonthPercentsFromStorage(savedWithSeason)
-            : createDefaultForecastSeasonalityMonthPercents()
-        capexSummaryYearsParams.push({
-          annual: annualResolved,
-          cashFlowAnnual,
-          seasonalityMonthPercents,
-          cashFlowSeasonalityMonthPercents: seasonalityMonthPercents,
-          cashFlowBySeasonalityDirect: true,
-          badDebtPercent: 0,
-          buckets: createDefaultForecastCollectionBuckets(0),
-        })
+        const draftAnnual =
+          isDraftYear && editingAdjustmentId
+            ? (() => {
+                const others = savedList
+                  .filter(isCapexHypothesisGrowthAdjustment)
+                  .filter((a) => a.id !== editingAdjustmentId)
+                const othersSum = others.reduce(
+                  (s, a) =>
+                    s + resolveSingleCapexAdjustmentAmount(a, y, annualResolved, annualResolved),
+                  0,
+                )
+                return othersSum + capexAdjustmentAnnual
+              })()
+            : isDraftYear && !editingAdjustmentId && capexAdjustmentAnnual > 0
+              ? annualResolved + capexAdjustmentAnnual
+              : annualResolved
+        capexSummaryYearsParams.push(
+          buildYearSummaryFromAdjustments(
+            y,
+            draftAnnual,
+            savedList,
+            isDraftYear ? draftSummaryOverride : undefined,
+          ),
+        )
       }
     }
     const firstProjectedYearIndexForCapexSummary = 1
-    const capexSummaryMoneyPoints =
+    const capexSummaryMoneyPointsBase =
       capexSummaryReady && capexSummaryYearsParams.length === adjustmentYearIndex + 1
         ? computeHypothesisSummaryMoneyPoints(
             capexSummaryYearsParams,
@@ -1082,10 +1588,97 @@ export function CapexForecastDetail({
             firstProjectedYearIndexForCapexSummary,
           )
         : []
+    const openingBookForSummary = (() => {
+      const seriesRow = bsRows.find((r) => r.id === editingAdjustment.rowId)
+      if (!seriesRow || !forecastUseSeriesActuals) {
+        return data.find((r) => r.rowId === editingAdjustment.rowId)?.current ?? 0
+      }
+      const prefix = forecastBalanceSheetActualPrefixValues(
+        forecastActualLayoutEffective,
+        seriesRow,
+        bsPeriods,
+        effectiveRefMonth,
+        effectiveFiscalYear,
+        fiscalYearEndMonth,
+      )
+      return forecastProjectionOpeningFromActuals(prefix, 0)
+    })()
+    const draftAdditionsOverrideForSummary: Record<number, number> = {
+      [adjustmentYearIndex]: (() => {
+        const others = existingAdjustments
+          .filter((a) => a.id !== editingAdjustmentId)
+          .reduce(
+            (s, a) =>
+              s +
+              resolveSingleCapexAdjustmentAmount(
+                a,
+                adjustmentYearIndex,
+                0,
+                openingBookForSummary,
+                undefined,
+                editingAdjustment.rowId,
+              ),
+            0,
+          )
+        return others + Math.max(0, capexAdjustmentAnnual)
+      })(),
+    }
+    const assetStatesForSummary = capexSummaryReady
+      ? buildRowAssetStates(
+          editingAdjustment.rowId,
+          rowLabel,
+          openingBookForSummary,
+          draftAdditionsOverrideForSummary,
+        )
+      : []
+    const prevStateForSummary =
+      adjustmentYearIndex > 0 ? assetStatesForSummary[adjustmentYearIndex - 1] : undefined
+    const openingCostForMonth =
+      prevStateForSummary?.cost ??
+      getOpeningCostForRow(editingAdjustment.rowId, openingBookForSummary)
+    const openingBookForMonth = prevStateForSummary?.bookValue ?? openingBookForSummary
+    const savedRate = getDepreciationRate(editingAdjustment.rowId, rowLabel)
+    const savedMethod = getDepreciationMethod(editingAdjustment.rowId)
+    // draftDepreciationRate reste à 0 tant que l’onglet Taux n’a pas hydraté le brouillon —
+    // toujours retomber sur le taux enregistré / défaut du poste.
+    const effectiveSummaryRate = draftDepreciationRate || savedRate
+    const effectiveSummaryMethod =
+      capexDepDraftRowKeyRef.current === `dep:${editingAdjustment.rowId}`
+        ? draftDepreciationMethod
+        : savedMethod
+    const capexSummaryMoneyPoints =
+      capexSummaryMoneyPointsBase.length > 0
+        ? attachCapexAssetMonthlyTracking(capexSummaryMoneyPointsBase, {
+            openingCost: Math.max(0, openingCostForMonth),
+            openingBookValue: Math.max(0, openingBookForMonth),
+            ratePercent: effectiveSummaryRate,
+            method: effectiveSummaryMethod,
+          })
+        : []
     const capexSummarySeries = [
       { key: "primary" as const, label: "Capex", color: "#475569", lineName: "Capex" },
       { key: "cashFlow" as const, label: "Décaissements", color: "#059669", lineName: "Décaissement" },
-      { key: "balance" as const, label: "Créditeurs", color: "#d97706", lineName: "Créditeurs" },
+      {
+        key: "cost" as const,
+        label: "Coût",
+        color: "#64748b",
+        lineName: "Coût",
+        inChart: false,
+      },
+      {
+        key: "bookValue" as const,
+        label: "Valeur comptable",
+        color: "#0f766e",
+        lineName: "Valeur comptable",
+        inChart: false,
+      },
+      {
+        key: "depreciation" as const,
+        label: "Amortissement",
+        color: "#7c3aed",
+        lineName: "Amortissement",
+        inChart: false,
+      },
     ] as const
     const capexSummaryAnnualForYear =
       capexSummaryYearsParams[adjustmentYearIndex]?.annual ?? 0
@@ -1138,12 +1731,6 @@ export function CapexForecastDetail({
                 >
                   Ajustement
                 </TabsTrigger>
-                <TabsTrigger
-                  value="decaissement"
-                  className="h-8 flex-1 rounded-md px-2.5 py-1 text-xs font-medium text-slate-600 data-[state=active]:bg-white data-[state=active]:text-[#2A2F3A] data-[state=active]:shadow-sm sm:flex-initial sm:px-3"
-                >
-                  Décaissement
-                </TabsTrigger>
               </TabsList>
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -1153,21 +1740,14 @@ export function CapexForecastDetail({
                   variant="outline"
                   size="sm"
                   className="h-9 border-slate-200 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:border-slate-200 disabled:text-slate-400"
-                  onClick={saveAdjustment}
+                  onClick={() => void saveAdjustment()}
                   disabled={capexAjustementSaveDisabled}
                 >
-                  {editingAdjustmentId ? "Enregistrer" : "Enregistrer l'ajustement"}
-                </Button>
-              ) : capexHypothesisEditorTab === "decaissement" ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-9 border-slate-200 text-xs font-medium text-slate-800 hover:bg-slate-50 disabled:border-slate-200 disabled:text-slate-400"
-                  onClick={() => void saveDisbursement()}
-                  disabled={!capexDecaissementSaveOk || capexFinancingSaving}
-                >
-                  {capexFinancingSaving ? "Enregistrement…" : "Enregistrer le financement"}
+                  {capexFinancingSaving
+                    ? "Enregistrement…"
+                    : editingAdjustmentId
+                      ? "Enregistrer"
+                      : "Enregistrer l'ajustement"}
                 </Button>
               ) : capexHypothesisEditorTab === "taux" ? (
                 <Button
@@ -1297,21 +1877,141 @@ export function CapexForecastDetail({
           >
             <div className={cn("mt-2 pr-0.5", embedded && "min-w-0 max-w-full", !embedded && "min-h-0 flex-1 overflow-y-auto")}>
               <p className="mb-4 text-xs leading-relaxed text-slate-600">
-                Seules les années avec un ajustement enregistré affichent un montant projeté. L&apos;onglet{" "}
-                <span className="font-medium text-slate-800">Taux</span> configure l&apos;amortissement du poste.
+                L&apos;ajustement augmente le <span className="font-medium text-slate-800">Coût</span>{" "}
+                (mapping comptable). La dotation suit le taux du poste et augmente l&apos;
+                <span className="font-medium text-slate-800">Amortissement cumulé</span> — la cellule
+                projetée affiche la valeur comptable. Chaque ajustement inclut aussi son financement et
+                son calendrier de décaissement.
               </p>
+              {(() => {
+                const openingBook =
+                  (() => {
+                    const seriesRow = bsRows.find((r) => r.id === editingAdjustment.rowId)
+                    if (!seriesRow || !forecastUseSeriesActuals) {
+                      return data.find((r) => r.rowId === editingAdjustment.rowId)?.current ?? 0
+                    }
+                    const prefix = forecastBalanceSheetActualPrefixValues(
+                      forecastActualLayoutEffective,
+                      seriesRow,
+                      bsPeriods,
+                      effectiveRefMonth,
+                      effectiveFiscalYear,
+                      fiscalYearEndMonth,
+                    )
+                    return forecastProjectionOpeningFromActuals(prefix, 0)
+                  })()
+                const draftAdditionsOverride: Record<number, number> = {
+                  [adjustmentYearIndex]: (() => {
+                    const others = existingAdjustments
+                      .filter((a) => a.id !== editingAdjustmentId)
+                      .reduce(
+                        (s, a) =>
+                          s +
+                          resolveSingleCapexAdjustmentAmount(
+                            a,
+                            adjustmentYearIndex,
+                            0,
+                            openingBook,
+                            undefined,
+                            editingAdjustment.rowId,
+                          ),
+                        0,
+                      )
+                    return others + Math.max(0, capexAdjustmentAnnual)
+                  })(),
+                }
+                const assetStates = buildRowAssetStates(
+                  editingAdjustment.rowId,
+                  rowLabel,
+                  openingBook,
+                  draftAdditionsOverride,
+                )
+                const yearState = assetStates[adjustmentYearIndex]
+                const prevState = assetStates[Math.max(0, adjustmentYearIndex - 1)]
+                if (!yearState) return null
+                return (
+                  <div
+                    data-testid="capex-asset-rollforward-table"
+                    className="mb-4 overflow-hidden rounded-2xl border border-slate-200/90 bg-white/85 shadow-sm"
+                  >
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-200 bg-slate-50/90">
+                          <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Poste
+                          </th>
+                          <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            {yearLabel}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="[&_td]:border-b [&_td]:border-slate-100">
+                        <tr>
+                          <td className="px-4 py-2 text-slate-600">Coût (ouverture)</td>
+                          <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                            {formatCurrency(prevState?.cost ?? yearState.cost - yearState.additions)}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="px-4 py-2 text-slate-600">+ Ajustement (ajout au coût)</td>
+                          <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                            {yearState.additions !== 0
+                              ? formatCurrency(yearState.additions)
+                              : "—"}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="px-4 py-2 font-medium text-slate-800">Coût</td>
+                          <td className="px-4 py-2 text-right tabular-nums font-medium text-slate-900">
+                            {formatCurrency(yearState.cost)}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="px-4 py-2 text-slate-600">
+                            Amortissement cumulé (ouverture)
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                            {formatCurrency(
+                              prevState?.accumulatedDepreciation ??
+                                yearState.accumulatedDepreciation - yearState.depreciationExpense,
+                            )}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="px-4 py-2 text-slate-600">+ Dotation de l&apos;exercice</td>
+                          <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                            {yearState.depreciationExpense !== 0
+                              ? formatCurrency(yearState.depreciationExpense)
+                              : "—"}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="px-4 py-2 font-medium text-slate-800">
+                            Amortissement cumulé
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums font-medium text-slate-900">
+                            {formatCurrency(yearState.accumulatedDepreciation)}
+                          </td>
+                        </tr>
+                        <tr className="bg-slate-50/60">
+                          <td className="px-4 py-2.5 font-semibold text-slate-900">
+                            Valeur comptable
+                          </td>
+                          <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-slate-900">
+                            {formatCurrency(yearState.bookValue)}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              })()}
               {canReplicateToFollowingYears ? (
                 <div className="mb-4 flex min-w-0 items-start gap-2.5">
                   <Checkbox
                     id="capex-hypothesis-replicate"
                     checked={replicateCapexAdjustmentToFollowingYears}
-                    onCheckedChange={(v) => {
-                      const on = v === true
-                      setReplicateCapexAdjustmentToFollowingYears(on)
-                      if (on) {
-                        setReplicateCapexDisbursementToFollowingYears(false)
-                      }
-                    }}
+                    onCheckedChange={(v) => setReplicateCapexAdjustmentToFollowingYears(v === true)}
                     className="mt-0.5"
                   />
                   <div className="min-w-0 flex-1 space-y-1">
@@ -1322,8 +2022,8 @@ export function CapexForecastDetail({
                       Appliquer le même ajustement aux années suivantes
                     </Label>
                     <p className="text-[11px] leading-relaxed text-slate-500">
-                      Les années {followingYearsLabel} reprendront le même type, la même valeur et la même note que{" "}
-                      {yearLabel}.
+                      Les années {followingYearsLabel} reprendront le même type, montant, note, financement et
+                      calendrier de décaissement que {yearLabel}.
                     </p>
                   </div>
                 </div>
@@ -1331,99 +2031,125 @@ export function CapexForecastDetail({
                 <p className="mb-4 text-xs text-slate-400">Aucune année projetée après {yearLabel}.</p>
               )}
               <div className={cn("flex flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-6", embedded && "min-w-0 max-w-full")}>
-                <div className="min-w-0 flex-1 rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5">
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between border-b border-slate-200/70 pb-3">
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        {editingAdjustmentId ? "Modifier l'ajustement" : "Ajouter un ajustement"}
-                      </h3>
-                      {editingAdjustmentId ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            pendingCapexAdjustmentIdRef.current = null
-                            capexHypothesisDraftLoadKeyRef.current = null
-                            setCapexHypothesisEditorTab("ajustement")
+                <div className="min-w-0 flex-1 space-y-6">
+                  <div className="rounded-2xl border border-slate-200/90 bg-white/85 p-4 shadow-sm sm:p-5">
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between border-b border-slate-200/70 pb-3">
+                        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          {editingAdjustmentId ? "Modifier l'ajustement" : "Ajouter un ajustement"}
+                        </h3>
+                        {editingAdjustmentId ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              pendingCapexAdjustmentIdRef.current = null
+                              capexHypothesisDraftLoadKeyRef.current = null
+                              resetCapexAdjustmentDraftForm(
+                                editingAdjustment.rowId,
+                                adjustmentYearIndex,
+                                rowLabel,
+                              )
+                              setCapexHypothesisEditorTab("ajustement")
+                            }}
+                          >
+                            Annuler
+                          </Button>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Type d&apos;ajustement</label>
+                        <Select
+                          value={adjustmentType}
+                          onValueChange={(value: CapexAdjustmentType) => {
+                            setAdjustmentType(value)
+                            setAdjustmentValue(0)
                           }}
                         >
-                          Annuler
-                        </Button>
-                      ) : null}
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Type d&apos;ajustement</label>
-                      <Select
-                        value={adjustmentType}
-                        onValueChange={(value: CapexAdjustmentType) => {
-                          setAdjustmentType(value)
-                          setAdjustmentValue(0)
-                        }}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="amount">Montant annuel</SelectItem>
-                          <SelectItem value="growthPercent">Croissance en %</SelectItem>
-                          <SelectItem value="growthAmount">Croissance en $</SelectItem>
-                          <SelectItem value="percentRevenue">% des revenus</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {adjustmentType === "amount"
-                          ? "Montant annuel cible pour cette année."
-                          : adjustmentType === "growthPercent"
-                            ? "Croissance en pourcentage par rapport à l'année précédente."
-                            : adjustmentType === "growthAmount"
-                              ? "Croissance en dollars par rapport à l'année précédente."
-                              : "Pourcentage des revenus totaux projetés (REV) pour cette année."}
-                      </p>
-                      {adjustmentType === "percentRevenue" ? (
-                        <p className="mt-2 text-xs text-slate-500">
-                          Basé sur le sous-total de l&apos;estimation des revenus annuels
-                          {revenueHintYear != null
-                            ? ` : ${formatCurrency(revenueHintYear)} pour ${yearLabel}.`
-                            : "."}
+                          <SelectTrigger className="w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="amount">Montant annuel</SelectItem>
+                            <SelectItem value="growthPercent">Croissance en %</SelectItem>
+                            <SelectItem value="growthAmount">Croissance en $</SelectItem>
+                            <SelectItem value="percentRevenue">% des revenus</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {adjustmentType === "amount"
+                            ? "Montant annuel cible pour cette année."
+                            : adjustmentType === "growthPercent"
+                              ? "Croissance en pourcentage par rapport à l'année précédente."
+                              : adjustmentType === "growthAmount"
+                                ? "Croissance en dollars par rapport à l'année précédente."
+                                : "Pourcentage des revenus totaux projetés (REV) pour cette année."}
                         </p>
-                      ) : null}
-                    </div>
+                        {adjustmentType === "percentRevenue" ? (
+                          <p className="mt-2 text-xs text-slate-500">
+                            Basé sur le sous-total de l&apos;estimation des revenus annuels
+                            {revenueHintYear != null
+                              ? ` : ${formatCurrency(revenueHintYear)} pour ${yearLabel}.`
+                              : "."}
+                          </p>
+                        ) : null}
+                      </div>
 
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
-                        {adjustmentType === "amount" || adjustmentType === "growthAmount"
-                          ? "Montant ($)"
-                          : "Valeur (%)"}
-                      </label>
-                      <Input
-                        type="number"
-                        step={adjustmentType === "amount" || adjustmentType === "growthAmount" ? "1" : "0.1"}
-                        value={adjustmentValue}
-                        onChange={(e) => setAdjustmentValue(parseFloat(e.target.value) || 0)}
-                        placeholder="0"
-                        className="w-full"
-                      />
-                      <p className="mt-1 text-xs text-slate-500">
-                        {adjustmentType === "amount"
-                          ? "Montant positif pour augmenter le capex projeté pour cette année."
-                          : adjustmentType === "growthPercent"
-                            ? "Ex. : 5 pour une croissance de 5 %."
-                            : adjustmentType === "growthAmount"
-                              ? "Montant en dollars ajouté à l'année précédente."
-                              : "Ex. : 2 pour 2 % des revenus totaux projetés."}
-                      </p>
-                    </div>
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          {adjustmentType === "amount" || adjustmentType === "growthAmount"
+                            ? "Montant ($)"
+                            : "Valeur (%)"}
+                        </label>
+                        <Input
+                          type="number"
+                          step={adjustmentType === "amount" || adjustmentType === "growthAmount" ? "1" : "0.1"}
+                          value={adjustmentValue}
+                          onChange={(e) => setAdjustmentValue(parseFloat(e.target.value) || 0)}
+                          placeholder="0"
+                          className="w-full"
+                        />
+                        <p className="mt-1 text-xs text-slate-500">
+                          {adjustmentType === "amount"
+                            ? "Montant positif pour augmenter le capex projeté pour cette année."
+                            : adjustmentType === "growthPercent"
+                              ? "Ex. : 5 pour une croissance de 5 %."
+                              : adjustmentType === "growthAmount"
+                                ? "Montant en dollars ajouté à l'année précédente."
+                                : "Ex. : 2 pour 2 % des revenus totaux projetés."}
+                        </p>
+                      </div>
 
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">Note explicative</label>
-                      <Textarea
-                        value={adjustmentNote}
-                        onChange={(e) => setAdjustmentNote(e.target.value)}
-                        placeholder="Ex.: achat d'équipement, expansion, etc."
-                        className="min-h-[80px] w-full"
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">Note explicative</label>
+                        <Textarea
+                          value={adjustmentNote}
+                          onChange={(e) => setAdjustmentNote(e.target.value)}
+                          placeholder="Ex.: achat d'équipement, expansion, etc."
+                          className="min-h-[80px] w-full"
+                        />
+                        <p className="mt-1 text-xs text-slate-500">Décrivez la raison de cet ajustement</p>
+                      </div>
+
+                      <CapexFinancingEditor
+                        embedded={embedded}
+                        forecastBaseYear={effectiveForecastBaseYear}
+                        projectionYears={projectionYears}
+                        config={capexFinancingDraft}
+                        adjustmentAmount={capexAdjustmentAnnual}
+                        adjustmentCalendarYear={adjustmentCalendarYear}
+                        onChange={setCapexFinancingDraft}
+                        disbursementSeasonalityMonthPercents={capexDisbursementSeasonalityMonthPercents}
+                        onDisbursementSeasonalityChange={setCapexDisbursementSeasonalityMonthPercents}
+                        canReplicateCalendar={canReplicateToFollowingYears}
+                        replicateCalendar={false}
+                        onReplicateCalendarChange={() => {}}
+                        hideReplicateCalendar
+                        followingYearsLabel={followingYearsLabel}
+                        yearLabel={yearLabel}
+                        linkedLoanId={capexFinancingDraft.linkedLoanId}
                       />
-                      <p className="mt-1 text-xs text-slate-500">Décrivez la raison de cet ajustement</p>
                     </div>
                   </div>
                 </div>
@@ -1438,88 +2164,75 @@ export function CapexForecastDetail({
                     </p>
                   ) : (
                     <div className="mt-4 space-y-3">
-                      {existingAdjustments.map((adj) => (
-                        <div key={adj.id} className="rounded-lg border border-slate-200 bg-white p-4">
-                          <div className="mb-2 flex items-start justify-between">
-                            <div className="min-w-0 flex-1">
-                              <div className="mb-1 flex flex-wrap items-center gap-2">
-                                <span className="font-semibold text-slate-900">
-                                  {adj.type === "amount" || adj.type === "growthAmount"
-                                    ? formatCurrency(adj.value)
-                                    : `${adj.value.toFixed(1)}%`}
-                                </span>
-                                <span
-                                  className={cn(
-                                    "rounded px-2 py-0.5 text-xs",
-                                    getCapexAdjustmentTypeBadgeClass(adj.type),
-                                  )}
-                                >
-                                  {formatAdjustmentTypeLabel(adj.type)}
-                                </span>
+                      {existingAdjustments.map((adj) => {
+                        const modeLabel =
+                          adj.capexFinancing?.mode === "financed"
+                            ? "Financement"
+                            : adj.capexFinancing?.mode === "mixed"
+                              ? "Mixte"
+                              : adj.capexFinancing
+                                ? "Comptant"
+                                : null
+                        return (
+                          <div key={adj.id} className="rounded-lg border border-slate-200 bg-white p-4">
+                            <div className="mb-2 flex items-start justify-between">
+                              <div className="min-w-0 flex-1">
+                                <div className="mb-1 flex flex-wrap items-center gap-2">
+                                  <span className="font-semibold text-slate-900">
+                                    {adj.type === "amount" || adj.type === "growthAmount"
+                                      ? formatCurrency(adj.value)
+                                      : `${adj.value.toFixed(1)}%`}
+                                  </span>
+                                  <span
+                                    className={cn(
+                                      "rounded px-2 py-0.5 text-xs",
+                                      getCapexAdjustmentTypeBadgeClass(adj.type),
+                                    )}
+                                  >
+                                    {formatAdjustmentTypeLabel(adj.type)}
+                                  </span>
+                                  {modeLabel ? (
+                                    <span className="rounded bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800">
+                                      {modeLabel}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {adj.note ? <p className="mt-1 text-sm text-slate-600">{adj.note}</p> : null}
                               </div>
-                              {adj.note ? <p className="mt-1 text-sm text-slate-600">{adj.note}</p> : null}
-                            </div>
-                            <div className="flex shrink-0 gap-1">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  openCapexHypothesisPanel(
-                                    editingAdjustment.rowId,
-                                    adjustmentYearIndex,
-                                    "adjustment",
-                                    rowLabel,
-                                    adj.id,
-                                  )
-                                }
-                                className="rounded p-1.5 transition-colors hover:bg-slate-200"
-                                title="Modifier"
-                              >
-                                <Edit2 className="h-4 w-4 text-slate-600" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => deleteAdjustment(adj.id)}
-                                className="rounded p-1.5 transition-colors hover:bg-red-100"
-                                title="Supprimer"
-                              >
-                                <Trash2 className="h-4 w-4 text-red-600" />
-                              </button>
+                              <div className="flex shrink-0 gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openCapexHypothesisPanel(
+                                      editingAdjustment.rowId,
+                                      adjustmentYearIndex,
+                                      "adjustment",
+                                      rowLabel,
+                                      adj.id,
+                                    )
+                                  }
+                                  className="rounded p-1.5 transition-colors hover:bg-slate-200"
+                                  title="Modifier"
+                                >
+                                  <Edit2 className="h-4 w-4 text-slate-600" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteAdjustment(adj.id)}
+                                  className="rounded p-1.5 transition-colors hover:bg-red-100"
+                                  title="Supprimer"
+                                >
+                                  <Trash2 className="h-4 w-4 text-red-600" />
+                                </button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
               </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent
-            value="decaissement"
-            className="mt-0 min-h-0 min-w-0 max-w-full flex-1 outline-none focus-visible:ring-0"
-          >
-            <div className={cn("mt-2 pr-0.5", embedded && "min-w-0 max-w-full", !embedded && "min-h-0 flex-1 overflow-y-auto")}>
-              <CapexFinancingEditor
-                embedded={embedded}
-                forecastBaseYear={effectiveForecastBaseYear}
-                projectionYears={projectionYears}
-                config={capexFinancingDraft}
-                adjustmentAmount={capexAdjustmentAnnual}
-                adjustmentCalendarYear={adjustmentCalendarYear}
-                onChange={setCapexFinancingDraft}
-                disbursementSeasonalityMonthPercents={capexDisbursementSeasonalityMonthPercents}
-                onDisbursementSeasonalityChange={setCapexDisbursementSeasonalityMonthPercents}
-                canReplicateCalendar={canReplicateToFollowingYears}
-                replicateCalendar={replicateCapexDisbursementToFollowingYears}
-                onReplicateCalendarChange={(on) => {
-                  setReplicateCapexDisbursementToFollowingYears(on)
-                  if (on) setReplicateCapexAdjustmentToFollowingYears(false)
-                }}
-                followingYearsLabel={followingYearsLabel}
-                yearLabel={yearLabel}
-                linkedLoanId={capexFinancingDraft.linkedLoanId}
-              />
             </div>
           </TabsContent>
         </Tabs>
@@ -1535,11 +2248,14 @@ export function CapexForecastDetail({
   const getYearLabels = (): string[] => {
     if (isForecastSection) {
       const baseYear = forecastBaseYear ?? effectiveFiscalYear + 1
-      const labels: string[] = [`${baseYear - 1}`]
-      for (let i = 0; i < projectionYears; i++) {
-        labels.push(`${baseYear + i}`)
-      }
-      return labels
+      return forecastYearLabelsForLayout(
+        forecastActualLayoutEffective,
+        baseYear,
+        projectionYears,
+        effectiveRefMonth,
+        effectiveFiscalYear,
+        fiscalYearEndMonth,
+      )
     }
     const currentYear = new Date().getFullYear()
     const labels: string[] = []
@@ -1615,6 +2331,42 @@ export function CapexForecastDetail({
                 </div>
               </div>
             </div>
+            {isForecastSection && (
+              <div
+                className="inline-flex shrink-0 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm"
+                role="group"
+                aria-label="Mode d'affichage des montants Capex"
+              >
+                {(
+                  [
+                    { mode: "bookValue" as const, label: "Valeur comptable", testId: "capex-view-book" },
+                    { mode: "adjustments" as const, label: "Ajustements", testId: "capex-view-adjustments" },
+                    { mode: "depreciation" as const, label: "Amortissement", testId: "capex-view-depreciation" },
+                  ] as const
+                ).map(({ mode, label, testId }) => (
+                  <Button
+                    key={mode}
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    data-testid={testId}
+                    onClick={() => setCapexAmountViewMode(mode)}
+                    className={cn(
+                      "h-8 gap-1 rounded-md px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+                      capexAmountViewMode === mode &&
+                        (mode === "adjustments"
+                          ? "bg-blue-50 text-blue-900 hover:bg-blue-50 hover:text-blue-900"
+                          : mode === "depreciation"
+                            ? "bg-violet-50 text-violet-900 hover:bg-violet-50 hover:text-violet-900"
+                            : "bg-slate-100 text-slate-900 hover:bg-slate-100 hover:text-slate-900"),
+                    )}
+                  >
+                    {mode === "adjustments" ? <CircleDot className="h-3.5 w-3.5" /> : null}
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1640,16 +2392,43 @@ export function CapexForecastDetail({
         </div>
       )}
 
-      {/* Table */}
-      <div className={cn("min-w-0 overflow-x-auto bg-white", (isDataLoading || !companyId || data.length === 0) && "hidden")}>
-        <table className="w-full">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
+      {/* Table — en-tête et colonne Compte figés au défilement (Hypothèses Capex annuelles) */}
+      <div
+        data-testid={forecastTableStickyScroll ? "capex-forecast-table-scroll" : undefined}
+        className={cn(
+          "min-w-0 bg-white",
+          forecastTableStickyScroll
+            ? "max-h-[min(72vh,56rem)] overflow-auto overscroll-contain"
+            : "overflow-x-auto",
+          (isDataLoading || !companyId || data.length === 0) && "hidden",
+        )}
+      >
+        <table
+          className={cn(
+            "w-full",
+            forecastTableStickyScroll && "min-w-full border-separate border-spacing-0",
+          )}
+        >
+          <thead
+            className={cn(
+              forecastTableStickyScroll && [
+                "[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-slate-50",
+                "[&_th]:border-b-2 [&_th]:border-slate-200",
+                "[&_th:first-child]:left-0 [&_th:first-child]:z-30",
+              ],
+            )}
+          >
+            <tr>
               <th className="min-w-[20rem] px-6 py-4 text-left text-sm font-semibold text-slate-900">Compte</th>
               {effectiveView === "years" && isForecastSection && (
-                <th className="min-w-[6.5rem] px-4 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900">
-                  Taux
-                </th>
+                <>
+                  <th className="min-w-[7.5rem] px-3 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900">
+                    Code
+                  </th>
+                  <th className="min-w-[6.5rem] px-4 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900">
+                    Taux
+                  </th>
+                </>
               )}
               {effectiveView === "years" && (
                 <>
@@ -1658,8 +2437,8 @@ export function CapexForecastDetail({
                       key={idx} 
                       className={cn(
                         "min-w-[8rem] px-4 py-4 text-right text-sm font-semibold whitespace-nowrap",
-                        isForecastSection && idx === 0 
-                          ? "bg-slate-50 text-slate-900" 
+                        isForecastHistoricalColumn(idx)
+                          ? "bg-slate-50 text-slate-400"
                           : "text-slate-900"
                       )}
                     >
@@ -1670,7 +2449,15 @@ export function CapexForecastDetail({
               )}
             </tr>
           </thead>
-          <tbody>
+          <tbody
+            className={cn(
+              forecastTableStickyScroll && [
+                "[&_td]:border-b [&_td]:border-solid [&_td]:border-slate-200",
+                "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+                "[&_td:first-child]:bg-white",
+              ],
+            )}
+          >
             {data.map((row, idx) => {
               if (
                 capexHypothesisInlineActive &&
@@ -1683,8 +2470,13 @@ export function CapexForecastDetail({
               const isSpacer = row.label === ""
               const shouldHideAmounts =
                 isSpacer || !!row.isSection || !!row.isAnnexPlaceholder || !!row.isAnnexTitle
+              const hideCapexCodeRateCells = shouldHideAmounts || !!row.isAnnexSubtotal
               const annexSubtotalDarkNumbers = !!row.isAnnexSubtotal
+              const isSubtotalRow = !!row.isSubtotal || !!row.isAnnexSubtotal
               const displayLabel = row.isSection ? capitalizeFirst(row.label) : row.label
+              const annexSubtotalLetter = row.isAnnexSubtotal
+                ? String(row.annexLetter ?? "").trim().toUpperCase()
+                : ""
               const nextRowIsSubtotal = idx < data.length - 1 && data[idx + 1].isSubtotal
               const isForecastSectionForExpansion = title === "Estimation des Capex annuels"
               const canExpand =
@@ -1712,25 +2504,50 @@ export function CapexForecastDetail({
 
               return (
                 <Fragment key={idx}>
+                  {forecastTableStickyScroll && isSubtotalRow && (
+                    <tr aria-hidden data-testid="capex-forecast-subtotal-separator">
+                      <td
+                        colSpan={forecastTableColumnCount}
+                        className="border-0 p-0 align-top leading-none border-t-2 border-t-slate-900"
+                      />
+                    </tr>
+                  )}
                   <tr
                     className={cn(
-                      "border-b transition-colors duration-150",
+                      !forecastTableStickyScroll && "border-b transition-colors duration-150",
+                      forecastTableStickyScroll && "transition-colors duration-150",
                       capexHypothesisInlineActive &&
                         capexHypothesisAnchorIdx >= 0 &&
                         idx === capexHypothesisAnchorIdx &&
                         capexHypothesisMode === "adjustment" &&
-                        "bg-blue-50/35 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.28)]",
+                        (forecastTableStickyScroll
+                          ? "shadow-[inset_0_0_0_1px_rgba(59,130,246,0.28)] [&>td]:bg-blue-50/35 [&>td:first-child]:bg-blue-50/35"
+                          : "bg-blue-50/35 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.28)]"),
                       capexHypothesisInlineActive &&
                         capexHypothesisAnchorIdx >= 0 &&
                         idx === capexHypothesisAnchorIdx &&
                         capexHypothesisMode === "rate" &&
-                        "bg-orange-50/35 shadow-[inset_0_0_0_1px_rgba(224,116,45,0.28)]",
-                      row.label === "" ? "h-2 border-slate-200" : "",
-                      annexSubtotalDarkNumbers && "bg-white",
-                      nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
-                      row.isAnnexHeader && "bg-amber-50/90",
-                      !isSpacer &&
-                        (row.isAnnexHeader ? "hover:bg-amber-100/85" : "hover:bg-slate-50/90"),
+                        (forecastTableStickyScroll
+                          ? "shadow-[inset_0_0_0_1px_rgba(224,116,45,0.28)] [&>td]:bg-orange-50/35 [&>td:first-child]:bg-orange-50/35"
+                          : "bg-orange-50/35 shadow-[inset_0_0_0_1px_rgba(224,116,45,0.28)]"),
+                      row.label === "" ? (forecastTableStickyScroll ? "[&>td]:h-2" : "h-2 border-slate-200") : "",
+                      forecastTableStickyScroll
+                        ? cn(
+                            annexSubtotalDarkNumbers &&
+                              "[&>td:first-child]:bg-white [&>td:nth-child(2)]:bg-white [&>td:nth-child(3)]:bg-white",
+                            row.isAnnexHeader && "[&>td]:bg-amber-50/90 [&>td:first-child]:bg-amber-50/90",
+                            !isSpacer &&
+                              (row.isAnnexHeader
+                                ? "hover:[&>td]:bg-amber-100/85 hover:[&>td:first-child]:bg-amber-100/85"
+                                : "hover:[&>td]:bg-slate-50/90 hover:[&>td:first-child]:bg-slate-50/90"),
+                          )
+                        : cn(
+                            annexSubtotalDarkNumbers && "bg-white",
+                            nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
+                            row.isAnnexHeader && "bg-amber-50/90",
+                            !isSpacer &&
+                              (row.isAnnexHeader ? "hover:bg-amber-100/85" : "hover:bg-slate-50/90"),
+                          ),
                       canExpand && "cursor-pointer",
                     )}
                     onClick={() => canExpand && toggleRow(row.rowId!)}
@@ -1748,13 +2565,14 @@ export function CapexForecastDetail({
                           <span className="flex-1" aria-hidden />
                         ) : row.isAnnexSubtotal ? (
                           <span
-                            className={cn(
-                              "flex-1 font-semibold",
-                              annexSubtotalDarkNumbers ? "text-white" : "text-slate-900",
-                            )}
-                          >
-                            {displayLabel}
-                          </span>
+                            className="flex-1"
+                            aria-label={displayLabel}
+                            data-testid={
+                              annexSubtotalLetter
+                                ? `capex-annex-subtotal-${annexSubtotalLetter}`
+                                : "capex-annex-subtotal"
+                            }
+                          />
                         ) : (
                           <>
                             {canExpand && (
@@ -1797,65 +2615,144 @@ export function CapexForecastDetail({
                     </td>
 
                     {effectiveView === "years" && isForecastSection && (
-                      <td
-                        className={cn(
-                          "min-w-[6.5rem] px-4 py-3 text-center text-slate-700",
-                          row.rowId && !shouldHideAmounts && "cursor-pointer hover:bg-slate-50/90",
-                          capexHypothesisPanelOpen &&
-                            editingAdjustment?.rowId === row.rowId &&
-                            capexHypothesisMode === "rate" &&
-                            "z-[1] bg-orange-50/50 shadow-[inset_0_0_0_2px_rgb(224,116,45)]",
-                        )}
-                        onClick={() => {
-                          if (row.rowId && !shouldHideAmounts) {
-                            openCapexHypothesisPanel(
-                              row.rowId,
-                              CAPEX_HYPOTHESIS_RATE_YEAR_INDEX,
-                              "rate",
-                              displayLabel,
-                            )
-                          }
-                        }}
-                      >
-                        {shouldHideAmounts ? (
-                          "-"
-                        ) : row.rowId ? (
-                          renderDepreciationRateCell(row.rowId, displayLabel)
-                        ) : (
-                          "-"
-                        )}
-                      </td>
+                      <>
+                        <td
+                          className={cn(
+                            "min-w-[7.5rem] px-3 py-3 text-center text-slate-700",
+                          )}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {hideCapexCodeRateCells ? (
+                            "-"
+                          ) : row.rowId ? (
+                            renderAmortizationLinkCodeCell(row.rowId, row.linkCode)
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                        <td
+                          className={cn(
+                            "min-w-[6.5rem] px-4 py-3 text-center text-slate-700",
+                            row.rowId && !hideCapexCodeRateCells && "cursor-pointer hover:bg-slate-50/90",
+                            capexHypothesisPanelOpen &&
+                              editingAdjustment?.rowId === row.rowId &&
+                              capexHypothesisMode === "rate" &&
+                              "z-[1] bg-orange-50/50 shadow-[inset_0_0_0_2px_rgb(224,116,45)]",
+                          )}
+                          onClick={() => {
+                            if (row.rowId && !hideCapexCodeRateCells) {
+                              openCapexHypothesisPanel(
+                                row.rowId,
+                                CAPEX_HYPOTHESIS_RATE_YEAR_INDEX,
+                                "rate",
+                                displayLabel,
+                              )
+                            }
+                          }}
+                        >
+                          {hideCapexCodeRateCells ? (
+                            "-"
+                          ) : row.rowId ? (
+                            renderDepreciationRateCell(row.rowId, displayLabel)
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+                      </>
                     )}
 
                     {effectiveView === "years" && row.trendValues && (
                       <>
                         {row.trendValues.map((value, valueIdx) => {
-                          const actualValue = isForecastSection && row.rowId 
-                            ? getCapexValue(row.rowId, valueIdx, value, row.trendValues?.[0])
-                            : value
+                          const leafChildren = capexLeafChildrenOfParent(data, row)
+                          const actualValue =
+                            isForecastSection && row.rowId && leafChildren.length === 0
+                              ? displayedCapexAmount(
+                                  row.rowId,
+                                  valueIdx,
+                                  value,
+                                  row.trendValues,
+                                  displayLabel,
+                                )
+                              : value
                           
-                          // Check if this cell can have adjustments (forecast section, projected years, has rowId)
                           const canHaveAdjustment =
-                            isCapexProjectionCell && valueIdx > 0
+                            isCapexProjectionCell && isForecastProjectedColumn(valueIdx)
+                          const cellConfigYear = forecastDisplayToConfigYearIndex(
+                            valueIdx,
+                            forecastActualCols,
+                          )
+                          const hasSavedAdjustment =
+                            canHaveAdjustment &&
+                            cellConfigYear != null &&
+                            (leafChildren.length > 0
+                              ? leafChildren.some(
+                                  (leaf) =>
+                                    !!leaf.rowId &&
+                                    getAdjustments(leaf.rowId, cellConfigYear).some(
+                                      isCapexHypothesisGrowthAdjustment,
+                                    ),
+                                )
+                              : !!row.rowId &&
+                                getAdjustments(row.rowId, cellConfigYear).some(
+                                  isCapexHypothesisGrowthAdjustment,
+                                ))
+                          const modeCellAmount =
+                            isForecastSection && capexAmountViewMode !== "bookValue"
+                              ? resolveCapexModeCellAmount(
+                                  row,
+                                  data,
+                                  valueIdx,
+                                  capexAmountViewMode,
+                                )
+                              : null
+                          const savedAddition =
+                            hasSavedAdjustment && cellConfigYear != null
+                              ? (resolveCapexModeCellAmount(
+                                  row,
+                                  data,
+                                  valueIdx,
+                                  "adjustments",
+                                ) ?? 0)
+                              : 0
                           const isCellSelected =
-                            isCapexHypothesisSelected && editingAdjustment?.yearIndex === valueIdx
+                            isCapexHypothesisSelected &&
+                            forecastConfigToDisplayYearIndex(
+                              editingAdjustment?.yearIndex ?? -1,
+                              forecastActualCols,
+                            ) === valueIdx
                           
                           const previousValue = valueIdx > 0 && row.trendValues 
                             ? (isForecastSection && row.rowId 
-                                ? getCapexValue(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1], row.trendValues?.[0], row.trendValues)
+                                ? displayedCapexAmount(
+                                    row.rowId,
+                                    valueIdx - 1,
+                                    row.trendValues[valueIdx - 1],
+                                    row.trendValues,
+                                    displayLabel,
+                                  )
                                 : row.trendValues[valueIdx - 1])
                             : null
                           
                           let displayValue: string | number = actualValue
                           let growthRate: number | null = null
-                          if (showGrowthRate && isForecastSection && valueIdx > 0 && previousValue !== null) {
+                          if (
+                            isForecastSection &&
+                            (capexAmountViewMode === "adjustments" ||
+                              capexAmountViewMode === "depreciation")
+                          ) {
+                            displayValue =
+                              modeCellAmount != null && modeCellAmount !== 0
+                                ? formatCurrency(modeCellAmount)
+                                : "-"
+                          } else if (showGrowthRate && isForecastSection && valueIdx > 0 && previousValue !== null) {
                             if (previousValue !== 0) {
                               growthRate = calculateVariation(actualValue, previousValue)
                               displayValue = growthRate !== null ? `${growthRate >= 0 ? "+" : ""}${growthRate.toFixed(1)}%` : "-"
                             } else {
                               displayValue = "-"
                             }
-                          } else if (showGrowthRate && isForecastSection && valueIdx === 0) {
+                          } else if (showGrowthRate && isForecastSection && isForecastHistoricalColumn(valueIdx)) {
                             displayValue = "-"
                           }
                           
@@ -1865,8 +2762,8 @@ export function CapexForecastDetail({
                               className={cn(
                                 "min-w-[8rem] px-4 py-3 text-right",
                                 row.isBold ? "font-semibold font-bold" : "text-slate-500",
-                                shouldHideAmounts ? "text-white" : "",
-                                isForecastSection && valueIdx === 0 && !shouldHideAmounts ? "bg-slate-50" : "",
+                                shouldHideAmounts ? "text-transparent" : "",
+                                isForecastHistoricalColumn(valueIdx) ? "bg-slate-50" : "",
                                 canHaveAdjustment && "cursor-pointer hover:bg-slate-50/90",
                                 isCellSelected &&
                                   "z-[1] bg-blue-50/50 shadow-[inset_0_0_0_2px_rgb(59,130,246)]",
@@ -1874,24 +2771,48 @@ export function CapexForecastDetail({
                                 showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate >= 0 ? "text-emerald-600 font-semibold" : "",
                                 showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate < 0 ? "text-red-600 font-semibold" : ""
                               )}
+                              title={
+                                hasSavedAdjustment
+                                  ? `Ajustement : ${formatCurrency(savedAddition)} ajouté au coût`
+                                  : undefined
+                              }
+                              data-capex-adjusted={hasSavedAdjustment ? "true" : undefined}
                               onClick={() => {
                                 if (canHaveAdjustment && row.rowId) {
-                                  openCapexHypothesisPanel(
-                                    row.rowId,
-                                    valueIdx,
-                                    "adjustment",
-                                    displayLabel,
-                                  )
+                                  const cfg = forecastDisplayToConfigYearIndex(valueIdx, forecastActualCols)
+                                  if (cfg != null) {
+                                    openCapexHypothesisPanel(
+                                      row.rowId,
+                                      cfg,
+                                      "adjustment",
+                                      displayLabel,
+                                    )
+                                  }
                                 }
                               }}
                             >
                               {shouldHideAmounts ? (
                                 "-"
                               ) : (
-                                <span>
-                                  {showGrowthRate && isForecastSection 
-                                    ? displayValue 
-                                    : (actualValue !== 0 ? formatCurrency(actualValue) : "-")}
+                                <span className="inline-flex items-center justify-end gap-1.5">
+                                  {hasSavedAdjustment && capexAmountViewMode !== "depreciation" ? (
+                                    <span
+                                      data-testid="capex-adjustment-marker"
+                                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500"
+                                      aria-label="Ajustement"
+                                    />
+                                  ) : null}
+                                  <span>
+                                    {isForecastSection &&
+                                    (capexAmountViewMode === "adjustments" ||
+                                      capexAmountViewMode === "depreciation")
+                                      ? displayValue
+                                      : showGrowthRate && isForecastSection
+                                        ? displayValue
+                                        : actualValue !== 0
+                                          ? formatCurrency(actualValue)
+                                          : "-"}
+                                  </span>
                                 </span>
                               )}
                             </td>
@@ -1901,12 +2822,12 @@ export function CapexForecastDetail({
                     )}
                     {effectiveView === "years" && !row.trendValues && (
                       <>
-                        {Array.from({ length: isForecastSection && effectiveView === "years" ? projectionYears + 1 : 6 }).map((_, idx) => (
+                        {Array.from({ length: isForecastSection && effectiveView === "years" ? forecastYearCount : 6 }).map((_, idx) => (
                           <td 
                             key={idx} 
                             className={cn(
-                              "min-w-[8rem] px-4 py-3 text-right text-white",
-                              isForecastSection && idx === 0 ? "bg-slate-50" : ""
+                              "min-w-[8rem] px-4 py-3 text-right text-transparent",
+                              isForecastHistoricalColumn(idx) ? "bg-slate-50" : ""
                             )}
                           >
                             -
@@ -1921,10 +2842,14 @@ export function CapexForecastDetail({
                     editingAdjustment && (
                       <tr
                         key={`capex-hypothesis-inline-${editingAdjustment.rowId}-${editingAdjustment.yearIndex}`}
-                        className="border-b-2 border-blue-200/90 bg-slate-50/95"
+                        className={cn(
+                          forecastTableStickyScroll
+                            ? "[&>td]:border-b-2 [&>td]:border-blue-200/90 [&>td]:bg-slate-50/95"
+                            : "border-b-2 border-blue-200/90 bg-slate-50/95",
+                        )}
                       >
                         <td
-                          colSpan={2 + yearColumnCount}
+                          colSpan={forecastTableColumnCount}
                           className="min-w-0 p-0 align-top"
                         >
                           <div className="min-w-0 max-w-full overflow-x-auto px-3 py-3 sm:px-5 sm:py-4">
@@ -1937,8 +2862,20 @@ export function CapexForecastDetail({
                   {canExpand && isExpanded && row.balanceAccounts && row.balanceAccounts.length > 0 && (
                     <>
                       {row.balanceAccounts.map((account, accIdx) => (
-                        <tr key={`${idx}-account-${accIdx}`} className="bg-slate-50 border-b border-slate-200">
-                          <td className="px-6 py-2 text-slate-600 pl-20">
+                        <tr
+                          key={`${idx}-account-${accIdx}`}
+                          className={cn(
+                            forecastTableStickyScroll
+                              ? "[&>td]:bg-slate-50"
+                              : "bg-slate-50 border-b border-slate-200",
+                          )}
+                        >
+                          <td
+                            className={cn(
+                              "px-6 py-2 text-slate-600 pl-20",
+                              forecastTableStickyScroll && "bg-slate-50",
+                            )}
+                          >
                             <div className="flex items-center gap-3">
                               <span className="text-xs font-mono text-slate-500">{account.accountNumber}</span>
                               <span className="text-sm">{account.accountName}</span>
@@ -1951,28 +2888,73 @@ export function CapexForecastDetail({
                           {effectiveView === "years" && (
                             <>
                               {row.trendValues && row.trendValues.map((_, valueIdx) => {
-                                const accountValue = account.proportion 
-                                  ? (isForecastSection && row.rowId
-                                      ? getCapexValue(row.rowId, valueIdx, row.trendValues![valueIdx], row.trendValues?.[0]) * account.proportion
-                                      : row.trendValues![valueIdx] * account.proportion)
+                                const glConfigYear = forecastDisplayToConfigYearIndex(
+                                  valueIdx,
+                                  forecastActualCols,
+                                )
+                                const glHasAdjustment =
+                                  isForecastSection &&
+                                  !!row.rowId &&
+                                  isForecastProjectedColumn(valueIdx) &&
+                                  glConfigYear != null &&
+                                  getAdjustments(row.rowId, glConfigYear).some(
+                                    isCapexHypothesisGrowthAdjustment,
+                                  )
+                                const glAddition =
+                                  glHasAdjustment && row.rowId && glConfigYear != null
+                                    ? getCapexAdditionsValue(row.rowId, glConfigYear)
+                                    : 0
+                                const accountValue = account.proportion
+                                  ? capexAmountViewMode === "adjustments" && isForecastSection
+                                    ? glHasAdjustment
+                                      ? glAddition * account.proportion
+                                      : 0
+                                    : capexAmountViewMode === "depreciation" && isForecastSection
+                                      ? 0
+                                      : isForecastSection && row.rowId
+                                      ? displayedCapexAmount(
+                                          row.rowId,
+                                          valueIdx,
+                                          row.trendValues![valueIdx],
+                                          row.trendValues,
+                                          displayLabel,
+                                        ) * account.proportion
+                                      : row.trendValues![valueIdx] * account.proportion
                                   : 0
-                                
-                                const previousValue = valueIdx > 0 && row.trendValues 
-                                  ? (isForecastSection && row.rowId 
-                                      ? getCapexValue(row.rowId, valueIdx - 1, row.trendValues[valueIdx - 1], row.trendValues?.[0]) * (account.proportion || 1)
+
+                                const previousValue = valueIdx > 0 && row.trendValues
+                                  ? (isForecastSection && row.rowId
+                                      ? displayedCapexAmount(
+                                          row.rowId,
+                                          valueIdx - 1,
+                                          row.trendValues[valueIdx - 1],
+                                          row.trendValues,
+                                          displayLabel,
+                                        ) * (account.proportion || 1)
                                       : row.trendValues[valueIdx - 1] * (account.proportion || 1))
                                   : null
-                                
+
                                 let displayValue: string | number = accountValue
                                 let growthRate: number | null = null
-                                if (showGrowthRate && isForecastSection && valueIdx > 0 && previousValue !== null) {
+                                if (
+                                  isForecastSection &&
+                                  (capexAmountViewMode === "adjustments" ||
+                                    capexAmountViewMode === "depreciation")
+                                ) {
+                                  displayValue =
+                                    capexAmountViewMode === "adjustments" &&
+                                    glHasAdjustment &&
+                                    accountValue !== 0
+                                      ? formatCurrency(Math.round(accountValue))
+                                      : "-"
+                                } else if (showGrowthRate && isForecastSection && valueIdx > 0 && previousValue !== null) {
                                   if (previousValue !== 0) {
                                     growthRate = calculateVariation(accountValue, previousValue)
                                     displayValue = growthRate !== null ? `${growthRate >= 0 ? "+" : ""}${growthRate.toFixed(1)}%` : "-"
                                   } else {
                                     displayValue = "-"
                                   }
-                                } else if (showGrowthRate && isForecastSection && valueIdx === 0) {
+                                } else if (showGrowthRate && isForecastSection && isForecastHistoricalColumn(valueIdx)) {
                                   displayValue = "-"
                                 }
                                 
@@ -1981,14 +2963,18 @@ export function CapexForecastDetail({
                                     key={valueIdx}
                                     className={cn(
                                       "min-w-[8rem] px-4 py-2 text-right text-sm font-semibold",
-                                      isForecastSection && valueIdx === 0 ? "bg-slate-50 text-slate-700" : "text-slate-700",
+                                      isForecastHistoricalColumn(valueIdx) ? "bg-slate-50 text-slate-700" : "text-slate-700",
                                       showGrowthRate && isForecastSection && valueIdx > 0 && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate >= 0 ? "text-emerald-600 font-semibold" : "",
                                       showGrowthRate && isForecastSection && valueIdx > 0 && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate < 0 ? "text-red-600 font-semibold" : ""
                                     )}
                                   >
-                                    {showGrowthRate && isForecastSection 
-                                      ? displayValue 
-                                      : (accountValue !== 0 ? formatCurrency(Math.round(accountValue)) : "-")}
+                                    {isForecastSection &&
+                                    (capexAmountViewMode === "adjustments" ||
+                                      capexAmountViewMode === "depreciation")
+                                      ? displayValue
+                                      : showGrowthRate && isForecastSection
+                                        ? displayValue
+                                        : (accountValue !== 0 ? formatCurrency(Math.round(accountValue)) : "-")}
                                   </td>
                                 )
                               })}
@@ -1997,12 +2983,12 @@ export function CapexForecastDetail({
                                   {isForecastSection && (
                                     <td className="min-w-[6.5rem] px-4 py-2 text-center text-slate-700 text-sm">-</td>
                                   )}
-                                  {Array.from({ length: isForecastSection && effectiveView === "years" ? projectionYears + 1 : 6 }).map((_, idx) => (
+                                  {Array.from({ length: isForecastSection && effectiveView === "years" ? forecastYearCount : 6 }).map((_, idx) => (
                                     <td 
                                       key={idx} 
                                       className={cn(
                                         "min-w-[8rem] px-4 py-2 text-right text-sm text-white",
-                                        isForecastSection && idx === 0 ? "bg-slate-50" : ""
+                                        isForecastHistoricalColumn(idx) ? "bg-slate-50" : ""
                                       )}
                                     >
                                       -

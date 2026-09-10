@@ -5,12 +5,14 @@ import {
   APPROCHE_SECTION_ID,
   dispatchApprochePhaseNavigate,
   parseApprochePhaseFromHash,
+  scrollToApprochePhase,
   scrollToApprocheSection,
 } from "@/lib/approche-navigation"
 import {
   FEATURE_SECTION_ID,
   dispatchFeatureCategoryNavigate,
   parseFeatureCategoryFromHash,
+  scrollToFeatureCategory,
   scrollToFeatureSection,
 } from "@/lib/feature-category-navigation"
 
@@ -22,14 +24,14 @@ function scrollToHash() {
   const phaseId = parseApprochePhaseFromHash(hash)
   if (phaseId) {
     dispatchApprochePhaseNavigate(phaseId)
-    scrollToApprocheSection({ behavior: "smooth" })
+    scrollToApprochePhase(phaseId, { behavior: "smooth" })
     return
   }
 
   const categoryId = parseFeatureCategoryFromHash(hash)
   if (categoryId) {
     dispatchFeatureCategoryNavigate(categoryId)
-    scrollToFeatureSection({ behavior: "smooth" })
+    scrollToFeatureCategory(categoryId, { behavior: "smooth" })
     return
   }
 
