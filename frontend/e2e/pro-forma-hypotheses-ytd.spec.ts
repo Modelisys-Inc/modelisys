@@ -244,11 +244,64 @@ async function openHypothesis(
   moduleName: "Revenus" | "Dépenses" | "Capex",
   heading: string,
 ) {
-  await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`)
+  if (moduleName === "Revenus") {
+    await page.goto(
+      `/projections/revenue?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`,
+      { timeout: 120_000 },
+    )
+    await expect(page.getByRole("heading", { name: "Hypothèses Revenus" })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByRole("heading", { name: new RegExp(heading) })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByTestId("pro-forma-financial-impact-panel")).toBeVisible()
+    await expect(page.getByTestId("pro-forma-impact-revenue")).toBeVisible()
+    await expect(page.getByTestId("pro-forma-impact-endingCash")).toBeVisible()
+    await expect(page.getByTestId("pro-forma-impact-year-select")).toBeVisible()
+    return
+  }
+  if (moduleName === "Dépenses") {
+    await page.goto(
+      `/projections/expenses?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`,
+      { timeout: 120_000 },
+    )
+    await expect(page.getByRole("heading", { name: "Hypothèses Dépenses" })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByRole("heading", { name: new RegExp(heading) })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByTestId("pro-forma-financial-impact-panel")).toBeVisible()
+    await expect(page.getByTestId("pro-forma-impact-revenue")).toBeVisible()
+    await expect(page.getByTestId("pro-forma-impact-endingCash")).toBeVisible()
+    await expect(page.getByTestId("pro-forma-impact-year-select")).toBeVisible()
+    return
+  }
+  if (moduleName === "Capex") {
+    await page.goto(
+      `/projections/capex?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`,
+      { timeout: 120_000 },
+    )
+    await expect(page.getByRole("heading", { name: "Hypothèses Capex" })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByRole("heading", { name: new RegExp(heading) })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByTestId("pro-forma-financial-impact-panel")).toBeVisible()
+    await expect(page.getByTestId("pro-forma-impact-revenue")).toBeVisible()
+    await expect(page.getByTestId("pro-forma-impact-endingCash")).toBeVisible()
+    await expect(page.getByTestId("pro-forma-impact-year-select")).toBeVisible()
+    return
+  }
+  await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`, {
+    timeout: 120_000,
+  })
   await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
   await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
   await page.getByRole("button", { name: moduleName, exact: true }).click()
-  await expect(page.getByRole("heading", { name: heading })).toBeVisible({ timeout: 15000 })
+  await expect(page.getByRole("heading", { name: new RegExp(heading) })).toBeVisible({ timeout: 15000 })
   await expect(page.getByTestId("pro-forma-financial-impact-panel")).toBeVisible()
   await expect(page.getByTestId("pro-forma-impact-revenue")).toBeVisible()
   await expect(page.getByTestId("pro-forma-impact-endingCash")).toBeVisible()

@@ -99,7 +99,7 @@ export const HERO_INSIGHT_MARQUEE_ITEMS = [
   "Rentabilité — toutes les divisions ne contribuent pas pareil au BAIIA",
   `Rentabilité — Services 34 % · Manufacturier 28 % de marge brute`,
   "Rentabilité — ✓ Mix orienté vers les segments les plus rentables",
-  "Trésorerie — résultat opérationnel ± fonds de roulement − capex",
+  "Trésorerie — résultat opérationnel ± fonds de roulement − capex − financement",
   `Trésorerie — Cash flow cible An 3 : ${NARRATIVE_PROJECTION.an3.cashFlow}`,
   "Trésorerie — ✓ BAIIA converti en cash · ✗ profits sans trésorerie",
   "Capital — actifs productifs, excédentaires ou sous-utilisés",

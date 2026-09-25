@@ -97,31 +97,59 @@ async function setupAuth(
     return route.continue()
   })
 
-  await page.route(`**/api/companies/${COMPANY_ID}/projections`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        projections: [
-          {
-            id: PROJECTION_ID,
-            name: "Test projection",
-            projection_years: 5,
-            projection_mode: "gl",
-            projection_horizon: "annual",
-            start_year: 2026,
-            start_month: 1,
-            company_id: COMPANY_ID,
-            division_id: null,
-            sub_division_id: null,
-            created_by_id: "u1",
-            created_at: "2026-01-01T00:00:00Z",
-            updated_at: "2026-01-01T00:00:00Z",
-          },
-        ],
-      }),
-    }),
-  )
+  await page.route(`**/api/companies/${COMPANY_ID}/projections**`, async (route) => {
+    const url = route.request().url()
+    const method = route.request().method()
+    if (method === "GET" && url.includes(`/projections/${PROJECTION_ID}`)) {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: PROJECTION_ID,
+          name: "Test projection",
+          projection_years: 5,
+          projection_mode: "gl",
+          projection_horizon: "annual",
+          start_year: 2026,
+          start_month: 1,
+          company_id: COMPANY_ID,
+          division_id: null,
+          sub_division_id: null,
+          created_by_id: "u1",
+          adjustments: [],
+          loans: [],
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        }),
+      })
+    }
+    if (method === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          projections: [
+            {
+              id: PROJECTION_ID,
+              name: "Test projection",
+              projection_years: 5,
+              projection_mode: "gl",
+              projection_horizon: "annual",
+              start_year: 2026,
+              start_month: 1,
+              company_id: COMPANY_ID,
+              division_id: null,
+              sub_division_id: null,
+              created_by_id: "u1",
+              created_at: "2026-01-01T00:00:00Z",
+              updated_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }),
+      })
+    }
+    return route.continue()
+  })
 
   await page.route(`**/api/companies/${COMPANY_ID}/statement-structures/income-statement`, (route) =>
     route.fulfill({
@@ -191,14 +219,11 @@ async function setupAuth(
 }
 
 async function openRevenueSeasonality(page: Page, yearIndex: number) {
-  await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-  await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-  await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-  await expect(page.getByRole("button", { name: "Revenus", exact: true })).toBeVisible({
+  await page.goto(`/projections/revenue?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`)
+  await expect(page.getByRole("heading", { name: "Hypothèses Revenus" })).toBeVisible({
     timeout: 15000,
   })
-  await page.getByRole("button", { name: "Revenus", exact: true }).click()
-  await expect(page.getByRole("heading", { name: "Estimation des revenus annuels" })).toBeVisible({
+  await expect(page.getByRole("heading", { name: /Estimation des revenus annuels/ })).toBeVisible({
     timeout: 15000,
   })
   const row = page.locator("tr", { hasText: "Total Revenus" }).first()

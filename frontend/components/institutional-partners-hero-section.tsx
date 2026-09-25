@@ -103,7 +103,7 @@ export function InstitutionalPartnersHeroSection() {
                 href="/#demo"
                 className="inline-flex items-center gap-2 rounded-lg px-1 py-1.5 -mx-1 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E0742D]/50"
               >
-                RÉSERVER UNE DÉMO
+                PRENDRE RENDEZ-VOUS
                 <span className="inline-block h-px w-10 bg-[#E0742D]/90" />
               </a>
             </div>

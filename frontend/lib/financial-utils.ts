@@ -13,10 +13,15 @@ export function calculateVariation(current: number, prior: number): number {
 }
 
 /** Part d’un montant dans le chiffre d’affaires (valeur absolue), ex. « 12.4% ». */
-export function formatShareOfRevenuePct(amount: number, revenue: number | null | undefined): string {
+export function formatShareOfRevenuePct(
+  amount: number,
+  revenue: number | null | undefined,
+  options?: { omitPercentSign?: boolean },
+): string {
   if (revenue == null || !Number.isFinite(revenue) || Math.abs(revenue) < 1e-9) return "-"
   if (!Number.isFinite(amount) || amount === 0) return "-"
-  return `${((Math.abs(amount) / Math.abs(revenue)) * 100).toFixed(1)}%`
+  const value = ((Math.abs(amount) / Math.abs(revenue)) * 100).toFixed(1)
+  return options?.omitPercentSign ? value : `${value}%`
 }
 
 /**

@@ -28,11 +28,9 @@ const footerLinks: FooterSection[] = [
   {
     label: "Parcours",
     links: [
-      { title: "Fonctionnalités", href: "/#problem-solution" },
-      { title: "Études de cas", href: "/etudes-de-cas" },
-      { title: "Mise en place", href: "/#platform-setup" },
-      { title: "Tarification", href: "/tarification" },
-      { title: "Démarrer", href: "/#demo" },
+      { title: "Notre objectif", href: "/#notre-objectif" },
+      { title: "Nos services", href: "/services" },
+      { title: "Prendre rendez-vous", href: "/#demo" },
     ],
   },
   {
@@ -40,20 +38,11 @@ const footerLinks: FooterSection[] = [
     links: [...heroFeatureFooterLinks],
   },
   {
-    label: "Utilisateurs",
-    links: [
-      { title: "Entreprises", href: "/#problem-solution" },
-      { title: "Partenaires comptables", href: "/cabinets-comptables" },
-      { title: "Partenaires financiers", href: "/partenaires-financiers" },
-    ],
-  },
-  {
     label: "Entreprise",
     links: [
       { title: "À propos", href: "/a-propos" },
       { title: "Contact", href: "/contact" },
       { title: "Politique de confidentialité", href: "/privacy" },
-      { title: "Clause de non-responsabilité", href: "/clause-de-non-responsabilite" },
     ],
   },
   {
@@ -164,7 +153,7 @@ export function Footer() {
             onClick={scrollToDemo}
             className="group inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
           >
-            RÉSERVER UNE DÉMO
+            PRENDRE RENDEZ-VOUS
             <ArrowRight className="h-4 w-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
           </button>
           <span className="hidden h-px w-12 bg-white/10 sm:block" />

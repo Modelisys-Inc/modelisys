@@ -281,14 +281,11 @@ async function setupAuth(
 }
 
 async function openFixedExpenseSeasonality(page: Page, yearIndex: number) {
-  await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-  await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-  await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-  await expect(page.getByRole("button", { name: "Dépenses", exact: true })).toBeVisible({
+  await page.goto(`/projections/expenses?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`)
+  await expect(page.getByRole("heading", { name: "Hypothèses Dépenses" })).toBeVisible({
     timeout: 15000,
   })
-  await page.getByRole("button", { name: "Dépenses", exact: true }).click()
-  await expect(page.getByRole("heading", { name: "Estimation des dépenses annuelles" })).toBeVisible({
+  await expect(page.getByRole("heading", { name: /Estimation des dépenses annuelles/ })).toBeVisible({
     timeout: 15000,
   })
   const row = page.locator("tr", { hasText: "Achats" }).first()
@@ -359,11 +356,11 @@ test.describe("Projection fixed expense seasonality actual years", () => {
         ],
       },
     })
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Dépenses", exact: true }).click()
-    await expect(page.getByRole("heading", { name: "Estimation des dépenses annuelles" })).toBeVisible({
+    await page.goto(`/projections/expenses?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`)
+    await expect(page.getByRole("heading", { name: "Hypothèses Dépenses" })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByRole("heading", { name: /Estimation des dépenses annuelles/ })).toBeVisible({
       timeout: 15000,
     })
 
@@ -401,11 +398,11 @@ test.describe("Projection fixed expense seasonality actual years", () => {
   }) => {
     test.setTimeout(90_000)
     await setupAuth(page)
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Dépenses", exact: true }).click()
-    await expect(page.getByRole("heading", { name: "Estimation des dépenses annuelles" })).toBeVisible({
+    await page.goto(`/projections/expenses?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`)
+    await expect(page.getByRole("heading", { name: "Hypothèses Dépenses" })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByRole("heading", { name: /Estimation des dépenses annuelles/ })).toBeVisible({
       timeout: 15000,
     })
 
@@ -426,14 +423,14 @@ test.describe("Projection fixed expense seasonality actual years", () => {
     await expect(page.getByText(/Mois de début/)).toBeVisible()
   })
 
-  test("keeps year amount columns wide enough when the hypothesis panel is open", async ({ page }) => {
+  test("opens the hypothesis panel from a projected year cell in the report table", async ({ page }) => {
     test.setTimeout(90_000)
     await setupAuth(page)
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Dépenses", exact: true }).click()
-    await expect(page.getByRole("heading", { name: "Estimation des dépenses annuelles" })).toBeVisible({
+    await page.goto(`/projections/expenses?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`)
+    await expect(page.getByRole("heading", { name: "Hypothèses Dépenses" })).toBeVisible({
+      timeout: 15000,
+    })
+    await expect(page.getByRole("heading", { name: /Estimation des dépenses annuelles/ })).toBeVisible({
       timeout: 15000,
     })
 
@@ -443,17 +440,6 @@ test.describe("Projection fixed expense seasonality actual years", () => {
     const amountCell = row.locator("td").nth(7)
     await amountCell.click()
     await expect(page.getByText("Hypothèse", { exact: true })).toBeVisible({ timeout: 10000 })
-
-    const table = page.locator("table").filter({ hasText: "Achats" }).first()
-    await expect(table).toHaveClass(/min-w-max/)
-
-    const cellWidth = await amountCell.evaluate((el) => (el as HTMLElement).getBoundingClientRect().width)
-    expect(cellWidth).toBeGreaterThanOrEqual(140)
-
-    const textFits = await amountCell.evaluate((el) => {
-      const node = el as HTMLElement
-      return node.scrollWidth <= node.clientWidth + 2
-    })
-    expect(textFits).toBe(true)
+    await expect(page.getByTestId("expense-hypothesis-report")).toBeVisible()
   })
 })

@@ -75,7 +75,7 @@ function AboutQuebecSignal({ className = "" }: { className?: string }) {
           <span className="text-sm font-medium tracking-wide">Québec, Canada</span>
         </div>
         <p className="mx-auto mt-5 max-w-[16rem] text-[13px] leading-relaxed text-[#C9B8A5]/65">
-          Conçue ici. Développée ici. Opérée ici.
+          Fondée ici. Pratiquée ici.
         </p>
       </div>
     </div>
@@ -137,14 +137,14 @@ export function AboutQuebecHeroSection() {
             </p>
 
             <h1 className="mt-7 text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-8 sm:text-[2.45rem] sm:leading-[1.12] xl:text-[2.85rem]">
-              Fondée, développée et opérée au Québec
+              Fondée et pratiquée au Québec
             </h1>
 
             <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
-              Les PME québécoises méritent des outils conçus par des gens qui comprennent
-              leur réalité : la langue, les normes comptables, la fiscalité, le rapport aux
-              banques et aux cabinets. Choisir Modelisys, c&apos;est investir dans
-              l&apos;écosystème d&apos;ici — avec une équipe joignable et imputable.
+              Les PME québécoises méritent une firme qui comprend leur réalité : la langue,
+              les normes comptables, la fiscalité, le rapport aux banques et aux cabinets.
+              Choisir Modelisys, c&apos;est travailler avec une équipe d&apos;ici — joignable
+              et imputable.
             </p>
 
             <div className="mt-10 flex flex-wrap items-center gap-4 sm:mt-12">

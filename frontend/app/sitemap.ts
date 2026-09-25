@@ -7,7 +7,11 @@ const BASE_URL =
 const MARKETING_PATHS = [
   "/",
   "/a-propos",
-  "/etudes-de-cas",
+  "/services",
+  "/services/mandats-ponctuels",
+  "/services/accompagnement-financier",
+  "/services/licences",
+  "/services/developpement-sur-mesure",
   "/tarification",
   "/cabinets-comptables",
   "/partenaires-financiers",

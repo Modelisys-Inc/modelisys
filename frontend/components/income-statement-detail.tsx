@@ -229,6 +229,11 @@ interface IncomeStatementDetailProps {
   title?: string
   /** Projections: hide the header icon box. */
   hideHeaderIcon?: boolean
+  /**
+   * Embed in a VCA-style report sheet: drop the heavy dashboard card chrome
+   * (border/ring/header). Keep table + hypothesis panels intact.
+   */
+  embedInReport?: boolean
   /** Projections: disable opening/closing rows and the analysis panel. */
   disableRowInteractions?: boolean
   /** Projections: force forecast behavior even if title is generic ("Détail"). */
@@ -882,6 +887,7 @@ export function IncomeStatementDetail({
   companies = [],
   title = "Détail",
   hideHeaderIcon = false,
+  embedInReport = false,
   disableRowInteractions = false,
   forceForecastSection = false,
   forecastBaseYear,
@@ -4901,8 +4907,22 @@ export function IncomeStatementDetail({
   const showStructureCols =
     isStructureStudio && !structEdit.loading && detailAnnexEditorGlobalIndices.length > 0
 
-  /** Vue « années » : colonnes à largeur fixe + défilement horizontal natif. */
-  const tableUsesHorizontalSlider = view === "years" && !showStructureCols
+  /** Vue « années » : colonnes à largeur fixe + défilement horizontal natif (hors rapport VCA). */
+  const tableUsesHorizontalSlider = view === "years" && !showStructureCols && !embedInReport
+
+  /** Rapport revenus : table-fixed pour tenir toutes les années dans la carte. */
+  const embedYearsFitTable =
+    embedInReport &&
+    view === "years" &&
+    !showStructureCols &&
+    title === "Estimation des revenus annuels"
+
+  /** Rapport dépenses : largeur naturelle + scroll horizontal (Type / Taux / années / %), comme Capex. */
+  const embedExpenseYearsScrollTable =
+    embedInReport &&
+    view === "years" &&
+    !showStructureCols &&
+    title === "Estimation des dépenses annuelles"
 
   /** Hypothèses revenus : panneau pleine largeur sous la ligne du poste (plus d’aside à droite). */
   const revenueHypothesisInlineActive =
@@ -4953,7 +4973,11 @@ export function IncomeStatementDetail({
     view === "years" &&
     !showStructureCols
   const yearGroupStartClass = (yearIdx: number) =>
-    showYearPctCa && yearIdx > 0 ? "border-l border-slate-300" : undefined
+    showYearPctCa && yearIdx > 0
+      ? embedInReport
+        ? "border-l border-slate-200"
+        : "border-l border-slate-300"
+      : undefined
   const yearPctCaHeaderTestId =
     title === "Estimation des dépenses annuelles" ? "expense-year-pct-ca-header" : "revenue-year-pct-ca-header"
   const yearPctCaCellTestId =
@@ -5490,11 +5514,15 @@ export function IncomeStatementDetail({
     view,
   ])
 
+  const reportFrameClass = embedInReport
+    ? "w-full min-w-0"
+    : cn("w-full", dashboardCardFrameStaticClass)
+
   // Show loading state when fetching data
   if (isDataLoading) {
     return (
-      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
-        <div className={dashboardCardRingClass} aria-hidden />
+      <div className={reportFrameClass}>
+        {!embedInReport ? <div className={dashboardCardRingClass} aria-hidden /> : null}
         <div className="relative px-8 py-16 text-center">
           <div className="animate-pulse space-y-4">
             <div className="mx-auto h-4 w-1/3 rounded bg-slate-200"></div>
@@ -5510,19 +5538,21 @@ export function IncomeStatementDetail({
   // Show "no data" state when data is empty and not loading
   if (data.length === 0 && !isForecastSection) {
     return (
-      <div className={cn("w-full", dashboardCardFrameStaticClass)}>
-        <div className={dashboardCardRingClass} aria-hidden />
+      <div className={reportFrameClass}>
+        {!embedInReport ? <div className={dashboardCardRingClass} aria-hidden /> : null}
         <div className="relative">
-          <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
-            <div className="flex items-center gap-4">
-              {!hideHeaderIcon && (
-                <div className={dashboardCardHeaderIconBoxClass}>
-                  <ListTree className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
-                </div>
-              )}
-              <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
+          {!embedInReport ? (
+            <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+              <div className="flex items-center gap-4">
+                {!hideHeaderIcon && (
+                  <div className={dashboardCardHeaderIconBoxClass}>
+                    <ListTree className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+                  </div>
+                )}
+                <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
+              </div>
             </div>
-          </div>
+          ) : null}
           <div className="px-8 py-16 text-center">
             <p className={cn("text-sm", dashboardCardBodyMutedClass)}>Aucune donnée disponible pour cette période.</p>
           </div>
@@ -8049,10 +8079,11 @@ export function IncomeStatementDetail({
   }
 
   return (
-    <div className={cn("w-full", dashboardCardFrameStaticClass)}>
-      <div className={dashboardCardRingClass} aria-hidden />
+    <div className={reportFrameClass}>
+      {!embedInReport ? <div className={dashboardCardRingClass} aria-hidden /> : null}
       <div className="relative">
-      {/* Header */}
+      {/* Header — omitted when embedded in a report sheet (section title lives outside). */}
+      {!embedInReport ? (
       <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 flex-1 items-start gap-4">
@@ -8186,6 +8217,7 @@ export function IncomeStatementDetail({
           </div>
         </div>
       </div>
+      ) : null}
 
       {structureEditMode && canInlineStructureEdit && structEdit.loading && (
         <div className="flex items-center gap-3 border-b border-slate-200 bg-slate-50/90 px-8 py-3.5 text-sm text-[#2A2F3A]">
@@ -8210,32 +8242,78 @@ export function IncomeStatementDetail({
         )}
 
       {/* Table : en-tête / colonne Compte figés ; hypothèses en ligne sous le poste. */}
-      <div ref={expenseHypothesisScrollAnchorRef} className="relative border-t border-slate-200/80">
+      <div
+        ref={expenseHypothesisScrollAnchorRef}
+        className={cn("relative", !embedInReport && "border-t border-slate-200/80")}
+      >
         <div className="min-w-0 w-full">
           <div
             className={cn(
-              "min-w-0 w-full max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
-              tableUsesHorizontalSlider && "[scrollbar-width:thin]",
-              isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white"
+              "min-w-0 w-full",
+              embedExpenseYearsScrollTable
+                ? "overflow-x-auto overscroll-x-contain bg-transparent [scrollbar-width:thin]"
+                : embedInReport
+                  ? "overflow-visible bg-transparent"
+                  : cn(
+                      "max-h-[min(72vh,56rem)] overflow-auto overscroll-contain",
+                      tableUsesHorizontalSlider && "[scrollbar-width:thin]",
+                      isStructureStudio ? "bg-gradient-to-b from-white to-slate-50/50" : "bg-white",
+                    ),
             )}
+            data-testid={embedExpenseYearsScrollTable ? "expense-forecast-table-report" : undefined}
           >
             <div
               className={cn(
                 showStructureCols && "w-full min-w-0",
                 tableUsesHorizontalSlider &&
-                  (forecastHypothesisTableWidthLock ? "w-max min-w-full" : "w-max min-w-full")
+                  (forecastHypothesisTableWidthLock ? "w-max min-w-full" : "w-max min-w-full"),
+                embedExpenseYearsScrollTable && "w-max min-w-full",
               )}
             >
         <table
           className={cn(
-            "border-separate border-spacing-0",
+            embedExpenseYearsScrollTable
+              ? "border-separate border-spacing-0"
+              : embedInReport
+                ? "border-collapse"
+                : "border-separate border-spacing-0",
             showStructureCols && "w-full min-w-0 table-fixed",
             !showStructureCols && !forecastHypothesisTableWidthLock && "w-full min-w-0",
             tableUsesHorizontalSlider && !forecastHypothesisTableWidthLock && "min-w-max",
             // Largeurs col (rem) + min-w-max : le panneau n’écrase plus les colonnes année.
             forecastHypothesisTableWidthLock && "table-fixed min-w-max",
+            embedYearsFitTable && "w-full min-w-0 table-fixed",
+            embedExpenseYearsScrollTable && "min-w-max",
+            embedInReport && !embedYearsFitTable && !embedExpenseYearsScrollTable && "w-full min-w-full",
           )}
         >
+          {embedYearsFitTable && (() => {
+            const yearLabels = getYearLabels()
+            // Poste compact + années fluides ; % CA minimal.
+            return (
+              <colgroup key="embed-years-fit">
+                <col style={{ width: "14%" }} />
+                {yearLabels.flatMap((_, i) => [
+                  <col key={`year-${i}`} />,
+                  <col key={`pct-ca-${i}`} style={{ width: "2.5rem" }} />,
+                ])}
+              </colgroup>
+            )
+          })()}
+          {embedExpenseYearsScrollTable && (() => {
+            const yearLabels = getYearLabels()
+            return (
+              <colgroup key="embed-expense-years-scroll">
+                <col style={{ width: "16rem" }} />
+                <col style={{ width: "5.5rem" }} />
+                <col style={{ width: "5rem" }} />
+                {yearLabels.flatMap((_, i) => [
+                  <col key={`year-${i}`} style={{ width: "8.5rem" }} />,
+                  <col key={`pct-ca-${i}`} style={{ width: "3rem" }} />,
+                ])}
+              </colgroup>
+            )
+          })()}
           {forecastHypothesisTableWidthLock && !showStructureCols && view === "years" && (() => {
             const yearLabels = getYearLabels()
             // Largeurs fixes (rem) : avec table-fixed + %, les années sont écrasées et
@@ -8274,23 +8352,37 @@ export function IncomeStatementDetail({
           )}
           <thead
             className={cn(
-              "[&_tr:first-child_th]:sticky [&_tr:first-child_th]:top-0 [&_tr:first-child_th]:z-20",
-              "[&_th]:border-b-2 [&_th]:border-slate-200",
-              "[&_tr:first-child_th:first-child]:left-0 [&_tr:first-child_th:first-child]:z-30",
-              showStructureCols
-                ? "[&_tr:first-child_th]:bg-gradient-to-r [&_tr:first-child_th]:from-slate-50 [&_tr:first-child_th]:via-slate-100/40 [&_tr:first-child_th]:to-slate-50"
-                : "[&_tr:first-child_th]:bg-gradient-to-b [&_tr:first-child_th]:from-slate-50 [&_tr:first-child_th]:to-slate-100/80",
+              embedInReport
+                ? "[&_th]:border-b [&_th]:border-slate-200 [&_th]:bg-transparent"
+                : cn(
+                    "[&_tr:first-child_th]:sticky [&_tr:first-child_th]:top-0 [&_tr:first-child_th]:z-20",
+                    "[&_th]:border-b-2 [&_th]:border-slate-200",
+                    "[&_tr:first-child_th:first-child]:left-0 [&_tr:first-child_th:first-child]:z-30",
+                    showStructureCols
+                      ? "[&_tr:first-child_th]:bg-gradient-to-r [&_tr:first-child_th]:from-slate-50 [&_tr:first-child_th]:via-slate-100/40 [&_tr:first-child_th]:to-slate-50"
+                      : "[&_tr:first-child_th]:bg-gradient-to-b [&_tr:first-child_th]:from-slate-50 [&_tr:first-child_th]:to-slate-100/80",
+                  ),
+              embedExpenseYearsScrollTable && [
+                "[&_th]:bg-white",
+                "[&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-30",
+              ],
             )}
           >
             <tr>
               <th
                 className={cn(
-                  "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
+                  embedInReport
+                    ? "py-2 pr-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                    : "px-6 py-4 text-left text-sm font-semibold text-[#2A2F3A]",
                   !showStructureCols &&
                     (view === "12months"
                       ? "min-w-[20rem] sm:min-w-[24rem] lg:min-w-[30rem]"
                       : view === "years"
-                        ? "min-w-[20rem]"
+                        ? embedYearsFitTable
+                          ? "w-[14%] min-w-0 pr-3"
+                          : embedExpenseYearsScrollTable
+                            ? "min-w-[16rem]"
+                            : "min-w-[20rem]"
                         : "w-2/5"),
                   showStructureCols && "min-w-0 pl-4 pr-3"
                 )}
@@ -8303,7 +8395,7 @@ export function IncomeStatementDetail({
                     <span className="font-semibold text-slate-800">Postes liés aux annexes</span>
                   </span>
                 ) : (
-                  "Compte"
+                  embedInReport ? "Poste" : "Compte"
                 )}
               </th>
               {showStructureCols && (
@@ -8420,13 +8512,25 @@ export function IncomeStatementDetail({
                 <>
                   {/* Type column for Dépenses section */}
                   {title === "Estimation des dépenses annuelles" && (
-                    <th className="min-w-[6.5rem] px-4 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900">
+                    <th
+                      className={cn(
+                        embedExpenseYearsScrollTable
+                          ? "min-w-[5.5rem] px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap text-slate-500"
+                          : "min-w-[6.5rem] px-4 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900",
+                      )}
+                    >
                       Type
                     </th>
                   )}
                   {/* New column between Type and years for Dépenses section */}
                   {title === "Estimation des dépenses annuelles" && (
-                    <th className="min-w-[6.5rem] px-4 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900">
+                    <th
+                      className={cn(
+                        embedExpenseYearsScrollTable
+                          ? "min-w-[5rem] px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap text-slate-500"
+                          : "min-w-[6.5rem] px-4 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900",
+                      )}
+                    >
                       Taux
                     </th>
                   )}
@@ -8434,10 +8538,20 @@ export function IncomeStatementDetail({
                     <Fragment key={idx}>
                       <th 
                         className={cn(
-                          "min-w-[10rem] px-4 py-4 text-right text-sm font-semibold whitespace-nowrap",
-                          isForecastHistoricalColumn(idx) 
-                            ? "bg-slate-50 text-slate-400" 
-                            : "text-slate-900",
+                          embedInReport
+                            ? cn(
+                                "px-1 py-2 text-right text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap text-slate-500",
+                                embedYearsFitTable && "min-w-0 overflow-hidden text-ellipsis",
+                                embedExpenseYearsScrollTable && "min-w-[8.5rem] px-2",
+                              )
+                            : "min-w-[10rem] px-4 py-4 text-right text-sm font-semibold whitespace-nowrap",
+                          !embedInReport &&
+                            (isForecastHistoricalColumn(idx)
+                              ? "bg-slate-50 text-slate-400"
+                              : "text-slate-900"),
+                          embedInReport &&
+                            isForecastHistoricalColumn(idx) &&
+                            "!bg-slate-50 text-slate-400",
                           yearGroupStartClass(idx)
                         )}
                         data-testid={idx > 0 && showYearPctCa ? yearGroupStartTestId : undefined}
@@ -8448,13 +8562,24 @@ export function IncomeStatementDetail({
                         <th
                           data-testid={yearPctCaHeaderTestId}
                           className={cn(
-                            "min-w-[4.5rem] px-2 py-4 text-right text-xs font-semibold whitespace-nowrap",
-                            isForecastHistoricalColumn(idx)
-                              ? "bg-slate-50 text-slate-400"
-                              : "text-slate-500"
+                            embedInReport
+                              ? cn(
+                                  "px-0 py-2 text-right text-[10px] font-semibold uppercase tracking-wide whitespace-nowrap text-slate-500",
+                                  embedYearsFitTable && "w-[2.5rem] min-w-0 max-w-[2.5rem]",
+                                  embedExpenseYearsScrollTable && "min-w-[3rem] px-1",
+                                )
+                              : "min-w-[4.5rem] px-2 py-4 text-right text-xs font-semibold whitespace-nowrap",
+                            !embedInReport &&
+                              (isForecastHistoricalColumn(idx)
+                                ? "bg-slate-50 text-slate-400"
+                                : "text-slate-500"),
+                            embedInReport &&
+                              isForecastHistoricalColumn(idx) &&
+                              "!bg-slate-50 text-slate-400",
                           )}
+                          title="% du chiffre d'affaires"
                         >
-                          % CA
+                          {embedInReport ? "%" : "% CA"}
                         </th>
                       )}
                     </Fragment>
@@ -8466,13 +8591,30 @@ export function IncomeStatementDetail({
             {!showStructureCols && title === "Estimation des dépenses annuelles" && view === "years" && (
               <tr className="[&_th]:bg-slate-50">
                 {/* Label cell */}
-                <th className="min-w-[20rem] px-6 py-2 text-left">
+                <th
+                  className={cn(
+                    "text-left",
+                    embedExpenseYearsScrollTable
+                      ? "sticky left-0 z-30 min-w-[16rem] bg-slate-50 py-2 pr-3"
+                      : "min-w-[20rem] px-6 py-2",
+                  )}
+                >
                   <span className="text-xs font-medium text-slate-700">Taux d'inflation pour les dépenses fixes:</span>
                 </th>
                 {/* Empty cell for "Type" column */}
-                <th className="min-w-[6.5rem] px-4 py-2" aria-hidden />
+                <th
+                  className={cn(
+                    embedExpenseYearsScrollTable ? "min-w-[5.5rem] px-2 py-2" : "min-w-[6.5rem] px-4 py-2",
+                  )}
+                  aria-hidden
+                />
                 {/* Inflation rate input in "Taux" column */}
-                <th className="min-w-[6.5rem] px-4 py-2 text-center">
+                <th
+                  className={cn(
+                    "text-center",
+                    embedExpenseYearsScrollTable ? "min-w-[5rem] px-2 py-2" : "min-w-[6.5rem] px-4 py-2",
+                  )}
+                >
                   <div className="flex items-center justify-center gap-2">
                     <Input
                       type="number"
@@ -8491,9 +8633,24 @@ export function IncomeStatementDetail({
                 {/* Empty cells for year columns */}
                 {getYearLabels().map((_, idx) => (
                   <Fragment key={idx}>
-                    <th className={cn("min-w-[8rem] px-4 py-2", yearGroupStartClass(idx))} aria-hidden />
+                    <th
+                      className={cn(
+                        embedExpenseYearsScrollTable ? "min-w-[8.5rem] px-2 py-2" : "min-w-[8rem] px-4 py-2",
+                        yearGroupStartClass(idx),
+                      )}
+                      aria-hidden
+                    />
                     {showYearPctCa && (
-                      <th className="min-w-[4.5rem] px-2 py-2" aria-hidden />
+                      <th
+                        className={cn(
+                          embedExpenseYearsScrollTable
+                            ? "min-w-[3rem] px-1 py-2"
+                            : embedInReport
+                              ? "w-[2.5rem] min-w-0 max-w-[2.5rem] px-0 py-2"
+                              : "min-w-[4.5rem] px-2 py-2",
+                        )}
+                        aria-hidden
+                      />
                     )}
                   </Fragment>
                 ))}
@@ -8502,10 +8659,18 @@ export function IncomeStatementDetail({
           </thead>
           <tbody
             className={cn(
-              /* Comme Bilan Détail : bordures sur td (border-separate) + colonne Compte figée. */
-              "[&_td]:border-b [&_td]:border-slate-200",
-              "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
-              "[&_td:first-child]:bg-white",
+              embedInReport
+                ? "[&_td]:border-t [&_td]:border-slate-200"
+                : cn(
+                    /* Comme Bilan Détail : bordures sur td (border-separate) + colonne Compte figée. */
+                    "[&_td]:border-b [&_td]:border-slate-200",
+                    "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+                    "[&_td:first-child]:bg-white",
+                  ),
+              embedExpenseYearsScrollTable && [
+                "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+                "[&_td:first-child]:bg-white",
+              ],
             )}
           >
             {Array.from({ length: detailTableRowCount }, (_, idx) => {
@@ -8634,7 +8799,10 @@ export function IncomeStatementDetail({
                     <tr aria-hidden data-testid="income-statement-detail-subtotal-separator">
                       <td
                         colSpan={detailTableColumnCount}
-                        className="border-0 p-0 align-top leading-none border-t-2 border-t-slate-900"
+                        className={cn(
+                          "border-0 p-0 align-top leading-none border-t-2",
+                          embedInReport ? "border-t-[#2A2F3A]" : "border-t-slate-900",
+                        )}
                       />
                     </tr>
                   )}
@@ -8649,19 +8817,28 @@ export function IncomeStatementDetail({
                           )
                         : cn(
                             row.label === "" && !row.isAnnexPlaceholder ? "h-2" : "",
-                            row.isAnnexPlaceholder &&
+                            !embedInReport &&
+                              row.isAnnexPlaceholder &&
                               (title === "Estimation des dépenses annuelles"
                                 ? "[&>td:first-child]:bg-white [&>td:nth-child(2)]:bg-white [&>td:nth-child(3)]:bg-white"
                                 : "[&>td:first-child]:bg-white"),
-                            annexSubtotalDarkNumbers &&
+                            !embedInReport &&
+                              annexSubtotalDarkNumbers &&
                               (title === "Estimation des dépenses annuelles"
                                 ? "[&>td:first-child]:bg-white [&>td:nth-child(2)]:bg-white [&>td:nth-child(3)]:bg-white"
                                 : "[&>td:first-child]:bg-white"),
-                            row.isAnnexHeader && "[&>td]:bg-amber-50/90 [&>td:first-child]:bg-amber-50/90",
+                            row.isAnnexHeader &&
+                              (embedInReport
+                                ? "[&>td]:bg-amber-50/50"
+                                : "[&>td]:bg-amber-50/90 [&>td:first-child]:bg-amber-50/90"),
                             !isSpacer &&
                               (row.isAnnexHeader
-                                ? "hover:[&>td]:bg-amber-100/85 hover:[&>td:first-child]:bg-amber-100/85"
-                                : "hover:[&>td]:bg-slate-50/90 hover:[&>td:first-child]:bg-slate-50/90"),
+                                ? embedInReport
+                                  ? "hover:[&>td]:bg-amber-50/80"
+                                  : "hover:[&>td]:bg-amber-100/85 hover:[&>td:first-child]:bg-amber-100/85"
+                                : embedInReport
+                                  ? "hover:[&>td]:bg-slate-50/60"
+                                  : "hover:[&>td]:bg-slate-50/90 hover:[&>td:first-child]:bg-slate-50/90"),
                             canExpand && row.rowId && "cursor-pointer"
                           )
                     )}
@@ -8673,21 +8850,29 @@ export function IncomeStatementDetail({
                   >
                     <td
                       className={cn(
-                        "px-6 py-3",
+                        embedInReport ? "py-2 pr-3 text-sm text-[#2A2F3A]" : "px-6 py-3",
                         showStructureCols
                           ? "min-w-0 w-full py-3.5 pl-4 pr-3"
                           : view === "12months"
                             ? "min-w-[20rem] sm:min-w-[24rem] lg:min-w-[30rem]"
                             : view === "years" && !showStructureCols
-                              ? "min-w-[20rem]"
+                              ? embedYearsFitTable
+                                ? "min-w-0 max-w-[14%] truncate"
+                                : embedExpenseYearsScrollTable
+                                  ? "min-w-[16rem]"
+                                  : "min-w-[20rem]"
                               : "",
                         row.isAnnexPlaceholder && !showStructureCols && "py-2",
                         annexSubtotalDarkNumbers
                           ? "font-bold"
                           : isBoldForStyle
-                            ? "font-bold text-slate-900"
-                            : "text-slate-700",
-                        row.indent ? "pl-12" : ""
+                            ? embedInReport
+                              ? "font-semibold"
+                              : "font-bold text-slate-900"
+                            : embedInReport
+                              ? "font-normal"
+                              : "text-slate-700",
+                        row.indent ? (embedInReport ? "pl-6" : "pl-12") : ""
                       )}
                     >
                       <div className="flex min-w-0 w-full items-center gap-2">
@@ -9083,7 +9268,10 @@ export function IncomeStatementDetail({
                       {title === "Estimation des dépenses annuelles" && (
                         <td
                           className={cn(
-                            "min-w-[6.5rem] px-4 py-3 text-center",
+                            "text-center",
+                            embedExpenseYearsScrollTable
+                              ? "min-w-[5.5rem] px-2 py-2"
+                              : "min-w-[6.5rem] px-4 py-3",
                             row.rowId && !shouldHideAmounts && !disableRowInteractions && "cursor-pointer hover:bg-slate-50/90"
                           )}
                           onClick={() => {
@@ -9128,8 +9316,14 @@ export function IncomeStatementDetail({
                       )}
                       {/* Taux column cell for Dépenses section */}
                       {title === "Estimation des dépenses annuelles" && view === "years" && (
-                        <td className="min-w-[6.5rem] px-4 py-3 text-center text-slate-700">
-                          {row.rowId && !shouldHideAmounts ? (
+                        <td
+                          className={cn(
+                            "text-center text-slate-700",
+                            embedExpenseYearsScrollTable
+                              ? "min-w-[5rem] px-2 py-2"
+                              : "min-w-[6.5rem] px-4 py-3",
+                          )}
+                        >                          {row.rowId && !shouldHideAmounts ? (
                             <div className="flex items-center justify-center">
                               {getExpenseType(row.rowId) === "variable" ? (
                                 <span className="text-blue-600 font-medium">
@@ -9246,8 +9440,17 @@ export function IncomeStatementDetail({
                           <Fragment key={valueIdx}>
                           <td
                             className={cn(
-                              "min-w-[10rem] px-3 py-3 text-right whitespace-nowrap tabular-nums",
-                              amountWeightClass,
+                              embedInReport
+                                ? cn(
+                                    "px-1 py-2 text-right font-mono text-[11px] whitespace-nowrap tabular-nums text-[#2A2F3A]",
+                                    embedYearsFitTable && "min-w-0",
+                                    embedExpenseYearsScrollTable && "min-w-[8.5rem] px-2 text-sm",
+                                    row.isBold && !isExpanded && "font-semibold",
+                                  )
+                                : cn(
+                                    "min-w-[10rem] px-3 py-3 text-right whitespace-nowrap tabular-nums",
+                                    amountWeightClass,
+                                  ),
                               shouldHideAmounts && !blankHypothesisNumericCell
                                 ? "text-transparent"
                                 : "",
@@ -9262,13 +9465,17 @@ export function IncomeStatementDetail({
                               annexSubtotalDarkNumbers && valueIdx > 0 && "text-slate-900",
                               blankHypothesisNumericCell && "text-transparent select-none",
                               isRevenueHypothesisSelected &&
-                                "z-[1] bg-orange-50 shadow-[inset_0_0_0_2px_rgb(224,116,45)]",
+                                (embedInReport
+                                  ? "z-[1] bg-[#E0742D]/10 shadow-[inset_0_0_0_1.5px_#E0742D]"
+                                  : "z-[1] bg-orange-50 shadow-[inset_0_0_0_2px_rgb(224,116,45)]"),
                               isExpenseHypothesisSelected &&
                                 "z-[1] bg-blue-50 shadow-[inset_0_0_0_2px_rgb(59,130,246)]",
                               isRevenueProjectionCell &&
                                 !isEditing &&
                                 !isRevenueHypothesisSelected &&
-                                "cursor-pointer hover:bg-slate-50/90",
+                                (embedInReport
+                                  ? "cursor-pointer hover:bg-slate-50/60"
+                                  : "cursor-pointer hover:bg-slate-50/90"),
                               isExpenseProjectionCell &&
                                 !isEditing &&
                                 !isExpenseHypothesisSelected &&
@@ -9356,8 +9563,16 @@ export function IncomeStatementDetail({
                             <td
                               data-testid={yearPctCaCellTestId}
                               className={cn(
-                                "min-w-[4.5rem] px-2 py-3 text-right text-xs tabular-nums text-slate-500",
-                                amountWeightClass,
+                                embedInReport
+                                  ? cn(
+                                      "px-0 py-2 text-right font-mono text-[10px] leading-tight tabular-nums text-[#2A2F3A]",
+                                      embedYearsFitTable && "w-[2.5rem] min-w-0 max-w-[2.5rem]",
+                                      embedExpenseYearsScrollTable && "min-w-[3rem] px-1",
+                                    )
+                                  : cn(
+                                      "min-w-[4.5rem] px-2 py-3 text-right text-xs tabular-nums text-slate-500",
+                                      amountWeightClass,
+                                    ),
                                 isForecastHistoricalColumn(valueIdx)
                                   ? "bg-slate-50 text-slate-400"
                                   : "",
@@ -9372,6 +9587,7 @@ export function IncomeStatementDetail({
                                   : formatShareOfRevenuePct(
                                       effectiveValue,
                                       getHypothesisCaForYearIndex(valueIdx),
+                                      embedInReport ? { omitPercentSign: true } : undefined,
                                     )}
                             </td>
                           )}

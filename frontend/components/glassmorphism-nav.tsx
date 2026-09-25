@@ -4,40 +4,40 @@ import { useState, useEffect, useRef, type MouseEvent } from "react"
 import { Menu, X, ArrowRight, ChevronDown } from "lucide-react"
 import Link from "next/link"
 import { handleApprocheLandingLink } from "@/lib/approche-navigation"
-import {
-  FEATURE_SECTION_ID,
-  featureCategoryNavLinks,
-  handleFeatureLandingLink,
-} from "@/lib/feature-category-navigation"
 import { heroFeatureFooterLinks } from "@/lib/hero-features"
+import { SERVICES_PAGE_PILLARS, getServicePagePath } from "@/lib/services-page-content"
 
 const NOTRE_APPROCHE_SECTION = "/#approche-modelisys"
-const FONCTIONNALITES_SECTION = `/#${FEATURE_SECTION_ID}`
 
 const approcheSubLinks = heroFeatureFooterLinks.map((link) => ({
   name: link.title,
   href: link.href,
 }))
 
-const fonctionnalitesSubLinks = featureCategoryNavLinks.map((link) => ({
-  name: link.title,
-  href: link.href,
+const serviceSubLinks = SERVICES_PAGE_PILLARS.map((pillar) => ({
+  name: pillar.label,
+  href: getServicePagePath(pillar.id),
 }))
 
-const mainNavLinks = [
-  { name: "Études de cas", href: "/etudes-de-cas" },
-  { name: "Tarification", href: "/tarification" },
-  { name: "À propos", href: "/a-propos" },
-] as const
+type NavItem =
+  | { name: string; href: string }
+  | { name: string; href: string; children: { name: string; href: string }[] }
 
-/** Ordre du menu mobile (indent = sous-entrées d’un groupe). */
-const mobileNavItems = [
-  { name: "Notre approche", href: NOTRE_APPROCHE_SECTION, indent: false },
-  ...approcheSubLinks.map((l) => ({ name: l.name, href: l.href, indent: true as const })),
-  { name: "Fonctionnalités", href: FONCTIONNALITES_SECTION, indent: false },
-  ...fonctionnalitesSubLinks.map((l) => ({ name: l.name, href: l.href, indent: true as const })),
-  ...mainNavLinks.map((l) => ({ name: l.name, href: l.href, indent: false as const })),
+const desktopNavItems: readonly NavItem[] = [
+  { name: "Notre objectif", href: "/#notre-objectif" },
+  { name: "Nos services", href: "/services", children: serviceSubLinks },
+  { name: "Notre approche", href: NOTRE_APPROCHE_SECTION, children: approcheSubLinks },
+  { name: "À propos", href: "/a-propos" },
 ]
+
+const mobileNavItems = desktopNavItems.flatMap((item) =>
+  "children" in item
+    ? [
+        { name: item.name, href: item.href, indent: false },
+        ...item.children.map((child) => ({ name: child.name, href: child.href, indent: true })),
+      ]
+    : [{ name: item.name, href: item.href, indent: false }],
+)
 
 /** Sur /, évite une navigation Next inutile et assure le scroll vers l’ancre. */
 function goToLandingSection(e: MouseEvent<HTMLAnchorElement>, href: string) {
@@ -45,7 +45,6 @@ function goToLandingSection(e: MouseEvent<HTMLAnchorElement>, href: string) {
   if (!href.startsWith("/#")) return
   if (window.location.pathname !== "/") return
   if (handleApprocheLandingLink(e, href)) return
-  if (handleFeatureLandingLink(e, href)) return
   e.preventDefault()
   const hash = href.slice(1)
   const id = decodeURIComponent(hash.slice(1))
@@ -55,6 +54,43 @@ function goToLandingSection(e: MouseEvent<HTMLAnchorElement>, href: string) {
     return
   }
   window.location.hash = hash
+}
+
+function DesktopFlyout({
+  name,
+  href,
+  items,
+}: {
+  name: string
+  href: string
+  items: { name: string; href: string }[]
+}) {
+  return (
+    <div className="relative group">
+      <Link
+        href={href}
+        onClick={(e) => goToLandingSection(e, href)}
+        className="inline-flex items-center gap-1 px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
+      >
+        {name}
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
+      </Link>
+      <div className="absolute left-0 top-full z-50 pt-2 opacity-0 invisible transition-all duration-150 group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible">
+        <div className="min-w-[14rem] rounded-lg border border-white/10 bg-[#2A2F3A]/98 py-1.5 shadow-xl backdrop-blur-md">
+          {items.map((sub) => (
+            <Link
+              key={sub.href}
+              href={sub.href}
+              onClick={(e) => goToLandingSection(e, sub.href)}
+              className="block px-3 py-2.5 text-sm font-medium text-[#C9B8A5]/90 transition-colors hover:bg-white/5 hover:text-[#E6D6C3]"
+            >
+              {sub.name}
+            </Link>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export function GlassmorphismNav() {
@@ -110,19 +146,14 @@ export function GlassmorphismNav() {
           transition: hasLoaded ? "all 0.5s ease-out" : "opacity 0.8s ease-out, transform 0.8s ease-out",
         }}
       >
-        {/* Barre logo + actions — au-dessus du backdrop menu (sinon le fixed inset-0 recouvre tout le nav) */}
         <div className="relative z-[60] w-full">
-            <div
+          <div
             className={`backdrop-blur-md border-b border-white/10 px-8 sm:px-12 lg:px-16 xl:px-20 py-3 md:py-4 transition-all duration-300 ${
-              scrolled
-                ? "bg-[#2A2F3A]/92 shadow-lg"
-                : "bg-[#2A2F3A]/78 shadow-md"
+              scrolled ? "bg-[#2A2F3A]/92 shadow-lg" : "bg-[#2A2F3A]/78 shadow-md"
             }`}
           >
             <div className="flex items-center justify-between">
-              {/* Logo and Navigation Group */}
               <div className="flex items-center gap-6 md:gap-8">
-                {/* Logo */}
                 <Link
                   href="/"
                   className="flex items-center hover:scale-105 transition-transform duration-200 cursor-pointer"
@@ -143,70 +174,24 @@ export function GlassmorphismNav() {
                   aria-hidden
                 />
 
-                {/* Desktop Navigation */}
                 <div className="hidden md:flex items-center space-x-1">
-                  <div className="relative group">
-                    <Link
-                      href={NOTRE_APPROCHE_SECTION}
-                      onClick={(e) => goToLandingSection(e, NOTRE_APPROCHE_SECTION)}
-                      className="inline-flex items-center gap-1 px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
-                    >
-                      Notre approche
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
-                    </Link>
-                    <div className="absolute left-0 top-full z-50 pt-2 opacity-0 invisible transition-all duration-150 group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible">
-                      <div className="rounded-lg border border-white/10 bg-[#2A2F3A]/98 py-1.5 shadow-xl backdrop-blur-md min-w-[12rem]">
-                        {approcheSubLinks.map((sub) => (
-                          <Link
-                            key={sub.href}
-                            href={sub.href}
-                            onClick={(e) => goToLandingSection(e, sub.href)}
-                            className="block px-3 py-2.5 text-sm font-medium text-[#C9B8A5]/90 transition-colors hover:bg-white/5 hover:text-[#E6D6C3]"
-                          >
-                            {sub.name}
-                          </Link>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="relative group">
-                    <Link
-                      href={FONCTIONNALITES_SECTION}
-                      onClick={(e) => goToLandingSection(e, FONCTIONNALITES_SECTION)}
-                      className="inline-flex items-center gap-1 px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
-                    >
-                      Fonctionnalités
-                      <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" aria-hidden />
-                    </Link>
-                    <div className="absolute left-0 top-full z-50 pt-2 opacity-0 invisible transition-all duration-150 group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible">
-                      <div className="rounded-lg border border-white/10 bg-[#2A2F3A]/98 py-1.5 shadow-xl backdrop-blur-md min-w-[12rem]">
-                        {fonctionnalitesSubLinks.map((sub) => (
-                          <Link
-                            key={sub.href}
-                            href={sub.href}
-                            onClick={(e) => goToLandingSection(e, sub.href)}
-                            className="block px-3 py-2.5 text-sm font-medium text-[#C9B8A5]/90 transition-colors hover:bg-white/5 hover:text-[#E6D6C3]"
-                          >
-                            {sub.name}
-                          </Link>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  {mainNavLinks.map((item) => (
-                    <Link
-                      key={item.name}
-                      href={item.href}
-                      onClick={(e) => goToLandingSection(e, item.href)}
-                      className="px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
-                    >
-                      {item.name}
-                    </Link>
-                  ))}
+                  {desktopNavItems.map((item) =>
+                    "children" in item ? (
+                      <DesktopFlyout key={item.name} name={item.name} href={item.href} items={item.children} />
+                    ) : (
+                      <Link
+                        key={item.name}
+                        href={item.href}
+                        onClick={(e) => goToLandingSection(e, item.href)}
+                        className="px-3 py-2 rounded-md transition-colors duration-200 font-medium cursor-pointer text-[#C9B8A5]/90 hover:text-[#E6D6C3] hover:bg-white/5"
+                      >
+                        {item.name}
+                      </Link>
+                    ),
+                  )}
                 </div>
               </div>
 
-              {/* Desktop CTA Buttons */}
               <div className="hidden md:flex items-center gap-3">
                 <Link
                   href="/login"
@@ -220,17 +205,14 @@ export function GlassmorphismNav() {
                   onClick={(e) => goToLandingSection(e, "/#demo")}
                   className="group inline-flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-200 transition hover:text-slate-100"
                 >
-                  <span>RÉSERVER UNE DÉMO</span>
+                  <span>PRENDRE RENDEZ-VOUS</span>
                   <ArrowRight className="w-4 h-4 text-[#E0742D] transition-transform group-hover:translate-x-0.5" />
                 </Link>
               </div>
 
-              {/* Mobile Menu Button */}
               <button
                 onClick={() => setIsOpen(!isOpen)}
-                className={`md:hidden hover:scale-110 transition-transform duration-200 cursor-pointer ${
-                  scrolled ? "text-white" : "text-white"
-                }`}
+                className="md:hidden hover:scale-110 transition-transform duration-200 cursor-pointer text-white"
               >
                 <div className="relative w-6 h-6">
                   <Menu
@@ -252,7 +234,6 @@ export function GlassmorphismNav() {
         </div>
 
         <div className="relative z-40 md:hidden">
-          {/* Backdrop sous la barre (z-40 &lt; barre z-60) */}
           {isOpen && (
             <div
               className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300"
@@ -261,7 +242,6 @@ export function GlassmorphismNav() {
             />
           )}
 
-          {/* Panneau liens : au-dessus du backdrop, sous la barre */}
           <div
             className={`relative z-50 mt-0 w-full px-8 sm:px-12 lg:px-16 xl:px-20 transition-all duration-500 ease-out transform-gpu ${
               isOpen ? "translate-y-0 scale-100 opacity-100" : "hidden"
@@ -302,7 +282,7 @@ export function GlassmorphismNav() {
                     setIsOpen(false)
                   }}
                 >
-                  <span className="mr-2 text-xs font-semibold tracking-wide">RÉSERVER UNE DÉMO</span>
+                  <span className="mr-2 text-xs font-semibold tracking-wide">PRENDRE RENDEZ-VOUS</span>
                   <ArrowRight className="w-4 h-4 text-[#E0742D] transition-transform duration-300 group-hover:translate-x-0.5" />
                 </Link>
               </div>

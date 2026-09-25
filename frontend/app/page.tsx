@@ -4,11 +4,11 @@ import { GlassmorphismNav } from "@/components/glassmorphism-nav"
 import { HeroSection } from "@/components/hero-section"
 import { HeroMarquee } from "@/components/hero-marquee"
 import { LandingBusinessReturnSection } from "@/components/landing-business-return-section"
+import { LandingObjectifSection } from "@/components/landing-objectif-section"
+import { LandingServicesSection } from "@/components/landing-services-section"
+import { LandingQuotidienMarquee } from "@/components/landing-quotidien-marquee"
 import { LandingApprocheSection } from "@/components/landing-approche-section"
-import { ProblemSolutionSection } from "@/components/problem-solution-section"
-import { ExcelFrustrationsMarquee } from "@/components/excel-frustrations-marquee"
 import { LandingBlogTeaserSection } from "@/components/landing-blog-teaser-section"
-import { PlatformSetupSection } from "@/components/platform-setup-section"
 import { PostFeaturesSection } from "@/components/post-features-section"
 import { DemoBookingSection } from "@/components/demo-booking-section"
 import { EmailSubscriptionSection } from "@/components/email-subscription-section"
@@ -43,11 +43,11 @@ export default function LandingPage() {
             </svg>
           </section>
           <LandingBusinessReturnSection />
+          <LandingObjectifSection />
+          <LandingServicesSection />
+          <LandingQuotidienMarquee />
           <LandingApprocheSection />
-          <ExcelFrustrationsMarquee />
-          <ProblemSolutionSection />
           <LandingBlogTeaserSection />
-          <PlatformSetupSection />
           <PostFeaturesSection />
           <DemoBookingSection />
           <EmailSubscriptionSection />

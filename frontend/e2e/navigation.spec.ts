@@ -64,20 +64,21 @@ test.describe("Navigation & Routing", () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test("études de cas page is public and loads", async ({ page }) => {
+  test("à propos page is public and loads", async ({ page }) => {
     test.setTimeout(90_000)
-    const res = await page.goto("/etudes-de-cas", {
+    const res = await page.goto("/a-propos", {
       waitUntil: "domcontentloaded",
       timeout: 60_000,
     })
     expect(res?.status()).toBe(200);
-    await expect(page).toHaveURL(/\/etudes-de-cas$/);
-    await expect(page).toHaveTitle(/Études de cas/i);
+    await expect(page).toHaveURL(/\/a-propos$/);
+    await expect(page).toHaveTitle(/À propos/i);
     await expect(
-      page.getByRole("heading", {
-        name: /L'approche Modelisys, dans des contextes réels/i,
-      }),
+      page.getByRole("heading", { name: /Fondée et pratiquée au Québec/i }),
     ).toBeVisible();
+    await expect(page.getByText("Charles-Étienne Parent-Roy, CPA")).toBeVisible();
+    await expect(page.getByText("Alexandre Moreau")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Études de cas" })).toHaveCount(0);
   });
 
   test("tarification page is public and loads", async ({ page }) => {

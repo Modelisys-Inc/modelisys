@@ -73,10 +73,10 @@ export function PostFeaturesSection() {
       ref={sectionRef}
       className="relative isolate z-10 scroll-mt-24 overflow-hidden"
     >
-      {/* Transition depuis « Mise en place » : courbe (mobile = arc simple pour éviter l’étirement bizarre) */}
+      {/* Transition depuis le Blog : courbe (mobile = arc simple pour éviter l’étirement bizarre) */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 z-[2] h-[5.25rem] overflow-hidden bg-white sm:h-28 md:h-32"
+        className="pointer-events-none absolute inset-x-0 top-0 z-[2] h-[5.25rem] overflow-hidden bg-[#F8FAFC] sm:h-28 md:h-32"
       >
         {/* Mobile : une seule courbe douce, symétrique — se comporte mieux avec preserveAspectRatio="none" */}
         <svg
@@ -160,11 +160,11 @@ export function PostFeaturesSection() {
         >
           <p className="mb-3 text-sm font-semibold tracking-wide text-slate-200">Valeur</p>
           <h2 className="max-w-3xl text-3xl font-semibold tracking-tight text-[#E6D6C3] sm:text-4xl md:text-[2.5rem] md:leading-tight">
-            Transformez vos données en{" "}
-            <span className="text-[#C9B8A5]/95">décisions stratégiques</span>
+            Comprenez ce qui impacte la{" "}
+            <span className="text-[#C9B8A5]/95">valeur de votre entreprise</span>.
           </h2>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-[#C9B8A5]/80 sm:text-lg">
-            Analysez. Projetez. Valorisez. Documentez. Collaborez.
+            Comprendre → Planifier → Exécuter
           </p>
           <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/80 via-white/15 to-transparent" />
         </div>

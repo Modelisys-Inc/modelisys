@@ -205,7 +205,7 @@ export default function ProjectionPlanDashboardPage() {
 
         <div className="relative z-10 mx-auto max-w-[1920px] px-5 sm:px-10 lg:px-12 xl:px-16 2xl:px-20">
           <div
-            className={`max-w-3xl transition-all duration-1000 ${
+            className={`max-w-xl lg:max-w-[34rem] xl:max-w-[38rem] transition-all duration-1000 ${
               heroVisible ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
             }`}
           >
@@ -229,15 +229,18 @@ export default function ProjectionPlanDashboardPage() {
             </h1>
 
             <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
-              Parcourez les hypothèses pour {companyName}
+              Parcourez le plan d&apos;hypothèses pour {companyName}
               {monthLabel && projection.start_year
                 ? ` — référence ${monthLabel} ${projection.start_year}`
                 : ""}
               . Complétez chaque étape pour avancer dans le parcours.
             </p>
+          </div>
 
-            <nav
-              className="mt-10 flex flex-wrap items-end gap-1 sm:mt-12"
+          <nav
+              className={`mt-10 flex max-w-3xl flex-wrap items-end gap-1 sm:mt-12 transition-all duration-1000 ${
+                heroVisible ? "translate-y-0 opacity-100" : "translate-y-5 opacity-0"
+              }`}
               aria-label="Navigation projection"
               data-testid="projection-plan-shell-nav"
             >
@@ -264,7 +267,6 @@ export default function ProjectionPlanDashboardPage() {
                 )
               })}
             </nav>
-          </div>
         </div>
       </section>
 

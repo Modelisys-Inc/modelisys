@@ -9,7 +9,7 @@ import { ArrowUpRight } from "lucide-react"
 export const metadata: Metadata = {
   title: "À propos | Modelisys",
   description:
-    "Modelisys — plateforme de pilotage financier et de trajectoire de valeur pour PME et groupes multi-entités. Notre histoire, notre approche en trois phases et notre équipe fondatrice.",
+    "Modelisys — firme de gestion et de création de valeur pour les PME. Notre histoire, notre approche (comprendre, planifier, exécuter) et notre équipe.",
 }
 
 export default function AProposPage() {
@@ -45,7 +45,7 @@ export default function AProposPage() {
             {/* Équipe fondatrice — même langage que « Notre histoire » (timeline, rails, hiérarchie) */}
             <section id="equipe" className="scroll-mt-24 relative z-10 border-t border-slate-200/80 py-20 sm:py-28">
               <div className="mx-auto mb-12 max-w-3xl text-center sm:mb-16 lg:mx-0 lg:max-w-2xl lg:text-left">
-                <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">L&apos;équipe fondatrice</p>
+                <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">L&apos;équipe</p>
                 <h2 className="text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-5xl">
                   Par et pour les{" "}
                   <span className="text-[#5C5F66]">professionnels.</span>
@@ -64,7 +64,7 @@ export default function AProposPage() {
                     <div className="mb-6 sm:mb-8">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Présidence · produit
+                          Présidence · approche
                         </p>
                         <span
                           className="h-px flex-1 bg-gradient-to-r from-[#E0742D]/35 via-slate-300/50 to-transparent"
@@ -92,22 +92,10 @@ export default function AProposPage() {
                       </div>
                       <div className="min-w-0 flex-1 space-y-5">
                         <p className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
-                          Avant de cofonder Modelisys, Tristan a évolué au sein de plusieurs cabinets comptables, aux
-                          côtés d&apos;associés en certification, en fiscalité et en services-conseils. Un même constat
-                          revenait systématiquement : aucune base commune entre les CPA et leurs clients PME. Des questions
-                          légitimes restaient sans réponse immédiate — parce qu&apos;il fallait d&apos;abord attendre les
-                          documents, puis construire une analyse dans Excel. Des dirigeants qui ne savaient pas ce qui
-                          influençait la valeur de leur entreprise. Des PME incapables d&apos;analyser leur rentabilité par
-                          produit, par division ou par société, de préparer des budgets, de bâtir des projections et de
-                          suivre l&apos;évolution de leurs résultats réels comparativement à ces repères — simplement parce
-                          qu&apos;aucun outil ne le permettait facilement. C&apos;est de ce constat que Modelisys est né.
-                          Aujourd&apos;hui, en tant que cofondateur et PDG, Tristan porte la vision du produit et de
-                          l&apos;approche Modelisys, définit et priorise les fonctionnalités, et conduit
-                          l&apos;accompagnement stratégique lorsque les clients le choisissent — en lien direct avec les
-                          équipes et les partenaires, il ancre ces responsabilités dans une connaissance concrète de
-                          l&apos;analyse financière, de la consolidation, de la valorisation et des échanges avec les
-                          cabinets, afin que Modelisys reste alignée sur les attentes des professionnels et la réalité des
-                          entreprises qu&apos;elle sert.
+                          Avant de cofonder Modelisys, Tristan a travaillé en entreprise pour un groupe immobilier,
+                          puis en cabinet comptable — notamment en services-conseils. Le constat : les dirigeants et
+                          leurs CPA n&apos;avaient pas de lecture commune pour relier les décisions à la valeur. Il
+                          porte aujourd&apos;hui la vision de la firme et l&apos;accompagnement.
                         </p>
                       </div>
                     </div>
@@ -124,7 +112,7 @@ export default function AProposPage() {
                     <div className="mb-6 sm:mb-8">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          Technologie · plateforme
+                          Contrôle · certification
                         </p>
                         <span
                           className="h-px flex-1 bg-gradient-to-r from-[#E0742D]/35 via-slate-300/50 to-transparent"
@@ -132,36 +120,31 @@ export default function AProposPage() {
                         />
                       </div>
                       <h3 className="mt-4 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl md:text-[1.75rem] md:leading-tight">
-                        Alexandre Moreau, M. Sc
+                        Charles-Étienne Parent-Roy, CPA
                       </h3>
                     </div>
 
                     <div className="flex flex-col gap-8 lg:flex-row lg:gap-10">
                       <div className="flex shrink-0 flex-col items-center gap-3 sm:flex-row lg:flex-col lg:items-start">
                         <div className="relative flex h-24 w-24 items-center justify-center rounded-2xl bg-gradient-to-br from-[#2A2F3A] to-[#1a1f28] text-lg font-semibold tracking-tight text-[#E6D6C3] ring-1 ring-slate-200/25">
-                          AM
+                          CP
                           <span className="absolute -right-1 -top-1 rounded-full bg-slate-700 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-[#E6D6C3] ring-1 ring-white/10">
-                            CTO
+                            CPA
                           </span>
                         </div>
                         <div className="text-center sm:text-left lg:max-w-[14rem]">
-                          <p className="text-sm font-medium text-[#5C5F66]">Directeur technique (CTO) · Cofondateur</p>
+                          <p className="text-sm font-medium text-[#5C5F66]">
+                            Cofondateur · Contrôle financier · Certification auprès de PME
+                          </p>
                         </div>
                       </div>
                       <div className="min-w-0 flex-1 space-y-5">
                         <p className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
-                          Cofondateur et directeur technique, Alexandre porte chez Modelisys l&apos;architecture de la
-                          plateforme de A à Z : il arbitre les choix d&apos;ingénierie, priorise les chantiers
-                          d&apos;architecture et pilote la feuille de route de développement, et veille à ce qu&apos;elle
-                          demeure fiable, sécurisée et
-                          scalable à mesure que la clientèle grandit — en lien étroit avec la vision produit et les équipes.
-                          Son rôle ne se limite pas à « coder des spécifications » : il est le relais entre les enjeux
-                          métier et la réalité des systèmes, là où la consolidation multi-entités devient un problème
-                          d&apos;architecture de données, où la détection d&apos;anomalies financières appelle
-                          l&apos;apprentissage automatique, et où chaque release doit tenir la charge. Développeur logiciel
-                          et titulaire d&apos;une maîtrise en intelligence artificielle, il met cette double expertise
-                          au service des priorités produit : ce socle technique est ce qui permettra à Modelisys
-                          d&apos;innover durablement dans les années à venir.
+                          Cofondateur, Charles-Étienne a travaillé comme contrôleur financier en entreprise, puis en
+                          certification auprès de PME. Il a vu les deux côtés : produire les chiffres au mois, et les
+                          revoir en cabinet. Chez Modelisys, il s&apos;appuie sur cette pratique pour les mandats et
+                          l&apos;accompagnement — clôture, contrôle, lecture de la performance — sans détacher
+                          l&apos;analyse de ce que les dirigeants vivent au quotidien.
                         </p>
                       </div>
                     </div>
@@ -185,7 +168,7 @@ export default function AProposPage() {
                     Parlons de votre organisation
                   </h2>
                   <p className="mt-3 text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
-                    Une question sur la plateforme, une démo ou un partenariat — nous sommes à l&apos;écoute.
+                    Une question sur un mandat, un accompagnement ou un partenariat — nous sommes à l&apos;écoute.
                   </p>
                 </div>
                 <Link

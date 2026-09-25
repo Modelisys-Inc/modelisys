@@ -110,6 +110,9 @@ interface CapexForecastDetailProps {
   subDivisionId?: string | null
   companies?: Company[]
   title?: string
+  /** Rapport VCA : sans carte / en-tête (titre porté par la section). */
+  embedInReport?: boolean
+  hideHeaderIcon?: boolean
   projectionYears?: 3 | 4 | 5
   projectionMode?: "gl" | "account"
   projectionId?: string | null
@@ -131,6 +134,8 @@ export function CapexForecastDetail({
   subDivisionId,
   companies = [],
   title = "Estimation des Capex annuels",
+  embedInReport = false,
+  hideHeaderIcon = false,
   projectionYears = 5,
   projectionMode = "gl",
   projectionId,
@@ -677,7 +682,7 @@ export function CapexForecastDetail({
           className="h-8 w-full min-w-[5.5rem] border-slate-200 bg-white text-xs font-medium text-slate-800"
           onClick={(e) => e.stopPropagation()}
         >
-          <SelectValue placeholder="—" />
+          <SelectValue placeholder="—">{value || null}</SelectValue>
         </SelectTrigger>
         <SelectContent onClick={(e) => e.stopPropagation()}>
           <SelectItem value="__none__" className="text-xs text-slate-500">
@@ -1389,7 +1394,12 @@ export function CapexForecastDetail({
       ? data.findIndex((r) => r.rowId === editingAdjustment.rowId)
       : -1
   const yearColumnCount = forecastYearCount
-  const forecastTableStickyScroll = isForecastSection && effectiveView === "years"
+  /** Sticky scroll carte — hors rapport ; le rapport garde un scroll horizontal dédié. */
+  const forecastTableStickyScroll =
+    isForecastSection && effectiveView === "years" && !embedInReport
+  /** Rapport VCA : style léger + scroll gauche/droite (Code / Taux / années). */
+  const embedYearsFitTable =
+    embedInReport && isForecastSection && effectiveView === "years"
   const forecastTableColumnCount =
     effectiveView === "years"
       ? (isForecastSection ? 3 : 1) + yearColumnCount
@@ -2281,94 +2291,103 @@ export function CapexForecastDetail({
   const isDataLoading =
     bsLoading || (isForecastSection && (structureLoading || standardLinkCodesLoading))
 
+  const amountViewModeToggle =
+    isForecastSection ? (
+      <div
+        className="inline-flex shrink-0 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm"
+        role="group"
+        aria-label="Mode d'affichage des montants Capex"
+      >
+        {(
+          [
+            { mode: "bookValue" as const, label: "Valeur comptable", testId: "capex-view-book" },
+            { mode: "adjustments" as const, label: "Ajustements", testId: "capex-view-adjustments" },
+            { mode: "depreciation" as const, label: "Amortissement", testId: "capex-view-depreciation" },
+          ] as const
+        ).map(({ mode, label, testId }) => (
+          <Button
+            key={mode}
+            type="button"
+            variant="ghost"
+            size="sm"
+            data-testid={testId}
+            onClick={() => setCapexAmountViewMode(mode)}
+            className={cn(
+              "h-8 gap-1 rounded-md px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900",
+              capexAmountViewMode === mode &&
+                (mode === "adjustments"
+                  ? "bg-blue-50 text-blue-900 hover:bg-blue-50 hover:text-blue-900"
+                  : mode === "depreciation"
+                    ? "bg-violet-50 text-violet-900 hover:bg-violet-50 hover:text-violet-900"
+                    : "bg-slate-100 text-slate-900 hover:bg-slate-100 hover:text-slate-900"),
+            )}
+          >
+            {mode === "adjustments" ? <CircleDot className="h-3.5 w-3.5" /> : null}
+            {label}
+          </Button>
+        ))}
+      </div>
+    ) : null
+
   return (
-    <div className={cn("w-full", dashboardCardFrameStaticClass)}>
-      <div className={dashboardCardRingClass} aria-hidden />
+    <div className={cn("w-full", !embedInReport && dashboardCardFrameStaticClass)}>
+      {!embedInReport ? <div className={dashboardCardRingClass} aria-hidden /> : null}
       <div className="relative w-full min-w-0">
-        <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex min-w-0 flex-1 items-start gap-4">
-              <div className={dashboardCardHeaderIconBoxClass}>
-                <HardHat className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
-                <div className={cn("mt-1 flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
-                  <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
-                  <span className="text-slate-400">•</span>
-                  {subDivisionId && divisionId && companyId ? (
-                    <>
-                      <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                      <span className="text-slate-400">•</span>
-                      <span>
-                        {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name ||
-                          "Division"}
-                      </span>
-                      <span className="text-slate-400">•</span>
+        {!embedInReport ? (
+          <div className={cn("px-6 py-5 sm:px-7", dashboardCardHeaderBarClass)}>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex min-w-0 flex-1 items-start gap-4">
+                {!hideHeaderIcon ? (
+                  <div className={dashboardCardHeaderIconBoxClass}>
+                    <HardHat className="h-7 w-7 text-[#2A2F3A]" aria-hidden />
+                  </div>
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <h2 className={cn("text-xl leading-tight", dashboardCardTitleClass)}>{title}</h2>
+                  <div className={cn("mt-1 flex flex-wrap items-center gap-3 text-sm", dashboardCardBodyMutedClass)}>
+                    <span className="font-medium text-[#2A2F3A]">{getHorizonText()}</span>
+                    <span className="text-slate-400">•</span>
+                    {subDivisionId && divisionId && companyId ? (
+                      <>
+                        <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                        <span className="text-slate-400">•</span>
+                        <span>
+                          {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name ||
+                            "Division"}
+                        </span>
+                        <span className="text-slate-400">•</span>
+                        <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                          {companies
+                            .find((c) => c.id === companyId)
+                            ?.divisions.find((d) => d.id === divisionId)
+                            ?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
+                        </span>
+                      </>
+                    ) : divisionId && companyId ? (
+                      <>
+                        <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
+                        <span className="text-slate-400">•</span>
+                        <span className={cn("font-semibold", dashboardCardAccentClass)}>
+                          {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name ||
+                            "Division"}
+                        </span>
+                      </>
+                    ) : companyId ? (
                       <span className={cn("font-semibold", dashboardCardAccentClass)}>
-                        {companies
-                          .find((c) => c.id === companyId)
-                          ?.divisions.find((d) => d.id === divisionId)
-                          ?.subDivisions.find((sd) => sd.id === subDivisionId)?.name || "Sous-division"}
+                        {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
                       </span>
-                    </>
-                  ) : divisionId && companyId ? (
-                    <>
-                      <span>{companies.find((c) => c.id === companyId)?.name || "Société"}</span>
-                      <span className="text-slate-400">•</span>
-                      <span className={cn("font-semibold", dashboardCardAccentClass)}>
-                        {companies.find((c) => c.id === companyId)?.divisions.find((d) => d.id === divisionId)?.name ||
-                          "Division"}
-                      </span>
-                    </>
-                  ) : companyId ? (
-                    <span className={cn("font-semibold", dashboardCardAccentClass)}>
-                      {companies.find((c) => c.id === companyId)?.name || "Société sélectionnée"}
-                    </span>
-                  ) : (
-                    <span className="truncate">Toutes les sociétés</span>
-                  )}
+                    ) : (
+                      <span className="truncate">Toutes les sociétés</span>
+                    )}
+                  </div>
                 </div>
               </div>
+              {amountViewModeToggle}
             </div>
-            {isForecastSection && (
-              <div
-                className="inline-flex shrink-0 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm"
-                role="group"
-                aria-label="Mode d'affichage des montants Capex"
-              >
-                {(
-                  [
-                    { mode: "bookValue" as const, label: "Valeur comptable", testId: "capex-view-book" },
-                    { mode: "adjustments" as const, label: "Ajustements", testId: "capex-view-adjustments" },
-                    { mode: "depreciation" as const, label: "Amortissement", testId: "capex-view-depreciation" },
-                  ] as const
-                ).map(({ mode, label, testId }) => (
-                  <Button
-                    key={mode}
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    data-testid={testId}
-                    onClick={() => setCapexAmountViewMode(mode)}
-                    className={cn(
-                      "h-8 gap-1 rounded-md px-2.5 text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900",
-                      capexAmountViewMode === mode &&
-                        (mode === "adjustments"
-                          ? "bg-blue-50 text-blue-900 hover:bg-blue-50 hover:text-blue-900"
-                          : mode === "depreciation"
-                            ? "bg-violet-50 text-violet-900 hover:bg-violet-50 hover:text-violet-900"
-                            : "bg-slate-100 text-slate-900 hover:bg-slate-100 hover:text-slate-900"),
-                    )}
-                  >
-                    {mode === "adjustments" ? <CircleDot className="h-3.5 w-3.5" /> : null}
-                    {label}
-                  </Button>
-                ))}
-              </div>
-            )}
           </div>
-        </div>
+        ) : amountViewModeToggle ? (
+          <div className="mb-3 flex justify-end">{amountViewModeToggle}</div>
+        ) : null}
 
       {/* Loading state */}
       {isDataLoading && (
@@ -2392,25 +2411,52 @@ export function CapexForecastDetail({
         </div>
       )}
 
-      {/* Table — en-tête et colonne Compte figés au défilement (Hypothèses Capex annuelles) */}
+      {/* Table — sticky en carte ; flush style VCA en rapport embarqué */}
       <div
-        data-testid={forecastTableStickyScroll ? "capex-forecast-table-scroll" : undefined}
-        className={cn(
-          "min-w-0 bg-white",
+        data-testid={
           forecastTableStickyScroll
-            ? "max-h-[min(72vh,56rem)] overflow-auto overscroll-contain"
-            : "overflow-x-auto",
+            ? "capex-forecast-table-scroll"
+            : embedYearsFitTable
+              ? "capex-forecast-table-report"
+              : undefined
+        }
+        className={cn(
+          "min-w-0",
+          embedYearsFitTable
+            ? "overflow-x-auto overscroll-x-contain bg-transparent [scrollbar-width:thin]"
+            : cn(
+                "bg-white",
+                forecastTableStickyScroll
+                  ? "max-h-[min(72vh,56rem)] overflow-auto overscroll-contain"
+                  : "overflow-x-auto",
+              ),
           (isDataLoading || !companyId || data.length === 0) && "hidden",
         )}
       >
         <table
           className={cn(
             "w-full",
+            // Rapport : largeur naturelle + scroll horizontal (Code / Taux / années).
+            embedYearsFitTable && "min-w-max border-separate border-spacing-0",
             forecastTableStickyScroll && "min-w-full border-separate border-spacing-0",
           )}
         >
+          {embedYearsFitTable ? (
+            <colgroup key="embed-years-scroll">
+              <col style={{ width: "16rem" }} />
+              <col style={{ width: "5.5rem" }} />
+              <col style={{ width: "5rem" }} />
+              {getYearLabels().map((_, i) => (
+                <col key={`year-${i}`} style={{ width: "8.5rem" }} />
+              ))}
+            </colgroup>
+          ) : null}
           <thead
             className={cn(
+              embedYearsFitTable && [
+                "[&_th]:border-b [&_th]:border-slate-200 [&_th]:bg-white",
+                "[&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-30",
+              ],
               forecastTableStickyScroll && [
                 "[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-slate-50",
                 "[&_th]:border-b-2 [&_th]:border-slate-200",
@@ -2419,13 +2465,33 @@ export function CapexForecastDetail({
             )}
           >
             <tr>
-              <th className="min-w-[20rem] px-6 py-4 text-left text-sm font-semibold text-slate-900">Compte</th>
+              <th
+                className={cn(
+                  embedYearsFitTable
+                    ? "min-w-[16rem] py-2 pr-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                    : "min-w-[20rem] px-6 py-4 text-left text-sm font-semibold text-slate-900",
+                )}
+              >
+                {embedYearsFitTable ? "Poste" : "Compte"}
+              </th>
               {effectiveView === "years" && isForecastSection && (
                 <>
-                  <th className="min-w-[7.5rem] px-3 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900">
+                  <th
+                    className={cn(
+                      embedYearsFitTable
+                        ? "min-w-[5.5rem] px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap text-slate-500"
+                        : "min-w-[7.5rem] px-3 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900",
+                    )}
+                  >
                     Code
                   </th>
-                  <th className="min-w-[6.5rem] px-4 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900">
+                  <th
+                    className={cn(
+                      embedYearsFitTable
+                        ? "min-w-[5rem] px-2 py-2 text-center text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap text-slate-500"
+                        : "min-w-[6.5rem] px-4 py-4 text-center text-sm font-semibold whitespace-nowrap text-slate-900",
+                    )}
+                  >
                     Taux
                   </th>
                 </>
@@ -2433,13 +2499,19 @@ export function CapexForecastDetail({
               {effectiveView === "years" && (
                 <>
                   {getYearLabels().map((label, idx) => (
-                    <th 
-                      key={idx} 
+                    <th
+                      key={idx}
                       className={cn(
-                        "min-w-[8rem] px-4 py-4 text-right text-sm font-semibold whitespace-nowrap",
+                        embedYearsFitTable
+                          ? "min-w-[8.5rem] px-2 py-2 text-right text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap text-slate-500"
+                          : "min-w-[8rem] px-4 py-4 text-right text-sm font-semibold whitespace-nowrap",
                         isForecastHistoricalColumn(idx)
-                          ? "bg-slate-50 text-slate-400"
-                          : "text-slate-900"
+                          ? embedYearsFitTable
+                            ? "!bg-slate-50 text-slate-400"
+                            : "bg-slate-50 text-slate-400"
+                          : embedYearsFitTable
+                            ? ""
+                            : "text-slate-900",
                       )}
                     >
                       {label}
@@ -2451,6 +2523,11 @@ export function CapexForecastDetail({
           </thead>
           <tbody
             className={cn(
+              embedYearsFitTable && [
+                "[&_td]:border-t [&_td]:border-slate-200",
+                "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
+                "[&_td:first-child]:bg-white",
+              ],
               forecastTableStickyScroll && [
                 "[&_td]:border-b [&_td]:border-solid [&_td]:border-slate-200",
                 "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10",
@@ -2504,60 +2581,83 @@ export function CapexForecastDetail({
 
               return (
                 <Fragment key={idx}>
-                  {forecastTableStickyScroll && isSubtotalRow && (
+                  {(forecastTableStickyScroll || embedYearsFitTable) && isSubtotalRow && (
                     <tr aria-hidden data-testid="capex-forecast-subtotal-separator">
                       <td
                         colSpan={forecastTableColumnCount}
-                        className="border-0 p-0 align-top leading-none border-t-2 border-t-slate-900"
+                        className={cn(
+                          "border-0 p-0 align-top leading-none border-t-2",
+                          embedYearsFitTable ? "border-t-[#2A2F3A]" : "border-t-slate-900",
+                        )}
                       />
                     </tr>
                   )}
                   <tr
                     className={cn(
-                      !forecastTableStickyScroll && "border-b transition-colors duration-150",
-                      forecastTableStickyScroll && "transition-colors duration-150",
+                      !forecastTableStickyScroll && !embedYearsFitTable && "border-b transition-colors duration-150",
+                      (forecastTableStickyScroll || embedYearsFitTable) && "transition-colors duration-150",
                       capexHypothesisInlineActive &&
                         capexHypothesisAnchorIdx >= 0 &&
                         idx === capexHypothesisAnchorIdx &&
                         capexHypothesisMode === "adjustment" &&
-                        (forecastTableStickyScroll
+                        (forecastTableStickyScroll || embedYearsFitTable
                           ? "shadow-[inset_0_0_0_1px_rgba(59,130,246,0.28)] [&>td]:bg-blue-50/35 [&>td:first-child]:bg-blue-50/35"
                           : "bg-blue-50/35 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.28)]"),
                       capexHypothesisInlineActive &&
                         capexHypothesisAnchorIdx >= 0 &&
                         idx === capexHypothesisAnchorIdx &&
                         capexHypothesisMode === "rate" &&
-                        (forecastTableStickyScroll
+                        (forecastTableStickyScroll || embedYearsFitTable
                           ? "shadow-[inset_0_0_0_1px_rgba(224,116,45,0.28)] [&>td]:bg-orange-50/35 [&>td:first-child]:bg-orange-50/35"
                           : "bg-orange-50/35 shadow-[inset_0_0_0_1px_rgba(224,116,45,0.28)]"),
-                      row.label === "" ? (forecastTableStickyScroll ? "[&>td]:h-2" : "h-2 border-slate-200") : "",
-                      forecastTableStickyScroll
+                      row.label === ""
+                        ? forecastTableStickyScroll || embedYearsFitTable
+                          ? "[&>td]:h-2"
+                          : "h-2 border-slate-200"
+                        : "",
+                      embedYearsFitTable
                         ? cn(
-                            annexSubtotalDarkNumbers &&
-                              "[&>td:first-child]:bg-white [&>td:nth-child(2)]:bg-white [&>td:nth-child(3)]:bg-white",
-                            row.isAnnexHeader && "[&>td]:bg-amber-50/90 [&>td:first-child]:bg-amber-50/90",
+                            row.isAnnexHeader && "[&>td]:bg-amber-50/50",
                             !isSpacer &&
                               (row.isAnnexHeader
-                                ? "hover:[&>td]:bg-amber-100/85 hover:[&>td:first-child]:bg-amber-100/85"
-                                : "hover:[&>td]:bg-slate-50/90 hover:[&>td:first-child]:bg-slate-50/90"),
+                                ? "hover:[&>td]:bg-amber-50/80"
+                                : "hover:[&>td]:bg-slate-50/60"),
                           )
-                        : cn(
-                            annexSubtotalDarkNumbers && "bg-white",
-                            nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
-                            row.isAnnexHeader && "bg-amber-50/90",
-                            !isSpacer &&
-                              (row.isAnnexHeader ? "hover:bg-amber-100/85" : "hover:bg-slate-50/90"),
-                          ),
+                        : forecastTableStickyScroll
+                          ? cn(
+                              annexSubtotalDarkNumbers &&
+                                "[&>td:first-child]:bg-white [&>td:nth-child(2)]:bg-white [&>td:nth-child(3)]:bg-white",
+                              row.isAnnexHeader && "[&>td]:bg-amber-50/90 [&>td:first-child]:bg-amber-50/90",
+                              !isSpacer &&
+                                (row.isAnnexHeader
+                                  ? "hover:[&>td]:bg-amber-100/85 hover:[&>td:first-child]:bg-amber-100/85"
+                                  : "hover:[&>td]:bg-slate-50/90 hover:[&>td:first-child]:bg-slate-50/90"),
+                            )
+                          : cn(
+                              annexSubtotalDarkNumbers && "bg-white",
+                              nextRowIsSubtotal ? "border-slate-900 border-b-2" : "border-slate-200",
+                              row.isAnnexHeader && "bg-amber-50/90",
+                              !isSpacer &&
+                                (row.isAnnexHeader ? "hover:bg-amber-100/85" : "hover:bg-slate-50/90"),
+                            ),
                       canExpand && "cursor-pointer",
                     )}
                     onClick={() => canExpand && toggleRow(row.rowId!)}
                   >
                     <td
                       className={cn(
-                        "min-w-[20rem] px-6 py-3",
+                        embedYearsFitTable
+                          ? "min-w-[16rem] py-2 pr-3 text-sm text-[#2A2F3A]"
+                          : "min-w-[20rem] px-6 py-3",
                         annexSubtotalDarkNumbers ? "font-bold" : "",
-                        row.isBold || row.isSubtotal ? "font-bold text-slate-900" : "text-slate-700",
-                        row.indent ? "pl-12" : "",
+                        row.isBold || row.isSubtotal
+                          ? embedYearsFitTable
+                            ? "font-semibold"
+                            : "font-bold text-slate-900"
+                          : embedYearsFitTable
+                            ? "font-normal"
+                            : "text-slate-700",
+                        row.indent ? (embedYearsFitTable ? "pl-6" : "pl-12") : "",
                       )}
                     >
                       <div className="flex items-center gap-2">
@@ -2618,7 +2718,9 @@ export function CapexForecastDetail({
                       <>
                         <td
                           className={cn(
-                            "min-w-[7.5rem] px-3 py-3 text-center text-slate-700",
+                            embedYearsFitTable
+                              ? "min-w-[5.5rem] px-2 py-2 text-center text-[11px] text-[#2A2F3A]"
+                              : "min-w-[7.5rem] px-3 py-3 text-center text-slate-700",
                           )}
                           onClick={(e) => e.stopPropagation()}
                         >
@@ -2632,12 +2734,16 @@ export function CapexForecastDetail({
                         </td>
                         <td
                           className={cn(
-                            "min-w-[6.5rem] px-4 py-3 text-center text-slate-700",
+                            embedYearsFitTable
+                              ? "min-w-[5rem] px-2 py-2 text-center text-[11px] text-[#2A2F3A]"
+                              : "min-w-[6.5rem] px-4 py-3 text-center text-slate-700",
                             row.rowId && !hideCapexCodeRateCells && "cursor-pointer hover:bg-slate-50/90",
                             capexHypothesisPanelOpen &&
                               editingAdjustment?.rowId === row.rowId &&
                               capexHypothesisMode === "rate" &&
-                              "z-[1] bg-orange-50/50 shadow-[inset_0_0_0_2px_rgb(224,116,45)]",
+                              (embedYearsFitTable
+                                ? "z-[1] bg-[#E0742D]/10 shadow-[inset_0_0_0_1.5px_#E0742D]"
+                                : "z-[1] bg-orange-50/50 shadow-[inset_0_0_0_2px_rgb(224,116,45)]"),
                           )}
                           onClick={() => {
                             if (row.rowId && !hideCapexCodeRateCells) {
@@ -2760,13 +2866,27 @@ export function CapexForecastDetail({
                             <td
                               key={valueIdx}
                               className={cn(
-                                "min-w-[8rem] px-4 py-3 text-right",
-                                row.isBold ? "font-semibold font-bold" : "text-slate-500",
+                                embedYearsFitTable
+                                  ? cn(
+                                      "min-w-[8.5rem] px-2 py-2 text-right font-mono text-[11px] whitespace-nowrap tabular-nums text-[#2A2F3A]",
+                                      (row.isBold || row.isSubtotal) && "font-semibold",
+                                    )
+                                  : cn(
+                                      "min-w-[8rem] px-4 py-3 text-right",
+                                      row.isBold ? "font-semibold font-bold" : "text-slate-500",
+                                    ),
                                 shouldHideAmounts ? "text-transparent" : "",
-                                isForecastHistoricalColumn(valueIdx) ? "bg-slate-50" : "",
-                                canHaveAdjustment && "cursor-pointer hover:bg-slate-50/90",
+                                isForecastHistoricalColumn(valueIdx)
+                                  ? "bg-slate-50 text-slate-400"
+                                  : "",
+                                canHaveAdjustment &&
+                                  (embedYearsFitTable
+                                    ? "cursor-pointer hover:bg-slate-50/60"
+                                    : "cursor-pointer hover:bg-slate-50/90"),
                                 isCellSelected &&
-                                  "z-[1] bg-blue-50/50 shadow-[inset_0_0_0_2px_rgb(59,130,246)]",
+                                  (embedYearsFitTable
+                                    ? "z-[1] bg-blue-50/40 shadow-[inset_0_0_0_1.5px_rgb(59,130,246)]"
+                                    : "z-[1] bg-blue-50/50 shadow-[inset_0_0_0_2px_rgb(59,130,246)]"),
                                 annexSubtotalDarkNumbers && "text-slate-900",
                                 showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate >= 0 ? "text-emerald-600 font-semibold" : "",
                                 showGrowthRate && isForecastSection && valueIdx > 0 && !shouldHideAmounts && typeof displayValue === "string" && displayValue.includes("%") && growthRate !== null && growthRate < 0 ? "text-red-600 font-semibold" : ""

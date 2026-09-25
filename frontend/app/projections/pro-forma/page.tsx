@@ -260,6 +260,20 @@ export default function ProFormaPage() {
     if (!view) return
     if (view === "assumptions") {
       const hyp = hypothesis ?? "revenue"
+      // Revenus / Dépenses / Capex ont une page rapport dédiée style VCA.
+      if ((hyp === "revenue" || hyp === "expenses" || hyp === "capex") && projectionIdFromUrl) {
+        const params = new URLSearchParams()
+        params.set("projectionId", projectionIdFromUrl)
+        if (companyIdFromUrl) params.set("companyId", companyIdFromUrl)
+        const path =
+          hyp === "expenses"
+            ? "/projections/expenses"
+            : hyp === "capex"
+              ? "/projections/capex"
+              : "/projections/revenue"
+        router.replace(`${path}?${params.toString()}`)
+        return
+      }
       setTopNav("assumptions")
       setAssumptionsNav(hyp)
       setSelectedModule(hyp)
@@ -268,7 +282,7 @@ export default function ProFormaPage() {
     setTopNav(view)
     setSelectedModule(view)
     if (view === "balance-sheet") setSection("summary")
-  }, [searchParams])
+  }, [searchParams, projectionIdFromUrl, companyIdFromUrl, router])
 
   const selectedModuleData = allModules.find(m => m.id === selectedModule)
   const Icon = selectedModuleData?.icon || BarChart3
@@ -501,6 +515,19 @@ export default function ProFormaPage() {
   }
 
   const setAssumptionsModule = (m: AssumptionsNav) => {
+    if ((m === "revenue" || m === "expenses" || m === "capex") && currentProjectionId) {
+      const params = new URLSearchParams()
+      params.set("projectionId", currentProjectionId)
+      if (companyId) params.set("companyId", companyId)
+      const path =
+        m === "expenses"
+          ? "/projections/expenses"
+          : m === "capex"
+            ? "/projections/capex"
+            : "/projections/revenue"
+      router.push(`${path}?${params.toString()}`)
+      return
+    }
     setTopNav("assumptions")
     setAssumptionsNav(m)
     setSelectedModule(m)
