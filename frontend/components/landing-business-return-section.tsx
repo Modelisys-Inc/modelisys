@@ -146,7 +146,7 @@ export function LandingBusinessReturnSection() {
         <svg viewBox="0 0 1440 120" preserveAspectRatio="none" className="absolute inset-x-0 bottom-0 h-full w-full">
           <path
             d="M0,30 C180,95 360,95 540,60 C720,25 900,25 1080,60 C1230,90 1335,95 1440,75 L1440,120 L0,120 Z"
-            fill="#F8FAFC"
+            fill="#F0F4F8"
           />
         </svg>
       </div>

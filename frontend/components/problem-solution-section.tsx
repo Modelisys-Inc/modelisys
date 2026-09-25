@@ -222,7 +222,7 @@ export function ProblemSolutionSection() {
             onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
             className="inline-flex items-center gap-2 text-xs font-semibold tracking-[0.08em] text-slate-500 transition hover:text-[#2A2F3A]"
           >
-            RÉSERVER UNE DÉMO
+            PRENDRE RENDEZ-VOUS
             <span className="inline-block h-px w-8 bg-[#E0742D]/80" />
           </button>
         </div>

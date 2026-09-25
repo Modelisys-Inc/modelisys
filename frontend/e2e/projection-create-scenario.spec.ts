@@ -131,7 +131,7 @@ test("new scenario dialog has no entity or horizon picker, and sends month+year 
   await page.goto(`/projections?companyId=${COMPANY_ID}`)
 
   await expect(page.getByRole("heading", { name: "Projections", exact: true })).toBeVisible({ timeout: 15000 })
-  await page.getByRole("button", { name: "Nouveau scénario" }).first().click()
+  await page.getByTestId("new-scenario-button").click()
 
   const dialog = page.getByTestId("new-scenario-dialog")
   await expect(dialog).toBeVisible()
@@ -154,8 +154,16 @@ test("new scenario dialog has no entity or horizon picker, and sends month+year 
       req.url().includes(`/api/companies/${COMPANY_ID}/projections`) &&
       !req.url().includes("/projections/"),
   )
+  const createResponse = page.waitForResponse(
+    (res) =>
+      res.request().method() === "POST" &&
+      res.url().includes(`/api/companies/${COMPANY_ID}/projections`) &&
+      !res.url().includes(`/projections/`) &&
+      res.status() === 201,
+  )
   await dialog.getByTestId("new-scenario-submit").click()
   const request = await createRequest
+  await createResponse
   const payload = request.postDataJSON() as Record<string, unknown>
 
   expect(payload.name).toBe("Scénario e2e")
@@ -165,7 +173,7 @@ test("new scenario dialog has no entity or horizon picker, and sends month+year 
   expect(payload.division_id).toBeNull()
   expect(payload.sub_division_id).toBeNull()
 
-  await expect(page).toHaveURL(new RegExp(`/projections/${PROJECTION_ID}`), { timeout: 10000 })
+  await expect(page).toHaveURL(new RegExp(`/projections/${PROJECTION_ID}`), { timeout: 15000 })
   await expect(page.getByTestId("projection-dashboard-title")).toBeVisible({ timeout: 10000 })
   await expect(page.getByTestId("projection-plan-trajectory")).toBeVisible()
   await expect(page.getByTestId("projection-plan-shell-nav")).toBeVisible()

@@ -1,21 +1,13 @@
-import { getApprochePhaseHref, type ApprochePhaseId } from "@/lib/approche-navigation"
+import { getApprochePhaseHref } from "@/lib/approche-navigation"
+import {
+  APPROCHE_PHASE_MARKETING_CONTENT,
+  APPROCHE_PHASE_ORDER,
+} from "@/lib/approche-phase-marketing-content"
 
 /**
- * Libellés de la carte « Notre approche » du hero (ordre d’affichage).
- * Les liens `#phase-*` ciblent la carte Trajectoire de performance du hero.
+ * Liens de phase pour le menu et le pied de page — libellés Comprendre / Planifier / Exécuter.
  */
-export const HERO_FEATURE_LABELS = ["Diagnostic", "Planification", "Pilotage"] as const
-
-export type HeroFeatureLabel = (typeof HERO_FEATURE_LABELS)[number]
-
-/** Correspondance hero → identifiant de phase sur la landing. */
-export const HERO_FEATURE_PHASE_BY_LABEL: Record<HeroFeatureLabel, ApprochePhaseId> = {
-  Diagnostic: "diagnostic",
-  Planification: "planification",
-  Pilotage: "pilotage",
-}
-
-export const heroFeatureFooterLinks = HERO_FEATURE_LABELS.map((label) => ({
-  title: label,
-  href: getApprochePhaseHref(HERO_FEATURE_PHASE_BY_LABEL[label]),
+export const heroFeatureFooterLinks = APPROCHE_PHASE_ORDER.map((id) => ({
+  title: APPROCHE_PHASE_MARKETING_CONTENT[id].shortTitle,
+  href: getApprochePhaseHref(id),
 }))

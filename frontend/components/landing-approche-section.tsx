@@ -91,12 +91,13 @@ export function LandingApprocheSection() {
           </p>
 
           <h2 className="mt-6 max-w-2xl text-[1.85rem] font-semibold leading-[1.15] tracking-tight text-[#2A2F3A] sm:mt-7 sm:text-[2.35rem] sm:leading-[1.12] xl:text-[2.55rem]">
-            Trois phases pour piloter la valeur de votre entreprise
+            Comprendre → Planifier → Exécuter
           </h2>
 
           <p className="mt-6 max-w-xl text-[15px] leading-[1.75] text-slate-600 sm:mt-7 sm:text-base">
-            Du diagnostic au suivi du réel — un même fil pour comprendre où vous en êtes, décider
-            où aller, et garder le cap sur le rendement que l&apos;entreprise génère pour vous.
+            Voici comment nous procédons avec les dirigeants : comprendre ce qui impacte la valeur,
+            planifier les leviers, puis exécuter et ajuster — une méthode de firme, pas une simple
+            suite d&apos;outils.
           </p>
 
           <nav

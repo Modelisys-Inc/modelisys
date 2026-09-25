@@ -3,7 +3,7 @@
 import { MapPin } from "lucide-react"
 
 const MARQUEE_MESSAGE =
-  "Notre vision : une plateforme commune et une méthode structurée pour piloter la trajectoire de valeur — ancrer le point de départ, fixer une ambition chiffrée, suivre les écarts et recalibrer au fil du temps, aux côtés des dirigeants et de leurs conseillers."
+  "Notre vision : une firme de gestion et de création de valeur — comprendre, planifier et exécuter, aux côtés des dirigeants et de leurs conseillers."
 
 /** Peu de répétitions : chaque entrée est une phrase longue. */
 const MARQUEE_ITEMS = Array.from({ length: 3 }, (_, i) => ({ id: i, text: MARQUEE_MESSAGE }))
@@ -19,7 +19,7 @@ export function AboutHeroMarquee() {
           <div className="about-marquee-track">
             <div
               className="about-marquee-row"
-              aria-label="Vision Modelisys — piloter la trajectoire de valeur avec une plateforme commune et une méthode structurée"
+              aria-label="Vision Modelisys — firme de gestion et de création de valeur"
             >
               {MARQUEE_ITEMS.map(({ id, text }) => (
                 <div key={id} className="about-marquee-item">

@@ -1,56 +1,7 @@
 "use client"
 
-import { useEffect, useRef, useState, type ComponentType } from "react"
-import { CheckCircle2, ClipboardList, Database, Rocket, SlidersHorizontal } from "lucide-react"
-
-const steps: {
-  step: number
-  icon: ComponentType<{ className?: string }>
-  title: string
-  approachPhase: string
-  description: string
-}[] = [
-  {
-    step: 1,
-    icon: ClipboardList,
-    title: "Cadrage du déploiement",
-    approachPhase: "Périmètre & usages",
-    description:
-      "Nous clarifions le périmètre du déploiement : objectifs de pilotage, organisation, entités, flux comptables et usages attendus par vos équipes. Ce cadrage technique pose les bases — sans réaliser à votre place le diagnostic financier ni l'évaluation de valeur.",
-  },
-  {
-    step: 2,
-    icon: Database,
-    title: "Intégration des données",
-    approachPhase: "Données comptables",
-    description:
-      "Connexion de vos sources comptables, définition des périmètres et des règles de consolidation pour alimenter la plateforme avec des données fiables et actualisées.",
-  },
-  {
-    step: 3,
-    icon: SlidersHorizontal,
-    title: "Paramétrage sur mesure",
-    approachPhase: "Structure de la plateforme",
-    description:
-      "Configuration des axes d'analyse, des indicateurs, des reportings et des droits utilisateurs selon vos processus et votre gouvernance. L'environnement est prêt à accueillir vos scénarios et objectifs — définis par vos équipes ou dans le cadre d'un accompagnement stratégique.",
-  },
-  {
-    step: 4,
-    icon: CheckCircle2,
-    title: "Recette et validation",
-    approachPhase: "Validation technique",
-    description:
-      "Tests avec vos équipes finance et contrôle de gestion : cohérence des données, fonctionnement des reportings et des indicateurs avant passage en environnement de production.",
-  },
-  {
-    step: 5,
-    icon: Rocket,
-    title: "Mise en production et support",
-    approachPhase: "Go-live & formation",
-    description:
-      "Go-live encadré, formation des utilisateurs, documentation et support technique pour une adoption progressive. Toutes les fonctionnalités de la plateforme sont incluses — seul l'accompagnement stratégique sur les trois phases demeure optionnel, selon le plan tarifaire choisi.",
-  },
-]
+import { useEffect, useRef, useState } from "react"
+import { MISE_EN_PLACE_STEPS } from "@/lib/mise-en-place-steps"
 
 export function PlatformSetupSection() {
   const sectionRef = useRef<HTMLElement>(null)
@@ -85,7 +36,6 @@ export function PlatformSetupSection() {
               radial-gradient(circle at 15% 85%, rgb(148 163 184 / 0.12) 0%, transparent 48%)`,
           }}
         />
-        {/* Cadrillage léger — même principe que la section « Pourquoi » */}
         <div
           className="absolute inset-0"
           style={{
@@ -111,12 +61,12 @@ export function PlatformSetupSection() {
             Mise en place
           </p>
           <h2 className="mt-5 text-3xl font-semibold tracking-tight text-[#2A2F3A] sm:text-4xl md:text-[2.5rem] md:leading-tight">
-            Comment nous déployons{" "}
-            <span className="text-[#5C5F66]">la plateforme chez vous</span>
+            Comprendre → Planifier →{" "}
+            <span className="text-[#5C5F66]">Exécuter</span>
           </h2>
           <p className="mt-4 text-base leading-relaxed text-[#5C5F66] sm:text-lg">
-            De la première conversation au go-live : un déploiement structuré, calé
-            sur vos données et votre organisation.
+            Notre approche en trois phases : comprendre ce qui impacte la valeur, planifier les
+            leviers, puis exécuter avec discipline.
           </p>
           <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent lg:mx-0 mx-auto" />
         </div>
@@ -126,40 +76,31 @@ export function PlatformSetupSection() {
             isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          <div className="grid grid-cols-5 gap-3">
-            {steps.map((item) => (
+          <div className="grid grid-cols-3 gap-3">
+            {MISE_EN_PLACE_STEPS.map((item) => (
               <div key={item.step} className="flex flex-col items-center gap-2 text-center">
                 <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2A2F3A] text-sm font-bold text-white shadow-md ring-4 ring-white/80">
                   {item.step}
                 </span>
                 <span className="line-clamp-3 text-[11px] font-medium leading-snug text-slate-600 lg:text-xs">
-                  {item.title}
+                  {item.approachPhase}
                 </span>
               </div>
             ))}
           </div>
-          <div className="mt-4 grid grid-cols-5 gap-3 pt-1">
-            <div className="min-w-0">
-              <div className="rounded-t-xl border-l-2 border-r-2 border-t-2 border-[#E0742D]/45 bg-gradient-to-b from-[#E0742D]/[0.07] to-transparent px-3 pb-3 pt-3 text-center shadow-[inset_0_1px_0_0_rgb(255_255_255_/0.6)]">
-                <p className="text-xs font-semibold tracking-tight text-[#2A2F3A] sm:text-sm">
-                  Appel de cadrage
-                </p>
-                <p className="mx-auto mt-1.5 max-w-[11rem] text-[10px] leading-snug text-[#5C5F66] sm:text-[11px]">
-                  Étape 1
-                </p>
+          <div className="mt-4 grid grid-cols-3 gap-3 pt-1">
+            {MISE_EN_PLACE_STEPS.map((item) => (
+              <div key={item.approachPhase} className="min-w-0">
+                <div className="rounded-t-xl border-l-2 border-r-2 border-t-2 border-[#E0742D]/45 bg-gradient-to-b from-[#E0742D]/[0.07] to-transparent px-3 pb-3 pt-3 text-center shadow-[inset_0_1px_0_0_rgb(255_255_255_/0.6)]">
+                  <p className="text-xs font-semibold tracking-tight text-[#2A2F3A] sm:text-sm">
+                    {item.approachPhase}
+                  </p>
+                  <p className="mx-auto mt-1.5 max-w-[14rem] text-[10px] leading-snug text-[#5C5F66] sm:text-[11px]">
+                    {item.title}
+                  </p>
+                </div>
               </div>
-            </div>
-            <div className="col-span-4 min-w-0">
-              <div className="relative rounded-t-xl border-l-2 border-r-2 border-t-2 border-[#E0742D]/45 bg-gradient-to-b from-[#E0742D]/[0.07] to-transparent px-4 pb-3 pt-3 text-center shadow-[inset_0_1px_0_0_rgb(255_255_255_/0.6)]">
-                <p className="text-xs font-semibold tracking-tight text-[#2A2F3A] sm:text-sm">
-                  Déploiement technique
-                </p>
-                <p className="mx-auto mt-1.5 max-w-sm text-[10px] leading-snug text-[#5C5F66] sm:text-[11px]">
-                  Étapes <span className="font-semibold text-[#2A2F3A]/90">2 à 5</span> — intégration, paramétrage,
-                  validation et mise en production.
-                </p>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
@@ -168,9 +109,9 @@ export function PlatformSetupSection() {
             isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          {steps.map((item, index) => {
+          {MISE_EN_PLACE_STEPS.map((item, index) => {
             const Icon = item.icon
-            const isLast = index === steps.length - 1
+            const isLast = index === MISE_EN_PLACE_STEPS.length - 1
             return (
               <li
                 key={item.step}
@@ -190,8 +131,12 @@ export function PlatformSetupSection() {
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]/90">
                     {item.approachPhase}
                   </p>
-                  <h3 className="mt-1.5 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">{item.title}</h3>
-                  <p className="mt-3 text-base leading-relaxed text-[#5C5F66] sm:text-[17px]">{item.description}</p>
+                  <h3 className="mt-1.5 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
+                    {item.title}
+                  </h3>
+                  <p className="mt-3 text-base leading-relaxed text-[#5C5F66] sm:text-[17px]">
+                    {item.description}
+                  </p>
                 </div>
               </li>
             )

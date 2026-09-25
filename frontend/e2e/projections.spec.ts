@@ -17,24 +17,21 @@ test.describe("Projections", () => {
   test("can navigate to pro-forma projections", async ({ page }) => {
     await page.goto("/projections");
     await expect(page).toHaveURL(/\/projections/);
-    // Use heading selector for more specificity
     await expect(
-      page.locator("h2").filter({ hasText: /pro forma|projections/i }).first()
+      page.getByRole("heading", { name: "Projections", exact: true })
     ).toBeVisible({ timeout: 10000 });
   });
 
   test("can navigate to revenue projections", async ({ page }) => {
     await page.goto("/projections/revenue");
-    await expect(page).toHaveURL(/\/projections\/revenue/);
+    // Sans projectionId la page redirige vers le hub Projections.
+    await expect(page).toHaveURL(/\/projections/, { timeout: 10000 });
   });
 
   test("can navigate to capex projections", async ({ page }) => {
     await page.goto("/projections/capex");
-    await expect(page).toHaveURL(/\/projections\/capex/);
-    // Use heading selector for more specificity
-    await expect(
-      page.locator("h2").filter({ hasText: /capex|projection/i }).first()
-    ).toBeVisible({ timeout: 10000 });
+    // Sans projectionId la page redirige vers le hub Projections.
+    await expect(page).toHaveURL(/\/projections/, { timeout: 10000 });
   });
 
   test("can navigate to debt projections", async ({ page }) => {

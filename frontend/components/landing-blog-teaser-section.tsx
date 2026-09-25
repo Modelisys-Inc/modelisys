@@ -132,7 +132,7 @@ export function LandingBlogTeaserSection() {
                   href="/#demo"
                   className="group inline-flex items-center gap-2 px-1 py-2 text-xs font-semibold tracking-[0.06em] text-slate-600 transition hover:text-[#2A2F3A]"
                 >
-                  Réserver une démo
+                  Prendre rendez-vous
                   <span className="inline-block h-px w-8 bg-[#E0742D]/80" />
                 </Link>
               </div>

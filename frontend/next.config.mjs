@@ -35,6 +35,15 @@ const nextConfig = {
   },
   // Proxy API requests to the backend — avoids CORS issues (Firefox, etc.)
   // INTERNAL_API_URL is for server-side (container-to-container via Docker network).
+  async redirects() {
+    return [
+      {
+        source: "/etudes-de-cas",
+        destination: "/services",
+        permanent: true,
+      },
+    ]
+  },
   async rewrites() {
     return [
       {

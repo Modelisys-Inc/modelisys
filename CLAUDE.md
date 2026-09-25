@@ -500,7 +500,11 @@ az containerapp revision activate --name modelisys-backend --resource-group mode
   `localStorage` `modelisys-projection-plan-progress`) ; Résultats/Bilan/Trésorerie
   → `/projections/pro-forma?view=…` ; Sommaire = vue d’ensemble sur le dashboard ;
   « Retour aux étapes » via `ProjectionPlanBackButton` ; deep-link
-  `view` + `hypothesis` sur pro-forma.
+  `view` + `hypothesis` sur pro-forma. **Hypothèses Revenus**, **Dépenses** et **Capex** ont
+  chacune une page rapport dédiée style VCA (`/projections/revenue`,
+  `/projections/expenses`, `/projections/capex` — Méthode · Estimation · Hypothèses +
+  panneau d’impact) ; le plan et `hypothesis=revenue|expenses|capex` sur pro-forma y
+  redirigent.
   **Impact financier** (Hypothèses) : panneau sticky à droite
   (`ProFormaFinancialImpactPanel`) — Revenus, Bénéfice brut (+ % des revenus indenté),
   Bénéfice net (+ %), BAIIA opérationnel (+ %), trésorerie Exploitation / Investissement /

@@ -77,6 +77,16 @@ export function projectionToolPath(
   const params = new URLSearchParams()
   params.set("projectionId", projectionId)
   if (companyId) params.set("companyId", companyId)
+  // Hypothèses Revenus / Dépenses / Capex ont leur propre page rapport style VCA.
+  if (phase.id === "revenue") {
+    return `/projections/revenue?${params.toString()}`
+  }
+  if (phase.id === "expenses") {
+    return `/projections/expenses?${params.toString()}`
+  }
+  if (phase.id === "capex") {
+    return `/projections/capex?${params.toString()}`
+  }
   params.set("view", "assumptions")
   params.set("hypothesis", phase.hypothesis)
   return `/projections/pro-forma?${params.toString()}`

@@ -62,13 +62,13 @@ export function HeroSection() {
             </p>
 
             <h1 className="mt-7 text-[2rem] font-semibold leading-[1.15] tracking-tight text-[#E6D6C3] sm:mt-8 sm:text-[2.45rem] sm:leading-[1.12] xl:text-[2.85rem]">
-              La plateforme de gestion et de création de valeur pour les PME
+              Firme de gestion et de création de valeur pour les PME
             </h1>
 
             <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
-              Vos états financiers racontent le passé. Modelisys en tire ce qu&apos;un acheteur,
-              un prêteur ou un partenaire verrait demain — permettant aux propriétaires de
-              mesurer, comprendre et augmenter la valeur de leur entreprise.
+              Modelisys accompagne les PME qui veulent aller au-delà des états financiers :
+              comprendre leur performance financière, anticiper leur trésorerie, mesurer leurs
+              décisions et augmenter la valeur de leur entreprise.
             </p>
 
             <div className="mt-10 flex flex-wrap items-center gap-4 sm:mt-12">
@@ -77,7 +77,7 @@ export function HeroSection() {
                 onClick={() => document.getElementById("demo")?.scrollIntoView({ behavior: "smooth" })}
                 className="group inline-flex items-center gap-2.5 rounded-md bg-[#E6D6C3] px-5 py-3 text-xs font-semibold tracking-[0.08em] text-[#1F2430] transition hover:bg-[#f0e6d8] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E6D6C3]/60"
               >
-                RÉSERVER UNE DÉMO
+                PRENDRE RENDEZ-VOUS
                 <ArrowRight className="h-4 w-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
               </button>
 

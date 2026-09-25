@@ -6,9 +6,9 @@ import { motion, useReducedMotion } from "framer-motion"
 import { cn } from "@/lib/utils"
 
 const APPROCHE_PHASES = [
-  { title: "Diagnostic", body: "Ancrer le point de départ : analyse, évaluation, risques et KPI" },
-  { title: "Planification", body: "Clarifier la vision, modéliser les scénarios et projeter la trajectoire" },
-  { title: "Pilotage", body: "Analyser les écarts réel vs prévu vs passé et recalibrer le plan en continu" },
+  { title: "Comprendre", body: "Ancrer le point de départ : performance, risques, leviers et valeur" },
+  { title: "Planifier", body: "Clarifier les décisions, modéliser les scénarios et projeter la trajectoire" },
+  { title: "Exécuter", body: "Suivre le réel vs le prévu, ajuster et garder le cap sur la valeur" },
 ] as const
 
 const TWO_REALITIES = [
@@ -22,7 +22,7 @@ const TWO_REALITIES = [
       "Pas de budget du client pour ancrer la discussion.",
       "Pas de vision commune.",
       "Incapables de répondre sur le champ aux questions de leurs clients.",
-      "La relation conseil restait superficielle, faute d'outils partagés.",
+      "La relation conseil restait superficielle, faute d'une lecture partagée.",
     ],
   },
   {
@@ -163,7 +163,7 @@ export function AboutOurStorySection() {
               <motion.div {...contentMotion} className="space-y-5">
                 {[
                   "Modelisys n'a pas été imaginé dans un bureau de startup. Il a été conçu après des années passées assis de l'autre côté de la table — avec des entrepreneurs qui ne savaient pas exactement où en était leur entreprise, et des CPA qui auraient voulu pouvoir mieux les aider.",
-                  "Avant de fonder Modelisys, notre cofondateur a passé plusieurs années en cabinet comptable, puis en évaluation d'entreprise. Ce sont des volets complémentaires du même métier au service des PME — et ils ont surtout confirmé un même écart : l'absence d'une base commune entre les professionnels et leurs clients pour travailler sur les mêmes données, au même moment.",
+                  "Avant de fonder Modelisys, nos fondateurs ont travaillé auprès des PME — en entreprise, en cabinet (notamment en services-conseils), en évaluation, en contrôle financier et en certification. Ces volets complémentaires du même métier ont confirmé un même écart : l'absence d'une base commune entre les professionnels et leurs clients pour travailler sur les mêmes données, au même moment.",
                   "Les associés rencontraient les dirigeants, posaient des questions et sollicitaient des documents, sans toujours pouvoir situer en cours d'année où en était réellement l'entreprise. Les PME, de leur côté, n'avaient souvent aucun outil pour relier leurs décisions à ce qui crée ou détruit de la valeur, ni pour structurer et optimiser leur gestion financière au-delà de rapports éclatés. Les échanges restaient réactifs : pas d'environnement partagé, pas de chiffres alignés en temps réel, pas de lecture commune — seulement des allers-retours alors que tout le monde aurait eu besoin du même socle pour décider.",
                 ].map((text, i) => (
                   <p key={i} className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
@@ -321,15 +321,14 @@ export function AboutOurStorySection() {
                 <p className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
                   C&apos;est l&apos;accumulation de ces constats — répétés pendant des années, dans les deux univers — qui a déclenché
                   la décision. Non pas de critiquer les outils existants, mais de construire ce qui n&apos;existait pas : une
-                  plateforme qui réunit le dirigeant et son conseiller dans le même environnement financier, avec un parcours
-                  structuré en trois phases — comprendre, planifier et piloter.
+                  firme qui réunit le dirigeant et son conseiller autour de la même lecture financière, avec un parcours
+                  structuré — comprendre, planifier et exécuter.
                 </p>
                 <div className="h-px w-full max-w-2xl bg-slate-200/90" aria-hidden />
                 <p className="text-[15px] leading-[1.75] text-[#5C5F66] sm:text-base">
-                  Modelisys structure les données, les outils et la méthode pour mesurer, visionner, modéliser, exécuter et
-                  ajuster. La plateforme prépare le terrain ; l&apos;accompagnement stratégique — diagnostic, valorisation,
-                  projections, analyse des écarts — s&apos;active lorsque le client le choisit. Un CPA qui partage les mêmes
-                  chiffres en temps réel peut enfin jouer pleinement son rôle de conseiller.
+                  Modelisys structure la méthode pour mesurer, visionner, modéliser, exécuter et ajuster. Les services —
+                  mandats ponctuels, accompagnement, licence ou développement — s&apos;activent selon le besoin. Un CPA qui
+                  partage les mêmes chiffres peut enfin jouer pleinement son rôle de conseiller.
                 </p>
               </motion.div>
             </div>
@@ -341,7 +340,7 @@ export function AboutOurStorySection() {
           >
             <StepRail n="07" />
             <div className="min-w-0">
-              <StorySectionHeader eyebrow="L'approche Modelisys" title="Trois phases pour piloter la valeur" />
+              <StorySectionHeader eyebrow="L'approche Modelisys" title="Comprendre, planifier, exécuter" />
               <motion.div {...contentMotion} className="divide-y divide-slate-200/80 border-t border-slate-200/80">
                 {APPROCHE_PHASES.map((item) => (
                   <div
@@ -373,9 +372,9 @@ export function AboutOurStorySection() {
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#E0742D]">Pourquoi Modelisys existe</p>
                 <p className="mt-6 max-w-3xl text-[15px] leading-[1.8] text-[#5C5F66] sm:text-[17px]">
                   C&apos;est pour ça que Modelisys existe. Non pas pour remplacer le conseiller — mais pour lui donner, ainsi qu&apos;au
-                  dirigeant, la plateforme et le parcours qu&apos;ils n&apos;avaient jamais eus : ancrer un point de départ, fixer une
-                  vision chiffrée, modéliser la trajectoire, suivre les écarts et recalibrer au fil du temps — en partenariat, sur
-                  des données communes, adapté à la réalité des PME d&apos;ici.
+                  dirigeant, l&apos;approche qu&apos;ils n&apos;avaient jamais eue : ancrer un point de départ, fixer une vision
+                  chiffrée, suivre les écarts et recalibrer au fil du temps — en partenariat, adapté à la réalité des PME
+                  d&apos;ici.
                 </p>
               </motion.div>
             </div>

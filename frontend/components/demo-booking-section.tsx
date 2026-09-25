@@ -59,7 +59,7 @@ export function DemoBookingSection() {
         },
         body: JSON.stringify({
           ...formData,
-          _subject: "Demande de démonstration — Modelisys",
+          _subject: "Demande de rendez-vous — Modelisys",
         }),
       })
 
@@ -128,14 +128,14 @@ export function DemoBookingSection() {
             isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
           }`}
         >
-          <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Démarrer</p>
+          <p className="mb-3 text-sm font-semibold tracking-wide text-slate-500">Prendre rendez-vous</p>
           <h2 className="mb-4 max-w-4xl text-3xl font-semibold leading-tight tracking-tight text-[#2A2F3A] sm:text-4xl md:text-5xl">
-                Réservez votre démonstration
-              </h2>
+            Planifiez un échange avec notre équipe
+          </h2>
           <p className="max-w-3xl text-lg leading-relaxed text-[#5C5F66] sm:text-xl">
-            Découvrez comment Modelisys peut transformer la gestion financière de votre entreprise lors d&apos;une
-            démonstration personnalisée.
-              </p>
+            Discutons de vos enjeux et découvrons ensemble comment Modelisys peut vous aider à piloter votre
+            performance financière et augmenter la valeur de votre entreprise.
+          </p>
           <div className="mt-8 h-px max-w-md bg-gradient-to-r from-[#E0742D]/70 via-slate-300/50 to-transparent" />
         </div>
 
@@ -170,8 +170,8 @@ export function DemoBookingSection() {
                       },
                       {
                         n: "3",
-                        title: "Démonstration sur mesure",
-                        body: "Découvrez la plateforme en action lors d’une session adaptée à votre contexte.",
+                        title: "Rendez-vous sur mesure",
+                        body: "Échangez avec notre équipe lors d’une session adaptée à votre contexte.",
                       },
                     ].map((step) => (
                       <div key={step.n} className="flex items-start gap-4">
@@ -191,7 +191,7 @@ export function DemoBookingSection() {
                       {
                         icon: Clock,
                         title: "30 minutes",
-                        sub: "Démonstration complète",
+                        sub: "Échange personnalisé",
                       },
                       {
                         icon: User,
@@ -236,11 +236,11 @@ export function DemoBookingSection() {
                     </div>
                   </div>
                   <h2 className="mt-4 mb-2 text-xl font-semibold tracking-tight text-[#2A2F3A] sm:text-2xl">
-                    Demande de démonstration
+                    Demande de rendez-vous
                   </h2>
                   <p className="mb-8 leading-relaxed text-[#5C5F66]">
-                    Laissez-nous vos informations : notre équipe vous contactera dans les plus brefs délais pour planifier
-                    votre démonstration.
+                    Laissez-nous vos informations : notre équipe vous contactera dans les plus brefs délais pour
+                    planifier votre rendez-vous.
                   </p>
 
                   {isSubmitted ? (
@@ -373,7 +373,7 @@ export function DemoBookingSection() {
 
                       <p className="text-center text-xs text-[#5C5F66]/90">
                         En envoyant ce formulaire, vous acceptez que nous utilisions ces informations pour vous
-                        recontacter au sujet d’une démonstration.
+                        recontacter au sujet d’un rendez-vous.
                       </p>
                     </form>
                   )}

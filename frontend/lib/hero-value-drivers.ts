@@ -42,7 +42,7 @@ export const HERO_VALUE_DRIVERS: readonly HeroValueDriver[] = [
     id: "tresorerie",
     label: "Trésorerie",
     shortLabel: "Trésorerie",
-    comment: "Le cash se lit : résultat opérationnel ± fonds de roulement − capex.",
+    comment: "Le cash se lit : résultat opérationnel ± fonds de roulement − capex − financement",
     improves: "BAIIA converti en trésorerie, BFR maîtrisé, capex discipliné.",
     deteriorates: "Profits comptables sans cash, BFR qui gonfle ou investissements mal absorbés.",
     angleDeg: 54,

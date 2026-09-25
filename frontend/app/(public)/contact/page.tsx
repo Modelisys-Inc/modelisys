@@ -21,7 +21,7 @@ import {
 import { cn } from "@/lib/utils"
 
 const SUBJECT_OPTIONS = [
-  "Réserver une démo",
+  "Prendre rendez-vous",
   "Support",
   "Fonctionnalités",
   "Demande de partenariat",

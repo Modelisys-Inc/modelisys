@@ -12,4 +12,8 @@ describe("formatShareOfRevenuePct", () => {
     expect(formatShareOfRevenuePct(-80_000, null)).toBe("-")
     expect(formatShareOfRevenuePct(0, 500_000)).toBe("-")
   })
+
+  it("can omit the percent sign for compact table columns", () => {
+    expect(formatShareOfRevenuePct(80_000, 500_000, { omitPercentSign: true })).toBe("16.0")
+  })
 })

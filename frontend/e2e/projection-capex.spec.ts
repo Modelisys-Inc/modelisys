@@ -3,9 +3,19 @@ import { test, expect, Page } from "@playwright/test"
 const COMPANY_ID = "11111111-1111-1111-1111-111111111111"
 const PROJECTION_ID = "22222222-2222-2222-2222-222222222222"
 
-/** Compte | Code | Taux | N-1 | YTD | 1re année projetée | … */
+/** Poste | Code | Taux | N-1 | YTD | 1re année projetée | … */
 const FIRST_PROJECTED_TD_INDEX = 5
 const TAUX_TD_INDEX = 2
+
+async function openCapexHypothesis(page: Page) {
+  await page.goto(`/projections/capex?projectionId=${PROJECTION_ID}&companyId=${COMPANY_ID}`)
+  await expect(page.getByRole("heading", { name: "Hypothèses Capex" })).toBeVisible({
+    timeout: 15000,
+  })
+  await expect(page.getByRole("heading", { name: /Estimation des Capex annuels/ })).toBeVisible({
+    timeout: 15000,
+  })
+}
 
 function buildMonthlyPeriods(fromYear: number, toYear: number) {
   const periods: { fiscalYear: number; fiscalMonth: number; label: string }[] = []
@@ -390,14 +400,7 @@ test.describe("Projection capex estimation", () => {
         }),
     )
 
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Capex", exact: true }).click()
-
-    await expect(page.getByRole("heading", { name: "Estimation des Capex annuels" })).toBeVisible({
-      timeout: 15000,
-    })
+    await openCapexHypothesis(page)
 
     await expect(page.getByText("Immobilisations corporelles").first()).toBeVisible()
     await expect(page.getByText("Terrains").first()).toBeVisible()
@@ -434,14 +437,7 @@ test.describe("Projection capex estimation", () => {
         }),
     )
 
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Capex", exact: true }).click()
-
-    await expect(page.getByRole("heading", { name: "Estimation des Capex annuels" })).toBeVisible({
-      timeout: 15000,
-    })
+    await openCapexHypothesis(page)
 
     await expect(page.getByText("Terrains").first()).toBeVisible()
     await expect(page.getByText("Bâtisses").first()).toBeVisible()
@@ -451,14 +447,7 @@ test.describe("Projection capex estimation", () => {
     test.setTimeout(60_000)
     await setupAuth(page)
 
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Capex", exact: true }).click()
-
-    await expect(page.getByRole("heading", { name: "Estimation des Capex annuels" })).toBeVisible({
-      timeout: 15000,
-    })
+    await openCapexHypothesis(page)
 
     await expect(page.getByText("Immobilisations corporelles").first()).toBeVisible()
     await expect(page.getByText("Terrains").first()).toBeVisible()
@@ -479,14 +468,7 @@ test.describe("Projection capex estimation", () => {
     test.setTimeout(60_000)
     await setupAuth(page)
 
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Capex", exact: true }).click()
-
-    await expect(page.getByRole("heading", { name: "Estimation des Capex annuels" })).toBeVisible({
-      timeout: 15000,
-    })
+    await openCapexHypothesis(page)
 
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
     await expect(terrainsRow).toBeVisible()
@@ -522,19 +504,12 @@ test.describe("Projection capex estimation", () => {
       return route.continue()
     })
 
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Capex", exact: true }).click()
+    await openCapexHypothesis(page)
 
-    await expect(page.getByRole("heading", { name: "Estimation des Capex annuels" })).toBeVisible({
-      timeout: 15000,
-    })
-
-    const scrollContainer = page.getByTestId("capex-forecast-table-scroll")
-    await expect(scrollContainer).toBeVisible()
-    await expect(scrollContainer).toHaveClass(/max-h-\[min\(72vh,56rem\)\]/)
-    await expect(scrollContainer).toHaveClass(/overflow-auto/)
+    const reportTable = page.getByTestId("capex-forecast-table-report")
+    await expect(reportTable).toBeVisible()
+    await expect(reportTable).toHaveClass(/overflow-x-auto/)
+    await expect(page.getByRole("columnheader", { name: "Poste" })).toBeVisible()
 
     const headerRow = page.locator("thead tr").first()
     await expect(headerRow.getByRole("columnheader", { name: "Code" })).toBeVisible()
@@ -547,7 +522,7 @@ test.describe("Projection capex estimation", () => {
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
     await expect(terrainsRow).toBeVisible()
 
-    // Column layout: Compte | Code | Taux | N-1 | YTD | T | T+1 | …
+    // Column layout: Poste | Code | Taux | N-1 | YTD | T | T+1 | …
     const firstProjectedYearCell = terrainsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)
     await firstProjectedYearCell.click()
 
@@ -606,14 +581,7 @@ test.describe("Projection capex estimation", () => {
       return route.continue()
     })
 
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Capex", exact: true }).click()
-
-    await expect(page.getByRole("heading", { name: "Estimation des Capex annuels" })).toBeVisible({
-      timeout: 15000,
-    })
+    await openCapexHypothesis(page)
 
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
     const firstProjectedYearCell = terrainsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX)
@@ -649,14 +617,7 @@ test.describe("Projection capex estimation", () => {
       return route.continue()
     })
 
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Capex", exact: true }).click()
-
-    await expect(page.getByRole("heading", { name: "Estimation des Capex annuels" })).toBeVisible({
-      timeout: 15000,
-    })
+    await openCapexHypothesis(page)
 
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
     await terrainsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
@@ -686,10 +647,7 @@ test.describe("Projection capex estimation", () => {
       return route.continue()
     })
 
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Capex", exact: true }).click()
+    await openCapexHypothesis(page)
 
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
     await terrainsRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
@@ -751,10 +709,7 @@ test.describe("Projection capex estimation", () => {
       return route.continue()
     })
 
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Capex", exact: true }).click()
+    await openCapexHypothesis(page)
 
     const equipementRow = page.locator("tr").filter({ hasText: "Équipement" }).first()
     await equipementRow.locator("td").nth(FIRST_PROJECTED_TD_INDEX).click()
@@ -781,14 +736,7 @@ test.describe("Projection capex estimation", () => {
     test.setTimeout(60_000)
     await setupAuth(page)
 
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Capex", exact: true }).click()
-
-    await expect(page.getByRole("heading", { name: "Estimation des Capex annuels" })).toBeVisible({
-      timeout: 15000,
-    })
+    await openCapexHypothesis(page)
 
     const terrainsRow = page.locator("tr").filter({ hasText: "Terrains" }).first()
     await terrainsRow.locator("td").nth(TAUX_TD_INDEX).click()
@@ -802,14 +750,7 @@ test.describe("Projection capex estimation", () => {
     test.setTimeout(60_000)
     await setupAuth(page)
 
-    await page.goto(`/projections/pro-forma?projectionId=${PROJECTION_ID}`)
-    await expect(page.getByRole("heading", { name: "Résultats projetés" })).toBeVisible({ timeout: 15000 })
-    await page.getByRole("button", { name: "Hypothèses", exact: true }).click()
-    await page.getByRole("button", { name: "Capex", exact: true }).click()
-
-    await expect(page.getByRole("heading", { name: "Estimation des Capex annuels" })).toBeVisible({
-      timeout: 15000,
-    })
+    await openCapexHypothesis(page)
 
     const batissesRow = page.locator("tr").filter({ hasText: "Bâtisses" }).first()
     await expect(batissesRow).toBeVisible()

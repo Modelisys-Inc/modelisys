@@ -120,7 +120,7 @@ function DiagnosticVisual() {
         { label: "Revenus", value: "4,2 M$" },
         { label: "BAIIA", value: "18 %" },
       ]}
-      legend="Point de départ objectif — performance, risques et lecture de la valeur sur une même base."
+      legend="Point de départ partagé — une lecture ferme de la performance, des risques et de la valeur."
       accentStroke="rgba(224,116,45,0.35)"
       accentClass="from-[#E0742D]/80"
     />
@@ -137,7 +137,7 @@ function PlanificationVisual() {
         { label: "Prudent", value: "5,8 M$" },
         { label: "Ambitieux", value: "8,1 M$" },
       ]}
-      legend="Scénario central à 3 ans — comparer les chemins avant de s’engager sur la trajectoire."
+      legend="Trajectoire retenue à 3 ans — comparer les chemins avant de s’engager."
       accentStroke="rgba(91,141,239,0.4)"
       accentClass="from-[#5B8DEF]/80"
     />
@@ -154,7 +154,7 @@ function PilotageVisual() {
         { label: "Prévu", value: "92 %" },
         { label: "Réel", value: "88 %" },
       ]}
-      legend="Le réel confronté au prévu — pour corriger le cap avant que l’écart ne s’installe."
+      legend="Exécuter avec discipline — confronter le réel au prévu pour ajuster à temps."
       accentStroke="rgba(74,155,115,0.4)"
       accentClass="from-[#4A9B73]/80"
     />
@@ -208,7 +208,7 @@ export function LandingApprochePhaseBlock({ phaseId, reversed = false, highlight
           <div className="mt-8 space-y-6">
             <div>
               <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-slate-500">
-                Ce que ça fait
+                Comment nous procédons
               </p>
               <p className="mt-2 text-[15px] leading-relaxed text-slate-600">{content.whatItDoes}</p>
             </div>
