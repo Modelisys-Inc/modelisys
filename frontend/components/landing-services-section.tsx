@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils"
 export function LandingServicesSection() {
   const sectionRef = useRef<HTMLElement>(null)
   const [isVisible, setIsVisible] = useState(false)
-  const [activeService, setActiveService] = useState<ServiceId>("mandats")
+  const [activeService, setActiveService] = useState<ServiceId>("accompagnement")
 
   useEffect(() => {
     const el = sectionRef.current
@@ -69,7 +69,7 @@ export function LandingServicesSection() {
           </h2>
 
           <p className="mt-6 max-w-2xl text-[15px] leading-[1.75] text-slate-600 sm:mt-7 sm:text-base">
-            Une question précise, un partenaire dans le temps, un moteur autonome ou un modèle sur
+            Un partenaire dans le temps, un moteur autonome ou un modèle sur
             mesure — Modelisys s&apos;adapte à vos besoins.
           </p>
 
@@ -78,7 +78,7 @@ export function LandingServicesSection() {
               isVisible ? "translate-y-0 opacity-100" : "translate-y-8 opacity-0"
             }`}
           >
-            <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
               {SERVICE_MARKETING_ORDER.map((id, index) => (
                 <button
                   key={id}
@@ -96,7 +96,7 @@ export function LandingServicesSection() {
               ))}
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-2 pt-1 sm:gap-3 lg:grid-cols-4">
+            <div className="mt-4 grid grid-cols-1 gap-2 pt-1 sm:grid-cols-3 sm:gap-3">
               {SERVICE_MARKETING_ORDER.map((id) => {
                 const content = SERVICE_MARKETING_CONTENT[id]
                 const isActive = activeService === id
@@ -124,7 +124,7 @@ export function LandingServicesSection() {
               })}
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2 sm:mt-4 sm:gap-3 lg:grid-cols-4">
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:mt-4 sm:grid-cols-3 sm:gap-3">
               {SERVICE_MARKETING_ORDER.map((id) => (
                 <div key={id} className="flex justify-center">
                   <Link

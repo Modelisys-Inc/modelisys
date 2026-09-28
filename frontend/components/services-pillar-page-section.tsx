@@ -1,7 +1,9 @@
 "use client"
 
+import { ServicesFaqSection } from "@/components/services-faq-section"
 import { ServicesOtherServicesSection } from "@/components/services-other-services-section"
 import { ServicesPillarArticle } from "@/components/services-pillar-article"
+import { getServicesFaq } from "@/lib/services-faq"
 import { type ServicesPagePillar } from "@/lib/services-page-content"
 
 type ServicesPillarPageSectionProps = {
@@ -32,6 +34,8 @@ export function ServicesPillarPageSection({ pillar }: ServicesPillarPageSectionP
 
       <div className="relative z-10 mx-auto max-w-[1920px] px-5 pb-20 pt-28 sm:px-10 sm:pb-28 sm:pt-32 lg:px-12 xl:px-16 2xl:px-20">
         <ServicesPillarArticle pillar={pillar} asPage />
+
+        <ServicesFaqSection items={getServicesFaq(pillar.id)} />
 
         <div className="mt-16 sm:mt-20">
           <ServicesOtherServicesSection currentId={pillar.id} />

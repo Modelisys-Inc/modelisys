@@ -76,6 +76,10 @@ test.describe("Navigation & Routing", () => {
     await expect(
       page.getByRole("heading", { name: /Fondée et pratiquée au Québec/i }),
     ).toBeVisible();
+    await expect(
+      page.getByText(/améliorer la compréhension de la valeur auprès des propriétaires/i),
+    ).toBeVisible();
+    await expect(page.getByText(/joignable et imputable/i)).toHaveCount(0);
     await expect(page.getByText("Charles-Étienne Parent-Roy, CPA")).toBeVisible();
     await expect(page.getByText("Alexandre Moreau")).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Études de cas" })).toHaveCount(0);

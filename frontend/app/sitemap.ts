@@ -8,7 +8,6 @@ const MARKETING_PATHS = [
   "/",
   "/a-propos",
   "/services",
-  "/services/mandats-ponctuels",
   "/services/accompagnement-financier",
   "/services/licences",
   "/services/developpement-sur-mesure",

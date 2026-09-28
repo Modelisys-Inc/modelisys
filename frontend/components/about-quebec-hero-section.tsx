@@ -141,10 +141,10 @@ export function AboutQuebecHeroSection() {
             </h1>
 
             <p className="mt-7 max-w-[30rem] text-[15px] leading-[1.75] text-[#C9B8A5]/78 sm:mt-8 sm:text-base">
-              Les PME québécoises méritent une firme qui comprend leur réalité : la langue,
-              les normes comptables, la fiscalité, le rapport aux banques et aux cabinets.
-              Choisir Modelisys, c&apos;est travailler avec une équipe d&apos;ici — joignable
-              et imputable.
+              Notre vision : améliorer la compréhension de la valeur auprès des
+              propriétaires. Nous agissons en support pour les aider à mieux lire
+              leur comptabilité — et à isoler les leviers qui impactent réellement
+              la valeur de leur entreprise.
             </p>
 
             <div className="mt-10 flex flex-wrap items-center gap-4 sm:mt-12">
